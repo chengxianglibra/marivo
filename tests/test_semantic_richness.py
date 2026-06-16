@@ -100,7 +100,7 @@ _FACT_NO_METRIC = (
 )
 
 _FACT_WITH_METRIC = _FACT_NO_METRIC + (
-    "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(),\n"
+    "@ms.simple_metric(entities=[orders], additivity='additive',\n"
     "    )\n"
     "def revenue(table):\n    return table.amount.sum()\n"
 )
@@ -306,11 +306,11 @@ def test_detect_depth_flags_missing_unit(semantic_project_factory):
             "import marivo.semantic as ms\n"
             "orders = ms.entity(name='orders', datasource='warehouse', "
             "source=ms.table('orders'))\n"
-            "@ms.metric(entities=[orders], decomposition=ms.sum(), name='bare_metric', "
+            "@ms.simple_metric(entities=[orders], name='bare_metric', "
             "additivity='additive', )\n"
             "def bare_metric(orders):\n"
             "    return orders.amount.sum()\n"
-            "@ms.metric(entities=[orders], decomposition=ms.sum(), name='priced_metric', "
+            "@ms.simple_metric(entities=[orders], name='priced_metric', "
             "additivity='additive',  unit='CNY')\n"
             "def priced_metric(orders):\n"
             "    return orders.amount.sum()\n"

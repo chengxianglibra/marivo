@@ -71,7 +71,7 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
         "    return orders.order_date.cast('date')\n"
         "\n"
         f"{country_field}"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
         "def revenue(orders):\n"
         "    return orders.revenue.sum()\n"
     )
@@ -1489,7 +1489,7 @@ def test_transform_metric_frame_drops_component_contract(tmp_path):
     out = session.transform.topk(frame, by="failure_rate", limit=1)
 
     assert out.meta.component_ref is None
-    assert out.meta.decomposition is None
+    assert out.meta.composition is None
 
 
 # ---------------------------------------------------------------------------
@@ -1539,13 +1539,10 @@ def _bootstrap_bandwidth_for_rollup(tmp_path):
         "def province(bandwidth_samples):\n"
         "    return bandwidth_samples.province\n"
         "\n"
-        "@ms.metric(\n"
+        "@ms.simple_metric(\n"
         "    name='upstream_bw_p95',\n"
         "    entities=[bandwidth_samples],\n"
-        "    additivity='semi_additive',\n"
-        "    decomposition=ms.sum(),\n"
-        "    time_fold=('quantile', 0.95),\n"
-        "    status_time_dimension=sample_ts,\n"
+        "    additivity=ms.semi_additive(over=sample_ts, fold=('quantile', 0.95)),\n"
         ")\n"
         "def upstream_bw_p95(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"

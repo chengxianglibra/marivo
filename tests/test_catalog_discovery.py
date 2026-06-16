@@ -49,10 +49,9 @@ _DATASETS_PY = textwrap.dedent("""\
     def created_at(table):
         return table.created_at
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         description="Gross revenue.",
     )
     def revenue(table):
@@ -79,7 +78,7 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
             "ops/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
-                "@ms.metric(entities=[events], additivity='additive', decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[events], additivity='additive', )\n"
                 "def event_count(table):\n"
                 "    return table.id.nunique()\n"
             ),
@@ -327,11 +326,13 @@ def test_discovery_metric_details_repr_is_single_line():
         dependents=(),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        is_derived=False,
-        component_metrics=(),
+        metric_type="simple",
+        aggregation=None,
+        measure=None,
+        composition=None,
         components=(),
+        linear_terms=(),
         required_relationships=(),
-        decomposition="sum",
         additivity="additive",
         fanout_policy="block",
         unit=None,
@@ -340,7 +341,7 @@ def test_discovery_metric_details_repr_is_single_line():
         source_sql=None,
         source_dialect=None,
         python_symbol="revenue",
-        time_fold=None,
+        fold=None,
         status_time_dimension=None,
     )
     r = repr(d)
@@ -363,11 +364,13 @@ def test_discovery_metric_details_render_shows_additivity():
         dependents=(),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        is_derived=False,
-        component_metrics=(),
+        metric_type="simple",
+        aggregation=None,
+        measure=None,
+        composition=None,
         components=(),
+        linear_terms=(),
         required_relationships=(),
-        decomposition="sum",
         additivity="additive",
         fanout_policy="block",
         unit=None,
@@ -376,7 +379,7 @@ def test_discovery_metric_details_render_shows_additivity():
         source_sql=None,
         source_dialect=None,
         python_symbol="revenue",
-        time_fold=None,
+        fold=None,
         status_time_dimension=None,
     )
     rendered = d.render()

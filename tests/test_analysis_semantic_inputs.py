@@ -42,7 +42,7 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
                 "@ms.time_dimension(entity=orders, data_type='date', granularity='day', is_default=True)\n"
                 "def ds(table):\n"
                 "    return table.ds\n"
-                "@ms.metric(entities=[orders], decomposition=ms.sum(), additivity='additive', )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
             ),

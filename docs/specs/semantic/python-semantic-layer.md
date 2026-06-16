@@ -71,10 +71,10 @@ orders = ms.entity(
 def is_paid(orders):
     return orders.pay_status == 1
 
-@ms.metric(
+@ms.simple_metric(
     datasets=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
+
     description="Paid revenue.",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
     source_dialect="duckdb",
@@ -435,16 +435,16 @@ error; Marivo does not pre-validate against backend support.
 
 ### Metric
 
-`@ms.metric(...)` only declares dataset-backed base metrics. Base metrics require
+`@ms.simple_metric(...)` only declares dataset-backed base metrics. Base metrics require
 non-empty `datasets=[...]` and a single-return Ibis reduction body. When
 `source_sql` is provided, SQL parity verification is automatically enabled.
 
 ```python
-@ms.metric(
+@ms.simple_metric(
     model=sales_ref,
     datasets=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
+
     description="Total revenue from paid orders.",
     unit="CNY",
     source_sql="select sum(amount) as value from orders where pay_status = 1",
@@ -457,16 +457,13 @@ def revenue(order_rows):
 base metric 使用 `datasets=[...]` 显式声明依赖。函数 body 的参数只是局部 alias，按 `datasets` 顺序注入 materialized table；参数名不能决定 dataset identity。
 
 Derived metrics are direct calls, not decorators. They combine already
-registered metrics through a canonical decomposition and have no Python body:
+registered metrics through a canonical composition and have no Python body:
 
 ```python
-avg_execution_time = ms.derived_metric(
+avg_execution_time = ms.ratio(
     name="avg_execution_time",
-    decomposition=ms.ratio(
-        numerator=total_execution_time,
-        denominator=query_count,
-    ),
-    additivity="non_additive",
+    numerator=total_execution_time,
+    denominator=query_count,
     unit="s",
     ai_context={
         "business_definition": "Average execution time per query in seconds.",
@@ -475,18 +472,16 @@ avg_execution_time = ms.derived_metric(
 )
 ```
 
-形态判定必须 fail closed：
+Shape classification must fail closed:
 
-- `datasets=[...]` 非空，body 使用 dataset aliases：base metric。
-- `ms.derived_metric(...)` with `ms.ratio(...)` or `ms.weighted_average(...)`:
-  derived metric.
-- `decomposition=ms.sum()` 没有 components，因此必须是 base metric；省略 `datasets=[...]` 时直接报 `missing_datasets`。
-- `@ms.metric(...)` with an empty datasets list: error.
-- 没有 `datasets` 且没有 decomposition components：错误。
+- `entities=[...]` non-empty, body uses dataset aliases: simple metric (`@ms.simple_metric`).
+- `ms.ratio(...)` / `ms.weighted_average(...)` / `ms.linear(...)`: derived metric (body-free).
+- `@ms.simple_metric(...)` with an empty entities list: error.
+- No `entities` and no composition components: error.
 
 ### Metric unit (UCUM)
 
-`@ms.metric` / `ms.derived_metric` accept optional `unit: str | None` (default `None`).
+`@ms.simple_metric` / `ms.ratio` / `ms.weighted_average` / `ms.linear` accept optional `unit: str | None` (default `None`).
 Values use the UCUM case-sensitive vocabulary, with one explicit extension: bare
 ISO 4217 uppercase three-letter codes represent currencies.
 
@@ -515,11 +510,11 @@ metrics must declare `root_dataset` explicitly. The root dataset defines the
 preserved row set, join anchor, and observe time axis.
 
 ```python
-@ms.metric(
+@ms.simple_metric(
     datasets=[orders, users],
     root_dataset=orders,
     additivity="additive",
-    decomposition=ms.sum(),
+
 )
 def revenue(orders, users):
     return orders.amount.sum()
@@ -530,7 +525,7 @@ a base metric body must belong to the root dataset.
 
 ### Base Metric Fan-Out Policy
 
-`@ms.metric(...)` accepts an optional kwarg:
+`@ms.simple_metric(...)` accepts an optional kwarg:
 
 - `fanout_policy: Literal["block", "aggregate_then_join"] = "block"` — fan-out
   policy on the metric. `"block"` (default) rejects unsafe one-to-many edges
@@ -539,15 +534,15 @@ a base metric body must belong to the root dataset.
   unsafe-side dataset to the merge grain (root primary key plus the requested
   non-root dimensions/filters that target that side) before the join. Requires
   `additivity in {"additive", "semi_additive"}` and is rejected on derived
-  metrics; the kwarg is authored only on `@ms.metric` (relationships, datasets,
+  metrics; the kwarg is authored only on `@ms.simple_metric` (relationships, datasets,
   and `observe(...)` reject it).
 
 ```python
-@ms.metric(
+@ms.simple_metric(
     datasets=[orders, order_items],
     root_dataset=orders,
     additivity="additive",
-    decomposition=ms.sum(),
+
     fanout_policy="aggregate_then_join",
 )
 def gmv_with_items(orders, order_items):
@@ -569,12 +564,12 @@ Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inven
 def sample_ts(bw_samples):
     return bw_samples.sample_ts
 
-@ms.metric(
+@ms.simple_metric(
     entities=[bw_samples],
     additivity="semi_additive",
     time_fold="mean",
     status_time_dimension=sample_ts,
-    decomposition=ms.sum(),
+
     unit="kbit/s",
 )
 def upstream_bw(bw_samples):
@@ -615,11 +610,11 @@ inventory_daily = ms.entity(
 def snapshot_date(inventory_daily):
     return inventory_daily.dt
 
-@ms.metric(
+@ms.simple_metric(
     entities=[inventory_daily],
     additivity="semi_additive",
     status_time_dimension=snapshot_date,
-    decomposition=ms.sum(),
+
 )
 def on_hand_units(inventory_daily):
     return inventory_daily.on_hand_units.sum()
@@ -669,8 +664,8 @@ Derived metric component roles come entirely from their decomposition builder:
 
 | Builder | Component keys | Author-facing shape |
 | --- | --- | --- |
-| `ms.ratio(numerator=..., denominator=...)` | `numerator`, `denominator` | `ms.derived_metric(name=..., decomposition=ms.ratio(...))` |
-| `ms.weighted_average(value=..., weight=...)` | `numerator`, `weight` | `ms.derived_metric(name=..., decomposition=ms.weighted_average(...))` |
+| `ms.ratio(numerator=..., denominator=...)` | `numerator`, `denominator` | `ms.ratio(name=..., numerator=..., denominator=...)` |
+| `ms.weighted_average(value=..., weight=...)` | `numerator`, `weight` | `ms.weighted_average(name=..., value=..., weight=...)` |
 
 The `weighted_average(value=...)` argument intentionally stores the internal key
 `numerator`. Analysis output already uses that role name, and body-free
@@ -777,7 +772,7 @@ print(frame.summary())
 | 问题 | 选择 |
 | --- | --- |
 | 每一行都能计算出来，例如国家、平台、订单日期 | `@ms.dimension` 或 `@ms.time_dimension` |
-| 需要跨行聚合，例如 revenue、DAU、conversion rate | `@ms.metric` |
+| 需要跨行聚合，例如 revenue、DAU、conversion rate | `@ms.simple_metric` or `ms.aggregate` |
 | 只是 metric 内部的一段条件表达式，不需要下游引用 | 可直接写在 metric Ibis 表达式内 |
 | 会被多个 metric、filter、relationship 或分析 slice 复用 | 提升为 dimension/time_dimension |
 
@@ -798,12 +793,10 @@ print(frame.summary())
 目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。字符串 `ms.ref(...)` 只用于无法自然 import 的前向引用、跨 model 引用或工具生成场景。
 
 ```python
-sessions_per_user = ms.derived_metric(
+sessions_per_user = ms.ratio(
     name="sessions_per_user",
-    decomposition=ms.ratio(
-        numerator=ms.ref("marketing.sessions"),
-        denominator=total_users,
-    ),
+    numerator=ms.ref("marketing.sessions"),
+    denominator=total_users,
 )
 ```
 
@@ -858,7 +851,7 @@ decorator 执行时检查局部声明是否自洽：
 | `missing_dataset_ref` | 确认 dataset 已声明；若跨文件前向引用，改用 decorated ref 或 `ms.ref(...)` |
 | `cross_model_reference` | 优先通过 `_exports.py` 导入；没有 `_exports.py` 时可直接 import sibling file 或使用显式 `ms.ref(...)` |
 | `invalid_decomposition` | 检查 `ms.ratio(...)` / `ms.weighted_average(...)` 的 components 是否都指向已注册 metric |
-| `invalid_component_body` | 删除 metric body 内的 component-body call，改用 `ms.derived_metric(...)` |
+| `invalid_component_body` | Remove ms.component() from metric body; use `ms.ratio`/`ms.weighted_average`/`ms.linear` instead |
 | `outside_loader_context` | 把定义移到 `<root>/models/semantic/<model>/<file>.py`；notebook 探索改用 scratch Ibis 表达式 |
 | `unverified_provenance` | 若要进入 strict workflow，补 `source_sql` triple、改为 `python_native`，或先停止并确认业务口径 |
 | `sql_escape_hatch` | 把 raw SQL 移到后端持久视图并通过 `ms.table(...)` 暴露；metric body 保持 Ibis expression |
@@ -969,8 +962,8 @@ typed frames + session persistence + lineage
   `_domain.py` 内维护。feature-oriented sibling files 只能作为另行设计的多文件
   authoring 模式。
 - Metric 显式 `datasets=[...]`；函数参数名只做局部 alias。
-- Base metric uses `@ms.metric(...)`; derived metric uses body-free `ms.derived_metric(...)`, relying on decomposition components.
-- Decomposition component roles come from `ms.ratio(...)` and `ms.weighted_average(...)` builders.
+- Base metric uses `@ms.simple_metric(...)`; derived metric uses body-free `ms.ratio(...)` / `ms.weighted_average(...)` / `ms.linear(...)`, relying on composition components.
+- Composition component roles come from `ms.ratio(...)` and `ms.weighted_average(...)` and `ms.linear(...)` builders.
 - Derived metrics do not have Python bodies; custom derived arithmetic must be expressed through base component metrics.
 - Derived metric 的有效 parity status 从自身 provenance 和 components status 中取更弱者。
 - Datasource 和 relationship 改为顶级 metadata call，不再要求无意义 function body。

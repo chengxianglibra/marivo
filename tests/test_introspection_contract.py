@@ -40,7 +40,7 @@ SURFACES = [
         "marivo.semantic",
         ms,
         SEMANTIC_CONSTRAINTS,
-        {"constraints", "decomposition", "time_fold"},
+        {"constraints", "additivity", "composition"},
         id="semantic",
     ),
     pytest.param(
@@ -329,16 +329,14 @@ def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:
 
 
 def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
-    result = _json_help(ms, "metric")
+    result = _json_help(ms, "simple_metric")
 
-    assert result["kind"] == "callable"
-    assert result["symbol"] == "metric"
-    assert "metric(" in cast("str", result["signature"])
+    assert result["kind"] == "topic"
+    assert result["symbol"] == "simple_metric"
     assert result["doc"]
-    constraints = cast("list[dict[str, Any]]", result["constraints"])
-    assert constraints
-    for constraint in constraints:
-        assert set(constraint) <= {"id", "title", "hint", "example"}
+    content = cast("dict[str, Any]", result["content"])
+    assert "tier1" in content
+    assert "tier2" in content
 
 
 def test_datasource_spec_descriptor_lists_secret_env_constraint() -> None:
@@ -411,7 +409,7 @@ def test_datasource_help_invalid_format_raises_shared_error() -> None:
 def test_shared_catalog_hint_lookup_supports_semantic() -> None:
     from marivo.semantic.constraints import default_hint_for_error_kind as semantic_hint
 
-    assert semantic_hint("invalid_decomposition")
+    assert semantic_hint("invalid_composition")
 
 
 def test_analysis_error_can_receive_catalog_default_hint() -> None:

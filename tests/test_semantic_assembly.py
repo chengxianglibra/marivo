@@ -26,16 +26,15 @@ from marivo.semantic.ir import (
     DatasourceAiContextIR,
     DatasourceIR,
     DatasourceSourceLocation,
-    DecompositionIR,
     DimensionIR,
     DimensionKind,
     DomainIR,
     EntityIR,
     MetricIR,
     ProvenanceIR,
+    RatioComposition,
     RelationshipIR,
-    SampleIntervalIR,
-    SnapshotVersioningIR,
+    SemiAdditive,
     SourceLocation,
     TableSourceIR,
     TimeFoldIR,
@@ -118,8 +117,10 @@ def _make_registry(**overrides: object) -> Registry:
         domain="sales",
         name="revenue",
         entities=("sales.orders",),
-        is_derived=False,
-        decomposition=DecompositionIR(kind="sum"),
+        metric_type="simple",
+        aggregation=None,
+        measure=None,
+        composition=None,
         provenance=ProvenanceIR(),
         description=None,
         ai_context=AiContextIR(),
@@ -165,14 +166,17 @@ def test_missing_entity_ref_on_metric() -> None:
         domain="sales",
         name="bad_metric",
         entities=("sales.nonexistent",),
-        is_derived=False,
-        decomposition=DecompositionIR(kind="sum"),
+        metric_type="simple",
+        aggregation=None,
+        measure=None,
+        composition=None,
         provenance=ProvenanceIR(),
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
         python_symbol="bad_metric",
         location=_LOC,
+        additivity="additive",
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
@@ -208,10 +212,12 @@ def test_missing_metric_ref_in_decomposition() -> None:
         domain="sales",
         name="ratio_metric",
         entities=(),
-        is_derived=True,
-        decomposition=DecompositionIR(
-            kind="ratio",
-            components={"numerator": "sales.nonexistent", "denominator": "sales.revenue"},
+        metric_type="derived",
+        aggregation=None,
+        measure=None,
+        composition=RatioComposition(
+            numerator="sales.nonexistent",
+            denominator="sales.revenue",
         ),
         provenance=ProvenanceIR(),
         description=None,
@@ -219,6 +225,7 @@ def test_missing_metric_ref_in_decomposition() -> None:
         body_ast_hash="abc",
         python_symbol="ratio_metric",
         location=_LOC,
+        additivity="non_additive",
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.MISSING_METRIC_REF for e in errors)
@@ -636,10 +643,12 @@ def test_metric_cycle_detected() -> None:
         domain="sales",
         name="metric_a",
         entities=(),
-        is_derived=True,
-        decomposition=DecompositionIR(
-            kind="sum",
-            components={"x": "sales.metric_b"},
+        metric_type="derived",
+        aggregation=None,
+        measure=None,
+        composition=RatioComposition(
+            numerator="sales.metric_b",
+            denominator="sales.revenue",
         ),
         provenance=ProvenanceIR(),
         description=None,
@@ -647,16 +656,19 @@ def test_metric_cycle_detected() -> None:
         body_ast_hash="abc",
         python_symbol="metric_a",
         location=_LOC,
+        additivity="non_additive",
     )
     registry.metrics["sales.metric_b"] = MetricIR(
         semantic_id="sales.metric_b",
         domain="sales",
         name="metric_b",
         entities=(),
-        is_derived=True,
-        decomposition=DecompositionIR(
-            kind="sum",
-            components={"x": "sales.metric_a"},
+        metric_type="derived",
+        aggregation=None,
+        measure=None,
+        composition=RatioComposition(
+            numerator="sales.metric_a",
+            denominator="sales.revenue",
         ),
         provenance=ProvenanceIR(),
         description=None,
@@ -664,6 +676,7 @@ def test_metric_cycle_detected() -> None:
         body_ast_hash="def",
         python_symbol="metric_b",
         location=_LOC,
+        additivity="non_additive",
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.CROSS_MODEL_CYCLE for e in errors)
@@ -677,10 +690,12 @@ def test_no_cycle_when_valid() -> None:
         domain="sales",
         name="double_revenue",
         entities=(),
-        is_derived=True,
-        decomposition=DecompositionIR(
-            kind="sum",
-            components={"x": "sales.revenue"},
+        metric_type="derived",
+        aggregation=None,
+        measure=None,
+        composition=RatioComposition(
+            numerator="sales.revenue",
+            denominator="sales.revenue",
         ),
         provenance=ProvenanceIR(),
         description=None,
@@ -688,6 +703,7 @@ def test_no_cycle_when_valid() -> None:
         body_ast_hash="ghi",
         python_symbol="double_revenue",
         location=_LOC,
+        additivity="non_additive",
     )
     errors, _warnings = assembly_validate(registry)
     assert not any(e.kind == ErrorKind.CROSS_MODEL_CYCLE for e in errors)
@@ -705,8 +721,10 @@ def test_sql_parity_metric_without_source_dialect_errors() -> None:
         domain="sales",
         name="unverified_metric",
         entities=("sales.orders",),
-        is_derived=False,
-        decomposition=DecompositionIR(kind="sum"),
+        metric_type="simple",
+        aggregation=None,
+        measure=None,
+        composition=None,
         provenance=ProvenanceIR(
             source_sql="SELECT SUM(amount) FROM orders",
         ),
@@ -715,6 +733,7 @@ def test_sql_parity_metric_without_source_dialect_errors() -> None:
         body_ast_hash="abc",
         python_symbol="unverified_metric",
         location=_LOC,
+        additivity="additive",
     )
     errors, warnings = assembly_validate(registry)
     assert any(
@@ -732,8 +751,10 @@ def test_no_source_sql_no_error() -> None:
         domain="sales",
         name="native_metric",
         entities=("sales.orders",),
-        is_derived=False,
-        decomposition=DecompositionIR(kind="sum"),
+        metric_type="simple",
+        aggregation=None,
+        measure=None,
+        composition=None,
         provenance=ProvenanceIR(),
         description=None,
         ai_context=AiContextIR(),
@@ -824,7 +845,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.orders"], additivity="additive", decomposition=ms.sum(), )
+        @ms.simple_metric(entities=["sales.orders"], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -879,7 +900,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.nonexistent"], additivity="additive", decomposition=ms.sum(), )
+        @ms.simple_metric(entities=["sales.nonexistent"], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -924,10 +945,9 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity='additive',
-            decomposition=ms.sum(),
         )
         def revenue(table):
             return table.amount.sum()
@@ -1099,10 +1119,12 @@ def test_missing_metric_ref_includes_did_you_mean() -> None:
         domain="sales",
         name="ratio_metric",
         entities=(),
-        is_derived=True,
-        decomposition=DecompositionIR(
-            kind="ratio",
-            components={"numerator": "sales.revenu", "denominator": "sales.revenue"},
+        metric_type="derived",
+        aggregation=None,
+        measure=None,
+        composition=RatioComposition(
+            numerator="sales.revenu",
+            denominator="sales.revenue",
         ),
         provenance=ProvenanceIR(),
         description=None,
@@ -1110,6 +1132,7 @@ def test_missing_metric_ref_includes_did_you_mean() -> None:
         body_ast_hash="abc",
         python_symbol="ratio_metric",
         location=_LOC,
+        additivity="non_additive",
     )
     errors, _warnings = assembly_validate(registry)
     dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_METRIC_REF]
@@ -1168,193 +1191,52 @@ def test_semantic_error_str_omits_did_you_mean_when_empty() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sampled semi-additive time fold validation
+# Semi-additive metric validation (SemiAdditive struct)
 # ---------------------------------------------------------------------------
+# In the metric-split model, semi-additivity is expressed as:
+#   additivity=SemiAdditive(over="field_id", fold=TimeFoldIR(...))
+# The old string additivity="semi_additive" + status_time_dimension field no
+# longer exist.  The validator checks that SemiAdditive.over references a
+# declared time dimension (INVALID_STATUS_TIME_DIMENSION).
 
 
-def test_sampled_semi_additive_metric_without_time_fold_fails() -> None:
-    registry = _make_registry()
-    registry.datasets["sales.bandwidth_samples"] = dataclasses.replace(
-        registry.datasets["sales.orders"],
-        semantic_id="sales.bandwidth_samples",
-        name="bandwidth_samples",
-        primary_key=("device_id", "sample_ts"),
-    )
-    registry.fields["sales.bandwidth_samples.sample_ts"] = DimensionIR(
-        semantic_id="sales.bandwidth_samples.sample_ts",
-        domain="sales",
-        entity="sales.bandwidth_samples",
-        name="sample_ts",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        data_type="timestamp",
-        granularity="second",
-        required_prefix=None,
-        python_symbol="sample_ts",
-        location=_LOC,
-        format=None,
-        timezone="UTC",
-        is_default=False,
-        sample_interval=SampleIntervalIR(count=5, unit="minute"),
-    )
-    registry.metrics["sales.upstream_bw"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.upstream_bw",
-        name="upstream_bw",
-        entities=("sales.bandwidth_samples",),
-        additivity="semi_additive",
-        time_fold=None,
-        status_time_dimension="sales.bandwidth_samples.sample_ts",
-    )
-
-    errors, _warnings = assembly_validate(registry)
-    assert [err.kind for err in errors] == [ErrorKind.MISSING_TIME_FOLD]
-
-
-def test_semi_additive_metric_requires_explicit_status_time_dimension() -> None:
-    registry = _make_registry()
-    registry.datasets["sales.bandwidth_samples"] = dataclasses.replace(
-        registry.datasets["sales.orders"],
-        semantic_id="sales.bandwidth_samples",
-        name="bandwidth_samples",
-        primary_key=("device_id", "sample_ts"),
-    )
-    registry.fields["sales.bandwidth_samples.sample_ts"] = DimensionIR(
-        semantic_id="sales.bandwidth_samples.sample_ts",
-        domain="sales",
-        entity="sales.bandwidth_samples",
-        name="sample_ts",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        data_type="timestamp",
-        granularity="second",
-        required_prefix=None,
-        python_symbol="sample_ts",
-        location=_LOC,
-        format=None,
-        timezone="UTC",
-        is_default=False,
-        sample_interval=SampleIntervalIR(count=5, unit="minute"),
-    )
-    registry.metrics["sales.upstream_bw"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.upstream_bw",
-        name="upstream_bw",
-        entities=("sales.bandwidth_samples",),
-        additivity="semi_additive",
-        time_fold=TimeFoldIR(kind="mean"),
-        status_time_dimension=None,
-    )
-
-    errors, _warnings = assembly_validate(registry)
-    assert [err.kind for err in errors] == [ErrorKind.MISSING_STATUS_TIME_DIMENSION]
-
-
-def test_non_sampled_semi_additive_metric_requires_status_time_dimension() -> None:
+def test_semi_additive_over_time_dimension_passes() -> None:
     registry = _make_registry()
     registry.metrics["sales.inventory"] = dataclasses.replace(
         registry.metrics["sales.revenue"],
         semantic_id="sales.inventory",
         name="inventory",
-        additivity="semi_additive",
-        time_fold=None,
+        additivity=SemiAdditive(over="sales.orders.order_date", fold=TimeFoldIR(kind="last")),
+        fold_override=None,
     )
 
     errors, _warnings = assembly_validate(registry)
-
-    assert [err.kind for err in errors] == [ErrorKind.MISSING_STATUS_TIME_DIMENSION]
-
-
-def test_non_sampled_semi_additive_metric_rejects_implicit_entity_versioning_axis() -> None:
-    registry = _make_registry()
-    registry.datasets["sales.orders"] = dataclasses.replace(
-        registry.datasets["sales.orders"],
-        primary_key=("order_date",),
-        versioning=SnapshotVersioningIR(
-            kind="snapshot",
-            partition_field="order_date",
-            grain="day",
-            timezone="UTC",
-            format="%Y-%m-%d",
-        ),
-    )
-    registry.metrics["sales.inventory"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.inventory",
-        name="inventory",
-        additivity="semi_additive",
-        time_fold=None,
-    )
-
-    errors, _warnings = assembly_validate(registry)
-
-    assert [err.kind for err in errors] == [ErrorKind.MISSING_STATUS_TIME_DIMENSION]
-
-
-def test_non_sampled_semi_additive_metric_rejects_implicit_default_time_dimension_axis() -> None:
-    registry = _make_registry()
-    registry.fields["sales.orders.order_date"] = dataclasses.replace(
-        registry.fields["sales.orders.order_date"],
-        is_default=True,
-    )
-    registry.metrics["sales.inventory"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.inventory",
-        name="inventory",
-        additivity="semi_additive",
-        time_fold=None,
-    )
-
-    errors, _warnings = assembly_validate(registry)
-
-    assert [err.kind for err in errors] == [ErrorKind.MISSING_STATUS_TIME_DIMENSION]
-
-
-def test_non_sampled_semi_additive_metric_accepts_status_time_dimension() -> None:
-    registry = _make_registry()
-    registry.metrics["sales.inventory"] = dataclasses.replace(
-        registry.metrics["sales.revenue"],
-        semantic_id="sales.inventory",
-        name="inventory",
-        additivity="semi_additive",
-        time_fold=None,
-        status_time_dimension="sales.orders.order_date",
-    )
-
-    errors, _warnings = assembly_validate(registry)
-
     assert errors == []
 
 
-def test_metric_time_fold_requires_sampled_status_time_dimension() -> None:
+def test_semi_additive_over_non_time_dimension_fails() -> None:
     registry = _make_registry()
     registry.metrics["sales.inventory"] = dataclasses.replace(
         registry.metrics["sales.revenue"],
         semantic_id="sales.inventory",
         name="inventory",
-        additivity="semi_additive",
-        time_fold=TimeFoldIR(kind="mean"),
-        status_time_dimension="sales.orders.order_date",
+        additivity=SemiAdditive(over="sales.orders.amount", fold=TimeFoldIR(kind="last")),
+        fold_override=None,
     )
 
     errors, _warnings = assembly_validate(registry)
 
-    assert [err.kind for err in errors] == [ErrorKind.TIME_FOLD_REQUIRES_SAMPLED_TIME_FIELD]
+    assert [err.kind for err in errors] == [ErrorKind.INVALID_STATUS_TIME_DIMENSION]
 
 
-def test_metric_status_time_dimension_must_be_time_dimension_on_root_entity() -> None:
+def test_semi_additive_over_missing_field_fails() -> None:
     registry = _make_registry()
     registry.metrics["sales.inventory"] = dataclasses.replace(
         registry.metrics["sales.revenue"],
         semantic_id="sales.inventory",
         name="inventory",
-        additivity="semi_additive",
-        time_fold=None,
-        status_time_dimension="sales.orders.amount",
+        additivity=SemiAdditive(over="sales.orders.nonexistent", fold=TimeFoldIR(kind="last")),
+        fold_override=None,
     )
 
     errors, _warnings = assembly_validate(registry)

@@ -110,7 +110,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
+        "@ms.simple_metric(entities=[orders], additivity='additive', "
         "name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"

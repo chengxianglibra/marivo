@@ -51,7 +51,7 @@ ratio_base = session.observe(
 )
 ratio_delta = session.compare(ratio_cur, ratio_base)
 ratio_components = ratio_delta.components()
-print(f"component_kind={ratio_components.meta.decomposition_kind!r}")
+print(f"component_kind={ratio_components.meta.composition_kind!r}")
 print(f"component_columns={list(ratio_components.to_pandas().columns)!r}")
 
 # Component-aware time-series ratio metric: decompose change by bucket.

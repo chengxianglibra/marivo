@@ -64,7 +64,6 @@ def test_prepare_derived_metric_blocks_missing_component(
     assert brief.issues[0].kind == "missing_prerequisite"
     assert "sales.revenue" in brief.issues[0].refs
     assert brief.authoring_template is not None
-    assert "ms.derived_metric(" in brief.authoring_template
     assert "ms.ratio(" in brief.authoring_template
 
 
@@ -75,10 +74,10 @@ def test_prepare_derived_metric_ratio_includes_authoring_template(
         "import marivo.semantic as ms\n"
         "ms.domain(name='sales')\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive',)\n"
         "def revenue(t):\n"
         "    return t.amount.sum()\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive',)\n"
         "def orders_count(t):\n"
         "    return t.order_id.nunique()\n"
     )
@@ -90,9 +89,8 @@ def test_prepare_derived_metric_ratio_includes_authoring_template(
     )
 
     assert brief.status == "sufficient"
-    assert brief.decomposition_kind == "ratio"
+    assert brief.composition_kind == "ratio"
     assert brief.authoring_template is not None
-    assert "ms.derived_metric(" in brief.authoring_template
     assert "ms.ratio(" in brief.authoring_template
     assert "sales.revenue" in brief.authoring_template
     assert "sales.orders_count" in brief.authoring_template
@@ -105,10 +103,10 @@ def test_prepare_derived_metric_weighted_average_includes_authoring_template(
         "import marivo.semantic as ms\n"
         "ms.domain(name='sales')\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive',)\n"
         "def revenue(t):\n"
         "    return t.amount.sum()\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum())\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive',)\n"
         "def count_metric(t):\n"
         "    return t.count()\n"
     )
@@ -118,9 +116,8 @@ def test_prepare_derived_metric_weighted_average_includes_authoring_template(
     brief = project.prepare_derived_metric(numerator="sales.revenue", weight="sales.count_metric")
 
     assert brief.status == "sufficient"
-    assert brief.decomposition_kind == "weighted_average"
+    assert brief.composition_kind == "weighted_average"
     assert brief.authoring_template is not None
-    assert "ms.derived_metric(" in brief.authoring_template
     assert "ms.weighted_average(" in brief.authoring_template
     assert "sales.revenue" in brief.authoring_template
     assert "sales.count_metric" in brief.authoring_template

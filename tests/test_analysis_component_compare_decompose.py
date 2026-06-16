@@ -37,7 +37,7 @@ def _component_aware_metric(
     ref: str,
     rows: list[dict[str, object]],
     component_rows: list[dict[str, object]],
-    decomposition_kind: str = "ratio",
+    composition_kind: str = "ratio",
     components: dict[str, str] | None = None,
 ):
     component_map = components or {
@@ -63,7 +63,7 @@ def _component_aware_metric(
             where={},
             semantic_kind="segmented",
             semantic_model="sales",
-            decomposition={"kind": decomposition_kind, "components": component_map},
+            composition={"kind": composition_kind, "components": component_map},
         ),
     )
     metric.meta = persist_frame(session, metric)
@@ -81,7 +81,7 @@ def _component_aware_metric(
             parent_ref=metric.ref,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
-            decomposition_kind=decomposition_kind,
+            composition_kind=composition_kind,
             components=component_map,
             axes=axes,
             semantic_kind="segmented",
@@ -103,7 +103,7 @@ def _component_aware_metric_with_axes(
     axes: dict[str, object],
     semantic_kind: str,
     window: dict[str, object] | None = None,
-    decomposition_kind: str = "ratio",
+    composition_kind: str = "ratio",
     components: dict[str, str] | None = None,
 ):
     component_map = components or {
@@ -128,7 +128,7 @@ def _component_aware_metric_with_axes(
             where={},
             semantic_kind=semantic_kind,
             semantic_model="sales",
-            decomposition={"kind": decomposition_kind, "components": component_map},
+            composition={"kind": composition_kind, "components": component_map},
         ),
     )
     metric.meta = persist_frame(session, metric)
@@ -146,7 +146,7 @@ def _component_aware_metric_with_axes(
             parent_ref=metric.ref,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
-            decomposition_kind=decomposition_kind,
+            composition_kind=composition_kind,
             components=component_map,
             axes=axes,
             semantic_kind=semantic_kind,
@@ -189,7 +189,7 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
     delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
     assert delta.meta.component_ref is not None
-    assert delta.meta.decomposition == {
+    assert delta.meta.composition == {
         "kind": "ratio",
         "components": {
             "numerator": "sales.failed_count",
@@ -258,7 +258,7 @@ def test_compare_component_aware_metric_missing_component_frame_fails_closed():
             where={},
             semantic_kind="segmented",
             semantic_model="sales",
-            decomposition={
+            composition={
                 "kind": "ratio",
                 "components": {
                     "numerator": "sales.failed_count",
@@ -295,7 +295,7 @@ def test_compare_component_frame_metadata_mismatch_fails_closed():
                 "failure_rate": 0.10,
             }
         ],
-        decomposition_kind="weighted_average",
+        composition_kind="weighted_average",
         components={"numerator": "sales.failed_count", "weight": "sales.total_count"},
     )
 
@@ -389,8 +389,8 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
                 "failure_rate": 0.50,
             },
         ],
-        decomposition_kind="weighted_average",
-        components={"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
+        composition_kind="weighted_average",
+        components={"value": "sales.weighted_failed", "weight": "sales.total_weight"},
     )
     baseline = _component_aware_metric(
         session,
@@ -413,8 +413,8 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
                 "failure_rate": 0.40,
             },
         ],
-        decomposition_kind="weighted_average",
-        components={"numerator": "sales.weighted_failed", "weight": "sales.total_weight"},
+        composition_kind="weighted_average",
+        components={"value": "sales.weighted_failed", "weight": "sales.total_weight"},
     )
     delta = session.compare(current, baseline)
 
@@ -836,7 +836,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             alignment={"kind": "dow_aligned", "axes": axes},
             semantic_kind="time_series",
             semantic_model="sales",
-            decomposition={
+            composition={
                 "kind": "ratio",
                 "components": {
                     "numerator": "sales.failed_count",
@@ -878,7 +878,7 @@ def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
             parent_ref=compared.ref,
             parent_kind="delta_frame",
             metric_id="sales.failure_rate",
-            decomposition_kind="ratio",
+            composition_kind="ratio",
             components={
                 "numerator": "sales.failed_count",
                 "denominator": "sales.total_count",

@@ -178,7 +178,7 @@ def _domain_brief() -> DomainBrief:
 def _derived_metric_brief() -> DerivedMetricBrief:
     return DerivedMetricBrief(
         status="needs_input",
-        decomposition_kind="ratio",
+        composition_kind="ratio",
         components=(),
         propagated_verification="python_native",
         unit_hint=None,

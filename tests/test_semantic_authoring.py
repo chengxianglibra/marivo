@@ -6,13 +6,11 @@ Tests cover:
 - All decorator signatures (keyword-only enforcement)
 - name defaults to function __name__
 - Ref types returned by decorators
-- DecompositionBuilder from ms.sum(), ms.ratio(), ms.weighted_average()
+- ms.ratio(), ms.weighted_average(), ms.linear() derived registration
 - Duplicate name detection
 - Provenance fields on metric
 - ms.ref() builder
-- ms.derived_metric() body-free registration
-- Derived metric form validation: ratio/weighted_average only
-- Derived additivity validation: only non_additive or None
+- Derived metric validation: ratio/weighted_average/linear
 """
 
 from __future__ import annotations
@@ -21,10 +19,6 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.semantic.authoring import (
-    DecompositionBuilder,
-    _compute_decomposition_ast_hash,
-)
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
 from marivo.semantic.ir import (
@@ -103,10 +97,10 @@ def test_time_field_outside_context_raises() -> None:
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
 
-def test_metric_outside_context_raises() -> None:
+def test_simple_metric_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
-        @ms.metric(decomposition=ms.sum())
+        @ms.simple_metric(entities=["sales.orders"], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -202,7 +196,6 @@ def test_field_accepts_model_ref() -> None:
         _exit_ctx()
 
 
-# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # ms.entity() decorator
 # ---------------------------------------------------------------------------
@@ -357,14 +350,13 @@ def test_table_source_constructor() -> None:
     assert fl.options == {"delimiter": ","}
 
 
-def test_dataset_decorator_body_is_rejected() -> None:
+def test_entity_is_not_a_decorator() -> None:
+    """ms.entity() is a plain call returning EntityRef, not a decorator."""
     _enter_ctx(default_domain="sales")
     try:
-        with pytest.raises(TypeError):
-
-            @ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
-            def orders(backend: object) -> object:
-                return backend
+        result = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        assert isinstance(result, EntityRef)
+        # It does not accept a function body — it returns a ref, not a decorator.
     finally:
         _exit_ctx()
 
@@ -854,15 +846,15 @@ def test_time_dimension_coarser_granularity_error_suggests_fix() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ms.metric() decorator
+# ms.simple_metric() decorator
 # ---------------------------------------------------------------------------
 
 
-def test_metric_returns_ref() -> None:
+def test_simple_metric_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], decomposition=ms.sum())
+        @ms.simple_metric(entities=["sales.orders"], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -872,28 +864,28 @@ def test_metric_returns_ref() -> None:
         _exit_ctx()
 
 
-def test_metric_base_with_datasets() -> None:
+def test_simple_metric_with_datasets() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], decomposition=ms.sum())
+        @ms.simple_metric(entities=["sales.orders"], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
         ir, _ = ctx.pending_objects[-1]
-        assert ir.is_derived is False
+        assert ir.metric_type == "simple"
         assert ir.entities == ("sales.orders",)
-        assert ir.decomposition.kind == "sum"
+        assert ir.composition is None
     finally:
         _exit_ctx()
 
 
-def test_metric_with_dataset_ref() -> None:
+def test_simple_metric_with_dataset_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         orders_ref = EntityRef("sales.orders")
 
-        @ms.metric(entities=[orders_ref], decomposition=ms.sum())
+        @ms.simple_metric(entities=[orders_ref], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -903,13 +895,13 @@ def test_metric_with_dataset_ref() -> None:
         _exit_ctx()
 
 
-def test_metric_provenance_fields() -> None:
+def test_simple_metric_provenance_fields() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=["sales.orders"],
-            decomposition=ms.sum(),
+            additivity="additive",
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="ansi",
         )
@@ -925,11 +917,11 @@ def test_metric_provenance_fields() -> None:
         _exit_ctx()
 
 
-def test_metric_body_ast_hash() -> None:
+def test_simple_metric_body_ast_hash() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], decomposition=ms.sum())
+        @ms.simple_metric(entities=["sales.orders"], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -941,103 +933,195 @@ def test_metric_body_ast_hash() -> None:
         _exit_ctx()
 
 
-def test_metric_decomposition_ratio() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-
-        @ms.metric(
-            entities=["sales.orders"],
-            decomposition=ms.ratio(
-                numerator=ms.ref("sales.gross_revenue"),
-                denominator=ms.ref("sales.total_revenue"),
-            ),
-        )
-        def margin(table: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        ir, _ = ctx.pending_objects[-1]
-        assert ir.decomposition.kind == "ratio"
-        assert "numerator" in ir.decomposition.components
-        assert "denominator" in ir.decomposition.components
-    finally:
-        _exit_ctx()
-
-
-def test_metric_decomposition_weighted_average() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-
-        @ms.metric(
-            entities=["sales.orders"],
-            decomposition=ms.weighted_average(
-                value=ms.ref("sales.revenue"),
-                weight=ms.ref("sales.count"),
-            ),
-        )
-        def aov(table: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        ir, _ = ctx.pending_objects[-1]
-        assert ir.decomposition.kind == "weighted_average"
-        assert "numerator" in ir.decomposition.components
-        assert "weight" in ir.decomposition.components
-    finally:
-        _exit_ctx()
-
-
-def test_metric_pushes_callable() -> None:
+def test_simple_metric_pushes_callable() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
         def revenue_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.metric(entities=["sales.orders"], decomposition=ms.sum())(revenue_fn)
+        ms.simple_metric(entities=["sales.orders"], additivity="additive")(revenue_fn)
         ir, callable_ = ctx.pending_objects[-1]
         assert callable_ is revenue_fn
     finally:
         _exit_ctx()
 
 
-def test_metric_accepts_time_fold_and_status_time_dimension() -> None:
+def test_simple_metric_accepts_semi_additive() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=["sales.bandwidth_samples"],
-            additivity="semi_additive",
-            decomposition=ms.sum(),
-            time_fold=("quantile", 0.95),
-            status_time_dimension="sales.bandwidth_samples.sample_ts",
+            additivity=ms.semi_additive(
+                over="sales.bandwidth_samples.sample_ts",
+                fold="mean",
+            ),
         )
-        def upstream_p95(table: object) -> object:
+        def upstream_avg(table: object) -> object:
             return None  # type: ignore[unreachable]
 
         ir, _ = ctx.pending_objects[-1]
         assert isinstance(ir, MetricIR)
-        assert ir.time_fold is not None
-        assert ir.time_fold.kind == "quantile"
-        assert ir.time_fold.q == 0.95
-        assert ir.status_time_dimension == "sales.bandwidth_samples.sample_ts"
+        assert ir.additivity is not None
     finally:
         _exit_ctx()
 
 
-def test_metric_rejects_quantile_time_fold_outside_open_interval() -> None:
+# ---------------------------------------------------------------------------
+# ms.aggregate() call
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
+    try:
+        ref = ms.aggregate(measure="sales.orders.amount", agg="sum")
+        assert isinstance(ref, MetricRef)
+        assert ref.semantic_id == "sales.amount"
+    finally:
+        _exit_ctx()
+
+
+def test_aggregate_pushes_body_free_ir() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        ref = ms.aggregate(measure="sales.orders.amount", agg="sum", name="revenue")
+        ir, sidecar = ctx.pending_objects[-1]
+        assert sidecar is None  # body-free
+        assert ir.metric_type == "simple"
+        assert ir.aggregation == "sum"
+        assert ir.measure == "sales.orders.amount"
+        assert ir.entities == ("sales.orders",)
+        assert ir.composition is None
+    finally:
+        _exit_ctx()
+
+
+def test_aggregate_infers_name_from_measure() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        ref = ms.aggregate(measure="sales.orders.amount", agg="sum")
+        assert ref.semantic_id == "sales.amount"
+    finally:
+        _exit_ctx()
+
+
+def test_aggregate_explicit_name() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        ref = ms.aggregate(measure="sales.orders.amount", agg="sum", name="revenue")
+        assert ref.semantic_id == "sales.revenue"
+    finally:
+        _exit_ctx()
+
+
+# ---------------------------------------------------------------------------
+# ms.ratio() derived registration
+# ---------------------------------------------------------------------------
+
+
+def test_ratio_returns_ref_and_pushes_body_free_ir() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        ref = ms.ratio(
+            name="margin",
+            numerator="sales.revenue",
+            denominator="sales.cost",
+        )
+
+        assert isinstance(ref, MetricRef)
+        assert ref.semantic_id == "sales.margin"
+        ir, sidecar_entry = ctx.pending_objects[-1]
+        assert sidecar_entry is None
+        assert ir.semantic_id == "sales.margin"
+        assert ir.metric_type == "derived"
+        assert ir.entities == ()
+        assert ir.python_symbol == "margin"
+        assert ir.composition is not None
+        assert ir.composition.kind == "ratio"
+        assert ir.composition.numerator == "sales.revenue"
+        assert ir.composition.denominator == "sales.cost"
+    finally:
+        _exit_ctx()
+
+
+def test_weighted_average_keeps_value_weight_keys() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        ms.weighted_average(
+            name="aov",
+            value="sales.revenue",
+            weight="sales.order_count",
+        )
+
+        ir, sidecar_entry = ctx.pending_objects[-1]
+        assert sidecar_entry is None
+        assert ir.metric_type == "derived"
+        assert ir.composition is not None
+        assert ir.composition.kind == "weighted_average"
+        assert ir.composition.value == "sales.revenue"
+        assert ir.composition.weight == "sales.order_count"
+    finally:
+        _exit_ctx()
+
+
+def test_linear_returns_ref_and_pushes_ir() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        ref = ms.linear(
+            name="net_revenue",
+            add=["sales.gross_revenue"],
+            subtract=["sales.refunds"],
+        )
+        assert isinstance(ref, MetricRef)
+        assert ref.semantic_id == "sales.net_revenue"
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.metric_type == "derived"
+        assert ir.composition is not None
+        assert ir.composition.kind == "linear"
+    finally:
+        _exit_ctx()
+
+
+def test_linear_requires_at_least_two_terms() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.linear(name="lonely", add=["sales.revenue"])
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+    finally:
+        _exit_ctx()
+
+
+def test_simple_metric_rejects_empty_datasets() -> None:
+    ctx = _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(
-                entities=["sales.bandwidth_samples"],
-                additivity="semi_additive",
-                decomposition=ms.sum(),
-                time_fold=("quantile", 1.0),
-            )
-            def upstream_p100(table: object) -> object:
-                return None  # type: ignore[unreachable]
+            @ms.simple_metric(entities=[], additivity="additive")
+            def margin() -> object:
+                return 1
 
-        assert exc_info.value.kind == ErrorKind.INVALID_TIME_FOLD
+        assert exc_info.value.kind == ErrorKind.MISSING_DATASETS
+        assert exc_info.value.constraint_id == "metric_datasets_required"
+        assert ctx.pending_objects == []
+    finally:
+        _exit_ctx()
+
+
+def test_simple_metric_sidecar_stores_callable() -> None:
+    """Simple metric stores the raw callable in sidecar."""
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        def revenue_fn(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ms.simple_metric(entities=["sales.orders"], additivity="additive")(revenue_fn)
+        _, sidecar_entry = ctx.pending_objects[-1]
+        assert sidecar_entry is revenue_fn
     finally:
         _exit_ctx()
 
@@ -1109,46 +1193,6 @@ def test_relationship_with_ref_objects() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DecompositionBuilder
-# ---------------------------------------------------------------------------
-
-
-def test_sum_builder() -> None:
-    builder = ms.sum()
-    assert builder.kind == "sum"
-    assert builder.components == {}
-
-
-def test_ratio_builder() -> None:
-    builder = ms.ratio(
-        numerator=ms.ref("sales.gross"),
-        denominator=ms.ref("sales.total"),
-    )
-    assert builder.kind == "ratio"
-    assert "numerator" in builder.components
-    assert "denominator" in builder.components
-
-
-def test_weighted_average_builder() -> None:
-    builder = ms.weighted_average(
-        value=ms.ref("sales.revenue"),
-        weight=ms.ref("sales.count"),
-    )
-    assert builder.kind == "weighted_average"
-    assert "numerator" in builder.components
-    assert "weight" in builder.components
-
-
-def test_decomposition_builder_is_frozen() -> None:
-    import dataclasses
-
-    builder = ms.sum()
-    assert dataclasses.is_dataclass(builder)
-    assert getattr(builder, "__dataclass_params__", None) is not None
-    assert builder.__dataclass_params__.frozen  # type: ignore[attr-defined]
-
-
-# ---------------------------------------------------------------------------
 # ms.ref()
 # ---------------------------------------------------------------------------
 
@@ -1157,202 +1201,6 @@ def test_ref_returns_string() -> None:
     result = ms.ref("sales.revenue")
     assert isinstance(result, str)
     assert result == "sales.revenue"
-
-
-# ---------------------------------------------------------------------------
-# ms.derived_metric() direct registration
-# ---------------------------------------------------------------------------
-
-
-def test_derived_metric_returns_ref_and_pushes_body_free_ir() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        ref = ms.derived_metric(
-            name="margin",
-            decomposition=ms.ratio(
-                numerator="sales.revenue",
-                denominator="sales.cost",
-            ),
-            additivity="non_additive",
-            ai_context={"business_definition": "Revenue divided by cost."},
-        )
-
-        assert isinstance(ref, MetricRef)
-        assert ref.semantic_id == "sales.margin"
-        ir, sidecar_entry = ctx.pending_objects[-1]
-        assert sidecar_entry is None
-        assert ir.semantic_id == "sales.margin"
-        assert ir.is_derived is True
-        assert ir.entities == ()
-        assert ir.python_symbol == "margin"
-        assert ir.additivity == "non_additive"
-        assert ir.decomposition.kind == "ratio"
-        assert ir.decomposition.components == {
-            "numerator": "sales.revenue",
-            "denominator": "sales.cost",
-        }
-        assert ir.provenance.verification_mode is None
-        assert ir.body_ast_hash == _compute_decomposition_ast_hash(
-            ms.ratio(
-                numerator="sales.revenue",
-                denominator="sales.cost",
-            )
-        )
-    finally:
-        _exit_ctx()
-
-
-def test_derived_metric_decomposition_hash_is_component_order_stable() -> None:
-    forward = DecompositionBuilder(
-        kind="ratio",
-        components={
-            "numerator": "sales.revenue",
-            "denominator": "sales.orders",
-        },
-    )
-    reversed_order = DecompositionBuilder(
-        kind="ratio",
-        components={
-            "denominator": "sales.orders",
-            "numerator": "sales.revenue",
-        },
-    )
-
-    assert _compute_decomposition_ast_hash(forward) == _compute_decomposition_ast_hash(
-        reversed_order
-    )
-
-
-def test_derived_metric_weighted_average_keeps_numerator_weight_keys() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        ms.derived_metric(
-            name="aov",
-            decomposition=ms.weighted_average(
-                value="sales.revenue",
-                weight="sales.order_count",
-            ),
-        )
-
-        ir, sidecar_entry = ctx.pending_objects[-1]
-        assert sidecar_entry is None
-        assert ir.is_derived is True
-        assert ir.additivity is None
-        assert ir.decomposition.kind == "weighted_average"
-        assert ir.decomposition.components == {
-            "numerator": "sales.revenue",
-            "weight": "sales.order_count",
-        }
-    finally:
-        _exit_ctx()
-
-
-def test_derived_metric_rejects_sum_decomposition() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.derived_metric(name="orphan", decomposition=ms.sum())
-
-        assert exc_info.value.kind == ErrorKind.INVALID_DECOMPOSITION
-        assert exc_info.value.constraint_id == "decomposition_shape"
-        assert ctx.pending_objects == []
-    finally:
-        _exit_ctx()
-
-
-@pytest.mark.parametrize("additivity", ["additive", "semi_additive"])
-def test_derived_metric_rejects_additive_additivity(additivity: str) -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.derived_metric(
-                name="margin",
-                decomposition=ms.ratio(
-                    numerator="sales.revenue",
-                    denominator="sales.cost",
-                ),
-                additivity=additivity,  # type: ignore[arg-type]
-            )
-
-        assert exc_info.value.kind == ErrorKind.INVALID_DECOMPOSITION
-        assert exc_info.value.constraint_id == "decomposition_shape"
-        assert ctx.pending_objects == []
-    finally:
-        _exit_ctx()
-
-
-def test_metric_rejects_empty_datasets_after_derived_split() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-
-            @ms.metric(
-                entities=[],
-                decomposition=ms.ratio(
-                    numerator="sales.revenue",
-                    denominator="sales.cost",
-                ),
-            )
-            def margin() -> object:
-                return 1
-
-        assert exc_info.value.kind == ErrorKind.MISSING_DATASETS
-        assert exc_info.value.constraint_id == "metric_datasets_required"
-        assert ctx.pending_objects == []
-    finally:
-        _exit_ctx()
-
-
-def test_metric_rejects_empty_datasets_with_sum_after_derived_split() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-
-            @ms.metric(entities=[], decomposition=ms.sum())
-            def orphan_metric() -> object:
-                return 1
-
-        assert exc_info.value.kind == ErrorKind.MISSING_DATASETS
-        assert exc_info.value.constraint_id == "metric_datasets_required"
-        assert ctx.pending_objects == []
-    finally:
-        _exit_ctx()
-
-
-def test_base_metric_rejects_component_body_at_definition_time() -> None:
-    """ms.component() cannot be hidden inside a dataset-backed metric."""
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticLoadError) as exc_info:
-
-            @ms.metric(
-                entities=["sales.orders"],
-                decomposition=ms.ratio(
-                    numerator="sales.failed_count",
-                    denominator="sales.total_count",
-                ),
-            )
-            def failure_rate(orders):
-                return ms.component("numerator") / ms.component("denominator")
-
-        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    finally:
-        _exit_ctx()
-
-
-def test_base_metric_sidecar_stores_callable() -> None:
-    """Base metric stores the raw callable in sidecar."""
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-
-        def revenue_fn(table: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        ms.metric(entities=["sales.orders"], decomposition=ms.sum())(revenue_fn)
-        _, sidecar_entry = ctx.pending_objects[-1]
-        assert sidecar_entry is revenue_fn
-    finally:
-        _exit_ctx()
 
 
 # ---------------------------------------------------------------------------
@@ -1377,13 +1225,13 @@ def test_duplicate_metric_name_raises() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], decomposition=ms.sum())
+        @ms.simple_metric(entities=["sales.orders"], additivity="additive")
         def revenue(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(entities=["sales.orders"], decomposition=ms.sum())
+            @ms.simple_metric(entities=["sales.orders"], additivity="additive")
             def revenue(backend: object) -> object:  # type: ignore[misc]
                 return None  # type: ignore[unreachable]
 
@@ -1403,10 +1251,9 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
         )
         assert ds.semantic_id == "sales.dau_7d_portrait"
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[ds],
             additivity="additive",
-            decomposition=ms.sum(),
             name="dau_7d_portrait",
         )
         def dau_7d_portrait(table):
@@ -1465,11 +1312,11 @@ def test_dataset_keyword_only() -> None:
         _exit_ctx()
 
 
-def test_metric_keyword_only() -> None:
+def test_simple_metric_keyword_only() -> None:
     _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(TypeError):
-            ms.metric(ms.sum())  # type: ignore[misc]
+            ms.simple_metric("additive")  # type: ignore[misc]
     finally:
         _exit_ctx()
 
@@ -1479,13 +1326,13 @@ def test_metric_keyword_only() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_metric_with_ai_context() -> None:
+def test_simple_metric_with_ai_context() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=["sales.orders"],
-            decomposition=ms.sum(),
+            additivity="additive",
             ai_context={
                 "business_definition": "Total revenue",
                 "guardrails": ["Must be positive"],
@@ -1511,9 +1358,9 @@ def test_ai_context_with_valid_keys_works() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=["sales.orders"],
-            decomposition=ms.sum(),
+            additivity="additive",
             ai_context={
                 "business_definition": "Revenue",
                 "guardrails": ["Must be positive"],
@@ -1543,9 +1390,9 @@ def test_ai_context_with_invalid_key_raises() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(
+            @ms.simple_metric(
                 entities=["sales.orders"],
-                decomposition=ms.sum(),
+                additivity="additive",
                 ai_context={"invalid_key": "oops"},
             )
             def revenue(table: object) -> object:
@@ -1562,9 +1409,9 @@ def test_ai_context_with_wrong_type_for_guardrails_raises() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(
+            @ms.simple_metric(
                 entities=["sales.orders"],
-                decomposition=ms.sum(),
+                additivity="additive",
                 ai_context={"guardrails": "not a list"},
             )
             def revenue(table: object) -> object:
@@ -1581,9 +1428,9 @@ def test_ai_context_with_wrong_type_for_business_definition_raises() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(
+            @ms.simple_metric(
                 entities=["sales.orders"],
-                decomposition=ms.sum(),
+                additivity="additive",
                 ai_context={"business_definition": 42},
             )
             def revenue(table: object) -> object:
@@ -1612,9 +1459,9 @@ def test_ai_context_with_non_string_in_list_raises() -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(
+            @ms.simple_metric(
                 entities=["sales.orders"],
-                decomposition=ms.sum(),
+                additivity="additive",
                 ai_context={"guardrails": [1, 2, 3]},
             )
             def revenue(table: object) -> object:
@@ -1684,11 +1531,11 @@ def test_field_model_mismatch_with_dataset_raises() -> None:
 # metric unit field
 
 
-def test_metric_unit_lands_on_ir() -> None:
+def test_simple_metric_unit_lands_on_ir() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], decomposition=ms.sum(), unit="CNY")
+        @ms.simple_metric(entities=["sales.orders"], additivity="additive", unit="CNY")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1698,11 +1545,11 @@ def test_metric_unit_lands_on_ir() -> None:
         _exit_ctx()
 
 
-def test_metric_unit_defaults_to_none() -> None:
+def test_simple_metric_unit_defaults_to_none() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], decomposition=ms.sum())
+        @ms.simple_metric(entities=["sales.orders"], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1712,15 +1559,13 @@ def test_metric_unit_defaults_to_none() -> None:
         _exit_ctx()
 
 
-def test_derived_metric_unit_lands_on_ir() -> None:
+def test_ratio_unit_lands_on_ir() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        ms.derived_metric(
+        ms.ratio(
             name="aov",
-            decomposition=ms.ratio(
-                numerator="sales.revenue",
-                denominator="sales.order_count",
-            ),
+            numerator="sales.revenue",
+            denominator="sales.order_count",
             unit="1",
         )
         ir, _ = ctx.pending_objects[-1]
@@ -1730,12 +1575,12 @@ def test_derived_metric_unit_lands_on_ir() -> None:
 
 
 @pytest.mark.parametrize("bad", ("", "C N Y", "CNY\t", "µs"))
-def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
+def test_simple_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(entities=["sales.orders"], decomposition=ms.sum(), unit=bad)
+            @ms.simple_metric(entities=["sales.orders"], additivity="additive", unit=bad)
             def revenue(table: object) -> object:
                 return None  # type: ignore[unreachable]
 
@@ -1745,16 +1590,14 @@ def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
 
 
 @pytest.mark.parametrize("bad", ("", "C N Y"))
-def test_derived_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
+def test_ratio_unit_rejects_whitespace_and_empty(bad: str) -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.derived_metric(
+            ms.ratio(
                 name="margin",
-                decomposition=ms.ratio(
-                    numerator="sales.revenue",
-                    denominator="sales.cost",
-                ),
+                numerator="sales.revenue",
+                denominator="sales.cost",
                 unit=bad,
             )
 

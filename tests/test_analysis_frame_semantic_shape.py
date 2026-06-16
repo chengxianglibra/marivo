@@ -46,7 +46,7 @@ def _delta_meta(
     *,
     semantic_kind: str = "segmented",
     component_ref: str | None = None,
-    decomposition: dict | None = None,
+    composition: dict | None = None,
 ) -> DeltaFrameMeta:
     return DeltaFrameMeta(
         ref="frame_d",
@@ -64,7 +64,7 @@ def _delta_meta(
         semantic_kind=semantic_kind,
         semantic_model="sales",
         component_ref=component_ref,
-        decomposition=decomposition,
+        composition=composition,
     )
 
 
@@ -91,30 +91,30 @@ def test_attribution_output_shape_sum_when_no_component():
 
 
 def test_attribution_output_shape_ratio_mix():
-    meta = _delta_meta(component_ref="frame_comp", decomposition={"kind": "ratio"})
+    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "ratio"})
     assert attribution_output_shape(meta) == "ratio_mix"
 
 
 def test_attribution_output_shape_weighted_mix():
-    meta = _delta_meta(component_ref="frame_comp", decomposition={"kind": "weighted_average"})
+    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "weighted_average"})
     assert attribution_output_shape(meta) == "weighted_mix"
 
 
 def test_attribution_output_shape_unknown_kind_raises():
-    meta = _delta_meta(component_ref="frame_comp", decomposition={"kind": "mystery"})
+    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "mystery"})
     with pytest.raises(ComponentDecompositionError):
         attribution_output_shape(meta)
 
 
 @pytest.mark.parametrize(
-    "decomposition",
+    "composition",
     [None, {}],
-    ids=["decomposition_none", "decomposition_empty"],
+    ids=["composition_none", "composition_empty"],
 )
-def test_attribution_output_shape_raises_when_component_ref_set_but_decomposition_missing(
-    decomposition,
+def test_attribution_output_shape_raises_when_component_ref_set_but_composition_missing(
+    composition,
 ):
-    meta = _delta_meta(component_ref="frame_comp", decomposition=decomposition)
+    meta = _delta_meta(component_ref="frame_comp", composition=composition)
     with pytest.raises(ComponentDecompositionError):
         attribution_output_shape(meta)
 
@@ -182,12 +182,12 @@ def test_delta_predicted_attribution_shape_sum_when_no_component():
 
 
 def test_delta_predicted_attribution_shape_ratio_mix():
-    meta = _delta_meta(component_ref="frame_comp", decomposition={"kind": "ratio"})
+    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "ratio"})
     frame = DeltaFrame(_df=pd.DataFrame({"delta": [1.0]}), meta=meta)
     assert frame.predicted_attribution_shape() == "ratio_mix"
 
 
 def test_delta_predicted_attribution_shape_weighted_mix():
-    meta = _delta_meta(component_ref="frame_comp", decomposition={"kind": "weighted_average"})
+    meta = _delta_meta(component_ref="frame_comp", composition={"kind": "weighted_average"})
     frame = DeltaFrame(_df=pd.DataFrame({"delta": [1.0]}), meta=meta)
     assert frame.predicted_attribution_shape() == "weighted_mix"

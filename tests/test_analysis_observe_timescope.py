@@ -41,7 +41,7 @@ def _bootstrap_sales(tmp_path):
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -91,7 +91,7 @@ def _bootstrap_multi_dataset(tmp_path):
         "def refund_date(refunds):\n"
         "    return refunds.refund_date.cast('date')\n"
         "\n"
-        "@ms.metric(entities=[orders, refunds], root_entity=orders, additivity='additive', decomposition=ms.sum(), name='net', )\n"
+        "@ms.simple_metric(entities=[orders, refunds], root_entity=orders, additivity='additive', name='net', )\n"
         "def net(orders, refunds):\n"
         "    return orders.amount.sum()\n"
     )
@@ -126,7 +126,7 @@ def _bootstrap_date_field(tmp_path):
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )

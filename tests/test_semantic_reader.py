@@ -17,10 +17,9 @@ _OBJECTS_PY = textwrap.dedent("""\
 
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
     )
     def revenue(table):
         return table.amount.sum()

@@ -101,8 +101,7 @@ def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_proj
                 "granularity='day', date_format='%Y%m%d')\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
-                "@ms.metric(entities=[orders], additivity='additive', "
-                "decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             )
@@ -143,15 +142,15 @@ def test_verify_metric_auto_records_decomposition(tmp_path: Path, semantic_proje
     assert result.status == "passed"
     assert result.kind == "metric"
     assert len(result.auto_recorded) == 1
-    assert result.auto_recorded[0] == "sales.revenue:metric_decomposition"
+    assert result.auto_recorded[0] == "sales.revenue:metric_composition"
 
     # Verify the decision was persisted to the ledger.
     store = lg.LedgerStore(project.state_root)
     obj = store.read_object("sales.revenue")
     assert obj is not None
-    assert any(d.decision_kind == "metric_decomposition" for d in obj.decisions)
-    m_decision = next(d for d in obj.decisions if d.decision_kind == "metric_decomposition")
-    assert m_decision.chosen == "sum"
+    assert any(d.decision_kind == "metric_composition" for d in obj.decisions)
+    m_decision = next(d for d in obj.decisions if d.decision_kind == "metric_composition")
+    assert m_decision.chosen == "simple"
     assert m_decision.agreement_confidence == "high"
     assert m_decision.qualifying_sources == ("semantic_declaration",)
     assert m_decision.evidence_fingerprint.startswith("sha256:")
@@ -277,7 +276,7 @@ def test_verify_dimension_no_auto_record(tmp_path: Path, semantic_project_factor
 def test_verify_derived_metric_auto_records_decomposition(
     tmp_path: Path, semantic_project_factory
 ) -> None:
-    """Derived metrics should auto-record metric_decomposition with kind=derived_metric."""
+    """Derived metrics should auto-record metric_composition with kind=derived_metric."""
     import ibis
 
     db_path = tmp_path / "warehouse.duckdb"
@@ -295,16 +294,13 @@ def test_verify_derived_metric_auto_records_decomposition(
                 "ms.domain(name='sales')\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', "
                 "source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', "
-                "decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
-                "revenue_ratio = ms.derived_metric(\n"
+                "revenue_ratio = ms.ratio(\n"
                 "    name='revenue_ratio',\n"
-                "    decomposition=ms.ratio(\n"
-                "        numerator='sales.revenue',\n"
-                "        denominator='sales.revenue',\n"
-                "    ),\n"
+                "    numerator='sales.revenue',\n"
+                "    denominator='sales.revenue',\n"
                 ")\n"
             )
         },
@@ -314,15 +310,14 @@ def test_verify_derived_metric_auto_records_decomposition(
     result = project.verify_object("sales.revenue_ratio")
     assert result.status == "passed"
     assert result.kind == "derived_metric"
-    assert result.auto_recorded == ("sales.revenue_ratio:metric_decomposition",)
+    assert result.auto_recorded == ("sales.revenue_ratio:metric_composition",)
 
     store = lg.LedgerStore(project.state_root)
     obj = store.read_object("sales.revenue_ratio")
     assert obj is not None
-    d = next(d for d in obj.decisions if d.decision_kind == "metric_decomposition")
+    d = next(d for d in obj.decisions if d.decision_kind == "metric_composition")
     assert d.chosen == "ratio"
     assert d.cited_source is not None
-    assert d.cited_source.get("is_derived") is True
 
 
 def test_verify_clears_readiness_unresolved_clarification(
@@ -350,8 +345,7 @@ def test_verify_clears_readiness_unresolved_clarification(
                 "granularity='day', date_format='%Y%m%d')\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
-                "@ms.metric(entities=[orders], additivity='additive', "
-                "decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             )

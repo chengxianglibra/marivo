@@ -250,8 +250,8 @@ The agent should use `marivo.semantic` decorators and builders:
 - `ms.entity(...)`
 - `@ms.dimension(...)`
 - `@ms.time_dimension(...)`
-- `@ms.metric(...)`
-- `ms.derived_metric(...)`
+- `@ms.simple_metric(...)`
+- `ms.ratio(...)` / `ms.weighted_average(...)` / `ms.linear(...)`
 - `ms.relationship(...)`
 - `ms.sum()`
 - `ms.ratio(...)`
@@ -593,11 +593,11 @@ or granularity.
 Base metrics read datasets:
 
 ```python
-@ms.metric(
+@ms.simple_metric(
     name="revenue",
     datasets=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
+
     source_sql="select sum(amount) from orders where pay_status = 1",
     source_dialect="trino",
     ai_context={
@@ -613,13 +613,10 @@ def revenue(orders):
 Derived metrics combine components:
 
 ```python
-aov = ms.derived_metric(
+aov = ms.ratio(
     name="aov",
-    decomposition=ms.ratio(
-        numerator=revenue,
-        denominator=orders_count,
-    ),
-    additivity="non_additive",
+    numerator=revenue,
+    denominator=orders_count,
 )
 ```
 

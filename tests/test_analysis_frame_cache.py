@@ -219,20 +219,18 @@ def _bootstrap_failure_rate(tmp_path):
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
         "def failed_count(orders):\n"
         "    return (orders.state == 'FAILED').cast('int64').sum()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
-        "ms.derived_metric(\n"
+        "ms.ratio(\n"
         "    name='failure_rate',\n"
-        "    decomposition=ms.ratio(\n"
-        "        numerator='sales.failed_count',\n"
-        "        denominator='sales.total_count',\n"
-        "    ),\n"
+        "    numerator='sales.failed_count',\n"
+        "    denominator='sales.total_count',\n"
         ")\n"
     )
 
@@ -315,7 +313,7 @@ def test_components_via_session_get_frame(tmp_path):
     loaded = s.get_frame(ref)
     components = loaded.components()
     assert isinstance(components, ComponentFrame)
-    assert components.meta.decomposition_kind == "ratio"
+    assert components.meta.composition_kind == "ratio"
 
 
 def test_compare_derived_metric_delta_components_after_cache_hit(tmp_path):

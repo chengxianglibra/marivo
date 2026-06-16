@@ -36,7 +36,7 @@ def test_component_frame_meta_kind_and_next_intents():
         parent_ref="frame_parent",
         parent_kind="metric_frame",
         metric_id="sales.failure_rate",
-        decomposition_kind="ratio",
+        composition_kind="ratio",
         components={
             "numerator": "sales.failed_count",
             "denominator": "sales.total_count",
@@ -85,7 +85,7 @@ def test_load_frame_round_trips_component_frame():
             parent_ref="frame_parent",
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
-            decomposition_kind="ratio",
+            composition_kind="ratio",
             components={
                 "numerator": "sales.failed_count",
                 "denominator": "sales.total_count",
@@ -120,7 +120,7 @@ def test_metric_frame_components_loads_linked_component_frame():
             parent_ref="frame_metric",
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
-            decomposition_kind="ratio",
+            composition_kind="ratio",
             components={
                 "numerator": "sales.failed_count",
                 "denominator": "sales.total_count",
@@ -150,7 +150,7 @@ def test_metric_frame_components_loads_linked_component_frame():
             semantic_kind="scalar",
             semantic_model="sales",
             component_ref=component.ref,
-            decomposition={
+            composition={
                 "kind": "ratio",
                 "components": {
                     "numerator": "sales.failed_count",
@@ -209,7 +209,7 @@ def test_component_frame_meta_accepts_time_series_semantic_kind():
         parent_ref="frame_parent",
         parent_kind="metric_frame",
         metric_id="sales.failure_rate",
-        decomposition_kind="ratio",
+        composition_kind="ratio",
         components={
             "numerator": "sales.failed_count",
             "denominator": "sales.total_count",
@@ -242,7 +242,7 @@ def test_component_frame_meta_accepts_panel_semantic_kind():
         parent_ref="frame_parent",
         parent_kind="metric_frame",
         metric_id="sales.failure_rate",
-        decomposition_kind="weighted_average",
+        composition_kind="weighted_average",
         components={
             "numerator": "sales.weighted_score",
             "weight": "sales.weight",
@@ -291,7 +291,7 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
             semantic_model="sales",
             artifact_id=parent_artifact_id,
             component_ref="frame_deadbeef",  # stale ref pointing to nothing
-            decomposition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
+            composition={"kind": "ratio", "components": {"numerator": "a", "denominator": "b"}},
         ),
     )
     parent.meta = persist_frame(session, parent)
@@ -312,7 +312,7 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
             parent_ref=parent_artifact_id,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
-            decomposition_kind="ratio",
+            composition_kind="ratio",
             components={"numerator": "a", "denominator": "b"},
             axes={},
             semantic_kind="scalar",

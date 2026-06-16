@@ -162,7 +162,9 @@ def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
 
 
 def _compute_agg_hash(measure_id: str, agg: Any, fold: TimeFoldIR | None) -> str:
-    payload = repr({"measure": measure_id, "agg": agg, "fold": (fold.kind, fold.q) if fold else None})
+    payload = repr(
+        {"measure": measure_id, "agg": agg, "fold": (fold.kind, fold.q) if fold else None}
+    )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -923,6 +925,7 @@ def time_dimension(
 
     return decorator
 
+
 def relationship(
     *,
     name: str | None = None,
@@ -1180,6 +1183,7 @@ def _derived(
         body_ast_hash=_compute_composition_hash(composition),
         python_symbol=name,
         location=location,
+        unit=unit,
     )
     _push_ir(ctx, metric_ir, None)
     return MetricRef(semantic_id)
@@ -1197,7 +1201,7 @@ def ratio(
 ) -> MetricRef:
     """Declare a derived ratio metric (no body). Example::
 
-        loss_rate = ms.ratio(name="loss_rate", numerator=lost, denominator=total, unit="1")
+    loss_rate = ms.ratio(name="loss_rate", numerator=lost, denominator=total, unit="1")
     """
     return _derived(
         name=name,

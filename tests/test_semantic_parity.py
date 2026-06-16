@@ -122,10 +122,9 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS total_amount FROM orders",
         source_dialect="duckdb",
     )
@@ -137,10 +136,9 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT 999.0 AS total_amount",
         source_dialect="duckdb",
     )
@@ -152,10 +150,9 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity='additive',
-        decomposition=ms.sum(),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -165,10 +162,9 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) FROM orders",
         source_dialect="postgres",
     )
@@ -180,29 +176,28 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS revenue FROM orders",
         source_dialect="duckdb",
     )
     def revenue(table):
         return table.amount.sum()
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS cost FROM orders",
         source_dialect="duckdb",
     )
     def cost(table):
         return table.amount.sum()
 
-    margin = ms.derived_metric(
+    margin = ms.ratio(
         name="margin",
-        decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
+        numerator="sales.revenue",
+        denominator="sales.cost",
     )
 """)
 
@@ -210,10 +205,9 @@ _NO_SOURCE_SQL_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -313,10 +307,9 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity="additive",
-            decomposition=ms.sum(),
             source_sql="SELECT 300.5 AS total_amount",
             source_dialect="duckdb",
         )
@@ -381,10 +374,9 @@ def test_base_metric_source_sql_without_source_dialect_fails_load(semantic_proje
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity="additive",
-            decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
         )
         def total_amount(table):
@@ -403,23 +395,24 @@ def test_base_metric_source_sql_without_source_dialect_fails_load(semantic_proje
 def test_derived_metric_with_source_sql_fails_load(
     semantic_project_factory,
 ) -> None:
+    """Derived metric constructors do not accept source_sql — the module fails
+    to load with an organization_error when extra kwargs are passed."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity="additive",
-            decomposition=ms.sum(),
         )
         def revenue(table):
             return table.amount.sum()
 
-        margin = ms.derived_metric(
+        margin = ms.ratio(
             name="margin",
-            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.revenue"),
+            numerator="sales.revenue",
+            denominator="sales.revenue",
             source_sql="SELECT 1",
-            source_dialect="duckdb",
         )
     """)
     project = semantic_project_factory(
@@ -429,7 +422,7 @@ def test_derived_metric_with_source_sql_fails_load(
     result = project.load()
 
     assert not project.is_ready()
-    assert any(error.kind == ErrorKind.INVALID_VERIFICATION_MODE for error in result.errors)
+    assert any(error.kind == ErrorKind.ORGANIZATION_ERROR for error in result.errors)
 
 
 # ---------------------------------------------------------------------------
@@ -465,11 +458,10 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
 
         orders_b = ms.entity(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders_a, orders_b],
             root_entity=orders_a,
             additivity="additive",
-            decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
         )
@@ -583,29 +575,28 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity="additive",
-            decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
         )
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity="additive",
-            decomposition=ms.sum(),
             source_sql="SELECT 999.0 AS cost",
             source_dialect="duckdb",
         )
         def cost(table):
             return table.amount.sum()
 
-        margin = ms.derived_metric(
+        margin = ms.ratio(
             name="margin",
-            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
+            numerator="sales.revenue",
+            denominator="sales.cost",
         )
     """)
     project = semantic_project_factory(
@@ -656,27 +647,26 @@ def test_derived_propagation_verified_and_no_source_sql(
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity="additive",
-            decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) FROM orders",
             source_dialect="duckdb",
         )
         def revenue(table):
             return table.amount.sum()
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity="additive",
-            decomposition=ms.sum(),
         )
         def cost(table):
             return table.amount.sum()
 
-        margin = ms.derived_metric(
+        margin = ms.ratio(
             name="margin",
-            decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.cost"),
+            numerator="sales.revenue",
+            denominator="sales.cost",
         )
     """)
     project = semantic_project_factory(
