@@ -15,7 +15,7 @@ _OBJECTS_PY = textwrap.dedent("""\
 
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
     )

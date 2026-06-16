@@ -64,7 +64,7 @@ def _bootstrap_sales(tmp_path):
         "\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
@@ -72,7 +72,7 @@ def _bootstrap_sales(tmp_path):
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
+        "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )

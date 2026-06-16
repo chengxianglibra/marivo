@@ -183,7 +183,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(entity=orders, data_type='date', granularity='day')\n"
+        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n\n"
         if with_time
@@ -202,7 +202,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
+        "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -310,9 +310,9 @@ def authoring_session(*, domain: str):
         class _Session:
             @staticmethod
             def measure(*, entity: str, name: str, additivity: Any = None) -> Any:
-                """Declare a measure dimension and return its DimensionRef."""
-                decorator = authoring.dimension(
-                    kind="measure", entity=entity, name=name, additivity=additivity
+                """Declare a measure and return its MeasureRef."""
+                decorator = authoring.measure(
+                    entity=entity, name=name, additivity=additivity or "additive"
                 )
 
                 # Apply the decorator to a dummy function that returns an ibis-like expression.

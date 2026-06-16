@@ -28,7 +28,11 @@ import marivo.semantic.errors as semantic_errors
 _SKILLS_ROOT = Path(__file__).resolve().parent.parent / "marivo/skills"
 
 # (relative_md_path, type_or_marker) pairs that are intentionally allowed.
-_ALLOWLIST: frozenset[tuple[str, str]] = frozenset()
+_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("marivo-analysis/references/typed-facts.md", "DateParse"),
+    }
+)
 
 # A field table is "transcribed" when this many of a public type's field names
 # appear as first-column cells of a single markdown table.

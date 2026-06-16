@@ -62,12 +62,16 @@ def test_semantic_fold_partition() -> None:
         "DimensionRef",
         "DomainRef",
         "EntityRef",
+        "MeasureRef",
         "MetricRef",
         "RelationshipRef",
         "SemanticRef",
         "TimeDimensionRef",
     ]
     assert fams["Type aliases"] == ["SemanticKindInput", "SemanticRefInput"]
+    assert fams["Internal IR types"] == [
+        "MeasureIR",
+    ]
     assert set(fams["Other types"]) == {
         "AiContext",
         "AiContextView",
@@ -76,12 +80,16 @@ def test_semantic_fold_partition() -> None:
         "AuthoringQuestion",
         "ComponentFact",
         "DatasetSource",
+        "DateParse",
+        "DatetimeParse",
         "DecisionRecord",
         "DemandSignal",
         "DimensionValueFact",
         "DomainBriefSummary",
         "FileSource",
         "FormatCandidate",
+        "HourPrefixParse",
+        "JoinKey",
         "JoinPathFact",
         "LadderOrderError",
         "ParityResult",
@@ -93,7 +101,10 @@ def test_semantic_fold_partition() -> None:
         "RichnessReport",
         "SemanticKind",
         "SnapshotVersioning",
+        "SqlProvenance",
+        "StrptimeParse",
         "TableSource",
+        "TimestampParse",
         "ValidityVersioning",
         "VerifyResult",
         "VersioningHints",
@@ -109,7 +120,13 @@ def test_datasource_fold_partition() -> None:
     surface = _surface()
     fams = _families(surface)
     assert fams["References"] == ["DatasourceRef"]
-    assert fams["Internal IR types"] == ["AiContextIR", "DatasourceAiContextIR", "DatasourceIR"]
+    assert fams["Internal IR types"] == [
+        "AiContextIR",
+        "CsvSourceIR",
+        "DatasourceAiContextIR",
+        "DatasourceIR",
+        "ParquetSourceIR",
+    ]
     assert fams["Metadata types"] == ["ColumnMetadata", "PartitionMetadata", "TableMetadata"]
     assert set(fams["Other types"]) == {
         "ColumnInspection",

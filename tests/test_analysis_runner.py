@@ -41,6 +41,7 @@ def _bootstrap_project(
     dataset_name: str = "orders",
     datasource_name: str = "warehouse",
     time_field_data_type: str = "date",
+    time_field_timezone: str | None = None,
 ) -> SemanticProject:
     """Write semantic model files on disk and return a loaded SemanticProject."""
     semantic_dir = tmp_path / "models" / "semantic" / model_name
@@ -58,9 +59,18 @@ def _bootstrap_project(
 
     time_field_block = ""
     if with_time_dimension:
+        parse_kw = ""
+        if time_field_data_type == "date":
+            parse_kw = "parse=ms.date()"
+        elif time_field_data_type in ("timestamp", "datetime"):
+            effective_tz = time_field_timezone or "UTC"
+            parse_fn = "ms.timestamp" if time_field_data_type == "timestamp" else "ms.datetime"
+            parse_kw = f"parse={parse_fn}(timezone='{effective_tz}')"
+        else:
+            parse_kw = f"parse=ms.strptime('%Y%m%d', data_type='{time_field_data_type}')"
         time_field_block = (
             f"\n@ms.time_dimension(entity={dataset_name}, "
-            f"data_type='{time_field_data_type}', granularity='day')\n"
+            f"granularity='day', {parse_kw})\n"
             f"def created_at({dataset_name}):\n"
             f"    return {dataset_name}.created_at\n"
         )
@@ -324,7 +334,9 @@ def test_apply_time_series_bucket_adds_bucket_start(tmp_path):
 
 
 def test_apply_time_series_bucket_day_respects_session_tz_for_timestamp(tmp_path):
-    sp = _bootstrap_project(tmp_path, time_field_data_type="timestamp")
+    sp = _bootstrap_project(
+        tmp_path, time_field_data_type="timestamp", time_field_timezone="Asia/Shanghai"
+    )
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE orders (created_at TIMESTAMP, amount DOUBLE)")
     con.raw_sql(

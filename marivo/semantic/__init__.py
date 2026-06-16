@@ -12,11 +12,11 @@ Public surface::
 
     ms.domain(name="sales", default=True)
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
-    @ms.dimension(kind="measure", entity=orders, additivity="additive")
+    @ms.measure(entity=orders, additivity="additive", unit="USD")
     def amount(orders):
         return orders.amount
 
-    revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
+    revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 """
 
 from __future__ import annotations
@@ -29,19 +29,28 @@ from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
     DomainRef,
     aggregate,
+    csv,
+    date,
+    datetime,
     dimension,
     domain,
     entity,
-    file,
+    from_sql,
+    hour_prefix,
+    join_on,
     linear,
+    measure,
+    metric,
+    parquet,
     ratio,
     ref,
     relationship,
     semi_additive,
-    simple_metric,
     snapshot,
+    strptime,
     table,
     time_dimension,
+    timestamp,
     validity,
     weighted_average,
 )
@@ -95,11 +104,20 @@ from marivo.semantic.dtos import (
 from marivo.semantic.errors import LadderOrderError
 from marivo.semantic.help import help, help_text
 from marivo.semantic.ir import (
+    DateParse,
+    DatetimeParse,
     DimensionRef,
     EntityRef,
+    HourPrefixParse,
+    JoinKey,
+    MeasureIR,
+    MeasureRef,
     MetricRef,
     RelationshipRef,
+    SqlProvenance,
+    StrptimeParse,
     TimeDimensionRef,
+    TimestampParse,
 )
 from marivo.semantic.ledger import DecisionRecord
 from marivo.semantic.parity import ParityResult
@@ -520,6 +538,8 @@ __all__ = [
     "CrossEntityMetricBrief",
     "DatasetSource",
     "DatasourceDetails",
+    "DateParse",
+    "DatetimeParse",
     "DecisionRecord",
     "DemandSignal",
     "DerivedMetricBrief",
@@ -536,8 +556,12 @@ __all__ = [
     "EntityRef",
     "FileSource",
     "FormatCandidate",
+    "HourPrefixParse",
+    "JoinKey",
     "JoinPathFact",
     "LadderOrderError",
+    "MeasureIR",
+    "MeasureRef",
     "MetricBrief",
     "MetricDetails",
     "MetricRef",
@@ -560,24 +584,35 @@ __all__ = [
     "SemanticRef",
     "SemanticRefInput",
     "SnapshotVersioning",
+    "SqlProvenance",
+    "StrptimeParse",
     "TableSource",
     "TimeDimensionBrief",
     "TimeDimensionDetails",
     "TimeDimensionRef",
+    "TimestampParse",
     "ValidityVersioning",
     "VerifyResult",
     "VersioningHints",
     "aggregate",
+    "csv",
+    "date",
+    "datetime",
     "dimension",
     "domain",
     "entity",
     "errors",
-    "file",
+    "from_sql",
     "help",
     "help_text",
+    "hour_prefix",
+    "join_on",
     "linear",
     "load",
+    "measure",
+    "metric",
     "parity_check",
+    "parquet",
     "prepare_cross_entity_metric",
     "prepare_derived_metric",
     "prepare_dimension",
@@ -593,10 +628,11 @@ __all__ = [
     "relationship",
     "richness",
     "semi_additive",
-    "simple_metric",
     "snapshot",
+    "strptime",
     "table",
     "time_dimension",
+    "timestamp",
     "typing",
     "validity",
     "verify_object",

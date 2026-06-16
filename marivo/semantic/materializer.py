@@ -17,7 +17,13 @@ from ibis.expr.operations.relations import SQLQueryResult
 
 from marivo.datasource.errors import DatasourceConfigError
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
-from marivo.semantic.ir import EntityProvenance, FileSourceIR, MetricIR, TableSourceIR
+from marivo.semantic.ir import (
+    CsvSourceIR,
+    EntityProvenance,
+    MetricIR,
+    ParquetSourceIR,
+    TableSourceIR,
+)
 from marivo.semantic.validator import Registry, Sidecar
 
 __all__ = [
@@ -61,6 +67,7 @@ class Materializer:
         self._backend_by_datasource: dict[str, IbisBackend] = {}
         self._entity_cache: dict[str, ibis.Table] = {}
         self._dimension_cache: dict[str, ir.Value] = {}
+        self._measure_cache: dict[str, ir.Value] = {}
         self._metric_cache: dict[str, ir.Value] = {}
 
     # -- backend management ---------------------------------------------------
@@ -101,7 +108,7 @@ class Materializer:
 
         registry, _sidecar = self._get_registry_and_sidecar()
 
-        ds_ir = registry.datasets.get(semantic_id)  # Registry key still "datasets"
+        ds_ir = registry.entities.get(semantic_id)
         if ds_ir is None:
             _raise(
                 ErrorKind.ENTITY_NOT_FOUND,
@@ -142,28 +149,54 @@ class Materializer:
         self,
         semantic_id: str,
         backend: IbisBackend,
-        source: TableSourceIR | FileSourceIR,
+        source: TableSourceIR | ParquetSourceIR | CsvSourceIR,
     ) -> ibis.Table:
         if isinstance(source, TableSourceIR):
             if source.database is None:
                 return backend.table(source.table)
             return backend.table(source.table, database=source.database)
 
-        if isinstance(source, FileSourceIR):
-            reader_name = "read_parquet" if source.format == "parquet" else "read_csv"
-            reader = getattr(backend, reader_name, None)
+        if isinstance(source, ParquetSourceIR):
+            reader = getattr(backend, "read_parquet", None)
             if reader is None:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
                     (
                         f"Entity {semantic_id!r} datasource backend does not support "
-                        f"{source.format} file sources."
+                        f"parquet file sources."
                     ),
                     cls=SemanticRuntimeError,
                     refs=(semantic_id,),
-                    details={"source_kind": source.kind, "format": source.format},
+                    details={"source_kind": source.kind},
                 )
-            return reader(source.path, **source.options)
+            pq_kwargs: dict[str, object] = {}
+            if source.hive_partitioning:
+                pq_kwargs["hive_partitioning"] = source.hive_partitioning
+            if source.columns is not None:
+                pq_kwargs["columns"] = list(source.columns)
+            return reader(source.path, **pq_kwargs)
+
+        if isinstance(source, CsvSourceIR):
+            reader = getattr(backend, "read_csv", None)
+            if reader is None:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    (
+                        f"Entity {semantic_id!r} datasource backend does not support "
+                        f"csv file sources."
+                    ),
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                    details={"source_kind": source.kind},
+                )
+            csv_kwargs: dict[str, object] = {}
+            if not source.header:
+                csv_kwargs["header"] = source.header
+            if source.delimiter != ",":
+                csv_kwargs["delimiter"] = source.delimiter
+            if source.columns is not None:
+                csv_kwargs["columns"] = list(source.columns)
+            return reader(source.path, **csv_kwargs)
 
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
@@ -200,7 +233,7 @@ class Materializer:
 
         registry, sidecar = self._get_registry_and_sidecar()
 
-        field_ir = registry.fields.get(semantic_id)  # Registry key still "fields"
+        field_ir = registry.dimensions.get(semantic_id)
         if field_ir is None:
             _raise(
                 ErrorKind.DIMENSION_NOT_FOUND,
@@ -229,7 +262,7 @@ class Materializer:
     def dimension_on(self, semantic_id: str, table: ibis.Table) -> ir.Value:
         """Apply a dimension callable to a caller-supplied table without caching."""
         registry, sidecar = self._get_registry_and_sidecar()
-        field_ir = registry.fields.get(semantic_id)
+        field_ir = registry.dimensions.get(semantic_id)
         if field_ir is None:
             _raise(
                 ErrorKind.DIMENSION_NOT_FOUND,
@@ -246,6 +279,35 @@ class Materializer:
                 refs=(semantic_id,),
             )
         return self._call_field_callable(semantic_id, field_ir.name, callable_, table)
+
+    # -- measure ---------------------------------------------------------------
+
+    def measure(self, semantic_id: str) -> ir.Value:
+        """Materialize a measure, returning an ibis Value expression."""
+        if semantic_id in self._measure_cache:
+            return self._measure_cache[semantic_id]
+
+        registry, sidecar = self._get_registry_and_sidecar()
+        measure_ir = registry.measures.get(semantic_id)
+        if measure_ir is None:
+            _raise(
+                ErrorKind.DIMENSION_NOT_FOUND,
+                f"Measure {semantic_id!r} not found in registry.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        callable_ = sidecar.get(semantic_id)
+        if callable_ is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Measure {semantic_id!r} has no sidecar callable.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        parent_table = self.entity(measure_ir.entity)
+        value = self._call_field_callable(semantic_id, measure_ir.name, callable_, parent_table)
+        self._measure_cache[semantic_id] = value
+        return value
 
     def _call_field_callable(
         self,
@@ -324,7 +386,7 @@ class Materializer:
         sidecar: Sidecar,
         registry: Registry,
     ) -> ir.Value:
-        """Materialize a tier-1 metric: agg(measure_dimension_body(entity_table))."""
+        """Materialize a tier-1 metric: agg(measure(entity_table))."""
         measure_id = metric_ir.measure
         if measure_id is None or not metric_ir.entities:
             _raise(
@@ -334,16 +396,7 @@ class Materializer:
                 refs=(semantic_id,),
             )
         self._check_single_datasource(metric_ir, registry)
-        table = self.entity(metric_ir.entities[0])
-        measure_callable = sidecar.get(measure_id)
-        if measure_callable is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Tier-1 metric {semantic_id!r} measure {measure_id!r} has no sidecar callable.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id, measure_id),
-            )
-        column = measure_callable(table)
+        column = self.measure(measure_id)
         return self._apply_agg(semantic_id, column, metric_ir.aggregation)
 
     def _apply_agg(self, semantic_id: str, column: ir.Value, agg: Any) -> ir.Value:
@@ -433,15 +486,32 @@ class Materializer:
         if metric_ir.aggregation is not None:
             # tier-1: apply agg over the measure body on the single caller table.
             measure_id = metric_ir.measure
-            measure_callable = sidecar.get(measure_id) if measure_id else None
+            if measure_id is None:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Tier-1 metric {semantic_id!r} has no measure reference.",
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                )
+            measure_ir = registry.measures.get(measure_id)
+            if measure_ir is None:
+                _raise(
+                    ErrorKind.DIMENSION_NOT_FOUND,
+                    f"Measure {measure_id!r} not found in registry.",
+                    cls=SemanticRuntimeError,
+                    refs=(measure_id,),
+                )
+            measure_callable = sidecar.get(measure_id)
             if measure_callable is None:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
                     f"Tier-1 metric {semantic_id!r} measure {measure_id!r} has no sidecar callable.",
                     cls=SemanticRuntimeError,
-                    refs=(semantic_id,),
+                    refs=(semantic_id, measure_id),
                 )
-            column = measure_callable(tables[0])
+            column = self._call_field_callable(
+                measure_id, measure_ir.name, measure_callable, tables[0]
+            )
             return self._apply_agg(semantic_id, column, metric_ir.aggregation)
         callable_ = sidecar.get(semantic_id)
         if callable_ is None:
@@ -534,7 +604,7 @@ class Materializer:
 
         datasource_ids: set[str] = set()
         for ds_ref in metric_ir.entities:
-            ds_ir = registry.datasets.get(ds_ref)  # Registry key still "datasets"
+            ds_ir = registry.entities.get(ds_ref)
             if ds_ir is not None:
                 datasource_ids.add(ds_ir.datasource)
 

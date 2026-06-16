@@ -133,11 +133,10 @@ _ENTITY_WITH_DATABASE_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT SUM(amount) AS total_amount FROM orders",
-        source_dialect="duckdb",
+        provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -202,11 +201,10 @@ _ENTITY_NO_DATABASE_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT SUM(amount) AS total_amount FROM orders",
-        source_dialect="duckdb",
+        provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -271,11 +269,10 @@ _ENTITY_DATASOURCE_DB_FALLBACK_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT SUM(amount) AS total_amount FROM orders",
-        source_dialect="duckdb",
+        provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -330,11 +327,10 @@ _ENTITY_DATASOURCE_DB_FULLY_QUALIFIED_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT SUM(amount) AS total_amount FROM sales_mart.orders",
-        source_dialect="duckdb",
+        provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM sales_mart.orders", dialect="duckdb"),
     )
     def total_amount(table):
         return table.amount.sum()

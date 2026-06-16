@@ -132,22 +132,23 @@ def parity_check(
             refs=(metric_id,),
         )
 
-    # Must have source_sql (enables parity verification)
-    if not metric_ir.provenance.source_sql:
+    # Must have provenance SQL (enables parity verification)
+    if metric_ir.provenance is None or not metric_ir.provenance.sql:
         _raise(
             ErrorKind.SOURCE_SQL_MISSING,
-            f"Metric {metric_id!r} has no source_sql. "
-            f"Add source_sql to the decorator before running parity checks.",
+            f"Metric {metric_id!r} has no provenance SQL. "
+            f"Add provenance=ms.from_sql(...) to the decorator before running parity checks.",
             cls=SemanticParityError,
             refs=(metric_id,),
         )
 
-    # Must have source_dialect
-    if not metric_ir.provenance.source_dialect:
+    # Must have dialect
+    assert metric_ir.provenance is not None
+    if not metric_ir.provenance.dialect:
         _raise(
             ErrorKind.SOURCE_SQL_MISSING,
-            f"Metric {metric_id!r} has no source_dialect. "
-            f"Add source_dialect to the decorator before running parity checks.",
+            f"Metric {metric_id!r} has no provenance dialect. "
+            f"Add dialect= to ms.from_sql(...) before running parity checks.",
             cls=SemanticParityError,
             refs=(metric_id,),
         )
@@ -158,7 +159,7 @@ def parity_check(
 
     datasource_ids: set[str] = set()
     for ds_ref in metric_ir.entities:
-        ds_ir = reg.datasets.get(ds_ref)
+        ds_ir = reg.entities.get(ds_ref)
         if ds_ir is not None:
             datasource_ids.add(ds_ir.datasource)
 
@@ -212,7 +213,7 @@ def parity_check(
     # connection level).
     table_qualifiers: dict[str, str] = {}
     for ds_ref in metric_ir.entities:
-        entity_ir = reg.datasets.get(ds_ref)
+        entity_ir = reg.entities.get(ds_ref)
         if entity_ir is None:
             continue
         source = entity_ir.source
@@ -232,9 +233,9 @@ def parity_check(
             table_qualifiers[source.table] = f"{db}.{source.table}"
 
     qualified_sql = qualify_source_sql(
-        metric_ir.provenance.source_sql,
+        metric_ir.provenance.sql,
         table_qualifiers,
-        dialect=metric_ir.provenance.source_dialect,
+        dialect=metric_ir.provenance.dialect,
     )
 
     # Execute the source SQL -> single scalar
@@ -321,7 +322,7 @@ def compute_self_status(
     if metric_ir.metric_type == "derived":
         return ParityStatus.UNVERIFIED
 
-    if prov.source_sql is None:
+    if prov is None:
         return ParityStatus.VERIFIED
 
     # Metrics with source_sql compute status from the latest in-memory parity result.

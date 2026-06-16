@@ -3,7 +3,7 @@
 Provides agent-safe scan configuration (ScanScope), scan result reporting
 (ScanReport), column profiling (ColumnProfile, ColumnInspection), and
 join-key probing (JoinSide, JoinKeyProbe) DTOs, plus the canonical
-table/file source constructors that the semantic authoring surface reuses.
+table/parquet/csv source constructors that the semantic authoring surface reuses.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo.datasource.ir import FileSourceIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
 from marivo.render import format_bounded_card, result_repr
 
 ScanPartition = Mapping[str, str] | Literal["latest"] | None
@@ -141,7 +141,7 @@ class ColumnInspection:
     """
 
     datasource: str
-    source: TableSourceIR | FileSourceIR
+    source: EntitySourceIR
     profiles: tuple[ColumnProfile, ...]
     scan: ScanReport
 
@@ -173,7 +173,7 @@ class JoinSide:
     """
 
     datasource: str
-    source: TableSourceIR | FileSourceIR
+    source: EntitySourceIR
     columns: tuple[str, ...]
 
 
@@ -219,28 +219,54 @@ def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> Tab
     return TableSourceIR(table=name, database=database)
 
 
-def file(
+def parquet(
     path: str,
     /,
     *,
-    format: Literal["parquet", "csv"],
-    **options: object,
-) -> FileSourceIR:
-    """Build a structured file source reference.
+    hive_partitioning: bool = False,
+    columns: tuple[str, ...] | list[str] | None = None,
+) -> ParquetSourceIR:
+    """Build a structured parquet source reference.
 
     Args:
         path: File path or glob pattern.
-        format: File format; must be ``"parquet"`` or ``"csv"``.
-        **options: Additional format-specific options (e.g. ``delimiter=","``
-            for CSV).
+        hive_partitioning: Whether the parquet source uses hive partitioning.
+        columns: Optional subset of columns to read.
 
     Returns:
-        A ``FileSourceIR`` suitable for ``ms.entity(source=...)`` or
+        A ``ParquetSourceIR`` suitable for ``ms.entity(source=...)`` or
         ``md.entity(source=...)``.
-
-    Raises:
-        ValueError: If ``format`` is not ``"parquet"`` or ``"csv"``.
     """
-    if format not in ("parquet", "csv"):
-        raise ValueError("md.file(format=...) format must be 'parquet' or 'csv'.")
-    return FileSourceIR(path=path, format=format, options=dict(options))
+    return ParquetSourceIR(
+        path=path,
+        hive_partitioning=hive_partitioning,
+        columns=tuple(columns) if columns is not None else None,
+    )
+
+
+def csv(
+    path: str,
+    /,
+    *,
+    header: bool = True,
+    delimiter: str = ",",
+    columns: tuple[str, ...] | list[str] | None = None,
+) -> CsvSourceIR:
+    """Build a structured CSV source reference.
+
+    Args:
+        path: File path or glob pattern.
+        header: Whether the CSV file has a header row. Defaults to True.
+        delimiter: Column delimiter. Defaults to ``","``.
+        columns: Optional subset of columns to read.
+
+    Returns:
+        A ``CsvSourceIR`` suitable for ``ms.entity(source=...)`` or
+        ``md.entity(source=...)``.
+    """
+    return CsvSourceIR(
+        path=path,
+        header=header,
+        delimiter=delimiter,
+        columns=tuple(columns) if columns is not None else None,
+    )

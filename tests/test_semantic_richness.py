@@ -100,7 +100,7 @@ _FACT_NO_METRIC = (
 )
 
 _FACT_WITH_METRIC = _FACT_NO_METRIC + (
-    "@ms.simple_metric(entities=[orders], additivity='additive',\n"
+    "@ms.metric(entities=[orders], additivity='additive',\n"
     "    )\n"
     "def revenue(table):\n    return table.amount.sum()\n"
 )
@@ -120,7 +120,7 @@ _SHARED_KEYS_WITH_REL = (
     "@ms.dimension(entity=customers, name='customer_pk')\n"
     "def customer_pk(table):\n    return table.customer_id\n"
     "ms.relationship(name='orders_to_customers', from_entity=orders,\n"
-    "    to_entity=customers, from_dimensions=[order_customer], to_dimensions=[customer_pk])\n"
+    "    to_entity=customers, keys=[ms.join_on(order_customer, customer_pk)])\n"
 )
 
 
@@ -306,11 +306,11 @@ def test_detect_depth_flags_missing_unit(semantic_project_factory):
             "import marivo.semantic as ms\n"
             "orders = ms.entity(name='orders', datasource='warehouse', "
             "source=ms.table('orders'))\n"
-            "@ms.simple_metric(entities=[orders], name='bare_metric', "
+            "@ms.metric(entities=[orders], name='bare_metric', "
             "additivity='additive', )\n"
             "def bare_metric(orders):\n"
             "    return orders.amount.sum()\n"
-            "@ms.simple_metric(entities=[orders], name='priced_metric', "
+            "@ms.metric(entities=[orders], name='priced_metric', "
             "additivity='additive',  unit='CNY')\n"
             "def priced_metric(orders):\n"
             "    return orders.amount.sum()\n"
@@ -339,7 +339,7 @@ def test_detect_depth_count_metric_gets_count_hint(semantic_project_factory):
             "import marivo.semantic as ms\n"
             "orders = ms.entity(name='orders', datasource='warehouse', "
             "source=ms.table('orders'))\n"
-            "@ms.dimension(kind='measure', entity=orders, additivity='additive')\n"
+            "@ms.measure(entity=orders, additivity='additive')\n"
             "def amount(orders):\n"
             "    return orders.amount\n"
             "order_count = ms.aggregate(measure=amount, agg='count', name='order_count')\n"

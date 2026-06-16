@@ -33,7 +33,7 @@ class ConstraintId(StrEnum):
     UNIQUE_SEMANTIC_NAME = "unique_semantic_name"
     REF_SHAPE = "ref_shape"
     COMPOSITION_SHAPE = "composition_shape"
-    METRIC_DATASETS_REQUIRED = "metric_datasets_required"
+    METRIC_ENTITIES_REQUIRED = "metric_entities_required"
     METRIC_COMPONENT_SCOPE = "metric_component_scope"
     AI_CONTEXT_SCHEMA = "ai_context_schema"
     AST_SINGLE_RETURN = "ast_single_return"
@@ -62,8 +62,8 @@ class ConstraintId(StrEnum):
     MEASURE_ADDITIVITY_REQUIRED = "measure_additivity_required"
     MEASURE_AGGREGATION_VALID = "measure_aggregation_valid"
     LINEAR_UNIT_COMMENSURABLE = "linear_unit_commensurable"
-    METRIC_ROOT_DATASET_REQUIRED = "metric_root_dataset_required"
-    METRIC_ROOT_DATASET_VALID = "metric_root_dataset_valid"
+    METRIC_ROOT_ENTITY_REQUIRED = "metric_root_entity_required"
+    METRIC_ROOT_ENTITY_VALID = "metric_root_entity_valid"
     METRIC_VERIFICATION_MODE_VALID = "metric_verification_mode_valid"
     METRIC_ROOT_ONLY_AGGREGATE = "metric_root_only_aggregate"
     METRIC_FANOUT_POLICY_VALID = "metric_fanout_policy_valid"
@@ -91,6 +91,7 @@ class ConstraintId(StrEnum):
     TIME_FOLD_MISSING = "missing_time_fold"
     STATUS_TIME_DIMENSION_REQUIRED = "status_time_dimension_required"
     STATUS_TIME_DIMENSION_INVALID = "invalid_status_time_dimension"
+    TIME_GRANULARITY_PARSE_COMPATIBLE = "time_granularity_parse_compatible"
     LADDER_ORDER_ENFORCED = "ladder_order_enforced"
 
 
@@ -225,13 +226,13 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Run ms.help('composition') to inspect supported builders; SQL aggregation belongs in the metric body.",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
-    ConstraintId.METRIC_DATASETS_REQUIRED: _constraint(
-        ConstraintId.METRIC_DATASETS_REQUIRED,
-        "missing_datasets",
+    ConstraintId.METRIC_ENTITIES_REQUIRED: _constraint(
+        ConstraintId.METRIC_ENTITIES_REQUIRED,
+        "missing_entities",
         "decorator",
         ("metric",),
-        "Base metrics must declare at least one dataset.",
-        "Dataset-backed metrics read source rows from their declared dataset arguments.",
+        "Base metrics must declare at least one entity.",
+        "Entity-backed metrics read source rows from their declared entity arguments.",
         "Simple metrics need entities=[...]; use ms.ratio/ms.weighted_average/ms.linear "
         "for metrics composed from other metrics.",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
@@ -285,7 +286,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric"),
         "Raw SQL calls are not allowed in Python-track expression bodies.",
         "The Python semantic track stores ibis expressions; SQL text is provenance only.",
-        "Use ibis expressions in the body and put the original SQL in source_sql= on metrics.",
+        "Use ibis expressions in the body and put the original SQL in provenance=ms.from_sql(...) on metrics.",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
@@ -440,15 +441,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Base metrics must declare additivity.",
         "Additivity determines how metric values aggregate across dataset rows.",
-        "Set additivity to 'additive', 'semi_additive', or 'non_additive' on @ms.simple_metric().",
+        "Set additivity to 'additive', 'semi_additive', or 'non_additive' on @ms.metric().",
     ),
     ConstraintId.MEASURE_ADDITIVITY_REQUIRED: _constraint(
         ConstraintId.MEASURE_ADDITIVITY_REQUIRED,
         "missing_measure_additivity",
         "assembly",
         ("metric",),
-        "A measure dimension used by a tier-1 metric must declare additivity.",
-        "Add additivity= to the @ms.dimension(kind='measure', ...) declaration.",
+        "A measure used by a tier-1 metric must declare additivity.",
+        "Add additivity= to the @ms.measure(...) declaration.",
         "Set additivity to 'additive', 'semi_additive', or 'non_additive'.",
     ),
     ConstraintId.MEASURE_AGGREGATION_VALID: _constraint(
@@ -469,23 +470,23 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Addition is only defined on commensurable quantities (CNY + {order} is undefined).",
         "Align the component units, or remodel as a ratio/derived composition.",
     ),
-    ConstraintId.METRIC_ROOT_DATASET_REQUIRED: _constraint(
-        ConstraintId.METRIC_ROOT_DATASET_REQUIRED,
-        "missing_metric_root_dataset",
-        "assembly",
+    ConstraintId.METRIC_ROOT_ENTITY_REQUIRED: _constraint(
+        ConstraintId.METRIC_ROOT_ENTITY_REQUIRED,
+        "missing_metric_root_entity",
+        "decorator",
         ("metric",),
-        "Multi-dataset base metrics must declare root_dataset.",
-        "The root dataset determines join order and grain for cross-dataset metrics.",
-        "Pass root_dataset=<EntityRef> when a metric references more than one dataset.",
+        "@ms.metric(...) with more than one entity requires root_entity=...",
+        "The root entity determines join order and grain for cross-entity metrics.",
+        "Pass root_entity=<EntityRef> when a metric references more than one entity.",
     ),
-    ConstraintId.METRIC_ROOT_DATASET_VALID: _constraint(
-        ConstraintId.METRIC_ROOT_DATASET_VALID,
-        "invalid_metric_root_dataset",
+    ConstraintId.METRIC_ROOT_ENTITY_VALID: _constraint(
+        ConstraintId.METRIC_ROOT_ENTITY_VALID,
+        "invalid_metric_root_entity",
         "assembly",
         ("metric",),
-        "root_dataset must be one of the metric's datasets.",
-        "The root dataset anchors the metric's aggregation grain.",
-        "Use an EntityRef from the metric's datasets list as root_dataset.",
+        "root_entity must be one of the metric's entities.",
+        "The root entity anchors the metric's aggregation grain.",
+        "Use an EntityRef from the metric's entities list as root_entity.",
     ),
     ConstraintId.METRIC_VERIFICATION_MODE_VALID: _constraint(
         ConstraintId.METRIC_VERIFICATION_MODE_VALID,
@@ -493,8 +494,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "assembly",
         ("metric",),
         "Metric provenance must be consistent.",
-        "source_sql enables SQL parity verification; derived metrics must omit source_sql and source_dialect.",
-        "Base metrics: add source_dialect when source_sql is set. Derived metrics: remove source_sql and source_dialect.",
+        "provenance enables SQL parity verification; derived metrics must omit provenance.",
+        "Base metrics: use provenance=ms.from_sql(sql=..., dialect=...). Derived metrics: remove provenance.",
     ),
     ConstraintId.METRIC_ROOT_ONLY_AGGREGATE: _constraint(
         ConstraintId.METRIC_ROOT_ONLY_AGGREGATE,
@@ -610,9 +611,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "source_sql_missing",
         "parity",
         ("metric",),
-        "Parity checks require metric source_sql provenance.",
+        "Parity checks require metric provenance SQL.",
         "The parity engine compares Python metric output with the original SQL.",
-        "Add source_sql=... and source_dialect=... to the metric decorator.",
+        "Add provenance=ms.from_sql(sql=..., dialect=...) to the metric decorator.",
     ),
     ConstraintId.PROVENANCE_VERIFIED: _constraint(
         ConstraintId.PROVENANCE_VERIFIED,
@@ -630,7 +631,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Parity expected and actual values must match.",
         "A mismatch means the Python metric has drifted from source SQL semantics.",
-        "Compare the compiled metric expression with source_sql and update the metric body.",
+        "Compare the compiled metric expression with provenance SQL and update the metric body.",
     ),
     ConstraintId.PARITY_SCALAR_RESULT: _constraint(
         ConstraintId.PARITY_SCALAR_RESULT,
@@ -639,7 +640,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Parity SQL must return exactly one scalar result.",
         "Scalar parity compares one metric value to one source SQL value.",
-        "Adjust source_sql so it returns one row and one column.",
+        "Adjust provenance SQL so it returns one row and one column.",
     ),
     ConstraintId.AMBIGUOUS_REFERENCE: _constraint(
         ConstraintId.AMBIGUOUS_REFERENCE,
@@ -677,6 +678,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Project must be loaded before accessing semantic objects.",
         "Listing and lookup methods require a loaded registry.",
         "Call ms.load() to load the semantic project, then access metrics, entities, or dimensions.",
+    ),
+    ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE: _constraint(
+        ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
+        "invalid_ref",
+        "decorator",
+        ("time_dimension",),
+        "Time granularity must match its parse variant.",
+        "Parse variants make most time combinations unconstructable; the remaining rule is granularity compatibility.",
+        "Use ms.datetime(...) or ms.timestamp(...) for minute/second grains, and use granularity='hour' with ms.hour_prefix(...).",
+        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.LADDER_ORDER_ENFORCED: _constraint(
         ConstraintId.LADDER_ORDER_ENFORCED,

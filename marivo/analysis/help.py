@@ -892,9 +892,9 @@ def _help_catalog_ref(
     if ref.kind == SemanticKind.METRIC:
         ir = reg.metrics.get(ref.ref)
     elif ref.kind == SemanticKind.ENTITY:
-        ir = reg.datasets.get(ref.ref)
+        ir = reg.entities.get(ref.ref)
     elif ref.kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-        ir = reg.fields.get(ref.ref)
+        ir = reg.dimensions.get(ref.ref)
 
     if ir is None:
         _raise(
@@ -927,9 +927,9 @@ def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None
     if ref.kind == SymbolKind.METRIC:
         ir = reg.metrics.get(ref.semantic_id)
     elif ref.kind == SymbolKind.ENTITY:
-        ir = reg.datasets.get(ref.semantic_id)
+        ir = reg.entities.get(ref.semantic_id)
     elif ref.kind in (SymbolKind.DIMENSION, SymbolKind.TIME_DIMENSION):
-        ir = reg.fields.get(ref.semantic_id)
+        ir = reg.dimensions.get(ref.semantic_id)
 
     if ir is None:
         _raise(

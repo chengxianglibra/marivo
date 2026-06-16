@@ -113,13 +113,41 @@ def _semantic_fingerprint(payload: dict[str, object]) -> str:
 
 def _time_dimension_identity_fingerprint(field_ir: DimensionIR) -> str:
     """Fingerprint for time_dimension_identity decisions over a DimensionIR."""
+    from marivo.semantic.ir import (
+        DateParse,
+        DatetimeParse,
+        HourPrefixParse,
+        StrptimeParse,
+        TimestampParse,
+    )
+
+    parse = field_ir.parse
+    data_type_val: str | None = None
+    format_val: str | None = None
+    timezone_val: str | None = None
+    required_prefix_val: str | None = None
+    if isinstance(parse, DateParse):
+        data_type_val = "date"
+    elif isinstance(parse, DatetimeParse):
+        data_type_val = "datetime"
+        timezone_val = parse.timezone
+    elif isinstance(parse, TimestampParse):
+        data_type_val = "timestamp"
+        timezone_val = parse.timezone
+    elif isinstance(parse, StrptimeParse):
+        data_type_val = parse.data_type
+        format_val = parse.format
+        timezone_val = parse.timezone
+    elif isinstance(parse, HourPrefixParse):
+        data_type_val = parse.data_type
+        required_prefix_val = parse.prefix
     return _semantic_fingerprint(
         {
-            "data_type": field_ir.data_type,
+            "data_type": data_type_val,
             "granularity": field_ir.granularity,
-            "format": field_ir.format,
-            "timezone": field_ir.timezone,
-            "required_prefix": field_ir.required_prefix,
+            "format": format_val,
+            "timezone": timezone_val,
+            "required_prefix": required_prefix_val,
             "is_default": field_ir.is_default,
         }
     )
@@ -190,7 +218,7 @@ def _suggest_ref_level(registry: Registry, ref: str) -> str | None:
         object_name = parts[1]
         matching_fields = [
             f_id
-            for f_id, f_ir in registry.fields.items()
+            for f_id, f_ir in registry.dimensions.items()
             if f_ir.domain == domain and f_ir.name == object_name
         ]
         if matching_fields:
@@ -327,11 +355,11 @@ class SemanticProject:
         """Internal: return objects that depend on the named object."""
         reg = _require_registry(self._registry, project=self)
 
-        if name in reg.datasets:
+        if name in reg.entities:
             return self._dependents_dataset(name, reg)
 
-        if name in reg.fields:
-            f_ir = reg.fields[name]
+        if name in reg.dimensions:
+            f_ir = reg.dimensions[name]
             kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
             return _DepNode(semantic_id=name, kind=kind, children=())
 
@@ -353,7 +381,7 @@ class SemanticProject:
         for m_id, m_ir in reg.metrics.items():
             if name in m_ir.entities:
                 ds_children.append(_DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=()))
-        for f_id, f_ir in reg.fields.items():
+        for f_id, f_ir in reg.dimensions.items():
             if f_ir.entity == name:
                 kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
                 ds_children.append(_DepNode(semantic_id=f_id, kind=kind, children=()))
@@ -710,7 +738,7 @@ class SemanticProject:
             )
 
         if kind == "entity":
-            entity = self._registry.datasets.get(ref) if self._registry is not None else None
+            entity = self._registry.entities.get(ref) if self._registry is not None else None
             if entity is None:
                 return self._failed_verify(
                     ref, "entity", "authored_object_invalid", "Object is not loaded."
@@ -785,13 +813,31 @@ class SemanticProject:
                 auto_recorded=(),
             )
         if kind == "time_dimension":
-            field_ir = self._registry.fields.get(ref) if self._registry is not None else None
+            from marivo.semantic.ir import (
+                DateParse,
+                DatetimeParse,
+                HourPrefixParse,
+                StrptimeParse,
+                TimestampParse,
+            )
+
+            field_ir = self._registry.dimensions.get(ref) if self._registry is not None else None
             if field_ir is None:
                 return self._failed_verify(
                     ref, "time_dimension", "authored_object_invalid", "Object is not loaded."
                 )
             fingerprint = _time_dimension_identity_fingerprint(field_ir)
-            chosen = f"{field_ir.data_type}/{field_ir.granularity}"
+            parse = field_ir.parse
+            data_type_str: str | None = None
+            if isinstance(parse, DateParse):
+                data_type_str = "date"
+            elif isinstance(parse, DatetimeParse):
+                data_type_str = "datetime"
+            elif isinstance(parse, TimestampParse):
+                data_type_str = "timestamp"
+            elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
+                data_type_str = parse.data_type
+            chosen = f"{data_type_str}/{field_ir.granularity}"
             recorded = self._auto_record_decision(
                 ref,
                 "time_dimension_identity",
@@ -800,7 +846,7 @@ class SemanticProject:
                 qualifying_sources=("semantic_declaration",),
                 blast_radius=self.blast_radius_of((ref,)),
                 cited_source={
-                    "data_type": field_ir.data_type,
+                    "data_type": data_type_str,
                     "granularity": field_ir.granularity,
                 },
             )
@@ -838,12 +884,12 @@ class SemanticProject:
         """Determine the kind of a semantic ref from the registry."""
         if self._registry is None:
             return "unknown"
-        if ref in self._registry.models:
+        if ref in self._registry.domains:
             return "domain"
-        if ref in self._registry.datasets:
+        if ref in self._registry.entities:
             return "entity"
-        if ref in self._registry.fields:
-            field = self._registry.fields[ref]
+        if ref in self._registry.dimensions:
+            field = self._registry.dimensions[ref]
             return "time_dimension" if field.is_time_dimension else "dimension"
         if ref in self._registry.metrics:
             metric = self._registry.metrics[ref]
@@ -1002,7 +1048,7 @@ class SemanticProject:
         """Check whether ref has a current (non-stale) entity_verified decision in the ledger."""
         if self._registry is None:
             return False
-        entity_ir = self._registry.datasets.get(ref)
+        entity_ir = self._registry.entities.get(ref)
         if entity_ir is None:
             return False
         from marivo.semantic.ledger import LedgerStore
@@ -1021,7 +1067,7 @@ class SemanticProject:
         """Raise LadderOrderError if ref has not passed verify_object."""
         if (
             self._registry is not None
-            and ref in self._registry.datasets
+            and ref in self._registry.entities
             and not self._is_entity_verified(ref)
         ):
             _raise(

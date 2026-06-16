@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from marivo.datasource.ir import EntitySourceIR, FileSourceIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.scan import PartitionResolution, ScanReport
 
 
@@ -36,7 +36,7 @@ def scoped_entity_expression(
     backend:
         Live ibis backend for the entity's datasource.
     entity_source:
-        Physical source descriptor (TableSourceIR or FileSourceIR).
+        Physical source descriptor (TableSourceIR, ParquetSourceIR, or CsvSourceIR).
     partition:
         Explicit partition filter mapping, or ``None`` for unpruned scans.
 
@@ -52,14 +52,22 @@ def scoped_entity_expression(
             expr = backend.table(source.table)
         else:
             expr = backend.table(source.table, database=source.database)
-    elif isinstance(source, FileSourceIR):
-        reader_name = {
-            "parquet": "read_parquet",
-            "csv": "read_csv",
-            "json": "read_json",
-        }[source.format]
-        reader = getattr(backend, reader_name)
-        expr = reader(source.path, **source.options)
+    elif isinstance(source, ParquetSourceIR):
+        pq_kwargs: dict[str, object] = {}
+        if source.hive_partitioning:
+            pq_kwargs["hive_partitioning"] = source.hive_partitioning
+        if source.columns is not None:
+            pq_kwargs["columns"] = list(source.columns)
+        expr = backend.read_parquet(source.path, **pq_kwargs)
+    elif isinstance(source, CsvSourceIR):
+        csv_kwargs: dict[str, object] = {}
+        if not source.header:
+            csv_kwargs["header"] = source.header
+        if source.delimiter != ",":
+            csv_kwargs["delimiter"] = source.delimiter
+        if source.columns is not None:
+            csv_kwargs["columns"] = list(source.columns)
+        expr = backend.read_csv(source.path, **csv_kwargs)
     else:
         raise TypeError(f"Unsupported entity source {type(source).__name__}.")
 

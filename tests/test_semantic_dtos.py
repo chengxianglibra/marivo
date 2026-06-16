@@ -5,17 +5,16 @@ from typing import get_args, get_type_hints
 import pytest
 
 import marivo.semantic as ms
+from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
     AuthoringQuestion,
     AuthoringSourceInput,
-    FileSource,
     TableSource,
     derive_status,
 )
 from marivo.semantic.ir import (
-    FileSourceIR,
     TableSourceIR,
 )
 
@@ -29,9 +28,9 @@ def test_table_source_round_trips_through_ir():
 
 
 def test_file_source_round_trips_through_ir():
-    src = FileSource(path="/data/orders.parquet", format="parquet")
+    src = ParquetSourceIR(path="/data/orders.parquet")
     ir = src.to_ir()
-    assert isinstance(ir, FileSourceIR)
+    assert isinstance(ir, ParquetSourceIR)
     assert ir.path == "/data/orders.parquet"
 
 
@@ -50,50 +49,68 @@ def test_table_source_is_shared_datasource_ir_type():
     }
 
 
-def test_file_source_is_shared_datasource_ir_type():
-    from marivo.datasource.ir import FileSourceIR
-    from marivo.semantic.dtos import FileSource
+def test_parquet_source_is_shared_datasource_ir_type():
+    from marivo.datasource.ir import ParquetSourceIR
 
-    source = FileSource(path="orders.parquet", format="parquet")
+    source = ParquetSourceIR(path="orders.parquet")
 
-    assert isinstance(source, FileSourceIR)
+    assert isinstance(source, ParquetSourceIR)
     assert source.to_ir() is source
     assert source.to_dict() == {
-        "kind": "file",
+        "kind": "parquet",
         "path": "orders.parquet",
-        "format": "parquet",
-        "options": {},
+        "hive_partitioning": False,
+        "columns": None,
     }
 
 
-def test_file_source_supports_json():
-    src = FileSource(path="/data/orders.json", format="json")
-    ir = src.to_ir()
-    assert isinstance(ir, FileSourceIR)
-    assert ir.format == "json"
+def test_csv_source_is_shared_datasource_ir_type():
+    from marivo.datasource.ir import CsvSourceIR
+
+    source = CsvSourceIR(path="orders.csv", delimiter="|")
+
+    assert isinstance(source, CsvSourceIR)
+    assert source.to_ir() is source
+    assert source.to_dict() == {
+        "kind": "csv",
+        "path": "orders.csv",
+        "header": True,
+        "delimiter": "|",
+        "columns": None,
+    }
 
 
-def test_file_source_json_dict_round_trips_through_semantic_ir_parser():
+def test_file_source_parquet_dict_round_trips_through_semantic_ir_parser():
     from marivo.semantic.ir import source_from_dict
 
-    src = FileSource(path="/data/orders.json", format="json")
+    src = ParquetSourceIR(path="/data/orders.parquet", hive_partitioning=True)
 
     restored = source_from_dict(src.to_dict())
 
-    assert isinstance(restored, FileSourceIR)
-    assert restored.path == "/data/orders.json"
-    assert restored.format == "json"
+    assert isinstance(restored, ParquetSourceIR)
+    assert restored.path == "/data/orders.parquet"
+    assert restored.hive_partitioning is True
+
+
+def test_file_source_csv_dict_round_trips_through_semantic_ir_parser():
+    from marivo.semantic.ir import source_from_dict
+
+    src = CsvSourceIR(path="/data/orders.csv", delimiter="\t")
+
+    restored = source_from_dict(src.to_dict())
+
+    assert isinstance(restored, CsvSourceIR)
+    assert restored.path == "/data/orders.csv"
+    assert restored.delimiter == "\t"
 
 
 def test_dataset_source_cannot_mix_table_and_file_fields():
     with pytest.raises(TypeError):
         TableSource(table="orders", path="/data/orders.parquet")  # type: ignore[call-arg]
     with pytest.raises(TypeError):
-        TableSource(table="orders", format="parquet")  # type: ignore[call-arg]
+        ParquetSourceIR(path="/data/orders.parquet", table="orders")  # type: ignore[call-arg]
     with pytest.raises(TypeError):
-        FileSource(path="/data/orders.parquet", format="parquet", table="orders")  # type: ignore[call-arg]
-    with pytest.raises(TypeError):
-        FileSource(path="/data/orders.parquet", format="parquet", database="sales_mart")  # type: ignore[call-arg]
+        ParquetSourceIR(path="/data/orders.parquet", database="sales_mart")  # type: ignore[call-arg]
 
 
 def test_table_source_to_dict_is_json_safe():
@@ -106,12 +123,12 @@ def test_table_source_to_dict_is_json_safe():
 
 
 def test_file_source_to_dict_is_json_safe():
-    src = FileSource(path="/data/orders.parquet", format="parquet")
+    src = ParquetSourceIR(path="/data/orders.parquet", hive_partitioning=True)
     assert src.to_dict() == {
-        "kind": "file",
+        "kind": "parquet",
         "path": "/data/orders.parquet",
-        "format": "parquet",
-        "options": {},
+        "hive_partitioning": True,
+        "columns": None,
     }
 
 

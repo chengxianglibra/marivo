@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 import ibis
 
-from marivo.datasource.ir import FileSourceIR, TableSourceIR, source_to_dict
+from marivo.datasource.ir import EntitySourceIR, source_to_dict
 from marivo.datasource.scan import (
     ColumnInspection,
     JoinSide,
@@ -109,22 +109,22 @@ _COMMON_DATE_FORMATS: tuple[tuple[str, str], ...] = (
 def prepare_domain(project: SemanticProject, *, name: str) -> DomainBrief:
     """Prepare a domain authoring brief from the project registry."""
     reg = _require_registry(project._registry, project=project)
-    domains = sorted(reg.models)
+    domains = sorted(reg.domains)
     domain_summaries = tuple(
         DomainBriefSummary(
             name=domain_name,
-            description=reg.models[domain_name].description,
-            default=reg.models[domain_name].default,
+            description=reg.domains[domain_name].description,
+            default=reg.domains[domain_name].default,
             object_counts={
-                "entity": sum(1 for d in reg.datasets.values() if d.domain == domain_name),
+                "entity": sum(1 for d in reg.entities.values() if d.domain == domain_name),
                 "dimension": sum(
                     1
-                    for f in reg.fields.values()
+                    for f in reg.dimensions.values()
                     if f.domain == domain_name and not f.is_time_dimension
                 ),
                 "time_dimension": sum(
                     1
-                    for f in reg.fields.values()
+                    for f in reg.dimensions.values()
                     if f.domain == domain_name and f.is_time_dimension
                 ),
                 "metric": sum(1 for m in reg.metrics.values() if m.domain == domain_name),
@@ -305,7 +305,7 @@ def prepare_entity(
     project: SemanticProject,
     *,
     datasource: str,
-    source: TableSourceIR | FileSourceIR,
+    source: EntitySourceIR,
     domain: str,
     scope: ScanScope = _DEFAULT_SCOPE,
 ) -> EntityBrief:
@@ -317,7 +317,7 @@ def prepare_entity(
     Args:
         project: The loaded semantic project.
         datasource: Name of the project datasource.
-        source: Physical source (from ``md.table()`` or ``md.file()``).
+        source: Physical source (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
         domain: Target domain name for the entity.
         scope: Bounded scan configuration.
 
@@ -714,9 +714,7 @@ def prepare_cross_entity_metric(
 # ---------------------------------------------------------------------------
 
 
-def _require_entity(
-    project: SemanticProject, entity_ref: str
-) -> tuple[Any, TableSourceIR | FileSourceIR]:
+def _require_entity(project: SemanticProject, entity_ref: str) -> tuple[Any, EntitySourceIR]:
     """Return (EntityIR, source) from the registry, raising if not found."""
     reg = project._registry
     if reg is None:
@@ -730,7 +728,7 @@ def _require_entity(
                 )
             ]
         )
-    entity_ir = reg.datasets.get(entity_ref)
+    entity_ir = reg.entities.get(entity_ref)
     if entity_ir is None:
         from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
@@ -796,7 +794,7 @@ def _entity_matches(
     if reg is None:
         return ()
     matches: list[RegisteredMatch] = []
-    for entity_ir in reg.datasets.values():
+    for entity_ir in reg.entities.values():
         if entity_ir.datasource != datasource:
             continue
         if source_to_dict(entity_ir.source) == source_key:
@@ -905,7 +903,7 @@ def _dimension_matches(
     if reg is None:
         return ()
     matches: list[RegisteredMatch] = []
-    for field_ir in reg.fields.values():
+    for field_ir in reg.dimensions.values():
         if field_ir.entity != entity:
             continue
         # Match by name (dimension name equals column name)
@@ -924,7 +922,7 @@ def _existing_time_dimensions(project: SemanticProject, entity: str) -> tuple[st
         return ()
     return tuple(
         field_ir.semantic_id
-        for field_ir in reg.fields.values()
+        for field_ir in reg.dimensions.values()
         if field_ir.entity == entity and field_ir.is_time_dimension
     )
 
@@ -943,7 +941,7 @@ def _require_dimensions(project: SemanticProject, dimension_refs: tuple[str, ...
                 )
             ]
         )
-    missing = tuple(ref for ref in dimension_refs if ref not in reg.fields)
+    missing = tuple(ref for ref in dimension_refs if ref not in reg.dimensions)
     if missing:
         from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
@@ -966,7 +964,7 @@ def _dimension_columns(project: SemanticProject, dimensions: Sequence[str]) -> t
         return ()
     columns: list[str] = []
     for dim_ref in dimensions:
-        field_ir = reg.fields.get(dim_ref)
+        field_ir = reg.dimensions.get(dim_ref)
         if field_ir is not None:
             columns.append(field_ir.name)
         else:
@@ -990,9 +988,9 @@ def _relationship_matches(
     for rel_ir in reg.relationships.values():
         if rel_ir.from_entity != from_entity or rel_ir.to_entity != to_entity:
             continue
-        if set(rel_ir.from_dimensions) == set(from_dims) and set(rel_ir.to_dimensions) == set(
-            to_dims
-        ):
+        if {k.from_key for k in rel_ir.keys} == set(from_dims) and {
+            k.to_key for k in rel_ir.keys
+        } == set(to_dims):
             matches.append(RegisteredMatch(ref=rel_ir.semantic_id, basis="same_endpoints"))
     return tuple(matches)
 

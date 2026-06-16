@@ -122,11 +122,10 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT SUM(amount) AS total_amount FROM orders",
-        source_dialect="duckdb",
+        provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -136,11 +135,10 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT 999.0 AS total_amount",
-        source_dialect="duckdb",
+        provenance=ms.from_sql(sql="SELECT 999.0 AS total_amount", dialect="duckdb"),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -150,7 +148,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity='additive',
     )
@@ -162,11 +160,10 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT SUM(amount) FROM orders",
-        source_dialect="postgres",
+        provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="postgres"),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -176,20 +173,18 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT SUM(amount) AS revenue FROM orders",
-        source_dialect="duckdb",
+        provenance=ms.from_sql(sql="SELECT SUM(amount) AS revenue FROM orders", dialect="duckdb"),
     )
     def revenue(table):
         return table.amount.sum()
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
-        source_sql="SELECT SUM(amount) AS cost FROM orders",
-        source_dialect="duckdb",
+        provenance=ms.from_sql(sql="SELECT SUM(amount) AS cost FROM orders", dialect="duckdb"),
     )
     def cost(table):
         return table.amount.sum()
@@ -205,7 +200,7 @@ _NO_SOURCE_SQL_METRIC_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.simple_metric(
+    @ms.metric(
         entities=[orders],
         additivity="additive",
     )
@@ -307,11 +302,10 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.simple_metric(
+        @ms.metric(
             entities=[orders],
             additivity="additive",
-            source_sql="SELECT 300.5 AS total_amount",
-            source_dialect="duckdb",
+            provenance=ms.from_sql(sql="SELECT 300.5 AS total_amount", dialect="duckdb"),
         )
         def total_amount(table):
             return table.amount.sum()
@@ -369,27 +363,14 @@ def test_base_metric_without_source_sql_loads_ok(semantic_project_factory) -> No
 
 
 def test_base_metric_source_sql_without_source_dialect_fails_load(semantic_project_factory) -> None:
-    """Base metric with source_sql but no source_dialect should fail."""
-    metrics_py = textwrap.dedent("""\
-        import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    """ms.from_sql() requires both sql and dialect, so it is impossible to
+    create a provenance with source_sql but no source_dialect at the
+    authoring level. This is now enforced by ms.from_sql() signature."""
+    import marivo.semantic as ms
 
-        @ms.simple_metric(
-            entities=[orders],
-            additivity="additive",
-            source_sql="SELECT SUM(amount) FROM orders",
-        )
-        def total_amount(table):
-            return table.amount.sum()
-    """)
-    project = semantic_project_factory(
-        {"sales/_domain.py": _DOMAIN_PY, "sales/metrics.py": metrics_py},
-        load=False,
-    )
-    result = project.load()
-
-    assert not project.is_ready()
-    assert any(error.kind == ErrorKind.SOURCE_SQL_MISSING for error in result.errors)
+    # ms.from_sql() requires dialect, so this is enforced by construction
+    with pytest.raises(TypeError):
+        ms.from_sql(sql="SELECT 1")  # type: ignore[call-arg]
 
 
 def test_derived_metric_with_source_sql_fails_load(
@@ -401,7 +382,7 @@ def test_derived_metric_with_source_sql_fails_load(
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.simple_metric(
+        @ms.metric(
             entities=[orders],
             additivity="additive",
         )
@@ -458,12 +439,11 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
 
         orders_b = ms.entity(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
 
-        @ms.simple_metric(
+        @ms.metric(
             entities=[orders_a, orders_b],
             root_entity=orders_a,
             additivity="additive",
-            source_sql="SELECT SUM(amount) FROM orders",
-            source_dialect="duckdb",
+            provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="duckdb"),
         )
         def total_amount(table_a, table_b):
             return table_a.amount.sum()
@@ -575,20 +555,18 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.simple_metric(
+        @ms.metric(
             entities=[orders],
             additivity="additive",
-            source_sql="SELECT SUM(amount) FROM orders",
-            source_dialect="duckdb",
+            provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="duckdb"),
         )
         def revenue(table):
             return table.amount.sum()
 
-        @ms.simple_metric(
+        @ms.metric(
             entities=[orders],
             additivity="additive",
-            source_sql="SELECT 999.0 AS cost",
-            source_dialect="duckdb",
+            provenance=ms.from_sql(sql="SELECT 999.0 AS cost", dialect="duckdb"),
         )
         def cost(table):
             return table.amount.sum()
@@ -647,16 +625,15 @@ def test_derived_propagation_verified_and_no_source_sql(
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-        @ms.simple_metric(
+        @ms.metric(
             entities=[orders],
             additivity="additive",
-            source_sql="SELECT SUM(amount) FROM orders",
-            source_dialect="duckdb",
+            provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="duckdb"),
         )
         def revenue(table):
             return table.amount.sum()
 
-        @ms.simple_metric(
+        @ms.metric(
             entities=[orders],
             additivity="additive",
         )

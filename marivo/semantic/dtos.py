@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Literal
 
 from marivo.render import format_bounded_card, result_repr
 from marivo.semantic.ir import (
+    CsvSourceIR,
     EntitySourceIR,
-    FileSourceIR,
+    ParquetSourceIR,
     TableSourceIR,
 )
 
@@ -52,11 +53,11 @@ AuthoringObjectKind = Literal[
 AuthoringSourceRole = Literal["primary", "from", "to", "component"]
 
 ReadinessEffect = Literal["blocks", "warns", "advisory"]
-FileFormat = Literal["parquet", "csv", "json"]
+FileFormat = Literal["parquet", "csv"]
 
 
 TableSource = TableSourceIR
-FileSource = FileSourceIR
+FileSource = ParquetSourceIR | CsvSourceIR
 DatasetSource = EntitySourceIR
 
 

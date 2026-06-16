@@ -1,4 +1,4 @@
-"""End-to-end tests for unit on measure dimensions and loader propagation."""
+"""End-to-end tests for unit on measures and loader propagation."""
 
 from __future__ import annotations
 
@@ -8,39 +8,31 @@ import pytest
 
 from marivo.semantic.ir import (
     AiContextIR,
-    DimensionIR,
-    DimensionKind,
+    MeasureIR,
     SourceLocation,
 )
 
 
-def test_dimension_ir_has_unit_field() -> None:
-    names = {f.name for f in dataclasses.fields(DimensionIR)}
+def test_measure_ir_has_unit_field() -> None:
+    names = {f.name for f in dataclasses.fields(MeasureIR)}
     assert "unit" in names
 
 
-def test_dimension_ir_unit_only_on_measure() -> None:
+def test_measure_ir_unit_allowed() -> None:
     loc = SourceLocation(file="t.py", line=1)
-    base = {
-        "semantic_id": "sales.orders.amount",
-        "domain": "sales",
-        "entity": "sales.orders",
-        "name": "amount",
-        "description": None,
-        "ai_context": AiContextIR(),
-        "is_time_dimension": False,
-        "data_type": None,
-        "granularity": None,
-        "required_prefix": None,
-        "python_symbol": "amount",
-        "location": loc,
-    }
-    # measure + unit is allowed
-    measure = DimensionIR(kind=DimensionKind.MEASURE, unit="CNY", **base)
+    measure = MeasureIR(
+        semantic_id="sales.orders.amount",
+        domain="sales",
+        entity="sales.orders",
+        name="amount",
+        description=None,
+        ai_context=AiContextIR(),
+        additivity="additive",
+        unit="CNY",
+        python_symbol="amount",
+        location=loc,
+    )
     assert measure.unit == "CNY"
-    # categorical + unit is rejected
-    with pytest.raises(ValueError, match="unit is only valid on measure"):
-        DimensionIR(kind=DimensionKind.CATEGORICAL, unit="CNY", **base)
 
 
 _DIM_UNIT = """\
@@ -50,7 +42,7 @@ import marivo.datasource as md
 wh = md.ref("wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue", unit="USD")
@@ -61,7 +53,7 @@ def test_dimension_unit_stored_on_ir() -> None:
     from tests.shared_fixtures import load_inline_semantic
 
     with load_inline_semantic(_DIM_UNIT) as result:
-        assert result.registry.fields["test.orders.amount"].unit == "CNY"
+        assert result.registry.measures["test.orders.amount"].unit == "CNY"
 
 
 def test_aggregate_unit_override_lands_on_metric_ir() -> None:
@@ -73,17 +65,14 @@ def test_aggregate_unit_override_lands_on_metric_ir() -> None:
 
 
 def test_dimension_unit_on_categorical_is_rejected() -> None:
-    # The measure-only guard fires at the ms.dimension(...) factory call, before
-    # entity resolution, so it needs an active loader context (authoring_session)
-    # but no real entity. Mirrors the decorator-guard tests in
-    # tests/test_metric_split_foundation.py.
+    # The unit parameter is not accepted by ms.dimension at all;
+    # it belongs on ms.measure(). A TypeError is raised at the call site.
     import marivo.semantic as ms
-    from marivo.semantic.errors import SemanticDecoratorError
     from tests.shared_fixtures import authoring_session
 
     with (
         authoring_session(domain="sales"),
-        pytest.raises(SemanticDecoratorError, match="unit is only valid on kind='measure'"),
+        pytest.raises(TypeError, match="unit"),
     ):
         ms.dimension(entity="sales.orders", unit="CNY")
 
@@ -95,10 +84,10 @@ import marivo.datasource as md
 wh = md.ref("wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
 
-@ms.dimension(kind="measure", entity=orders, additivity="non_additive")
+@ms.measure(entity=orders, additivity="non_additive")
 def latency(orders): return orders.latency_ms
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
@@ -137,7 +126,7 @@ import marivo.datasource as md
 wh = md.ref("wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
@@ -169,10 +158,10 @@ import marivo.datasource as md
 wh = md.ref("wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive", unit="{order}")
+@ms.measure(entity=orders, additivity="additive", unit="{order}")
 def lines(orders): return orders.line_count
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
@@ -196,7 +185,7 @@ import marivo.datasource as md
 wh = md.ref("wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
 
 gross = ms.aggregate(measure=amount, agg="sum", name="gross")
@@ -220,10 +209,10 @@ import marivo.datasource as md
 wh = md.ref("wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive", unit="CNY")
+@ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive", unit="{order}")
+@ms.measure(entity=orders, additivity="additive", unit="{order}")
 def lines(orders): return orders.line_count
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")

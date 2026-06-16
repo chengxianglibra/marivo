@@ -3,7 +3,7 @@
 Covers: Additivity/SemiAdditive/AggKind types, Composition union,
 MetricIR rewrite, DimensionIR.additivity, _BaseRef.__call__ teaching
 error, and the full authoring surface (ms.semi_additive, ms.aggregate,
-@ms.simple_metric, ms.ratio/ms.weighted_average/ms.linear,
+@ms.metric, ms.ratio/ms.weighted_average/ms.linear,
 dimension(additivity=)).
 """
 
@@ -12,7 +12,7 @@ import pytest
 import marivo.semantic as ms
 from marivo.semantic import authoring, ir
 from marivo.semantic.errors import SemanticDecoratorError
-from marivo.semantic.ir import AiContextIR, ProvenanceIR, SourceLocation
+from marivo.semantic.ir import AiContextIR, SourceLocation
 from tests.shared_fixtures import authoring_session
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ def _mk(**over):
         "measure": None,
         "composition": None,
         "additivity": "additive",
-        "provenance": ProvenanceIR(source_sql=None, source_dialect=None),
+        "provenance": None,
         "description": None,
         "ai_context": AiContextIR(),
         "body_ast_hash": "h",
@@ -120,37 +120,46 @@ def test_metricir_derived_ok_and_rejects_entities():
 
 
 # ---------------------------------------------------------------------------
-# Task 5: DimensionIR.additivity
+# Task 5: MeasureIR.additivity
 # ---------------------------------------------------------------------------
 
 
-def _dim(kind, additivity):
-    return ir.DimensionIR(
+def _measure(additivity):
+    return ir.MeasureIR(
         semantic_id="d.e.x",
         domain="d",
         entity="d.e",
         name="x",
         description=None,
         ai_context=AiContextIR(),
-        is_time_dimension=(kind == ir.DimensionKind.TIME),
-        kind=kind,
-        data_type=None,
-        granularity=None,
-        required_prefix=None,
+        additivity=additivity,
+        unit=None,
         python_symbol="x",
         location=_loc(),
-        additivity=additivity,
     )
 
 
-def test_measure_dimension_carries_additivity():
-    d = _dim(ir.DimensionKind.MEASURE, "additive")
-    assert d.additivity == "additive"
+def test_measure_ir_carries_additivity():
+    m = _measure("additive")
+    assert m.additivity == "additive"
 
 
-def test_non_measure_dimension_rejects_additivity():
-    with pytest.raises(ValueError):
-        _dim(ir.DimensionKind.CATEGORICAL, "additive")
+def test_categorical_dimension_rejects_additivity():
+    with pytest.raises(TypeError):
+        ir.DimensionIR(
+            semantic_id="d.e.x",
+            domain="d",
+            entity="d.e",
+            name="x",
+            description=None,
+            ai_context=AiContextIR(),
+            is_time_dimension=False,
+            kind=ir.DimensionKind.CATEGORICAL,
+            granularity=None,
+            python_symbol="x",
+            location=_loc(),
+            additivity="additive",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -201,14 +210,14 @@ def test_aggregate_builds_tier1_simple_metric():
 
 
 # ---------------------------------------------------------------------------
-# Task 9: @ms.simple_metric (tier-2 body)
+# Task 9: @ms.metric (tier-2 body)
 # ---------------------------------------------------------------------------
 
 
 def test_simple_metric_body_form_declares_additivity():
     with authoring_session(domain="sales") as sess:
 
-        @authoring.simple_metric(entities=["sales.orders"], additivity="additive")
+        @authoring.metric(entities=["sales.orders"], additivity="additive")
         def gmv(orders):
             return (orders.price * orders.qty).sum()
 
@@ -222,7 +231,7 @@ def test_simple_metric_body_form_declares_additivity():
 def test_simple_metric_semi_additive_via_builder():
     with authoring_session(domain="ops") as sess:
 
-        @authoring.simple_metric(
+        @authoring.metric(
             entities=["ops.samples"],
             additivity=authoring.semi_additive(over="ops.samples.t", fold="max"),
         )
@@ -288,7 +297,8 @@ def test_linear_signs_and_min_terms():
 def test_package_exports_new_surface():
     for present in (
         "aggregate",
-        "simple_metric",
+        "metric",
+        "measure",
         "ratio",
         "weighted_average",
         "linear",

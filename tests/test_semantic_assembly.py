@@ -26,18 +26,23 @@ from marivo.semantic.ir import (
     DatasourceAiContextIR,
     DatasourceIR,
     DatasourceSourceLocation,
+    DateParse,
     DimensionIR,
     DimensionKind,
     DomainIR,
     EntityIR,
+    HourPrefixParse,
+    JoinKey,
     MetricIR,
-    ProvenanceIR,
     RatioComposition,
     RelationshipIR,
     SemiAdditive,
     SourceLocation,
+    SqlProvenance,
+    StrptimeParse,
     TableSourceIR,
     TimeFoldIR,
+    TimestampParse,
 )
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.validator import Registry, assembly_validate
@@ -52,7 +57,7 @@ _LOC = SourceLocation(file="<test>", line=0)
 def _make_registry(**overrides: object) -> Registry:
     """Create a Registry with some standard test objects."""
     registry = Registry()
-    registry.models["sales"] = DomainIR(
+    registry.domains["sales"] = DomainIR(
         name="sales",
         description=None,
         default=True,
@@ -70,7 +75,7 @@ def _make_registry(**overrides: object) -> Registry:
         python_symbol="wh",
         location=DatasourceSourceLocation(file="<test>", line=0),
     )
-    registry.datasets["sales.orders"] = EntityIR(
+    registry.entities["sales.orders"] = EntityIR(
         semantic_id="sales.orders",
         domain="sales",
         name="orders",
@@ -82,7 +87,7 @@ def _make_registry(**overrides: object) -> Registry:
         python_symbol="orders",
         location=_LOC,
     )
-    registry.fields["sales.orders.amount"] = DimensionIR(
+    registry.dimensions["sales.orders.amount"] = DimensionIR(
         semantic_id="sales.orders.amount",
         domain="sales",
         entity="sales.orders",
@@ -91,13 +96,10 @@ def _make_registry(**overrides: object) -> Registry:
         ai_context=AiContextIR(),
         is_time_dimension=False,
         kind=DimensionKind.CATEGORICAL,
-        data_type=None,
-        granularity=None,
-        required_prefix=None,
         python_symbol="amount",
         location=_LOC,
     )
-    registry.fields["sales.orders.order_date"] = DimensionIR(
+    registry.dimensions["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
         domain="sales",
         entity="sales.orders",
@@ -106,9 +108,8 @@ def _make_registry(**overrides: object) -> Registry:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="date",
         granularity="day",
-        required_prefix=None,
+        parse=DateParse(),
         python_symbol="order_date",
         location=_LOC,
     )
@@ -121,7 +122,7 @@ def _make_registry(**overrides: object) -> Registry:
         aggregation=None,
         measure=None,
         composition=None,
-        provenance=ProvenanceIR(),
+        provenance=None,
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc123",
@@ -140,7 +141,7 @@ def _make_registry(**overrides: object) -> Registry:
 def test_missing_entity_ref_on_dimension() -> None:
     registry = _make_registry()
     # Add a field referencing a non-existent dataset
-    registry.fields["sales.nonexistent.bad_field"] = DimensionIR(
+    registry.dimensions["sales.nonexistent.bad_field"] = DimensionIR(
         semantic_id="sales.nonexistent.bad_field",
         domain="sales",
         entity="sales.nonexistent",
@@ -149,9 +150,6 @@ def test_missing_entity_ref_on_dimension() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=False,
         kind=DimensionKind.CATEGORICAL,
-        data_type=None,
-        granularity=None,
-        required_prefix=None,
         python_symbol="bad_field",
         location=_LOC,
     )
@@ -170,7 +168,7 @@ def test_missing_entity_ref_on_metric() -> None:
         aggregation=None,
         measure=None,
         composition=None,
-        provenance=ProvenanceIR(),
+        provenance=None,
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
@@ -184,7 +182,7 @@ def test_missing_entity_ref_on_metric() -> None:
 
 def test_missing_datasource_ref_on_dataset() -> None:
     registry = _make_registry()
-    registry.datasets["sales.bad_ds"] = EntityIR(
+    registry.entities["sales.bad_ds"] = EntityIR(
         semantic_id="sales.bad_ds",
         domain="sales",
         name="bad_ds",
@@ -219,7 +217,7 @@ def test_missing_metric_ref_in_decomposition() -> None:
             numerator="sales.nonexistent",
             denominator="sales.revenue",
         ),
-        provenance=ProvenanceIR(),
+        provenance=None,
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
@@ -238,7 +236,7 @@ def test_missing_metric_ref_in_decomposition() -> None:
 
 def test_timestamp_hour_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -247,9 +245,8 @@ def test_timestamp_hour_time_field_without_required_prefix() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="timestamp",
         granularity="hour",
-        required_prefix=None,
+        parse=TimestampParse(timezone="UTC"),
         python_symbol="order_hour",
         location=_LOC,
     )
@@ -259,7 +256,7 @@ def test_timestamp_hour_time_field_without_required_prefix() -> None:
 
 def test_hour_only_string_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -268,12 +265,10 @@ def test_hour_only_string_time_field_without_required_prefix() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="string",
         granularity="hour",
-        required_prefix=None,
+        parse=StrptimeParse(format="", data_type="string"),
         python_symbol="order_hour",
         location=_LOC,
-        format=None,
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
@@ -281,7 +276,7 @@ def test_hour_only_string_time_field_without_required_prefix() -> None:
 
 def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -290,12 +285,10 @@ def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="integer",
         granularity="hour",
-        required_prefix=None,
+        parse=StrptimeParse(format="", data_type="integer"),
         python_symbol="order_hour",
         location=_LOC,
-        format=None,
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
@@ -303,7 +296,7 @@ def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
 
 def test_complete_hour_string_time_field_without_required_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -312,12 +305,10 @@ def test_complete_hour_string_time_field_without_required_prefix() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="string",
         granularity="hour",
-        required_prefix=None,
+        parse=StrptimeParse(format="%Y%m%d%H", data_type="string"),
         python_symbol="order_hour",
         location=_LOC,
-        format="%Y%m%d%H",
     )
     errors, _warnings = assembly_validate(registry)
     assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
@@ -326,7 +317,7 @@ def test_complete_hour_string_time_field_without_required_prefix() -> None:
 def test_strptime_hour_only_without_required_prefix() -> None:
     """format='%H' is an hour-only format and requires required_prefix."""
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -335,12 +326,10 @@ def test_strptime_hour_only_without_required_prefix() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="string",
         granularity="hour",
-        required_prefix=None,
+        parse=StrptimeParse(format="%H", data_type="string"),
         python_symbol="order_hour",
         location=_LOC,
-        format="%H",
     )
     errors, _warnings = assembly_validate(registry)
     assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
@@ -349,7 +338,7 @@ def test_strptime_hour_only_without_required_prefix() -> None:
 def test_strptime_hour_with_date_without_required_prefix() -> None:
     """format='%Y-%m-%d %H' includes date and does NOT require required_prefix."""
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -358,12 +347,10 @@ def test_strptime_hour_with_date_without_required_prefix() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="string",
         granularity="hour",
-        required_prefix=None,
+        parse=StrptimeParse(format="%Y-%m-%d %H", data_type="string"),
         python_symbol="order_hour",
         location=_LOC,
-        format="%Y-%m-%d %H",
     )
     errors, _warnings = assembly_validate(registry)
     assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
@@ -371,7 +358,7 @@ def test_strptime_hour_with_date_without_required_prefix() -> None:
 
 def test_hour_time_field_with_required_prefix_ok() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -380,9 +367,8 @@ def test_hour_time_field_with_required_prefix_ok() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="timestamp",
         granularity="hour",
-        required_prefix="order_date",  # Points to valid field
+        parse=HourPrefixParse(prefix="order_date", data_type="string"),
         python_symbol="order_hour",
         location=_LOC,
     )
@@ -392,7 +378,7 @@ def test_hour_time_field_with_required_prefix_ok() -> None:
 
 def test_hour_time_field_with_required_prefix_name_ok() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -401,12 +387,10 @@ def test_hour_time_field_with_required_prefix_name_ok() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="string",
         granularity="hour",
-        required_prefix="order_date",
+        parse=HourPrefixParse(prefix="order_date", data_type="string"),
         python_symbol="order_hour",
         location=_LOC,
-        format=None,
     )
     errors, _warnings = assembly_validate(registry)
     assert not any(e.kind == ErrorKind.MISSING_DIMENSION_REF for e in errors)
@@ -414,7 +398,7 @@ def test_hour_time_field_with_required_prefix_name_ok() -> None:
 
 def test_hour_time_field_with_invalid_prefix() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -423,9 +407,8 @@ def test_hour_time_field_with_invalid_prefix() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="timestamp",
         granularity="hour",
-        required_prefix="sales.orders.nonexistent_date",  # Not in registry
+        parse=HourPrefixParse(prefix="sales.orders.nonexistent_date", data_type="string"),
         python_symbol="order_hour",
         location=_LOC,
     )
@@ -438,7 +421,7 @@ def test_hour_time_field_with_invalid_prefix() -> None:
 
 def test_hour_time_dimension_prefix_must_reference_time_dimension() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_hour"] = DimensionIR(
+    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
         domain="sales",
         entity="sales.orders",
@@ -447,12 +430,10 @@ def test_hour_time_dimension_prefix_must_reference_time_dimension() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="string",
         granularity="hour",
-        required_prefix="amount",
+        parse=HourPrefixParse(prefix="amount", data_type="string"),
         python_symbol="order_hour",
         location=_LOC,
-        format=None,
     )
     errors, _warnings = assembly_validate(registry)
     assert any(
@@ -479,7 +460,7 @@ def _raw_partition_time_field(table):
 
 def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_date"] = DimensionIR(
+    registry.dimensions["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
         domain="sales",
         entity="sales.orders",
@@ -488,9 +469,8 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="date",
         granularity="day",
-        required_prefix=None,
+        parse=DateParse(),
         python_symbol="order_date",
         location=_LOC,
     )
@@ -505,7 +485,7 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
 
 def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     registry = _make_registry()
-    registry.fields["sales.orders.order_date"] = DimensionIR(
+    registry.dimensions["sales.orders.order_date"] = DimensionIR(
         semantic_id="sales.orders.order_date",
         domain="sales",
         entity="sales.orders",
@@ -514,12 +494,10 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="string",
         granularity="day",
-        required_prefix=None,
+        parse=StrptimeParse(format="%Y%m%d", data_type="string"),
         python_symbol="order_date",
         location=_LOC,
-        format="%Y%m%d",
     )
 
     errors, warnings = assembly_validate(
@@ -543,8 +521,7 @@ def test_invalid_relationship_from_dataset() -> None:
         name="bad_rel",
         from_entity="sales.nonexistent",
         to_entity="sales.orders",
-        from_dimensions=("sales.orders.amount",),
-        to_dimensions=("sales.orders.amount",),
+        keys=(JoinKey(from_key="sales.orders.amount", to_key="sales.orders.amount"),),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -561,8 +538,7 @@ def test_invalid_relationship_to_dataset() -> None:
         name="bad_rel",
         from_entity="sales.orders",
         to_entity="sales.nonexistent",
-        from_dimensions=("sales.orders.amount",),
-        to_dimensions=("sales.orders.amount",),
+        keys=(JoinKey(from_key="sales.orders.amount", to_key="sales.orders.amount"),),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -579,8 +555,7 @@ def test_invalid_relationship_dimension_ref() -> None:
         name="bad_rel",
         from_entity="sales.orders",
         to_entity="sales.orders",
-        from_dimensions=("sales.orders.nonexistent_field",),
-        to_dimensions=("sales.orders.amount",),
+        keys=(JoinKey(from_key="sales.orders.nonexistent_field", to_key="sales.orders.amount"),),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -597,8 +572,7 @@ def test_valid_relationship_no_errors() -> None:
         name="self_rel",
         from_entity="sales.orders",
         to_entity="sales.orders",
-        from_dimensions=("sales.orders.amount",),
-        to_dimensions=("sales.orders.amount",),
+        keys=(JoinKey(from_key="sales.orders.amount", to_key="sales.orders.amount"),),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -617,17 +591,22 @@ def test_relationship_field_arity_mismatch() -> None:
         name="bad_arity",
         from_entity="sales.orders",
         to_entity="sales.orders",
-        from_dimensions=("sales.orders.amount", "sales.orders.order_date"),
-        to_dimensions=("sales.orders.amount",),
+        keys=(
+            JoinKey(from_key="sales.orders.amount", to_key="sales.orders.amount"),
+            JoinKey(from_key="sales.orders.order_date", to_key="sales.orders.amount"),
+        ),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    assert any(
-        e.kind == ErrorKind.MISSING_DIMENSION_REF and "sales.bad_arity" in e.semantic_refs
-        for e in errors
-    )
+    # The second key's to_key matches, so no arity mismatch error from the
+    # JoinKey-based schema. The test originally checked for arity mismatch;
+    # with JoinKey pairs, each key is self-contained so there's no structural
+    # arity issue. Just check that there are no MISSING_DIMENSION_REF errors
+    # pointing at bad_arity.
+    rel_errors = [e for e in errors if "sales.bad_arity" in e.semantic_refs]
+    assert len(rel_errors) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -650,7 +629,7 @@ def test_metric_cycle_detected() -> None:
             numerator="sales.metric_b",
             denominator="sales.revenue",
         ),
-        provenance=ProvenanceIR(),
+        provenance=None,
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
@@ -670,7 +649,7 @@ def test_metric_cycle_detected() -> None:
             numerator="sales.metric_a",
             denominator="sales.revenue",
         ),
-        provenance=ProvenanceIR(),
+        provenance=None,
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="def",
@@ -697,7 +676,7 @@ def test_no_cycle_when_valid() -> None:
             numerator="sales.revenue",
             denominator="sales.revenue",
         ),
-        provenance=ProvenanceIR(),
+        provenance=None,
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="ghi",
@@ -725,8 +704,9 @@ def test_sql_parity_metric_without_source_dialect_errors() -> None:
         aggregation=None,
         measure=None,
         composition=None,
-        provenance=ProvenanceIR(
-            source_sql="SELECT SUM(amount) FROM orders",
+        provenance=SqlProvenance(
+            sql="SELECT SUM(amount) FROM orders",
+            dialect="",
         ),
         description=None,
         ai_context=AiContextIR(),
@@ -755,7 +735,7 @@ def test_no_source_sql_no_error() -> None:
         aggregation=None,
         measure=None,
         composition=None,
-        provenance=ProvenanceIR(),
+        provenance=None,
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
@@ -773,7 +753,7 @@ def test_no_source_sql_no_warning() -> None:
     registry = _make_registry()
     registry.metrics["sales.revenue"] = dataclasses.replace(
         registry.metrics["sales.revenue"],
-        provenance=ProvenanceIR(),
+        provenance=None,
     )
     errors, warnings = assembly_validate(registry)
     assert not errors
@@ -845,7 +825,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.simple_metric(entities=["sales.orders"], additivity="additive", )
+        @ms.metric(entities=["sales.orders"], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -859,14 +839,14 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     assert project.is_ready()
     reg = project._registry
     assert reg is not None
-    assert "sales.orders" in reg.datasets
+    assert "sales.orders" in reg.entities
     assert "sales.revenue" in reg.metrics
 
 
 def test_duplicate_default_time_dimension_raises() -> None:
     registry = _make_registry()
     # Add a second time field with is_default=True on the same dataset
-    registry.fields["sales.orders.order_date2"] = DimensionIR(
+    registry.dimensions["sales.orders.order_date2"] = DimensionIR(
         semantic_id="sales.orders.order_date2",
         domain="sales",
         entity="sales.orders",
@@ -875,16 +855,15 @@ def test_duplicate_default_time_dimension_raises() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="date",
         granularity="day",
-        required_prefix=None,
+        parse=DateParse(),
         python_symbol="order_date2",
         location=_LOC,
         is_default=True,
     )
     # Mark the existing order_date as default too
-    registry.fields["sales.orders.order_date"] = dataclasses.replace(
-        registry.fields["sales.orders.order_date"],
+    registry.dimensions["sales.orders.order_date"] = dataclasses.replace(
+        registry.dimensions["sales.orders.order_date"],
         is_default=True,
     )
 
@@ -900,7 +879,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.simple_metric(entities=["sales.nonexistent"], additivity="additive", )
+        @ms.metric(entities=["sales.nonexistent"], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -931,9 +910,9 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     assert project.is_ready()
     reg = project._registry
     assert reg is not None
-    assert "sales" in reg.models
+    assert "sales" in reg.domains
     assert "wh" in reg.datasources
-    assert "sales.orders" in reg.datasets
+    assert "sales.orders" in reg.entities
     side = project._sidecar
     assert side is not None
     assert "sales.orders" not in side
@@ -945,7 +924,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
-        @ms.simple_metric(
+        @ms.metric(
             entities=[orders],
             additivity='additive',
         )
@@ -976,9 +955,8 @@ def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> 
 
         @ms.time_dimension(
             entity="sales.orders",
-            data_type="string",
             granularity="hour",
-            date_format="%H",
+            parse=ms.strptime("%H", data_type="string"),
         )
         def order_hour(table):
             return table.order_hour
@@ -1008,8 +986,7 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
             name="bad_rel",
             from_entity="sales.nonexistent",
             to_entity="sales.also_nonexistent",
-            from_dimensions=["sales.orders.f1"],
-            to_dimensions=["sales.orders.f2"],
+            keys=[ms.join_on("sales.orders.f1", "sales.orders.f2")],
         )
     """)
     project = semantic_project_factory(
@@ -1033,9 +1010,8 @@ def test_field_ir_accepts_is_default_flag() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="date",
         granularity="day",
-        required_prefix=None,
+        parse=DateParse(),
         python_symbol="log_date",
         location=_LOC,
         is_default=True,
@@ -1053,9 +1029,8 @@ def test_field_ir_is_default_defaults_to_false() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="date",
         granularity="day",
-        required_prefix=None,
+        parse=DateParse(),
         python_symbol="log_date",
         location=_LOC,
     )
@@ -1069,7 +1044,7 @@ def test_field_ir_is_default_defaults_to_false() -> None:
 
 def test_missing_datasource_ref_includes_did_you_mean() -> None:
     registry = _make_registry()
-    registry.datasets["sales.bad_ds"] = EntityIR(
+    registry.entities["sales.bad_ds"] = EntityIR(
         semantic_id="sales.bad_ds",
         domain="sales",
         name="bad_ds",
@@ -1090,7 +1065,7 @@ def test_missing_datasource_ref_includes_did_you_mean() -> None:
 
 def test_missing_entity_ref_on_dimension_includes_did_you_mean() -> None:
     registry = _make_registry()
-    registry.fields["sales.ordrs.bad_field"] = DimensionIR(
+    registry.dimensions["sales.ordrs.bad_field"] = DimensionIR(
         semantic_id="sales.ordrs.bad_field",
         domain="sales",
         entity="sales.ordrs",  # close to "sales.orders"
@@ -1099,9 +1074,6 @@ def test_missing_entity_ref_on_dimension_includes_did_you_mean() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=False,
         kind=DimensionKind.CATEGORICAL,
-        data_type=None,
-        granularity=None,
-        required_prefix=None,
         python_symbol="bad_field",
         location=_LOC,
     )
@@ -1126,7 +1098,7 @@ def test_missing_metric_ref_includes_did_you_mean() -> None:
             numerator="sales.revenu",
             denominator="sales.revenue",
         ),
-        provenance=ProvenanceIR(),
+        provenance=None,
         description=None,
         ai_context=AiContextIR(),
         body_ast_hash="abc",
@@ -1149,8 +1121,7 @@ def test_missing_dimension_ref_includes_did_you_mean() -> None:
         name="rel",
         from_entity="sales.orders",
         to_entity="sales.orders",
-        from_dimensions=("sales.orders.amoun",),  # close to "sales.orders.amount"
-        to_dimensions=("sales.orders.amount",),
+        keys=(JoinKey(from_key="sales.orders.amoun", to_key="sales.orders.amount"),),
         description=None,
         ai_context=AiContextIR(),
         location=_LOC,

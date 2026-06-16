@@ -27,13 +27,19 @@ from marivo.semantic.errors import (
     WarningKind,
 )
 from marivo.semantic.ir import (
+    DateParse,
+    DatetimeParse,
     DimensionIR,
     DomainIR,
     EntityIR,
+    HourPrefixParse,
     LinearComposition,
+    MeasureIR,
     MetricIR,
     RelationshipIR,
     SnapshotVersioningIR,
+    StrptimeParse,
+    TimestampParse,
     ValidityVersioningIR,
     composition_components,
 )
@@ -56,10 +62,11 @@ __all__ = [
 class Registry:
     """Holds all loaded IR objects, indexed by semantic_id."""
 
-    models: dict[str, DomainIR] = field(default_factory=dict)
+    domains: dict[str, DomainIR] = field(default_factory=dict)
     datasources: dict[str, DatasourceIR] = field(default_factory=dict)
-    datasets: dict[str, EntityIR] = field(default_factory=dict)
-    fields: dict[str, DimensionIR] = field(default_factory=dict)
+    entities: dict[str, EntityIR] = field(default_factory=dict)
+    dimensions: dict[str, DimensionIR] = field(default_factory=dict)
+    measures: dict[str, MeasureIR] = field(default_factory=dict)
     metrics: dict[str, MetricIR] = field(default_factory=dict)
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
 
@@ -85,15 +92,18 @@ def _subday_granularity_needs_time(field_ir: DimensionIR) -> bool:
     """True when a sub-day granularity is declared on a field that cannot carry time."""
     if not field_ir.is_time_dimension or field_ir.granularity not in _SUBDAY_GRANULARITIES:
         return False
-    if field_ir.data_type in {"datetime", "timestamp"}:
+    parse = field_ir.parse
+    if isinstance(parse, (DatetimeParse, TimestampParse)):
         return False
-    if field_ir.data_type in {"string", "integer"}:
+    if isinstance(parse, (StrptimeParse, HourPrefixParse)):
         # Hour-only fields with a required_prefix carry time via the prefix.
-        if field_ir.granularity == "hour" and field_ir.required_prefix:
+        if field_ir.granularity == "hour" and isinstance(parse, HourPrefixParse):
             return False
-        fmt = field_ir.format or ""
-        return not any(hint in fmt for hint in _TIME_BEARING_FORMAT_HINTS)
-    # data_type == "date" or unset -> cannot carry sub-day time
+        if isinstance(parse, StrptimeParse):
+            fmt = parse.format or ""
+            return not any(hint in fmt for hint in _TIME_BEARING_FORMAT_HINTS)
+        return True
+    # DateParse or unset -> cannot carry sub-day time
     return True
 
 
@@ -107,23 +117,27 @@ def _requires_required_prefix(field_ir: DimensionIR) -> bool:
     """
     if not field_ir.is_time_dimension or field_ir.granularity != "hour":
         return False
-    if field_ir.data_type not in {"string", "integer"}:
-        return False
-    if field_ir.required_prefix is not None:
-        return False
-    fmt = field_ir.format
-    if fmt is None or not fmt.startswith("%"):
-        return True
-    # Inspect strptime directives: hour-only if there are hour directives
-    # but no date directives.
-    import re
+    parse = field_ir.parse
+    if isinstance(parse, HourPrefixParse):
+        return False  # already has prefix
+    if isinstance(parse, StrptimeParse):
+        if parse.data_type not in {"string", "integer"}:
+            return False
+        fmt = parse.format
+        if fmt is None or not fmt.startswith("%"):
+            return True
+        # Inspect strptime directives: hour-only if there are hour directives
+        # but no date directives.
+        import re
 
-    tokens = set(re.findall(r"%[a-zA-Z]", fmt))
-    date_directives = {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}
-    hour_directives = {"%H", "%I", "%k", "%l", "%p", "%P"}
-    has_date = bool(tokens & date_directives)
-    has_hour = bool(tokens & hour_directives)
-    return has_hour and not has_date
+        tokens = set(re.findall(r"%[a-zA-Z]", fmt))
+        date_directives = {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}
+        hour_directives = {"%H", "%I", "%k", "%l", "%p", "%P"}
+        has_date = bool(tokens & date_directives)
+        has_hour = bool(tokens & hour_directives)
+        return has_hour and not has_date
+    # DatetimeParse, TimestampParse, DateParse never need a required_prefix
+    return False
 
 
 def _resolve_required_prefix_field(
@@ -131,15 +145,18 @@ def _resolve_required_prefix_field(
     *,
     field_ir: DimensionIR,
 ) -> DimensionIR | None:
-    if field_ir.required_prefix is None:
+    parse = field_ir.parse
+    if isinstance(parse, HourPrefixParse):
+        prefix_name = parse.prefix
+    else:
         return None
-    direct = registry.fields.get(field_ir.required_prefix)
+    direct = registry.dimensions.get(prefix_name)
     if direct is not None:
         return direct
     matches = [
         candidate
-        for candidate in registry.fields.values()
-        if candidate.entity == field_ir.entity and candidate.name == field_ir.required_prefix
+        for candidate in registry.dimensions.values()
+        if candidate.entity == field_ir.entity and candidate.name == prefix_name
     ]
     return matches[0] if len(matches) == 1 else None
 
@@ -204,7 +221,12 @@ def _return_expr(fn: Callable[..., Any]) -> ast.AST | None:
 
 
 def _time_dimension_pushdown_advisory(field_ir: DimensionIR, fn: Callable[..., Any] | None) -> bool:
-    if not field_ir.is_time_dimension or field_ir.data_type not in _TEMPORAL_DATA_TYPES:
+    if not field_ir.is_time_dimension:
+        return False
+    parse = field_ir.parse
+    _temporal_parse_kinds = (DateParse, DatetimeParse, TimestampParse)
+    if not isinstance(parse, _temporal_parse_kinds):
+        return False
         return False
     if fn is None:
         return False
@@ -252,7 +274,11 @@ def _time_dimension_dtype_advisory(
     field_ir: DimensionIR, fn: Callable[..., Any] | None
 ) -> str | None:
     """Return the inferred cast target if it conflicts with declared data_type, else None."""
-    if not field_ir.is_time_dimension or field_ir.data_type not in _TEMPORAL_DATA_TYPES:
+    if not field_ir.is_time_dimension:
+        return None
+    parse = field_ir.parse
+    _temporal_parse_kinds = (DateParse, DatetimeParse, TimestampParse)
+    if not isinstance(parse, _temporal_parse_kinds):
         return None
     if fn is None:
         return None
@@ -265,7 +291,18 @@ def _time_dimension_dtype_advisory(
     compatible = _CAST_TARGET_TO_DECLARED.get(inferred)
     if compatible is None:
         return None
-    if field_ir.data_type not in compatible:
+    # Extract data_type from parse variant for comparison
+    parse = field_ir.parse
+    data_type_val: str | None = None
+    if isinstance(parse, DateParse):
+        data_type_val = "date"
+    elif isinstance(parse, DatetimeParse):
+        data_type_val = "datetime"
+    elif isinstance(parse, TimestampParse):
+        data_type_val = "timestamp"
+    elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
+        data_type_val = parse.data_type
+    if data_type_val not in compatible:
         return inferred
     return None
 
@@ -435,7 +472,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self._add_error(
                 ErrorKind.SQL_ESCAPE_HATCH,
                 f"Metric body of {self.fn_name!r} uses .{node.attr}(), "
-                f"which is not allowed. Use source_sql on the decorator instead.",
+                f"which is not allowed. Use provenance=ms.from_sql(...) on the decorator instead.",
                 constraint_id=ConstraintId.AST_SQL_ESCAPE_HATCH,
             )
         # Check for ibis Table attribute shadowing (e.g. orders.schema instead of orders["schema"])
@@ -607,7 +644,7 @@ def _validate_validity_versioning(
         ("valid_from", versioning.valid_from),
         ("valid_to", versioning.valid_to),
     ):
-        field = registry.fields.get(field_id)
+        field = registry.dimensions.get(field_id)
         if field is None or field.entity != ds_id:
             errors.append(
                 SemanticLoadError(
@@ -624,6 +661,22 @@ def _validate_validity_versioning(
                     },
                 )
             )
+
+
+def _validate_measure_refs(registry: Registry) -> list[SemanticError]:
+    """Validate that every measure's entity resolves to a known entity."""
+    errors: list[SemanticError] = []
+    for measure in registry.measures.values():
+        if measure.entity not in registry.entities:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.ENTITY_NOT_FOUND,
+                    message=f"Measure {measure.semantic_id!r} references unknown entity {measure.entity!r}.",
+                    refs=(measure.semantic_id, measure.entity),
+                    details={"measure": measure.semantic_id, "entity": measure.entity},
+                )
+            )
+    return errors
 
 
 def _aggregate_receiver_param_name(call: ast.Call) -> str | None:
@@ -689,7 +742,7 @@ def _validate_default_time_dimension_unique(
     from collections import defaultdict
 
     defaults_by_entity: dict[str, list[str]] = defaultdict(list)
-    for f_id, f_ir in registry.fields.items():
+    for f_id, f_ir in registry.dimensions.items():
         if f_ir.is_time_dimension and getattr(f_ir, "is_default", False):
             defaults_by_entity[f_ir.entity].append(f_id)
 
@@ -734,7 +787,7 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
         add = metric_ir.additivity
         if not isinstance(add, SemiAdditive):
             continue
-        field = registry.fields.get(add.over)
+        field = registry.dimensions.get(add.over)
         if field is None or field.kind is not DimensionKind.TIME:
             errors.append(
                 SemanticLoadError(
@@ -769,7 +822,7 @@ def assembly_validate(
     warnings: list[StructuredWarning] = []
 
     # -- Validate datasource refs on entities --------------------------------
-    for ds_id, ds_ir in registry.datasets.items():
+    for ds_id, ds_ir in registry.entities.items():
         if ds_ir.datasource not in registry.datasources:
             errors.append(
                 SemanticLoadError(
@@ -796,8 +849,8 @@ def assembly_validate(
                 _validate_validity_versioning(errors, ds_id, ds_ir, versioning, registry)
 
     # -- Validate entity refs on dimensions ----------------------------------
-    for f_id, f_ir in registry.fields.items():
-        if f_ir.entity not in registry.datasets:
+    for f_id, f_ir in registry.dimensions.items():
+        if f_ir.entity not in registry.entities:
             if _is_filtered_domain_ref(f_ir.entity, loaded_models):
                 warnings.append(_filtered_domain_ref_warning(f_id, f_ir.entity, "Dimension"))
             else:
@@ -809,16 +862,19 @@ def assembly_validate(
                         details={
                             "missing_ref": f_ir.entity,
                             "did_you_mean": did_you_mean(
-                                f_ir.entity, sorted(registry.datasets.keys())
+                                f_ir.entity, sorted(registry.entities.keys())
                             ),
                         },
                     )
                 )
 
+    # -- Validate measure entity refs -----------------------------------------
+    errors.extend(_validate_measure_refs(registry))
+
     # -- Validate entity refs on metrics -------------------------------------
     for m_id, m_ir in registry.metrics.items():
         for ds_ref in m_ir.entities:
-            if ds_ref not in registry.datasets:
+            if ds_ref not in registry.entities:
                 if _is_filtered_domain_ref(ds_ref, loaded_models):
                     warnings.append(_filtered_domain_ref_warning(m_id, ds_ref, "Metric"))
                 else:
@@ -830,7 +886,7 @@ def assembly_validate(
                             details={
                                 "missing_ref": ds_ref,
                                 "did_you_mean": did_you_mean(
-                                    ds_ref, sorted(registry.datasets.keys())
+                                    ds_ref, sorted(registry.entities.keys())
                                 ),
                             },
                         )
@@ -845,7 +901,9 @@ def assembly_validate(
         if m_ir.additivity is None:
             # Resolution failed: diagnose the tier-1 cause precisely.
             if m_ir.aggregation is not None:
-                measure = registry.fields.get(m_ir.measure or "")
+                measure: MeasureIR | DimensionIR | None = registry.measures.get(m_ir.measure or "")
+                if measure is None:
+                    measure = registry.dimensions.get(m_ir.measure or "")
                 if measure is None:
                     errors.append(
                         SemanticLoadError(
@@ -856,7 +914,11 @@ def assembly_validate(
                                 "metric": m_id,
                                 "measure": m_ir.measure,
                                 "did_you_mean": did_you_mean(
-                                    m_ir.measure or "", sorted(registry.fields.keys())
+                                    m_ir.measure or "",
+                                    sorted(
+                                        set(registry.dimensions.keys())
+                                        | set(registry.measures.keys())
+                                    ),
                                 ),
                             },
                         )
@@ -903,7 +965,7 @@ def assembly_validate(
         if len(m_ir.entities) > 1 and m_ir.root_entity is None:
             errors.append(
                 SemanticLoadError(
-                    kind=ErrorKind.MISSING_METRIC_ROOT_DATASET,
+                    kind=ErrorKind.MISSING_METRIC_ROOT_ENTITY,
                     message=f"Multi-entity base metric {m_id!r} must declare root_entity.",
                     refs=(m_id,),
                     details={"metric": m_id, "entities": sorted(m_ir.entities)},
@@ -913,7 +975,7 @@ def assembly_validate(
         if m_ir.root_entity is not None and m_ir.root_entity not in m_ir.entities:
             errors.append(
                 SemanticLoadError(
-                    kind=ErrorKind.INVALID_METRIC_ROOT_DATASET,
+                    kind=ErrorKind.INVALID_METRIC_ROOT_ENTITY,
                     message=(
                         f"Metric {m_id!r} root_entity {m_ir.root_entity!r} "
                         "must be one of its entities."
@@ -1065,18 +1127,7 @@ def assembly_validate(
 
     # -- Validate dimension refs in relationships -----------------------------
     for r_id, r_ir in registry.relationships.items():
-        # Dimension arity check: from_dimensions and to_dimensions must have same length
-        if len(r_ir.from_dimensions) != len(r_ir.to_dimensions):
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.MISSING_DIMENSION_REF,
-                    message=f"Relationship {r_id!r} has {len(r_ir.from_dimensions)} from_dimensions "
-                    f"but {len(r_ir.to_dimensions)} to_dimensions. "
-                    f"Dimension counts must match.",
-                    refs=(r_id,),
-                )
-            )
-        if r_ir.from_entity not in registry.datasets:
+        if r_ir.from_entity not in registry.entities:
             if _is_filtered_domain_ref(r_ir.from_entity, loaded_models):
                 warnings.append(
                     _filtered_domain_ref_warning(r_id, r_ir.from_entity, "Relationship")
@@ -1090,7 +1141,7 @@ def assembly_validate(
                         refs=(r_id, r_ir.from_entity),
                     )
                 )
-        if r_ir.to_entity not in registry.datasets:
+        if r_ir.to_entity not in registry.entities:
             if _is_filtered_domain_ref(r_ir.to_entity, loaded_models):
                 warnings.append(_filtered_domain_ref_warning(r_id, r_ir.to_entity, "Relationship"))
             else:
@@ -1102,44 +1153,49 @@ def assembly_validate(
                         refs=(r_id, r_ir.to_entity),
                     )
                 )
-        # Validate dimension refs
-        for ff in r_ir.from_dimensions:
-            if ff not in registry.fields:
+        # Validate dimension refs via JoinKey pairs
+        for join_key in r_ir.keys:
+            ff = join_key.from_key
+            if ff not in registry.dimensions:
                 if _is_filtered_domain_ref(ff, loaded_models):
                     warnings.append(_filtered_domain_ref_warning(r_id, ff, "Relationship"))
                 else:
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.MISSING_DIMENSION_REF,
-                            message=f"Relationship {r_id!r} references unknown from_dimension {ff!r}.",
+                            message=f"Relationship {r_id!r} references unknown from_key {ff!r}.",
                             refs=(r_id, ff),
                             details={
                                 "missing_ref": ff,
-                                "did_you_mean": did_you_mean(ff, sorted(registry.fields.keys())),
+                                "did_you_mean": did_you_mean(
+                                    ff, sorted(registry.dimensions.keys())
+                                ),
                             },
                         )
                     )
-        for tf in r_ir.to_dimensions:
-            if tf not in registry.fields:
+            tf = join_key.to_key
+            if tf not in registry.dimensions:
                 if _is_filtered_domain_ref(tf, loaded_models):
                     warnings.append(_filtered_domain_ref_warning(r_id, tf, "Relationship"))
                 else:
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.MISSING_DIMENSION_REF,
-                            message=f"Relationship {r_id!r} references unknown to_dimension {tf!r}.",
+                            message=f"Relationship {r_id!r} references unknown to_key {tf!r}.",
                             refs=(r_id, tf),
                             details={
                                 "missing_ref": tf,
-                                "did_you_mean": did_you_mean(tf, sorted(registry.fields.keys())),
+                                "did_you_mean": did_you_mean(
+                                    tf, sorted(registry.dimensions.keys())
+                                ),
                             },
                         )
                     )
 
     # -- Validate hour-only time_dimension required_prefix -------------------
     # -- Validate sub-day granularity requires time-bearing data_type --------
-    for f_id, f_ir in registry.fields.items():
-        if _requires_required_prefix(f_ir) and not f_ir.required_prefix:
+    for f_id, f_ir in registry.dimensions.items():
+        if _requires_required_prefix(f_ir):
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING,
@@ -1149,12 +1205,22 @@ def assembly_validate(
                 )
             )
         if _subday_granularity_needs_time(f_ir):
+            parse = f_ir.parse
+            data_type_str: str | None = None
+            if isinstance(parse, DateParse):
+                data_type_str = "date"
+            elif isinstance(parse, DatetimeParse):
+                data_type_str = "datetime"
+            elif isinstance(parse, TimestampParse):
+                data_type_str = "timestamp"
+            elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
+                data_type_str = parse.data_type
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.SUBDAY_GRANULARITY_WITHOUT_TIME,
                     message=(
                         f"time dimension {f_id!r} declares sub-day granularity "
-                        f"{f_ir.granularity!r} but its data_type {f_ir.data_type!r} cannot carry time"
+                        f"{f_ir.granularity!r} but its data_type {data_type_str!r} cannot carry time"
                     ),
                     refs=(f_id,),
                     constraint_id=ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME,
@@ -1162,33 +1228,32 @@ def assembly_validate(
                         "kind": "SubdayGranularityWithoutTime",
                         "field": f_id,
                         "granularity": f_ir.granularity,
-                        "data_type": f_ir.data_type,
+                        "data_type": data_type_str,
                     },
                 )
             )
-        if (
-            f_ir.is_time_dimension
-            and f_ir.required_prefix
-            and (
-                (prefix_field := _resolve_required_prefix_field(registry, field_ir=f_ir)) is None
-                or not prefix_field.is_time_dimension
-            )
+        required_prefix_name: str | None = None
+        if f_ir.is_time_dimension and isinstance(f_ir.parse, HourPrefixParse):
+            required_prefix_name = f_ir.parse.prefix
+        if required_prefix_name is not None and (
+            (prefix_field := _resolve_required_prefix_field(registry, field_ir=f_ir)) is None
+            or not prefix_field.is_time_dimension
         ):
-            if _is_filtered_domain_ref(f_ir.required_prefix, loaded_models):
+            if _is_filtered_domain_ref(required_prefix_name, loaded_models):
                 warnings.append(
-                    _filtered_domain_ref_warning(f_id, f_ir.required_prefix, "Time dimension")
+                    _filtered_domain_ref_warning(f_id, required_prefix_name, "Time dimension")
                 )
             else:
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.MISSING_DIMENSION_REF,
                         message=f"Time dimension {f_id!r} required_prefix "
-                        f"{f_ir.required_prefix!r} is not a registered time dimension.",
-                        refs=(f_id, f_ir.required_prefix),
+                        f"{required_prefix_name!r} is not a registered time dimension.",
+                        refs=(f_id, required_prefix_name),
                         details={
-                            "missing_ref": f_ir.required_prefix,
+                            "missing_ref": required_prefix_name,
                             "did_you_mean": did_you_mean(
-                                f_ir.required_prefix, sorted(registry.fields.keys())
+                                required_prefix_name, sorted(registry.dimensions.keys())
                             ),
                         },
                     )
@@ -1202,20 +1267,19 @@ def assembly_validate(
     _detect_metric_cycles(registry, errors)
 
     # -- Metric provenance contract ------------------------------------------
-    # verification_mode is inferred from source_sql presence, so only provenance
-    # fields need validation:
-    # - Base metrics: source_sql requires source_dialect
-    # - Derived metrics: must not carry source_sql or source_dialect
+    # SqlProvenance carries sql + dialect; verification_mode is always "sql_parity".
+    # - Base metrics: SqlProvenance.sql requires a non-empty dialect
+    # - Derived metrics: must not carry provenance
     for m_id, m_ir in registry.metrics.items():
         prov = m_ir.provenance
         if m_ir.metric_type == "derived":
-            if prov.source_sql is not None or prov.source_dialect is not None:
+            if prov is not None:
                 errors.append(
                     SemanticLoadError(
                         kind=ErrorKind.INVALID_VERIFICATION_MODE,
                         message=(
-                            f"Derived metric {m_id!r} must omit source_sql and "
-                            "source_dialect. Verify its component metrics instead."
+                            f"Derived metric {m_id!r} must omit provenance. "
+                            "Verify its component metrics instead."
                         ),
                         refs=(m_id,),
                         location=m_ir.location,
@@ -1224,7 +1288,7 @@ def assembly_validate(
                 )
             continue
 
-        if prov.source_sql is not None and not prov.source_dialect:
+        if prov is not None and not prov.dialect:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.SOURCE_SQL_MISSING,
@@ -1243,7 +1307,7 @@ def assembly_validate(
     # target API, and cross-file refs are common, so skip string-ref warnings.
 
     # Partition pushdown advisory warnings
-    for f_id, f_ir in registry.fields.items():
+    for f_id, f_ir in registry.dimensions.items():
         if _time_dimension_pushdown_advisory(f_ir, None if sidecar is None else sidecar.get(f_id)):
             warnings.append(
                 StructuredWarning(
@@ -1260,17 +1324,27 @@ def assembly_validate(
             )
 
     # Dtype/data_type mismatch advisory warnings
-    for f_id, f_ir in registry.fields.items():
+    for f_id, f_ir in registry.dimensions.items():
         inferred = _time_dimension_dtype_advisory(
             f_ir, None if sidecar is None else sidecar.get(f_id)
         )
         if inferred is not None:
             compatible = sorted(_CAST_TARGET_TO_DECLARED.get(inferred, set()))
+            parse = f_ir.parse
+            declared_data_type: str | None = None
+            if isinstance(parse, DateParse):
+                declared_data_type = "date"
+            elif isinstance(parse, DatetimeParse):
+                declared_data_type = "datetime"
+            elif isinstance(parse, TimestampParse):
+                declared_data_type = "timestamp"
+            elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
+                declared_data_type = parse.data_type
             warnings.append(
                 StructuredWarning(
                     kind=WarningKind.TIME_DIMENSION_DTYPE_ADVISORY.value,
                     message=(
-                        f"Time field {f_id!r} declared data_type={f_ir.data_type!r} "
+                        f"Time field {f_id!r} declared data_type={declared_data_type!r} "
                         f"but body .cast({inferred!r}) produces ibis dtype {inferred!r}. "
                         f"Compatible data_type values: {', '.join(compatible)}. "
                         "This mismatch causes TypeError at execution."

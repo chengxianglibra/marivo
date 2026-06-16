@@ -32,7 +32,7 @@ def _reg(project: SemanticProject) -> Registry:
 
 
 def get_entity_ir(project: SemanticProject, name: str) -> EntityIR | None:
-    return _reg(project).datasets.get(name)
+    return _reg(project).entities.get(name)
 
 
 def get_metric_ir(project: SemanticProject, name: str) -> MetricIR | None:
@@ -40,10 +40,10 @@ def get_metric_ir(project: SemanticProject, name: str) -> MetricIR | None:
 
 
 def iter_entity_irs(project: SemanticProject, *, domain: str | None = None) -> list[EntityIR]:
-    datasets = list(_reg(project).datasets.values())
+    entities = list(_reg(project).entities.values())
     if domain is not None:
-        datasets = [d for d in datasets if d.domain == domain]
-    return datasets
+        entities = [e for e in entities if e.domain == domain]
+    return entities
 
 
 def iter_dimension_irs(
@@ -52,7 +52,7 @@ def iter_dimension_irs(
     domain: str | None = None,
     entity: str | None = None,
 ) -> list[DimensionIR]:
-    irs = [f for f in _reg(project).fields.values() if not f.is_time_dimension]
+    irs = [f for f in _reg(project).dimensions.values() if not f.is_time_dimension]
     if domain is not None:
         irs = [f for f in irs if f.domain == domain]
     if entity is not None:
@@ -66,7 +66,7 @@ def iter_time_dimension_irs(
     domain: str | None = None,
     entity: str | None = None,
 ) -> list[DimensionIR]:
-    irs = [f for f in _reg(project).fields.values() if f.is_time_dimension]
+    irs = [f for f in _reg(project).dimensions.values() if f.is_time_dimension]
     if domain is not None:
         irs = [f for f in irs if f.domain == domain]
     if entity is not None:

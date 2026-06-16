@@ -1,8 +1,8 @@
 """Authoring decorators and builders for marivo.semantic v1.1.
 
-All authoring symbols (domain, entity, dimension, time_dimension,
-aggregate, simple_metric, ratio, weighted_average, linear,
-semi_additive, relationship, ref) are defined here.
+All authoring symbols (domain, entity, dimension, measure, metric,
+time_dimension, aggregate, ratio, weighted_average, linear,
+semi_additive, relationship, ref, from_sql, join_on) are defined here.
 """
 
 from __future__ import annotations
@@ -16,7 +16,8 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.datasource.authoring import DatasourceRef
-from marivo.datasource.scan import file as _datasource_file
+from marivo.datasource.scan import csv as _datasource_csv
+from marivo.datasource.scan import parquet as _datasource_parquet
 from marivo.datasource.scan import table as _datasource_table
 from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
 from marivo.semantic.constraints import ConstraintId
@@ -26,6 +27,9 @@ from marivo.semantic.ir import (
     AggKind,
     AiContextIR,
     Composition,
+    CsvSourceIR,
+    DateParse,
+    DatetimeParse,
     DimensionIR,
     DimensionKind,
     DimensionRef,
@@ -34,22 +38,29 @@ from marivo.semantic.ir import (
     EntityIR,
     EntityRef,
     EntitySourceIR,
-    FileSourceIR,
+    HourPrefixParse,
+    JoinKey,
     LinearComposition,
     LinearTerm,
+    MeasureIR,
+    MeasureRef,
     MetricIR,
     MetricRef,
-    ProvenanceIR,
+    ParquetSourceIR,
     RatioComposition,
     RelationshipIR,
     RelationshipRef,
     SampleIntervalIR,
+    SemanticParse,
     SemiAdditive,
     SnapshotVersioningIR,
     SourceLocation,
+    SqlProvenance,
+    StrptimeParse,
     TableSourceIR,
     TimeDimensionRef,
     TimeFoldIR,
+    TimestampParse,
     ValidityVersioningIR,
     WeightedAverageComposition,
 )
@@ -61,19 +72,28 @@ from marivo.semantic.validator import validate_metric_body_ast
 __all__ = [
     "DomainRef",
     "aggregate",
+    "csv",
+    "date",
+    "datetime",
     "dimension",
     "domain",
     "entity",
-    "file",
+    "from_sql",
+    "hour_prefix",
+    "join_on",
     "linear",
+    "measure",
+    "metric",
+    "parquet",
     "ratio",
     "ref",
     "relationship",
     "semi_additive",
-    "simple_metric",
     "snapshot",
+    "strptime",
     "table",
     "time_dimension",
+    "timestamp",
     "validity",
     "weighted_average",
 ]
@@ -112,17 +132,56 @@ def _resolve_domain(explicit: DomainRef | None, ctx: LoaderContext) -> str:
     )
 
 
+def _ir_kind(ir: Any) -> str:
+    """Return a human-readable kind label for an IR object."""
+    if isinstance(ir, DimensionIR):
+        return "time dimension" if ir.is_time_dimension else "dimension"
+    if isinstance(ir, MeasureIR):
+        return "measure"
+    if isinstance(ir, MetricIR):
+        return "metric"
+    if isinstance(ir, EntityIR):
+        return "entity"
+    if isinstance(ir, RelationshipIR):
+        return "relationship"
+    return type(ir).__name__
+
+
 def _check_duplicate(
     ctx: LoaderContext,
     semantic_id: str,
-    ir_type: type[EntityIR | DimensionIR | MetricIR | RelationshipIR],
+    ir_type: type[EntityIR | DimensionIR | MeasureIR | MetricIR | RelationshipIR],
 ) -> None:
-    """Raise DUPLICATE_NAME if semantic_id already in pending_objects of the same kind."""
+    """Raise DUPLICATE_NAME if semantic_id already in pending_objects of the same kind.
+
+    Also checks for cross-kind collisions between DimensionIR and MeasureIR,
+    which share the entity-qualified namespace (``<domain>.<entity>.<field>``).
+    """
+    # DimensionIR and MeasureIR share the same semantic_id namespace, so a
+    # dimension "sales.orders.amount" and a measure "sales.orders.amount" would
+    # silently collide at the catalog/assembly layer. Other kinds (EntityIR,
+    # MetricIR, RelationshipIR) use the domain-qualified namespace and are
+    # intentionally allowed to share names with different kinds.
+    _cross_kinds: set[type[DimensionIR | MeasureIR]] = {DimensionIR, MeasureIR}
     for ir, _ in ctx.pending_objects:
-        if isinstance(ir, ir_type) and ir.semantic_id == semantic_id:
+        if not isinstance(ir, (EntityIR, DimensionIR, MeasureIR, MetricIR, RelationshipIR)):
+            continue
+        if ir.semantic_id != semantic_id:
+            continue
+        existing_kind = _ir_kind(ir)
+        if isinstance(ir, ir_type):
             _raise(
                 ErrorKind.DUPLICATE_NAME,
-                f"Name conflict: {semantic_id!r} is already declared.",
+                f"Name conflict: {semantic_id!r} is already declared as a {existing_kind}.",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+            )
+        # Cross-kind collision: only dimension vs measure (same entity-qualified namespace)
+        if ir_type in _cross_kinds and type(ir) in _cross_kinds:
+            _raise(
+                ErrorKind.DUPLICATE_NAME,
+                f"Name conflict: {semantic_id!r} is already claimed by a {existing_kind}. "
+                f"Use a different name for this object.",
                 cls=SemanticDecoratorError,
                 refs=(semantic_id,),
             )
@@ -166,17 +225,6 @@ def _compute_agg_hash(measure_id: str, agg: Any, fold: TimeFoldIR | None) -> str
         {"measure": measure_id, "agg": agg, "fold": (fold.kind, fold.q) if fold else None}
     )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
-
-
-def _build_metric_provenance(
-    *,
-    source_sql: str | None,
-    source_dialect: str | None,
-) -> ProvenanceIR:
-    return ProvenanceIR(
-        source_sql=source_sql,
-        source_dialect=source_dialect,
-    )
 
 
 def _validate_unit(unit: str | None, semantic_id: str, object_kind: str = "metric") -> None:
@@ -253,6 +301,34 @@ def _normalize_sample_interval(
     return SampleIntervalIR(count=count, unit=unit)  # type: ignore[arg-type]
 
 
+def _validate_timezone(timezone: str) -> None:
+    """Validate that timezone is a valid IANA timezone name."""
+    try:
+        ZoneInfo(timezone)
+    except ZoneInfoNotFoundError:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"timezone {timezone!r} is not a valid IANA timezone name.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+
+
+def _normalize_sample_interval_value(
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None,
+) -> SampleIntervalIR | None:
+    """Normalize a sample_interval tuple from a parse builder, using a synthetic semantic_id."""
+    if sample_interval is None:
+        return None
+    _count, unit = sample_interval
+    return _normalize_sample_interval(
+        sample_interval,
+        semantic_id="<parse>",
+        data_type="datetime",
+        granularity=unit,
+    )
+
+
 def _normalize_time_fold(
     time_fold: str | tuple[str, float] | None,
     *,
@@ -318,6 +394,7 @@ def _resolve_ref_string(
     | DimensionRef
     | TimeDimensionRef
     | MetricRef
+    | MeasureRef
     | RelationshipRef
     | DatasourceRef
     | str,
@@ -418,25 +495,25 @@ def domain(
 
 def aggregate(
     *,
-    measure: DimensionRef | str,
+    name: str,
+    measure: MeasureRef | str,
     agg: AggKind,
     fold: str | tuple[Literal["quantile"], float] | None = None,
-    name: str | None = None,
     unit: str | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> MetricRef:
-    """Declare a tier-1 simple metric: an aggregation over a measure dimension.
+    """Declare a tier-1 simple metric: an aggregation over a measure.
 
     The metric inherits its additivity nature from ``measure`` (resolved at load);
     ``fold`` overrides the time-fold for semi-additive measures only. No function body.
 
     Args:
-        measure: Measure dimension to aggregate.
+        name: Metric name (required).
+        measure: Measure to aggregate (``MeasureRef`` or qualified string).
         agg: Aggregation kind (``"sum"``, ``"mean"``, ``"count"``, etc.).
         fold: Time-fold override for semi-additive measures.
-        name: Metric name. Defaults to the measure's column name.
         unit: Override the unit derived from ``measure`` at load. Leave None to
             inherit the measure's unit (count/count_distinct derive nothing).
         domain: Override the active domain.
@@ -444,15 +521,15 @@ def aggregate(
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Example:
-        >>> revenue = ms.aggregate(measure=amount, agg="sum")
-        >>> average_inventory = ms.aggregate(measure=quantity, agg="sum", fold="avg")
+        >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+        >>> average_inventory = ms.aggregate(name="avg_inv", measure=quantity, agg="sum", fold="avg")
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     measure_id = _resolve_ref_string(measure)
-    # measure dimension ids are entity-qualified: "<domain>.<entity>.<column>"
+    # measure ids are entity-qualified: "<domain>.<entity>.<column>"
     entity_id = measure_id.rsplit(".", 1)[0]
-    obj_name = name or measure_id.rsplit(".", 1)[-1]
+    obj_name = name
     semantic_id = f"{resolved_domain}.{obj_name}"
     _check_duplicate(ctx, semantic_id, MetricIR)
     _validate_unit(unit, semantic_id)
@@ -469,7 +546,7 @@ def aggregate(
         measure=measure_id,
         composition=None,
         additivity=None,  # resolved at load: downgrade(measure.additivity, agg) + fold override
-        provenance=_build_metric_provenance(source_sql=None, source_dialect=None),
+        provenance=None,
         description=description,
         ai_context=ai_ctx,
         body_ast_hash=_compute_agg_hash(measure_id, agg, fold_ir),
@@ -483,7 +560,7 @@ def aggregate(
     return MetricRef(semantic_id)
 
 
-def simple_metric(
+def metric(
     *,
     name: str | None = None,
     entities: list[EntityRef | str],
@@ -491,18 +568,30 @@ def simple_metric(
     root_entity: EntityRef | str | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     unit: str | None = None,
-    source_sql: str | None = None,
-    source_dialect: str | None = None,
+    provenance: SqlProvenance | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
-    """Declare a tier-2 simple metric from an ibis body. Declares ``additivity`` directly.
+    """Declare a metric from an ibis body. Declares ``additivity`` directly.
 
-    Tier-2 metrics have no measure to derive from; declare unit directly.
+    Args:
+        name: Metric name. Defaults to the function name.
+        entities: List of entity refs or qualified strings.
+        additivity: ``"additive"``, ``"non_additive"``, or ``ms.semi_additive(over, fold)``.
+        root_entity: Required when more than one entity is provided.
+        fanout_policy: ``"block"`` (default) or ``"aggregate_then_join"``.
+        unit: UCUM unit token.
+        provenance: Optional ``SqlProvenance`` from ``ms.from_sql(sql=..., dialect=...)``.
+        domain: Override the active domain namespace.
+        description: Free-text description.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+
+    Returns:
+        A decorator that returns a ``MetricRef``.
 
     Example:
-        >>> @ms.simple_metric(entities=[orders], additivity="additive")
+        >>> @ms.metric(entities=[orders], additivity="additive")
         ... def gmv(orders):
         ...     return (orders.price * orders.qty).sum()
     """
@@ -514,33 +603,40 @@ def simple_metric(
         semantic_id = f"{resolved_domain}.{obj_name}"
         _check_duplicate(ctx, semantic_id, MetricIR)
         _validate_unit(unit, semantic_id)
-        ds_refs = _resolve_entity_refs(entities)
-        if len(ds_refs) == 0:
+        entity_refs = _resolve_entity_refs(entities)
+        if len(entity_refs) == 0:
             _raise(
-                ErrorKind.MISSING_DATASETS,
-                "@ms.simple_metric(...) requires non-empty entities.",
+                ErrorKind.MISSING_ENTITIES,
+                "@ms.metric(...) requires non-empty entities.",
                 refs=(semantic_id,),
                 cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.METRIC_DATASETS_REQUIRED,
+                constraint_id=ConstraintId.METRIC_ENTITIES_REQUIRED,
             )
         body_hash = validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
-        prov_ir = _build_metric_provenance(source_sql=source_sql, source_dialect=source_dialect)
         root_ref = _resolve_ref_string(root_entity) if root_entity is not None else None
-        if root_ref is None and len(ds_refs) == 1:
-            root_ref = ds_refs[0]
+        if root_ref is None and len(entity_refs) == 1:
+            root_ref = entity_refs[0]
+        if root_ref is None:
+            _raise(
+                ErrorKind.MISSING_METRIC_ROOT_ENTITY,
+                "@ms.metric(...) with more than one entity requires root_entity=...",
+                refs=(semantic_id,),
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.METRIC_ROOT_ENTITY_REQUIRED,
+            )
         metric_ir = MetricIR(
             semantic_id=semantic_id,
             domain=resolved_domain,
             name=obj_name,
             metric_type="simple",
-            entities=ds_refs,
+            entities=entity_refs,
             aggregation=None,
             measure=None,
             composition=None,
             additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
-            provenance=prov_ir,
+            provenance=provenance,
             description=description,
             ai_context=ai_ctx,
             body_ast_hash=body_hash,
@@ -566,23 +662,27 @@ def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> Tab
     return _datasource_table(name, database=database)
 
 
-def file(
+def parquet(
     path: str,
     /,
     *,
-    format: Literal["parquet", "csv"],
-    **options: Any,
-) -> FileSourceIR:
-    """Build a structured file source for ``ms.entity(source=...)``."""
-    try:
-        return _datasource_file(path, format=format, **options)
-    except ValueError as exc:
-        _raise(
-            ErrorKind.INVALID_REF,
-            str(exc).replace("md.file", "ms.file"),
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
+    hive_partitioning: bool = False,
+    columns: tuple[str, ...] | list[str] | None = None,
+) -> ParquetSourceIR:
+    """Build a structured parquet source for ``ms.entity(source=...)``."""
+    return _datasource_parquet(path, hive_partitioning=hive_partitioning, columns=columns)
+
+
+def csv(
+    path: str,
+    /,
+    *,
+    header: bool = True,
+    delimiter: str = ",",
+    columns: tuple[str, ...] | list[str] | None = None,
+) -> CsvSourceIR:
+    """Build a structured CSV source for ``ms.entity(source=...)``."""
+    return _datasource_csv(path, header=header, delimiter=delimiter, columns=columns)
 
 
 def entity(
@@ -603,7 +703,7 @@ def entity(
         datasource: Datasource ref returned by ``md.ref(...)`` or a global
             datasource name string declared in ``models/datasources/*.py``.
         source: Structured physical source, usually ``ms.table(...)`` or
-            ``ms.file(...)``.
+            ``ms.parquet(...)``, or ``ms.csv(...)``.
         primary_key: Optional list of column names forming the primary key.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -628,10 +728,10 @@ def entity(
     resolved_domain = _resolve_domain(domain, ctx)
     semantic_id = f"{resolved_domain}.{name}"
     _check_duplicate(ctx, semantic_id, EntityIR)
-    if not isinstance(source, (TableSourceIR, FileSourceIR)):
+    if not isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR)):
         _raise(
             ErrorKind.INVALID_REF,
-            "ms.entity(source=...) accepts ms.table(...) or ms.file(...).",
+            "ms.entity(source=...) accepts ms.table(...), ms.parquet(...), or ms.csv(...).",
             cls=SemanticDecoratorError,
             refs=(semantic_id,),
             constraint_id=ConstraintId.REF_SHAPE,
@@ -667,15 +767,15 @@ def dimension(
     domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
-    kind: Literal["categorical", "measure"] = "categorical",
-    additivity: Additivity | None = None,
-    unit: str | None = None,
 ) -> Callable[[Callable[..., Any]], DimensionRef]:
-    """Declare a dimension whose body returns an ibis expression over its entity.
+    """Declare a categorical dimension whose body returns an ibis expression over its entity.
 
     The decorated function takes the entity table and returns a single
     expression (single-return AST). Use this for both raw columns and derived
-    expressions (e.g. ``table.amount * 100``).
+    expressions (e.g. ``table.region``).
+
+    For quantitative measures, use ``@ms.measure(entity=..., additivity=...)``
+    instead.
 
     Args:
         name: Dimension name. Defaults to the function name.
@@ -685,10 +785,6 @@ def dimension(
             by ``ms.domain(...)``. Defaults to the file's default domain.
         description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
-        kind: ``"categorical"`` for qualitative/grouping dimensions (default) or
-            ``"measure"`` for quantitative/fact dimensions.
-        unit: UCUM unit token for a measure dimension (the authoritative declaration
-            site). Only valid when ``kind="measure"``.
 
     Returns:
         A decorator that returns a ``DimensionRef``.
@@ -698,50 +794,28 @@ def dimension(
             body violates the AST whitelist.
 
     Example:
-        >>> @ms.dimension(name="amount_cents", entity=orders)
-        ... def amount_cents(orders):
-        ...     return orders.amount * 100
+        >>> @ms.dimension(entity=orders)
+        ... def region(orders_table):
+        ...     return orders_table.region
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
-    if kind not in ("categorical", "measure"):
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"Dimension kind must be 'categorical' or 'measure', got {kind!r}.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    if additivity is not None and kind != "measure":
-        _raise(
-            ErrorKind.INVALID_REF,
-            "additivity is only valid on kind='measure' dimensions.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    if unit is not None and kind != "measure":
-        _raise(
-            ErrorKind.INVALID_REF,
-            "unit is only valid on kind='measure' dimensions.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
 
     def decorator(fn: Callable[..., Any]) -> DimensionRef:
         obj_name = name or fn.__name__
-        ds_ref = _resolve_ref_string(entity)
-        semantic_id = f"{ds_ref}.{obj_name}"
-        ds_domain = ds_ref.split(".", 1)[0]
-        if ds_domain != resolved_domain:
+        entity_ref = _resolve_ref_string(entity)
+        semantic_id = f"{entity_ref}.{obj_name}"
+        entity_domain = entity_ref.split(".", 1)[0]
+        if entity_domain != resolved_domain:
             _raise(
                 ErrorKind.INVALID_REF,
-                f"Dimension {semantic_id!r} belongs to entity in domain {ds_domain!r}, "
+                f"Dimension {semantic_id!r} belongs to entity in domain {entity_domain!r}, "
                 f"but the active domain is {resolved_domain!r}.",
                 cls=SemanticDecoratorError,
                 refs=(semantic_id,),
                 constraint_id=ConstraintId.REF_SHAPE,
             )
         _check_duplicate(ctx, semantic_id, DimensionIR)
-        _validate_unit(unit, semantic_id, "measure dimension")
 
         validate_metric_body_ast(fn, "base")
         ai_ctx = _build_ai_context(ai_context)
@@ -750,21 +824,14 @@ def dimension(
         ir = DimensionIR(
             semantic_id=semantic_id,
             domain=resolved_domain,
-            entity=ds_ref,
+            entity=entity_ref,
             name=obj_name,
             description=description,
             ai_context=ai_ctx,
             is_time_dimension=False,
-            kind=DimensionKind(kind),
-            data_type=None,
-            granularity=None,
-            required_prefix=None,
+            kind=DimensionKind.CATEGORICAL,
             python_symbol=fn.__name__,
             location=location,
-            additivity=_normalize_additivity(additivity, semantic_id=semantic_id)
-            if additivity is not None
-            else None,
-            unit=unit,
         )
         _push_ir(ctx, ir, fn)
 
@@ -775,17 +842,172 @@ def dimension(
     return decorator
 
 
+def measure(
+    *,
+    name: str | None = None,
+    entity: EntityRef | str,
+    additivity: Additivity,
+    unit: str | None = None,
+    domain: DomainRef | None = None,
+    description: str | None = None,
+    ai_context: AiContext | dict[str, Any] | None = None,
+) -> Callable[[Callable[..., Any]], MeasureRef]:
+    """Declare a row-level quantitative measure whose expression can be aggregated.
+
+    Measures represent quantitative facts (e.g. amount, quantity) that can be
+    aggregated using ``ms.aggregate()``. The decorated function takes the entity
+    table and returns a single ibis expression.
+
+    Args:
+        name: Measure name. Defaults to the function name.
+        entity: Owning entity, either an ``EntityRef`` or a qualified
+            ``"<domain>.<entity>"`` string.
+        additivity: Whether the measure is ``"additive"``, ``"non_additive"``,
+            or ``ms.semi_additive(over=..., fold=...)``.
+        unit: UCUM unit token (e.g. ``"USD"``, ``"CNY"``, ``"%"``).
+        domain: Override the active domain namespace with a ``DomainRef`` returned
+            by ``ms.domain(...)``. Defaults to the file's default domain.
+        description: Free-text description.
+        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+
+    Returns:
+        A decorator that returns a ``MeasureRef``.
+
+    Raises:
+        SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
+            body violates the AST whitelist.
+
+    Example:
+        >>> @ms.measure(entity=orders, additivity="additive", unit="USD")
+        ... def amount(orders_table):
+        ...     return orders_table.amount
+    """
+    ctx = _require_ctx()
+    resolved_domain = _resolve_domain(domain, ctx)
+
+    def decorator(fn: Callable[..., Any]) -> MeasureRef:
+        obj_name = name or fn.__name__
+        entity_ref = _resolve_ref_string(entity)
+        semantic_id = f"{entity_ref}.{obj_name}"
+        entity_domain = entity_ref.split(".", 1)[0]
+        if entity_domain != resolved_domain:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"Measure {semantic_id!r} belongs to entity in domain {entity_domain!r}, "
+                f"but the active domain is {resolved_domain!r}.",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+                constraint_id=ConstraintId.REF_SHAPE,
+            )
+        _check_duplicate(ctx, semantic_id, MeasureIR)
+        _validate_unit(unit, semantic_id, "measure")
+        validate_metric_body_ast(fn, "base")
+        ai_ctx = _build_ai_context(ai_context)
+        location = _caller_location()
+        ir = MeasureIR(
+            semantic_id=semantic_id,
+            domain=resolved_domain,
+            entity=entity_ref,
+            name=obj_name,
+            description=description,
+            ai_context=ai_ctx,
+            additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
+            unit=unit,
+            python_symbol=fn.__name__,
+            location=location,
+        )
+        _push_ir(ctx, ir, fn)
+        ref = MeasureRef(semantic_id)
+        ctx.pending_refs.append(ref)
+        return ref
+
+    return decorator
+
+
+def _validate_time_parse_granularity(
+    *,
+    semantic_id: str,
+    granularity: str,
+    parse: SemanticParse,
+) -> None:
+    """Validate that the parse variant is compatible with the declared granularity."""
+    if isinstance(parse, HourPrefixParse) and granularity != "hour":
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"time dimension {semantic_id!r}: ms.hour_prefix(...) requires granularity='hour'.",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
+        )
+    if isinstance(parse, DateParse) and granularity in {"hour", "minute", "second"}:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"time dimension {semantic_id!r}: granularity={granularity!r} requires ms.datetime(...) or ms.timestamp(...).",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
+        )
+    if isinstance(parse, HourPrefixParse) and granularity in {"minute", "second"}:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"time dimension {semantic_id!r}: granularity={granularity!r} requires ms.datetime(...) or ms.timestamp(...).",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
+        )
+
+
+def _validate_sample_interval_granularity(
+    *,
+    semantic_id: str,
+    granularity: str,
+    parse: SemanticParse,
+) -> None:
+    """Validate that sample_interval unit is not coarser than the declared granularity."""
+    sample_ir: SampleIntervalIR | None = None
+    data_type_str: str | None = None
+    if isinstance(parse, DatetimeParse):
+        sample_ir = parse.sample_interval
+        data_type_str = "datetime"
+    elif isinstance(parse, TimestampParse):
+        sample_ir = parse.sample_interval
+        data_type_str = "timestamp"
+    if sample_ir is None or data_type_str is None:
+        return
+    # Re-run the granularity check from _normalize_sample_interval with the real granularity
+    rank = {
+        "second": 0,
+        "minute": 1,
+        "hour": 2,
+        "day": 3,
+        "week": 4,
+        "month": 5,
+        "quarter": 6,
+        "year": 7,
+    }
+    if rank.get(granularity, 99) > rank.get(sample_ir.unit, 0):
+        allowed = [
+            g for g, r in sorted(rank.items(), key=lambda kv: kv[1]) if r <= rank[sample_ir.unit]
+        ]
+        allowed_list = ", ".join(repr(g) for g in allowed)
+        _raise(
+            ErrorKind.INVALID_SAMPLE_INTERVAL,
+            f"time dimension {semantic_id!r}: physical granularity {granularity!r} cannot "
+            f"be coarser than sample_interval unit {sample_ir.unit!r}. Set granularity to {sample_ir.unit!r} or "
+            f"finer (one of: {allowed_list}).",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
+        )
+
+
 def time_dimension(
     *,
     name: str | None = None,
     entity: EntityRef | str,
-    data_type: Literal["date", "datetime", "timestamp", "string", "integer"],
     granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
-    date_format: str | None = None,
-    required_prefix: str | None = None,
-    timezone: str | None = None,
+    parse: SemanticParse,
     is_default: bool = False,
-    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -794,34 +1016,16 @@ def time_dimension(
 
     Time dimensions are the only dimensions usable as window axes by ``session.observe``.
     The body may return any ibis expression that represents the intended time
-    axis. For sortable day/hour partition columns, prefer returning the raw
-    column with ``data_type="string"`` or ``data_type="integer"`` plus
-    ``date_format`` so window predicates can remain pushdown-friendly.
+    axis. Use ``ms.date()``, ``ms.datetime()``, ``ms.timestamp()``,
+    ``ms.strptime()``, or ``ms.hour_prefix()`` to declare the parse variant.
 
     Args:
         name: Dimension name. Defaults to the function name.
         entity: Owning entity (``EntityRef`` or qualified string).
-        data_type: ``date | datetime | timestamp | string | integer``.
         granularity: ``year | quarter | month | week | day | hour | minute | second`` — the
             finest grain at which queries are meaningful.
-        date_format: Canonical Python strptime format string (e.g. ``"%Y%m%d"``,
-            ``"%Y-%m-%d"``, ``"%Y%m%d%H"``, ``"%Y-%m-%d %H:%M:%S"``). Required
-            when ``data_type="string"`` or ``data_type="integer"`` without
-            ``required_prefix``; forbidden otherwise (temporal ``data_type`` or
-            hour-only dimensions with ``required_prefix``). Shorthand aliases like
-            ``"yyyymmdd"`` are no longer accepted — write the ``%``-prefixed
-            strptime form.
-        required_prefix: Optional fixed prefix the source value must start with.
-        timezone: Optional IANA timezone for timestamp-like values. For naive
-            timestamp expressions and time-bearing string/integer formats,
-            Marivo interprets source values in this timezone before converting
-            them to the analysis session timezone for windowing and bucketing.
-            Day partition encodings such as ``"%Y%m%d"`` should omit it so
-            predicates stay as raw partition comparisons. Omitting
-            ``timezone`` for ``data_type="datetime"`` or ``"timestamp"``
-            (or time-bearing string/integer formats) triggers a blocking
-            readiness issue — the agent must declare the data timezone
-            explicitly to avoid silently incorrect bucketing.
+        parse: A parse variant returned by ``ms.date()``, ``ms.datetime(...)``,
+            ``ms.timestamp(...)``, ``ms.strptime(...)``, or ``ms.hour_prefix(...)``.
         is_default: Mark this dimension as the default time axis when multiple time dimensions
             exist on the entity. At most one time dimension per entity may carry
             is_default=True. When observe() is called without time_dimension=, the default
@@ -835,12 +1039,12 @@ def time_dimension(
         A decorator that returns a ``TimeDimensionRef``.
 
     Raises:
-        SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
-            body violates the AST whitelist.
+        SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, the
+            body violates the AST whitelist, or the parse variant is incompatible
+            with the declared granularity.
 
     Example:
-        >>> @ms.time_dimension(name="created_at", entity=orders,
-        ...                data_type="datetime", granularity="day")
+        >>> @ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
         ... def created_at(orders):
         ...     return orders.created_at
     """
@@ -867,57 +1071,12 @@ def time_dimension(
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
-        if timezone is not None:
-            try:
-                ZoneInfo(timezone)
-            except ZoneInfoNotFoundError:
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    f"timezone {timezone!r} is not a valid IANA timezone name.",
-                    refs=(semantic_id,),
-                    cls=SemanticDecoratorError,
-                )
-
-        # Enforce the strptime-only author surface:
-        #   - temporal data_types forbid date_format (column is already temporal)
-        #   - hour-only dimensions (required_prefix) forbid date_format
-        #   - string/integer without required_prefix REQUIRE a canonical strptime
-        if date_format is not None:
-            if data_type in {"date", "datetime", "timestamp"}:
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    f"time dimension {semantic_id!r}: date_format is not allowed when "
-                    f"data_type is {data_type!r} (column is already temporal).",
-                    refs=(semantic_id,),
-                    cls=SemanticDecoratorError,
-                )
-            if required_prefix is not None:
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    f"time dimension {semantic_id!r}: date_format is not allowed on "
-                    f"hour-only dimensions (those that use required_prefix).",
-                    refs=(semantic_id,),
-                    cls=SemanticDecoratorError,
-                )
-            try:
-                normalized_format = normalize_strptime(date_format)
-            except ValueError as exc:
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    f"time dimension {semantic_id!r}: {exc}",
-                    refs=(semantic_id,),
-                    cls=SemanticDecoratorError,
-                )
-        else:
-            if data_type in {"string", "integer"} and required_prefix is None:
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    f"time dimension {semantic_id!r}: data_type {data_type!r} requires "
-                    f"a strptime date_format (e.g. '%Y%m%d') or a required_prefix.",
-                    refs=(semantic_id,),
-                    cls=SemanticDecoratorError,
-                )
-            normalized_format = None
+        _validate_time_parse_granularity(
+            semantic_id=semantic_id, granularity=granularity, parse=parse
+        )
+        _validate_sample_interval_granularity(
+            semantic_id=semantic_id, granularity=granularity, parse=parse
+        )
 
         ir = DimensionIR(
             semantic_id=semantic_id,
@@ -928,20 +1087,11 @@ def time_dimension(
             ai_context=ai_ctx,
             is_time_dimension=True,
             kind=DimensionKind.TIME,
-            data_type=data_type,
             granularity=granularity,
-            required_prefix=required_prefix,
+            parse=parse,
+            is_default=is_default,
             python_symbol=fn.__name__,
             location=location,
-            format=normalized_format,
-            timezone=timezone,
-            is_default=is_default,
-            sample_interval=_normalize_sample_interval(
-                sample_interval,
-                semantic_id=semantic_id,
-                data_type=data_type,
-                granularity=granularity,
-            ),
         )
         _push_ir(ctx, ir, fn)
 
@@ -954,11 +1104,10 @@ def time_dimension(
 
 def relationship(
     *,
-    name: str | None = None,
+    name: str,
     from_entity: EntityRef | str,
     to_entity: EntityRef | str,
-    from_dimensions: list[DimensionRef | str],
-    to_dimensions: list[DimensionRef | str],
+    keys: list[JoinKey],
     domain: DomainRef | None = None,
     description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
@@ -969,11 +1118,10 @@ def relationship(
     metric or dimension references dimensions across related entities.
 
     Args:
-        name: Required relationship name (no default).
+        name: Required relationship name.
         from_entity: Source entity (``EntityRef`` or qualified string).
         to_entity: Target entity (``EntityRef`` or qualified string).
-        from_dimensions: Columns on ``from_entity`` (``DimensionRef`` / qualified strings).
-        to_dimensions: Columns on ``to_entity`` — must align positionally with ``from_dimensions``.
+        keys: List of ``ms.join_on(from_key, to_key)`` pairs.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         description: Free-text description.
@@ -984,34 +1132,36 @@ def relationship(
 
     Raises:
         SemanticDecoratorError: ``name`` is missing, the entities are unknown, or
-            ``from_dimensions`` / ``to_dimensions`` lengths disagree.
+            ``keys`` is empty.
 
     Example:
         >>> ms.relationship(
         ...     name="orders_to_customers",
         ...     from_entity=orders, to_entity=customers,
-        ...     from_dimensions=["customer_id"], to_dimensions=["id"],
+        ...     keys=[ms.join_on(customer_id, id)],
         ... )
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
-
-    if name is None:
-        _raise(
-            ErrorKind.MISSING_DOMAIN,
-            "relationship requires a 'name' argument.",
-            cls=SemanticDecoratorError,
-        )
 
     semantic_id = f"{resolved_domain}.{name}"
     _check_duplicate(ctx, semantic_id, RelationshipIR)
 
     from_ds = _resolve_ref_string(from_entity)
     to_ds = _resolve_ref_string(to_entity)
-    from_f = _resolve_dimension_refs(from_dimensions)
-    to_f = _resolve_dimension_refs(to_dimensions)
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
+
+    resolved_keys: tuple[JoinKey, ...] = tuple(keys)
+
+    if not resolved_keys:
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.relationship(keys=...) requires at least one ms.join_on(from_key, to_key) pair.",
+            cls=SemanticDecoratorError,
+            refs=(semantic_id,),
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
 
     ir = RelationshipIR(
         semantic_id=semantic_id,
@@ -1019,8 +1169,7 @@ def relationship(
         name=name,
         from_entity=from_ds,
         to_entity=to_ds,
-        from_dimensions=from_f,
-        to_dimensions=to_f,
+        keys=resolved_keys,
         description=description,
         ai_context=ai_ctx,
         location=location,
@@ -1148,10 +1297,10 @@ def semi_additive(
 ) -> SemiAdditive:
     """Declare a semi-additive nature: additive off the ``over`` time axis, folded by ``fold``.
 
-    Use as the ``additivity=`` value on a measure dimension or a tier-2 simple metric::
+    Use as the ``additivity=`` value on a measure or a metric::
 
-        @ms.dimension(kind="measure", entity=inventory,
-                      additivity=ms.semi_additive(over=snapshot_date, fold="last"))
+        @ms.measure(entity=inventory,
+                    additivity=ms.semi_additive(over=snapshot_date, fold="last"))
         def quantity(inventory):
             return inventory.qty
     """
@@ -1203,7 +1352,7 @@ def _derived(
         measure=None,
         composition=composition,
         additivity=None,  # propagated at load from components
-        provenance=_build_metric_provenance(source_sql=None, source_dialect=None),
+        provenance=None,
         description=description,
         ai_context=ai_ctx,
         body_ast_hash=_compute_composition_hash(composition),
@@ -1314,3 +1463,190 @@ def ref(id: str) -> str:
     explicit at the call site (``datasets=[ms.ref("sales.orders")]``).
     """
     return id
+
+
+def from_sql(*, sql: str, dialect: str) -> SqlProvenance:
+    """Declare SQL parity provenance for a Python metric body.
+
+    Use as the ``provenance=`` value on ``@ms.metric(...)``::
+
+        @ms.metric(entities=[orders], additivity="additive",
+                   provenance=ms.from_sql(sql="select sum(amount) from orders", dialect="duckdb"))
+        def revenue(orders_table):
+            return orders_table.amount.sum()
+    """
+    return SqlProvenance(sql=sql, dialect=dialect)
+
+
+def join_on(from_key: DimensionRef | str, to_key: DimensionRef | str, /) -> JoinKey:
+    """Build one relationship key pair for ``ms.relationship(keys=[...])``.
+
+    Each call creates one (from_key, to_key) pairing. Pass a list of
+    ``ms.join_on(...)`` calls to ``keys=``.
+
+    Example::
+
+        ms.relationship(
+            name="orders_to_customers",
+            from_entity=orders, to_entity=customers,
+            keys=[ms.join_on(customer_id, id)],
+        )
+    """
+    return JoinKey(from_key=_resolve_ref_string(from_key), to_key=_resolve_ref_string(to_key))
+
+
+# ---------------------------------------------------------------------------
+# Time parse variant constructors
+# ---------------------------------------------------------------------------
+
+
+def date() -> DateParse:
+    """Declare an already-temporal date column parse.
+
+    Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
+    source column is a native date type.
+
+    Returns:
+        A ``DateParse`` value object.
+
+    Example:
+        >>> @ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+        ... def order_date(orders):
+        ...     return orders.order_date
+    """
+    return DateParse()
+
+
+def datetime(
+    *,
+    timezone: str,
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
+) -> DatetimeParse:
+    """Declare an already-temporal datetime column parse.
+
+    Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
+    source column is a native datetime type.
+
+    Args:
+        timezone: Required IANA timezone name (e.g. ``"UTC"``, ``"Asia/Shanghai"``).
+        sample_interval: Optional periodic sampling interval for sampled time
+            dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
+
+    Returns:
+        A ``DatetimeParse`` value object.
+
+    Raises:
+        SemanticDecoratorError: ``timezone`` is not a valid IANA name.
+
+    Example:
+        >>> @ms.time_dimension(entity=events, granularity="minute",
+        ...                    parse=ms.datetime(timezone="UTC"))
+        ... def ts(events):
+        ...     return events.ts
+    """
+    _validate_timezone(timezone)
+    return DatetimeParse(
+        timezone=timezone,
+        sample_interval=_normalize_sample_interval_value(sample_interval),
+    )
+
+
+def timestamp(
+    *,
+    timezone: str,
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
+) -> TimestampParse:
+    """Declare an already-temporal timestamp column parse.
+
+    Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
+    source column is a native timestamp type.
+
+    Args:
+        timezone: Required IANA timezone name (e.g. ``"UTC"``, ``"Asia/Shanghai"``).
+        sample_interval: Optional periodic sampling interval for sampled time
+            dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
+
+    Returns:
+        A ``TimestampParse`` value object.
+
+    Raises:
+        SemanticDecoratorError: ``timezone`` is not a valid IANA name.
+
+    Example:
+        >>> @ms.time_dimension(entity=events, granularity="second",
+        ...                    parse=ms.timestamp(timezone="UTC"))
+        ... def ts(events):
+        ...     return events.ts
+    """
+    _validate_timezone(timezone)
+    return TimestampParse(
+        timezone=timezone,
+        sample_interval=_normalize_sample_interval_value(sample_interval),
+    )
+
+
+def strptime(
+    format: str,
+    /,
+    *,
+    data_type: Literal["string", "integer"],
+    timezone: str | None = None,
+) -> StrptimeParse:
+    """Declare a string/integer strptime parse.
+
+    Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
+    source column is a string or integer that must be parsed with a Python
+    strptime format.
+
+    Args:
+        format: Canonical Python strptime format string (e.g. ``"%Y%m%d"``,
+            ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
+        data_type: ``"string"`` or ``"integer"`` — the physical column type.
+        timezone: Optional IANA timezone for time-bearing formats.
+
+    Returns:
+        A ``StrptimeParse`` value object.
+
+    Raises:
+        SemanticDecoratorError: ``format`` is not a valid strptime format, or
+            ``timezone`` is not a valid IANA name.
+
+    Example:
+        >>> @ms.time_dimension(entity=orders, granularity="day",
+        ...                    parse=ms.strptime("%Y%m%d", data_type="string"))
+        ... def dt(orders):
+        ...     return orders.dt
+    """
+    normalized = normalize_strptime(format)
+    if timezone is not None:
+        _validate_timezone(timezone)
+    return StrptimeParse(format=normalized, data_type=data_type, timezone=timezone)
+
+
+def hour_prefix(prefix: str, /, *, data_type: Literal["string", "integer"]) -> HourPrefixParse:
+    """Declare an hour-only partition parse using a day prefix column.
+
+    Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
+    source column encodes only the hour component (e.g. ``"01"``, ``"23"``)
+    and must be combined with a day-level time dimension prefix.
+
+    Args:
+        prefix: The semantic id of a day-level time dimension that supplies
+            the date context for this hour column.
+        data_type: ``"string"`` or ``"integer"`` — the physical column type.
+
+    Returns:
+        An ``HourPrefixParse`` value object.
+
+    Raises:
+        TypeError: ``data_type`` is not ``"string"`` or ``"integer"``.
+
+    Example:
+        >>> @ms.time_dimension(entity=logs, granularity="hour",
+        ...                    parse=ms.hour_prefix("ops.logs.dt", data_type="string"))
+        ... def hh(logs):
+        ...     return logs.hh
+    """
+    if data_type not in {"string", "integer"}:
+        raise TypeError(f"hour_prefix() data_type must be 'string' or 'integer', got {data_type!r}")
+    return HourPrefixParse(prefix=prefix, data_type=data_type)

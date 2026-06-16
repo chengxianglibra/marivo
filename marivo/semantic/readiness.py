@@ -203,10 +203,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
     kinds: dict[str, _SemanticKind] = {}
     objects: dict[str, object] = {}
 
-    for dataset in reg.datasets.values():
+    for dataset in reg.entities.values():
         kinds[dataset.semantic_id] = _SemanticKind.ENTITY
         objects[dataset.semantic_id] = dataset
-    for field in reg.fields.values():
+    for field in reg.dimensions.values():
         kind = _SemanticKind.TIME_DIMENSION if field.is_time_dimension else _SemanticKind.DIMENSION
         kinds[field.semantic_id] = kind
         objects[field.semantic_id] = field
@@ -216,7 +216,7 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
     for relationship in reg.relationships.values():
         kinds[relationship.semantic_id] = _SemanticKind.RELATIONSHIP
         objects[relationship.semantic_id] = relationship
-    for domain_ir in reg.models.values():
+    for domain_ir in reg.domains.values():
         kinds[domain_ir.name] = _SemanticKind.DOMAIN
         objects[domain_ir.name] = domain_ir
     for ds_ir in project._datasource_irs or reg.datasources.values():
@@ -432,36 +432,49 @@ def _naive_timezone_blockers(
     from marivo.semantic.ir import is_time_bearing_format
 
     issues: list[ReadinessIssue] = []
-    for field in reg.fields.values():
+    for field in reg.dimensions.values():
         if field.semantic_id not in checked_refs:
             continue
         if not field.is_time_dimension:
             continue
-        if field.timezone is not None:
+        parse = field.parse
+        from marivo.semantic.ir import (
+            DateParse,
+            DatetimeParse,
+            HourPrefixParse,
+            StrptimeParse,
+            TimestampParse,
+        )
+
+        # DatetimeParse and TimestampParse always carry a required timezone
+        if isinstance(parse, (DatetimeParse, TimestampParse)):
             continue
-        data_type = field.data_type
         # date has no timezone ambiguity
-        if data_type == "date":
+        if isinstance(parse, DateParse):
             continue
-        # required_prefix = hour partition encoding, not TZ-relevant
-        if field.required_prefix is not None:
+        # HourPrefixParse = hour partition encoding, not TZ-relevant
+        if isinstance(parse, HourPrefixParse):
             continue
-        # datetime/timestamp are always time-bearing
-        if data_type in {"datetime", "timestamp"}:
-            time_bearing = True
-        # string/integer: check the strptime format
-        elif data_type in {"string", "integer"}:
-            time_bearing = is_time_bearing_format(field.format)
+        # StrptimeParse: check whether it carries a timezone or time-bearing format
+        if isinstance(parse, StrptimeParse):
+            if parse.timezone is not None:
+                continue
+            time_bearing = is_time_bearing_format(parse.format)
         else:
             time_bearing = False
         if not time_bearing:
             continue
+        # Determine the data_type string for the error message
+        if isinstance(parse, StrptimeParse):
+            data_type_str: str = parse.data_type
+        else:
+            data_type_str = "unknown"
         issues.append(
             _issue(
                 "naive_timezone_undetermined",
                 "blocker",
                 (field.semantic_id,),
-                f"Time dimension {field.semantic_id!r} uses a naive {data_type!r} column "
+                f"Time dimension {field.semantic_id!r} uses a naive {data_type_str!r} column "
                 f"with no declared timezone. Bucketing assumes session timezone, which may "
                 f"not match the data.",
                 f"Add timezone='...' to the @ms.time_dimension declaration for "
@@ -571,7 +584,7 @@ def build_structural_readiness_report(
     reg = project._registry
     if reg is not None:
         datasource_by_dataset = {
-            dataset.semantic_id: dataset.datasource for dataset in reg.datasets.values()
+            dataset.semantic_id: dataset.datasource for dataset in reg.entities.values()
         }
         for metric in reg.metrics.values():
             if metric.semantic_id not in checked_ref_set:
@@ -603,7 +616,10 @@ def build_structural_readiness_report(
         if obj is None:
             continue
         prov = getattr(obj, "provenance", None)
-        if prov is None or getattr(prov, "source_sql", None) is None:
+        if prov is None:
+            continue
+        source_sql = prov.sql
+        if source_sql is None:
             continue
         if not _parity_passed(project, ref):
             warnings.append(
@@ -611,7 +627,7 @@ def build_structural_readiness_report(
                     "sql_parity_unverified",
                     "warning",
                     (ref,),
-                    f"{ref} has source_sql but parity has not been confirmed.",
+                    f"{ref} has provenance SQL but parity has not been confirmed.",
                     f"Run ms.parity_check({ref!r}) to verify.",
                 )
             )

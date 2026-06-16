@@ -2,6 +2,11 @@
 
 Use these patterns when writing `models/semantic/<domain>/_domain.py`.
 
+## Provenance
+
+Use `provenance=ms.from_sql(sql=..., dialect=...)` for SQL provenance on metrics.
+Do not use `source_sql` or `source_dialect` kwargs — they are deprecated.
+
 ## Single domain file
 
 ```python
@@ -39,9 +44,8 @@ def log_date(table):
 @ms.time_dimension(
     entity=orders,
     name="log_hour",
-    data_type="string",
     granularity="hour",
-    required_prefix="log_date",
+    parse=ms.hour_prefix("log_date", data_type="string"),
     ai_context={
         "business_definition": "Hour partition used with log_date for hourly reporting windows.",
         "guardrails": ["Use full event timestamp only when source SQL defines that axis."],
@@ -61,12 +65,14 @@ def log_hour(table):
 def region(table):
     return table.region
 
-@ms.simple_metric(
+@ms.metric(
     entities=[orders],
     additivity="additive",
     name="revenue",
-    source_sql="SELECT SUM(amount) AS revenue FROM orders",
-    source_dialect="duckdb",
+    provenance=ms.from_sql(
+        sql="SELECT SUM(amount) AS revenue FROM orders",
+        dialect="duckdb",
+    ),
     ai_context={
         "business_definition": "Gross order amount before refunds.",
         "guardrails": ["Validate refund exclusions before using this as net revenue."],
@@ -86,7 +92,7 @@ It is not a substitute for business meaning.
 Business meaning, usage constraints, and agent guidance belong in `ai_context`:
 
 ```python
-@ms.simple_metric(
+@ms.metric(
     entities=[orders],
     additivity="additive",
     description="Gross revenue.",       # short summary for display
@@ -115,7 +121,7 @@ When `catalog.get("sales.revenue")` is called:
 
 ## Domain ref override
 
-`ms.domain(name=...)` returns a `DomainRef`. Pass it as `model=` on any
+`ms.domain(name=...)` returns a `DomainRef`. Pass it as `domain=` on any
 decorator to override the default domain context -- typically for objects
 declared in a sibling file that belongs to a different domain:
 
@@ -128,12 +134,12 @@ sales_ref = ms.domain(name="sales", description="Sales analytics")
 # sales/shared_dimensions.py
 import marivo.semantic as ms
 
-@ms.dimension(model=sales_ref, entity=orders, name="region")
+@ms.dimension(domain=sales_ref, entity=orders, name="region")
 def region(table):
     return table.region
 ```
 
-When all objects in a file share the default domain, omit `model=` -- the
+When all objects in a file share the default domain, omit `domain=` -- the
 loader resolves the domain from the `_domain.py` context automatically.
 
 ## Time dimension priority
@@ -150,16 +156,15 @@ compile to simple partition comparisons for predicate pushdown. Do not add
 filtered as physical partition keys, not interpreted instants.
 
 ```python
-@ms.time_dimension(entity=orders, name="log_date", data_type="string", granularity="day", date_format="%Y%m%d")
+@ms.time_dimension(entity=orders, name="log_date", granularity="day", parse=ms.strptime("%Y%m%d", data_type="string"))
 def log_date(table):
     return table.dt
 
 @ms.time_dimension(
     entity=orders,
     name="log_hour",
-    data_type="string",
     granularity="hour",
-    required_prefix="log_date",
+    parse=ms.hour_prefix("log_date", data_type="string"),
 )
 def log_hour(table):
     return table.hh
@@ -170,7 +175,7 @@ business axis, but they are not the partition dimension default and may not pres
 predicate pushdown:
 
 ```python
-@ms.time_dimension(entity=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
 def event_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -201,7 +206,7 @@ For Trino VARCHAR datetime columns storing values like `"2025-04-04 06:59:59"`,
 do not cast VARCHAR directly to DATE. Parse through timestamp first:
 
 ```python
-@ms.time_dimension(entity=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -224,8 +229,7 @@ ms.relationship(
     name="orders_to_customers",
     from_entity=orders,
     to_entity=customers,
-    from_dimensions=[order_customer_id],
-    to_dimensions=[customer_id],
+    keys=[ms.join_on(order_customer_id, customer_id)],
 )
 ```
 
@@ -236,17 +240,17 @@ Marivo has two metric tiers with distinct authoring shapes:
 | Tier | Authoring form | Has body? | Examples |
 | --- | --- | --- | --- |
 | Tier-1 aggregate | `ms.aggregate(measure=..., agg=...)` | No | sum, count over a measure dimension |
-| Tier-2 simple | `@ms.simple_metric(entities=[...], additivity=...)` | Yes | ibis expression body |
+| Tier-2 simple | `@ms.metric(entities=[...], additivity=...)` | Yes | ibis expression body |
 | Derived ratio | `ms.ratio(name=..., numerator=..., denominator=...)` | No | percentage, per-unit rate |
 | Derived weighted average | `ms.weighted_average(name=..., value=..., weight=...)` | No | weighted averages |
 | Derived linear | `ms.linear(name=..., add=[...], subtract=[...])` | No | net = gross - refunds |
 
-**Rule:** body→decorator / no-body→call. Use `@ms.simple_metric` for
+**Rule:** body→decorator / no-body→call. Use `@ms.metric` for
 expression-body metrics; use `ms.ratio` / `ms.weighted_average` / `ms.linear`
 for body-free derived metrics.
 
 ```python
-@ms.simple_metric(
+@ms.metric(
     entities=[orders],
     additivity="additive",
     name="orders_count",
@@ -258,7 +262,7 @@ def orders_count(table):
 Mean/average metrics are body-free derived metrics, not `ms.mean()`:
 
 ```python
-@ms.simple_metric(
+@ms.metric(
     entities=[orders],
     additivity="additive",
     name="gross_revenue",
@@ -303,7 +307,7 @@ periodic snapshot facts such as bandwidth, capacity, inventory, or
 device-reported rates:
 
 ```python
-@ms.simple_metric(
+@ms.metric(
     entities=[bw_samples],
     additivity=ms.semi_additive(over=sample_ts, fold="mean"),
     unit="kbit/s",
@@ -328,7 +332,7 @@ For already-summarized snapshot/status facts such as daily inventory, use
 `fold="last"` or `fold="first"` without `sample_interval`:
 
 ```python
-@ms.simple_metric(
+@ms.metric(
     entities=[inventory_daily],
     additivity=ms.semi_additive(over=snapshot_date, fold="last"),
 )
@@ -345,7 +349,7 @@ def on_hand_units(inventory_daily):
 | `unique_semantic_name` | ids must stay unique within their kind scope; dimensions are entity-scoped | `references/examples/01_single_domain_file.py` |
 | `ref_shape` | refs must point at the intended object kind | `references/examples/01_single_domain_file.py` |
 | `composition_shape` | metrics need supported composition builders | `references/examples/01_single_domain_file.py` |
-| `metric_datasets_required` | simple metrics must declare entities | `references/examples/01_single_domain_file.py` |
+| `metric_entities_required` | simple metrics must declare entities | `references/examples/01_single_domain_file.py` |
 | `metric_component_scope` | component-body calls are no longer supported in metric bodies | `references/examples/01_single_domain_file.py` |
 | `ai_context_schema` | handoff metadata must use supported fields | `references/examples/01_single_domain_file.py` |
 | `ast_single_return` | decorator bodies stay one safe expression | `references/examples/01_single_domain_file.py` |
@@ -358,7 +362,7 @@ def on_hand_units(inventory_daily):
 
 ## Metric unit authoring
 
-`@ms.dimension(kind="measure")` / `@ms.simple_metric` / `ms.aggregate` /
+`@ms.dimension(kind="measure")` / `@ms.metric` / `ms.aggregate` /
 `ms.ratio` / `ms.weighted_average` / `ms.linear` accept optional `unit`
 (UCUM case-sensitive code; bare ISO 4217 uppercase code = currency). The unit
 describes emitted values exactly; nothing converts based on it.
@@ -366,7 +370,7 @@ describes emitted values exactly; nothing converts based on it.
 **Declaration strategy:** declare `unit=` on the measure dimension
 (authoritative site). Tier-1 and derived metrics inherit it automatically at
 load; pass `unit=` on a metric only to override the derived value. For tier-2
-(`simple_metric`), there is no measure to derive from, so `unit=` is the direct
+(`@ms.metric`), there is no measure to derive from, so `unit=` is the direct
 declaration. Count/count_distinct metrics do not derive a unit from their
 measure — declare an explicit counted-noun annotation like `{order}`.
 
@@ -374,7 +378,7 @@ Fill `unit` only from explicit evidence:
 
 - Column name suffixes: `_cents`, `_usd`, `_ms`, `_pct`.
 - Column comments stating the unit (from `md.inspect_table` / `md.inspect_columns` results).
-- `source_sql` conversion traces (e.g. `/100` on a cents column).
+- `provenance` SQL conversion traces (e.g. `/100` on a cents column).
 - Count metrics: the counted entity noun, singular, in braces — `{order}`.
 - Ratio derived metrics: same-unit ratios cancel to `"1"` automatically; declare `%`
   only when the metric emits percentage points rather than fractions.
@@ -385,7 +389,7 @@ evidence is ambiguous:
 - Amount scale ambiguity (is `19900` cents or yuan?).
 - Fraction vs percentage points (`0.85` vs `85`).
 - Multi-currency tables (`amount` + `currency_code`): the metric has no
-  constant unit unless the model normalizes currency.
+  constant unit unless the domain normalizes currency.
 - Duration `ms` vs `s` without explicit evidence.
 
 Inference is only a drafting aid; the field's semantics are an author

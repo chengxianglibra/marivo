@@ -69,6 +69,10 @@ class SemanticResolver:
         ref = _require_kind(ref_value, expected=(SemanticKind.METRIC,))
         return self._materializer.metric(ref)
 
+    def measure(self, ref_value: SemanticRef | SemanticObject | str) -> ir.Value:
+        ref = _require_kind(ref_value, expected=(SemanticKind.MEASURE,))
+        return self._materializer.measure(ref)
+
     def dimension_on(
         self,
         ref_value: SemanticRef | SemanticObject | str,

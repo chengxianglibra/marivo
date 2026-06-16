@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 from marivo.analysis.calendar.model import AlignPeriod, CalendarFallback
 from marivo.analysis.errors import (
     AlignmentPolicyValidationError,
+    SemanticKindMismatchError,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef
 from marivo.semantic.catalog import SemanticKind, SemanticObject, SemanticRef
@@ -42,14 +43,31 @@ def _reject_anchor_kind(*, field_name: str, value: object, actual_kind: object) 
 
 def _validate_anchor_kind(value: object, *, field_name: str, kind: SemanticKind | None) -> None:
     if field_name == "metric":
+        if kind == SemanticKind.MEASURE:
+            raise SemanticKindMismatchError(
+                message=(
+                    f"{field_name} cannot be a measure; measures are aggregated values, "
+                    "not analysis anchors. Use a metric, entity, categorical dimension, or time dimension."
+                ),
+                details={"field": field_name, "actual_kind": "measure"},
+            )
         if kind != SemanticKind.METRIC:
             _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
         return
-    if field_name in _DIMENSION_ANCHOR_FIELDS and kind not in {
-        SemanticKind.DIMENSION,
-        SemanticKind.TIME_DIMENSION,
-    }:
-        _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
+    if field_name in _DIMENSION_ANCHOR_FIELDS:
+        if kind == SemanticKind.MEASURE:
+            raise SemanticKindMismatchError(
+                message=(
+                    f"{field_name} cannot be a measure; measures are aggregated values, "
+                    "not analysis anchors. Use a metric, entity, categorical dimension, or time dimension."
+                ),
+                details={"field": field_name, "actual_kind": "measure"},
+            )
+        if kind not in {
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+        }:
+            _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
 
 
 def _semantic_anchor_id(value: SemanticAnchorInput | None, *, field_name: str) -> str | None:

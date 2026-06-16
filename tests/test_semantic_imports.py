@@ -39,10 +39,10 @@ from marivo.semantic.ir import (
     MetricIR,
     MetricRef,
     ParityStatus,
-    ProvenanceIR,
     RelationshipIR,
     RelationshipRef,
     SourceLocation,
+    SqlProvenance,
     SymbolKind,
     TimeDimensionRef,
 )
@@ -76,7 +76,9 @@ def test_all_list_matches_expected() -> None:
         "CrossEntityMetricBrief",
         "DatasetSource",
         "DatasourceDetails",
+        "DateParse",
         "DecisionRecord",
+        "DatetimeParse",
         "DemandSignal",
         "DerivedMetricBrief",
         "DimensionBrief",
@@ -92,8 +94,12 @@ def test_all_list_matches_expected() -> None:
         "EntityRef",
         "FileSource",
         "FormatCandidate",
+        "HourPrefixParse",
+        "JoinKey",
         "JoinPathFact",
         "LadderOrderError",
+        "MeasureIR",
+        "MeasureRef",
         "MetricBrief",
         "MetricDetails",
         "MetricRef",
@@ -116,10 +122,13 @@ def test_all_list_matches_expected() -> None:
         "SemanticRef",
         "SemanticRefInput",
         "SnapshotVersioning",
+        "SqlProvenance",
+        "StrptimeParse",
         "TableSource",
         "TimeDimensionBrief",
         "TimeDimensionDetails",
         "TimeDimensionRef",
+        "TimestampParse",
         "ValidityVersioning",
         "VerifyResult",
         "VersioningHints",
@@ -127,11 +136,18 @@ def test_all_list_matches_expected() -> None:
         "load",
         "domain",
         "entity",
-        "file",
+        "csv",
+        "parquet",
+        "date",
+        "datetime",
         "dimension",
         "time_dimension",
         "aggregate",
-        "simple_metric",
+        "from_sql",
+        "hour_prefix",
+        "join_on",
+        "measure",
+        "metric",
         "linear",
         "semi_additive",
         "parity_check",
@@ -148,10 +164,12 @@ def test_all_list_matches_expected() -> None:
         "record_decision",
         "ratio",
         "readiness",
+        "strptime",
         "weighted_average",
         "ref",
         "table",
         "snapshot",
+        "timestamp",
         "validity",
         "verify_object",
         "help",
@@ -170,6 +188,9 @@ def test_all_list_matches_expected() -> None:
         "RichnessGap",
         "DimensionSummary",
         "RelationshipSummary",
+        "simple_metric",
+        "file",
+        "FileSourceIR",
     ):
         assert name not in ms.__all__, f"{name} should not be in ms.__all__"
 
@@ -281,7 +302,7 @@ def test_help_text_top_level_is_compact_directory(capsys: pytest.CaptureFixture[
     assert "marivo.semantic" in captured.out
     # Each line shows: name, kind tag in brackets, description
     assert "ms.entity" in captured.out
-    assert "ms.simple_metric" in captured.out
+    assert "ms.metric" in captured.out
     assert "ms.constraints" in captured.out
     # Kind tags appear as [kind] in output
     assert "[callable]" in captured.out
@@ -321,7 +342,7 @@ def test_help_json_top_level_returns_compact_directory() -> None:
         "additivity",
     }
     assert "entity" in entry_names
-    assert "simple_metric" in entry_names
+    assert "metric" in entry_names
     assert "ratio" in entry_names
     assert "weighted_average" in entry_names
     assert "component" not in entry_names
@@ -332,11 +353,11 @@ def test_help_json_top_level_returns_compact_directory() -> None:
 
 
 def test_help_json_simple_metric_includes_body_rule_and_related_help() -> None:
-    result = _ms_json_data("simple_metric")
+    result = _ms_json_data("metric")
 
     assert isinstance(result, dict)
     assert result["kind"] == "topic"
-    assert result["symbol"] == "simple_metric"
+    assert result["symbol"] == "metric"
     content = cast("dict[str, Any]", result["content"])
     assert "tier1" in content
     assert "tier2" in content
@@ -373,7 +394,7 @@ def test_help_json_composition_documents_supported_constructors_and_boundary() -
     assert "linear (a +/- b)" in example_shapes
     assert "boundary" in content
     related_help = cast("list[str]", content["related_help"])
-    assert "ms.help('simple_metric')" in related_help
+    assert "ms.help('metric')" in related_help
     assert "ms.help('component')" not in related_help
 
 
@@ -460,7 +481,8 @@ def test_semantic_skill_constraint_table_matches_catalog() -> None:
 _EXPECTED_DECORATOR_KINDS = {
     "duplicate_name",
     "missing_domain",
-    "missing_datasets",
+    "missing_entities",
+    "missing_metric_root_entity",
     "invalid_ref",
     "invalid_composition",
     "invalid_component_body",
@@ -488,8 +510,8 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "organization_error",
     "invalid_project",
     "missing_metric_additivity",
-    "missing_metric_root_dataset",
-    "invalid_metric_root_dataset",
+    "missing_metric_root_entity",
+    "invalid_metric_root_entity",
     "invalid_verification_mode",
     "invalid_entity_versioning",
     "non_root_metric_aggregate",
@@ -591,7 +613,7 @@ def test_hints_cover_all_kinds() -> None:
 _FROZEN_CLASSES = [
     SourceLocation,
     AiContextIR,
-    ProvenanceIR,
+    SqlProvenance,
     DomainIR,
     DatasourceIR,
     EntityIR,
@@ -619,6 +641,7 @@ def test_symbol_kind_values() -> None:
         "datasource",
         "entity",
         "dimension",
+        "measure",
         "time_dimension",
         "metric",
         "relationship",
@@ -650,7 +673,7 @@ def test_parity_status_is_str_enum() -> None:
 
 
 def test_field_kind_values() -> None:
-    expected = {"categorical", "measure", "time"}
+    expected = {"categorical", "time"}
     actual = {k.value for k in DimensionKind}
     assert actual == expected
 
@@ -931,7 +954,7 @@ def test_help_additivity_documents_semi_additive_semantics(capsys) -> None:
 
 
 def test_help_simple_metric_mentions_fold_is_definition_choice(capsys) -> None:
-    ms.help("simple_metric")
+    ms.help("metric")
     out = capsys.readouterr().out
     assert "body" in out
 

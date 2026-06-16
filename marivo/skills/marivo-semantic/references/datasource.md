@@ -1,7 +1,7 @@
 # marivo-semantic datasource reference
 
 Use this reference when creating, checking, or repairing project datasources used
-by semantic models from a pip-installed Marivo project.
+by semantic domains from a pip-installed Marivo project.
 
 ## Project datasource files
 
@@ -75,9 +75,10 @@ not choose Trino just because it can federate to another engine:
 | Local Parquet or CSV files | `duckdb` |
 
 Use Trino for another engine only when the user explicitly provides a Trino
-endpoint/catalog or requires federation through Trino. For local JSON files,
-still choose DuckDB as the execution backend, but inspect runtime help before
-declaring `ms.file(...)`; do not invent unsupported file formats.
+endpoint/catalog or requires federation through Trino. For local Parquet or
+CSV files, still choose DuckDB as the execution backend, but use the typed
+constructors `ms.parquet(...)` and `ms.csv(...)`; do not invent unsupported
+file formats.
 
 ## Datasource Inspection APIs
 
@@ -182,13 +183,13 @@ orders = ms.entity(
 )
 ```
 
-DuckDB external files use file sources:
+DuckDB external files use typed file source constructors:
 
 ```python
 orders = ms.entity(
     name="orders",
     datasource=warehouse,
-    source=ms.file("/data/orders/*.parquet", format="parquet"),
+    source=ms.parquet("/data/orders/*.parquet"),
 )
 ```
 
@@ -248,7 +249,7 @@ Do not cast a Trino VARCHAR datetime directly to date. Parse through timestamp
 first:
 
 ```python
-@ms.time_dimension(entity=orders, data_type="date", granularity="day")
+@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```

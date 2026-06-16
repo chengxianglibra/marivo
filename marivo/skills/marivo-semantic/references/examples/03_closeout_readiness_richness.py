@@ -46,7 +46,7 @@ orders = ms.entity(
 def order_date(table):
     return table.dt.cast("date")
 
-@ms.simple_metric(
+@ms.metric(
     entities=[orders],
     additivity="additive",
     name="unverified_revenue",
@@ -58,12 +58,14 @@ def order_date(table):
 def unverified_revenue(table):
     return table.amount.sum()
 
-@ms.simple_metric(
+@ms.metric(
     entities=[orders],
     additivity="additive",
     name="drifted_revenue",
-    source_sql="SELECT 999.0 AS drifted_revenue",
-    source_dialect="duckdb",
+    provenance=ms.from_sql(
+        sql="SELECT 999.0 AS drifted_revenue",
+        dialect="duckdb",
+    ),
     ai_context={
         "business_definition": "Gross order amount with intentionally drifted oracle.",
         "guardrails": ["Parity drift warns in readiness."],

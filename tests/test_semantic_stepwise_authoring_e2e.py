@@ -95,8 +95,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")
-        + "@ms.time_dimension(entity=orders, data_type='string', "
-        "granularity='day', date_format='%Y%m%d')\n"
+        + "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d', data_type='string'))\n"
         "def dt(orders):\n"
         "    return orders.dt\n",
         encoding="utf-8",
@@ -115,7 +114,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")
-        + "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
+        + "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n",
         encoding="utf-8",

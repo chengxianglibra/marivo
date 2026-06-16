@@ -36,10 +36,10 @@ import marivo.semantic as ms
 
 orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-@ms.dimension(kind="measure", entity=orders, additivity="additive")
+@ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount
 
-@ms.time_dimension(entity=orders, data_type="timestamp", granularity="day")
+@ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
 def order_date(orders): return orders.order_date
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
@@ -102,7 +102,7 @@ def test_help_topics_reflect_split():
 
     # The help index text must mention the new topics
     index = ms.help_text()
-    assert "simple_metric" in index
+    assert "metric" in index
     assert "composition" in index
     comp = ms.help_text("composition")
     assert "ms.sum()" not in comp

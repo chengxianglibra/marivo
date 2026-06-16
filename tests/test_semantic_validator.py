@@ -383,7 +383,7 @@ def test_time_dimension_dtype_advisory_cast_date_declared_datetime() -> None:
         return table.dt.cast("timestamp").cast("date")
 
     from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import DimensionIR, DimensionKind, SourceLocation
+    from marivo.semantic.ir import DatetimeParse, DimensionIR, DimensionKind, SourceLocation
     from marivo.semantic.validator import _time_dimension_dtype_advisory
 
     field_ir = DimensionIR(
@@ -395,9 +395,8 @@ def test_time_dimension_dtype_advisory_cast_date_declared_datetime() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="datetime",
         granularity="day",
-        required_prefix=None,
+        parse=DatetimeParse(timezone="UTC"),
         python_symbol="order_date",
         location=SourceLocation(file="test.py", line=1),
     )
@@ -411,7 +410,7 @@ def test_time_dimension_dtype_advisory_cast_timestamp_declared_datetime_ok() -> 
         return table.ts.cast("timestamp")
 
     from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import DimensionIR, DimensionKind, SourceLocation
+    from marivo.semantic.ir import DatetimeParse, DimensionIR, DimensionKind, SourceLocation
     from marivo.semantic.validator import _time_dimension_dtype_advisory
 
     field_ir = DimensionIR(
@@ -423,9 +422,8 @@ def test_time_dimension_dtype_advisory_cast_timestamp_declared_datetime_ok() -> 
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="datetime",
         granularity="day",
-        required_prefix=None,
+        parse=DatetimeParse(timezone="UTC"),
         python_symbol="created_at",
         location=SourceLocation(file="test.py", line=1),
     )
@@ -439,7 +437,7 @@ def test_time_dimension_dtype_advisory_cast_date_declared_date_ok() -> None:
         return table.dt.cast("date")
 
     from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import DimensionIR, DimensionKind, SourceLocation
+    from marivo.semantic.ir import DateParse, DimensionIR, DimensionKind, SourceLocation
     from marivo.semantic.validator import _time_dimension_dtype_advisory
 
     field_ir = DimensionIR(
@@ -451,9 +449,8 @@ def test_time_dimension_dtype_advisory_cast_date_declared_date_ok() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="date",
         granularity="day",
-        required_prefix=None,
+        parse=DateParse(),
         python_symbol="order_date",
         location=SourceLocation(file="test.py", line=1),
     )
@@ -467,7 +464,7 @@ def test_time_dimension_dtype_advisory_no_cast_no_advisory() -> None:
         return table.dt
 
     from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.ir import DimensionIR, DimensionKind, SourceLocation
+    from marivo.semantic.ir import DatetimeParse, DimensionIR, DimensionKind, SourceLocation
     from marivo.semantic.validator import _time_dimension_dtype_advisory
 
     field_ir = DimensionIR(
@@ -479,9 +476,8 @@ def test_time_dimension_dtype_advisory_no_cast_no_advisory() -> None:
         ai_context=AiContextIR(),
         is_time_dimension=True,
         kind=DimensionKind.TIME,
-        data_type="datetime",
         granularity="day",
-        required_prefix=None,
+        parse=DatetimeParse(timezone="UTC"),
         python_symbol="order_date",
         location=SourceLocation(file="test.py", line=1),
     )
