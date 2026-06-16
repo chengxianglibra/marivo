@@ -69,7 +69,7 @@ def _bootstrap_sales_with_country_dimension(tmp_path):
         "def country(orders):\n"
         "    return orders.country\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
+        "@ms.simple_metric(entities=[orders], additivity='additive', "
         "name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
@@ -124,7 +124,7 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
         "def create_time(orders):\n"
         "    return orders.created_ts\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -156,7 +156,7 @@ def _bootstrap_sales_with_default_time_field(tmp_path):
         "def create_time(orders):\n"
         "    return orders.created_ts\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -196,7 +196,7 @@ def _bootstrap_sales_with_string_partition_time_field(tmp_path):
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -236,7 +236,7 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -270,7 +270,7 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -317,16 +317,16 @@ def test_observe_planner_does_not_require_catalog_private_state(
                 "@ms.dimension(entity=orders, kind='categorical')\n"
                 "def country(table):\n"
                 "    return table.country\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def failed_count(table):\n"
                 "    return (table.state == 'FAILED').cast('int64').sum()\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def total_count(table):\n"
                 "    return table.count()\n"
-                "ms.derived_metric(name='failure_rate', decomposition=ms.ratio(numerator='sales.failed_count', denominator='sales.total_count'))\n"
+                "ms.ratio(name='failure_rate', numerator='sales.failed_count', denominator='sales.total_count')\n"
             ),
         }
     )
@@ -370,9 +370,9 @@ def test_observe_planner_does_not_require_catalog_private_state(
             entities=tuple(entity.ref for entity in details.entities),
             additivity=details.additivity,
             fanout_policy=details.fanout_policy,
-            is_derived=details.is_derived,
-            decomposition=SimpleNamespace(
-                kind=details.decomposition,
+            metric_type=details.metric_type,
+            composition=SimpleNamespace(
+                kind=details.composition,
                 components={role: component.ref for role, component in details.components},
             ),
             time_fold=None,
@@ -659,10 +659,9 @@ def _bootstrap_sales_with_out_of_scope_amount_dimension(tmp_path):
         "def amount(products):\n"
         "    return products.amount\n"
         "\n"
-        "@ms.metric(\n"
+        "@ms.simple_metric(\n"
         "    entities=[orders],\n"
         "    additivity='additive',\n"
-        "    decomposition=ms.sum(),\n"
         "    name='revenue',\n"
         ")\n"
         "def revenue(orders):\n"
@@ -823,28 +822,24 @@ def _bootstrap_failure_rate(tmp_path):
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
         "def failed_count(orders):\n"
         "    return (orders.state == 'FAILED').cast('int64').sum()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
-        "ms.derived_metric(\n"
+        "ms.ratio(\n"
         "    name='failure_rate',\n"
-        "    decomposition=ms.ratio(\n"
-        "        numerator='sales.failed_count',\n"
-        "        denominator='sales.total_count',\n"
-        "    ),\n"
+        "    numerator='sales.failed_count',\n"
+        "    denominator='sales.total_count',\n"
         ")\n"
         "\n"
-        "ms.derived_metric(\n"
+        "ms.ratio(\n"
         "    name='failed_count_ratio',\n"
-        "    decomposition=ms.ratio(\n"
-        "        numerator='sales.failed_count',\n"
-        "        denominator='sales.failed_count',\n"
-        "    ),\n"
+        "    numerator='sales.failed_count',\n"
+        "    denominator='sales.failed_count',\n"
         ")\n"
     )
 
@@ -869,7 +864,7 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
     frame = observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC), session=session)
 
     assert frame.meta.component_ref is not None
-    assert frame.meta.decomposition == {
+    assert frame.meta.composition == {
         "kind": "ratio",
         "components": {
             "numerator": "sales.failed_count",
@@ -881,7 +876,7 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
     assert components.meta.parent_kind == "metric_frame"
-    assert components.meta.decomposition_kind == "ratio"
+    assert components.meta.composition_kind == "ratio"
     assert components.meta.components == {
         "numerator": "sales.failed_count",
         "denominator": "sales.total_count",
@@ -964,7 +959,7 @@ def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -1036,7 +1031,7 @@ def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
         "def create_time(orders):\n"
         "    return orders.create_time\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -1101,7 +1096,7 @@ def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )

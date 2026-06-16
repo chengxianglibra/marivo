@@ -148,7 +148,7 @@ def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factor
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             ),
@@ -163,8 +163,8 @@ def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factor
     # function returns a BaseObservePlan when metric is non-derived using a
     # very small bootstrap that does not require execution. Using
     # observe.observe(...) is the integration test; here we only verify
-    # dispatch by inspecting metric_ir.is_derived branching directly:
-    assert metric.is_derived is False
+    # dispatch by inspecting metric_ir.metric_type branching directly:
+    assert metric.metric_type == "simple"
     # plan_observe is integration-tested via observe end-to-end suites; this
     # narrow test asserts the symbol is exported and is callable signature.
     assert callable(plan_observe)

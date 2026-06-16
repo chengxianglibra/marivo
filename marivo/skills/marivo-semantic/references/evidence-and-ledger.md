@@ -98,7 +98,7 @@ block.
 
 ## Auto-Recorded Decisions
 
-On load, Marivo auto-records `metric_decomposition` and
+On load, Marivo auto-records `metric_composition` and
 `time_dimension_identity` decisions for authored metrics and time dimensions.
 These happen during `verify_object`, replacing the manual "reload after
 authoring" rule. The auto-recorded entries satisfy the

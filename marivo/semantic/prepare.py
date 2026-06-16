@@ -154,32 +154,56 @@ def prepare_domain(project: SemanticProject, *, name: str) -> DomainBrief:
 
 def _build_derived_metric_template(
     *,
-    composition_kind: Literal["ratio", "weighted_average"],
-    numerator: str,
+    composition_kind: Literal["ratio", "weighted_average", "linear"],
+    name_hint: str,
+    numerator: str | None,
     denominator: str | None,
     weight: str | None,
 ) -> str:
-    """Build a ready-to-use ms.ratio/ms.weighted_average(...) call template."""
+    """Build a ready-to-use flat derived-metric constructor template."""
     if composition_kind == "ratio":
         return (
-            f"ms.ratio(\n"
-            f'    name="<name>",\n'
+            f"{name_hint} = ms.ratio(\n"
+            f"    name={name_hint!r},\n"
             f"    numerator={numerator!r}, denominator={denominator!r},\n"
             f")"
         )
-    return (
-        f'ms.weighted_average(\n    name="<name>",\n    value={numerator!r}, weight={weight!r},\n)'
-    )
+    if composition_kind == "weighted_average":
+        return (
+            f"{name_hint} = ms.weighted_average(\n"
+            f"    name={name_hint!r},\n"
+            f"    value={numerator!r}, weight={weight!r},\n"
+            f")"
+        )
+    return f"{name_hint} = ms.linear(\n    name={name_hint!r},\n    add=[...], subtract=[...],\n)"
 
 
 def prepare_derived_metric(
     project: SemanticProject,
     *,
-    numerator: str,
+    name_hint: str = "metric",
+    numerator: str | None = None,
     denominator: str | None = None,
     weight: str | None = None,
+    composition_kind: Literal["ratio", "weighted_average", "linear"] | None = None,
 ) -> DerivedMetricBrief:
-    """Prepare a derived metric brief from component metric refs."""
+    """Prepare a derived metric brief from component metric refs.
+
+    Args:
+        project: Loaded SemanticProject instance.
+        name_hint: Suggested metric name for the authoring template.
+        numerator: Component ref for the numerator (ratio) or value (weighted_average).
+        denominator: Component ref for the denominator (ratio only).
+        weight: Component ref for the weight (weighted_average only).
+        composition_kind: Override the inferred composition kind. When ``None``,
+            inferred as ``"ratio"`` when *denominator* is provided,
+            ``"weighted_average"`` when *weight* is provided, or ``"linear"``
+            when only *numerator* is provided (or none at all).
+
+    Returns:
+        A ``DerivedMetricBrief`` with inferred composition kind, component facts,
+        and a ready-to-use authoring template.
+    """
     reg = project._registry
     refs = tuple(ref for ref in (numerator, denominator, weight) if ref is not None)
     missing = tuple(ref for ref in refs if reg is None or ref not in reg.metrics)
@@ -212,12 +236,18 @@ def prepare_derived_metric(
         for ref in refs
         if ref not in missing
     )
-    composition_kind: Literal["ratio", "weighted_average"] = (
-        "ratio" if denominator is not None else "weighted_average"
-    )
+    if composition_kind is None:
+        composition_kind = (
+            "ratio"
+            if denominator is not None
+            else "weighted_average"
+            if weight is not None
+            else "linear"
+        )
     status: BriefStatus = "blocked" if issues else "sufficient"
     template = _build_derived_metric_template(
         composition_kind=composition_kind,
+        name_hint=name_hint,
         numerator=numerator,
         denominator=denominator,
         weight=weight,

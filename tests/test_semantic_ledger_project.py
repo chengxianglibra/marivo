@@ -12,7 +12,7 @@ warehouse = md.ref('warehouse')
 
 orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 
-@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )
+@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )
 def revenue(orders):
     return orders.amount.sum()
 """

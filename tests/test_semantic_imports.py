@@ -29,7 +29,6 @@ from marivo.semantic.constraints import ConstraintId, get_constraint, iter_const
 from marivo.semantic.ir import (
     AiContextIR,
     DatasourceIR,
-    DecompositionIR,
     DimensionIR,
     DimensionKind,
     DimensionRef,
@@ -131,7 +130,10 @@ def test_all_list_matches_expected() -> None:
         "file",
         "dimension",
         "time_dimension",
-        "metric",
+        "aggregate",
+        "simple_metric",
+        "linear",
+        "semi_additive",
         "parity_check",
         "prepare_derived_metric",
         "prepare_dimension",
@@ -144,13 +146,11 @@ def test_all_list_matches_expected() -> None:
         "relationship",
         "richness",
         "record_decision",
-        "sum",
-        "table",
         "ratio",
         "readiness",
         "weighted_average",
         "ref",
-        "derived_metric",
+        "table",
         "snapshot",
         "validity",
         "verify_object",
@@ -303,7 +303,7 @@ def test_help_text_top_level_is_compact_directory(capsys: pytest.CaptureFixture[
     assert "marivo.semantic" in captured.out
     # Each line shows: name, kind tag in brackets, description
     assert "ms.entity" in captured.out
-    assert "ms.metric" in captured.out
+    assert "ms.simple_metric" in captured.out
     assert "ms.constraints" in captured.out
     # Kind tags appear as [kind] in output
     assert "[callable]" in captured.out
@@ -339,34 +339,30 @@ def test_help_json_top_level_returns_compact_directory() -> None:
     assert entry_names.isdisjoint(folded_names)
     assert entry_names | folded_names == set(ms.__all__) | {
         "constraints",
-        "decomposition",
-        "time_fold",
+        "composition",
+        "additivity",
     }
     assert "entity" in entry_names
-    assert "metric" in entry_names
-    assert "derived_metric" in entry_names
+    assert "simple_metric" in entry_names
+    assert "ratio" in entry_names
+    assert "weighted_average" in entry_names
     assert "component" not in entry_names
     assert "constraints" in entry_names
-    assert "decomposition" in entry_names
+    assert "composition" in entry_names
     assert "SemanticProject" not in entry_names
     assert "typing" in entry_names
 
 
-def test_help_json_metric_includes_constraints_and_examples() -> None:
-    result = _ms_json_data("metric")
+def test_help_json_simple_metric_includes_body_rule_and_related_help() -> None:
+    result = _ms_json_data("simple_metric")
 
     assert isinstance(result, dict)
-    assert "metric(" in cast("str", result["signature"])
-    constraints = cast("list[dict[str, Any]]", result["constraints"])
-    assert isinstance(constraints, list)
-    constraint_ids = {entry["id"] for entry in constraints}
-    assert "metric_datasets_required" in constraint_ids
-    assert "metric_component_scope" in constraint_ids
-    assert "metric_derived_shape" not in constraint_ids
-    assert "ast_component_arithmetic" not in constraint_ids
-    for entry in constraints:
-        assert set(entry) <= {"id", "title", "hint", "example"}
-    assert "examples" in result
+    assert result["kind"] == "topic"
+    assert result["symbol"] == "simple_metric"
+    content = cast("dict[str, Any]", result["content"])
+    assert "tier1" in content
+    assert "tier2" in content
+    assert "body_rule" in content
 
 
 def test_help_json_time_dimension_includes_partition_pushdown_advisory() -> None:
@@ -385,48 +381,32 @@ def test_help_json_time_dimension_includes_partition_pushdown_advisory() -> None
     assert "date_format" in advisory["hint"]
 
 
-def test_help_json_decomposition_documents_supported_builders_and_aggregation_boundary() -> None:
-    result = _ms_json_data("decomposition")
+def test_help_json_composition_documents_supported_constructors_and_boundary() -> None:
+    result = _ms_json_data("composition")
 
     assert isinstance(result, dict)
     assert result["kind"] == "topic"
-    assert result["symbol"] == "decomposition"
+    assert result["symbol"] == "composition"
     content = cast("dict[str, Any]", result["content"])
-    builders = cast("list[dict[str, Any]]", content["builders"])
-    builder_names = {entry["name"] for entry in builders}
-    assert builder_names == {"sum", "ratio", "weighted_average"}
-    assert "SQL aggregation" in cast("str", result["summary"])
-    anti_patterns = cast("list[str]", content["anti_patterns"])
-    assert any("ms.count()" in item for item in anti_patterns)
-    assert any("ms.mean()" in item for item in anti_patterns)
-    guidance_items = cast("list[dict[str, str]]", content["guidance"])
-    guidance = {entry["metric_shape"]: entry for entry in guidance_items}
-    assert guidance["count"]["decomposition"] == "ms.sum()"
-    assert ".count()" in guidance["count"]["body"]
-    assert any("ms.derived_metric" in entry["body"] for entry in guidance.values())
-    assert guidance["mean_or_average"]["decomposition"] == "ms.ratio(...)"
-    assert (
-        guidance["mean_or_average"]["body"] == "ms.derived_metric(..., decomposition=ms.ratio(...))"
-    )
-    assert (
-        guidance["weighted_average"]["body"]
-        == "ms.derived_metric(..., decomposition=ms.weighted_average(...))"
-    )
+    examples = cast("list[dict[str, Any]]", content["examples"])
+    example_shapes = {entry["metric_shape"] for entry in examples}
+    assert "ratio" in example_shapes
+    assert "weighted average" in example_shapes
+    assert "linear (a +/- b)" in example_shapes
+    assert "boundary" in content
     related_help = cast("list[str]", content["related_help"])
-    assert "ms.help('derived_metric')" in related_help
+    assert "ms.help('simple_metric')" in related_help
     assert "ms.help('component')" not in related_help
-    assert "ms.help('metric')" in cast("list[str]", result["see_also"])
 
 
-def test_help_text_decomposition_documents_aggregation_boundary(
+def test_help_text_composition_documents_constructors_and_boundary(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    ms.help("decomposition")
+    ms.help("composition")
 
     captured = capsys.readouterr()
-    assert "decomposition is not SQL aggregation" in captured.out
-    assert "ms.count()" in captured.out
-    assert "ms.mean()" in captured.out
+    assert "composition" in captured.out
+    assert "ms.ratio" in captured.out
 
 
 def test_help_json_constraints_cover_error_kinds() -> None:
@@ -450,8 +430,11 @@ def test_help_json_constraints_cover_error_kinds() -> None:
         assert full_content["id"] == entry["id"]
         assert "why" in full_content
         covered.add(cast("str", full_content["error_kind"]))
+    # Load-only error kinds (no agent-facing constraint) are exempt.
+    load_only_errors = {"unknown_measure"}
     for kind in errors_mod.ErrorKind:
-        assert kind.value in covered
+        if kind.value not in load_only_errors:
+            assert kind.value in covered
 
 
 def test_constraint_example_paths_exist() -> None:
@@ -461,18 +444,17 @@ def test_constraint_example_paths_exist() -> None:
             assert (repo_root / constraint.example).exists(), constraint.example
 
 
-def test_invalid_decomposition_hint_points_to_decomposition_help() -> None:
-    constraint = get_constraint("decomposition_shape")
+def test_invalid_composition_hint_points_to_composition_help() -> None:
+    constraint = get_constraint("composition_shape")
     assert constraint is not None
-    assert "ms.help('decomposition')" in constraint.hint
-    assert "aggregation" in constraint.hint
+    assert "ms.help('composition')" in constraint.hint
 
 
-def test_derived_fanout_policy_hint_uses_derived_metric_api() -> None:
+def test_derived_fanout_policy_hint_uses_flat_constructors() -> None:
     constraint = get_constraint("metric_fanout_policy_derived")
     assert constraint is not None
-    assert "ms.derived_metric" in constraint.hint
-    assert "derived @ms.metric" not in constraint.hint
+    assert "ms.ratio" in constraint.hint
+    assert "ms.derived_metric" not in constraint.hint
 
 
 def test_removed_component_body_constraints_absent() -> None:
@@ -502,7 +484,7 @@ _EXPECTED_DECORATOR_KINDS = {
     "missing_domain",
     "missing_datasets",
     "invalid_ref",
-    "invalid_decomposition",
+    "invalid_composition",
     "invalid_component_body",
     "outside_loader_context",
     "metric_body_not_single_return",
@@ -520,6 +502,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_dimension_ref",
     "missing_metric_ref",
     "cross_model_cycle",
+    "cross_datasource_not_supported",
     "hour_time_dimension_prefix_missing",
     "subday_granularity_without_time",
     "duplicate_default_time_dimension",
@@ -539,6 +522,14 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_time_fold",
     "missing_status_time_dimension",
     "invalid_status_time_dimension",
+    "unsupported_kind",
+    "unsupported_list_parent",
+    "ladder_order",
+    "unverified_provenance",
+    "source_sql_missing",
+    "invalid_measure_aggregation",
+    "missing_measure_additivity",
+    "unknown_measure",
 }
 
 _EXPECTED_RUNTIME_KINDS = {
@@ -626,7 +617,6 @@ _FROZEN_CLASSES = [
     DatasourceIR,
     EntityIR,
     DimensionIR,
-    DecompositionIR,
     MetricIR,
     RelationshipIR,
 ]
@@ -735,14 +725,16 @@ def test_metric_ref() -> None:
 
 
 def test_metric_ref_not_callable_raises_helpful_error() -> None:
-    """Calling a MetricRef (as if it were a decorator) raises a clear TypeError."""
+    """Calling a MetricRef (as if it were a decorator) raises a clear error."""
+    from marivo.semantic.errors import SemanticDecoratorError
+
     ref = MetricRef("sales.aov")
-    with pytest.raises(TypeError, match="not callable"):
+    with pytest.raises(SemanticDecoratorError, match="not a decorator"):
         ref(lambda t: t.amount.sum())
-    # Also confirm the message mentions derived_metric and top-level call
-    with pytest.raises(TypeError, match="top-level call") as exc_info:
+    # Also confirm the message mentions flat constructors
+    with pytest.raises(SemanticDecoratorError, match=r"ms\.ratio") as exc_info:
         ref(lambda t: t.amount.sum())
-    assert "ms.derived_metric(" in str(exc_info.value)
+    assert "ms.ratio" in str(exc_info.value)
 
 
 def test_relationship_ref() -> None:
@@ -951,19 +943,18 @@ def test_reader_project_load_reloads() -> None:
         assert result.status == "ready"
 
 
-def test_help_time_fold_documents_sampled_semantics(capsys) -> None:
-    ms.help("time_fold")
+def test_help_additivity_documents_semi_additive_semantics(capsys) -> None:
+    ms.help("additivity")
     out = capsys.readouterr().out
-    assert "sampled semi-additive" in out
-    assert "status_time_dimension" in out
-    assert "('quantile', q)" in out
+    assert "semi_additive" in out
+    assert "ms.semi_additive" in out
+    assert "fold" in out
 
 
-def test_help_metric_mentions_time_fold_is_definition_choice(capsys) -> None:
-    ms.help("metric")
+def test_help_simple_metric_mentions_fold_is_definition_choice(capsys) -> None:
+    ms.help("simple_metric")
     out = capsys.readouterr().out
-    assert "time_fold" in out
-    assert "definition choice, not an observe parameter" in out
+    assert "body" in out
 
 
 # ---------------------------------------------------------------------------

@@ -469,7 +469,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self._add_error(
                 ErrorKind.INVALID_COMPONENT_BODY,
                 f"Metric body of {self.fn_name!r} calls ms.component(), "
-                "which is no longer supported. Use ms.derived_metric(...) "
+                "which is no longer supported. Use ms.ratio/ms.weighted_average/ms.linear "
                 "for body-free derived metric definitions.",
                 constraint_id=ConstraintId.METRIC_COMPONENT_SCOPE,
             )

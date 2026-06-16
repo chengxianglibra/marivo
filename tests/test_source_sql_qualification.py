@@ -133,10 +133,9 @@ _ENTITY_WITH_DATABASE_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS total_amount FROM orders",
         source_dialect="duckdb",
     )
@@ -203,10 +202,9 @@ _ENTITY_NO_DATABASE_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS total_amount FROM orders",
         source_dialect="duckdb",
     )
@@ -273,10 +271,9 @@ _ENTITY_DATASOURCE_DB_FALLBACK_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS total_amount FROM orders",
         source_dialect="duckdb",
     )
@@ -333,10 +330,9 @@ _ENTITY_DATASOURCE_DB_FULLY_QUALIFIED_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         source_sql="SELECT SUM(amount) AS total_amount FROM sales_mart.orders",
         source_dialect="duckdb",
     )

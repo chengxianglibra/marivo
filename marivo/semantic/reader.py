@@ -660,7 +660,7 @@ class SemanticProject:
         For entities, a scoped preview confirms the datasource is reachable and
         the expression is valid. For time dimensions, metrics, and derived
         metrics, the check is static and auto-records a decision into the
-        evidence ledger (``time_dimension_identity`` or ``metric_decomposition``
+        evidence ledger (``time_dimension_identity`` or ``metric_composition``
         respectively).
 
         Parameters

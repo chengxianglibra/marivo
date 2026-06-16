@@ -185,10 +185,9 @@ metric_brief = ms.prepare_metric(
 Author and verify:
 
 ```python
-@ms.metric(
+@ms.simple_metric(
     entities=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
     name="revenue",
     source_sql="SELECT SUM(amount) AS revenue FROM orders",
     source_dialect="duckdb",

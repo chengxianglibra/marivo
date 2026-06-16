@@ -36,7 +36,7 @@ def _bootstrap_events(tmp_path):
         "@ms.time_dimension(entity=events, data_type='timestamp', granularity='minute')\n"
         "def ts(events):\n"
         "    return events.ts\n"
-        "@ms.metric(entities=[events], additivity='additive', decomposition=ms.sum(), name='hits', )\n"
+        "@ms.simple_metric(entities=[events], additivity='additive', name='hits', )\n"
         "def hits(events):\n"
         "    return events.n.sum()\n"
     )

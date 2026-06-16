@@ -295,11 +295,13 @@ def test_metric_details_fields():
         dependents=(),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        is_derived=False,
-        component_metrics=(),
+        metric_type="simple",
+        aggregation=None,
+        measure=None,
+        composition=None,
         components=(),
+        linear_terms=(),
         required_relationships=(),
-        decomposition="sum",
         additivity="additive",
         fanout_policy="block",
         unit=None,
@@ -308,14 +310,14 @@ def test_metric_details_fields():
         source_sql=None,
         source_dialect=None,
         python_symbol="revenue",
-        time_fold=None,
+        fold=None,
         status_time_dimension=None,
     )
-    assert d.decomposition == "sum"
-    assert d.is_derived is False
-    assert d.component_metrics == ()
+    assert d.metric_type == "simple"
+    assert d.aggregation is None
+    assert d.composition is None
     assert d.components == ()
-    assert d.time_fold is None
+    assert d.fold is None
     assert d.status_time_dimension is None
 
 
@@ -358,11 +360,13 @@ def _make_metric_obj() -> SemanticObject:
         dependents=(),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        is_derived=False,
-        component_metrics=(),
+        metric_type="simple",
+        aggregation=None,
+        measure=None,
+        composition=None,
         components=(),
+        linear_terms=(),
         required_relationships=(),
-        decomposition="sum",
         additivity="additive",
         fanout_policy="block",
         unit=None,
@@ -371,7 +375,7 @@ def _make_metric_obj() -> SemanticObject:
         source_sql=None,
         source_dialect=None,
         python_symbol="revenue",
-        time_fold=None,
+        fold=None,
         status_time_dimension=None,
     )
     return SemanticObject(
@@ -403,7 +407,7 @@ def test_semantic_object_details_returns_typed_details():
     obj = _make_metric_obj()
     d = obj.details()
     assert isinstance(d, MetricDetails)
-    assert d.decomposition == "sum"
+    assert d.metric_type == "simple"
 
 
 def test_semantic_object_details_no_stdout(capsys):
@@ -497,10 +501,9 @@ _DATASETS_PY = textwrap.dedent("""\
     def created_at(table):
         return table.created_at
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         description="Gross revenue.",
     )
     def revenue(table):
@@ -830,10 +833,9 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-                @ms.metric(
+                @ms.simple_metric(
                     entities=[orders],
                     additivity="additive",
-                    decomposition=ms.sum(),
                     description="Gross revenue.",
                     ai_context={"business_definition": "All completed order amounts."},
                 )
@@ -901,15 +903,15 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
                 "def order_count(table):\n"
                 "    return table.order_id.nunique()\n"
-                "conversion = ms.derived_metric(\n"
+                "conversion = ms.ratio(\n"
                 "    name='conversion',\n"
-                "    decomposition=ms.ratio(numerator=revenue, denominator=order_count),\n"
+                "    numerator=revenue, denominator=order_count,\n"
                 ")\n"
             ),
         }
@@ -1065,19 +1067,17 @@ def test_catalog_load_reloads_project(semantic_project_factory):
             def created_at(table):
                 return table.created_at
 
-            @ms.metric(
+            @ms.simple_metric(
                 entities=[orders],
                 additivity="additive",
-                decomposition=ms.sum(),
                 description="Gross revenue.",
             )
             def revenue(table):
                 return table.amount.sum()
 
-            @ms.metric(
+            @ms.simple_metric(
                 entities=[orders],
                 additivity="additive",
-                decomposition=ms.sum(),
                 description="Gross profit.",
             )
             def profit(table):
@@ -1261,7 +1261,7 @@ def _write_minimal_project(tmp_path) -> None:
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
@@ -1285,7 +1285,7 @@ def _write_multi_domain_project(tmp_path) -> None:
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
         "def revenue(table):\n"
         "    return table.amount.sum()\n"
     )
@@ -1434,7 +1434,7 @@ _UNIT_DATASETS_PY = (
     "\n"
     "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
     "\n"
-    "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', "
+    "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', "
     " unit='CNY')\n"
     "def revenue(orders):\n"
     "    return orders.amount.sum()\n"
@@ -1489,7 +1489,14 @@ def test_catalog_details_cover_required_ir_fields() -> None:
     }
     allowed_internal = {
         EntityIR: {"location", "ai_context", "python_symbol", "semantic_id"},
-        MetricIR: {"location", "ai_context", "body_ast_hash", "provenance", "semantic_id"},
+        MetricIR: {
+            "location",
+            "ai_context",
+            "body_ast_hash",
+            "provenance",
+            "semantic_id",
+            "fold_override",
+        },
         DimensionIR: {
             "location",
             "ai_context",
@@ -1497,6 +1504,7 @@ def test_catalog_details_cover_required_ir_fields() -> None:
             "kind",
             "python_symbol",
             "semantic_id",
+            "additivity",
         },
     }
 

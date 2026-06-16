@@ -46,10 +46,9 @@ orders = ms.entity(
 def order_date(table):
     return table.dt.cast("date")
 
-@ms.metric(
+@ms.simple_metric(
     entities=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
     name="unverified_revenue",
     ai_context={
         "business_definition": "Gross order amount.",
@@ -59,10 +58,9 @@ def order_date(table):
 def unverified_revenue(table):
     return table.amount.sum()
 
-@ms.metric(
+@ms.simple_metric(
     entities=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
     name="drifted_revenue",
     source_sql="SELECT 999.0 AS drifted_revenue",
     source_dialect="duckdb",

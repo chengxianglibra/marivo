@@ -228,13 +228,13 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
 
 _REQUIRED_DECISION_BY_KIND = {
     _SemanticKind.TIME_DIMENSION: "time_dimension_identity",
-    _SemanticKind.METRIC: "metric_decomposition",
+    _SemanticKind.METRIC: "metric_composition",
 }
 
 
 def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
     """Dangerous-kind authored objects with no backing ledger decision -> blockers.
-    Mapping: time_dimension -> time_dimension_identity, metric -> metric_decomposition."""
+    Mapping: time_dimension -> time_dimension_identity, metric -> metric_composition."""
     from marivo.semantic.ledger import LedgerStore
 
     store = LedgerStore(project.state_root)
@@ -343,9 +343,11 @@ def _dependencies_for_ref(
     if kind == _SemanticKind.METRIC:
         deps: list[str] = []
         deps.extend(getattr(obj, "entities", ()))
-        decomposition = getattr(obj, "decomposition", None)
-        components = getattr(decomposition, "components", {})
-        if isinstance(components, Mapping):
+        composition = getattr(obj, "composition", None)
+        if composition is not None:
+            from marivo.semantic.ir import composition_components
+
+            components = composition_components(composition)
             deps.extend(str(value) for value in components.values())
         return tuple(deps)
     if kind == _SemanticKind.RELATIONSHIP:

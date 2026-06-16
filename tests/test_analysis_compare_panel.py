@@ -72,7 +72,7 @@ def _bootstrap_sales(tmp_path):
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -201,7 +201,7 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
     metric.meta = metric.meta.model_copy(
         update={
             "ref": ref,
-            "decomposition": {
+            "composition": {
                 "kind": "ratio",
                 "components": {
                     "numerator": "sales.failed_count",
@@ -225,7 +225,7 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
             parent_ref=metric.ref,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
-            decomposition_kind="ratio",
+            composition_kind="ratio",
             components={
                 "numerator": "sales.failed_count",
                 "denominator": "sales.total_count",

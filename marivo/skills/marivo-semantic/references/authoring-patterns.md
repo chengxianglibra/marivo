@@ -61,10 +61,9 @@ def log_hour(table):
 def region(table):
     return table.region
 
-@ms.metric(
+@ms.simple_metric(
     entities=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
     name="revenue",
     source_sql="SELECT SUM(amount) AS revenue FROM orders",
     source_dialect="duckdb",
@@ -87,9 +86,9 @@ It is not a substitute for business meaning.
 Business meaning, usage constraints, and agent guidance belong in `ai_context`:
 
 ```python
-@ms.metric(
+@ms.simple_metric(
     entities=[orders],
-    decomposition=ms.sum(),
+    additivity="additive",
     description="Gross revenue.",       # short summary for display
     ai_context={
         "business_definition": "Sum of order amounts for completed orders.",
@@ -230,25 +229,26 @@ ms.relationship(
 )
 ```
 
-## Aggregation body vs decomposition
+## Simple vs derived metrics
 
-Metric decomposition is not SQL aggregation. Before authoring metrics, inspect
-`ms.help("metric")` and
-`ms.help("decomposition")`. The supported decomposition builders
-come from runtime help; do not invent `ms.count()` or `ms.mean()`.
+Marivo has two metric tiers with distinct authoring shapes:
 
-| Business shape | Metric body | Decomposition |
-| --- | --- | --- |
-| Additive amount | `.sum()` or another entity-backed reduction | `ms.sum()` |
-| Count | `.count()` in the metric body | `ms.sum()` |
-| Mean or average | `ms.derived_metric(..., decomposition=ms.ratio(...))` | `ms.ratio(...)` |
-| Weighted average | `ms.derived_metric(..., decomposition=ms.weighted_average(...))` | `ms.weighted_average(...)` |
+| Tier | Authoring form | Has body? | Examples |
+| --- | --- | --- | --- |
+| Tier-1 aggregate | `ms.aggregate(measure=..., agg=...)` | No | sum, count over a measure dimension |
+| Tier-2 simple | `@ms.simple_metric(entities=[...], additivity=...)` | Yes | ibis expression body |
+| Derived ratio | `ms.ratio(name=..., numerator=..., denominator=...)` | No | percentage, per-unit rate |
+| Derived weighted average | `ms.weighted_average(name=..., value=..., weight=...)` | No | weighted averages |
+| Derived linear | `ms.linear(name=..., add=[...], subtract=[...])` | No | net = gross - refunds |
+
+**Rule:** body→decorator / no-body→call. Use `@ms.simple_metric` for
+expression-body metrics; use `ms.ratio` / `ms.weighted_average` / `ms.linear`
+for body-free derived metrics.
 
 ```python
-@ms.metric(
+@ms.simple_metric(
     entities=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
     name="orders_count",
 )
 def orders_count(table):
@@ -258,19 +258,18 @@ def orders_count(table):
 Mean/average metrics are body-free derived metrics, not `ms.mean()`:
 
 ```python
-@ms.metric(
+@ms.simple_metric(
     entities=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
     name="gross_revenue",
 )
 def gross_revenue(table):
     return table.amount.sum()
 
-gross_revenue_per_order = ms.derived_metric(
+gross_revenue_per_order = ms.ratio(
     name="gross_revenue_per_order",
-    decomposition=ms.ratio(numerator=gross_revenue, denominator=orders_count),
-    additivity="non_additive",
+    numerator=gross_revenue,
+    denominator=orders_count,
     ai_context={
         "business_definition": "Gross revenue divided by order count.",
     },
@@ -279,13 +278,62 @@ gross_revenue_per_order = ms.derived_metric(
 
 ## Derived metrics
 
-Derived metrics use `ms.derived_metric(...)` and do not have Python bodies:
+Derived metrics use `ms.ratio` / `ms.weighted_average` / `ms.linear` and do not have Python bodies:
 
 ```python
-ms.derived_metric(
+aov = ms.ratio(
     name="aov",
-    decomposition=ms.ratio(numerator="sales.revenue", denominator="sales.orders_count"),
+    numerator="sales.revenue",
+    denominator="sales.orders_count",
 )
+```
+
+```python
+net_revenue = ms.linear(
+    name="net_revenue",
+    add=[gross_revenue],
+    subtract=[refunds],
+)
+```
+
+## Semi-additive metrics
+
+Use `ms.semi_additive(over=..., fold=...)` as the `additivity` value for
+periodic snapshot facts such as bandwidth, capacity, inventory, or
+device-reported rates:
+
+```python
+@ms.simple_metric(
+    entities=[bw_samples],
+    additivity=ms.semi_additive(over=sample_ts, fold="mean"),
+    unit="kbit/s",
+)
+def upstream_bw(bw_samples):
+    return bw_samples.upstream_kbps.sum()
+```
+
+Rules:
+
+- `additivity=ms.semi_additive(...)` always requires `over` (the status time dimension).
+- `over` binds the business status/as-of time axis.
+- `fold` requires that `over` declares `sample_interval` on the time dimension.
+- `fold` is a metric definition choice, not an observe parameter.
+- P95-style folds use `fold=("quantile", 0.95)` and are always
+  recomputed from base samples for the requested grain.
+- Do not author bare `additivity="semi_additive"` and do not use technical write
+  times such as `created_at`, `updated_at`, or `ingest_time` as the status axis
+  unless they are truly the business as-of time.
+
+For already-summarized snapshot/status facts such as daily inventory, use
+`fold="last"` or `fold="first"` without `sample_interval`:
+
+```python
+@ms.simple_metric(
+    entities=[inventory_daily],
+    additivity=ms.semi_additive(over=snapshot_date, fold="last"),
+)
+def on_hand_units(inventory_daily):
+    return inventory_daily.on_hand_units.sum()
 ```
 
 ## Constraint examples
@@ -296,8 +344,8 @@ ms.derived_metric(
 | `active_domain_required` | semantic ids need a domain namespace | `references/examples/01_single_domain_file.py` |
 | `unique_semantic_name` | ids must stay unique within their kind scope; dimensions are entity-scoped | `references/examples/01_single_domain_file.py` |
 | `ref_shape` | refs must point at the intended object kind | `references/examples/01_single_domain_file.py` |
-| `decomposition_shape` | metrics need supported decomposition builders | `references/examples/01_single_domain_file.py` |
-| `metric_datasets_required` | base metrics must declare entities | `references/examples/01_single_domain_file.py` |
+| `composition_shape` | metrics need supported composition builders | `references/examples/01_single_domain_file.py` |
+| `metric_datasets_required` | simple metrics must declare entities | `references/examples/01_single_domain_file.py` |
 | `metric_component_scope` | component-body calls are no longer supported in metric bodies | `references/examples/01_single_domain_file.py` |
 | `ai_context_schema` | handoff metadata must use supported fields | `references/examples/01_single_domain_file.py` |
 | `ast_single_return` | decorator bodies stay one safe expression | `references/examples/01_single_domain_file.py` |
@@ -305,14 +353,14 @@ ms.derived_metric(
 | `ast_sql_escape_hatch` | Python-track bodies must avoid raw SQL calls | `references/examples/01_single_domain_file.py` |
 | `domain_file_present` | every domain directory needs `_domain.py` | `references/examples/01_single_domain_file.py` |
 | `entity_ref_exists` | entity datasource refs must resolve | `references/examples/01_single_domain_file.py` |
-| `metric_ref_exists` | decomposition refs must resolve | `references/examples/01_single_domain_file.py` |
+| `metric_ref_exists` | composition refs must resolve | `references/examples/01_single_domain_file.py` |
 | `hour_time_dimension_prefix` | hour-only dimensions need a day prefix | `references/examples/01_single_domain_file.py` |
 
 ## Metric unit authoring
 
-`@ms.metric` / `ms.derived_metric` accept optional `unit` (UCUM case-sensitive
-code; bare ISO 4217 uppercase code = currency). The unit describes emitted
-values exactly; nothing converts based on it.
+`@ms.simple_metric` / `ms.ratio` / `ms.weighted_average` / `ms.linear` accept
+optional `unit` (UCUM case-sensitive code; bare ISO 4217 uppercase code =
+currency). The unit describes emitted values exactly; nothing converts based on it.
 
 Fill `unit` only from explicit evidence:
 
@@ -333,97 +381,3 @@ evidence is ambiguous:
 
 Inference is only a drafting aid; the field's semantics are an author
 declaration. Backfill after the user answers.
-
-## Sampled semi-additive metrics
-
-Use sampled folds for periodic snapshot facts such as bandwidth, capacity,
-inventory, or device-reported rates. The time dimension declares physical
-precision with `granularity` and reporting cadence with `sample_interval`;
-the metric declares the business status axis and fold.
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.domain(name="network")
-
-warehouse = md.ref("warehouse")
-
-bw_samples = ms.entity(
-    name="bw_samples",
-    datasource=warehouse,
-    source=ms.table("bw_samples"),
-)
-
-@ms.time_dimension(
-    entity=bw_samples,
-    data_type="timestamp",
-    granularity="second",
-    timezone="UTC",
-    sample_interval=(5, "minute"),
-)
-def sample_ts(bw_samples):
-    return bw_samples.sample_ts
-
-@ms.metric(
-    entities=[bw_samples],
-    additivity="semi_additive",
-    time_fold="mean",
-    status_time_dimension=sample_ts,
-    decomposition=ms.sum(),
-    unit="kbit/s",
-)
-def upstream_bw(bw_samples):
-    return bw_samples.upstream_kbps.sum()
-```
-
-Rules:
-
-- Base `additivity="semi_additive"` metrics always require
-  `status_time_dimension`.
-- `status_time_dimension` binds the business status/as-of time axis.
-- `time_fold` requires that `status_time_dimension` declares `sample_interval`.
-- `time_fold` is a metric definition choice, not an observe parameter.
-- P95-style folds use `time_fold=("quantile", 0.95)` and are always
-  recomputed from base samples for the requested grain.
-- Do not author bare `additivity="semi_additive"` and do not use technical write
-  times such as `created_at`, `updated_at`, or `ingest_time` as the status axis
-  unless they are truly the business as-of time.
-
-For already-summarized snapshot/status facts such as daily inventory, omit
-`time_fold` but still bind the metric to its status time dimension:
-
-```python
-inventory_daily = ms.entity(
-    name="inventory_daily",
-    datasource=warehouse,
-    source=ms.table("inventory_daily"),
-    primary_key=["sku_id", "warehouse_id", "dt"],
-    versioning=ms.snapshot(
-        partition_field="dt",
-        grain="day",
-        timezone="UTC",
-        format="%Y%m%d",
-    ),
-)
-
-@ms.time_dimension(
-    entity=inventory_daily,
-    name="snapshot_date",
-    data_type="string",
-    granularity="day",
-    date_format="%Y%m%d",
-    is_default=True,
-)
-def snapshot_date(inventory_daily):
-    return inventory_daily.dt
-
-@ms.metric(
-    entities=[inventory_daily],
-    additivity="semi_additive",
-    status_time_dimension=snapshot_date,
-    decomposition=ms.sum(),
-)
-def on_hand_units(inventory_daily):
-    return inventory_daily.on_hand_units.sum()
-```

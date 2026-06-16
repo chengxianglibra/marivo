@@ -753,7 +753,7 @@ def test_compare_component_aware_scalar_missing_component_ref_fails_closed(tmp_p
     )
     current.meta = current.meta.model_copy(
         update={
-            "decomposition": {
+            "composition": {
                 "kind": "ratio",
                 "components": {
                     "numerator": "sales.failed_count",
@@ -794,7 +794,7 @@ def _bootstrap_unit_sales_project(tmp_path) -> None:
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), "
+        "@ms.simple_metric(entities=[orders], additivity='additive', "
         "name='revenue',  unit='CNY')\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"

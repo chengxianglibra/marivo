@@ -451,6 +451,22 @@ class MetricIR:
                 f"MetricIR {self.semantic_id!r}: invalid metric_type {self.metric_type!r}"
             )
 
+    @property
+    def status_time_dimension(self) -> str | None:
+        """Compatibility accessor: the semi-additive over axis, or None."""
+        if isinstance(self.additivity, SemiAdditive):
+            return self.additivity.over
+        return None
+
+    @property
+    def time_fold(self) -> TimeFoldIR | None:
+        """Compatibility accessor: the effective fold (fold_override > additivity.fold)."""
+        if self.fold_override is not None:
+            return self.fold_override
+        if isinstance(self.additivity, SemiAdditive):
+            return self.additivity.fold
+        return None
+
 
 @dataclass(frozen=True)
 class RelationshipIR:

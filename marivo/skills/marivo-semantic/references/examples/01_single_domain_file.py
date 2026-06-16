@@ -78,10 +78,9 @@ def event_ts(table):
 def region(table):
     return table.region
 
-@ms.metric(
+@ms.simple_metric(
     entities=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
     name="revenue",
     ai_context={
         "business_definition": "Gross order amount before refunds.",

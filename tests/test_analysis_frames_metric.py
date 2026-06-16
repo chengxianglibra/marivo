@@ -207,7 +207,7 @@ def test_metric_frame_meta_component_links_default_to_none():
         semantic_model="sales",
     )
     assert meta.component_ref is None
-    assert meta.decomposition is None
+    assert meta.composition is None
 
 
 def test_metric_frame_meta_coverage_links_default_to_none():

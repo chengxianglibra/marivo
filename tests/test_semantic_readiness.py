@@ -46,10 +46,9 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
     def created_at(table):
         return table.created_at
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity="additive",
-        decomposition=ms.sum(),
         description="Total revenue",
         ai_context={"business_definition": "Sum of order amount."},
     )
@@ -76,7 +75,7 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
             datasources=("warehouse",),
             refs=("sales.total_amount",),
             tables=("sales.orders",),
-            decision_records=("sales.total_amount:metric_decomposition",),
+            decision_records=("sales.total_amount:metric_composition",),
         ),
         checked_at="2026-05-29T00:00:00Z",
     )
@@ -110,7 +109,7 @@ def test_readiness_report_target_fields_are_json_safe() -> None:
             datasources=("warehouse",),
             refs=("sales.total_amount",),
             tables=("sales.orders",),
-            decision_records=("sales.total_amount:metric_decomposition",),
+            decision_records=("sales.total_amount:metric_composition",),
         ),
         checked_at="2026-05-29T00:00:00Z",
     )
@@ -245,10 +244,9 @@ _COMMENTLESS_DOMAIN_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(
+    @ms.simple_metric(
         entities=[orders],
         additivity='additive',
-        decomposition=ms.sum(),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -276,10 +274,9 @@ def test_readiness_sql_parity_unverified_warning(semantic_project_factory) -> No
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"),
                            description="Orders", ai_context={"business_definition": "One row per order."})
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders],
             additivity="additive",
-            decomposition=ms.sum(),
             source_sql="SELECT SUM(amount) AS total_amount FROM orders",
             source_dialect="duckdb",
             description="Total amount",
@@ -309,11 +306,10 @@ def test_readiness_cross_datasource_unfederated(semantic_project_factory) -> Non
         items = ms.entity(name="items", datasource="warehouse_b", source=ms.table("items"),
                           description="Items B", ai_context={"business_definition": "Items B."})
 
-        @ms.metric(
+        @ms.simple_metric(
             entities=[orders, items],
             root_entity=orders,
             additivity="additive",
-            decomposition=ms.sum(),
             description="Cross metric",
             ai_context={"business_definition": "Cross-datasource metric."},
         )
@@ -353,7 +349,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -367,7 +363,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
 
     issues = _evidence_ledger_blockers(project)
     refs = {ref for issue in issues for ref in issue.refs}
-    assert "sales.revenue" in refs  # metric has no metric_decomposition decision recorded
+    assert "sales.revenue" in refs  # metric has no metric_composition decision recorded
     assert all(issue.kind == "unresolved_clarification" for issue in issues)
     assert all(issue.severity == "blocker" for issue in issues)
 
@@ -382,7 +378,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -395,7 +391,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
             authored_at="t",
             decisions=(
                 lg.DecisionRecord(
-                    decision_kind="metric_decomposition",
+                    decision_kind="metric_composition",
                     chosen="sum",
                     agreement_confidence="high",
                     qualifying_sources=("source_sql",),
@@ -421,7 +417,7 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
                 "    ai_context={'business_definition': 'One row per order.'})\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', \n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', \n"
                 "    ai_context={'business_definition': 'Sum of amount.'})\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
@@ -429,7 +425,7 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
     )
 
     # After load, no decisions exist in the ledger, so readiness
-    # flags the missing metric_decomposition decision.
+    # flags the missing metric_composition decision.
     bare_report = project.readiness()
     kinds = {b.kind for b in bare_report.blockers}
     assert "unresolved_clarification" in kinds
@@ -439,7 +435,7 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
     from marivo.semantic import ledger as lg
 
     user_decision = lg.DecisionRecord(
-        decision_kind="metric_decomposition",
+        decision_kind="metric_composition",
         chosen="sum",
         agreement_confidence="high",
         qualifying_sources=("user_confirmation",),
@@ -470,7 +466,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='revenue', )\n"
+                "@ms.simple_metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -479,7 +475,7 @@ def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_projec
     from marivo.semantic import ledger as lg
 
     user_decision = lg.DecisionRecord(
-        decision_kind="metric_decomposition",
+        decision_kind="metric_composition",
         chosen="sum",
         agreement_confidence="high",
         qualifying_sources=("user_confirmation",),

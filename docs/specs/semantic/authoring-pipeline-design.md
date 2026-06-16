@@ -229,10 +229,10 @@ def log_date(table):
 def region(table):
     return table.region
 
-@ms.metric(
+@ms.simple_metric(
     datasets=[orders],
     additivity="additive",
-    decomposition=ms.sum(),
+
     name="revenue",
     source_sql="SELECT SUM(amount) AS revenue FROM orders",
     source_dialect="trino",
@@ -372,7 +372,7 @@ Validation closeout rules:
 
 Same-file variable references work without reload. Forward references or
 generated tooling refs use `ms.ref("sales.orders")` with the current
-semantic-id format. Auto-recorded decisions (`metric_decomposition`,
+semantic-id format. Auto-recorded decisions (`metric_composition`,
 `time_dimension_identity`) only affect validation, not authoring. Deferring reload
 to Phase 3 reduces N reloads (N = number of objects) to 1.
 

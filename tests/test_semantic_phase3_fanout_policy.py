@@ -37,11 +37,10 @@ def test_metric_authoring_accepts_fanout_policy(tmp_path, monkeypatch):
         "@ms.dimension(entity=orders)\n"
         "def order_id(orders):\n"
         "    return orders.order_id\n"
-        "@ms.metric(\n"
+        "@ms.simple_metric(\n"
         "    entities=[orders, order_items],\n"
         "    root_entity=orders,\n"
         "    additivity='additive',\n"
-        "    decomposition=ms.sum(),\n"
         "    fanout_policy='aggregate_then_join',\n"
         "    name='gmv_with_items',\n"
         "    )\n"
@@ -90,11 +89,10 @@ def test_validator_rejects_fanout_policy_on_non_additive_metric(tmp_path, monkey
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
         "order_items = ms.entity(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
-        "@ms.metric(\n"
+        "@ms.simple_metric(\n"
         "    entities=[orders, order_items],\n"
         "    root_entity=orders,\n"
         "    additivity='non_additive',\n"
-        "    decomposition=ms.sum(),\n"
         "    fanout_policy='aggregate_then_join',\n"
         "    name='non_additive_bad',\n"
         "    )\n"
@@ -115,15 +113,15 @@ def test_derived_metric_keeps_default_fanout_policy(tmp_path, monkeypatch):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='gmv', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='gmv', )\n"
         "def gmv(orders):\n"
         "    return orders.amount.sum()\n"
-        "@ms.metric(entities=[orders], additivity='additive', decomposition=ms.sum(), name='cnt', )\n"
+        "@ms.simple_metric(entities=[orders], additivity='additive', name='cnt', )\n"
         "def cnt(orders):\n"
         "    return orders.count()\n"
-        "aov = ms.derived_metric(\n"
+        "aov = ms.ratio(\n"
         "    name='aov',\n"
-        "    decomposition=ms.ratio(numerator='sales.gmv', denominator='sales.cnt'),\n"
+        "    numerator='sales.gmv', denominator='sales.cnt',\n"
         ")\n"
     )
     monkeypatch.chdir(tmp_path)
@@ -131,5 +129,5 @@ def test_derived_metric_keeps_default_fanout_policy(tmp_path, monkeypatch):
     assert project.status == "ready", project.errors
     assert project.registry is not None
     metric = project.registry.metrics["sales.aov"]
-    assert metric.is_derived is True
+    assert metric.metric_type == "derived"
     assert metric.fanout_policy == "block"

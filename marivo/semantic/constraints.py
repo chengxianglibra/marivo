@@ -231,7 +231,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Base metrics must declare at least one dataset.",
         "Dataset-backed metrics read source rows from their declared dataset arguments.",
-        "Base metrics need datasets=[...]; use ms.derived_metric(...) for metrics composed from other metrics.",
+        "Simple metrics need entities=[...]; use ms.ratio/ms.weighted_average/ms.linear "
+        "for metrics composed from other metrics.",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
@@ -240,8 +241,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ast",
         ("metric",),
         "ms.component() is no longer supported in metric bodies.",
-        "Derived metrics are body-free and declare composition through ms.derived_metric(...).",
-        "Remove ms.component() calls; use ms.derived_metric(...) with decomposition metadata instead.",
+        "Derived metrics are body-free and declare composition through ms.ratio/ms.weighted_average/ms.linear.",
+        "Remove ms.component() calls; use ms.ratio/ms.weighted_average/ms.linear with composition metadata instead.",
         example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
     ),
     ConstraintId.AI_CONTEXT_SCHEMA: _constraint(
@@ -438,7 +439,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Base metrics must declare additivity.",
         "Additivity determines how metric values aggregate across dataset rows.",
-        "Set additivity to 'additive', 'semi_additive', or 'non_additive' on @ms.metric().",
+        "Set additivity to 'additive', 'semi_additive', or 'non_additive' on @ms.simple_metric().",
     ),
     ConstraintId.MEASURE_ADDITIVITY_REQUIRED: _constraint(
         ConstraintId.MEASURE_ADDITIVITY_REQUIRED,
@@ -510,7 +511,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Derived metrics must keep fanout_policy='block'.",
         "Derived metrics inherit fan-out behavior from their component metrics, which each declare their own policy.",
-        "Use ms.derived_metric(...) without fanout_policy and set fanout_policy on the relevant base components instead.",
+        "Derived metrics (ms.ratio/ms.weighted_average/ms.linear) must not declare fanout_policy; "
+        "set fanout_policy on the relevant base components instead.",
     ),
     ConstraintId.ENTITY_VERSIONING_VALID: _constraint(
         ConstraintId.ENTITY_VERSIONING_VALID,
