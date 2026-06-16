@@ -16,7 +16,7 @@ def _load_component_frame(
     project_root: str,
     artifact_id: str | None,
     component_ref: str | None,
-    decomposition: dict[str, Any] | None,
+    composition: dict[str, Any] | None,
     advice: str,
 ) -> ComponentFrame:
     """Two-phase ComponentFrame lookup shared by MetricFrame and DeltaFrame."""
@@ -30,7 +30,7 @@ def _load_component_frame(
     from marivo.analysis.session._load import load_frame
     from marivo.analysis.session._resolve import resolve_frame_session
 
-    if component_ref is None and decomposition is None:
+    if component_ref is None and composition is None:
         raise ComponentFrameUnavailableError(
             message=(
                 "components are only available for derived ratio or "

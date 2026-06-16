@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.errors import FindingExtractionFailedError
-from marivo.analysis.evidence.extraction.decomposition import (
+from marivo.analysis.evidence.extraction.composition import (
     extract_decomposition_findings,
 )
 from marivo.analysis.evidence.types import Subject

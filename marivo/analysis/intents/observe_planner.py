@@ -207,21 +207,43 @@ class _MetricDetailsAdapter:
         return self.details.fanout_policy
 
     @property
-    def is_derived(self) -> bool:
-        return self.details.is_derived
+    def metric_type(self) -> str:
+        return self.details.metric_type
 
     @property
-    def decomposition(self) -> Any:
+    def composition(self) -> Any:
+        if self.details.composition is None:
+            return None
         return SimpleNamespace(
-            kind=self.details.decomposition,
-            components={role: component.ref for role, component in self.details.components},
+            kind=self.details.composition,
+            components={
+                role: (ref.ref if hasattr(ref, "ref") else ref)
+                for role, ref in self.details.components
+            },
+            signs=(
+                dict(self.details.linear_terms)
+                if self.details.composition == "linear" and self.details.linear_terms
+                else None
+            ),
         )
 
     @property
+    def linear_terms(self) -> tuple[tuple[str, str], ...]:
+        return self.details.linear_terms
+
+    @property
+    def aggregation(self) -> Any:
+        return self.details.aggregation
+
+    @property
+    def measure(self) -> str | None:
+        return self.details.measure.ref if self.details.measure else None
+
+    @property
     def time_fold(self) -> Any | None:
-        if self.details.time_fold is None:
+        if self.details.fold is None:
             return None
-        return _TimeFoldDetailsAdapter(self.details.time_fold)
+        return _TimeFoldDetailsAdapter(self.details.fold)
 
     @property
     def status_time_dimension(self) -> str | None:
@@ -1630,7 +1652,7 @@ def plan_observe(
 ) -> ObservePlan:
     if catalog is None:
         catalog = session.catalog
-    if not metric_ir.is_derived:
+    if metric_ir.metric_type != "derived":
         return plan_base_observe(
             catalog=catalog,
             session=session,
@@ -1927,7 +1949,7 @@ def _plan_derived_observe(
     component_unreachable_axes: dict[str, list[str]] = {}
     component_unreachable_where: dict[str, list[str]] = {}
 
-    for role, component_id in metric_ir.decomposition.components.items():
+    for role, component_id in metric_ir.composition.components.items():
         component_ref = _ref_id(component_id)
         component_details = _metric(catalog, component_ref)
         component_ir = (
@@ -1935,7 +1957,7 @@ def _plan_derived_observe(
         )
         if component_ir is None:
             component_ir = _planned_metric(component_details)
-        if component_ir.is_derived:
+        if component_ir.metric_type == "derived":
             raise_observe_planning_error(
                 code="nested-derived-unsupported",
                 message=(

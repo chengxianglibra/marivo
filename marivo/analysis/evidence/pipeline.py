@@ -31,10 +31,10 @@ from marivo.analysis.evidence.assessment import (
 from marivo.analysis.evidence.extraction.anomaly import (
     extract_anomaly_candidate_findings,
 )
-from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
-from marivo.analysis.evidence.extraction.decomposition import (
+from marivo.analysis.evidence.extraction.composition import (
     extract_decomposition_findings,
 )
+from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
 from marivo.analysis.evidence.extraction.delta import extract_delta_findings
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
 from marivo.analysis.evidence.extraction.observation import extract_metric_value_findings

@@ -257,33 +257,33 @@ def _params_digest(params: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Component-aware decomposition helpers
+# Component-aware composition helpers
 # ---------------------------------------------------------------------------
 
-_COMPONENT_AWARE_DECOMPOSITIONS = {"ratio", "weighted_average"}
+_COMPONENT_AWARE_COMPOSITIONS = {"ratio", "weighted_average", "linear"}
 
 
-def _is_component_aware_decomposition(metric_ir: Any) -> bool:
-    decomposition = getattr(metric_ir, "decomposition", None)
-    kind = getattr(decomposition, "kind", None)
-    return isinstance(kind, str) and kind in _COMPONENT_AWARE_DECOMPOSITIONS
+def _is_component_aware_composition(metric_ir: Any) -> bool:
+    composition = getattr(metric_ir, "composition", None)
+    kind = getattr(composition, "kind", None)
+    return isinstance(kind, str) and kind in _COMPONENT_AWARE_COMPOSITIONS
 
 
-def _decomposition_payload(metric_ir: Any) -> dict[str, Any] | None:
-    if not _is_component_aware_decomposition(metric_ir):
+def _composition_payload(metric_ir: Any) -> dict[str, Any] | None:
+    if not _is_component_aware_composition(metric_ir):
         return None
     return {
-        "kind": metric_ir.decomposition.kind,
-        "components": dict(metric_ir.decomposition.components),
+        "kind": metric_ir.composition.kind,
+        "components": dict(metric_ir.composition.components),
     }
 
 
 def _role_to_column_name(metric_ir: Any, role: str) -> str:
-    return resolve_role_column_name(metric_ir.decomposition.components, role)
+    return resolve_role_column_name(metric_ir.composition.components, role)
 
 
 def _component_parent_columns(metric_ir: Any) -> list[str]:
-    return resolve_role_columns(metric_ir.decomposition.components)
+    return resolve_role_columns(metric_ir.composition.components)
 
 
 def _component_frame_df(
@@ -294,7 +294,7 @@ def _component_frame_df(
     metric_value_column: str,
 ) -> Any:
     role_columns = _component_parent_columns(metric_ir)
-    for role, col in zip(metric_ir.decomposition.components, role_columns, strict=True):
+    for role, col in zip(metric_ir.composition.components, role_columns, strict=True):
         _require_component_role_column(metric_ir, role, col, raw_df)
     selected = [*axes_columns, *role_columns, metric_value_column]
     return raw_df[selected][[*axes_columns, *role_columns, metric_value_column]]
@@ -318,7 +318,7 @@ def _add_fold_metadata_to_component_df(
     role_to_meta: dict[str, dict[str, Any]] = {}
     for cp in component_plans:
         role = cp.role
-        col_name = resolve_role_column_name(metric_ir.decomposition.components, role)
+        col_name = resolve_role_column_name(metric_ir.composition.components, role)
         role_to_meta[col_name] = {
             "component_metric_id": cp.component_metric_ir.semantic_id.rsplit(".", 1)[-1],
             "time_fold": (
@@ -376,8 +376,9 @@ def _persist_metric_component_frame(
             parent_ref=parent.ref,
             parent_kind="metric_frame",
             metric_id=parent.meta.metric_id,
-            decomposition_kind=metric_ir.decomposition.kind,
-            components=dict(metric_ir.decomposition.components),
+            composition_kind=metric_ir.composition.kind,
+            components=dict(metric_ir.composition.components),
+            linear_terms=metric_ir.linear_terms if metric_ir.composition.kind == "linear" else (),
             axes=axes,
             semantic_kind=semantic_kind,
             semantic_model=parent.meta.semantic_model,
@@ -397,7 +398,7 @@ def _attach_metric_component_ref(
     parent.meta = parent.meta.model_copy(
         update={
             "component_ref": component.ref,
-            "decomposition": _decomposition_payload(metric_ir),
+            "composition": _composition_payload(metric_ir),
         }
     )
     parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))
@@ -515,22 +516,32 @@ def _validate_dimension_ids(dimensions: list[str] | None) -> list[str]:
     return dimensions
 
 
-def _evaluate_decomposition_on_frame(metric_ir: Any, frame: Any) -> Any:
-    kind = metric_ir.decomposition.kind
+def _evaluate_composition_on_frame(metric_ir: Any, frame: Any) -> Any:
+    kind = metric_ir.composition.kind
     if kind == "ratio":
         num_col = _role_to_column_name(metric_ir, "numerator")
         den_col = _role_to_column_name(metric_ir, "denominator")
         return frame[num_col] / frame[den_col]
     if kind == "weighted_average":
-        num_col = _role_to_column_name(metric_ir, "numerator")
+        value_col = _role_to_column_name(metric_ir, "value")
         weight_col = _role_to_column_name(metric_ir, "weight")
-        return frame[num_col] / frame[weight_col]
+        return frame[value_col] / frame[weight_col]
+    if kind == "linear":
+        terms = metric_ir.composition.components
+        acc = None
+        for i, role in enumerate(sorted(terms, key=lambda r: int(r.removeprefix("term")))):
+            col = frame[_role_to_column_name(metric_ir, role)]
+            # Determine sign from linear_terms: sign is the first element of each tuple
+            sign_str = metric_ir.linear_terms[i][0] if metric_ir.linear_terms else "+"
+            signed = col if sign_str == "+" else -col
+            acc = signed if acc is None else acc + signed
+        return acc
     raise MetricShapeUnsupportedError(
-        message=f"unsupported derived metric decomposition kind {kind!r}",
+        message=f"unsupported derived metric composition kind {kind!r}",
         details={
-            "kind": "DerivedMetricDecompositionUnsupported",
+            "kind": "DerivedMetricCompositionUnsupported",
             "metric": metric_ir.semantic_id,
-            "decomposition_kind": kind,
+            "composition_kind": kind,
         },
     )
 
@@ -541,7 +552,7 @@ def _require_component_role_column(
     column_name: str,
     frame: Any,
 ) -> Any:
-    component_id = metric_ir.decomposition.components.get(role)
+    component_id = metric_ir.composition.components.get(role)
     if component_id is None:
         raise MetricShapeUnsupportedError(
             message=f"derived metric {metric_ir.semantic_id!r} is missing component role {role!r}",
@@ -1321,7 +1332,7 @@ def _execute_derived(
                 merged = pandas.merge(merged, frame, on=merge_keys, how="outer")
             else:
                 merged = pandas.concat([merged, frame], axis=1)
-    merged[metric_name] = _evaluate_decomposition_on_frame(metric_ir, merged)
+    merged[metric_name] = _evaluate_composition_on_frame(metric_ir, merged)
     if merge_keys:
         result_df = (
             merged[[*merge_keys, metric_name]].sort_values(merge_keys).reset_index(drop=True)
@@ -1330,7 +1341,7 @@ def _execute_derived(
         result_df = merged[[metric_name]]
 
     component_df: Any | None = None
-    if _is_component_aware_decomposition(metric_ir):
+    if _is_component_aware_composition(metric_ir):
         component_df = _component_frame_df(
             raw_df=merged,
             metric_ir=metric_ir,
@@ -1560,8 +1571,8 @@ def _metric_planner_scope(catalog: Any, metric_ir: Any) -> set[str]:
     root = getattr(metric_ir, "root_entity", None)
     if isinstance(root, str) and root:
         scoped.add(root)
-    if metric_ir.is_derived:
-        for component_id in metric_ir.decomposition.components.values():
+    if metric_ir.metric_type == "derived":
+        for component_id in metric_ir.composition.components.values():
             component_details = catalog.get(component_id).details()
             if isinstance(component_details, MetricDetails):
                 component_ir = _planned_metric(component_details)
@@ -1636,12 +1647,12 @@ def observe(
     # For derived metrics with semi-additive components, inject the first
     # component's status_time_dimension so the planner resolves the status axis.
     if (
-        metric_ir.is_derived
+        metric_ir.metric_type == "derived"
         and time_dimension_id is None
         and resolved_window is not None
         and resolved_window.time_dimension is None
     ):
-        for _role, _comp_id in metric_ir.decomposition.components.items():
+        for _role, _comp_id in metric_ir.composition.components.items():
             _comp_details = catalog.get(_comp_id).details()
             assert isinstance(_comp_details, MetricDetails)
             _comp_ir = _planned_metric(_comp_details)
@@ -1682,7 +1693,7 @@ def observe(
                     "expect_shape": expect_shape,
                 },
             )
-    if metric_ir.is_derived:
+    if metric_ir.metric_type == "derived":
         # Build adapters for all catalog entities so derived components can plan
         # across any entity they reference.
         all_entity_refs = {
@@ -1697,7 +1708,7 @@ def observe(
         )
         component_metric_irs = {
             component_id: _planned_metric(component_details)
-            for component_id in metric_ir.decomposition.components.values()
+            for component_id in metric_ir.composition.components.values()
             if isinstance(
                 component_details := catalog.get(component_id).details(),
                 MetricDetails,

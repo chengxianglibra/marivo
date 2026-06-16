@@ -46,22 +46,24 @@ def attribution_output_shape(delta_meta: DeltaFrameMeta) -> AttributionShape:
     """Predict the AttributionFrame shape decompose will produce for a delta.
 
     Reads the delta's own metadata only (no component-frame load): a delta with
-    no component_ref decomposes to "sum"; otherwise the linked decomposition kind
+    no component_ref decomposes to "sum"; otherwise the linked composition kind
     ("ratio" -> "ratio_mix", "weighted_average" -> "weighted_mix") decides.
-    ComponentFrameMeta.decomposition_kind is the authoritative source; the delta's
-    decomposition["kind"] mirrors it for a cheap read.
+    ComponentFrameMeta.composition_kind is the authoritative source; the delta's
+    composition["kind"] mirrors it for a cheap read.
     """
     if delta_meta.component_ref is None:
         return "sum"
-    kind = (delta_meta.decomposition or {}).get("kind")
+    kind = (delta_meta.composition or {}).get("kind")
     if kind == "ratio":
         return "ratio_mix"
     if kind == "weighted_average":
         return "weighted_mix"
+    if kind == "linear":
+        return "sum"
     raise ComponentDecompositionError(
-        message="cannot predict attribution shape: unknown component decomposition kind",
+        message="cannot predict attribution shape: unknown component composition kind",
         details={
             "component_ref": delta_meta.component_ref,
-            "decomposition_kind": kind,
+            "composition_kind": kind,
         },
     )
