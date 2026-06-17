@@ -470,6 +470,51 @@ def test_semantic_object_list_show_prints_render(capsys):
     assert "sales.revenue" in out
 
 
+def test_semantic_object_list_render_annotates_domain_level_metric_under_entity():
+    """A metric listed under an entity parent must be annotated (domain-level ref)."""
+    metric_obj = _make_metric_obj()  # ref="sales.revenue"
+    lst = SemanticObjectList(items=(metric_obj,), parent_label="sales.orders", kind_filter=None)
+    rendered = lst.render()
+    assert "sales.revenue  (domain-level ref)" in rendered
+
+
+def test_semantic_object_list_render_no_annotation_for_domain_parent():
+    """A metric listed under a domain parent must NOT be annotated."""
+    metric_obj = _make_metric_obj()  # ref="sales.revenue", starts with "sales."
+    lst = SemanticObjectList(items=(metric_obj,), parent_label="sales", kind_filter=None)
+    rendered = lst.render()
+    assert "(domain-level ref)" not in rendered
+
+
+def test_semantic_object_list_render_no_annotation_for_non_metric_kinds():
+    """Non-metric items under an entity parent must NOT be annotated."""
+    dim_obj = SemanticObject(
+        ref=SemanticRef(ref="sales.orders.region", kind=SemanticKind.DIMENSION),
+        kind=SemanticKind.DIMENSION,
+        name="region",
+        domain="sales",
+        context=AiContextView(),
+        source_location=SourceLocation(file="f.py", line=1),
+        python_symbol="region",
+        _details=DimensionDetails(
+            ref=SemanticRef(ref="sales.orders.region", kind=SemanticKind.DIMENSION),
+            kind=SemanticKind.DIMENSION,
+            name="region",
+            domain="sales",
+            context=AiContextView(),
+            source_location=SourceLocation(file="f.py", line=1),
+            python_symbol="region",
+            parents=(),
+            children=(),
+            dependents=(),
+            entity=SemanticRef(ref="sales.orders", kind=SemanticKind.ENTITY),
+        ),
+    )
+    lst = SemanticObjectList(items=(dim_obj,), parent_label="sales.orders", kind_filter=None)
+    rendered = lst.render()
+    assert "(domain-level ref)" not in rendered
+
+
 def test_semantic_object_list_empty_renders_actionable_message():
     lst = SemanticObjectList(items=(), parent_label="sales.orders", kind_filter="metric")
     rendered = lst.render()
@@ -734,6 +779,20 @@ def test_catalog_list_entity_filtered_metric_has_canonical_domain_ref(semantic_p
     metric_objs = [obj for obj in result.objects if str(obj.kind) == "metric"]
     assert len(metric_objs) == 1
     assert metric_objs[0].ref.ref == "sales.revenue"
+
+
+def test_catalog_list_entity_render_annotates_domain_level_metric_refs(semantic_project_factory):
+    """Metrics listed under an entity must carry a (domain-level ref) annotation
+    so agents do not construct an incorrect entity-qualified reference path."""
+    catalog = _make_catalog(semantic_project_factory)
+    rendered = catalog.list("sales.orders").render()
+    # The domain-level metric ref should be annotated
+    assert "sales.revenue  (domain-level ref)" in rendered
+    # Entity-level refs (dimensions, time_dimensions) should NOT be annotated
+    assert "(domain-level ref)" not in rendered.split("sales.orders.region")[0]
+    # Domain-level listing should NOT annotate metrics (they belong there)
+    domain_rendered = catalog.list("sales").render()
+    assert "(domain-level ref)" not in domain_rendered
 
 
 def test_catalog_list_entity_dimension_has_correct_ref(semantic_project_factory):
