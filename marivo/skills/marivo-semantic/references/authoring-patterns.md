@@ -29,9 +29,8 @@ orders = ms.entity(
 @ms.time_dimension(
     entity=orders,
     name="log_date",
-    data_type="string",
     granularity="day",
-    date_format="%Y%m%d",
+    parse=ms.strptime("%Y%m%d", data_type="string"),
     ai_context={
         "business_definition": "Partition date used for default order reporting windows.",
         "guardrails": ["Use event time instead only when source SQL defines that axis."],
@@ -149,9 +148,9 @@ or snapshot time instead only when knowledge, source SQL, comments, or user
 confirmation establishes that business axis.
 
 For day/hour partition dimensions, preserve the raw sortable partition value and
-declare its physical encoding with `date_format`. This lets observe windows
+declare its physical encoding with `parse=ms.strptime(...)`. This lets observe windows
 compile to simple partition comparisons for predicate pushdown. Do not add
-`timezone` to day partition encodings such as `%Y%m%d`; those values are
+`timezone` to day partition formats such as `%Y%m%d`; those values are
 filtered as physical partition keys, not interpreted instants.
 
 ```python
@@ -179,8 +178,8 @@ def event_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
 
-For string or integer event-time columns that include time-of-day, declare both
-the physical `date_format` and source `timezone`. `session.observe(...)` parses
+For string or integer event-time columns that include time-of-day, declare
+the format and timezone inside `ms.strptime(...)`. `session.observe(...)` parses
 the value as source-local time, converts it to the session report timezone,
 and then applies sub-day bucketing:
 
@@ -193,17 +192,15 @@ meaning differs from the datasource default.
 ```python
 @ms.time_dimension(
     entity=orders,
-    data_type="string",
     granularity="minute",
-    date_format="%Y-%m-%d %H:%M:%S",
-    timezone="UTC",
+    parse=ms.strptime("%Y-%m-%d %H:%M:%S", data_type="string", timezone="UTC"),
 )
 def create_time(table):
     return table.create_time
 ```
 
-When the body returns a date-typed expression (via `.cast("date")`), declare
-`data_type="date"`. Declaring `data_type="datetime"` with a `.cast("date")`
+When the body returns a date-typed expression (via `.cast("date")`), use
+`parse=ms.date()`. Using `parse=ms.datetime(...)` with a `.cast("date")`
 body causes a TypeError at execution because ibis cannot add intervals to
 DateColumns.
 

@@ -143,15 +143,14 @@ td_brief = ms.prepare_time_dimension(
 ```
 
 For day/hour partition columns, preserve the raw value and declare
-`date_format`:
+its physical encoding with a `parse` variant:
 
 ```python
 @ms.time_dimension(
     entity=orders,
     name="log_date",
-    data_type="string",
     granularity="day",
-    date_format="%Y%m%d",
+    parse=ms.strptime("%Y%m%d", data_type="string"),
     is_default=True,
     ai_context={
         "business_definition": "Partition date used for default order reporting windows.",
