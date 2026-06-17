@@ -91,6 +91,47 @@ ibis_scratch = session.explore_ibis(
     description="manual Ibis scan",
 )
 
+# Typed time-series re-entry: promote two hand-built series and correlate them.
+# time_axis takes a {column: ref} mapping (symmetric with axes), so the dataframe
+# column name ("bucket_start") can differ from the catalog time-dimension ref.
+created_at_ref = session.catalog.get("sales.orders.created_at").ref
+revenue_ts = session.promote_metric_frame(
+    pd.DataFrame(
+        {
+            "bucket_start": ["2026-07-01", "2026-08-01", "2026-09-01"],
+            "value": [12.0, 24.0, 60.0],
+        }
+    ),
+    metric=session.catalog.get("sales.revenue"),
+    semantic_kind="time_series",
+    measure_column="value",
+    time_axis={"bucket_start": created_at_ref},
+    semantic_model="sales",
+)
+failures_ts = session.promote_metric_frame(
+    pd.DataFrame(
+        {
+            "bucket_start": ["2026-07-01", "2026-08-01", "2026-09-01"],
+            "value": [1.0, 1.0, 0.0],
+        }
+    ),
+    metric=session.catalog.get("sales.failed_count"),
+    semantic_kind="time_series",
+    measure_column="value",
+    time_axis={"bucket_start": created_at_ref},
+    semantic_model="sales",
+)
+association = session.correlate(revenue_ts, failures_ts)
+
+assert revenue_ts.meta.axes["time"] == {
+    "role": "time",
+    "column": "bucket_start",
+    "ref": "sales.orders.created_at",
+}
+assert isinstance(association, mv.AssociationResult)
+assert association.meta.metric_ids == ["sales.revenue", "sales.failed_count"]
+assert association.meta.aligned_row_count == 3
+
 assert isinstance(scratch, mv.ExplorationResult)
 assert scratch.meta.source_kind == "pandas"
 assert scratch.meta.description == "manual cohort scan"
@@ -117,6 +158,11 @@ print(attribution.summary())
 print(f"ibis_datasource={ibis_scratch.meta.source_datasource}")
 print(f"ibis_has_source_query={ibis_scratch.meta.source_query is not None}")
 print(ibis_scratch.summary())
+print(f"revenue_ts_kind={revenue_ts.meta.kind}")
+print(f"revenue_ts_time_column={revenue_ts.meta.axes['time']['column']}")
+print(f"association_kind={association.meta.kind}")
+print(f"association_aligned_rows={association.meta.aligned_row_count}")
+print(f"association_metrics={association.meta.metric_ids}")
 
 # Expected output:
 # kind='exploration_result'
@@ -139,3 +185,8 @@ print(ibis_scratch.summary())
 # kind='exploration_result'
 # row_count=1
 # columns=['value']
+# revenue_ts_kind=metric_frame
+# revenue_ts_time_column=bucket_start
+# association_kind=association_result
+# association_aligned_rows=3
+# association_metrics=['sales.revenue', 'sales.failed_count']
