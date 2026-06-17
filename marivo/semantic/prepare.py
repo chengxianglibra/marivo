@@ -336,7 +336,12 @@ def prepare_entity(
     source_key = source_to_dict(source)
     matches = _entity_matches(project, datasource=datasource, source_key=source_key, domain=domain)
     time_like = tuple(profile.name for profile in inspection.profiles if _looks_temporal(profile))
-    issues: tuple[AssessmentIssue, ...] = ()
+    entity_ref = f"{domain}.{table.table}"
+    issues = tuple(
+        issue
+        for col in inspection.profiles
+        if (issue := _ibis_shadowing_issue(entity_ref, col.name)) is not None
+    )
     questions: tuple[AuthoringQuestion, ...] = ()
     return EntityBrief(
         status=derive_brief_status(issues=issues, questions=questions),

@@ -179,6 +179,43 @@ def test_prepare_entity_collects_metadata_profiles_and_matches(
     assert brief.scan.partition_resolution == "unpruned"
 
 
+def test_prepare_entity_warns_on_shadowing_column(tmp_path: Path, semantic_project_factory) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table(
+        "queries",
+        {"query_id": [1, 2], "schema": ["web", "mobile"], "region": ["US", "EU"]},
+    )
+    con.disconnect()
+
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+    project = semantic_project_factory(
+        {"analytics/_domain.py": "import marivo.semantic as ms\nms.domain(name='analytics')\n"},
+        workspace_dir=tmp_path,
+    )
+    project.load()
+
+    brief = project.prepare_entity(
+        datasource="warehouse",
+        source=md.table("queries"),
+        domain="analytics",
+        scope=md.ScanScope(partition=None, max_rows=10),
+    )
+
+    shadow_issues = [i for i in brief.issues if i.kind == "ibis_attribute_shadowing"]
+    assert len(shadow_issues) == 1
+    assert shadow_issues[0].severity == "warning"
+    assert shadow_issues[0].refs == ("analytics.queries.schema",)
+    assert 'table["schema"]' in shadow_issues[0].message
+
+
 def test_prepare_dimension_blocks_unknown_column(tmp_path: Path, semantic_project_factory) -> None:
     import ibis
 
