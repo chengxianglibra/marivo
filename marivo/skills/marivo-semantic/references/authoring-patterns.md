@@ -320,6 +320,9 @@ Rules:
 - `additivity=ms.semi_additive(...)` always requires `over` (the status time dimension).
 - `over` binds the business status/as-of time axis.
 - `fold` requires that `over` declares `sample_interval` on the time dimension.
+- `sample_interval` can be declared on `ms.datetime(...)`, `ms.timestamp(...)`, or
+  string/integer `ms.strptime(...)` time dimensions; `ms.hour_prefix(...)` is not
+  a sampled-fold axis.
 - `fold` is a metric definition choice, not an observe parameter.
 - P95-style folds use `fold=("quantile", 0.95)` and are always
   recomputed from base samples for the requested grain.

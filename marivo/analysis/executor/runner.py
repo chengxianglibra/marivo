@@ -922,8 +922,36 @@ def bucket_time_expression(
             session_tz=session_tz,
             window=window,
         )
+    if (
+        time_meta.data_type in {"string", "integer"}
+        and time_meta.format is not None
+        and time_meta.format.startswith("%")
+        and getattr(time_meta, "parse_kind", None) == "strptime"
+    ):
+        if window is None:
+            raise WindowInvalidError(
+                message="bucket_time_expression requires a window for strptime bucketing.",
+                details={"data_type": time_meta.data_type, "format": time_meta.format},
+            )
+        parsed = _parse_string_column(raw, time_meta)
+        classification = _classify_strptime_format(time_meta.format)
+        grain_matches_classification = (
+            (grain.is_day and classification == "day")
+            or (grain.unit == "hour" and grain.count == 1 and classification == "hour")
+            or (grain.unit == "minute" and grain.count == 1 and classification == "minute")
+        )
+        if grain_matches_classification:
+            return parsed
+        column_tz = _column_timezone(time_meta, session_tz)
+        local_parsed = _timestamp_expr_in_session_timezone(
+            parsed,
+            column_tz=column_tz,
+            session_tz=session_tz,
+            window=window,
+        )
+        return bucket_start_expr(local_parsed, grain)
     raise WindowInvalidError(
-        message="bucket_time_expression requires a datetime or timestamp time field.",
+        message="bucket_time_expression requires a datetime, timestamp, or strptime time field.",
         details={"data_type": time_meta.data_type},
     )
 

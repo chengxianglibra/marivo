@@ -286,12 +286,12 @@ def date() -> DateParse
 #   already-temporal date column; no timezone, no format
 
 def datetime(*, timezone, sample_interval=None) -> DatetimeParse
-#   timezone REQUIRED (no default); sample_interval valid only here and on timestamp()
+#   timezone REQUIRED (no default); sample_interval allowed for sampled axes
 
 def timestamp(*, timezone, sample_interval=None) -> TimestampParse
 #   timezone REQUIRED (no default)
 
-def strptime(format, /, *, data_type, timezone=None) -> StrptimeParse
+def strptime(format, /, *, data_type, timezone=None, sample_interval=None) -> StrptimeParse
 #   data_type: "string" | "integer"; format is the whole point, so it is required
 
 def hour_prefix(prefix, /, *, data_type) -> HourPrefixParse
@@ -306,8 +306,9 @@ This makes previously prose-encoded rules unconstructable:
 - `date_format` cannot be attached to a temporal column (no such field on
   `date` / `datetime` / `timestamp`) and is required where a string/integer is
   parsed (`strptime` requires `format`).
-- `sample_interval` exists only on `datetime` / `timestamp`, so "sample_interval
-  requires a datetime/timestamp time dimension" is unconstructable to violate.
+- `sample_interval` exists only on sampled-capable parse variants
+  (`datetime` / `timestamp` / `strptime`), so it cannot be attached to `date`
+  or `hour_prefix`.
 
 One residual cross-field check remains: `granularity` versus the `parse` variant
 (for example `minute` / `second` require `datetime` / `timestamp`; `hour_prefix`
@@ -438,7 +439,7 @@ local aliases, and identity is carried by `name=`.
 |---|---|---|
 | `entity(source=)` | `table(...)` · `parquet(...)` · `csv(...)` | `file(path, format=, **options: Any)` untyped bag + format discriminator |
 | `entity(versioning=)` | `snapshot(...)` · `validity(...)` · `None` | kept; `validity.open_end` retyped `tuple[str \| None, ...]` (drops `Any`) |
-| `time_dimension(parse=)` | `date()` · `datetime(timezone, sample_interval?)` · `timestamp(timezone, sample_interval?)` · `strptime(format, data_type, timezone?)` · `hour_prefix(prefix, data_type)` | date_format/required_prefix/timezone/sample_interval cross-field tangle |
+| `time_dimension(parse=)` | `date()` · `datetime(timezone, sample_interval?)` · `timestamp(timezone, sample_interval?)` · `strptime(format, data_type, timezone?, sample_interval?)` · `hour_prefix(prefix, data_type)` | date_format/required_prefix/timezone/sample_interval cross-field tangle |
 | `*.additivity=` | `"additive"` · `"non_additive"` · `semi_additive(over, fold)` | kept (already correct) |
 | `metric(provenance=)` | `from_sql(sql, dialect)` · `None` | `source_sql` / `source_dialect` independent `\| None` pair |
 | `relationship(keys=)` | `[join_on(left, right), ...]` | `from_dimensions` / `to_dimensions` parallel-list arity |

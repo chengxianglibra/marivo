@@ -1144,6 +1144,38 @@ def test_catalog_time_dimension_details_include_sample_interval(semantic_project
     assert details.sample_interval.to_token() == "5minute"
 
 
+def test_catalog_strptime_time_dimension_details_include_sample_interval(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "@ms.time_dimension(\n"
+                "    entity=orders,\n"
+                "    granularity='minute',\n"
+                "    parse=ms.strptime(\n"
+                "        '%Y%m%d%H%M%S',\n"
+                "        data_type='string',\n"
+                "        timezone='UTC',\n"
+                "        sample_interval=(5, 'minute'),\n"
+                "    ),\n"
+                ")\n"
+                "def sampled_at(table):\n"
+                "    return table.created_at_key\n"
+            ),
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    details = catalog.get("sales.orders.sampled_at").details()
+
+    assert isinstance(details, TimeDimensionDetails)
+    assert details.parse_kind == "strptime"
+    assert details.sample_interval is not None
+    assert details.sample_interval.to_token() == "5minute"
+
+
 def test_catalog_get_model_details_children_include_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     obj = catalog.get("sales")

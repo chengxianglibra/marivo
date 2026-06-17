@@ -1227,6 +1227,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             data_type = parse.data_type
             fmt = parse.format
             tz = parse.timezone
+            sample_interval = parse.sample_interval
         elif isinstance(parse, HourPrefixParse):
             parse_kind = "hour_prefix"
             data_type = parse.data_type

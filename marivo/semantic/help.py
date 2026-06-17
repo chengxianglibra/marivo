@@ -547,10 +547,10 @@ def _strptime_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="strptime",
-        summary="strptime parse variant with format and data_type",
+        summary="strptime parse variant with format, data_type, and optional sample interval",
         content={
-            "form": "ms.strptime(format='%Y%m%d', data_type='string')",
-            "usage": "For columns needing explicit format parsing. Requires format and data_type.",
+            "form": "ms.strptime(format='%Y%m%d', data_type='string', sample_interval=None)",
+            "usage": "For string/integer columns needing explicit format parsing. sample_interval is optional for sampled time dimensions.",
             "related_help": [
                 "ms.help('time_dimension')",
             ],
@@ -558,10 +558,10 @@ def _strptime_topic() -> Descriptor:
         doc=(
             "marivo.semantic strptime\n"
             "\n"
-            "strptime parse variant with format and data_type\n"
+            "strptime parse variant with format, data_type, and optional sample interval\n"
             "\n"
             "Form:\n"
-            "  ms.strptime(format='%Y%m%d', data_type='string')"
+            "  ms.strptime(format='%Y%m%d', data_type='string', sample_interval=None)"
         ),
         see_also=("ms.help('time_dimension')",),
     )

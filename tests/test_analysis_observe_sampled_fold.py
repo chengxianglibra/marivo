@@ -42,7 +42,7 @@ def _seed(con):
     """
     con.raw_sql(
         "CREATE TABLE bandwidth_samples ("
-        "sample_id INTEGER, dt DATE, sample_ts TIMESTAMP, "
+        "sample_id INTEGER, dt DATE, sample_ts TIMESTAMP, sample_ts_text VARCHAR, "
         "upstream_bw DOUBLE, upstream_bw_var DOUBLE, reserved_bw DOUBLE, province VARCHAR)"
     )
     rows = []
@@ -51,21 +51,34 @@ def _seed(con):
         for i in range(12):
             minute = i * 5
             ts = f"TIMESTAMP '{day} 00:{minute:02d}:00'"
+            ts_text = f"{day.replace('-', '')}00{minute:02d}00"
             # beijing: device_a (100) + device_b (200) = 300 per slot
-            rows.append(f"({sid}, DATE '{day}', {ts}, 100.0, {(i + 1) * 10.0}, 200.0, 'beijing')")
+            rows.append(
+                f"({sid}, DATE '{day}', {ts}, '{ts_text}', 100.0, "
+                f"{(i + 1) * 10.0}, 200.0, 'beijing')"
+            )
             sid += 1
-            rows.append(f"({sid}, DATE '{day}', {ts}, 200.0, 0.0, 0.0, 'beijing')")
+            rows.append(f"({sid}, DATE '{day}', {ts}, '{ts_text}', 200.0, 0.0, 0.0, 'beijing')")
             sid += 1
             # shanghai: device_c (90) per slot, 0 for upstream_bw_var
-            rows.append(f"({sid}, DATE '{day}', {ts}, 90.0, 0.0, 0.0, 'shanghai')")
+            rows.append(f"({sid}, DATE '{day}', {ts}, '{ts_text}', 90.0, 0.0, 0.0, 'shanghai')")
             sid += 1
     con.raw_sql("INSERT INTO bandwidth_samples VALUES " + ",".join(rows))
 
 
-def _bootstrap_bandwidth(tmp_path):
+def _bootstrap_bandwidth(
+    tmp_path,
+    *,
+    sample_ts_parse: str | None = None,
+    sample_ts_expr: str = "bandwidth_samples.sample_ts",
+):
     from marivo.analysis.timezone import resolve_system_timezone
 
     session_tz_name = resolve_system_timezone().name
+    if sample_ts_parse is None:
+        sample_ts_parse = (
+            f"ms.datetime(timezone='{session_tz_name}', sample_interval=(5, 'minute'))"
+        )
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
@@ -96,10 +109,10 @@ def _bootstrap_bandwidth(tmp_path):
         "    name='sample_ts',\n"
         "    entity=bandwidth_samples,\n"
         "    granularity='minute',\n"
-        f"    parse=ms.datetime(timezone='{session_tz_name}', sample_interval=(5, 'minute')),\n"
+        f"    parse={sample_ts_parse},\n"
         ")\n"
         "def sample_ts(bandwidth_samples):\n"
-        "    return bandwidth_samples.sample_ts\n"
+        f"    return {sample_ts_expr}\n"
         "\n"
         "@ms.dimension(entity=bandwidth_samples)\n"
         "def province(bandwidth_samples):\n"
@@ -181,6 +194,29 @@ def sampled_bandwidth_project(tmp_path):
     return s
 
 
+@pytest.fixture()
+def sampled_bandwidth_strptime_project(tmp_path):
+    from marivo.analysis.timezone import resolve_system_timezone
+
+    session_tz_name = resolve_system_timezone().name
+    _bootstrap_bandwidth(
+        tmp_path,
+        sample_ts_parse=(
+            "ms.strptime("
+            "'%Y%m%d%H%M%S', "
+            "data_type='string', "
+            f"timezone='{session_tz_name}', "
+            "sample_interval=(5, 'minute')"
+            ")"
+        ),
+        sample_ts_expr="bandwidth_samples.sample_ts_text",
+    )
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+    return s
+
+
 def test_folded_metric_rejects_observe_with_different_time_dimension(
     sampled_bandwidth_project,
 ) -> None:
@@ -215,6 +251,28 @@ def test_sampled_mean_fold_aggregates_space_then_time(sampled_bandwidth_project)
     assert frame.meta.fold["time_fold"] == "mean"
     assert frame.meta.fold["status_time_dimension"] == "sales.bandwidth_samples.sample_ts"
     assert frame.meta.reaggregatable is False
+
+
+def test_sampled_mean_fold_accepts_strptime_time_dimension(
+    sampled_bandwidth_strptime_project,
+) -> None:
+    session = sampled_bandwidth_strptime_project
+
+    frame = session.observe(
+        SemanticRef("sales.upstream_bw", kind=SemanticKind.METRIC),
+        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+        dimensions=[SemanticRef("sales.bandwidth_samples.province", kind=SemanticKind.DIMENSION)],
+    )
+
+    df = frame.to_pandas().sort_values(["bucket_start", "province"]).reset_index(drop=True)
+    assert df[["province", "upstream_bw"]].to_dict("records") == [
+        {"province": "beijing", "upstream_bw": 300.0},
+        {"province": "shanghai", "upstream_bw": 90.0},
+    ]
+    assert frame.meta.fold["time_fold"] == "mean"
+    assert frame.meta.fold["status_time_dimension"] == "sales.bandwidth_samples.sample_ts"
+    assert frame.meta.fold["sample_interval"] == "5minute"
 
 
 def test_sampled_fold_rejects_grain_finer_than_effective_floor(sampled_bandwidth_project) -> None:

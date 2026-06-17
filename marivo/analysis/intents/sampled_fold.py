@@ -197,7 +197,10 @@ def sample_point_table(
             candidates={"time_dimension": time_field_ir.semantic_id},
             repair=[],
         )
-    if time_meta.data_type in {"datetime", "timestamp"}:
+    if (
+        time_meta.data_type in {"datetime", "timestamp"}
+        or getattr(time_meta, "parse_kind", None) == "strptime"
+    ):
         sample_point = bucket_time_expression(
             raw,
             time_meta=time_meta,
@@ -208,7 +211,7 @@ def sample_point_table(
         return table.mutate(sample_point=sample_point)
     raise_observe_planning_error(
         code="status-time-dimension-unsupported-type",
-        message="sampled folds require a datetime or timestamp sampled time dimension.",
+        message="sampled folds require a datetime, timestamp, or strptime sampled time dimension.",
         candidates={"time_dimension": time_field_ir.semantic_id, "data_type": time_meta.data_type},
         repair=[],
     )

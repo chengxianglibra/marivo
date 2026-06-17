@@ -767,6 +767,37 @@ def test_time_dimension_accepts_sample_interval() -> None:
         _exit_ctx()
 
 
+@pytest.mark.parametrize("data_type", ["string", "integer"])
+def test_strptime_time_dimension_accepts_sample_interval(data_type: str) -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.time_dimension(
+            entity="sales.bandwidth_samples",
+            granularity="second",
+            parse=ms.strptime(
+                "%Y%m%d%H%M%S",
+                data_type=data_type,  # type: ignore[arg-type]
+                timezone="UTC",
+                sample_interval=(5, "minute"),
+            ),
+        )
+        def sample_ts(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, DimensionIR)]
+        from marivo.semantic.ir import StrptimeParse
+
+        ir = irs[-1]
+        assert isinstance(ir.parse, StrptimeParse)
+        assert ir.parse.sample_interval is not None
+        assert ir.granularity == "second"
+        assert ir.parse.sample_interval.count == 5
+        assert ir.parse.sample_interval.unit == "minute"
+    finally:
+        _exit_ctx()
+
+
 def test_time_dimension_rejects_invalid_sample_interval_unit() -> None:
     _enter_ctx(default_domain="sales")
     try:
@@ -785,6 +816,55 @@ def test_time_dimension_rejects_invalid_sample_interval_unit() -> None:
         _exit_ctx()
 
 
+def test_strptime_time_dimension_rejects_invalid_sample_interval_unit() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_dimension(
+                entity="sales.bandwidth_samples",
+                granularity="second",
+                parse=ms.strptime(
+                    "%Y%m%d%H%M%S",
+                    data_type="string",
+                    timezone="UTC",
+                    sample_interval=(1, "day"),  # type: ignore[arg-type]
+                ),
+            )
+            def sample_ts(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+    finally:
+        _exit_ctx()
+
+
+@pytest.mark.parametrize("fmt", ["%H", "%H:%M"])
+def test_strptime_time_dimension_rejects_sample_interval_without_date_context(
+    fmt: str,
+) -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_dimension(
+                entity="sales.bandwidth_samples",
+                granularity="hour",
+                parse=ms.strptime(
+                    fmt,
+                    data_type="string",
+                    sample_interval=(1, "hour"),
+                ),
+            )
+            def sample_hour(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+        assert "date context" in exc_info.value.message
+    finally:
+        _exit_ctx()
+
+
 def test_time_dimension_coarser_granularity_error_suggests_fix() -> None:
     _enter_ctx(default_domain="sales")
     try:
@@ -794,6 +874,32 @@ def test_time_dimension_coarser_granularity_error_suggests_fix() -> None:
                 entity="sales.bandwidth_samples",
                 granularity="day",
                 parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
+            )
+            def sample_ts(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+        message = str(exc_info.value)
+        assert "Set granularity to 'minute' or finer" in message
+        assert "'second', 'minute'" in message
+    finally:
+        _exit_ctx()
+
+
+def test_strptime_time_dimension_coarser_granularity_error_suggests_fix() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_dimension(
+                entity="sales.bandwidth_samples",
+                granularity="day",
+                parse=ms.strptime(
+                    "%Y%m%d%H%M%S",
+                    data_type="string",
+                    timezone="UTC",
+                    sample_interval=(5, "minute"),
+                ),
             )
             def sample_ts(table: object) -> object:
                 return None  # type: ignore[unreachable]
