@@ -9,7 +9,7 @@ import contextlib
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NoReturn, TypedDict
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.scan import ScanScope
@@ -206,36 +206,9 @@ def _provenance_text(provenance: SqlProvenance | None) -> str:
     return f"{provenance.kind} dialect={provenance.dialect} sql={provenance.sql!r}"
 
 
-class _CommonAiDetailKwargs(TypedDict):
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-    python_symbol: str
-
-
-def _common_ai_fields(context: AiContextView, *, python_symbol: str) -> _CommonAiDetailKwargs:
-    return {
-        "business_definition": context.business_definition,
-        "guardrails": context.guardrails,
-        "synonyms": context.synonyms,
-        "examples": context.examples,
-        "instructions": context.instructions,
-        "owner_notes": context.owner_notes,
-        "python_symbol": python_symbol,
-    }
-
-
 def _common_detail_lines(
     *,
-    business_definition: str | None,
-    guardrails: tuple[str, ...],
-    synonyms: tuple[str, ...],
-    examples: tuple[str, ...],
-    instructions: str | None,
-    owner_notes: str | None,
+    context: AiContextView,
     python_symbol: str,
     source_location: SourceLocation,
     parents: tuple[SemanticRef, ...],
@@ -243,25 +216,25 @@ def _common_detail_lines(
     dependents: tuple[SemanticRef, ...],
 ) -> list[str]:
     lines = [
-        f"business_definition: {business_definition or '(none)'}",
+        f"business_definition: {context.business_definition or '(none)'}",
         "guardrails:",
     ]
-    lines.extend(f"- {guardrail}" for guardrail in guardrails[:6])
-    if not guardrails:
+    lines.extend(f"- {guardrail}" for guardrail in context.guardrails[:6])
+    if not context.guardrails:
         lines.append("- (none)")
-    if len(guardrails) > 6:
-        lines.append(f"- ... (+{len(guardrails) - 6} more)")
-    if synonyms:
-        lines.append(f"synonyms: {_format_tuple_values(synonyms)}")
-    if examples:
+    if len(context.guardrails) > 6:
+        lines.append(f"- ... (+{len(context.guardrails) - 6} more)")
+    if context.synonyms:
+        lines.append(f"synonyms: {_format_tuple_values(context.synonyms)}")
+    if context.examples:
         lines.append("examples:")
-        lines.extend(f"- {example}" for example in examples[:3])
-        if len(examples) > 3:
-            lines.append(f"- ... (+{len(examples) - 3} more)")
-    if instructions:
-        lines.append(f"instructions: {instructions}")
-    if owner_notes:
-        lines.append(f"owner_notes: {owner_notes}")
+        lines.extend(f"- {example}" for example in context.examples[:3])
+        if len(context.examples) > 3:
+            lines.append(f"- ... (+{len(context.examples) - 3} more)")
+    if context.instructions:
+        lines.append(f"instructions: {context.instructions}")
+    if context.owner_notes:
+        lines.append(f"owner_notes: {context.owner_notes}")
     lines.extend(
         (
             f"source_location: {_source_location_text(source_location)}",
@@ -275,44 +248,45 @@ def _common_detail_lines(
 
 
 @dataclass(frozen=True, repr=False)
-class DatasourceDetails:
-    """Details for a datasource object."""
+class _DetailsBase:
+    """Common fields and result protocol shared by all *Details classes."""
 
     ref: SemanticRef
     kind: SemanticKind
     name: str
-    domain: None
+    domain: str | None
     description: str | None
     context: AiContextView
     source_location: SourceLocation
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
     python_symbol: str
-    backend_type: str
-    fields: dict[str, object]
-    env_refs: dict[str, str]
 
     def _repr_identity(self) -> str:
-        return f"DatasourceDetails ref={self.ref.ref}"
+        return f"{self.__class__.__name__} ref={self.ref.ref}"
 
     def __repr__(self) -> str:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
+        raise NotImplementedError
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
+class DatasourceDetails(_DetailsBase):
+    """Details for a datasource object."""
+
+    backend_type: str
+    fields: dict[str, object]
+    env_refs: dict[str, str]
+
+    def render(self) -> str:
         extra = _common_detail_lines(
-            business_definition=self.business_definition,
-            guardrails=self.guardrails,
-            synonyms=self.synonyms,
-            examples=self.examples,
-            instructions=self.instructions,
-            owner_notes=self.owner_notes,
+            context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
             parents=self.parents,
@@ -332,47 +306,16 @@ class DatasourceDetails:
             extra_lines=tuple(extra),
         )
 
-    def show(self) -> None:
-        print(self.render())
-
 
 @dataclass(frozen=True, repr=False)
-class DomainDetails:
+class DomainDetails(_DetailsBase):
     """Details for a domain object."""
 
-    ref: SemanticRef
-    kind: SemanticKind
-    name: str
-    domain: str
-    description: str | None
-    context: AiContextView
-    source_location: SourceLocation
-    parents: tuple[SemanticRef, ...]
-    children: tuple[SemanticRef, ...]
-    dependents: tuple[SemanticRef, ...]
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-    python_symbol: str
     default: bool
-
-    def _repr_identity(self) -> str:
-        return f"DomainDetails ref={self.ref.ref}"
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            business_definition=self.business_definition,
-            guardrails=self.guardrails,
-            synonyms=self.synonyms,
-            examples=self.examples,
-            instructions=self.instructions,
-            owner_notes=self.owner_notes,
+            context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
             parents=self.parents,
@@ -386,50 +329,19 @@ class DomainDetails:
             extra_lines=tuple(extra),
         )
 
-    def show(self) -> None:
-        print(self.render())
-
 
 @dataclass(frozen=True, repr=False)
-class EntityDetails:
+class EntityDetails(_DetailsBase):
     """Details for an entity object."""
 
-    ref: SemanticRef
-    kind: SemanticKind
-    name: str
-    domain: str
-    description: str | None
-    context: AiContextView
-    source_location: SourceLocation
-    parents: tuple[SemanticRef, ...]
-    children: tuple[SemanticRef, ...]
-    dependents: tuple[SemanticRef, ...]
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-    python_symbol: str
     datasource: SemanticRef
     source: DatasetSource
     primary_key: tuple[str, ...]
     versioning: EntityVersioning | None
 
-    def _repr_identity(self) -> str:
-        return f"EntityDetails ref={self.ref.ref}"
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
     def render(self) -> str:
         extra = _common_detail_lines(
-            business_definition=self.business_definition,
-            guardrails=self.guardrails,
-            synonyms=self.synonyms,
-            examples=self.examples,
-            instructions=self.instructions,
-            owner_notes=self.owner_notes,
+            context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
             parents=self.parents,
@@ -450,47 +362,16 @@ class EntityDetails:
             extra_lines=tuple(extra),
         )
 
-    def show(self) -> None:
-        print(self.render())
-
 
 @dataclass(frozen=True, repr=False)
-class DimensionDetails:
+class DimensionDetails(_DetailsBase):
     """Details for a categorical dimension object."""
 
-    ref: SemanticRef
-    kind: SemanticKind
-    name: str
-    domain: str
-    description: str | None
-    context: AiContextView
-    source_location: SourceLocation
-    parents: tuple[SemanticRef, ...]
-    children: tuple[SemanticRef, ...]
-    dependents: tuple[SemanticRef, ...]
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-    python_symbol: str
     entity: SemanticRef
-
-    def _repr_identity(self) -> str:
-        return f"DimensionDetails ref={self.ref.ref}"
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            business_definition=self.business_definition,
-            guardrails=self.guardrails,
-            synonyms=self.synonyms,
-            examples=self.examples,
-            instructions=self.instructions,
-            owner_notes=self.owner_notes,
+            context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
             parents=self.parents,
@@ -504,49 +385,18 @@ class DimensionDetails:
             extra_lines=tuple(extra),
         )
 
-    def show(self) -> None:
-        print(self.render())
-
 
 @dataclass(frozen=True, repr=False)
-class MeasureDetails:
+class MeasureDetails(_DetailsBase):
     """Details for a row-level quantitative measure object."""
 
-    ref: SemanticRef
-    kind: SemanticKind
-    name: str
-    domain: str
-    description: str | None
-    context: AiContextView
-    source_location: SourceLocation
-    parents: tuple[SemanticRef, ...]
-    children: tuple[SemanticRef, ...]
-    dependents: tuple[SemanticRef, ...]
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-    python_symbol: str
     entity: SemanticRef
     additivity: Literal["additive", "semi_additive", "non_additive"]
     unit: str | None
 
-    def _repr_identity(self) -> str:
-        return f"MeasureDetails ref={self.ref.ref}"
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
     def render(self) -> str:
         extra = _common_detail_lines(
-            business_definition=self.business_definition,
-            guardrails=self.guardrails,
-            synonyms=self.synonyms,
-            examples=self.examples,
-            instructions=self.instructions,
-            owner_notes=self.owner_notes,
+            context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
             parents=self.parents,
@@ -562,31 +412,11 @@ class MeasureDetails:
             extra_lines=tuple(extra),
         )
 
-    def show(self) -> None:
-        print(self.render())
-
 
 @dataclass(frozen=True, repr=False)
-class TimeDimensionDetails:
+class TimeDimensionDetails(_DetailsBase):
     """Details for a time dimension object."""
 
-    ref: SemanticRef
-    kind: SemanticKind
-    name: str
-    domain: str
-    description: str | None
-    context: AiContextView
-    source_location: SourceLocation
-    parents: tuple[SemanticRef, ...]
-    children: tuple[SemanticRef, ...]
-    dependents: tuple[SemanticRef, ...]
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-    python_symbol: str
     entity: SemanticRef
     parse_kind: Literal["date", "datetime", "timestamp", "strptime", "hour_prefix"]
     data_type: str | None
@@ -596,20 +426,9 @@ class TimeDimensionDetails:
     is_default: bool
     sample_interval: SampleIntervalIR | None
 
-    def _repr_identity(self) -> str:
-        return f"TimeDimensionDetails ref={self.ref.ref}"
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
     def render(self) -> str:
         extra = _common_detail_lines(
-            business_definition=self.business_definition,
-            guardrails=self.guardrails,
-            synonyms=self.synonyms,
-            examples=self.examples,
-            instructions=self.instructions,
-            owner_notes=self.owner_notes,
+            context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
             parents=self.parents,
@@ -634,31 +453,11 @@ class TimeDimensionDetails:
             extra_lines=tuple(extra),
         )
 
-    def show(self) -> None:
-        print(self.render())
-
 
 @dataclass(frozen=True, repr=False)
-class MetricDetails:
+class MetricDetails(_DetailsBase):
     """Details for a metric (entity-backed, derived, or cross-entity)."""
 
-    ref: SemanticRef
-    kind: SemanticKind
-    name: str
-    domain: str
-    description: str | None
-    context: AiContextView
-    source_location: SourceLocation
-    parents: tuple[SemanticRef, ...]
-    children: tuple[SemanticRef, ...]
-    dependents: tuple[SemanticRef, ...]
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-    python_symbol: str
     entities: tuple[SemanticRef, ...]
     root_entity: SemanticRef | None
     metric_type: Literal["simple", "derived"]
@@ -676,20 +475,9 @@ class MetricDetails:
     provenance: SqlProvenance | None
     parity_status: ParityStatus
 
-    def _repr_identity(self) -> str:
-        return f"MetricDetails ref={self.ref.ref}"
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
     def render(self) -> str:
         extra = _common_detail_lines(
-            business_definition=self.business_definition,
-            guardrails=self.guardrails,
-            synonyms=self.synonyms,
-            examples=self.examples,
-            instructions=self.instructions,
-            owner_notes=self.owner_notes,
+            context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
             parents=self.parents,
@@ -734,31 +522,11 @@ class MetricDetails:
             extra_lines=tuple(extra),
         )
 
-    def show(self) -> None:
-        print(self.render())
-
 
 @dataclass(frozen=True, repr=False)
-class RelationshipDetails:
+class RelationshipDetails(_DetailsBase):
     """Details for a relationship between entities."""
 
-    ref: SemanticRef
-    kind: SemanticKind
-    name: str
-    domain: str
-    description: str | None
-    context: AiContextView
-    source_location: SourceLocation
-    parents: tuple[SemanticRef, ...]
-    children: tuple[SemanticRef, ...]
-    dependents: tuple[SemanticRef, ...]
-    business_definition: str | None
-    guardrails: tuple[str, ...]
-    synonyms: tuple[str, ...]
-    examples: tuple[str, ...]
-    instructions: str | None
-    owner_notes: str | None
-    python_symbol: str
     from_entity: SemanticRef
     to_entity: SemanticRef
     from_keys: tuple[str, ...]
@@ -770,20 +538,9 @@ class RelationshipDetails:
         # Set by _build_relationship_object from JoinKey pairs.
         pass
 
-    def _repr_identity(self) -> str:
-        return f"RelationshipDetails ref={self.ref.ref}"
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
     def render(self) -> str:
         extra = _common_detail_lines(
-            business_definition=self.business_definition,
-            guardrails=self.guardrails,
-            synonyms=self.synonyms,
-            examples=self.examples,
-            instructions=self.instructions,
-            owner_notes=self.owner_notes,
+            context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
             parents=self.parents,
@@ -806,9 +563,6 @@ class RelationshipDetails:
             status=self.description,
             extra_lines=tuple(extra),
         )
-
-    def show(self) -> None:
-        print(self.render())
 
 
 SemanticObjectDetails = (
@@ -1077,7 +831,7 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         parents=(),
         children=(),
         dependents=dependents,
-        **_common_ai_fields(ds_ir.ai_context, python_symbol=ds_ir.python_symbol),
+        python_symbol=ds_ir.python_symbol,
         backend_type=ds_ir.backend_type,
         fields=dict(ds_ir.fields),
         env_refs=dict(ds_ir.env_refs),
@@ -1119,7 +873,7 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         parents=(),
         children=children,
         dependents=(),
-        **_common_ai_fields(model_ir.ai_context, python_symbol=""),
+        python_symbol="",
         default=model_ir.default,
     )
     return SemanticObject(
@@ -1178,7 +932,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
         parents=(ds_ref,),
         children=children,
         dependents=metric_dependents,
-        **_common_ai_fields(ds_ir.ai_context, python_symbol=ds_ir.python_symbol),
+        python_symbol=ds_ir.python_symbol,
         datasource=ds_ref,
         source=ds_ir.source,
         primary_key=ds_ir.primary_key,
@@ -1271,7 +1025,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             parents=(ds_ref,),
             children=(),
             dependents=(),
-            **_common_ai_fields(f_ir.ai_context, python_symbol=f_ir.python_symbol),
+            python_symbol=f_ir.python_symbol,
             entity=ds_ref,
             parse_kind=parse_kind,
             data_type=data_type,
@@ -1293,7 +1047,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             parents=(ds_ref,),
             children=(),
             dependents=(),
-            **_common_ai_fields(f_ir.ai_context, python_symbol=f_ir.python_symbol),
+            python_symbol=f_ir.python_symbol,
             entity=ds_ref,
         )
     return SemanticObject(
@@ -1328,7 +1082,7 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry) -> SemanticObject:
         parents=(entity_ref,),
         children=(),
         dependents=dependents,
-        **_common_ai_fields(m_ir.ai_context, python_symbol=m_ir.python_symbol),
+        python_symbol=m_ir.python_symbol,
         entity=entity_ref,
         additivity=additivity_bucket(m_ir.additivity),
         unit=m_ir.unit,
@@ -1400,7 +1154,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         parents=parents,
         children=(),
         dependents=dependents,
-        **_common_ai_fields(m_ir.ai_context, python_symbol=m_ir.python_symbol),
+        python_symbol=m_ir.python_symbol,
         entities=entity_refs,
         root_entity=root_entity_ref,
         metric_type=m_ir.metric_type,
@@ -1446,7 +1200,7 @@ def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticO
         parents=(from_ref, to_ref),
         children=(),
         dependents=(),
-        **_common_ai_fields(r_ir.ai_context, python_symbol=""),
+        python_symbol="",
         from_entity=from_ref,
         to_entity=to_ref,
         from_keys=tuple(k.from_key for k in r_ir.keys),

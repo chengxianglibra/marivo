@@ -128,14 +128,7 @@ def _make_loc() -> SourceLocation:
 
 
 def _common_details_kwargs(*, python_symbol: str = "revenue") -> dict[str, object]:
-    ctx = _make_ctx()
     return {
-        "business_definition": ctx.business_definition,
-        "guardrails": ctx.guardrails,
-        "synonyms": ctx.synonyms,
-        "examples": ctx.examples,
-        "instructions": ctx.instructions,
-        "owner_notes": ctx.owner_notes,
         "python_symbol": python_symbol,
     }
 
@@ -965,7 +958,7 @@ def test_catalog_get_source_location_is_populated(semantic_project_factory):
     assert loc.line > 0
 
 
-def test_catalog_details_expose_common_ai_context_fields_directly(semantic_project_factory):
+def test_catalog_details_expose_ai_context_via_context_field(semantic_project_factory):
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -983,17 +976,15 @@ def test_catalog_details_expose_common_ai_context_fields_directly(semantic_proje
     }
     for ref, python_symbol in cases.items():
         details = catalog.get(ref).details()
-        assert details.business_definition
-        assert details.guardrails
-        assert details.synonyms
-        assert details.examples
-        assert details.instructions
-        assert details.owner_notes
+        assert details.context.business_definition
+        assert details.context.guardrails
+        assert details.context.synonyms
+        assert details.context.examples
+        assert details.context.instructions
+        assert details.context.owner_notes
         assert details.python_symbol == python_symbol
         assert details.source_location.file
         assert details.source_location.line > 0
-        assert details.business_definition == details.context.business_definition
-        assert details.guardrails == details.context.guardrails
 
 
 def test_catalog_details_render_includes_agent_consumption_context(

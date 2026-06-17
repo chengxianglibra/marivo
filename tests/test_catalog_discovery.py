@@ -109,14 +109,7 @@ def _make_loc() -> SourceLocation:
 
 
 def _common_details_kwargs(*, python_symbol: str = "") -> dict[str, object]:
-    ctx = _make_ctx()
     return {
-        "business_definition": ctx.business_definition,
-        "guardrails": ctx.guardrails,
-        "synonyms": ctx.synonyms,
-        "examples": ctx.examples,
-        "instructions": ctx.instructions,
-        "owner_notes": ctx.owner_notes,
         "python_symbol": python_symbol,
     }
 
