@@ -85,14 +85,6 @@ def metric_details_factory(
     context = kwargs["context"]
     kwargs.update(
         {
-            "business_definition": overrides.pop(
-                "business_definition", context.business_definition
-            ),
-            "guardrails": overrides.pop("guardrails", context.guardrails),
-            "synonyms": overrides.pop("synonyms", context.synonyms),
-            "examples": overrides.pop("examples", context.examples),
-            "instructions": overrides.pop("instructions", context.instructions),
-            "owner_notes": overrides.pop("owner_notes", context.owner_notes),
             "python_symbol": overrides.pop("python_symbol", ref.ref.rsplit(".", 1)[-1]),
         }
     )
