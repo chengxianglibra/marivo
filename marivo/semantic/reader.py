@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.config import SEMANTIC_DIR
 from marivo.datasource.ir import DatasourceIR, EntitySourceIR, source_to_dict
@@ -62,6 +62,9 @@ from marivo.semantic.richness import (
     build_richness_report,
 )
 from marivo.semantic.validator import Registry, Sidecar
+
+if TYPE_CHECKING:
+    from marivo.semantic.catalog import SemanticRefInput
 
 __all__ = [
     "ReadinessInputSummary",
@@ -510,7 +513,7 @@ class SemanticProject:
     def readiness(
         self,
         *,
-        refs: Iterable[str] | None = None,
+        refs: Iterable[SemanticRefInput] | None = None,
     ) -> ReadinessReport:
         """Return a structural semantic readiness report.
 
@@ -524,11 +527,13 @@ class SemanticProject:
         ``ms.parity_check(...)``, and ``ms.richness()``.
 
         Args:
-            refs: Semantic refs to scope the check. None checks all loaded objects.
+            refs: Semantic refs to scope the check. Accepts strings or
+                SemanticRef objects. None checks all loaded objects.
         """
         from marivo.semantic.readiness import build_structural_readiness_report
 
-        return build_structural_readiness_report(self, refs=refs)
+        str_refs = [str(r) for r in refs] if refs is not None else None
+        return build_structural_readiness_report(self, refs=str_refs)
 
     # -- richness -----------------------------------------------------------
 

@@ -468,6 +468,12 @@ def build_structural_readiness_report(
     Returns:
         ReadinessReport indicating structural readiness for analysis handoff.
     """
+    # Defensive normalization: ensure all refs are plain strings so that
+    # downstream code (dict key lookups, .split() calls) works correctly
+    # even if callers pass SemanticRef objects.
+    if refs is not None:
+        refs = [str(r) for r in refs]
+
     require_evidence_ledger = True
 
     blockers: list[ReadinessIssue] = []
