@@ -16,7 +16,7 @@ marivo的可信证据链是否真的可信，是否真的能够在agent分析过
 
 代码依据：
 
-- 设计文档明确 evidence 是 step commit 的副作用，且分为 result-bound、session-bound、object-bound 三层；但该文档状态是 `target design`，不能单独当实现事实看。[docs/specs/analysis/python-track-evidence-surface.md](/Users/lichengxiang/source/oss/marivo/docs/specs/analysis/python-track-evidence-surface.md:3), [docs/specs/analysis/python-track-evidence-surface.md](/Users/lichengxiang/source/oss/marivo/docs/specs/analysis/python-track-evidence-surface.md:40)
+- 设计文档明确 evidence 是 step commit 的副作用，且分为 result-bound、session-bound、object-bound 三层；但该文档状态是 `target design`，不能单独当实现事实看。[docs/specs/analysis/python-analysis-design.md](/Users/lichengxiang/source/oss/marivo/docs/specs/analysis/python-analysis-design.md:3), [docs/specs/analysis/python-analysis-design.md](/Users/lichengxiang/source/oss/marivo/docs/specs/analysis/python-analysis-design.md:40)
 - 当前实现里 `BaseFrameMeta` 确实统一挂了 `artifact_id/evidence_status/quality/blocking_issues/followups`。[marivo/analysis/frames/base.py](/Users/lichengxiang/source/oss/marivo/marivo/analysis/frames/base.py:153)
 - `commit_result` 会生成确定性 artifact id、写 Parquet、算 frame hash、抽取 findings、seed propositions、生成 assessments/followups，最后回写 frame meta。[marivo/analysis/evidence/pipeline.py](/Users/lichengxiang/source/oss/marivo/marivo/analysis/evidence/pipeline.py:601), [marivo/analysis/evidence/pipeline.py](/Users/lichengxiang/source/oss/marivo/marivo/analysis/evidence/pipeline.py:627), [marivo/analysis/evidence/pipeline.py](/Users/lichengxiang/source/oss/marivo/marivo/analysis/evidence/pipeline.py:812)
 - `judgment.db` schema 有 artifacts、findings、propositions、assessment_snapshots、assessment_edges、blocking_issues、followups，足够支撑本地审计账本。[marivo/analysis/evidence/store.py](/Users/lichengxiang/source/oss/marivo/marivo/analysis/evidence/store.py:25)
@@ -56,7 +56,7 @@ marivo的可信证据链是否真的可信，是否真的能够在agent分析过
 但它还不是完整的“证明链”。明显缺口有三个：
 
 1. `EvidenceTrace.source_steps` 当前存在字段，但实现里固定返回 `[]`，所以 trace 没有完整接回 job/query/operator step。[marivo/analysis/evidence/audit.py](/Users/lichengxiang/source/oss/marivo/marivo/analysis/evidence/audit.py:248)
-2. proposition 当前主要是 system-seeded，不是 agent 显式提出的 first-class hypothesis。设计文档甚至把 `agent_authored proposition 写入面`列为非目标。[docs/specs/analysis/python-track-evidence-surface.md](/Users/lichengxiang/source/oss/marivo/docs/specs/analysis/python-track-evidence-surface.md:20)
+2. proposition 当前主要是 system-seeded，不是 agent 显式提出的 first-class hypothesis。设计文档甚至把 `agent_authored proposition 写入面`列为非目标。[docs/specs/analysis/python-analysis-design.md](/Users/lichengxiang/source/oss/marivo/docs/specs/analysis/python-analysis-design.md:20)
 3. assessment 的语义是规则化评估，不是数学证明。例如 change assessment 只是判断 seed delta direction 是否匹配 interest；test assessment 只是根据 `reject_null` 映射为 validated/refuted/inconclusive。[marivo/analysis/evidence/assessment.py](/Users/lichengxiang/source/oss/marivo/marivo/analysis/evidence/assessment.py:31), [marivo/analysis/evidence/assessment.py](/Users/lichengxiang/source/oss/marivo/marivo/analysis/evidence/assessment.py:230)
 
 **是否应该转成“提出假设 -> 形式化证明假设”**

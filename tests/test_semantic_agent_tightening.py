@@ -124,19 +124,14 @@ def test_semantic_skill_uses_assess_authoring_not_next_checks() -> None:
     assert "ms.readiness(" in closeout
 
 
-def test_superseded_specs_point_to_authoring_pipeline_design() -> None:
-    superseded_paths = [
-        "docs/specs/semantic/skill-semantic-layer-authoring-design.md",
-        "docs/specs/semantic/agent-semantic-layer-authoring-design.md",
-    ]
-    for path in superseded_paths:
-        spec = _read(path)
-        assert "docs/specs/semantic/stepwise-authoring-design.md" in spec
-        assert "superseded" in spec.lower()
-        assert "NextCheck" not in spec
-        assert "next_checks" not in spec
-        assert "needs_evidence" not in spec
-        assert "project.check_authoring_inputs(" not in spec
+def test_superseded_authoring_spec_points_to_stepwise_design() -> None:
+    spec = _read("docs/specs/semantic/semantic-authoring-design-superseded.md")
+    assert "docs/specs/semantic/stepwise-authoring-design.md" in spec
+    assert "superseded" in spec.lower()
+    # The merged superseded doc preserves historical pipeline terminology
+    # (NextCheck, next_checks, needs_evidence, check_authoring_inputs) as
+    # reference context. Verify the header directs agents away from them.
+    assert "Status: superseded" in spec
 
 
 def test_semantic_ai_context_help_describes_handoff_not_check_input() -> None:
@@ -198,7 +193,7 @@ def test_semantic_skill_prefers_native_datasource_backends() -> None:
 
 
 def test_design_spec_marks_remaining_phases_implemented() -> None:
-    spec = _read("docs/specs/semantic/agent-semantic-layer-authoring-design.md")
+    spec = _read("docs/specs/semantic/semantic-authoring-design-superseded.md")
 
     assert "| Table metadata/comments | `md.inspect_source(...)` | same |" in spec
     assert "### Phase 4: Metadata API\n\nImplemented:" in spec
@@ -253,7 +248,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
 def test_semantic_docs_and_skills_cover_parity_verification() -> None:
     paths = [
         "docs/specs/semantic/python-semantic-layer.md",
-        "docs/specs/semantic/agent-semantic-layer-authoring-design.md",
+        "docs/specs/semantic/semantic-authoring-design-superseded.md",
         "marivo/skills/marivo-semantic/SKILL.md",
         "marivo/skills/marivo-semantic/references/authoring-patterns.md",
         "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
@@ -268,7 +263,7 @@ def test_semantic_docs_and_skills_cover_parity_verification() -> None:
 
 
 def test_agent_semantic_authoring_spec_uses_current_readiness_closeout_contract() -> None:
-    spec = _read("docs/specs/semantic/agent-semantic-layer-authoring-design.md")
+    spec = _read("docs/specs/semantic/semantic-authoring-design-superseded.md")
     stale_phrases = (
         "source SQL parity is drifted",
         "metric is `unverified` in strict readiness",
@@ -343,9 +338,7 @@ def test_semantic_skill_md_caps_respected() -> None:
 
 def test_superseded_semantic_docs_point_to_stepwise_design() -> None:
     docs = {
-        "docs/specs/semantic/authoring-pipeline-design.md": "superseded",
-        "docs/specs/semantic/agent-semantic-layer-authoring-design.md": "superseded",
-        "docs/specs/semantic/skill-semantic-layer-authoring-design.md": "superseded",
+        "docs/specs/semantic/semantic-authoring-design-superseded.md": "superseded",
     }
     for path, marker in docs.items():
         text = (REPO_ROOT / path).read_text(encoding="utf-8").lower()

@@ -330,7 +330,7 @@ class SemanticKindMismatchError(AnalysisError):
                 "cause": (
                     f"discover objective {objective!r} is not yet implemented in this build."
                 ),
-                "doc": "docs/specs/analysis/python-analysis-operator-design.md",
+                "doc": "docs/specs/analysis/python-analysis-design.md",
             }
         got_kind = self.details.get("got_kind")
         expected_kind = self.details.get("expected_kind")

@@ -484,10 +484,8 @@ Read [`agent-guide.md`](agent-guide.md) before contributing code in this
 repository. The maintained design references start at [`docs/README.md`](docs/README.md):
 
 - `docs/specs/semantic/python-semantic-layer.md` for semantic declarations.
-- `docs/specs/analysis/python-analysis-operator-design.md` for analysis frames
-  and operators.
-- `docs/specs/analysis/python-track-evidence-surface.md` for evidence,
-  judgment, and follow-up surfaces.
+- `docs/specs/analysis/python-analysis-design.md` for analysis frames,
+  operators, evidence, judgment, and follow-up surfaces.
 
 ## Agent Skills
 

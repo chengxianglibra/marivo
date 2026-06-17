@@ -157,7 +157,7 @@ unit: str | None = None
 | 文件 | 更新 |
 |---|---|
 | `docs/specs/semantic/python-semantic-layer.md` | metric 声明字段表、UCUM 取值约定节 |
-| `docs/specs/analysis/python-track-evidence-surface.md` | delta finding payload 的 `unit` 字段说明 |
+| `docs/specs/analysis/python-analysis-design.md` | delta finding payload 的 `unit` 字段说明 |
 | `marivo-skills/marivo-semantic/references/authoring-patterns.md` | agent 填写策略(上节全文) |
 | `marivo-skills/marivo-analysis/references/final-report.md` | 报告 format 与单位后缀从 metric 的 unit 取材一句 |
 | semantic help 数据 | metric / derived_metric 条目 |

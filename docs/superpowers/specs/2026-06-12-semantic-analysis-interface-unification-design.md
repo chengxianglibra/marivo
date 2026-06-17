@@ -4,7 +4,7 @@ Date: 2026-06-12
 Status: Approved design, pre-implementation
 Related: `2026-06-09-semantic-catalog-public-api-design.md`,
 `docs/specs/semantic/python-semantic-layer.md`,
-`docs/specs/analysis/python-analysis-operator-design.md`
+`docs/specs/analysis/python-analysis-design.md`
 
 ## Problem
 
@@ -390,8 +390,8 @@ Removed entirely, replaced by catalog/resolver primitives:
 3. **Deletions and docs:** remove `SemanticProject` public read surface and
    the `*Summary`/`DiscoveryResult` DTOs; update
    `docs/specs/semantic/python-semantic-layer.md`,
-   `docs/specs/analysis/python-analysis-operator-design.md`,
-   `docs/specs/analysis/python-track-evidence-surface.md`, and the
+   `docs/specs/analysis/python-analysis-design.md`,
+   `docs/specs/analysis/python-analysis-design.md`, and the
    `marivo-skills/marivo-semantic/` + `marivo-skills/marivo-analysis/`
    examples to the new handoff.
 

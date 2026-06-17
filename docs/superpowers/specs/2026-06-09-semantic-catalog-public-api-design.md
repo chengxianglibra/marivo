@@ -607,7 +607,7 @@ objects must not leak IR instances.
 Update:
 
 - `docs/specs/semantic/python-semantic-layer.md`
-- `docs/specs/semantic/authoring-pipeline-design.md`
+- `docs/specs/semantic/semantic-authoring-design-superseded.md`
 - `marivo-skills/marivo-semantic/SKILL.md`
 - `marivo-skills/marivo-semantic/references/workflow.md`
 - `marivo-skills/marivo-semantic/references/authoring-patterns.md`
