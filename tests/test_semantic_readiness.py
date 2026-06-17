@@ -267,7 +267,7 @@ def _issue_kinds(issues):
 
 
 def test_readiness_sql_parity_unverified_warning(semantic_project_factory) -> None:
-    """Metric with source_sql should get a warning, not a blocker."""
+    """Metric with SQL provenance should get a warning, not a blocker."""
     domain_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
@@ -393,7 +393,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
                     decision_kind="metric_composition",
                     chosen="sum",
                     agreement_confidence="high",
-                    qualifying_sources=("source_sql",),
+                    qualifying_sources=("provenance_sql",),
                     materiality="high",
                     blast_radius=0,
                     evidence_fingerprint="sha256:a",

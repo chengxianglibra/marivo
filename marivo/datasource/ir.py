@@ -16,7 +16,7 @@ __all__ = [
     "EntitySourceIR",
     "ParquetSourceIR",
     "TableSourceIR",
-    "qualify_source_sql",
+    "qualify_provenance_sql",
     "source_name",
     "source_to_dict",
 ]
@@ -158,13 +158,13 @@ def source_to_dict(source: EntitySourceIR) -> dict[str, object]:
     return source.to_dict()
 
 
-def qualify_source_sql(
-    source_sql: str,
+def qualify_provenance_sql(
+    provenance_sql: str,
     table_qualifiers: dict[str, str],
     *,
     dialect: str | None = None,
 ) -> str:
-    """Qualify unqualified table references in source_sql.
+    """Qualify unqualified table references in provenance SQL.
 
     Rewrites bare table names that match keys in *table_qualifiers* to their
     fully-qualified form (e.g. ``orders`` -> ``iceberg_inf.orders``).
@@ -173,7 +173,7 @@ def qualify_source_sql(
     returned unchanged.
 
     Args:
-        source_sql: Raw SQL string from metric provenance.
+        provenance_sql: Raw SQL string from metric provenance.
         table_qualifiers: Mapping from bare table name to database-qualified
             name (e.g. ``{"orders": "iceberg_inf.orders"}``).
         dialect: Optional sqlglot dialect for parsing and generating.
@@ -182,15 +182,15 @@ def qualify_source_sql(
         SQL string with unqualified table references replaced by qualified ones.
     """
     if not table_qualifiers:
-        return source_sql
+        return provenance_sql
 
     import sqlglot
     from sqlglot import exp
 
     try:
-        parsed = sqlglot.parse_one(source_sql, dialect=dialect)
+        parsed = sqlglot.parse_one(provenance_sql, dialect=dialect)
     except sqlglot.errors.ParseError:
-        return source_sql
+        return provenance_sql
 
     # Collect CTE alias names so we don't qualify CTE references.
     cte_names: set[str] = set()

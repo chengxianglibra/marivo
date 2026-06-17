@@ -88,6 +88,7 @@ def test_semantic_fold_partition() -> None:
         "DemandSignal",
         "DimensionValueFact",
         "DomainBriefSummary",
+        "EntityVersioning",
         "FileSource",
         "FormatCandidate",
         "HourPrefixParse",

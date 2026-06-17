@@ -37,6 +37,7 @@ SEMANTIC_PUBLIC = {
     "EntityBrief",
     "EntityDetails",
     "EntityRef",
+    "EntityVersioning",
     "FileSource",
     "FormatCandidate",
     "HourPrefixParse",

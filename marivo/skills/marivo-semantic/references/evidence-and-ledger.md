@@ -74,6 +74,9 @@ ms.record_decision(
 )
 ```
 
+When parity verification auto-runs for a metric with SQL provenance, the
+engine records a decision with `qualifying_sources=("provenance_sql",)`.
+
 ## Abandon Protocol
 
 When a candidate cannot reach sufficiency -- the user cannot answer a blocking

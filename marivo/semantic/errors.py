@@ -68,7 +68,7 @@ class ErrorKind(StrEnum):
     MISSING_DIMENSION_REF = "missing_dimension_ref"
     MISSING_METRIC_REF = "missing_metric_ref"
     CROSS_MODEL_CYCLE = "cross_model_cycle"
-    HOUR_TIME_DIMENSION_PREFIX_MISSING = "hour_time_dimension_prefix_missing"
+
     INVALID_RELATIONSHIP_ENDPOINT = "invalid_relationship_endpoint"
     ORGANIZATION_ERROR = "organization_error"
     INVALID_PROJECT = "invalid_project"
@@ -84,7 +84,7 @@ class ErrorKind(StrEnum):
     NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"
     DERIVED_METRIC_FANOUT_POLICY = "derived_metric_fanout_policy"
-    SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
+
     DUPLICATE_DEFAULT_TIME_DIMENSION = "duplicate_default_time_dimension"
     INVALID_SAMPLE_INTERVAL = "invalid_sample_interval"
     INVALID_TIME_FOLD = "invalid_time_fold"
@@ -115,7 +115,7 @@ class ErrorKind(StrEnum):
     CONFLICTING_PARAMETERS = "conflicting_parameters"
 
     # parity
-    SOURCE_SQL_MISSING = "source_sql_missing"
+    PROVENANCE_DIALECT_MISSING = "provenance_dialect_missing"
     UNVERIFIED_PROVENANCE = "unverified_provenance"
     PARITY_VALUE_MISMATCH = "parity_value_mismatch"
     PARITY_NOT_SCALAR = "parity_not_scalar"

@@ -159,12 +159,12 @@ class _PlannedRelationshipDetails:
         return self.details.to_entity.ref
 
     @property
-    def from_dimensions(self) -> tuple[str, ...]:
-        return self.details.from_dimensions
+    def from_keys(self) -> tuple[str, ...]:
+        return self.details.from_keys
 
     @property
-    def to_dimensions(self) -> tuple[str, ...]:
-        return self.details.to_dimensions
+    def to_keys(self) -> tuple[str, ...]:
+        return self.details.to_keys
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.details, name)
@@ -881,14 +881,14 @@ def resolved_edge_safety(
     catalog: SemanticCatalog, relationship: RelationshipInfo, *, from_entity: str
 ) -> JoinSafety:
     if from_entity == _from_entity_id(relationship):
-        source_fields = relationship.from_dimensions
+        source_fields = relationship.from_keys
         target_entity = _to_entity_id(relationship)
-        target_fields = relationship.to_dimensions
+        target_fields = relationship.to_keys
         source_entity = _from_entity_id(relationship)
     else:
-        source_fields = relationship.to_dimensions
+        source_fields = relationship.to_keys
         target_entity = _from_entity_id(relationship)
-        target_fields = relationship.from_dimensions
+        target_fields = relationship.from_keys
         source_entity = _to_entity_id(relationship)
     # Compare by field name first (fast path for the common case where field
     # names match primary key column names), then fall back to semantic_id
@@ -981,12 +981,12 @@ def _join_table(
 ) -> tuple[Any, str]:
     if _from_entity_id(relationship) == current_entity:
         next_entity = _to_entity_id(relationship)
-        left_fields = relationship.from_dimensions
-        right_fields = relationship.to_dimensions
+        left_fields = relationship.from_keys
+        right_fields = relationship.to_keys
     else:
         next_entity = _from_entity_id(relationship)
-        left_fields = relationship.to_dimensions
-        right_fields = relationship.from_dimensions
+        left_fields = relationship.to_keys
+        right_fields = relationship.from_keys
     predicates = [
         _field_fn(catalog, left_field)(current_table) == _field_fn(catalog, right_field)(next_table)
         for left_field, right_field in zip(left_fields, right_fields, strict=True)
@@ -1255,9 +1255,9 @@ def _aggregate_then_join_pre_aggregate(
     the physical column names that downstream field bodies expect.
     """
     if _from_entity_id(relationship) == unsafe_dataset_id:
-        join_field_ids: tuple[str, ...] = tuple(relationship.from_dimensions)
+        join_field_ids: tuple[str, ...] = tuple(relationship.from_keys)
     else:
-        join_field_ids = tuple(relationship.to_dimensions)
+        join_field_ids = tuple(relationship.to_keys)
 
     grain_field_ids: list[str] = []
     seen_ids: set[str] = set()

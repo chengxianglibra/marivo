@@ -191,7 +191,7 @@ def _issue(
 
 
 def _parity_passed(project: SemanticProject, ref: str) -> bool:
-    """Check whether a metric with source_sql has passed parity verification."""
+    """Check whether a metric with SQL provenance has passed parity verification."""
     parity_result = project._parity_results.get(ref)
     return parity_result is not None and parity_result.ok
 
@@ -204,13 +204,13 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
     kinds: dict[str, _SemanticKind] = {}
     objects: dict[str, object] = {}
 
-    for dataset in reg.entities.values():
-        kinds[dataset.semantic_id] = _SemanticKind.ENTITY
-        objects[dataset.semantic_id] = dataset
-    for field in reg.dimensions.values():
-        kind = _SemanticKind.TIME_DIMENSION if field.is_time_dimension else _SemanticKind.DIMENSION
-        kinds[field.semantic_id] = kind
-        objects[field.semantic_id] = field
+    for entity in reg.entities.values():
+        kinds[entity.semantic_id] = _SemanticKind.ENTITY
+        objects[entity.semantic_id] = entity
+    for dim in reg.dimensions.values():
+        kind = _SemanticKind.TIME_DIMENSION if dim.is_time_dimension else _SemanticKind.DIMENSION
+        kinds[dim.semantic_id] = kind
+        objects[dim.semantic_id] = dim
     for measure in reg.measures.values():
         kinds[measure.semantic_id] = _SemanticKind.MEASURE
         objects[measure.semantic_id] = measure
@@ -365,8 +365,8 @@ def _dependencies_for_ref(
             getattr(obj, "from_entity", None),
             getattr(obj, "to_entity", None),
             *key_refs,
-            *getattr(obj, "from_dimensions", ()),
-            *getattr(obj, "to_dimensions", ()),
+            *getattr(obj, "from_keys", ()),
+            *getattr(obj, "to_keys", ()),
         )
         return tuple(dep for dep in relationship_deps if isinstance(dep, str))
     return ()
@@ -629,8 +629,8 @@ def build_structural_readiness_report(
         prov = getattr(obj, "provenance", None)
         if prov is None:
             continue
-        source_sql = prov.sql
-        if source_sql is None:
+        provenance_sql = prov.sql
+        if provenance_sql is None:
             continue
         if not _parity_passed(project, ref):
             warnings.append(

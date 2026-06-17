@@ -168,8 +168,6 @@ def test_metric_details_measure_ref_and_provenance_are_phase3_shape(
     assert isinstance(aggregate_metric, MetricDetails)
     assert aggregate_metric.measure == SemanticRef("sales.orders.amount", kind=SemanticKind.MEASURE)
     assert aggregate_metric.provenance is None
-    assert not hasattr(aggregate_metric, "source_sql")
-    assert not hasattr(aggregate_metric, "source_dialect")
 
     assert isinstance(native_metric, MetricDetails)
     assert native_metric.provenance == SqlProvenance(
@@ -217,8 +215,6 @@ def test_phase3_public_help_mentions_measure_details_and_current_metric_shape() 
 
     metric_topic = ms.help_text("metric")
     assert "provenance=ms.from_sql" in metric_topic
-    assert "source_sql" not in metric_topic
-    assert "source_dialect" not in metric_topic
 
 
 def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_factory) -> None:

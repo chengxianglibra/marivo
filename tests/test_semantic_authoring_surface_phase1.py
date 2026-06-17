@@ -207,7 +207,6 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
     assert kinds["sales.orders.amount"] == "MeasureIR"
     assert kinds["sales.revenue"] == "MetricIR"
     assert average_amount.semantic_id == "sales.average_amount"
-    assert not hasattr(ms, "simple_metric")
 
 
 def test_dimension_rejects_measure_only_arguments_by_signature() -> None:

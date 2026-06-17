@@ -196,7 +196,7 @@ def test_semi_additive_builder_quantile():
 # ---------------------------------------------------------------------------
 
 
-def test_aggregate_builds_tier1_simple_metric():
+def test_aggregate_builds_tier1_metric():
     with authoring_session(domain="sales") as sess:
         amount = sess.measure(entity="sales.orders", name="amount", additivity="additive")
         rev = authoring.aggregate(measure=amount, agg="sum", name="revenue")
@@ -214,7 +214,7 @@ def test_aggregate_builds_tier1_simple_metric():
 # ---------------------------------------------------------------------------
 
 
-def test_simple_metric_body_form_declares_additivity():
+def test_metric_body_form_declares_additivity():
     with authoring_session(domain="sales") as sess:
 
         @authoring.metric(entities=["sales.orders"], additivity="additive")
@@ -228,7 +228,7 @@ def test_simple_metric_body_form_declares_additivity():
     assert m.entities == ("sales.orders",)
 
 
-def test_simple_metric_semi_additive_via_builder():
+def test_metric_semi_additive_via_builder():
     with authoring_session(domain="ops") as sess:
 
         @authoring.metric(

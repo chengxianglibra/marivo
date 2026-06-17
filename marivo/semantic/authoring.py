@@ -191,7 +191,7 @@ def _semantic_ai_context_error(message: str, details: dict[str, Any]) -> None:
     _raise(ErrorKind.INVALID_AI_CONTEXT, message, cls=SemanticDecoratorError)
 
 
-def _build_ai_context(ai_context: AiContext | dict[str, Any] | None) -> AiContextIR:
+def _build_ai_context(ai_context: AiContext | None) -> AiContextIR:
     """Convert a user-provided ai_context dict/TypedDict into an AiContextIR.
 
     Validates keys and types; raises SemanticDecoratorError with
@@ -446,7 +446,7 @@ def domain(
     name: str,
     default: bool = True,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> DomainRef:
     """Declare a semantic domain namespace inside a project file.
 
@@ -502,7 +502,7 @@ def aggregate(
     unit: str | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> MetricRef:
     """Declare a tier-1 simple metric: an aggregation over a measure.
 
@@ -571,7 +571,7 @@ def metric(
     provenance: SqlProvenance | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
     """Declare a metric from an ibis body. Declares ``additivity`` directly.
 
@@ -694,7 +694,7 @@ def entity(
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> EntityRef:
     """Declare an entity over a structured physical source.
 
@@ -766,7 +766,7 @@ def dimension(
     entity: EntityRef | str,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> Callable[[Callable[..., Any]], DimensionRef]:
     """Declare a categorical dimension whose body returns an ibis expression over its entity.
 
@@ -850,7 +850,7 @@ def measure(
     unit: str | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> Callable[[Callable[..., Any]], MeasureRef]:
     """Declare a row-level quantitative measure whose expression can be aggregated.
 
@@ -955,6 +955,21 @@ def _validate_time_parse_granularity(
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
         )
+    if isinstance(parse, StrptimeParse) and granularity in {"hour", "minute", "second"}:
+        import re as _re
+
+        fmt = parse.format or ""
+        time_directives = {"%H", "%I", "%k", "%l", "%M", "%S", "%T", "%p"}
+        tokens = set(_re.findall(r"%[a-zA-Z]", fmt))
+        if not tokens & time_directives:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"time dimension {semantic_id!r}: granularity={granularity!r} requires a time-bearing "
+                f"format, but strptime format {fmt!r} has no hour/minute/second directives.",
+                refs=(semantic_id,),
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
+            )
 
 
 def _validate_sample_interval_granularity(
@@ -1010,7 +1025,7 @@ def time_dimension(
     is_default: bool = False,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> Callable[[Callable[..., Any]], TimeDimensionRef]:
     """Declare a time-aware dimension that carries grain and parsing metadata.
 
@@ -1110,7 +1125,7 @@ def relationship(
     keys: list[JoinKey],
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> RelationshipRef:
     """Declare a join relationship between two entities.
 
@@ -1225,7 +1240,7 @@ def validity(
     valid_from: DimensionRef | str,
     valid_to: DimensionRef | str,
     interval: Literal["closed_open", "closed_closed"],
-    open_end: tuple[Any, ...],
+    open_end: tuple[str | None, ...],
     timezone: str | None = None,
 ) -> ValidityVersioningIR:
     """Declare SCD2 validity interval versioning for an entity.
@@ -1333,7 +1348,7 @@ def _derived(
     unit: str | None,
     domain: DomainRef | None,
     description: str | None,
-    ai_context: AiContext | dict[str, Any] | None,
+    ai_context: AiContext | None,
 ) -> MetricRef:
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -1372,7 +1387,7 @@ def ratio(
     unit: str | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> MetricRef:
     """Declare a derived ratio metric (no body). Override the unit derived from the components at load.
 
@@ -1401,7 +1416,7 @@ def weighted_average(
     unit: str | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> MetricRef:
     """Declare a derived weighted-average metric (no body). Override the unit derived from the components at load.
 
@@ -1427,7 +1442,7 @@ def linear(
     unit: str | None = None,
     domain: DomainRef | None = None,
     description: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContext | None = None,
 ) -> MetricRef:
     """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``. Override the unit derived from the components at load.
 

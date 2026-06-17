@@ -361,11 +361,11 @@ def test_relationship_details_fields():
         **_common_details_kwargs(python_symbol=""),
         from_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         to_entity=_make_ref("sales.customers", SemanticKind.ENTITY),
-        from_dimensions=("customer_id",),
-        to_dimensions=("id",),
+        from_keys=("customer_id",),
+        to_keys=("id",),
     )
-    assert d.from_dimensions == ("customer_id",)
-    assert d.to_dimensions == ("id",)
+    assert d.from_keys == ("customer_id",)
+    assert d.to_keys == ("id",)
 
 
 def _make_metric_obj() -> SemanticObject:
@@ -1205,19 +1205,19 @@ def test_ms_load_catalog_can_list(tmp_path):
     assert len(result.objects) >= 1
 
 
-def test_ms_load_with_models_filters_domains(tmp_path):
-    """ms.load(models=...) filters to the specified model directories."""
+def test_ms_load_with_domains_filters_domains(tmp_path):
+    """ms.load(domains=...) filters to the specified domain directories."""
     _write_multi_domain_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path, models=["sales"])
+    catalog = ms.load(workspace_dir=tmp_path, domains=["sales"])
     refs = {obj.ref.ref for obj in catalog.list().objects}
     assert "sales" in refs
     assert "ops" not in refs
 
 
-def test_ms_load_with_models_string(tmp_path):
-    """ms.load(models='sales') accepts a single model name as a string."""
+def test_ms_load_with_domains_string(tmp_path):
+    """ms.load(domains='sales') accepts a single domain name as a string."""
     _write_multi_domain_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path, models="sales")
+    catalog = ms.load(workspace_dir=tmp_path, domains="sales")
     refs = {obj.ref.ref for obj in catalog.list().objects}
     assert "sales" in refs
     assert "ops" not in refs
@@ -1307,7 +1307,7 @@ def test_catalog_load_preserves_filtered_model_scope(semantic_project_factory):
 
 
 def test_catalog_load_with_models_changes_filter(semantic_project_factory):
-    """catalog.load(models=...) changes the active model filter on reload."""
+    """catalog.load(domains=...) changes the active domain filter on reload."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -1323,8 +1323,8 @@ def test_catalog_load_with_models_changes_filter(semantic_project_factory):
     project.load("sales")
     catalog = SemanticCatalog(project)
 
-    # Switch to ops model via catalog.load(models=...)
-    catalog.load(models="ops")
+    # Switch to ops domain via catalog.load(domains=...)
+    catalog.load(domains="ops")
 
     refs = {obj.ref.ref for obj in catalog.list().objects}
     assert "ops" in refs

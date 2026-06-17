@@ -357,7 +357,8 @@ def on_hand_units(inventory_daily):
 | `domain_file_present` | every domain directory needs `_domain.py` | `references/examples/01_single_domain_file.py` |
 | `entity_ref_exists` | entity datasource refs must resolve | `references/examples/01_single_domain_file.py` |
 | `metric_ref_exists` | composition refs must resolve | `references/examples/01_single_domain_file.py` |
-| `hour_time_dimension_prefix` | hour-only dimensions need a day prefix | `references/examples/01_single_domain_file.py` |
+| `time_granularity_parse_compatible` | time granularity must match parse variant | `references/examples/01_single_domain_file.py` |
+| `provenance_dialect_required` | SQL provenance needs a dialect for parity | `references/examples/01_single_domain_file.py` |
 
 ## Metric unit authoring
 

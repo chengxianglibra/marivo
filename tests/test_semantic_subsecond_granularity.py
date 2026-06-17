@@ -146,4 +146,4 @@ def test_minute_granularity_string_without_time_format_is_rejected(semantic_proj
         SemanticCatalog(project).get("ops.events")
     errors = exc_info.value.errors
     kinds = [e.kind for e in errors]
-    assert "subday_granularity_without_time" in kinds
+    assert "invalid_ref" in kinds

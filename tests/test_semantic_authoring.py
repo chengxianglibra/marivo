@@ -97,7 +97,7 @@ def test_time_field_outside_context_raises() -> None:
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
 
-def test_simple_metric_outside_context_raises() -> None:
+def test_metric_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
         @ms.metric(entities=["sales.orders"], additivity="additive")
@@ -811,7 +811,7 @@ def test_time_dimension_coarser_granularity_error_suggests_fix() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_simple_metric_returns_ref() -> None:
+def test_metric_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
@@ -825,7 +825,7 @@ def test_simple_metric_returns_ref() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_with_datasets() -> None:
+def test_metric_with_entities() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -841,7 +841,7 @@ def test_simple_metric_with_datasets() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_with_dataset_ref() -> None:
+def test_metric_with_entity_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         orders_ref = EntityRef("sales.orders")
@@ -856,7 +856,7 @@ def test_simple_metric_with_dataset_ref() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_provenance_fields() -> None:
+def test_metric_provenance_fields() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -878,7 +878,7 @@ def test_simple_metric_provenance_fields() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_body_ast_hash() -> None:
+def test_metric_body_ast_hash() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -894,7 +894,7 @@ def test_simple_metric_body_ast_hash() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_pushes_callable() -> None:
+def test_metric_pushes_callable() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -908,7 +908,7 @@ def test_simple_metric_pushes_callable() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_accepts_semi_additive() -> None:
+def test_metric_accepts_semi_additive() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -1056,7 +1056,7 @@ def test_linear_requires_at_least_two_terms() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_rejects_empty_datasets() -> None:
+def test_metric_rejects_empty_entities() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
@@ -1072,7 +1072,7 @@ def test_simple_metric_rejects_empty_datasets() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_sidecar_stores_callable() -> None:
+def test_metric_sidecar_stores_callable() -> None:
     """Simple metric stores the raw callable in sidecar."""
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -1275,7 +1275,7 @@ def test_dataset_keyword_only() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_keyword_only() -> None:
+def test_metric_keyword_only() -> None:
     _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(TypeError):
@@ -1289,7 +1289,7 @@ def test_simple_metric_keyword_only() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_simple_metric_with_ai_context() -> None:
+def test_metric_with_ai_context() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -1494,7 +1494,7 @@ def test_field_model_mismatch_with_dataset_raises() -> None:
 # metric unit field
 
 
-def test_simple_metric_unit_lands_on_ir() -> None:
+def test_metric_unit_lands_on_ir() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -1508,7 +1508,7 @@ def test_simple_metric_unit_lands_on_ir() -> None:
         _exit_ctx()
 
 
-def test_simple_metric_unit_defaults_to_none() -> None:
+def test_metric_unit_defaults_to_none() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -1538,7 +1538,7 @@ def test_ratio_unit_lands_on_ir() -> None:
 
 
 @pytest.mark.parametrize("bad", ("", "C N Y", "CNY\t", "µs"))
-def test_simple_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
+def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:

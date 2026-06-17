@@ -328,7 +328,7 @@ def prepare_entity(
     """
     from marivo import datasource as md
 
-    project.load(models=list(project._filtered_domains) if project._filtered_domains else None)
+    project.load(domains=list(project._filtered_domains) if project._filtered_domains else None)
     table = md.inspect_source(datasource, source=source, project_root=project.workspace_dir)
     inspection = md.inspect_columns(
         datasource, source, scope=scope, project_root=project.workspace_dir

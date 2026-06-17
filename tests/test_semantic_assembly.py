@@ -4,7 +4,7 @@ Tests cover:
 - Missing entity ref -> MISSING_ENTITY_REF
 - Missing dimension ref -> MISSING_DIMENSION_REF
 - Missing metric ref -> MISSING_METRIC_REF
-- Hour time dimension without required_prefix -> HOUR_TIME_DIMENSION_PREFIX_MISSING
+- HourPrefixParse prefix cross-reference validation
 - Invalid relationship endpoint -> INVALID_RELATIONSHIP_ENDPOINT
 - String refs produce warnings
 - Cross-file refs resolve correctly
@@ -42,7 +42,6 @@ from marivo.semantic.ir import (
     StrptimeParse,
     TableSourceIR,
     TimeFoldIR,
-    TimestampParse,
 )
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.validator import Registry, assembly_validate
@@ -230,153 +229,11 @@ def test_missing_metric_ref_in_decomposition() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Hour time field required_prefix validation
+# HourPrefixParse prefix cross-reference validation
 # ---------------------------------------------------------------------------
 
 
-def test_timestamp_hour_time_field_without_required_prefix() -> None:
-    registry = _make_registry()
-    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
-        semantic_id="sales.orders.order_hour",
-        domain="sales",
-        entity="sales.orders",
-        name="order_hour",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="hour",
-        parse=TimestampParse(timezone="UTC"),
-        python_symbol="order_hour",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
-
-
-def test_hour_only_string_time_field_without_required_prefix() -> None:
-    registry = _make_registry()
-    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
-        semantic_id="sales.orders.order_hour",
-        domain="sales",
-        entity="sales.orders",
-        name="order_hour",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="hour",
-        parse=StrptimeParse(format="", data_type="string"),
-        python_symbol="order_hour",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
-
-
-def test_hour_only_integer_int_time_field_without_required_prefix() -> None:
-    registry = _make_registry()
-    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
-        semantic_id="sales.orders.order_hour",
-        domain="sales",
-        entity="sales.orders",
-        name="order_hour",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="hour",
-        parse=StrptimeParse(format="", data_type="integer"),
-        python_symbol="order_hour",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
-
-
-def test_complete_hour_string_time_field_without_required_prefix() -> None:
-    registry = _make_registry()
-    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
-        semantic_id="sales.orders.order_hour",
-        domain="sales",
-        entity="sales.orders",
-        name="order_hour",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="hour",
-        parse=StrptimeParse(format="%Y%m%d%H", data_type="string"),
-        python_symbol="order_hour",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
-
-
-def test_strptime_hour_only_without_required_prefix() -> None:
-    """format='%H' is an hour-only format and requires required_prefix."""
-    registry = _make_registry()
-    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
-        semantic_id="sales.orders.order_hour",
-        domain="sales",
-        entity="sales.orders",
-        name="order_hour",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="hour",
-        parse=StrptimeParse(format="%H", data_type="string"),
-        python_symbol="order_hour",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
-
-
-def test_strptime_hour_with_date_without_required_prefix() -> None:
-    """format='%Y-%m-%d %H' includes date and does NOT require required_prefix."""
-    registry = _make_registry()
-    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
-        semantic_id="sales.orders.order_hour",
-        domain="sales",
-        entity="sales.orders",
-        name="order_hour",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="hour",
-        parse=StrptimeParse(format="%Y-%m-%d %H", data_type="string"),
-        python_symbol="order_hour",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
-
-
-def test_hour_time_field_with_required_prefix_ok() -> None:
-    registry = _make_registry()
-    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
-        semantic_id="sales.orders.order_hour",
-        domain="sales",
-        entity="sales.orders",
-        name="order_hour",
-        description=None,
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        granularity="hour",
-        parse=HourPrefixParse(prefix="order_date", data_type="string"),
-        python_symbol="order_hour",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
-
-
-def test_hour_time_field_with_required_prefix_name_ok() -> None:
+def test_hour_prefix_with_valid_short_name_ok() -> None:
     registry = _make_registry()
     registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
@@ -396,7 +253,7 @@ def test_hour_time_field_with_required_prefix_name_ok() -> None:
     assert not any(e.kind == ErrorKind.MISSING_DIMENSION_REF for e in errors)
 
 
-def test_hour_time_field_with_invalid_prefix() -> None:
+def test_hour_prefix_with_invalid_prefix() -> None:
     registry = _make_registry()
     registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
@@ -419,7 +276,7 @@ def test_hour_time_field_with_invalid_prefix() -> None:
     )
 
 
-def test_hour_time_dimension_prefix_must_reference_time_dimension() -> None:
+def test_hour_prefix_must_reference_time_dimension() -> None:
     registry = _make_registry()
     registry.dimensions["sales.orders.order_hour"] = DimensionIR(
         semantic_id="sales.orders.order_hour",
@@ -440,14 +297,6 @@ def test_hour_time_dimension_prefix_must_reference_time_dimension() -> None:
         e.kind == ErrorKind.MISSING_DIMENSION_REF and "sales.orders.order_hour" in e.semantic_refs
         for e in errors
     )
-
-
-def test_day_time_field_no_prefix_required() -> None:
-    """Day (or coarser) granularity does not require required_prefix."""
-    registry = _make_registry()
-    # sales.order_date is already day granularity with no prefix — should be fine
-    errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def _cast_partition_time_field(table):
@@ -693,7 +542,7 @@ def test_no_cycle_when_valid() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_sql_parity_metric_without_source_dialect_errors() -> None:
+def test_metric_provenance_without_dialect_errors() -> None:
     registry = _make_registry()
     registry.metrics["sales.unverified_metric"] = MetricIR(
         semantic_id="sales.unverified_metric",
@@ -717,14 +566,15 @@ def test_sql_parity_metric_without_source_dialect_errors() -> None:
     )
     errors, warnings = assembly_validate(registry)
     assert any(
-        e.kind == ErrorKind.SOURCE_SQL_MISSING and "sales.unverified_metric" in e.semantic_refs
+        e.kind == ErrorKind.PROVENANCE_DIALECT_MISSING
+        and "sales.unverified_metric" in e.semantic_refs
         for e in errors
     )
     assert warnings == []
 
 
-def test_no_source_sql_no_error() -> None:
-    """Metric without source_sql should not produce provenance errors."""
+def test_no_provenance_sql_no_error() -> None:
+    """Metric without SQL provenance should not produce provenance errors."""
     registry = _make_registry()
     registry.metrics["sales.native_metric"] = MetricIR(
         semantic_id="sales.native_metric",
@@ -748,8 +598,8 @@ def test_no_source_sql_no_error() -> None:
     assert not warnings
 
 
-def test_no_source_sql_no_warning() -> None:
-    """Metric without source_sql should not produce warnings."""
+def test_no_provenance_sql_no_warning() -> None:
+    """Metric without SQL provenance should not produce warnings."""
     registry = _make_registry()
     registry.metrics["sales.revenue"] = dataclasses.replace(
         registry.metrics["sales.revenue"],
@@ -941,40 +791,6 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     result = project.load()
     assert project.is_ready()
     assert result.warnings == ()
-
-
-def test_hour_time_field_without_prefix_via_loader(semantic_project_factory) -> None:
-    """Hour-only string time field with bare %H format requires required_prefix.
-
-    A bare ``%H`` is a valid strptime format so it passes decorator validation,
-    but hour-only string fields still require a ``required_prefix`` pointing to a
-    day-level time field for pushdown (assembly guard).
-    """
-    fields_py = textwrap.dedent("""\
-        import marivo.semantic as ms
-
-        @ms.time_dimension(
-            entity="sales.orders",
-            granularity="hour",
-            parse=ms.strptime("%H", data_type="string"),
-        )
-        def order_hour(table):
-            return table.order_hour
-    """)
-    datasource = textwrap.dedent("""\
-        import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": datasource,
-            "sales/fields.py": fields_py,
-        }
-    )
-    assert not project.is_ready()
-    errors = project.errors()
-    assert any(e.kind == ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING for e in errors)
 
 
 def test_invalid_relationship_via_loader(semantic_project_factory) -> None:

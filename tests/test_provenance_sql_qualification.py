@@ -1,4 +1,4 @@
-"""Tests for qualify_source_sql and its integration with parity_check."""
+"""Tests for qualify_provenance_sql and its integration with parity_check."""
 
 from __future__ import annotations
 
@@ -9,40 +9,40 @@ from unittest.mock import patch
 import ibis
 import pytest
 
-from marivo.datasource.ir import qualify_source_sql
+from marivo.datasource.ir import qualify_provenance_sql
 
 # ---------------------------------------------------------------------------
-# qualify_source_sql unit tests
+# qualify_provenance_sql unit tests
 # ---------------------------------------------------------------------------
 
 
 def test_qualify_no_qualifiers_returns_unchanged() -> None:
     sql = "SELECT SUM(amount) FROM orders"
-    assert qualify_source_sql(sql, {}) == sql
+    assert qualify_provenance_sql(sql, {}) == sql
 
 
 def test_qualify_qualifies_bare_table() -> None:
     sql = "SELECT SUM(amount) FROM orders"
-    result = qualify_source_sql(sql, {"orders": "iceberg_inf.orders"})
+    result = qualify_provenance_sql(sql, {"orders": "iceberg_inf.orders"})
     assert "iceberg_inf.orders" in result
     assert result == "SELECT SUM(amount) FROM iceberg_inf.orders"
 
 
 def test_qualify_already_qualified_table_unchanged() -> None:
     sql = "SELECT SUM(amount) FROM iceberg_inf.orders"
-    result = qualify_source_sql(sql, {"orders": "iceberg_inf.orders"})
+    result = qualify_provenance_sql(sql, {"orders": "iceberg_inf.orders"})
     assert result == "SELECT SUM(amount) FROM iceberg_inf.orders"
 
 
 def test_qualify_mixed_qualified_and_unqualified() -> None:
     sql = "SELECT SUM(amount) FROM orders JOIN iceberg_inf.regions r ON orders.region = r.id"
-    result = qualify_source_sql(sql, {"orders": "iceberg_inf.orders"})
+    result = qualify_provenance_sql(sql, {"orders": "iceberg_inf.orders"})
     assert "iceberg_inf.orders" in result
 
 
 def test_qualify_cte_reference_not_qualified() -> None:
     sql = "WITH recent AS (SELECT * FROM orders WHERE year = 2025) SELECT SUM(amount) FROM recent"
-    result = qualify_source_sql(sql, {"orders": "iceberg_inf.orders"})
+    result = qualify_provenance_sql(sql, {"orders": "iceberg_inf.orders"})
     # 'recent' is a CTE reference, should NOT be qualified
     assert "iceberg_inf.recent" not in result
     # 'orders' inside CTE body should be qualified
@@ -51,19 +51,19 @@ def test_qualify_cte_reference_not_qualified() -> None:
 
 def test_qualify_unknown_table_not_qualified() -> None:
     sql = "SELECT SUM(amount) FROM orders"
-    result = qualify_source_sql(sql, {"other_table": "iceberg_inf.other_table"})
+    result = qualify_provenance_sql(sql, {"other_table": "iceberg_inf.other_table"})
     assert result == sql
 
 
 def test_qualify_dialect_passthrough() -> None:
     sql = "SELECT SUM(amount) FROM orders"
-    result = qualify_source_sql(sql, {"orders": "iceberg_inf.orders"}, dialect="trino")
+    result = qualify_provenance_sql(sql, {"orders": "iceberg_inf.orders"}, dialect="trino")
     assert "iceberg_inf.orders" in result
 
 
 def test_qualify_multi_part_database() -> None:
     sql = "SELECT SUM(amount) FROM orders"
-    result = qualify_source_sql(sql, {"orders": "catalog.schema.orders"})
+    result = qualify_provenance_sql(sql, {"orders": "catalog.schema.orders"})
     assert "catalog" in result
     assert "schema" in result
     assert "orders" in result
@@ -71,10 +71,10 @@ def test_qualify_multi_part_database() -> None:
 
 def test_qualify_tuple_database_parity() -> None:
     """When database is a tuple like ('catalog', 'schema'), the joined
-    qualifier produces a 3-part name that qualify_source_sql handles."""
+    qualifier produces a 3-part name that qualify_provenance_sql handles."""
     sql = "SELECT SUM(amount) FROM orders"
     # Simulates the f"{'.'.join(db)}.{table}" path from parity.py
-    result = qualify_source_sql(sql, {"orders": "catalog.schema.orders"})
+    result = qualify_provenance_sql(sql, {"orders": "catalog.schema.orders"})
     assert "catalog" in result
     assert "schema" in result
     assert "orders" in result
@@ -116,7 +116,7 @@ def _patch_project_backends(project, backend_factory):
 
 
 # ---------------------------------------------------------------------------
-# Parity integration: source_sql qualification
+# Parity integration: provenance SQL qualification
 # ---------------------------------------------------------------------------
 
 
@@ -172,10 +172,10 @@ def test_parity_with_database_qualified_entity(
     _duckdb_with_schema,
     _schema_backend_factory,
 ) -> None:
-    """source_sql uses bare table name; entity has database=; parity succeeds.
+    """Provenance SQL uses bare table name; entity has database=; parity succeeds.
 
     The entity declares database="sales_mart", so the bare 'orders' in
-    source_sql must be auto-qualified to 'sales_mart.orders' before
+    provenance SQL must be auto-qualified to 'sales_mart.orders' before
     execution.
     """
     project = semantic_project_factory(
@@ -237,7 +237,7 @@ def test_parity_without_database_on_entity(
     _duckdb_no_schema,
     _no_schema_backend_factory,
 ) -> None:
-    """source_sql uses bare table name; entity has no database=; parity succeeds.
+    """Provenance SQL uses bare table name; entity has no database=; parity succeeds.
 
     No qualification is needed when the table lives in the default schema.
     """
@@ -291,7 +291,7 @@ def test_parity_datasource_database_fallback(
     _duckdb_with_schema,
     _schema_backend_factory,
 ) -> None:
-    """source_sql uses bare table name; entity has no database= but datasource
+    """Provenance SQL uses bare table name; entity has no database= but datasource
     declares database="sales_mart". Parity qualifies bare refs from the
     datasource database field and succeeds.
 
@@ -337,15 +337,15 @@ _ENTITY_DATASOURCE_DB_FULLY_QUALIFIED_PY = textwrap.dedent("""\
 """)
 
 
-def test_parity_source_sql_already_qualified_no_double_qualify(
+def test_parity_provenance_sql_already_qualified_no_double_qualify(
     semantic_project_factory,
     _duckdb_with_schema,
     _schema_backend_factory,
 ) -> None:
-    """source_sql uses a fully-qualified table name (sales_mart.orders); entity
+    """Provenance SQL uses a fully-qualified table name (sales_mart.orders); entity
     has no database= but datasource declares database="sales_mart".
 
-    qualify_source_sql must leave already-qualified tables unchanged, so the
+    qualify_provenance_sql must leave already-qualified tables unchanged, so the
     SQL executes correctly without double-qualification like
     sales_mart.sales_mart.orders.
     """

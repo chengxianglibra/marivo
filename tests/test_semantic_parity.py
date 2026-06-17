@@ -6,7 +6,7 @@ Tests cover:
 - Base metric parity with rel_tol
 - Base metric parity with abs_tol
 - Derived metric parity raises error (not supported directly)
-- Missing source_sql raises error
+- Missing provenance SQL raises error
 - Verification mode contract for sql_parity and python_native metrics
 - Cross-datasource metric raises error
 - Parity status computation: python_native mode -> VERIFIED
@@ -340,7 +340,7 @@ def test_derived_metric_parity_raises(semantic_project_factory, backend_factory)
         pytest.raises(SemanticParityError) as exc_info,
     ):
         project.parity_check("sales.margin")
-    assert exc_info.value.kind == ErrorKind.SOURCE_SQL_MISSING
+    assert exc_info.value.kind == ErrorKind.PROVENANCE_DIALECT_MISSING
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +348,8 @@ def test_derived_metric_parity_raises(semantic_project_factory, backend_factory)
 # ---------------------------------------------------------------------------
 
 
-def test_base_metric_without_source_sql_loads_ok(semantic_project_factory) -> None:
-    """Base metric without source_sql loads successfully — no verification needed."""
+def test_base_metric_without_provenance_sql_loads_ok(semantic_project_factory) -> None:
+    """Base metric without provenance SQL loads successfully — no verification needed."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -362,9 +362,9 @@ def test_base_metric_without_source_sql_loads_ok(semantic_project_factory) -> No
     assert project.is_ready()
 
 
-def test_base_metric_source_sql_without_source_dialect_fails_load(semantic_project_factory) -> None:
+def test_base_metric_provenance_without_dialect_fails_load(semantic_project_factory) -> None:
     """ms.from_sql() requires both sql and dialect, so it is impossible to
-    create a provenance with source_sql but no source_dialect at the
+    create provenance SQL but no dialect at the
     authoring level. This is now enforced by ms.from_sql() signature."""
     import marivo.semantic as ms
 
@@ -373,10 +373,10 @@ def test_base_metric_source_sql_without_source_dialect_fails_load(semantic_proje
         ms.from_sql(sql="SELECT 1")  # type: ignore[call-arg]
 
 
-def test_derived_metric_with_source_sql_fails_load(
+def test_derived_metric_with_provenance_sql_fails_load(
     semantic_project_factory,
 ) -> None:
-    """Derived metric constructors do not accept source_sql — the module fails
+    """Derived metric constructors do not accept provenance — the module fails
     to load with an organization_error when extra kwargs are passed."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -393,7 +393,7 @@ def test_derived_metric_with_source_sql_fails_load(
             name="margin",
             numerator="sales.revenue",
             denominator="sales.revenue",
-            source_sql="SELECT 1",
+            provenance=ms.from_sql(sql="SELECT 1", dialect="duckdb"),
         )
     """)
     project = semantic_project_factory(
@@ -411,7 +411,7 @@ def test_derived_metric_with_source_sql_fails_load(
 # ---------------------------------------------------------------------------
 
 
-def test_source_dialect_does_not_require_semantic_datasource_backend_type(
+def test_provenance_dialect_does_not_require_semantic_datasource_backend_type(
     semantic_project_factory, backend_factory
 ) -> None:
     """Profiles own backend_type; semantic datasource refs no longer carry it."""
@@ -463,11 +463,11 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
 
 
 # ---------------------------------------------------------------------------
-# Parity status: no source_sql -> VERIFIED
+# Parity status: no provenance SQL -> VERIFIED
 # ---------------------------------------------------------------------------
 
 
-def test_status_no_source_sql_is_verified(semantic_project_factory) -> None:
+def test_status_no_provenance_sql_is_verified(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -490,7 +490,7 @@ def test_status_parity_check_ok(semantic_project_factory, backend_factory) -> No
             "sales/metrics.py": _DATASET_AND_BASE_METRIC_PY,
         }
     )
-    # Before parity check, status is UNVERIFIED (has source_sql but not checked)
+    # Before parity check, status is UNVERIFIED (has provenance SQL but not checked)
     status_before = propagated_parity_status(project, "sales.total_amount")
     assert status_before == ParityStatus.UNVERIFIED
 
@@ -613,14 +613,14 @@ def test_derived_propagation_one_unverified(semantic_project_factory, backend_fa
 
 
 # ---------------------------------------------------------------------------
-# Derived propagation: mix of verified SQL parity + no-source_sql -> VERIFIED
+# Derived propagation: mix of verified SQL parity + no-provenance_sql -> VERIFIED
 # ---------------------------------------------------------------------------
 
 
-def test_derived_propagation_verified_and_no_source_sql(
+def test_derived_propagation_verified_and_no_provenance_sql(
     semantic_project_factory, backend_factory
 ) -> None:
-    """When one component is SQL-verified and another has no source_sql, derived is VERIFIED."""
+    """When one component is SQL-verified and another has no provenance SQL, derived is VERIFIED."""
     mixed_py = textwrap.dedent("""\
         import marivo.semantic as ms
         orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))

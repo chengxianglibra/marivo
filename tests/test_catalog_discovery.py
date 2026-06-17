@@ -509,8 +509,8 @@ def test_discovery_relationship_details_render():
         **_common_details_kwargs(),
         from_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         to_entity=_make_ref("sales.users", SemanticKind.ENTITY),
-        from_dimensions=("user_id",),
-        to_dimensions=("id",),
+        from_keys=("user_id",),
+        to_keys=("id",),
     )
     rendered = d.render()
     assert "orders_to_users" in rendered
