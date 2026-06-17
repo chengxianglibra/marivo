@@ -79,6 +79,14 @@ by ordinal bucket position by default. Use
 same absolute bucket key should be treated as the same row. Use
 `strict_lengths=True` only when unequal window bucket counts must fail.
 
+## Where filter
+
+`observe(where=...)` accepts Python-style structured predicates:
+`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `between`. Scalar shorthand uses `==`.
+SQL-style ops (`eq`, `ne`, `gte`, …) are **not** supported.
+`transform.slice(where=...)` uses shorthand forms only (scalar for `==`, list for
+`in`, tuple for `between`). For full value-shape details see `references/cheatsheet.md`.
+
 ## When to call show()
 
 Call `show()` at deliberate observation points — not after every API call.
