@@ -599,15 +599,13 @@ def gmv_with_items(orders, order_items):
 
 ### Sampled Semi-Additive Metrics
 
-Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inventory, or device-reported rates. The time dimension declares physical precision with `granularity` and reporting cadence with `sample_interval`; the metric declares the business status axis and fold.
+Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inventory, or device-reported rates. The time dimension declares physical precision with `granularity` and reporting cadence with `sample_interval`; the metric declares the business status axis and fold. `sample_interval` is supported on native `ms.datetime(...)` / `ms.timestamp(...)` parses and on string/integer `ms.strptime(...)` parses; `ms.hour_prefix(...)` is not a sampled-fold axis.
 
 ```python
 @ms.time_dimension(
     entity=bw_samples,
-    data_type="timestamp",
     granularity="second",
-    timezone="UTC",
-    sample_interval=(5, "minute"),
+    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
 )
 def sample_ts(bw_samples):
     return bw_samples.sample_ts

@@ -282,6 +282,7 @@ class StrptimeParse:
     format: str
     data_type: Literal["string", "integer"]
     timezone: str | None = None
+    sample_interval: SampleIntervalIR | None = None
     kind: Literal["strptime"] = "strptime"
 
 

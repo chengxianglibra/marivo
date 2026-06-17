@@ -268,10 +268,10 @@ def _normalize_sample_interval(
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
         )
-    if data_type not in {"datetime", "timestamp"}:
+    if data_type not in {"datetime", "timestamp", "string", "integer"}:
         _raise(
             ErrorKind.INVALID_SAMPLE_INTERVAL,
-            "sample_interval is only supported on datetime or timestamp time dimensions.",
+            "sample_interval is only supported on datetime, timestamp, string, or integer time dimensions.",
             refs=(semantic_id,),
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
@@ -316,6 +316,8 @@ def _validate_timezone(timezone: str) -> None:
 
 def _normalize_sample_interval_value(
     sample_interval: tuple[int, Literal["minute", "hour"]] | None,
+    *,
+    data_type: Literal["datetime", "timestamp", "string", "integer"] = "datetime",
 ) -> SampleIntervalIR | None:
     """Normalize a sample_interval tuple from a parse builder, using a synthetic semantic_id."""
     if sample_interval is None:
@@ -324,7 +326,7 @@ def _normalize_sample_interval_value(
     return _normalize_sample_interval(
         sample_interval,
         semantic_id="<parse>",
-        data_type="datetime",
+        data_type=data_type,
         granularity=unit,
     )
 
@@ -959,6 +961,7 @@ def _validate_time_parse_granularity(
         import re as _re
 
         fmt = parse.format or ""
+        date_directives = {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}
         time_directives = {"%H", "%I", "%k", "%l", "%M", "%S", "%T", "%p"}
         tokens = set(_re.findall(r"%[a-zA-Z]", fmt))
         if not tokens & time_directives:
@@ -969,6 +972,14 @@ def _validate_time_parse_granularity(
                 refs=(semantic_id,),
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.TIME_GRANULARITY_PARSE_COMPATIBLE,
+            )
+        if parse.sample_interval is not None and not tokens & date_directives:
+            _raise(
+                ErrorKind.INVALID_SAMPLE_INTERVAL,
+                f"time dimension {semantic_id!r}: sampled strptime format {fmt!r} must include date context.",
+                refs=(semantic_id,),
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.SAMPLE_INTERVAL_VALID,
             )
 
 
@@ -987,6 +998,9 @@ def _validate_sample_interval_granularity(
     elif isinstance(parse, TimestampParse):
         sample_ir = parse.sample_interval
         data_type_str = "timestamp"
+    elif isinstance(parse, StrptimeParse):
+        sample_ir = parse.sample_interval
+        data_type_str = parse.data_type
     if sample_ir is None or data_type_str is None:
         return
     # Re-run the granularity check from _normalize_sample_interval with the real granularity
@@ -1606,6 +1620,7 @@ def strptime(
     *,
     data_type: Literal["string", "integer"],
     timezone: str | None = None,
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
 ) -> StrptimeParse:
     """Declare a string/integer strptime parse.
 
@@ -1618,6 +1633,8 @@ def strptime(
             ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
         data_type: ``"string"`` or ``"integer"`` — the physical column type.
         timezone: Optional IANA timezone for time-bearing formats.
+        sample_interval: Optional periodic sampling interval for sampled time
+            dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
 
     Returns:
         A ``StrptimeParse`` value object.
@@ -1635,7 +1652,15 @@ def strptime(
     normalized = normalize_strptime(format)
     if timezone is not None:
         _validate_timezone(timezone)
-    return StrptimeParse(format=normalized, data_type=data_type, timezone=timezone)
+    return StrptimeParse(
+        format=normalized,
+        data_type=data_type,
+        timezone=timezone,
+        sample_interval=_normalize_sample_interval_value(
+            sample_interval,
+            data_type=data_type,
+        ),
+    )
 
 
 def hour_prefix(prefix: str, /, *, data_type: Literal["string", "integer"]) -> HourPrefixParse:
