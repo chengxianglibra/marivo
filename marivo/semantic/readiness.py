@@ -132,6 +132,7 @@ class _SemanticKind(StrEnum):
     DATASOURCE = "datasource"
     ENTITY = "entity"
     DIMENSION = "dimension"
+    MEASURE = "measure"
     TIME_DIMENSION = "time_dimension"
     METRIC = "metric"
     RELATIONSHIP = "relationship"
@@ -210,6 +211,9 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
         kind = _SemanticKind.TIME_DIMENSION if field.is_time_dimension else _SemanticKind.DIMENSION
         kinds[field.semantic_id] = kind
         objects[field.semantic_id] = field
+    for measure in reg.measures.values():
+        kinds[measure.semantic_id] = _SemanticKind.MEASURE
+        objects[measure.semantic_id] = measure
     for metric in reg.metrics.values():
         kinds[metric.semantic_id] = _SemanticKind.METRIC
         objects[metric.semantic_id] = metric
@@ -270,6 +274,7 @@ def _strict_enrichment_issues(
     analyzable = {
         _SemanticKind.ENTITY,
         _SemanticKind.DIMENSION,
+        _SemanticKind.MEASURE,
         _SemanticKind.TIME_DIMENSION,
         _SemanticKind.METRIC,
     }
@@ -338,6 +343,9 @@ def _dependencies_for_ref(
             and getattr(other, "datasource", None) == ref
         )
     if kind in {_SemanticKind.DIMENSION, _SemanticKind.TIME_DIMENSION}:
+        entity = getattr(obj, "entity", None)
+        return (entity,) if isinstance(entity, str) else ()
+    if kind == _SemanticKind.MEASURE:
         entity = getattr(obj, "entity", None)
         return (entity,) if isinstance(entity, str) else ()
     if kind == _SemanticKind.METRIC:

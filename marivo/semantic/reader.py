@@ -359,6 +359,9 @@ class SemanticProject:
         if name in reg.entities:
             return self._dependents_dataset(name, reg)
 
+        if name in reg.measures:
+            return self._dependents_measure(name, reg)
+
         if name in reg.dimensions:
             f_ir = reg.dimensions[name]
             kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
@@ -386,10 +389,27 @@ class SemanticProject:
             if f_ir.entity == name:
                 kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
                 ds_children.append(_DepNode(semantic_id=f_id, kind=kind, children=()))
+        for measure_id, measure_ir in reg.measures.items():
+            if measure_ir.entity == name:
+                ds_children.append(
+                    _DepNode(semantic_id=measure_id, kind=SymbolKind.MEASURE, children=())
+                )
         return _DepNode(
             semantic_id=name,
             kind=SymbolKind.ENTITY,
             children=tuple(ds_children),
+        )
+
+    def _dependents_measure(self, name: str, reg: Registry) -> _DepNode:
+        metric_children = [
+            _DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=())
+            for m_id, m_ir in reg.metrics.items()
+            if m_ir.measure == name
+        ]
+        return _DepNode(
+            semantic_id=name,
+            kind=SymbolKind.MEASURE,
+            children=tuple(metric_children),
         )
 
     def _dependents_metric(self, name: str, reg: Registry) -> _DepNode:

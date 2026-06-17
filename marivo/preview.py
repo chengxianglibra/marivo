@@ -14,6 +14,7 @@ from marivo.render import format_bounded_card, result_repr
 PreviewKind = Literal[
     "datasource_table",
     "semantic_dataset",
+    "semantic_dimension",
     "semantic_field",
     "semantic_metric",
     "analysis_frame",

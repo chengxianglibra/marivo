@@ -65,6 +65,10 @@ def test_build_metric_object_simple_metric(semantic_project_factory):
     assert rev.aggregation == "sum"
     assert rev.measure is not None
     assert rev.measure.ref == "sales.orders.amount"
+    assert rev.measure.kind == "measure"
+    assert rev.provenance is None
+    assert not hasattr(rev, "source_sql")
+    assert not hasattr(rev, "source_dialect")
     assert rev.additivity == "additive"
     assert rev.composition is None
     assert rev.components == ()

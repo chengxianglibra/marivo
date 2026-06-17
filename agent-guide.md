@@ -42,7 +42,7 @@ Rules for this surface:
 
 - Python-track expressions return ibis expressions only. Do not introduce raw
   SQL strings as executable expression bodies. SQL text only belongs in
-  provenance metadata such as `source_sql`.
+  provenance metadata such as `provenance=ms.from_sql(sql=..., dialect=...)`.
 - Decorator function bodies stay restricted by
   `marivo/semantic/validator.py`.
 - Expression-bearing semantic decorators keep SQL provenance in value objects

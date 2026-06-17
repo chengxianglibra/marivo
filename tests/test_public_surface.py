@@ -44,6 +44,7 @@ SEMANTIC_PUBLIC = {
     "JoinPathFact",
     "LadderOrderError",
     "MeasureBrief",
+    "MeasureDetails",
     "MeasureIR",
     "MeasureRef",
     "MetricBrief",
