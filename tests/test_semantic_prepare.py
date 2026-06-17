@@ -452,7 +452,9 @@ def test_prepare_relationship_uses_keys_parameter(tmp_path: Path, semantic_proje
     )
 
     assert brief.status == "sufficient"
-    assert brief.keys == (("sales.orders.customer_id", "sales.customers.customer_id"),)
+    assert brief.keys == (
+        ms.JoinKey(from_key="sales.orders.customer_id", to_key="sales.customers.customer_id"),
+    )
     assert brief.probe.sampled_key_count == 3
     assert brief.probe.matched_key_count == 2
 

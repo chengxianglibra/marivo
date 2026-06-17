@@ -358,7 +358,7 @@ def _dependencies_for_ref(
         return tuple(deps)
     if kind == _SemanticKind.RELATIONSHIP:
         keys = getattr(obj, "keys", ())
-        key_refs = (*(k[0] for k in keys), *(k[1] for k in keys)) if keys else ()
+        key_refs = (*(k.from_key for k in keys), *(k.to_key for k in keys)) if keys else ()
         relationship_deps = (
             getattr(obj, "from_entity", None),
             getattr(obj, "to_entity", None),
