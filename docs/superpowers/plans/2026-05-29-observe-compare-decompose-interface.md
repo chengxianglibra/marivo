@@ -2,7 +2,7 @@
 
 **Goal:** Bring the three core analysis intents (`observe`, `compare`, `decompose`)
 into conformance with the committed target-state operator design
-(`docs/specs/analysis/python-analysis-operator-design.md`) and make them
+(`docs/specs/analysis/python-analysis-design.md`) and make them
 predictable for general agents, by making output shape an explicit declarable
 contract, moving compatibility checks ahead of backend execution, and reconciling
 the component-aware contract with the "fixed output shape" principle — without
@@ -35,7 +35,7 @@ Then consolidate `observe`'s four copy-pasted persistence tails into one.
 exception hierarchy (`marivo.analysis.errors`), pydantic frame metas, repository
 `make test`, `make typecheck`, `make lint`, `make format`, `make examples-check`.
 
-**Source of truth:** `docs/specs/analysis/python-analysis-operator-design.md`
+**Source of truth:** `docs/specs/analysis/python-analysis-design.md`
 (operator design) and
 `docs/superpowers/specs/2026-05-28-component-aware-frame-contract-design.md`
 (component contract). Where this plan changes a public contract, the locked
@@ -220,7 +220,7 @@ wrapper superseded 2026-06-05)**
 
 ### Phase 0 — Standalone evidence bugfix (independent of the redesign; ship first)
 
-- [ ] Confirm against `docs/specs/analysis/python-track-evidence-surface.md`
+- [ ] Confirm against `docs/specs/analysis/python-analysis-design.md`
   whether segmented derived metrics are intended to seed evidence (the
   non-derived segmented path does, via
   [observe.py:1733](../../../marivo/analysis/intents/observe.py)).

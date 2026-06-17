@@ -295,7 +295,7 @@ def _read(path: str) -> str:
 
 
 def test_analysis_spec_mentions_no_stdout_contract() -> None:
-    spec = _read("docs/specs/analysis/python-analysis-operator-design.md")
+    spec = _read("docs/specs/analysis/python-analysis-design.md")
     assert "not write stdout" in spec or "do not write stdout" in spec or "silent" in spec.lower()
 
 

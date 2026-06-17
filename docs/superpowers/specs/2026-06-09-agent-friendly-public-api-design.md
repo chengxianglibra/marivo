@@ -537,7 +537,7 @@ read `_domain.py`.
 Update:
 
 - `docs/specs/semantic/python-semantic-layer.md`,
-- `docs/specs/analysis/python-analysis-operator-design.md`,
+- `docs/specs/analysis/python-analysis-design.md`,
 - `marivo-skills/marivo-analysis/`,
 - `marivo-skills/marivo-semantic/`,
 - public API docstrings and `help()` text,

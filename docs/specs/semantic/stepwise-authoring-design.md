@@ -4,9 +4,9 @@ Status: draft design.
 
 This document defines the target-state agent workflow and API surface for
 Marivo semantic layer construction. It supersedes
-`docs/specs/semantic/authoring-pipeline-design.md` (three-phase flow,
-`assess_authoring`, `AuthoringSourceInput`) and the workflow sections it in
-turn superseded. It complements
+`docs/specs/semantic/semantic-authoring-design-superseded.md` (consolidated
+historical context from the earlier three-phase flow, `assess_authoring`,
+`AuthoringSourceInput` designs). It complements
 `docs/specs/semantic/python-semantic-layer.md`, which continues to own the
 semantic object model and decorator contracts.
 

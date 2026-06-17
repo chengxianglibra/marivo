@@ -15,7 +15,7 @@ Marivo 的核心使用场景之一是 agent 通过 `marivo.semantic` 和
 
 - `marivo-skills/marivo-analysis/references/final-report.md` 已要求最终报
   告结论优先、说明范围口径、呈现核心发现、风险和下一步。
-- `docs/specs/analysis/python-track-evidence-surface.md` 已定义 result-bound
+- `docs/specs/analysis/python-analysis-design.md` 已定义 result-bound
   evidence、session knowledge 和 audit surface，强调 `frame.meta`、稳定
   `artifact_id`、`lineage`、`source_refs`、`evidence_status`。
 - `docs/superpowers/specs/2026-06-01-semantic-report-publishing-design.md` 曾
@@ -733,7 +733,7 @@ Likely affected areas once implementation starts:
   for archival cross-reference, replacement notes, or migration cleanup.
 - `docs/superpowers/specs/2026-06-03-analysis-replay-script-design.md`
   for executed-SQL audit trail reference cleanup.
-- `docs/specs/analysis/python-track-evidence-surface.md`
+- `docs/specs/analysis/python-analysis-design.md`
   for report artifact projection requirements if needed.
 - `marivo-skills/marivo-analysis/SKILL.md`
   and `marivo-skills/marivo-analysis/references/final-report.md`
@@ -794,8 +794,8 @@ Likely affected areas once implementation starts:
 ## 16. References consulted
 
 - `marivo-skills/marivo-analysis/references/final-report.md`
-- `docs/specs/analysis/python-track-evidence-surface.md`
-- `docs/specs/analysis/python-analysis-operator-design.md`
+- `docs/specs/analysis/python-analysis-design.md`
+- `docs/specs/analysis/python-analysis-design.md`
 - `docs/superpowers/specs/2026-06-01-semantic-report-publishing-design.md`
 - `docs/superpowers/specs/2026-06-03-analysis-replay-script-design.md`
 - Data Analytics plugin `skills/build-report/specifications/mcp-app-report.md`

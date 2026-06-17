@@ -6,7 +6,7 @@
 
 关联文档：
 `docs/specs/semantic/python-semantic-layer.md`、
-`docs/specs/semantic/agent-semantic-layer-authoring-design.md`、
+`docs/specs/semantic/semantic-authoring-design-superseded.md`、
 `docs/superpowers/specs/2026-06-02-incremental-semantic-authoring-design.md`、
 `docs/superpowers/specs/2026-06-09-semantic-catalog-public-api-design.md`、
 `docs/superpowers/specs/2026-06-12-semantic-analysis-interface-unification-design.md`
@@ -528,7 +528,7 @@ ComponentFrameMeta.composition_kind: Literal["ratio", "weighted_average", "linea
 更新所有面向 agent 的指引：停止“每个指标都要 decomposition”的说法；讲清两家族、measure 本质继承、agg×fold 正交、body-vs-composition 选择。需改：
 
 - `docs/specs/semantic/python-semantic-layer.md`
-- `docs/specs/semantic/agent-semantic-layer-authoring-design.md`
+- `docs/specs/semantic/semantic-authoring-design-superseded.md`
 - `docs/specs/semantic/stepwise-authoring-design.md`
 - `docs/superpowers/specs/2026-06-02-incremental-semantic-authoring-design.md`
 - `docs/superpowers/specs/2026-06-09-semantic-catalog-public-api-design.md`

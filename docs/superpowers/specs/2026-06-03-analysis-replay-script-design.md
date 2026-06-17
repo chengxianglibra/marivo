@@ -39,7 +39,7 @@ a statically checked recipe, not an executed-and-reconciled proof (see §11).
   spec fills the gap it left open: the assembly procedure and the static-check
   definition.
 - **Executed-SQL audit trail** (`docs/specs/analysis/2026-06-03-executed-sql-audit-trail-design.md`)
-  and **evidence surface** (`docs/specs/analysis/python-track-evidence-surface.md`):
+  and **evidence surface** (`docs/specs/analysis/python-analysis-design.md`):
   provide the persisted `jobs[]` DAG (intent + params + frame refs, now also
   `queries[]`) and deterministic `artifact_id`s. v1 does not consume these for
   generation, but they are the substrate for the optional hardening in §11.
