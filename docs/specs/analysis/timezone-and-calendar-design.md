@@ -1,6 +1,11 @@
 # Marivo 时区与日历对齐总体设计
 
-状态：implemented design。本文描述 Marivo Python 分析链路当前采用的单系统时区模型。
+> Superseded by `docs/superpowers/specs/2026-06-17-timezone-two-axis-design.md`.
+> The implemented model now has separate datasource read timezone and persisted
+> session report timezone. This document is historical context for the previous
+> single-timezone design.
+
+状态：superseded。本文描述 Marivo Python 分析链路此前采用的单系统时区模型。
 以下「当前实现摘要」反映已落地行为，设计原理与已知取舍保留不变。
 
 本文回答四个问题：

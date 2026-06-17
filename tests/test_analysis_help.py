@@ -281,6 +281,16 @@ def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:
     assert result["constructed_by"]
 
 
+def test_help_json_coverage_frame_descriptor() -> None:
+    result = _json_data("CoverageFrame")
+
+    assert isinstance(result, dict)
+    assert result["kind"] == "frame"
+    assert result["symbol"] == "CoverageFrame"
+    assert result["summary"]
+    assert result["constructed_by"] == "MetricFrame.coverage()"
+
+
 def test_help_json_frame_method_descriptor() -> None:
     result = _json_data("MetricFrame.components")
 

@@ -399,7 +399,7 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
     """Bootstrap a bandwidth semantic project for decompose gate tests."""
     from marivo.analysis.timezone import resolve_system_timezone
 
-    session_tz_name = resolve_system_timezone().name
+    report_tz_name = resolve_system_timezone().name
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
@@ -430,7 +430,7 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
         "    name='sample_ts',\n"
         "    entity=bandwidth_samples,\n"
         "    granularity='minute',\n"
-        f"    parse=ms.datetime(timezone='{session_tz_name}', sample_interval=(5, 'minute')),\n"
+        f"    parse=ms.datetime(timezone='{report_tz_name}', sample_interval=(5, 'minute')),\n"
         ")\n"
         "def sample_ts(bandwidth_samples):\n"
         "    return bandwidth_samples.sample_ts\n"

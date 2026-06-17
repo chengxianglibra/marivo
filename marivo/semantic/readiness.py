@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
-    from marivo.semantic.validator import Registry
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
 ReadinessSeverity = Literal["blocker", "warning"]
@@ -24,7 +23,6 @@ ReadinessIssueKind = Literal[
     "unresolved_clarification",
     "missing_business_definition",
     "missing_guardrails",
-    "naive_timezone_undetermined",
 ]
 
 
@@ -430,71 +428,6 @@ def _missing_guardrails(obj: object) -> bool:
     return not guardrails
 
 
-def _naive_timezone_blockers(
-    checked_refs: set[str],
-    reg: Registry,
-) -> list[ReadinessIssue]:
-    """Time dimensions with time-bearing data_type and no declared timezone.
-
-    Naive timestamps are ambiguous — bucketing silently assumes session
-    timezone, which may not match the data.  This blocker forces the agent
-    to declare ``timezone=`` explicitly.
-    """
-    from marivo.semantic.ir import is_time_bearing_format
-
-    issues: list[ReadinessIssue] = []
-    for field in reg.dimensions.values():
-        if field.semantic_id not in checked_refs:
-            continue
-        if not field.is_time_dimension:
-            continue
-        parse = field.parse
-        from marivo.semantic.ir import (
-            DateParse,
-            DatetimeParse,
-            HourPrefixParse,
-            StrptimeParse,
-            TimestampParse,
-        )
-
-        # DatetimeParse and TimestampParse always carry a required timezone
-        if isinstance(parse, (DatetimeParse, TimestampParse)):
-            continue
-        # date has no timezone ambiguity
-        if isinstance(parse, DateParse):
-            continue
-        # HourPrefixParse = hour partition encoding, not TZ-relevant
-        if isinstance(parse, HourPrefixParse):
-            continue
-        # StrptimeParse: check whether it carries a timezone or time-bearing format
-        if isinstance(parse, StrptimeParse):
-            if parse.timezone is not None:
-                continue
-            time_bearing = is_time_bearing_format(parse.format)
-        else:
-            time_bearing = False
-        if not time_bearing:
-            continue
-        # Determine the data_type string for the error message
-        if isinstance(parse, StrptimeParse):
-            data_type_str: str = parse.data_type
-        else:
-            data_type_str = "unknown"
-        issues.append(
-            _issue(
-                "naive_timezone_undetermined",
-                "blocker",
-                (field.semantic_id,),
-                f"Time dimension {field.semantic_id!r} uses a naive {data_type_str!r} column "
-                f"with no declared timezone. Bucketing assumes session timezone, which may "
-                f"not match the data.",
-                f"Add timezone='...' to the @ms.time_dimension declaration for "
-                f"{field.semantic_id!r} to specify the timezone the data was recorded in.",
-            )
-        )
-    return issues
-
-
 def _decision_record_refs(project: SemanticProject) -> tuple[str, ...]:
     from marivo.semantic.ledger import LedgerStore
 
@@ -615,9 +548,6 @@ def build_structural_readiness_report(
                         "Move integration upstream, enable a federated backend, or split the metric.",
                     )
                 )
-
-        # Naive timezone blockers for time-bearing time dimensions.
-        blockers.extend(_naive_timezone_blockers(checked_ref_set, reg))
 
     # SQL parity unverified warnings.
     for ref in checked_refs:

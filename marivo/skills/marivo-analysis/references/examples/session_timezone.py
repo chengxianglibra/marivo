@@ -1,4 +1,4 @@
-"""Pattern: create a session with system-derived timezone.
+"""Pattern: create a session with system-derived report timezone.
 
 When to use: calendar alignment or timestamp bucketing should use the process
 timezone (the TZ environment variable or OS default).
@@ -21,8 +21,8 @@ import marivo.analysis as mv  # noqa: E402
 
 active = mv.session.current()
 
-assert str(active.tz) == "Asia/Shanghai"
+assert active.report_tz_name == "Asia/Shanghai"
 assert active.default_calendar == "cn_holidays"
 
-print(f"session_tz={str(active.tz)!r}")
+print(f"report_tz={active.report_tz_name!r}")
 print(f"default_calendar={active.default_calendar!r}")

@@ -69,6 +69,33 @@ def test_preview_from_pandas_bounds_rows_and_reports_truncation() -> None:
     assert preview.is_truncated is True
 
 
+def test_preview_result_carries_timezones_in_render() -> None:
+    df = pd.DataFrame({"created_at": [pd.Timestamp("2026-06-17T08:00:00Z")]})
+    preview = preview_from_pandas(
+        df,
+        kind="semantic_field",
+        ref="sales.orders.created_at",
+        requested_limit=1,
+        sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=1),
+        types={"created_at": "timestamp('UTC')"},
+        timezones={
+            "created_at": {
+                "kind": "instant",
+                "read_tz": None,
+                "report_tz": "Asia/Shanghai",
+                "read_tz_resolution": None,
+            }
+        },
+        report_tz="Asia/Shanghai",
+    )
+
+    assert preview.timezones["created_at"]["report_tz"] == "Asia/Shanghai"
+    assert preview.rows == ({"created_at": "2026-06-17T16:00:00"},)
+    rendered = preview.render()
+    assert "created_at" in rendered
+    assert "report_tz=Asia/Shanghai" in rendered
+
+
 def test_preview_from_pandas_warns_on_empty_preview() -> None:
     df = pd.DataFrame(columns=["id"])
     preview = preview_from_pandas(

@@ -46,11 +46,32 @@ def current() -> Any:
     return _current()
 
 
+def _resolve_report_timezone(report_timezone: str | None) -> Any:
+    from marivo.analysis import timezone as _tz_mod
+
+    if report_timezone is None:
+        return _tz_mod.resolve_system_timezone()
+    return _tz_mod.ResolvedTimezone(
+        name=report_timezone,
+        tz=_tz_mod.zoneinfo_from_name(report_timezone),
+        resolution="iana",
+    )
+
+
+def _report_tz_fields(resolved: Any) -> dict[str, str | None]:
+    return {
+        "report_tz": resolved.name,
+        "report_tz_resolution": resolved.resolution,
+        "report_tz_warning": resolved.warning,
+    }
+
+
 def get_or_create(
     name: str,
     question: str | None = None,
     *,
     default_calendar: str | None = None,
+    report_timezone: str | None = None,
     backends: dict[str, Callable[[], Any]] | None = None,
     backend_factory: Callable[[str], Any] | None = None,
     use_datasources: bool = True,
@@ -67,6 +88,9 @@ def get_or_create(
             preserved on resume).
         default_calendar: Default calendar name for time-based analysis.
             When provided on resume, updates the persisted value.
+        report_timezone: IANA timezone name for the report axis. Persisted on
+            first create; conflicting values on reopen raise
+            ``SessionTimezoneConflict``. Defaults to the system timezone.
         backends: Explicit mapping of datasource name to zero-arg factory
             callable returning an ibis backend.
         backend_factory: Single callable taking a datasource name and returning
@@ -77,6 +101,8 @@ def get_or_create(
     Raises:
         SessionStateError: Both ``backends`` and ``backend_factory`` were
             supplied.
+        SessionTimezoneConflict: A ``report_timezone`` was requested that
+            conflicts with the persisted report timezone.
 
     Example:
         >>> session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
@@ -116,14 +142,14 @@ def get_or_create(
     layout = _Layout(project_root=store.project_root, session_id=row["id"])
     layout.session_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write or upgrade meta.json with timezone audit fields
+    # Write or upgrade meta.json with report timezone metadata
     import json as _json
 
-    from marivo.analysis.timezone import resolve_system_timezone
+    from marivo.analysis.errors import SessionTimezoneConflict
 
     meta_path = layout.session_dir / "meta.json"
-    system_tz = resolve_system_timezone()
     if not meta_path.is_file():
+        resolved_report_tz = _resolve_report_timezone(report_timezone)
         meta = {
             "id": row["id"],
             "name": row["name"],
@@ -132,9 +158,7 @@ def get_or_create(
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "project_root": str(store.project_root),
-            "tz": system_tz.name,
-            "tz_resolution": system_tz.resolution,
-            "tz_warning": system_tz.warning,
+            **_report_tz_fields(resolved_report_tz),
             "default_calendar": row["default_calendar"],
             "known_calendars": [],
             "known_datasources": [],
@@ -142,19 +166,32 @@ def get_or_create(
         meta_path.write_text(_json.dumps(meta, indent=2, sort_keys=True))
     else:
         meta = _json.loads(meta_path.read_text())
-        previous_tz = meta.get("tz")
-        tz_fields = {
-            "tz": system_tz.name,
-            "tz_resolution": system_tz.resolution,
-            "tz_warning": system_tz.warning,
-        }
-        if previous_tz != system_tz.name and isinstance(previous_tz, str):
-            meta["previous_tz"] = previous_tz
-        meta.update(tz_fields)
+        persisted = meta.get("report_tz")
+        if isinstance(persisted, str):
+            if report_timezone is not None:
+                requested = _resolve_report_timezone(report_timezone)
+                if persisted != requested.name:
+                    raise SessionTimezoneConflict(
+                        message="session report timezone conflicts with requested report_timezone",
+                        details={
+                            "session": row["name"],
+                            "persisted_report_tz": persisted,
+                            "requested_report_tz": requested.name,
+                        },
+                    )
+        else:
+            resolved_report_tz = _resolve_report_timezone(report_timezone)
+            meta.update(_report_tz_fields(resolved_report_tz))
+        meta.pop("tz", None)
+        meta.pop("tz_resolution", None)
+        meta.pop("tz_warning", None)
+        meta.pop("previous_tz", None)
         if "default_calendar" not in meta:
             meta["default_calendar"] = row["default_calendar"]
         if "known_calendars" not in meta:
             meta["known_calendars"] = []
+        if "known_datasources" not in meta:
+            meta["known_datasources"] = []
         meta["updated_at"] = row["updated_at"]
         meta_path.write_text(_json.dumps(meta, indent=2, sort_keys=True))
 

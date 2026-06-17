@@ -50,4 +50,7 @@ class ComponentFrame(BaseFrame):
     _NEXT_INTENTS: tuple[str, ...] = ()
 
     def _repr_identity(self) -> str:
-        return f"ComponentFrame ref={self.meta.ref} rows={self.meta.row_count}"
+        return (
+            f"ComponentFrame ref={self.meta.ref} parent={self.meta.parent_ref} "
+            f"metric={self.meta.metric_id} rows={self.meta.row_count}"
+        )

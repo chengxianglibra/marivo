@@ -18,6 +18,7 @@ from marivo.analysis.frames.candidate import (
     CandidateSet,
 )
 from marivo.analysis.frames.component import ComponentFrame
+from marivo.analysis.frames.coverage import CoverageFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.exploration import ExplorationResult
 from marivo.analysis.frames.forecast import ForecastFrame
@@ -83,6 +84,7 @@ __all__ = [
     "CandidateSet",
     "ComponentFrame",
     "ConfidenceScope",
+    "CoverageFrame",
     "DeltaFrame",
     "DiscoverSensitivity",
     "ExplorationResult",

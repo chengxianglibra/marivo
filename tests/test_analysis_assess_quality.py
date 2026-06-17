@@ -158,11 +158,12 @@ def test_non_metric_frame_raises(tmp_path):
         session.assess_quality(delta)
 
 
-def test_summary_returns_quality_report_summary(tmp_path):
+def test_summary_returns_quality_report_summary(tmp_path, capsys):
     from marivo.analysis.frames.quality import (
         CheckResult,
         QualityReportSummary,
     )
+    from marivo.render import AgentResult
 
     session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
@@ -170,6 +171,7 @@ def test_summary_returns_quality_report_summary(tmp_path):
 
     s = report.summary()
     assert isinstance(s, QualityReportSummary)
+    assert isinstance(s, AgentResult)
     assert s.kind == "quality_report"
     assert s.overall_status == "ok"
     assert s.blocking_issue_count == 0
@@ -181,6 +183,23 @@ def test_summary_returns_quality_report_summary(tmp_path):
     check_ids = [c.check_id for c in s.checks]
     assert "row_count" in check_ids
     assert all(c.status == "ok" for c in s.checks)
+
+    r = repr(s)
+    assert r == (
+        f"<QualityReportSummary ref={report.ref} status=ok blocking=0; call .show() to inspect>"
+    )
+    assert "\n" not in r
+
+    rendered = s.render()
+    assert rendered.startswith(f"QualityReportSummary ref={report.ref} status=ok blocking=0")
+    assert "status: ok; blocking=0 warning=0" in rendered
+    assert "- .render()" in rendered
+    assert "- .show()" in rendered
+    assert not rendered.endswith("\n")
+
+    assert s.show() is None
+    captured = capsys.readouterr()
+    assert captured.out == rendered + "\n"
 
 
 def test_summary_reflects_blocking(tmp_path):
@@ -201,6 +220,10 @@ def test_repr_contains_identity_and_show_hint(tmp_path):
 
     r = repr(report)
     assert "QualityReport" in r
+    assert f"ref={report.ref}" in r
+    assert "status=ok" in r
+    assert "blocking=0" in r
+    assert "rows=3" in r
     assert "call .show() to inspect" in r
 
 
@@ -322,7 +345,7 @@ def test_panel_time_coverage_with_timezone(tmp_path):
             "time_dimension": "bucket_start",
         },
     )
-    # Force the session timezone to Asia/Shanghai (UTC+8)
+    # Force the report timezone to Asia/Shanghai (UTC+8)
     from zoneinfo import ZoneInfo
 
     session._tz = ZoneInfo("Asia/Shanghai")

@@ -9,6 +9,7 @@ from typing import Any
 
 from marivo.datasource import backends, store
 from marivo.datasource.errors import DatasourceMissingError
+from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
 
 
 def _disconnect(backend: Any) -> None:
@@ -59,6 +60,7 @@ class DatasourceConnectionService:
         self._backend_factory = backend_factory
         self._use_datasources = use_datasources
         self._session_backends: dict[str, Any] = {}
+        self._engine_timezones: dict[str, DatasourceEngineTimezone] = {}
 
     @property
     def project_root(self) -> Path | None:
@@ -98,8 +100,18 @@ class DatasourceConnectionService:
             self._session_backends[name] = backend
         return backend
 
+    def engine_timezone(self, name: str) -> DatasourceEngineTimezone:
+        """Return the cached engine timezone for a datasource session backend."""
+        resolved = self._engine_timezones.get(name)
+        if resolved is None:
+            backend = self.session_backend(name)
+            resolved = probe_engine_timezone(backend)
+            self._engine_timezones[name] = resolved
+        return resolved
+
     def close_all(self) -> None:
         """Disconnect all cached session backends and clear the cache."""
         for backend in self._session_backends.values():
             _disconnect(backend)
         self._session_backends.clear()
+        self._engine_timezones.clear()

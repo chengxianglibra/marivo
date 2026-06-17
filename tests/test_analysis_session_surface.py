@@ -23,6 +23,8 @@ EXPECTED_SESSION_IDENTITY_FIELDS = (
     "updated_at",
     "default_calendar",
     "tz",
+    "report_tz",
+    "report_tz_name",
     "cwd",
     "project_root",
     "catalog",

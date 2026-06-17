@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import Any, Literal, TypedDict
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -50,6 +51,9 @@ class PreviewOrder(TypedDict, total=False):
     direction: Literal["asc", "desc"]
 
 
+PreviewTimezoneInfo = dict[str, str | None]
+
+
 class PreviewLimitError(ValueError):
     """Raised when a preview limit is outside the public contract."""
 
@@ -86,6 +90,7 @@ class PreviewResult:
     returned_row_count: int
     is_truncated: bool
     warnings: tuple[PreviewWarning, ...] = field(default_factory=tuple)
+    timezones: dict[str, PreviewTimezoneInfo] = field(default_factory=dict)
     sample_policy: PreviewSamplePolicy = field(
         default_factory=lambda: PreviewSamplePolicy(
             method="bounded_limit",
@@ -101,9 +106,16 @@ class PreviewResult:
 
     def render(self) -> str:
         preview_rows = [[str(row.get(col, "")) for col in self.columns] for row in self.rows]
+        status_parts = [f"truncated={self.is_truncated}"]
+        if self.timezones:
+            labels = [
+                f"{column}:read_tz={info.get('read_tz')} report_tz={info.get('report_tz')}"
+                for column, info in sorted(self.timezones.items())
+            ]
+            status_parts.append("; ".join(labels))
         return format_bounded_card(
             identity=self._repr_identity(),
-            status=f"truncated={self.is_truncated}",
+            status=" ".join(status_parts),
             columns=list(self.columns),
             rows=preview_rows,
             row_count=self.returned_row_count,
@@ -163,10 +175,12 @@ def _is_missing(value: Any) -> bool:
     return False
 
 
-def normalize_preview_cell(value: Any) -> object:
+def normalize_preview_cell(value: Any, *, report_tz: str | None = None) -> object:
     if _is_missing(value):
         return None
     if isinstance(value, pd.Timestamp):
+        if value.tzinfo is not None and report_tz is not None:
+            return value.tz_convert(ZoneInfo(report_tz)).tz_localize(None).isoformat()
         return value.isoformat()
     if isinstance(value, (datetime, date, time)):
         return value.isoformat()
@@ -202,6 +216,8 @@ def preview_from_pandas(
     requested_limit: int,
     sample_policy: PreviewSamplePolicy,
     types: Mapping[str, str] | None = None,
+    timezones: Mapping[str, PreviewTimezoneInfo] | None = None,
+    report_tz: str | None = None,
     warnings: Iterable[PreviewWarning] = (),
 ) -> PreviewResult:
     limit = validate_preview_limit(requested_limit)
@@ -212,7 +228,7 @@ def preview_from_pandas(
     for row in source.itertuples(index=False, name=None):
         out_row: dict[str, object] = {}
         for column, value in zip(display_columns, row, strict=True):
-            out_row[column] = normalize_preview_cell(value)
+            out_row[column] = normalize_preview_cell(value, report_tz=report_tz)
         rows.append(out_row)
 
     result_warnings = list(warnings)
@@ -240,6 +256,7 @@ def preview_from_pandas(
         is_truncated=len(dataframe) > limit,
         warnings=tuple(result_warnings),
         sample_policy=sample_policy,
+        timezones=dict(timezones or {}),
     )
 
 
@@ -251,6 +268,8 @@ def preview_ibis_table(
     limit: int,
     sample_policy: PreviewSamplePolicy,
     include_types: bool = True,
+    timezones: Mapping[str, PreviewTimezoneInfo] | None = None,
+    report_tz: str | None = None,
 ) -> PreviewResult:
     limit = validate_preview_limit(limit)
     dataframe = table.limit(limit + 1).execute()
@@ -264,6 +283,8 @@ def preview_ibis_table(
         requested_limit=limit,
         sample_policy=sample_policy,
         types=schema_types,
+        timezones=timezones,
+        report_tz=report_tz,
     )
 
 
@@ -276,6 +297,8 @@ def preview_ibis_value(
     column_name: str,
     sample_policy: PreviewSamplePolicy,
     include_types: bool = True,
+    timezones: Mapping[str, PreviewTimezoneInfo] | None = None,
+    report_tz: str | None = None,
 ) -> PreviewResult:
     named_value = value.name(column_name) if callable(getattr(value, "name", None)) else value
     table = named_value.as_table()
@@ -286,4 +309,6 @@ def preview_ibis_value(
         limit=limit,
         sample_policy=sample_policy,
         include_types=include_types,
+        timezones=timezones,
+        report_tz=report_tz,
     )

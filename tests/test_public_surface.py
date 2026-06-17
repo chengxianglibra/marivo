@@ -141,6 +141,7 @@ ANALYSIS_PUBLIC = {
     "CandidateObjective",
     "CandidateSet",
     "ComponentFrame",
+    "CoverageFrame",
     "ConfidenceScope",
     "DeltaFrame",
     "DiscoverSensitivity",

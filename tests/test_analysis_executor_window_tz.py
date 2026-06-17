@@ -59,7 +59,8 @@ def test_window_bound_predicates_timestamp_date_only_end_uses_exclusive_end_date
         table.event_ts,
         window,
         FakeMeta("timestamp"),
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
 
     assert type(lower.op()).__name__ == "GreaterEqual"
@@ -68,7 +69,7 @@ def test_window_bound_predicates_timestamp_date_only_end_uses_exclusive_end_date
     assert upper.op().right.value == datetime(2026, 5, 31, 0, 0)
 
 
-def test_apply_window_to_dataset_timestamp_date_only_uses_session_tz():
+def test_apply_window_to_dataset_timestamp_date_only_uses_report_tz():
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE events (event_ts TIMESTAMP)")
     con.raw_sql(
@@ -92,7 +93,8 @@ def test_apply_window_to_dataset_timestamp_date_only_uses_session_tz():
             time_dimension="event_ts",
         ),
         dataset_ir=dataset_ir,
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
     rows = filtered.order_by("event_ts").execute()["event_ts"].tolist()
     assert rows == [datetime(2026, 5, 1, 0, 0), datetime(2026, 5, 1, 15, 59, 59)]
@@ -120,7 +122,8 @@ def test_apply_window_to_dataset_timestamp_explicit_datetime_end_is_exclusive():
             time_dimension="event_ts",
         ),
         dataset_ir=dataset_ir,
-        session_tz=ZoneInfo("UTC"),
+        report_tz=ZoneInfo("UTC"),
+        datasource_read_tz=ZoneInfo("UTC"),
     )
     rows = filtered.order_by("event_ts").execute()["event_ts"].tolist()
     assert rows == [datetime(2026, 5, 1, 0, 0)]
@@ -141,7 +144,8 @@ def test_window_bound_invalid_iso_raises_window_invalid_error(start: str, end: s
             table.event_ts,
             window,
             FakeMeta("timestamp"),
-            session_tz=ZoneInfo("UTC"),
+            report_tz=ZoneInfo("UTC"),
+            datasource_read_tz=ZoneInfo("UTC"),
         )
     assert exc_info.value.details["kind"] == "WindowBoundInvalid"
 
@@ -154,7 +158,8 @@ def test_timezone_declaration_on_date_field_fails_closed():
             table.order_date,
             window,
             FakeMeta("date", timezone="UTC"),
-            session_tz=ZoneInfo("Asia/Shanghai"),
+            report_tz=ZoneInfo("Asia/Shanghai"),
+            datasource_read_tz=ZoneInfo("Asia/Shanghai"),
         )
     assert exc_info.value.details["kind"] == "TimezoneDeclarationUnsupported"
     assert exc_info.value.details["data_type"] == "date"
@@ -168,12 +173,13 @@ def test_timezone_declaration_on_partition_field_fails_closed():
             table.order_day,
             window,
             FakeMeta("string", "%Y%m%d", timezone="UTC"),
-            session_tz=ZoneInfo("Asia/Shanghai"),
+            report_tz=ZoneInfo("Asia/Shanghai"),
+            datasource_read_tz=ZoneInfo("Asia/Shanghai"),
         )
     assert exc_info.value.details["kind"] == "TimezoneDeclarationUnsupported"
     assert (
         exc_info.value.hint
-        == "date and partition time fields do not support timezone declarations; use system timezone or a tz-aware timestamp field."
+        == "date and partition time fields do not support timezone declarations; remove timezone= or use a time-bearing datetime/timestamp parse."
     )
 
 
@@ -202,7 +208,8 @@ def test_time_bearing_string_timezone_compares_as_declared_instant():
             time_dimension="event_ts",
         ),
         dataset_ir=dataset_ir,
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
 
     rows = filtered.order_by("event_ts").execute()["event_ts"].tolist()
@@ -234,7 +241,8 @@ def test_naive_timestamp_defaults_to_system_timezone_window():
             time_dimension="event_ts",
         ),
         dataset_ir=dataset_ir,
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
 
     rows = filtered.order_by("event_ts").execute()["event_ts"].tolist()
@@ -266,7 +274,8 @@ def test_naive_timestamp_declared_utc_compares_as_instant():
             time_dimension="event_ts",
         ),
         dataset_ir=dataset_ir,
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
 
     rows = filtered.order_by("event_ts").execute()["event_ts"].tolist()
@@ -281,7 +290,8 @@ def test_timezone_declaration_conflicting_with_tz_aware_field_fails_closed():
             table.event_ts,
             window,
             FakeMeta("timestamp", timezone="Asia/Shanghai"),
-            session_tz=ZoneInfo("Asia/Shanghai"),
+            report_tz=ZoneInfo("Asia/Shanghai"),
+            datasource_read_tz=ZoneInfo("Asia/Shanghai"),
         )
     assert exc_info.value.details["kind"] == "TimezoneDeclarationConflict"
     assert exc_info.value.details["declared"] == "Asia/Shanghai"
@@ -303,7 +313,8 @@ def test_day_bucket_for_declared_utc_naive_timestamp_uses_session_local_day():
         table,
         field_ir=field,
         window=AbsoluteWindow(start="2026-05-01", end="2026-05-02", grain="day"),
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
 
     rows = bucketed.order_by("event_ts").execute()["bucket_start"].tolist()
@@ -325,7 +336,8 @@ def test_month_bucket_for_declared_utc_naive_timestamp_uses_session_local_month(
         table,
         field_ir=field,
         window=AbsoluteWindow(start="2026-04-01", end="2026-06-01", grain="month"),
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
 
     rows = bucketed.order_by("event_ts").execute()["bucket_start"].tolist()
@@ -352,7 +364,8 @@ def test_subday_bucket_for_declared_utc_string_uses_session_local_time():
             grain=(30, "minute"),
             time_dimension="event_ts",
         ),
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
 
     rows = bucketed.order_by("event_ts").execute()["bucket_start"].tolist()
@@ -382,7 +395,8 @@ def test_subday_bucket_for_same_timezone_string_does_not_shift():
             grain=(30, "minute"),
             time_dimension="event_ts",
         ),
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
 
     rows = bucketed.order_by("event_ts").execute()["bucket_start"].tolist()
@@ -469,5 +483,33 @@ def test_apply_time_series_bucket_dtype_mismatch_raises():
             table,
             field_ir=field,
             window=AbsoluteWindow(start="2026-05-01", end="2026-05-31", grain="day"),
-            session_tz=ZoneInfo("UTC"),
+            report_tz=ZoneInfo("UTC"),
+            datasource_read_tz=ZoneInfo("UTC"),
         )
+
+
+# ---------------------------------------------------------------------------
+# _column_timezone read-timezone fallback tests
+# ---------------------------------------------------------------------------
+
+
+def test_column_timezone_uses_datasource_read_timezone_when_undeclared() -> None:
+    from marivo.analysis.executor.runner import _column_timezone
+
+    class _TimeMeta:
+        timezone = None
+
+    assert _column_timezone(_TimeMeta(), datasource_read_tz=ZoneInfo("Asia/Shanghai")) == ZoneInfo(
+        "Asia/Shanghai"
+    )
+
+
+def test_column_timezone_prefers_declared_timezone_over_datasource_read_timezone() -> None:
+    from marivo.analysis.executor.runner import _column_timezone
+
+    class _TimeMeta:
+        timezone = "UTC"
+
+    assert _column_timezone(_TimeMeta(), datasource_read_tz=ZoneInfo("Asia/Shanghai")) == ZoneInfo(
+        "UTC"
+    )

@@ -592,6 +592,48 @@ def test_time_field_accepts_timezone_metadata() -> None:
         _exit_ctx()
 
 
+def test_time_field_accepts_missing_timezone_for_datetime_metadata() -> None:
+    from marivo.semantic.ir import DatetimeParse
+
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.time_dimension(
+            entity="sales.orders",
+            granularity="hour",
+            parse=ms.datetime(),
+        )
+        def created_at(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert isinstance(ir.parse, DatetimeParse)
+        assert ir.parse.timezone is None
+    finally:
+        _exit_ctx()
+
+
+def test_time_field_accepts_missing_timezone_for_timestamp_metadata() -> None:
+    from marivo.semantic.ir import TimestampParse
+
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.time_dimension(
+            entity="sales.orders",
+            granularity="hour",
+            parse=ms.timestamp(),
+        )
+        def created_at(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert isinstance(ir.parse, TimestampParse)
+        assert ir.parse.timezone is None
+    finally:
+        _exit_ctx()
+
+
 def test_time_field_rejects_invalid_timezone() -> None:
     _enter_ctx(default_domain="sales")
     try:
@@ -1702,6 +1744,19 @@ def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
         assert exc_info.value.kind == "invalid_ref"
     finally:
         _exit_ctx()
+
+
+def test_date_parse_does_not_accept_timezone_keyword() -> None:
+    with pytest.raises(TypeError):
+        ms.date(timezone="UTC")  # type: ignore[call-arg]
+
+
+def test_date_only_strptime_rejects_timezone() -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.strptime("%Y%m%d", data_type="string", timezone="UTC")
+
+    assert "timezone" in exc_info.value.message
+    assert "date-only" in exc_info.value.message
 
 
 @pytest.mark.parametrize("bad", ("", "C N Y"))

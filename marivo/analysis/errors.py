@@ -743,6 +743,24 @@ class NoActiveSessionError(AnalysisError): ...
 class SessionStateError(AnalysisError): ...
 
 
+class SessionTimezoneConflict(SessionStateError):  # noqa: N818
+    def _template_fields(self) -> dict[str, str]:
+        persisted = self.details.get("persisted_report_tz", "<persisted>")
+        requested = self.details.get("requested_report_tz", "<requested>")
+        return {
+            "location": "mv.session.get_or_create(report_timezone=...)",
+            "cause": (
+                f"session already has persisted report timezone {persisted!r}, "
+                f"but {requested!r} was requested."
+            ),
+            "fix_snippet": (
+                "Use the persisted report timezone, create a new session, "
+                "or delete and recreate this session to re-bucket under a new report timezone."
+            ),
+            "doc": "docs/superpowers/specs/2026-06-17-timezone-two-axis-design.md",
+        }
+
+
 class SemanticProjectNotReadyError(AnalysisError): ...
 
 

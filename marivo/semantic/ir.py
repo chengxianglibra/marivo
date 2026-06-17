@@ -265,14 +265,14 @@ class DateParse:
 
 @dataclass(frozen=True)
 class DatetimeParse:
-    timezone: str
+    timezone: str | None = None
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["datetime"] = "datetime"
 
 
 @dataclass(frozen=True)
 class TimestampParse:
-    timezone: str
+    timezone: str | None = None
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["timestamp"] = "timestamp"
 

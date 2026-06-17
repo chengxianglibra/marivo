@@ -287,23 +287,43 @@ def _make_association_meta(
     )
 
 
-def test_association_summary_includes_correlation() -> None:
+def test_association_summary_includes_correlation(capsys) -> None:
     from marivo.analysis.frames.association import (
         AssociationResult,
         AssociationResultSummary,
     )
+    from marivo.render import AgentResult
 
     df = pd.DataFrame({"correlation": [0.9627]})
     frame = AssociationResult(_df=df, meta=_make_association_meta())
     s = frame.summary()
 
     assert isinstance(s, AssociationResultSummary)
+    assert isinstance(s, AgentResult)
     assert s.kind == "association_result"
     assert s.correlation == pytest.approx(0.9627)
     assert s.method == "pearson"
     assert s.metric_ids == ["sales.revenue", "marketing.spend"]
     assert s.aligned_row_count == 12
     assert s.dropped_row_count == 0
+
+    r = repr(s)
+    assert r == (
+        "<AssociationResultSummary ref=frame_assoc123 method=pearson "
+        "r=0.96; call .show() to inspect>"
+    )
+    assert "\n" not in r
+
+    rendered = s.render()
+    assert rendered.startswith("AssociationResultSummary ref=frame_assoc123 method=pearson r=0.96")
+    assert "status: r=0.96 method=pearson aligned=12 dropped=0" in rendered
+    assert "- .render()" in rendered
+    assert "- .show()" in rendered
+    assert not rendered.endswith("\n")
+
+    assert s.show() is None
+    captured = capsys.readouterr()
+    assert captured.out == rendered + "\n"
 
 
 def test_association_summary_is_not_generic_frame_summary() -> None:
@@ -330,6 +350,9 @@ def test_association_repr_includes_identity() -> None:
 
     assert "AssociationResult" in r
     assert "ref=frame_assoc123" in r
+    assert "method=pearson" in r
+    assert "r=0.96" in r
+    assert "rows=1" in r
     assert "call .show() to inspect" in r
 
 

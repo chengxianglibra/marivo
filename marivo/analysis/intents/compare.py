@@ -310,7 +310,7 @@ def _align_component_role(
                 },
             )
         loaded_calendar = session._calendars.get(calendar_ref.id)
-        session_tz = str(session.tz)
+        report_tz = session.report_tz_name
         policy = CalendarPolicy(
             mode=alignment.kind,
             align_period=alignment.period,
@@ -334,7 +334,7 @@ def _align_component_role(
             value_column=value_column,
             calendar=loaded_calendar,
             policy=policy,
-            session_tz=session_tz,
+            report_tz=report_tz,
         )
         return aligned
     return _align_and_compute(current_role.to_pandas(), baseline_role.to_pandas())
@@ -551,7 +551,7 @@ def compare(
                 },
             )
         loaded_calendar = session._calendars.get(calendar_ref.id)
-        session_tz = str(session.tz)
+        report_tz = session.report_tz_name
         policy = CalendarPolicy(
             mode=alignment.kind,
             align_period=alignment.period,
@@ -584,7 +584,7 @@ def compare(
             value_column=value_column,
             calendar=loaded_calendar,
             policy=policy,
-            session_tz=session_tz,
+            report_tz=report_tz,
         )
         calendar_info = info.model_dump(mode="json")
     if df.empty:
@@ -1184,7 +1184,7 @@ def _align_panel(
                     time_column=time_column,
                     value_column=b_value,
                     side="baseline",
-                    session_tz=calendar_context[2],
+                    report_tz=calendar_context[2],
                 )
         elif b_part is None:
             if alignment.kind == "window_bucket":
@@ -1207,7 +1207,7 @@ def _align_panel(
                     time_column=time_column,
                     value_column=a_value,
                     side="current",
-                    session_tz=calendar_context[2],
+                    report_tz=calendar_context[2],
                 )
         elif alignment.kind == "window_bucket":
             delta, window_info_piece = _align_panel_window_bucket(
@@ -1224,7 +1224,7 @@ def _align_panel(
                 window_infos.append(window_info_piece)
         else:
             assert calendar_context is not None
-            loaded_calendar, policy, session_tz = calendar_context
+            loaded_calendar, policy, report_tz = calendar_context
             delta, calendar_alignment_info = align_calendar_frames(
                 a_part[[time_column, a_value]],
                 b_part[[time_column, b_value]].rename(columns={b_value: a_value}),
@@ -1232,7 +1232,7 @@ def _align_panel(
                 value_column=a_value,
                 calendar=loaded_calendar,
                 policy=policy,
-                session_tz=session_tz,
+                report_tz=report_tz,
             )
             calendar_infos.append(calendar_alignment_info.model_dump(mode="json"))
 
@@ -1318,10 +1318,10 @@ def _one_sided_panel_calendar_delta(
     time_column: str,
     value_column: str,
     side: str,
-    session_tz: str,
+    report_tz: str,
 ) -> pd.DataFrame:
     prepared = df[[time_column, value_column]].sort_values(time_column).reset_index(drop=True)
-    bucket_starts = _local_dates(prepared[time_column], session_tz=session_tz).map(
+    bucket_starts = _local_dates(prepared[time_column], report_tz=report_tz).map(
         lambda value: value.isoformat()
     )
     values = pd.to_numeric(prepared[value_column], errors="coerce")
@@ -1397,13 +1397,13 @@ def _calendar_context(
             },
         )
     loaded_calendar = session._calendars.get(calendar_ref.id)
-    session_tz = str(session.tz)
+    report_tz = session.report_tz_name
     policy = CalendarPolicy(
         mode=alignment.kind,
         align_period=alignment.period,
         fallback=alignment.fallback,
     )
-    return loaded_calendar, policy, session_tz
+    return loaded_calendar, policy, report_tz
 
 
 def _aggregate_calendar_info(infos: list[dict[str, Any]]) -> dict[str, Any] | None:

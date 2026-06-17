@@ -34,4 +34,8 @@ class HypothesisTestResult(BaseFrame):
     meta: HypothesisTestResultMeta
 
     def _repr_identity(self) -> str:
-        return f"HypothesisTestResult ref={self.meta.ref} rows={self.meta.row_count}"
+        return (
+            f"HypothesisTestResult ref={self.meta.ref} "
+            f"hypothesis={self.meta.hypothesis} method={self.meta.method} "
+            f"rejected={self.meta.rejected_count} rows={self.meta.row_count}"
+        )

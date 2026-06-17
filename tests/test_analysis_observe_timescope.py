@@ -164,7 +164,7 @@ def test_timescope_without_grain_stays_scalar(tmp_path):
     assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-25"}
     assert window_params["resolved"]["start"] == "2026-05-01"
     assert window_params["resolved"]["end"] == "2026-05-25"
-    assert window_params["session_tz"] == "Asia/Shanghai"
+    assert window_params["report_tz"] == "Asia/Shanghai"
 
 
 def test_timescope_with_grain_returns_time_series(tmp_path):
@@ -238,7 +238,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
     job = s.job(s.jobs()[0].id)
     window_params = job["params"]["timescope"]
     assert window_params["original"] == {"start": "2026-05-01", "end": "2026-05-25"}
-    assert window_params["session_tz"] == "Asia/Shanghai"
+    assert window_params["report_tz"] == "Asia/Shanghai"
     assert window_params["resolved"] == {
         "kind": "absolute",
         "start": "2026-05-01",
@@ -249,7 +249,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
     assert frame.meta.window == window_params["resolved"]
 
 
-def test_date_time_series_day_bucket_respects_session_tz(tmp_path):
+def test_date_time_series_day_bucket_respects_report_tz(tmp_path):
     _bootstrap_date_field(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed_date_field(con)

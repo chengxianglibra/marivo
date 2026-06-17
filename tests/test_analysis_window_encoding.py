@@ -85,14 +85,16 @@ def _compile_window_filter(
     column="log_date",
     start="2024-10-11",
     end="2025-07-31",
-    session_tz=None,
+    report_tz=None,
+    datasource_read_tz=None,
 ):
     table = ibis.table({column: ibis_type or meta_data_type}, name="orders")
     lower, upper = _window_bound_predicates(
         table[column],
         AbsoluteWindow(start=start, end=end),
         FakeMeta(meta_data_type, format),
-        session_tz=session_tz,
+        report_tz=report_tz,
+        datasource_read_tz=datasource_read_tz if datasource_read_tz is not None else report_tz,
     )
     return ibis.duckdb.connect(":memory:").compile(table.filter(lower, upper))
 
@@ -305,7 +307,7 @@ def test_strptime_unresolvable_format_encoding_raises():
 
 def test_strptime_day_uses_raw_string_comparison():
     """Lexicographically sortable day formats use raw string comparison."""
-    sql = _compile_window_filter("string", "%Y/%m/%d", session_tz=UTC_ZONE)
+    sql = _compile_window_filter("string", "%Y/%m/%d", report_tz=UTC_ZONE)
     assert "\"log_date\" >= '2024/10/11'" in sql
     assert "\"log_date\" < '2025/07/31'" in sql
 
@@ -318,7 +320,7 @@ def test_strptime_hour_uses_raw_string_comparison():
         column="log_hour",
         start="2024-10-11T03:00:00",
         end="2025-07-31T14:00:00",
-        session_tz=UTC_ZONE,
+        report_tz=UTC_ZONE,
     )
     assert "\"log_hour\" >= '2024101103'" in sql
     assert "\"log_hour\" < '2025073115'" in sql
@@ -332,7 +334,7 @@ def test_strptime_non_lexicographic_produces_correct_predicate():
     "06/15/2025" >= "10/11/2024" as False (month-first ordering), so the
     column must be parsed into a DATE via STRPTIME before comparison.
     """
-    sql = _compile_window_filter("string", "%m/%d/%Y", session_tz=UTC_ZONE)
+    sql = _compile_window_filter("string", "%m/%d/%Y", report_tz=UTC_ZONE)
     assert "STRPTIME" in sql
     assert "MAKE_DATE(2024, 10, 11)" in sql
 
@@ -340,7 +342,7 @@ def test_strptime_non_lexicographic_produces_correct_predicate():
 @pytest.mark.parametrize("fmt", ["%d/%m/%Y", "%d-%b-%Y"])
 def test_strptime_non_iso_day_formats_use_strptime_parse(fmt):
     """Day formats that are not ISO-ordered must go through STRPTIME parse."""
-    sql = _compile_window_filter("string", fmt, session_tz=UTC_ZONE)
+    sql = _compile_window_filter("string", fmt, report_tz=UTC_ZONE)
     assert "STRPTIME" in sql
     assert "MAKE_DATE(2024, 10, 11)" in sql
 
@@ -348,7 +350,7 @@ def test_strptime_non_iso_day_formats_use_strptime_parse(fmt):
 @pytest.mark.parametrize("fmt", ["%Y%m%d", "%Y-%m-%d", "%Y/%m/%d"])
 def test_strptime_iso_day_formats_use_raw_comparison(fmt):
     """ISO-ordered day formats preserve pushdown via raw string comparison."""
-    sql = _compile_window_filter("string", fmt, session_tz=UTC_ZONE)
+    sql = _compile_window_filter("string", fmt, report_tz=UTC_ZONE)
     assert "STRPTIME" not in sql
 
 
@@ -359,7 +361,7 @@ def test_strptime_minute_uses_timestamp_comparison():
         column="log_ts",
         start="2024-10-11T03:00:00",
         end="2025-07-31T14:00:00",
-        session_tz=UTC_ZONE,
+        report_tz=UTC_ZONE,
     )
     assert "STRPTIME" in sql
     assert "MAKE_TIMESTAMPTZ" in sql
@@ -372,7 +374,8 @@ def test_strptime_day_bucket():
         table,
         field_ir=field,
         window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="day"),
-        session_tz=UTC_ZONE,
+        report_tz=UTC_ZONE,
+        datasource_read_tz=UTC_ZONE,
     )
     sql = ibis.duckdb.connect(":memory:").compile(result)
     assert "STRPTIME" in sql
@@ -385,7 +388,8 @@ def test_strptime_hour_bucket():
         table,
         field_ir=field,
         window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="day"),
-        session_tz=UTC_ZONE,
+        report_tz=UTC_ZONE,
+        datasource_read_tz=UTC_ZONE,
     )
     sql = ibis.duckdb.connect(":memory:").compile(result)
     assert "STRPTIME" in sql
@@ -398,20 +402,21 @@ def test_strptime_minute_bucket():
         table,
         field_ir=field,
         window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="hour"),
-        session_tz=UTC_ZONE,
+        report_tz=UTC_ZONE,
+        datasource_read_tz=UTC_ZONE,
     )
     sql = ibis.duckdb.connect(":memory:").compile(result)
     assert "STRPTIME" in sql
 
 
-def test_strptime_session_tz_none_raises():
-    """Sub-day strptime formats require a session timezone for parsed comparison."""
-    with pytest.raises(WindowInvalidError, match="session timezone"):
+def test_strptime_report_tz_none_raises():
+    """Sub-day strptime formats require a report timezone for parsed comparison."""
+    with pytest.raises(WindowInvalidError, match="report timezone"):
         _compile_window_filter(
             "string",
             "%Y-%m-%d %H:%M",
             column="log_ts",
-            session_tz=None,
+            report_tz=None,
         )
 
 
@@ -468,7 +473,8 @@ def test_hour_only_bucket_grain_matches_field():
         table,
         field_ir=field,
         window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="hour"),
-        session_tz=UTC_ZONE,
+        report_tz=UTC_ZONE,
+        datasource_read_tz=UTC_ZONE,
         dataset_ir=_hour_bucket_dataset(),
     )
     sql = ibis.duckdb.connect(":memory:").compile(result)
@@ -483,7 +489,8 @@ def test_hour_only_bucket_grain_coarser_uses_prefix_date():
         table,
         field_ir=field,
         window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="day"),
-        session_tz=UTC_ZONE,
+        report_tz=UTC_ZONE,
+        datasource_read_tz=UTC_ZONE,
         dataset_ir=_hour_bucket_dataset(),
     )
     sql = ibis.duckdb.connect(":memory:").compile(result)
@@ -499,7 +506,8 @@ def test_hour_only_bucket_grain_finer_raises():
             table,
             field_ir=field,
             window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="minute"),
-            session_tz=UTC_ZONE,
+            report_tz=UTC_ZONE,
+            datasource_read_tz=UTC_ZONE,
             dataset_ir=_hour_bucket_dataset(),
         )
 
@@ -513,7 +521,8 @@ def test_unresolvable_string_format_raises():
             table,
             field_ir=field,
             window=AbsoluteWindow(start="2024-10-11", end="2025-07-31", grain="day"),
-            session_tz=UTC_ZONE,
+            report_tz=UTC_ZONE,
+            datasource_read_tz=UTC_ZONE,
         )
 
 
@@ -622,7 +631,7 @@ def test_ensure_bucket_start_timestamp_skips_none_grain():
 # ---------------------------------------------------------------------------
 
 
-def test_ensure_bucket_start_timestamp_tz_aware_utc_to_session_tz():
+def test_ensure_bucket_start_timestamp_tz_aware_utc_to_report_tz():
     """UTC-aware bucket_start is converted to session-local naive."""
     shanghai = ZoneInfo("Asia/Shanghai")
     utc = ZoneInfo("UTC")
@@ -637,7 +646,7 @@ def test_ensure_bucket_start_timestamp_tz_aware_utc_to_session_tz():
         time_meta=time_meta,
         dataset_ir=FakeDataset([]),
         grain=Grain(count=1, unit="week"),
-        session_tz=shanghai,
+        report_tz=shanghai,
     )
     assert result.dtype == "datetime64[ns]"
     assert result.iloc[0] == pd.Timestamp("2026-05-25 00:00:00")
@@ -658,7 +667,7 @@ def test_ensure_bucket_start_timestamp_tz_aware_non_utc():
         time_meta=time_meta,
         dataset_ir=FakeDataset([]),
         grain=Grain(count=1, unit="week"),
-        session_tz=shanghai,
+        report_tz=shanghai,
     )
     assert result.dtype == "datetime64[ns]"
     assert result.iloc[0] == pd.Timestamp("2026-05-25 00:00:00")
@@ -674,13 +683,13 @@ def test_ensure_bucket_start_timestamp_tz_naive_unchanged():
         time_meta=time_meta,
         dataset_ir=FakeDataset([]),
         grain=Grain(count=1, unit="week"),
-        session_tz=shanghai,
+        report_tz=shanghai,
     )
     assert result is series
 
 
-def test_ensure_bucket_start_timestamp_no_session_tz():
-    """Without session_tz, tz-aware bucket_start is returned unchanged."""
+def test_ensure_bucket_start_timestamp_no_report_tz():
+    """Without report_tz, tz-aware bucket_start is returned unchanged."""
     utc = ZoneInfo("UTC")
     series = pd.Series(
         [pd.Timestamp("2026-05-24 16:00:00", tz=utc)],
@@ -711,14 +720,14 @@ def test_ensure_bucket_start_timestamp_dst_transition():
         time_meta=time_meta,
         dataset_ir=FakeDataset([]),
         grain=Grain(count=1, unit="day"),
-        session_tz=eastern,
+        report_tz=eastern,
     )
     assert result.dtype == "datetime64[ns]"
     assert result.iloc[0] == pd.Timestamp("2026-03-08 03:00:00")
 
 
-def test_ensure_bucket_start_timestamp_utc_session_tz():
-    """When session_tz is UTC, tz_convert is a no-op; result is naive UTC."""
+def test_ensure_bucket_start_timestamp_utc_report_tz():
+    """When report_tz is UTC, tz_convert is a no-op; result is naive UTC."""
     utc = ZoneInfo("UTC")
     series = pd.Series(
         [pd.Timestamp("2026-05-24 16:00:00", tz=utc)],
@@ -730,7 +739,7 @@ def test_ensure_bucket_start_timestamp_utc_session_tz():
         time_meta=time_meta,
         dataset_ir=FakeDataset([]),
         grain=Grain(count=1, unit="week"),
-        session_tz=utc,
+        report_tz=utc,
     )
     assert result.dtype == "datetime64[ns]"
     assert result.iloc[0] == pd.Timestamp("2026-05-24 16:00:00")

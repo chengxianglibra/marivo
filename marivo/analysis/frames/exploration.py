@@ -38,7 +38,10 @@ class ExplorationResult(BaseFrame):
     meta: ExplorationResultMeta
 
     def _repr_identity(self) -> str:
-        return f"ExplorationResult ref={self.meta.ref} rows={self.meta.row_count}"
+        return (
+            f"ExplorationResult ref={self.meta.ref} "
+            f"source={self.meta.source_kind} rows={self.meta.row_count}"
+        )
 
     def to_pandas(self) -> pd.DataFrame:
         """Return a recursively isolated copy of the wrapped DataFrame."""

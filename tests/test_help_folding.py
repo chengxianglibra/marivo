@@ -163,6 +163,7 @@ def test_analysis_fold_partition() -> None:
         "AttributionFrame",
         "BaseFrame",
         "ComponentFrame",
+        "CoverageFrame",
         "DeltaFrame",
         "ForecastFrame",
         "MetricFrame",

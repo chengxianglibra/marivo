@@ -138,6 +138,9 @@ class Session:
         "_name",
         "_project_root",
         "_question",
+        "_report_tz_name",
+        "_report_tz_resolution",
+        "_report_tz_warning",
         "_store",
         "_tz",
         "_updated_at",
@@ -156,7 +159,10 @@ class Session:
         layout: PersistenceLayout,
         semantic_catalog: SemanticCatalog,
         store: SessionStore,
-        tz: tzinfo | None = None,
+        report_tz: tzinfo | None = None,
+        report_tz_name: str | None = None,
+        report_tz_resolution: str | None = None,
+        report_tz_warning: str | None = None,
         default_calendar: str | None = None,
         calendars: Any = None,
         judgment_store: JudgmentStore | None = None,
@@ -173,7 +179,27 @@ class Session:
         self._layout = layout
         self._catalog = semantic_catalog
         self._store = store
-        self._tz = tz if tz is not None else resolve_system_timezone().tz
+        if report_tz is not None:
+            self._tz = report_tz
+            self._report_tz_name = report_tz_name if report_tz_name is not None else str(report_tz)
+            self._report_tz_resolution = (
+                report_tz_resolution if report_tz_resolution is not None else "iana"
+            )
+            self._report_tz_warning = report_tz_warning
+        else:
+            resolved_report_tz = resolve_system_timezone()
+            self._tz = resolved_report_tz.tz
+            self._report_tz_name = (
+                report_tz_name if report_tz_name is not None else resolved_report_tz.name
+            )
+            self._report_tz_resolution = (
+                report_tz_resolution
+                if report_tz_resolution is not None
+                else resolved_report_tz.resolution
+            )
+            self._report_tz_warning = (
+                report_tz_warning if report_tz_warning is not None else resolved_report_tz.warning
+            )
         self._default_calendar = default_calendar
         self._calendars = calendars
         self._judgment_store = judgment_store
@@ -231,6 +257,22 @@ class Session:
     @property
     def tz(self) -> tzinfo:
         return self._tz
+
+    @property
+    def report_tz(self) -> tzinfo:
+        return self._tz
+
+    @property
+    def report_tz_name(self) -> str:
+        return self._report_tz_name
+
+    @property
+    def report_tz_resolution(self) -> str:
+        return self._report_tz_resolution
+
+    @property
+    def report_tz_warning(self) -> str | None:
+        return self._report_tz_warning
 
     @property
     def default_calendar(self) -> str | None:

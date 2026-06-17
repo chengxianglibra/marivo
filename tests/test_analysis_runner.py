@@ -325,7 +325,8 @@ def test_apply_time_series_bucket_adds_bucket_start(tmp_path):
         ds_adapter.fn(con),
         field_ir=ds_adapter.fields["created_at"],
         window=AbsoluteWindow(start="2026-05-01", end="2026-05-31", grain="day"),
-        session_tz=ZoneInfo("UTC"),
+        report_tz=ZoneInfo("UTC"),
+        datasource_read_tz=ZoneInfo("UTC"),
     )
     assert "bucket_start" in bucketed.columns
     df = bucketed.order_by("created_at").execute()
@@ -333,7 +334,7 @@ def test_apply_time_series_bucket_adds_bucket_start(tmp_path):
     assert str(df.iloc[0]["bucket_start"]) == "2026-05-01 00:00:00"
 
 
-def test_apply_time_series_bucket_day_respects_session_tz_for_timestamp(tmp_path):
+def test_apply_time_series_bucket_day_respects_report_tz_for_timestamp(tmp_path):
     sp = _bootstrap_project(
         tmp_path, time_field_data_type="timestamp", time_field_timezone="Asia/Shanghai"
     )
@@ -350,7 +351,8 @@ def test_apply_time_series_bucket_day_respects_session_tz_for_timestamp(tmp_path
         ds_adapter.fn(con),
         field_ir=ds_adapter.fields["created_at"],
         window=AbsoluteWindow(start="2026-05-01", end="2026-05-01", grain="day"),
-        session_tz=ZoneInfo("Asia/Shanghai"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
     df = bucketed.order_by("created_at").execute()
     assert [item.strftime("%Y-%m-%d") for item in df["bucket_start"]] == [

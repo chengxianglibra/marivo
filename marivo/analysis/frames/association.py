@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.render import format_bounded_card, result_repr
 
 
 class AssociationResultSummary(BaseModel):
@@ -22,6 +23,27 @@ class AssociationResultSummary(BaseModel):
     dropped_row_count: int
     produced_by_job: str | None
     lineage_oneliner: str
+
+    def _repr_identity(self) -> str:
+        return (
+            f"AssociationResultSummary ref={self.ref} method={self.method} r={self.correlation:.2f}"
+        )
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=(
+                f"r={self.correlation:.2f} method={self.method} "
+                f"aligned={self.aligned_row_count} dropped={self.dropped_row_count}"
+            ),
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 class AssociationResultMeta(BaseFrameMeta):
@@ -45,7 +67,10 @@ class AssociationResult(BaseFrame):
     meta: AssociationResultMeta
 
     def _repr_identity(self) -> str:
-        return f"AssociationResult ref={self.meta.ref} rows={self.meta.row_count}"
+        return (
+            f"AssociationResult ref={self.meta.ref} method={self.meta.method} "
+            f"r={self.meta.correlation:.2f} rows={self.meta.row_count}"
+        )
 
     def summary(self) -> AssociationResultSummary:  # type: ignore[override]
         step_intents = [step.intent for step in self.meta.lineage.steps]
