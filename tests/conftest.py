@@ -60,9 +60,8 @@ def semantic_project_factory(tmp_path):
             datasource_file.parent.mkdir(parents=True, exist_ok=True)
             datasource_file.write_text(
                 "import marivo.datasource as md\n"
-                f"{datasource_name} = md.DatasourceSpec(name={datasource_name!r}, "
-                "backend_type='duckdb', path=':memory:')\n"
-                f"md.datasource({datasource_name})\n"
+                f"md.duckdb(name={datasource_name!r}, "
+                "path=':memory:')\n"
             )
 
         project = SemanticProject(workspace_dir=effective_dir)
@@ -82,9 +81,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(

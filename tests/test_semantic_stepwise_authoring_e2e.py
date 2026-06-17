@@ -9,6 +9,7 @@ from pathlib import Path
 import ibis
 
 import marivo.datasource as md
+from marivo.datasource.authoring import _DuckDBSpec
 from marivo.semantic.reader import SemanticProject
 
 
@@ -29,7 +30,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     # Register the datasource in the project
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 

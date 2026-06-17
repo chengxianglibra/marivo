@@ -418,8 +418,7 @@ def test_promote_metric_frame_rejects_missing_axis_column():
         )
 
     assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["missing_columns"] == ["country"]
-    assert exc_info.value.details["missing"] == []
+    assert exc_info.value.details["missing"] == ["country"]
     assert exc_info.value.details["available_columns"] == ["value"]
     assert exc_info.value.details["source_refs"] == [scratch.ref]
 
@@ -493,120 +492,6 @@ def test_promote_metric_frame_rejects_time_series_without_time_axis():
     assert exc_info.value.details["target_kind"] == "metric_frame"
     assert exc_info.value.details["missing"] == ["time_axis"]
     assert exc_info.value.details["available_columns"] == ["value"]
-
-
-def test_promote_metric_frame_accepts_time_axis_column_ref_mapping():
-    session = mv.session.get_or_create(name="demo")
-    scratch = session.from_pandas(
-        pd.DataFrame({"bucket_start": ["2026-07-01", "2026-08-01"], "value": [10.0, 5.0]}),
-    )
-    created_at = SemanticRef("sales.orders.created_at", kind=SemanticKind.TIME_DIMENSION)
-
-    metric = session.promote_metric_frame(
-        scratch,
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-        semantic_kind="time_series",
-        measure_column="value",
-        time_axis={"bucket_start": created_at},
-        semantic_model="sales",
-    )
-
-    assert metric.meta.axes == {
-        "time": {"role": "time", "column": "bucket_start", "ref": "sales.orders.created_at"}
-    }
-
-
-def test_promote_metric_frame_rejects_bare_time_axis_ref():
-    session = mv.session.get_or_create(name="demo")
-    scratch = session.from_pandas(
-        pd.DataFrame({"bucket_start": ["2026-07-01"], "value": [10.0]}),
-    )
-
-    with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
-        session.promote_metric_frame(
-            scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-            semantic_kind="time_series",
-            measure_column="value",
-            time_axis=SemanticRef("sales.orders.created_at", kind=SemanticKind.TIME_DIMENSION),
-            semantic_model="sales",
-        )
-
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == [
-        "time_axis_requires_column:sales.orders.created_at"
-    ]
-
-
-def test_promote_metric_frame_rejects_time_axis_multi_key_mapping():
-    session = mv.session.get_or_create(name="demo")
-    scratch = session.from_pandas(
-        pd.DataFrame({"bucket_start": ["2026-07-01"], "value": [10.0]}),
-    )
-
-    with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
-        session.promote_metric_frame(
-            scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-            semantic_kind="time_series",
-            measure_column="value",
-            time_axis={
-                "bucket_start": SemanticRef(
-                    "sales.orders.created_at", kind=SemanticKind.TIME_DIMENSION
-                ),
-                "extra": SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION),
-            },
-            semantic_model="sales",
-        )
-
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["time_axis_single_entry:2"]
-
-
-def test_promote_metric_frame_rejects_time_axis_mapping_missing_column():
-    session = mv.session.get_or_create(name="demo")
-    scratch = session.from_pandas(pd.DataFrame({"value": [10.0]}))
-
-    with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
-        session.promote_metric_frame(
-            scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-            semantic_kind="time_series",
-            measure_column="value",
-            time_axis={
-                "bucket_start": SemanticRef(
-                    "sales.orders.created_at", kind=SemanticKind.TIME_DIMENSION
-                )
-            },
-            semantic_model="sales",
-        )
-
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["missing_columns"] == ["bucket_start"]
-    assert exc_info.value.details["missing"] == []
-    assert exc_info.value.details["available_columns"] == ["value"]
-
-
-def test_promote_metric_frame_rejects_metric_ref_as_time_axis_mapping():
-    session = mv.session.get_or_create(name="demo")
-    scratch = session.from_pandas(
-        pd.DataFrame({"bucket_start": ["2026-07-01"], "value": [10.0]}),
-    )
-
-    with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
-        session.promote_metric_frame(
-            scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-            semantic_kind="time_series",
-            measure_column="value",
-            time_axis={"bucket_start": SemanticRef("sales.revenue", kind=SemanticKind.METRIC)},
-            semantic_model="sales",
-        )
-
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == [
-        "time_axis_ref_kind:bucket_start:sales.revenue:metric"
-    ]
 
 
 def test_promote_metric_frame_rejects_time_series_with_dimension_axes():
@@ -1038,8 +923,7 @@ def test_promote_delta_frame_rejects_missing_inherited_axis_column():
         )
 
     assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert exc_info.value.details["missing_columns"] == ["country"]
-    assert exc_info.value.details["missing"] == []
+    assert exc_info.value.details["missing"] == ["country"]
 
 
 def test_promote_delta_frame_rejects_asymmetric_window_grain():
@@ -1267,8 +1151,7 @@ def test_promote_attribution_frame_fails_for_missing_driver_column():
             contribution_column="contribution",
         )
 
-    assert exc_info.value.details["missing_columns"] == ["country"]
-    assert exc_info.value.details["missing"] == []
+    assert exc_info.value.details["missing"] == ["country"]
 
 
 def test_promote_attribution_frame_fails_for_non_numeric_contribution():

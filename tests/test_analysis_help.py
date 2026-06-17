@@ -463,9 +463,7 @@ def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
                 "    return orders.amount.sum()\n"
             ),
             "datasources/warehouse.py": (
-                "import marivo.datasource as md\n"
-                "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-                "md.datasource(warehouse)\n"
+                "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
             ),
         }
     )

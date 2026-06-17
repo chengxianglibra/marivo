@@ -17,9 +17,7 @@ from marivo.analysis.publish import (
 # quoted datasource='...' usages).
 SALES_FILES = {
     "datasources/warehouse.py": (
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     ),
     "sales/__init__.py": "",
     "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",

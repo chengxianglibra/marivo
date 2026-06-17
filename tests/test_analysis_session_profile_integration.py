@@ -15,6 +15,14 @@ from marivo.analysis.errors import (
     DatasourceMissingError,
     NoBackendFactoryError,
 )
+from marivo.datasource.authoring import (
+    DatasourceSpec,
+    _ClickHouseSpec,
+    _DuckDBSpec,
+    _MySQLSpec,
+    _PostgresSpec,
+    _TrinoSpec,
+)
 from marivo.semantic.catalog import SemanticKind, SemanticRef
 from tests.conftest import bootstrap_sales_project
 
@@ -38,8 +46,18 @@ def _seed(con: ibis.BaseBackend) -> None:
     con.raw_sql("INSERT INTO orders VALUES (1, 10.0, DATE '2026-01-01')")
 
 
-def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpec:
-    return md.DatasourceSpec(name=name, backend_type=backend_type, **fields)
+def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
+    if backend_type == "duckdb":
+        return _DuckDBSpec(name=name, **fields)
+    if backend_type == "trino":
+        return _TrinoSpec(name=name, **fields)
+    if backend_type == "mysql":
+        return _MySQLSpec(name=name, **fields)
+    if backend_type == "postgres":
+        return _PostgresSpec(name=name, **fields)
+    if backend_type == "clickhouse":
+        return _ClickHouseSpec(name=name, **fields)
+    raise AssertionError(f"unexpected backend_type: {backend_type}")
 
 
 def test_session_uses_datasource_when_no_explicit_backend(tmp_path: Path, fake_home: Path) -> None:

@@ -44,7 +44,6 @@ from marivo.semantic.errors import (
 from marivo.semantic.ir import (
     DimensionIR,
     EntityIR,
-    JoinKey,
     MetricIR,
     SymbolKind,
 )
@@ -676,7 +675,7 @@ class SemanticProject:
         *,
         from_entity: str,
         to_entity: str,
-        keys: Sequence[JoinKey | tuple[str, str]],
+        keys: Sequence[tuple[str, str]],
         scope: ScanScope | None = None,
     ) -> RelationshipBrief:
         """Prepare a relationship authoring brief with join-key probe evidence."""

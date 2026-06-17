@@ -76,8 +76,7 @@ def test_py_file_datasource_visible_via_list(
     ds_dir = tmp_path / "models" / "datasources"
     ds_dir.mkdir(parents=True)
     (ds_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
 
     monkeypatch.setattr("marivo.project.Path.cwd", lambda: tmp_path)

@@ -100,8 +100,8 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
 def test_duplicate_global_datasource_declaration_must_match(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "datasources/warehouse_a.py": 'import marivo.datasource as md\nmd.datasource(name="warehouse", backend_type="duckdb", path=":memory:")\n',
-            "datasources/warehouse_b.py": 'import marivo.datasource as md\nmd.datasource(name="warehouse", backend_type="duckdb", path="/tmp/other.duckdb")\n',
+            "datasources/warehouse_a.py": 'import marivo.datasource as md\nmd.duckdb(name="warehouse", path=":memory:")\n',
+            "datasources/warehouse_b.py": 'import marivo.datasource as md\nmd.duckdb(name="warehouse", path="/tmp/other.duckdb")\n',
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "finance/_domain.py": 'import marivo.semantic as ms\nms.domain(name="finance")\n',
         }
@@ -1027,7 +1027,7 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                'md.datasource(name="warehouse", backend_type="trino", host="h", catalog="c")\n'
+                'md.trino(name="warehouse", host="h", catalog="c")\n'
             ),
             "sales/_domain.py": (
                 'import marivo.semantic as ms\nms.domain(name="sales", default=True)\n'
@@ -1095,7 +1095,7 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                'md.datasource(name="warehouse", backend_type="trino", host="h", catalog="c")\n'
+                'md.trino(name="warehouse", host="h", catalog="c")\n'
             ),
             "sales/_domain.py": (
                 'import marivo.semantic as ms\nms.domain(name="sales", default=True)\n'

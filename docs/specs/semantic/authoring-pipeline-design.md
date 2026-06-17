@@ -220,8 +220,8 @@ orders = ms.entity(
     },
 )
 
-@ms.time_dimension(entity=orders, name="log_date", granularity="day",
-               parse=ms.strptime("%Y%m%d", data_type="string"))
+@ms.time_dimension(dataset=orders, name="log_date", data_type="string",
+               granularity="day", date_format="%Y%m%d")
 def log_date(table):
     return table.dt
 

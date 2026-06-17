@@ -48,7 +48,6 @@ from marivo.semantic.dtos import (
     VersioningHints,
     derive_brief_status,
 )
-from marivo.semantic.ir import JoinKey
 from marivo.semantic.reader import SemanticProject, _require_registry
 
 # Module-level default for ScanScope to avoid B008 function-call-in-default-argument
@@ -675,7 +674,7 @@ def prepare_relationship(
     *,
     from_entity: str,
     to_entity: str,
-    keys: Sequence[JoinKey | tuple[str, str]],
+    keys: Sequence[tuple[str, str]],
     scope: ScanScope = _DEFAULT_SCOPE,
 ) -> RelationshipBrief:
     """Prepare a relationship authoring brief with join-key probe evidence.
@@ -687,8 +686,8 @@ def prepare_relationship(
         project: The loaded semantic project.
         from_entity: Qualified entity reference (e.g. ``"sales.orders"``).
         to_entity: Qualified entity reference (e.g. ``"sales.customers"``).
-        keys: Join-key pairs as ``JoinKey(from_key, to_key)`` objects or
-            ``(from_key, to_key)`` tuples, matching ``ms.join_on(left, right)``.
+        keys: Join-key pairs as ``(from_key, to_key)`` tuples, matching
+            ``ms.join_on(left, right)``.
         scope: Bounded scan configuration.
 
     Returns:
@@ -696,13 +695,10 @@ def prepare_relationship(
     """
     from marivo import datasource as md
 
-    normalized_keys = tuple(
-        k if isinstance(k, JoinKey) else JoinKey(from_key=k[0], to_key=k[1]) for k in keys
-    )
     from_ir, from_source = _require_entity(project, from_entity)
     to_ir, to_source = _require_entity(project, to_entity)
-    from_keys = tuple(k.from_key for k in normalized_keys)
-    to_keys = tuple(k.to_key for k in normalized_keys)
+    from_keys = tuple(k[0] for k in keys)
+    to_keys = tuple(k[1] for k in keys)
     _require_keys(project, from_keys + to_keys)
     probe = md.probe_join_keys(
         from_side=JoinSide(
@@ -718,7 +714,7 @@ def prepare_relationship(
         status=derive_brief_status(issues=issues, questions=questions),
         from_entity=from_entity,
         to_entity=to_entity,
-        keys=normalized_keys,
+        keys=tuple(keys),
         probe=probe,
         to_entity_versioning=None,
         matches=_relationship_matches(project, from_entity, to_entity, from_keys, to_keys),

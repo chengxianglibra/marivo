@@ -280,9 +280,8 @@ _ENTITY_DATASOURCE_DB_FALLBACK_PY = textwrap.dedent("""\
 
 _DATASOURCE_WITH_DATABASE_PY = (
     "import marivo.datasource as md\n"
-    "warehouse = md.DatasourceSpec("
-    "name='warehouse', backend_type='duckdb', path=':memory:', database='sales_mart')\n"
-    "md.datasource(warehouse)\n"
+    "md.duckdb("
+    "name='warehouse', path=':memory:', extra={'database': 'sales_mart'})\n"
 )
 
 

@@ -97,16 +97,13 @@ Declare a datasource in `models/datasources/warehouse.py`:
 ```python
 import marivo.datasource as md
 
-md.datasource(
-    md.DatasourceSpec(
-        name="warehouse",
-        backend_type="duckdb",
-        path="warehouse.duckdb",
-        ai_context={
-            "business_definition": "Local DuckDB warehouse for sales analysis.",
-            "guardrails": ["Use only for development or approved local analysis."],
-        },
-    )
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context={
+        "business_definition": "Local DuckDB warehouse for sales analysis.",
+        "guardrails": ["Use only for development or approved local analysis."],
+    },
 )
 ```
 
@@ -302,14 +299,14 @@ Marivo provides several capabilities to help agents author correctly:
 ```python
 import marivo.datasource as md
 
-md.datasource(md.DatasourceSpec(name="warehouse", backend_type="duckdb", path="warehouse.duckdb"))
+md.duckdb(name="warehouse", path="warehouse.duckdb")
 
 # Sensitive fields must use _env — resolved from environment variables at runtime
-md.datasource(md.DatasourceSpec(
-    name="trino_prod", backend_type="trino",
+md.trino(
+    name="trino_prod",
     host="trino.internal", user_env="TRINO_USER", password_env="TRINO_PASSWORD",
     catalog="analytics",
-))
+)
 ```
 
 ### Domains, Entities, and Metrics

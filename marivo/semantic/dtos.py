@@ -9,7 +9,6 @@ from marivo.render import format_bounded_card, result_repr
 from marivo.semantic.ir import (
     CsvSourceIR,
     EntitySourceIR,
-    JoinKey,
     ParquetSourceIR,
     TableSourceIR,
 )
@@ -472,10 +471,9 @@ class RelationshipBrief(_BriefResult):
     status: BriefStatus = field(metadata={"description": _STATUS_DOC})
     from_entity: str = field(metadata={"description": "From-side entity ref."})
     to_entity: str = field(metadata={"description": "To-side entity ref."})
-    keys: tuple[JoinKey, ...] = field(
+    keys: tuple[tuple[str, str], ...] = field(
         metadata={
-            "description": "Join-key pairs as JoinKey(from_key, to_key) matching ms.join_on(left, right). "
-            "Plain (from_key, to_key) tuples are normalized to JoinKey at the boundary."
+            "description": "Join-key pairs as (from_key, to_key) matching ms.join_on(left, right)."
         }
     )
     probe: JoinKeyProbe = field(  # from marivo.datasource.scan

@@ -1075,7 +1075,7 @@ class Session:
         semantic_kind: SemanticKind | None = None,
         measure_column: str | None = None,
         axes: dict[str, DimensionAnchorInput] | None = None,
-        time_axis: str | dict[str, DimensionAnchorInput] | None = None,
+        time_axis: str | DimensionAnchorInput | None = None,
         semantic_model: str | None = None,
         window: object | None = None,
         where: dict[str, Any] | None = None,
@@ -1101,11 +1101,8 @@ class Session:
             semantic_kind: One of "scalar", "time_series", "segmented", "panel".
             measure_column: Column name holding the numeric measure values.
             axes: Mapping of column name to a catalog dimension ref for dimension axes.
-            time_axis: Either a column-name string (when the dataframe column name is
-                also the identifier) or a single-entry ``{column: ref}`` mapping that
-                binds the dataframe time column to a catalog time-dimension ref,
-                mirroring ``axes``. A bare ref is rejected because it does not name a
-                dataframe column. Falls back to ``policy.semantic_anchors.time_axis``.
+            time_axis: Column name or catalog dimension ref for the time dimension.
+                Falls back to ``policy.semantic_anchors.time_axis``.
             semantic_model: Name of the semantic model this metric belongs to.
             window: Absolute time window specification.
             where: Filter predicates applied to the observation.
@@ -1126,9 +1123,7 @@ class Session:
             ...     semantic_kind="time_series",
             ...     measure_column="total_revenue",
             ...     semantic_model="sales",
-            ...     time_axis={
-            ...         "bucket_start": session.catalog.get("sales.orders.created_at").ref
-            ...     },
+            ...     time_axis="order_date",
             ... )
         """
         from marivo.analysis.escape_hatch import promote_metric_frame

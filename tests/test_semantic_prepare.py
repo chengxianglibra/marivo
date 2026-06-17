@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import marivo.semantic as ms
+from marivo.datasource.authoring import _DuckDBSpec
 from marivo.semantic.errors import SemanticLoadFailed
 
 
@@ -156,7 +157,7 @@ def test_prepare_entity_collects_metadata_profiles_and_matches(
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -193,7 +194,7 @@ def test_prepare_entity_warns_on_shadowing_column(tmp_path: Path, semantic_proje
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -227,7 +228,7 @@ def test_prepare_dimension_blocks_unknown_column(tmp_path: Path, semantic_projec
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -270,7 +271,7 @@ def test_prepare_dimension_warns_on_shadowing_column(
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -327,7 +328,7 @@ def test_prepare_time_dimension_warns_on_shadowing_column(
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -373,7 +374,7 @@ def test_prepare_metric_warns_on_shadowing_measure_column(
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -419,7 +420,7 @@ def test_prepare_relationship_uses_keys_parameter(tmp_path: Path, semantic_proje
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -452,9 +453,7 @@ def test_prepare_relationship_uses_keys_parameter(tmp_path: Path, semantic_proje
     )
 
     assert brief.status == "sufficient"
-    assert brief.keys == (
-        ms.JoinKey(from_key="sales.orders.customer_id", to_key="sales.customers.customer_id"),
-    )
+    assert brief.keys == (("sales.orders.customer_id", "sales.customers.customer_id"),)
     assert brief.probe.sampled_key_count == 3
     assert brief.probe.matched_key_count == 2
 
@@ -473,7 +472,7 @@ def test_prepare_cross_entity_metric_blocks_unreachable_entity(
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -570,7 +569,7 @@ def test_prepare_measure_profiles_numeric_column(tmp_path: Path, semantic_projec
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -611,7 +610,7 @@ def test_prepare_time_dimension_emits_variant_candidates(
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -651,7 +650,7 @@ def test_prepare_measure_blocks_unknown_column(tmp_path: Path, semantic_project_
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(

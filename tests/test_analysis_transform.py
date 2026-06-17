@@ -49,8 +49,7 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -1507,8 +1506,7 @@ def _bootstrap_bandwidth_for_rollup(tmp_path):
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(

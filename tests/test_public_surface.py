@@ -195,7 +195,6 @@ DATASOURCE_PUBLIC = {
     "DatasourceIR",
     "DatasourceRef",
     "DatasourceSourceLocation",
-    "DatasourceSpec",
     "DatasourceSummary",
     "DatasourceTestResult",
     "JoinKeyProbe",
@@ -209,10 +208,11 @@ DATASOURCE_PUBLIC = {
     "ScanReport",
     "ScanScope",
     "TableMetadata",
+    "clickhouse",
     "connect",
     "csv",
-    "datasource",
     "describe",
+    "duckdb",
     "help",
     "help_text",
     "inspect_columns",
@@ -220,7 +220,9 @@ DATASOURCE_PUBLIC = {
     "inspect_table",
     "list",
     "load",
+    "mysql",
     "parquet",
+    "postgres",
     "preview",
     "probe_join_keys",
     "ref",
@@ -228,6 +230,7 @@ DATASOURCE_PUBLIC = {
     "remove",
     "table",
     "test",
+    "trino",
 }
 
 

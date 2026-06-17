@@ -210,7 +210,6 @@ def _provenance_text(provenance: SqlProvenance | None) -> str:
 
 def _common_detail_lines(
     *,
-    ref: SemanticRef,
     context: AiContextView,
     python_symbol: str,
     source_location: SourceLocation,
@@ -245,7 +244,6 @@ def _common_detail_lines(
             f"parents: {_format_refs(parents)}",
             f"children: {_format_refs(children)}",
             f"dependents: {_format_refs(dependents)}",
-            f"use: catalog.get({ref.ref!r}) to inspect; session.observe(catalog.get({ref.ref!r})) to analyze",
         )
     )
     return lines
@@ -289,7 +287,6 @@ class DatasourceDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -319,7 +316,6 @@ class DomainDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -346,7 +342,6 @@ class EntityDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -377,7 +372,6 @@ class DimensionDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -403,7 +397,6 @@ class MeasureDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -436,7 +429,6 @@ class TimeDimensionDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -520,7 +512,6 @@ class SimpleMetricDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -582,7 +573,6 @@ class DerivedMetricDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -643,7 +633,6 @@ class RelationshipDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
-            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -851,17 +840,7 @@ class SemanticObjectList:
         for obj in self._items:
             kind_str = str(obj.kind)
             ref_str = obj.ref.ref
-            # When listing under an entity parent, annotate metrics whose ref
-            # is at the domain level to prevent agents from constructing an
-            # incorrect entity-qualified reference path (e.g. domain.entity.metric).
-            if (
-                obj.kind == SemanticKind.METRIC
-                and self._parent_label is not None
-                and not ref_str.startswith(self._parent_label + ".")
-            ):
-                lines.append(f"  {kind_str:<12}{ref_str}  (domain-level ref)")
-            else:
-                lines.append(f"  {kind_str:<12}{ref_str}")
+            lines.append(f"  {kind_str:<12}{ref_str}")
 
         lines.append("")
         lines.append("next steps:")

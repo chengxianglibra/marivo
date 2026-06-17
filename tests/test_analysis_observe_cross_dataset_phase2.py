@@ -30,9 +30,7 @@ def _bootstrap_snapshot_as_of(tmp_path):
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -167,9 +165,7 @@ def _bootstrap_snapshot_latest_no_root_time(tmp_path):
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -270,9 +266,7 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -399,9 +393,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -490,9 +482,7 @@ def _bootstrap_derived_ratio(tmp_path):
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -565,9 +555,7 @@ def _bootstrap_axis_unreachable(tmp_path):
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -654,9 +642,7 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -753,14 +739,10 @@ def test_derived_components_can_span_datasources(tmp_path):
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (datasource_dir / "analytics.py").write_text(
-        "import marivo.datasource as md\n"
-        "analytics = md.DatasourceSpec(name='analytics', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(analytics)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='analytics', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(

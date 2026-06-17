@@ -89,7 +89,7 @@ class DatasourceSecretInPlaintextError(DatasourceError):
             ),
             "fix_snippet": (
                 "import marivo.datasource as md\n"
-                f'datasource = md.DatasourceSpec(name={ds_ref!r}, backend_type="...", ..., {env_ref}="<BACKEND_TYPE>_{field_ref.upper()}")\n'
+                f'datasource = md.TrinoSpec(name={ds_ref!r}, host="...", catalog="...", {env_ref}="<ENV_VAR>")\n'
                 "md.datasource(datasource)\n"
                 f'# e.g. export TRINO_{field_ref.upper()}="<your secret>"'
             ),
@@ -140,13 +140,7 @@ class DatasourceMissingError(DatasourceError):
     def _template_fields(self) -> dict[str, str]:
         datasource = self.details.get("datasource")
         available = self.details.get("available")
-        backend_type = self.details.get("backend_type")
         ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
-        bt_arg = (
-            f'backend_type="{backend_type}", '
-            if isinstance(backend_type, str) and backend_type
-            else 'backend_type="<backend_type>", '
-        )
         available_line = (
             f"datasource not found; configured datasources: {available}."
             if isinstance(available, list) and available
@@ -158,9 +152,9 @@ class DatasourceMissingError(DatasourceError):
             "fix_snippet": (
                 "import marivo.datasource as md\n"
                 "md.register(\n"
-                f'    md.DatasourceSpec(name="{ds_ref}", {bt_arg}host="...", port=..., user_env="USER_VAR")\n'
+                f'    md.DuckDBSpec(name="{ds_ref}", path=":memory:")\n'
                 ")\n"
-                "# Sensitive fields go via *_env on DatasourceSpec."
+                "# For remote systems, use md.TrinoSpec, md.MySQLSpec, md.PostgresSpec, or md.ClickHouseSpec."
             ),
             "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }

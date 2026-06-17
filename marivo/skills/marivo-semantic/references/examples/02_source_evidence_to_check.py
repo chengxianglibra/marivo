@@ -14,6 +14,7 @@ import ibis
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.authoring import _DuckDBSpec
 
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
@@ -36,7 +37,7 @@ with tempfile.TemporaryDirectory() as tmp:
     previous = Path.cwd()
     try:
         os.chdir(root)
-        md.register(md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)))
+        md.register(_DuckDBSpec(name="warehouse", path=str(db_path)))
 
         # prepare_entity resolves datasource backends internally
         brief = ms.prepare_entity(

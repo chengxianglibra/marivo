@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import marivo.datasource as md
+from marivo.datasource.authoring import _DuckDBSpec
 from marivo.semantic import ledger as lg
 
 
@@ -46,7 +47,7 @@ def test_verify_object_scoped_entity_preview_passes(
     con.create_table("orders", {"order_id": [1], "dt": ["20260612"]})
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -87,7 +88,7 @@ def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_proj
     )
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     return semantic_project_factory(
@@ -187,7 +188,7 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
     con.create_table("orders", {"order_id": [1], "amount": [100]})
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -246,7 +247,7 @@ def test_verify_dimension_no_auto_record(tmp_path: Path, semantic_project_factor
     con.create_table("orders", {"order_id": [1], "region": ["US"]})
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -281,7 +282,7 @@ def test_verify_derived_metric_auto_records_decomposition(
     con.create_table("orders", {"order_id": [1], "amount": [100]})
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
@@ -328,7 +329,7 @@ def test_verify_clears_readiness_unresolved_clarification(
     con.create_table("orders", {"order_id": [1], "amount": [100], "dt": ["20260610"]})
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(

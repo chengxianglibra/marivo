@@ -619,8 +619,7 @@ def semantic_project_factory(tmp_path):
         datasource_root = marivo_root / "datasources"
         datasource_root.mkdir(parents=True, exist_ok=True)
         (datasource_root / "wh.py").write_text(
-            "import marivo.datasource as md\n"
-            "md.datasource(name='wh', backend_type='duckdb', path=':memory:')\n"
+            "import marivo.datasource as md\nmd.duckdb(name='wh', path=':memory:')\n"
         )
         for rel, src in files.items():
             full = root / rel

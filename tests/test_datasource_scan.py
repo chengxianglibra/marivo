@@ -9,6 +9,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.authoring import _DuckDBSpec
 from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
 
 
@@ -62,7 +63,7 @@ def test_inspect_table_accepts_structured_source(tmp_path: Path) -> None:
     con.disconnect()
 
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
@@ -84,7 +85,7 @@ def test_inspect_columns_profiles_selected_columns(tmp_path: Path) -> None:
     )
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
@@ -114,7 +115,7 @@ def test_probe_join_keys_reports_match_and_cardinality(tmp_path: Path) -> None:
     con.create_table("customers", {"customer_id": [1, 2, 2, 5]})
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
@@ -143,7 +144,7 @@ def test_inspect_columns_warns_on_column_truncation(tmp_path: Path) -> None:
     con.create_table("wide_table", data)
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
