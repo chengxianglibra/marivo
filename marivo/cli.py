@@ -45,62 +45,47 @@ def init_project(force: bool = False, project_dir: Path | None = None) -> None:
     """Initialize a Marivo project in the given directory.
 
     Args:
-        force: If True, overwrite existing artifacts (except non-empty .marivo/
-            and invalid marivo.toml).
+        force: If True, delete existing artifacts and recreate them from
+            scratch. If False, existing artifacts produce a warning and are
+            skipped; only missing artifacts are created.
         project_dir: Target directory. Defaults to the current working directory.
 
     Raises:
-        SystemExit: With code 1 when artifacts exist and force is False,
-            when marivo.toml contains invalid TOML (even with force),
-            or when directory creation fails due to permissions.
+        SystemExit: With code 1 when marivo.toml contains invalid TOML and
+            force is False, or when directory creation fails due to permissions.
 
     Example:
         >>> init_project(project_dir=Path("/tmp/my-project"))
 
     Constraints:
-        Never removes .marivo/ if it contains any files. Never overwrites
-        marivo.toml if it contains invalid TOML. Symlink creation failures
+        When force is False, existing files and directories are never removed;
+        a per-artifact warning is printed instead. Symlink creation failures
         are non-fatal (warning printed, init continues).
     """
     project_dir = project_dir or Path.cwd()
     artifacts = _artifact_paths(project_dir)
     skills_src = _skills_source_dir()
 
-    # --- Detect existing artifacts ---
-    existing = [label for label, path in artifacts.items() if path.exists() or path.is_symlink()]
+    print(f"Initializing Marivo project in {project_dir}")
 
-    if existing and not force:
-        print(f"Marivo project artifacts already exist in {project_dir}:", file=sys.stderr)
-        for label in existing:
-            print(f"  {label}", file=sys.stderr)
-        print("Use --force to overwrite.", file=sys.stderr)
-        raise SystemExit(1)
-
-    # --- Guard: refuse to overwrite invalid marivo.toml ---
-    manifest_path = project_dir / PROJECT_MANIFEST
-    if manifest_path.is_file():
-        try:
-            with open(manifest_path, "rb") as f:
-                tomllib.load(f)
-        except tomllib.TOMLDecodeError:
-            print(
-                f"Error: {PROJECT_MANIFEST} exists but contains invalid TOML. "
-                "Fix or remove it manually before reinitializing.",
-                file=sys.stderr,
-            )
-            raise SystemExit(1) from None
-
-    # --- Force: remove conflicting artifacts ---
-    if existing and force:
-        for label in existing:
-            path = artifacts[label]
-            if label == ".marivo/" and any(path.rglob("*")):
-                # Skip if it has content (any file or nested entry)
+    # --- Guard: refuse to skip invalid marivo.toml without --force ---
+    if not force:
+        manifest_path = project_dir / PROJECT_MANIFEST
+        if manifest_path.is_file():
+            try:
+                with open(manifest_path, "rb") as f:
+                    tomllib.load(f)
+            except tomllib.TOMLDecodeError:
                 print(
-                    f"  Warning: {label} has content — skipping removal.",
+                    f"Error: {PROJECT_MANIFEST} exists but contains invalid TOML. "
+                    "Fix or remove it manually, or use --force to overwrite.",
                     file=sys.stderr,
                 )
-                continue
+                raise SystemExit(1) from None
+
+    # --- Force: remove existing artifacts ---
+    if force:
+        for _, path in artifacts.items():
             if path.is_symlink():
                 path.unlink()
             elif path.is_dir():
@@ -109,19 +94,30 @@ def init_project(force: bool = False, project_dir: Path | None = None) -> None:
                 path.unlink()
 
     # --- Create marivo.toml ---
-    project_name = project_dir.name
-    manifest_data = {"project": {"name": project_name}}
-    (project_dir / PROJECT_MANIFEST).write_text(tomli_w.dumps(manifest_data))
-    print(f"Initialized Marivo project in {project_dir}")
-    print(f"  Created {PROJECT_MANIFEST}")
+    manifest_path = project_dir / PROJECT_MANIFEST
+    if not manifest_path.exists():
+        project_name = project_dir.name
+        manifest_data = {"project": {"name": project_name}}
+        manifest_path.write_text(tomli_w.dumps(manifest_data))
+        print(f"  Created {PROJECT_MANIFEST}")
+    else:
+        print(f"  Warning: {PROJECT_MANIFEST} already exists — skipping", file=sys.stderr)
 
-    # --- Create marivo/ ---
-    (project_dir / AUTHORED_DIR).mkdir(exist_ok=True)
-    print(f"  Created {AUTHORED_DIR}/")
+    # --- Create models/ ---
+    models_path = project_dir / AUTHORED_DIR
+    if not models_path.exists():
+        models_path.mkdir(exist_ok=True)
+        print(f"  Created {AUTHORED_DIR}/")
+    else:
+        print(f"  Warning: {AUTHORED_DIR}/ already exists — skipping", file=sys.stderr)
 
     # --- Create .marivo/ ---
-    (project_dir / STATE_DIR).mkdir(exist_ok=True)
-    print(f"  Created {STATE_DIR}/")
+    state_path = project_dir / STATE_DIR
+    if not state_path.exists():
+        state_path.mkdir(exist_ok=True)
+        print(f"  Created {STATE_DIR}/")
+    else:
+        print(f"  Warning: {STATE_DIR}/ already exists — skipping", file=sys.stderr)
 
     # --- Install skills ---
     for agent_dir_name, agent_label in [
@@ -134,7 +130,14 @@ def init_project(force: bool = False, project_dir: Path | None = None) -> None:
             link_path = agent_skill_dir / skill_name
             source_path = skills_src / skill_name
             if link_path.exists() or link_path.is_symlink():
-                link_path.unlink()
+                if force:
+                    link_path.unlink()
+                else:
+                    print(
+                        f"  Warning: {agent_dir_name}/{skill_name} already exists — skipping",
+                        file=sys.stderr,
+                    )
+                    continue
             try:
                 link_path.symlink_to(source_path)
             except OSError as exc:
@@ -164,7 +167,7 @@ def main(argv: list[str] | None = None) -> None:
     init_parser.add_argument(
         "--force",
         action="store_true",
-        help="Overwrite existing project artifacts",
+        help="Delete existing project artifacts and recreate from scratch",
     )
 
     args = parser.parse_args(argv)
