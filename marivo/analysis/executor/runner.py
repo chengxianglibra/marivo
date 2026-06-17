@@ -163,6 +163,9 @@ def _is_hour_only_partition_meta(time_meta: Any) -> bool:
     Hour-only fields carry no date component in their own value; they rely on a
     separate day-level required_prefix field to supply the date context.
     """
+    parse_kind = getattr(time_meta, "parse_kind", None)
+    if parse_kind == "hour_prefix":
+        return True
     data_type = time_meta.data_type
     if data_type not in {"string", "integer"}:
         return False
@@ -732,14 +735,28 @@ def resolve_window_time_field(dataset_ir: Any, *, window: AbsoluteWindow) -> Any
 def _resolve_required_prefix_time_field(dataset_ir: Any, hour_field_ir: Any) -> Any | None:
     if hour_field_ir.time_meta is None:
         return None
-    prefix = hour_field_ir.time_meta.required_prefix
-    if not prefix:
-        return None
-    for field in dataset_ir.fields.values():
-        if not getattr(field, "is_time", False):
-            continue
-        if field.name == prefix or field.semantic_id == prefix:
-            return field
+    prefix = getattr(hour_field_ir.time_meta, "required_prefix", None)
+    if prefix:
+        for field in dataset_ir.fields.values():
+            if not getattr(field, "is_time", False):
+                continue
+            if field.name == prefix or field.semantic_id == prefix:
+                return field
+    # Fallback for catalog-backed fields where required_prefix is not set
+    # but parse_kind indicates hour_prefix: find the default date-level time field.
+    parse_kind = getattr(hour_field_ir.time_meta, "parse_kind", None)
+    if parse_kind == "hour_prefix":
+        for field in dataset_ir.fields.values():
+            if not getattr(field, "is_time", False):
+                continue
+            field_meta = getattr(field, "time_meta", None)
+            if field_meta is None:
+                continue
+            field_data_type = getattr(field_meta, "data_type", None)
+            if field_data_type in {"date", "datetime", "timestamp"} and getattr(
+                field, "is_default", False
+            ):
+                return field
     return None
 
 

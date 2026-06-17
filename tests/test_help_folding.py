@@ -43,6 +43,7 @@ def test_semantic_fold_partition() -> None:
         "DimensionDetails",
         "DomainDetails",
         "EntityDetails",
+        "MeasureDetails",
         "MetricDetails",
         "RelationshipDetails",
         "SemanticObjectDetails",

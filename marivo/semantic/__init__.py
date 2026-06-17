@@ -60,6 +60,7 @@ from marivo.semantic.catalog import (
     DimensionDetails,
     DomainDetails,
     EntityDetails,
+    MeasureDetails,
     MetricDetails,
     RelationshipDetails,
     SemanticCatalog,
@@ -456,8 +457,8 @@ def parity_check(
         >>> result.show()
 
     Constraints:
-        Requires the metric to declare ``source_sql`` and ``source_dialect``.
-        Raises ``SemanticRuntimeError`` if the metric has no source SQL.
+        Requires the metric to declare ``provenance=ms.from_sql(sql=..., dialect=...)``.
+        Raises ``SemanticRuntimeError`` if the metric has no provenance.
     """
     from marivo.semantic.reader import SemanticProject
 
@@ -592,6 +593,7 @@ __all__ = [
     "JoinPathFact",
     "LadderOrderError",
     "MeasureBrief",
+    "MeasureDetails",
     "MeasureIR",
     "MeasureRef",
     "MetricBrief",

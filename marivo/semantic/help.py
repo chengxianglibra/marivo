@@ -23,7 +23,7 @@ _SUMMARIES: dict[str, str] = {
     "DatasourceDetails": "kind-specific details for a datasource including backend type",
     "DerivedMetricBrief": "brief for a derived metric authoring step",
     "DimensionBrief": "brief for a dimension authoring step",
-    "DimensionDetails": "kind-specific details for a dimension or measure field",
+    "DimensionDetails": "kind-specific details for a categorical dimension",
     "DimensionRef": "stable reference to a declared dimension",
     "DimensionValueFact": "dimension value fact from evidence sampling",
     "DomainBrief": "brief for a domain authoring step",
@@ -37,7 +37,8 @@ _SUMMARIES: dict[str, str] = {
     "JoinPathFact": "join path evidence fact from relationship probing",
     "MeasureBrief": "brief for a single-column measure authoring step",
     "MetricBrief": "brief for a single-entity metric authoring step",
-    "MetricDetails": "kind-specific details for a metric object including composition and parity",
+    "MeasureDetails": "kind-specific details for a row-level quantitative measure",
+    "MetricDetails": "kind-specific details for a metric object including aggregation, composition, provenance, and parity",
     "MetricRef": "stable reference to a declared metric",
     "ParitySummary": "semantic parity evidence summary",
     "PreviewSummary": "raw preview evidence summary",
@@ -51,7 +52,7 @@ _SUMMARIES: dict[str, str] = {
     "RelationshipRef": "stable reference to a declared relationship",
     "RichnessSummary": "semantic readiness richness gap summary",
     "SemanticCatalog": "read-only object graph over a loaded semantic project — returned by ms.load()",
-    "SemanticKind": "semantic kind enum: domain, datasource, entity, dimension, time_dimension, metric, relationship",
+    "SemanticKind": "semantic kind enum: domain, datasource, entity, dimension, measure, time_dimension, metric, relationship",
     "SemanticKindInput": "input type accepted where a SemanticKind value is expected",
     "SemanticObject": "unified read shape for all loaded semantic objects",
     "SemanticObjectDetails": "union of kind-specific detail shapes for a SemanticObject",
@@ -61,7 +62,7 @@ _SUMMARIES: dict[str, str] = {
     "SnapshotVersioning": "snapshot versioning declaration for an entity",
     "TableSource": "physical table source (table name, optional database)",
     "TimeDimensionBrief": "brief for a time-dimension authoring step",
-    "TimeDimensionDetails": "kind-specific details for a time dimension including granularity and format",
+    "TimeDimensionDetails": "kind-specific details for a time dimension including parse variant, granularity, timezone, and sampling",
     "TimeDimensionRef": "stable reference to a declared time dimension",
     "ValidityVersioning": "validity-window versioning declaration for an entity",
     "VerifyResult": "per-object verification result",
@@ -73,14 +74,14 @@ _SUMMARIES: dict[str, str] = {
     "dimension": "declare a non-aggregated dimension on an entity",
     "from_sql": "declare SQL parity provenance for a metric body",
     "join_on": "build a relationship key pair for ms.relationship(keys=[...])",
-    "measure": "declare a row-level quantitative measure on an entity",
+    "measure": "declare a row-level quantitative measure on an entity for later aggregation",
     "domain": "open a domain namespace for decorator registration",
     "entity": "declare an entity over a structured source",
     "errors": "SemanticError hierarchy and ErrorKind enum",
     "help": "this introspection entry point",
     "help_text": "return semantic help text without printing",
     "load": "load a semantic project and return a SemanticCatalog — accepts models to filter domains",
-    "metric": "declare an entity-backed aggregate metric from an ibis body",
+    "metric": "declare an aggregate metric from a measure or an ibis body",
     "parquet": "parquet file source for ms.entity(source=ms.parquet(...))",
     "csv": "csv file source for ms.entity(source=ms.csv(...))",
     "prepare_cross_entity_metric": "prepare a cross-entity metric brief",
@@ -202,8 +203,8 @@ def _composition_topic() -> Descriptor:
 def _metric_content() -> dict[str, object]:
     return {
         "summary": (
-            "declare a body metric with @ms.metric(entities=..., additivity=..., "
-            "provenance=ms.from_sql(...) optional)"
+            "declare an aggregate metric either with ms.aggregate(name=..., measure=..., agg=...) "
+            "or with @ms.metric(entities=..., additivity=..., provenance=ms.from_sql(...) optional)"
         ),
         "tier1": "ms.aggregate(name=..., measure=<measure_ref>, agg='sum'|'count'|'mean'|'min'|'max')",
         "tier2": "@ms.metric(entities=[...], additivity='additive'|'non_additive'|ms.semi_additive(over, fold))",
@@ -326,37 +327,37 @@ def _additivity_topic() -> Descriptor:
 
 
 def _measure_topic() -> Descriptor:
+    summary = "declare a row-level quantitative measure on an entity"
+    content = {
+        "summary": summary,
+        "authoring": "@ms.measure(entity=<entity_ref>, additivity='additive'|'non_additive'|ms.semi_additive(...), unit=None)",
+        "aggregation": "Use ms.aggregate(name=..., measure=<measure_ref>, agg='sum'|'count'|'mean'|'min'|'max') to turn a measure into a metric.",
+        "boundary": "Measures are not group-by axes or filters. Slice by dimensions; aggregate measures into metrics.",
+        "related_help": [
+            "ms.help('metric')",
+            "ms.help('additivity')",
+            "ms.help('dimension')",
+        ],
+    }
     return Descriptor(
         surface="marivo.semantic",
         kind="topic",
         symbol="measure",
-        summary=(
-            "declare a row-level quantity with @ms.measure(entity=..., additivity=..., unit=...) "
-            "for ms.aggregate(...)"
+        summary=summary,
+        content=content,
+        doc="\n".join(
+            (
+                "marivo.semantic measure",
+                "",
+                summary,
+                "",
+                f"Authoring: {content['authoring']}",
+                f"Aggregation: {content['aggregation']}",
+                "",
+                f"Boundary: {content['boundary']}",
+            )
         ),
-        content={
-            "form": "@ms.measure(entity=<entity_ref>, additivity='additive'|'non_additive', unit='USD')",
-            "usage": "Measures are row-level quantities that become aggregatable via ms.aggregate().",
-            "related_help": [
-                "ms.help('metric')",
-                "ms.help('aggregate')",
-            ],
-        },
-        doc=(
-            "marivo.semantic measure\n"
-            "\n"
-            "declare a row-level quantity with @ms.measure(entity=..., additivity=..., unit=...) "
-            "for ms.aggregate(...)\n"
-            "\n"
-            "Form:\n"
-            "  @ms.measure(entity=<entity_ref>, additivity='additive'|'non_additive', unit='USD')\n"
-            "\n"
-            "Measures are row-level quantities that become aggregatable via ms.aggregate()."
-        ),
-        see_also=(
-            "ms.help('metric')",
-            "ms.help('aggregate')",
-        ),
+        see_also=tuple(content["related_help"]),
     )
 
 

@@ -14,6 +14,7 @@ from marivo.semantic.catalog import (
     DimensionDetails,
     DomainDetails,
     EntityDetails,
+    MeasureDetails,
     MetricDetails,
     RelationshipDetails,
     SemanticCatalog,
@@ -225,10 +226,30 @@ def test_dimension_details_fields():
         children=(),
         dependents=(),
         entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        dimension_kind="categorical",
     )
-    assert d.dimension_kind == "categorical"
     assert d.entity.ref == "sales.orders"
+    assert not hasattr(d, "dimension_kind")
+
+
+def test_measure_details_fields():
+    d = MeasureDetails(
+        ref=_make_ref("sales.orders.amount", SemanticKind.MEASURE),
+        kind=SemanticKind.MEASURE,
+        name="amount",
+        domain="sales",
+        description=None,
+        context=_make_ctx(),
+        source_location=_make_loc(),
+        parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
+        children=(),
+        dependents=(_make_ref("sales.revenue", SemanticKind.METRIC),),
+        entity=_make_ref("sales.orders", SemanticKind.ENTITY),
+        additivity="additive",
+        unit="USD",
+    )
+    assert d.entity.ref == "sales.orders"
+    assert d.additivity == "additive"
+    assert d.unit == "USD"
 
 
 def test_time_dimension_details_fields():
@@ -244,17 +265,19 @@ def test_time_dimension_details_fields():
         children=(),
         dependents=(),
         entity=_make_ref("sales.orders", SemanticKind.ENTITY),
+        parse_kind="timestamp",
         data_type="timestamp",
         granularity="day",
         format=None,
         timezone="UTC",
-        required_prefix=None,
         is_default=True,
         sample_interval=None,
     )
+    assert d.parse_kind == "timestamp"
     assert d.granularity == "day"
     assert d.is_default is True
     assert d.sample_interval is None
+    assert not hasattr(d, "required_prefix")
 
 
 def test_metric_details_fields():
@@ -281,10 +304,8 @@ def test_metric_details_fields():
         additivity="additive",
         fanout_policy="block",
         unit=None,
-        verification_mode=None,
+        provenance=None,
         parity_status=ParityStatus.UNVERIFIED,
-        source_sql=None,
-        source_dialect=None,
         python_symbol="revenue",
         fold=None,
         status_time_dimension=None,
@@ -346,10 +367,8 @@ def _make_metric_obj() -> SemanticObject:
         additivity="additive",
         fanout_policy="block",
         unit=None,
-        verification_mode=None,
+        provenance=None,
         parity_status=ParityStatus.UNVERIFIED,
-        source_sql=None,
-        source_dialect=None,
         python_symbol="revenue",
         fold=None,
         status_time_dimension=None,
@@ -938,13 +957,13 @@ def test_catalog_get_model_details_children_include_metrics(semantic_project_fac
     assert "sales.orders" in child_refs
 
 
-def test_catalog_get_dataset_details_children_do_not_include_metrics(semantic_project_factory):
+def test_catalog_get_dataset_details_children_include_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     obj = catalog.get("sales.orders")
     d = obj.details()
     assert isinstance(d, EntityDetails)
     child_refs = {r.ref for r in d.children}
-    assert "sales.revenue" not in child_refs
+    assert "sales.revenue" in child_refs
     assert "sales.orders.region" in child_refs or "sales.orders.created_at" in child_refs
 
 

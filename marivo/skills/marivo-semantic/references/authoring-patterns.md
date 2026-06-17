@@ -4,8 +4,7 @@ Use these patterns when writing `models/semantic/<domain>/_domain.py`.
 
 ## Provenance
 
-Use `provenance=ms.from_sql(sql=..., dialect=...)` for SQL provenance on metrics.
-Do not use `source_sql` or `source_dialect` kwargs — they are deprecated.
+Use `provenance=ms.from_sql(sql=..., dialect=...)` for SQL parity provenance. The old `source_sql` and `source_dialect` kwargs are not part of the public authoring surface.
 
 ## Single domain file
 

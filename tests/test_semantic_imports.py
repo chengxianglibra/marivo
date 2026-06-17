@@ -99,6 +99,7 @@ def test_all_list_matches_expected() -> None:
         "JoinPathFact",
         "LadderOrderError",
         "MeasureBrief",
+        "MeasureDetails",
         "MeasureIR",
         "MeasureRef",
         "MetricBrief",

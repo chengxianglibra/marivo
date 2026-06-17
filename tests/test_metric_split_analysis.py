@@ -79,10 +79,8 @@ def metric_details_factory(
         "status_time_dimension": overrides.pop("status_time_dimension", None),
         "fanout_policy": overrides.pop("fanout_policy", "block"),
         "unit": overrides.pop("unit", None),
-        "verification_mode": overrides.pop("verification_mode", None),
+        "provenance": overrides.pop("provenance", None),
         "parity_status": overrides.pop("parity_status", ParityStatus.UNVERIFIED),
-        "source_sql": overrides.pop("source_sql", None),
-        "source_dialect": overrides.pop("source_dialect", None),
         "python_symbol": overrides.pop("python_symbol", ref.ref.rsplit(".", 1)[-1]),
     }
     kwargs.update(overrides)

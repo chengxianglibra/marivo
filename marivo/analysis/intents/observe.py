@@ -94,6 +94,7 @@ from marivo.semantic.catalog import (
     SemanticRef,
     TimeDimensionDetails,
 )
+from marivo.semantic.ir import HourPrefixParse
 
 # ---------------------------------------------------------------------------
 # catalog-details -> runner adapter types
@@ -114,12 +115,14 @@ class _TimeFieldMetaAdapter:
         format: str | None = None,
         required_prefix: str | None = None,
         timezone: str | None = None,
+        parse_kind: str | None = None,
     ) -> None:
         self.data_type = data_type
         self.granularity = granularity
         self.format = format
         self.required_prefix = required_prefix
         self.timezone = timezone
+        self.parse_kind = parse_kind
 
 
 class _DimensionIRAdapter:
@@ -213,12 +216,21 @@ def _build_entity_adapter(
 
         if isinstance(field, TimeDimensionDetails):
             is_time = True
+            # For hour_prefix fields, look up the companion field name
+            # from the catalog's internal IR registry.
+            required_prefix: str | None = None
+            if field.parse_kind == "hour_prefix":
+                reg = catalog._reg
+                dim_ir = reg.dimensions.get(field.ref.ref) if reg else None
+                if dim_ir is not None and isinstance(dim_ir.parse, HourPrefixParse):
+                    required_prefix = dim_ir.parse.prefix
             time_meta = _TimeFieldMetaAdapter(
                 data_type=field.data_type or "date",
                 granularity=field.granularity or "day",
                 format=field.format,
-                required_prefix=field.required_prefix,
+                required_prefix=required_prefix,
                 timezone=field.timezone,
+                parse_kind=field.parse_kind,
             )
         else:
             is_time = False
