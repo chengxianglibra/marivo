@@ -29,7 +29,7 @@ def align_calendar_frames(
     value_column: str,
     calendar: Calendar,
     policy: CalendarPolicy,
-    session_tz: str,
+    report_tz: str,
 ) -> tuple[pd.DataFrame, CalendarInfo]:
     if policy.align_period == "day":
         raise CalendarPolicyError(
@@ -41,8 +41,8 @@ def align_calendar_frames(
             },
         )
 
-    dates_a = _local_dates(a[time_column], session_tz=session_tz)
-    dates_b = _local_dates(b[time_column], session_tz=session_tz)
+    dates_a = _local_dates(a[time_column], report_tz=report_tz)
+    dates_b = _local_dates(b[time_column], report_tz=report_tz)
 
     period_pairing = _period_pairing(dates_a, dates_b, policy.align_period)
 
@@ -191,7 +191,7 @@ def align_calendar_frames(
 
     info = CalendarInfo(
         calendar_name=calendar.name,
-        session_timezone=session_tz,
+        session_timezone=report_tz,
         mode=policy.mode,
         align_period=policy.align_period,
         fallback=policy.fallback,
@@ -203,21 +203,21 @@ def align_calendar_frames(
     return result.reset_index(drop=True), info
 
 
-def _local_dates(series: pd.Series, *, session_tz: str) -> pd.Series:
-    tz = ZoneInfo(session_tz)
+def _local_dates(series: pd.Series, *, report_tz: str) -> pd.Series:
+    tz = ZoneInfo(report_tz)
     if isinstance(series.dtype, pd.DatetimeTZDtype):
         parsed = pd.to_datetime(series, errors="coerce")
-        _require_no_na_dates(parsed, session_tz=session_tz)
+        _require_no_na_dates(parsed, report_tz=report_tz)
         return parsed.dt.tz_convert(tz).dt.date
     if pd.api.types.is_datetime64_any_dtype(series):
         parsed = pd.to_datetime(series, errors="coerce")
-        _require_no_na_dates(parsed, session_tz=session_tz)
+        _require_no_na_dates(parsed, report_tz=report_tz)
         return parsed.dt.date
-    return series.map(lambda value: _coerce_local_date(value, session_tz=session_tz))
+    return series.map(lambda value: _coerce_local_date(value, report_tz=report_tz))
 
 
-def _coerce_local_date(value: object, *, session_tz: str) -> date:
-    tz = ZoneInfo(session_tz)
+def _coerce_local_date(value: object, *, report_tz: str) -> date:
+    tz = ZoneInfo(report_tz)
     if isinstance(value, pd.Timestamp):
         return _timestamp_to_local_date(value, tz)
     if isinstance(value, datetime):
@@ -513,12 +513,12 @@ def _json_key(value: tuple[object, ...]) -> str:
     return json.dumps(public_key, ensure_ascii=False, separators=(",", ":"))
 
 
-def _require_no_na_dates(series: pd.Series, *, session_tz: str) -> None:
+def _require_no_na_dates(series: pd.Series, *, report_tz: str) -> None:
     if not series.isna().any():
         return
     raise AlignmentFailedError(
-        message=f"failed to parse date values with session timezone {session_tz!r}",
-        details={"kind": "CalendarAlignDateParseFailed", "session_timezone": session_tz},
+        message=f"failed to parse date values with session timezone {report_tz!r}",
+        details={"kind": "CalendarAlignDateParseFailed", "session_timezone": report_tz},
     )
 
 

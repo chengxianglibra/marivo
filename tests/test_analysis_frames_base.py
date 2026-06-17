@@ -96,6 +96,45 @@ def test_preview_default_limit_returns_bounded_dto():
     assert preview.is_truncated is True
 
 
+def test_frame_preview_repr_is_bounded_agent_hint():
+    df = pd.DataFrame({"x": list(range(12))})
+    f = BaseFrame(_df=df, meta=_meta(row_count=12))
+    preview = f.preview()
+
+    r = repr(preview)
+
+    assert r == (
+        "<FramePreview ref=frame_abc12345 kind=metric_frame returned=10/12 "
+        "truncated=True; call .show() to inspect>"
+    )
+    assert "\n" not in r
+
+
+def test_frame_preview_render_and_show_are_bounded(capsys):
+    df = pd.DataFrame({"x": list(range(12)), "y": [f"row-{idx}" for idx in range(12)]})
+    f = BaseFrame(_df=df, meta=_meta(row_count=12))
+    preview = f.preview()
+
+    rendered = preview.render()
+
+    assert rendered.startswith(
+        "FramePreview ref=frame_abc12345 kind=metric_frame returned=10/12 truncated=True"
+    )
+    assert "columns: x | y" in rendered
+    assert "preview:" in rendered
+    assert "0 | row-0" in rendered
+    assert "4 | row-4" in rendered
+    assert "5 | row-5" not in rendered
+    assert "... 7 more rows; call .preview(limit=...) or .to_pandas()" in rendered
+    assert "- .rows (list[dict])" in rendered
+    assert "- .columns" in rendered
+    assert not rendered.endswith("\n")
+
+    assert preview.show() is None
+    captured = capsys.readouterr()
+    assert captured.out == rendered + "\n"
+
+
 def test_preview_custom_limit_matches_front_rows():
     df = pd.DataFrame({"x": [1, 2, 3, 4, 5]})
     f = BaseFrame(_df=df, meta=_meta())

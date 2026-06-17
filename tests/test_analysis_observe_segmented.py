@@ -212,7 +212,7 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
     assert job["params"]["timescope"] == {
         "original": {"start": "2026-07-02", "end": "2026-08-02"},
         "resolved": windowed.meta.window,
-        "session_tz": str(s.tz),
+        "report_tz": s.report_tz_name,
     }
     windowed_by_region = windowed.to_pandas().set_index("region")["failure_rate"].to_dict()
     full_by_region = full.to_pandas().set_index("region")["failure_rate"].to_dict()

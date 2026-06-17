@@ -184,7 +184,7 @@ def test_dow_aligned_month_pair_uses_isoweekday_and_week_offset():
         value_column="value",
         calendar=_calendar(),
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert len(aligned) == 1
@@ -212,13 +212,13 @@ def test_public_align_key_rejects_unknown_key_kind():
 
 def test_local_dates_handles_tz_aware_naive_string_and_python_date_values():
     tz_aware = pd.Series(pd.to_datetime(["2026-05-01T23:30:00+00:00"]))
-    assert _local_dates(tz_aware, session_tz="Asia/Shanghai").tolist() == [date(2026, 5, 2)]
+    assert _local_dates(tz_aware, report_tz="Asia/Shanghai").tolist() == [date(2026, 5, 2)]
 
     naive = pd.Series(pd.to_datetime(["2026-05-01T23:30:00"]))
-    assert _local_dates(naive, session_tz="Asia/Shanghai").tolist() == [date(2026, 5, 1)]
+    assert _local_dates(naive, report_tz="Asia/Shanghai").tolist() == [date(2026, 5, 1)]
 
     mixed = pd.Series(["2026-05-01", date(2026, 5, 2)])
-    assert _local_dates(mixed, session_tz="Asia/Shanghai").tolist() == [
+    assert _local_dates(mixed, report_tz="Asia/Shanghai").tolist() == [
         date(2026, 5, 1),
         date(2026, 5, 2),
     ]
@@ -236,7 +236,7 @@ def test_workday_aligned_respects_holiday_and_adjusted_workday():
         value_column="value",
         calendar=_calendar(),
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert len(aligned) == 1
@@ -259,7 +259,7 @@ def test_holiday_aligned_non_holiday_rows_do_not_exact_match_by_date():
         value_column="value",
         calendar=_calendar(),
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert len(aligned) == 1
@@ -286,7 +286,7 @@ def test_holiday_and_dow_aligned_uses_holiday_for_holidays_and_dow_for_others():
         value_column="value",
         calendar=_calendar(),
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert len(aligned) == 2
@@ -327,7 +327,7 @@ def test_multi_day_holiday_shares_one_id_and_aligns_by_derived_ordinal():
         value_column="value",
         calendar=calendar,
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert info.matched_rows == 5
@@ -376,7 +376,7 @@ def test_nearest_prior_workday_fallback_marks_quality_and_counts_rows():
         value_column="value",
         calendar=calendar,
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert len(aligned) == 4
@@ -411,7 +411,7 @@ def test_pct_change_marks_from_zero_growth():
         value_column="value",
         calendar=_calendar(),
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert len(aligned) == 1
@@ -431,7 +431,7 @@ def test_pct_change_uses_absolute_negative_baseline_for_calendar_alignment():
         value_column="value",
         calendar=_calendar(),
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert len(aligned) == 1
@@ -452,7 +452,7 @@ def test_dow_aligned_multi_period_pairs_periods_by_ordinal():
         value_column="value",
         calendar=_calendar(),
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert info.matched_rows == 2
@@ -489,7 +489,7 @@ def test_holiday_aligned_multi_period_derives_ordinals_per_period():
         value_column="value",
         calendar=calendar,
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert info.matched_rows == 2
@@ -515,7 +515,7 @@ def test_nearest_prior_workday_fallback_uses_matching_period_pair():
         value_column="value",
         calendar=_calendar(),
         policy=policy,
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert info.matched_rows == 2
@@ -541,7 +541,7 @@ def test_rejects_mismatched_multi_period_counts():
             value_column="value",
             calendar=_calendar(),
             policy=policy,
-            session_tz="Asia/Shanghai",
+            report_tz="Asia/Shanghai",
         )
 
     assert exc_info.value.details["kind"] == "CalendarAlignPeriodPairMismatch"
@@ -562,7 +562,7 @@ def test_rejects_duplicate_calendar_keys():
             value_column="value",
             calendar=_calendar(),
             policy=policy,
-            session_tz="Asia/Shanghai",
+            report_tz="Asia/Shanghai",
         )
 
     assert exc_info.value.details["kind"] == "CalendarAlignKeyNotUnique"
@@ -581,7 +581,7 @@ def test_rejects_align_period_day():
             value_column="value",
             calendar=_calendar(),
             policy=policy,
-            session_tz="Asia/Shanghai",
+            report_tz="Asia/Shanghai",
         )
 
     assert exc_info.value.details["kind"] == "CalendarPolicyInvalid"
@@ -949,7 +949,7 @@ def test_align_calendar_info_has_no_calendar_timezone():
         value_column="value",
         calendar=_calendar(),
         policy=CalendarPolicy(mode="holiday_aligned", align_period="month"),
-        session_tz="Asia/Shanghai",
+        report_tz="Asia/Shanghai",
     )
 
     assert len(result) == 1

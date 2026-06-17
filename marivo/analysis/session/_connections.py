@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.timezone import DatasourceEngineTimezone
 
 
 class AnalysisConnectionRuntime:
@@ -17,6 +18,9 @@ class AnalysisConnectionRuntime:
 
     def session_backend(self, datasource_name: str) -> Any:
         return self.service.session_backend(datasource_name)
+
+    def engine_timezone(self, datasource_name: str) -> DatasourceEngineTimezone:
+        return self.service.engine_timezone(datasource_name)
 
     def get_or_create(self, datasource_name: str) -> Any:
         try:

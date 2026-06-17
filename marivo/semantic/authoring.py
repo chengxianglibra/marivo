@@ -63,6 +63,7 @@ from marivo.semantic.ir import (
     TimestampParse,
     ValidityVersioningIR,
     WeightedAverageComposition,
+    is_time_bearing_format,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 from marivo.semantic.time_format import normalize_strptime
@@ -1548,7 +1549,7 @@ def date() -> DateParse:
 
 def datetime(
     *,
-    timezone: str,
+    timezone: str | None = None,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
 ) -> DatetimeParse:
     """Declare an already-temporal datetime column parse.
@@ -1557,7 +1558,8 @@ def datetime(
     source column is a native datetime type.
 
     Args:
-        timezone: Required IANA timezone name (e.g. ``"UTC"``, ``"Asia/Shanghai"``).
+        timezone: Optional IANA timezone name. When omitted, Marivo interprets
+            the naive source column in the datasource engine default timezone.
         sample_interval: Optional periodic sampling interval for sampled time
             dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
 
@@ -1573,7 +1575,8 @@ def datetime(
         ... def ts(events):
         ...     return events.ts
     """
-    _validate_timezone(timezone)
+    if timezone is not None:
+        _validate_timezone(timezone)
     return DatetimeParse(
         timezone=timezone,
         sample_interval=_normalize_sample_interval_value(sample_interval),
@@ -1582,7 +1585,7 @@ def datetime(
 
 def timestamp(
     *,
-    timezone: str,
+    timezone: str | None = None,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
 ) -> TimestampParse:
     """Declare an already-temporal timestamp column parse.
@@ -1591,7 +1594,8 @@ def timestamp(
     source column is a native timestamp type.
 
     Args:
-        timezone: Required IANA timezone name (e.g. ``"UTC"``, ``"Asia/Shanghai"``).
+        timezone: Optional IANA timezone name. When omitted, Marivo interprets
+            the naive source column in the datasource engine default timezone.
         sample_interval: Optional periodic sampling interval for sampled time
             dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
 
@@ -1607,7 +1611,8 @@ def timestamp(
         ... def ts(events):
         ...     return events.ts
     """
-    _validate_timezone(timezone)
+    if timezone is not None:
+        _validate_timezone(timezone)
     return TimestampParse(
         timezone=timezone,
         sample_interval=_normalize_sample_interval_value(sample_interval),
@@ -1652,6 +1657,13 @@ def strptime(
     normalized = normalize_strptime(format)
     if timezone is not None:
         _validate_timezone(timezone)
+        if not is_time_bearing_format(normalized):
+            _raise(
+                ErrorKind.INVALID_REF,
+                "timezone is only supported for time-bearing strptime formats, not date-only formats.",
+                cls=SemanticDecoratorError,
+                details={"field": "timezone", "format": normalized},
+            )
     return StrptimeParse(
         format=normalized,
         data_type=data_type,

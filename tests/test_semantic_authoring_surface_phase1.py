@@ -307,11 +307,11 @@ def test_time_dimension_uses_parse_value_object() -> None:
     assert time_ir.parse.format == "%Y%m%d"
 
 
-def test_datetime_and_timestamp_require_timezone_by_signature() -> None:
-    with pytest.raises(TypeError):
-        ms.datetime()
-    with pytest.raises(TypeError):
-        ms.timestamp()
+def test_datetime_and_timestamp_accept_optional_timezone() -> None:
+    assert ms.datetime().timezone is None
+    assert ms.timestamp().timezone is None
+    assert ms.datetime(timezone="UTC").timezone == "UTC"
+    assert ms.timestamp(timezone="UTC").timezone == "UTC"
 
 
 def test_time_dimension_parse_invalid_combinations_are_unconstructable() -> None:

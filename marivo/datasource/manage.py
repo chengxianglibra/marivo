@@ -411,6 +411,9 @@ def preview(
             order_by=tuple(order_labels),
             filters=filters,
         )
+        from marivo.datasource.timezone import system_timezone_name
+
+        report_tz = system_timezone_name()
         return preview_ibis_table(
             expr,
             kind="datasource_table",
@@ -418,6 +421,7 @@ def preview(
             limit=limit,
             sample_policy=sample_policy,
             include_types=include_types,
+            report_tz=report_tz,
         )
     except DatasourcePreviewError:
         raise

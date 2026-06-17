@@ -15,6 +15,7 @@ This module owns:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,7 @@ from marivo.analysis.session._layout import (
 )
 from marivo.analysis.session._store import SessionStore
 from marivo.analysis.session.core import Session
-from marivo.analysis.timezone import resolve_system_timezone
+from marivo.analysis.timezone import ResolvedTimezone, resolve_system_timezone, zoneinfo_from_name
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import BaseFrame
@@ -170,6 +171,24 @@ def _build_semantic_catalog(project_root: Path) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _read_report_timezone(layout: PersistenceLayout) -> ResolvedTimezone:
+    meta_path = layout.session_dir / "meta.json"
+    if not meta_path.is_file():
+        return resolve_system_timezone()
+    meta = json.loads(meta_path.read_text())
+    name = meta.get("report_tz")
+    if not isinstance(name, str) or not name:
+        return resolve_system_timezone()
+    return ResolvedTimezone(
+        name=name,
+        tz=zoneinfo_from_name(name),
+        resolution=str(meta.get("report_tz_resolution") or "iana"),
+        warning=meta.get("report_tz_warning")
+        if isinstance(meta.get("report_tz_warning"), str)
+        else None,
+    )
+
+
 def _session_from_row(
     store: SessionStore,
     row: Sqlite3RowLike,
@@ -178,8 +197,7 @@ def _session_from_row(
     """Build a live ``Session`` from a store row and a runtime connection runtime.
 
     Only persisted metadata is used: id, name, question, cwd, created_at,
-    updated_at, default_calendar.  Timezone is resolved at attach/resume time
-    and passed as a runtime ``tz`` value; it is never persisted.
+    updated_at, default_calendar, and report timezone from session meta.
     """
     # sqlite3.Row is not importable at type-check time; accept a duck-typed row.
     session_id = row["id"]
@@ -187,7 +205,7 @@ def _session_from_row(
     layout = PersistenceLayout(project_root=project_root, session_id=session_id)
     semantic_catalog = _build_semantic_catalog(project_root)
 
-    resolved_tz = resolve_system_timezone()
+    resolved_report_tz = _read_report_timezone(layout)
     return Session(
         id=session_id,
         name=row["name"],
@@ -200,7 +218,10 @@ def _session_from_row(
         layout=layout,
         semantic_catalog=semantic_catalog,
         store=store,
-        tz=resolved_tz.tz,
+        report_tz=resolved_report_tz.tz,
+        report_tz_name=resolved_report_tz.name,
+        report_tz_resolution=resolved_report_tz.resolution,
+        report_tz_warning=resolved_report_tz.warning,
         default_calendar=row["default_calendar"],
     )
 

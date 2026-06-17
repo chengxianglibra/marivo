@@ -32,7 +32,11 @@ class AttributionFrame(BaseFrame):
     meta: AttributionFrameMeta
 
     def _repr_identity(self) -> str:
-        return f"AttributionFrame ref={self.meta.ref} rows={self.meta.row_count}"
+        return (
+            f"AttributionFrame ref={self.meta.ref} "
+            f"attribution_kind={self.meta.attribution_kind} "
+            f"method={self.meta.method} rows={self.meta.row_count}"
+        )
 
     @property
     def attribution_shape(self) -> str:

@@ -1197,6 +1197,32 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
     )
 
 
+def _preview_timezones_for_field(
+    *,
+    column_name: str,
+    field_ir: DimensionIR,
+    datasource_timezone: object | None,
+    report_tz: str,
+) -> dict[str, dict[str, str | None]]:
+    if not field_ir.is_time_dimension or field_ir.parse is None:
+        return {}
+    declared = getattr(field_ir.parse, "timezone", None)
+    read_tz = declared
+    read_resolution: str | None = "declared" if declared is not None else None
+    if read_tz is None and datasource_timezone is not None:
+        read_tz = getattr(datasource_timezone, "engine_timezone_name", None)
+        read_resolution = getattr(datasource_timezone, "read_tz_resolution", None)
+    kind = "instant" if read_tz is None else "localizable_wall_clock"
+    return {
+        column_name: {
+            "kind": kind,
+            "read_tz": read_tz,
+            "report_tz": report_tz,
+            "read_tz_resolution": read_resolution,
+        }
+    }
+
+
 def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
     is_time = f_ir.is_time_dimension
     kind = SemanticKind.TIME_DIMENSION if is_time else SemanticKind.DIMENSION
@@ -1953,6 +1979,8 @@ class SemanticCatalog:
         kind = self._resolve_kind_of(ref_str, reg)
         if kind is None:
             self._raise_not_found(ref_str)
+        from marivo.datasource.timezone import system_timezone_name
+
         resolver = self._resolver(
             sample_size=METRIC_PREVIEW_SAMPLE_SIZE if kind == SemanticKind.METRIC else None
         )
@@ -1966,6 +1994,7 @@ class SemanticCatalog:
                 )
             preview_limit = validate_preview_limit(limit)
             table = resolver.table(SemanticRef(ref_str, kind=SemanticKind.ENTITY))
+            report_tz = system_timezone_name()
             return preview_ibis_table(
                 table,
                 kind="semantic_dataset",
@@ -1973,6 +2002,7 @@ class SemanticCatalog:
                 limit=preview_limit,
                 sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
                 include_types=include_types,
+                report_tz=report_tz,
             )
         if kind == SemanticKind.MEASURE:
             if context_columns is not None:
@@ -1988,6 +2018,7 @@ class SemanticCatalog:
             measure_value = resolver.measure(SemanticRef(ref_str, kind=SemanticKind.MEASURE))
             measure_column_name = ref_str.rsplit(".", 1)[-1]
             preview_table = parent_table.select(measure_value.name(measure_column_name))
+            report_tz = system_timezone_name()
             return preview_ibis_table(
                 preview_table,
                 kind="semantic_dimension",
@@ -1995,6 +2026,7 @@ class SemanticCatalog:
                 limit=preview_limit,
                 sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
                 include_types=include_types,
+                report_tz=report_tz,
             )
         if kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
             preview_limit = validate_preview_limit(limit)
@@ -2002,6 +2034,14 @@ class SemanticCatalog:
             parent_table = resolver.table(SemanticRef(field_ir.entity, kind=SemanticKind.ENTITY))
             field_value = resolver.dimension(SemanticRef(ref_str, kind=kind))
             field_column_name = ref_str.rsplit(".", 1)[-1]
+            report_tz = system_timezone_name()
+            datasource_timezone = None
+            if kind == SemanticKind.TIME_DIMENSION:
+                entity_ir = reg.entities[field_ir.entity]
+                connections = getattr(resolver, "connections", None)
+                engine_tz_method = getattr(connections, "engine_timezone", None)
+                if callable(engine_tz_method):
+                    datasource_timezone = engine_tz_method(entity_ir.datasource)
             if context_columns is None:
                 selected_context = tuple(
                     column for column in parent_table.columns if column != field_column_name
@@ -2029,6 +2069,13 @@ class SemanticCatalog:
                 limit=preview_limit,
                 sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
                 include_types=include_types,
+                timezones=_preview_timezones_for_field(
+                    column_name=field_column_name,
+                    field_ir=field_ir,
+                    datasource_timezone=datasource_timezone,
+                    report_tz=report_tz,
+                ),
+                report_tz=report_tz,
             )
         if kind == SemanticKind.METRIC:
             if context_columns is not None:
@@ -2068,6 +2115,7 @@ class SemanticCatalog:
                     ),
                 ),
                 sample_policy=result.sample_policy,
+                timezones=result.timezones,
             )
         _raise(
             ErrorKind.MATERIALIZE_FAILED,

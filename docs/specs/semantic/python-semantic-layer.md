@@ -605,7 +605,7 @@ Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inven
 @ms.time_dimension(
     entity=bw_samples,
     granularity="second",
-    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
+    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),  # explicit source override
 )
 def sample_ts(bw_samples):
     return bw_samples.sample_ts

@@ -315,7 +315,7 @@ def _coerce_bound_datetime(value: str, *, tz: ZoneInfo, bound_name: str) -> date
 
 
 def _local_midnight_of(value: str, *, tz: ZoneInfo, bound_name: str) -> datetime:
-    """Resolve a date-only end bound to midnight of that date in session_tz.
+    """Resolve a date-only end bound to midnight of that date in report_tz.
 
     For [start, end) semantics the exclusive upper bound is midnight of the
     stated end date itself (no +1 day).  Delegates to ``_coerce_bound_datetime``
@@ -424,34 +424,34 @@ def _is_naive_temporal_expr(field_expr: Any) -> bool:
 def _timestamp_bounds_for_column(
     window: AbsoluteWindow,
     *,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
     column_tz: ZoneInfo,
     bound_name: str,
     value: str,
 ) -> datetime:
-    """Convert a window bound from session-local to column-local naive datetime.
+    """Convert a window bound from report-local to column-local naive datetime.
 
-    The bound is first resolved as a session-local instant, then projected
+    The bound is first resolved as a report-local instant, then projected
     into column_tz space and stripped of tzinfo so it can be compared
     against naive timestamp column values.
     """
-    instant_utc = _coerce_bound_datetime(value, tz=session_tz, bound_name=bound_name)
+    instant_utc = _coerce_bound_datetime(value, tz=report_tz, bound_name=bound_name)
     return instant_utc.astimezone(column_tz).replace(tzinfo=None)
 
 
 def _exclusive_end_for_column(
     window: AbsoluteWindow,
     *,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
     column_tz: ZoneInfo,
 ) -> datetime:
-    upper_utc = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
+    upper_utc = _coerce_bound_datetime(window.end, tz=report_tz, bound_name="end")
     return upper_utc.astimezone(column_tz).replace(tzinfo=None)
 
 
-def _column_timezone(time_meta: Any, session_tz: ZoneInfo) -> ZoneInfo:
+def _column_timezone(time_meta: Any, *, datasource_read_tz: ZoneInfo) -> ZoneInfo:
     declared = _declared_timezone(time_meta)
-    return zoneinfo_from_name(declared) if declared is not None else session_tz
+    return zoneinfo_from_name(declared) if declared is not None else datasource_read_tz
 
 
 def _validate_time_field_timezone(field_expr: Any, time_meta: Any) -> None:
@@ -465,7 +465,7 @@ def _validate_time_field_timezone(field_expr: Any, time_meta: Any) -> None:
     ):
         raise TimezoneInvalidError(
             message="timezone declarations are only supported on datetime or timestamp time fields",
-            hint="date and partition time fields do not support timezone declarations; use system timezone or a tz-aware timestamp field.",
+            hint="date and partition time fields do not support timezone declarations; remove timezone= or use a time-bearing datetime/timestamp parse.",
             details={
                 "kind": "TimezoneDeclarationUnsupported",
                 "data_type": data_type,
@@ -492,7 +492,8 @@ def _window_bound_predicates(
     window: AbsoluteWindow,
     time_meta: Any,
     *,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
+    datasource_read_tz: ZoneInfo,
 ) -> tuple[Any, Any]:
     _validate_time_field_timezone(field_expr, time_meta)
     _validate_time_field_dtype(field_expr, time_meta)
@@ -505,21 +506,21 @@ def _window_bound_predicates(
         actual = _field_timezone(field_expr)
         if actual is None:
             # Naive timestamp column: determine effective column timezone
-            column_tz = zoneinfo_from_name(declared) if declared is not None else session_tz
+            column_tz = zoneinfo_from_name(declared) if declared is not None else datasource_read_tz
             lower_dt = _timestamp_bounds_for_column(
                 window,
-                session_tz=session_tz,
+                report_tz=report_tz,
                 column_tz=column_tz,
                 bound_name="start",
                 value=window.start,
             )
             if is_date_only(window.end):
-                upper_utc = _local_midnight_of(window.end, tz=session_tz, bound_name="end")
+                upper_utc = _local_midnight_of(window.end, tz=report_tz, bound_name="end")
                 upper_dt = upper_utc.astimezone(column_tz).replace(tzinfo=None)
             else:
                 upper_dt = _timestamp_bounds_for_column(
                     window,
-                    session_tz=session_tz,
+                    report_tz=report_tz,
                     column_tz=column_tz,
                     bound_name="end",
                     value=window.end,
@@ -529,11 +530,11 @@ def _window_bound_predicates(
                 field_expr < ibis.timestamp(upper_dt.isoformat()),
             )
         # Tz-aware timestamp column: compare as UTC instants
-        lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
+        lower_dt = _coerce_bound_datetime(window.start, tz=report_tz, bound_name="start")
         if is_date_only(window.end):
-            upper_dt = _local_midnight_of(window.end, tz=session_tz, bound_name="end")
+            upper_dt = _local_midnight_of(window.end, tz=report_tz, bound_name="end")
         else:
-            upper_dt = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
+            upper_dt = _coerce_bound_datetime(window.end, tz=report_tz, bound_name="end")
         return (
             field_expr >= ibis.timestamp(lower_dt.isoformat()),
             field_expr < ibis.timestamp(upper_dt.isoformat()),
@@ -544,16 +545,16 @@ def _window_bound_predicates(
         declared = _declared_timezone(time_meta)
         if declared is None:
             lower_dt = _partition_start_datetime(
-                window.start, fmt=fmt, tz=session_tz, bound_name="start"
+                window.start, fmt=fmt, tz=report_tz, bound_name="start"
             )
             upper_dt = _partition_exclusive_end_datetime(
-                window.end, fmt=fmt, tz=session_tz, bound_name="end"
+                window.end, fmt=fmt, tz=report_tz, bound_name="end"
             )
         else:
             bound_tz = zoneinfo_from_name(declared)
             lower_bound = _timestamp_bounds_for_column(
                 window,
-                session_tz=session_tz,
+                report_tz=report_tz,
                 column_tz=bound_tz,
                 bound_name="start",
                 value=window.start,
@@ -563,12 +564,12 @@ def _window_bound_predicates(
             )
             if is_date_only(window.end):
                 upper_dt = _exclusive_end_for_column(
-                    window, session_tz=session_tz, column_tz=bound_tz
+                    window, report_tz=report_tz, column_tz=bound_tz
                 ).replace(minute=0, second=0, microsecond=0)
             else:
                 upper_bound = _timestamp_bounds_for_column(
                     window,
-                    session_tz=session_tz,
+                    report_tz=report_tz,
                     column_tz=bound_tz,
                     bound_name="end",
                     value=window.end,
@@ -597,9 +598,9 @@ def _window_bound_predicates(
         and fmt.startswith("%")
         and not _is_hour_only_partition_meta(time_meta)
     ):
-        if session_tz is None:
+        if report_tz is None:
             raise WindowInvalidError(
-                message="strptime format time fields require an explicit session timezone",
+                message="strptime format time fields require an explicit report timezone",
                 hint="Pass timezone= when attaching the session.",
                 details={"format": fmt},
             )
@@ -607,12 +608,12 @@ def _window_bound_predicates(
         classification = _classify_strptime_format(fmt)
         declared = _declared_timezone(time_meta)
         if declared is None:
-            lower_dt = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
+            lower_dt = _coerce_bound_datetime(window.start, tz=report_tz, bound_name="start")
         else:
             column_tz = zoneinfo_from_name(declared)
             lower_dt = _timestamp_bounds_for_column(
                 window,
-                session_tz=session_tz,
+                report_tz=report_tz,
                 column_tz=column_tz,
                 bound_name="start",
                 value=window.start,
@@ -620,17 +621,17 @@ def _window_bound_predicates(
 
         if classification == "day":
             if is_date_only(window.end):
-                upper_dt = _local_midnight_of(window.end, tz=session_tz, bound_name="end")
+                upper_dt = _local_midnight_of(window.end, tz=report_tz, bound_name="end")
                 return (
                     parsed_expr >= ibis.date(lower_dt.date().isoformat()),
                     parsed_expr < ibis.date(upper_dt.date().isoformat()),
                 )
             if declared is None:
-                upper_dt = _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
+                upper_dt = _coerce_bound_datetime(window.end, tz=report_tz, bound_name="end")
             else:
                 upper_dt = _timestamp_bounds_for_column(
                     window,
-                    session_tz=session_tz,
+                    report_tz=report_tz,
                     column_tz=column_tz,
                     bound_name="end",
                     value=window.end,
@@ -642,10 +643,10 @@ def _window_bound_predicates(
         else:
             if is_date_only(window.end):
                 if declared is None:
-                    upper_dt = _local_midnight_of(window.end, tz=session_tz, bound_name="end")
+                    upper_dt = _local_midnight_of(window.end, tz=report_tz, bound_name="end")
                 else:
                     upper_dt = _exclusive_end_for_column(
-                        window, session_tz=session_tz, column_tz=column_tz
+                        window, report_tz=report_tz, column_tz=column_tz
                     )
                 return (
                     parsed_expr >= ibis.timestamp(lower_dt.isoformat()),
@@ -654,13 +655,13 @@ def _window_bound_predicates(
             upper_dt = (
                 _timestamp_bounds_for_column(
                     window,
-                    session_tz=session_tz,
+                    report_tz=report_tz,
                     column_tz=column_tz,
                     bound_name="end",
                     value=window.end,
                 )
                 if declared is not None
-                else _coerce_bound_datetime(window.end, tz=session_tz, bound_name="end")
+                else _coerce_bound_datetime(window.end, tz=report_tz, bound_name="end")
             )
             return (
                 parsed_expr >= ibis.timestamp(lower_dt.isoformat()),
@@ -775,7 +776,7 @@ def _composite_hour_partition_predicate(
     *,
     dataset_ir: Any,
     hour_field_ir: Any,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
 ) -> Any | None:
     if hour_field_ir.time_meta is None or not _is_hour_only_partition_meta(hour_field_ir.time_meta):
         return None
@@ -787,10 +788,10 @@ def _composite_hour_partition_predicate(
 
     hour_fmt = hour_field_ir.time_meta.format
     lower_dt = _partition_start_datetime(
-        window.start, fmt=hour_fmt, tz=session_tz, bound_name="start"
+        window.start, fmt=hour_fmt, tz=report_tz, bound_name="start"
     )
     upper_dt = _partition_exclusive_end_datetime(
-        window.end, fmt=hour_fmt, tz=session_tz, bound_name="end"
+        window.end, fmt=hour_fmt, tz=report_tz, bound_name="end"
     )
     last_day = (upper_dt - timedelta(microseconds=1)).date()
     start_day = lower_dt.date()
@@ -830,12 +831,32 @@ def _composite_hour_partition_predicate(
     return _combine_or(clauses)
 
 
+def datasource_read_timezone(
+    cache: AnalysisConnectionRuntime,
+    datasource_name: str,
+) -> ZoneInfo:
+    resolved = cache.engine_timezone(datasource_name)
+    tz = getattr(resolved, "engine_timezone_tz", None)
+    if isinstance(tz, ZoneInfo):
+        return tz
+    name = getattr(resolved, "engine_timezone_name", None)
+    if isinstance(name, str):
+        return zoneinfo_from_name(name)
+    from marivo.analysis.timezone import resolve_system_timezone
+
+    fallback = resolve_system_timezone()
+    if isinstance(fallback.tz, ZoneInfo):
+        return fallback.tz
+    return ZoneInfo("UTC")
+
+
 def apply_window_to_dataset(
     table: ibis.Table,
     window: AbsoluteWindow | Mapping[str, Any] | None,
     *,
     dataset_ir: Any,
-    session_tz: ZoneInfo = UTC_ZONE,
+    report_tz: ZoneInfo = UTC_ZONE,
+    datasource_read_tz: ZoneInfo = UTC_ZONE,
 ) -> ibis.Table:
     if window is None:
         return table
@@ -856,7 +877,7 @@ def apply_window_to_dataset(
         normalized_window,
         dataset_ir=dataset_ir,
         hour_field_ir=time_field_ir,
-        session_tz=session_tz,
+        report_tz=report_tz,
     )
     if composite_predicate is not None:
         return table.filter(composite_predicate)
@@ -865,7 +886,8 @@ def apply_window_to_dataset(
         field_expr,
         normalized_window,
         time_field_ir.time_meta,
-        session_tz=session_tz,
+        report_tz=report_tz,
+        datasource_read_tz=datasource_read_tz,
     )
     return table.filter(lower_predicate, upper_predicate)
 
@@ -882,19 +904,19 @@ def bucket_start_expr(local_ts: Any, grain: Grain) -> Any:
     return (day_start + offset.as_interval("s")).name("bucket_start")
 
 
-def _timestamp_expr_in_session_timezone(
+def _timestamp_expr_in_report_timezone(
     ts_expr: Any,
     *,
     column_tz: ZoneInfo,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
     window: AbsoluteWindow,
 ) -> Any:
-    anchor_utc = _coerce_bound_datetime(window.start, tz=session_tz, bound_name="start")
+    anchor_utc = _coerce_bound_datetime(window.start, tz=report_tz, bound_name="start")
     column_offset = anchor_utc.astimezone(column_tz).utcoffset()
-    session_offset = anchor_utc.astimezone(session_tz).utcoffset()
+    report_offset = anchor_utc.astimezone(report_tz).utcoffset()
     column_seconds = int(column_offset.total_seconds()) if column_offset is not None else 0
-    session_seconds = int(session_offset.total_seconds()) if session_offset is not None else 0
-    shift_seconds = session_seconds - column_seconds
+    report_seconds = int(report_offset.total_seconds()) if report_offset is not None else 0
+    shift_seconds = report_seconds - column_seconds
     if shift_seconds == 0:
         return ts_expr
     return ts_expr + ibis.interval(seconds=shift_seconds)
@@ -905,10 +927,11 @@ def bucket_time_expression(
     *,
     time_meta: Any,
     grain: Grain,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
+    datasource_read_tz: ZoneInfo,
     window: AbsoluteWindow | None,
 ) -> Any:
-    """Return a session-local bucket expression for a timestamp-like time field."""
+    """Return a report-local bucket expression for a timestamp-like time field."""
     if time_meta.data_type in {"datetime", "timestamp"}:
         if window is None:
             raise WindowInvalidError(
@@ -919,7 +942,8 @@ def bucket_time_expression(
             raw,
             time_meta=time_meta,
             grain=grain,
-            session_tz=session_tz,
+            report_tz=report_tz,
+            datasource_read_tz=datasource_read_tz,
             window=window,
         )
     if (
@@ -942,11 +966,11 @@ def bucket_time_expression(
         )
         if grain_matches_classification:
             return parsed
-        column_tz = _column_timezone(time_meta, session_tz)
-        local_parsed = _timestamp_expr_in_session_timezone(
+        column_tz = _column_timezone(time_meta, datasource_read_tz=datasource_read_tz)
+        local_parsed = _timestamp_expr_in_report_timezone(
             parsed,
             column_tz=column_tz,
-            session_tz=session_tz,
+            report_tz=report_tz,
             window=window,
         )
         return bucket_start_expr(local_parsed, grain)
@@ -961,16 +985,17 @@ def _local_bucket_expr(
     *,
     time_meta: Any,
     grain: Grain,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
+    datasource_read_tz: ZoneInfo,
     window: AbsoluteWindow,
 ) -> Any:
     """Compute a bucket-start expression that aligns instant or declared-naive
-    timestamp fields to session-local calendar boundaries.
+    timestamp fields to report-local calendar boundaries.
 
     For naive timestamp columns with a declared timezone, the shift converts
-    from declared-local to session-local.  For naive timestamp columns with no
-    declaration, the column is already in session-local space so the shift is
-    zero.
+    from declared-local to report-local.  For naive timestamp columns with no
+    declaration, the column is already in datasource-read-local space so the
+    shift converts from read-local to report-local.
     """
     data_type = time_meta.data_type
     declared = _declared_timezone(time_meta)
@@ -981,23 +1006,23 @@ def _local_bucket_expr(
         else:
             _logger.warning(
                 "Time dimension %r has no declared timezone for naive %r column; "
-                "assuming session timezone %s. Add timezone= to @ms.time_dimension "
+                "assuming datasource read timezone %s. Add timezone= to @ms.time_dimension "
                 "to avoid silent misalignment.",
                 getattr(time_meta, "semantic_id", "?"),
                 data_type,
-                getattr(session_tz, "key", str(session_tz)),
+                getattr(datasource_read_tz, "key", str(datasource_read_tz)),
             )
-            column_tz = session_tz
+            column_tz = datasource_read_tz
     else:
         raise WindowInvalidError(
             message=f"_local_bucket_expr only supports datetime/timestamp, "
             f"got data_type={data_type!r}",
         )
 
-    local_expr = _timestamp_expr_in_session_timezone(
+    local_expr = _timestamp_expr_in_report_timezone(
         ts_expr,
         column_tz=column_tz,
-        session_tz=session_tz,
+        report_tz=report_tz,
         window=window,
     )
     return bucket_start_expr(local_expr, grain)
@@ -1049,7 +1074,8 @@ def _apply_hour_only_bucket(
     raw: Any,
     field_ir: Any,
     window: AbsoluteWindow,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
+    datasource_read_tz: ZoneInfo,
     dataset_ir: Any,
 ) -> ibis.Table:
     """Bucket for hour-only string/integer time fields that use required_prefix."""
@@ -1104,7 +1130,7 @@ def ensure_bucket_start_timestamp(
     time_meta: Any,
     dataset_ir: Any,
     grain: Grain | None,
-    session_tz: ZoneInfo | None = None,
+    report_tz: ZoneInfo | None = None,
 ) -> pd.Series:
     """Normalize bucket_start values after SQL execution.
 
@@ -1114,15 +1140,15 @@ def ensure_bucket_start_timestamp(
        (produced by ``_apply_hour_only_bucket``).
     2. Timezone normalization: tz-aware bucket_start values (e.g. from
        ClickHouse ``Nullable(DateTime)`` columns) are converted to
-       session-local naive timestamps so that downstream consumers see
+       report-local naive timestamps so that downstream consumers see
        business-timezone dates, not UTC.
     """
     if grain is None:
         return series
 
-    # Timezone normalization: convert tz-aware timestamps to session-local naive.
-    if session_tz is not None and isinstance(series.dtype, pd.DatetimeTZDtype):
-        converted: pd.Series = series.dt.tz_convert(session_tz).dt.tz_localize(None)
+    # Timezone normalization: convert tz-aware timestamps to report-local naive.
+    if report_tz is not None and isinstance(series.dtype, pd.DatetimeTZDtype):
+        converted: pd.Series = series.dt.tz_convert(report_tz).dt.tz_localize(None)
         return converted
 
     if not pd.api.types.is_string_dtype(series):
@@ -1180,7 +1206,8 @@ def apply_time_series_bucket(
     *,
     field_ir: Any,
     window: AbsoluteWindow,
-    session_tz: ZoneInfo,
+    report_tz: ZoneInfo,
+    datasource_read_tz: ZoneInfo,
     dataset_ir: Any | None = None,
 ) -> ibis.Table:
     if field_ir.time_meta is None:
@@ -1218,23 +1245,24 @@ def apply_time_series_bucket(
         if grain_matches_classification:
             bucket = parsed.name("bucket_start")
         else:
-            column_tz = _column_timezone(time_meta, session_tz)
-            local_parsed = _timestamp_expr_in_session_timezone(
+            column_tz = _column_timezone(time_meta, datasource_read_tz=datasource_read_tz)
+            local_parsed = _timestamp_expr_in_report_timezone(
                 parsed,
                 column_tz=column_tz,
-                session_tz=session_tz,
+                report_tz=report_tz,
                 window=window,
             )
             bucket = bucket_start_expr(local_parsed, window.grain)
         return table.mutate(bucket_start=bucket)
 
-    # Timestamp: bucket in session-local calendar
+    # Timestamp: bucket in report-local calendar
     if data_type in {"datetime", "timestamp"}:
         bucket = _local_bucket_expr(
             raw,
             time_meta=time_meta,
             grain=window.grain,
-            session_tz=session_tz,
+            report_tz=report_tz,
+            datasource_read_tz=datasource_read_tz,
             window=window,
         )
         return table.mutate(bucket_start=bucket)
@@ -1246,7 +1274,8 @@ def apply_time_series_bucket(
             raw=raw,
             field_ir=field_ir,
             window=window,
-            session_tz=session_tz,
+            report_tz=report_tz,
+            datasource_read_tz=datasource_read_tz,
             dataset_ir=dataset_ir,
         )
 

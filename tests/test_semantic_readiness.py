@@ -682,28 +682,24 @@ def _naive_tz_report(semantic_project_factory, time_dim_kwargs: str) -> object:
     return project.readiness()
 
 
-def test_naive_datetime_blocks_readiness(semantic_project_factory) -> None:
-    """ms.datetime() requires timezone by signature; this test validates the load-time error
-    path for a strptime time-bearing format without timezone, which still applies."""
+def test_missing_datetime_timezone_does_not_block_readiness(semantic_project_factory) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="hour", parse=ms.strptime("%Y-%m-%d %H:%M:%S", data_type="string"), '
-        'description="Created at string", '
+        'granularity="hour", parse=ms.datetime(), '
+        'description="Created at timestamp", '
         'ai_context={"business_definition": "When the order was created."}',
     )
-    assert "naive_timezone_undetermined" in _issue_kinds(report.blockers)
+    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
 
-def test_naive_timestamp_blocks_readiness(semantic_project_factory) -> None:
-    """ms.timestamp() requires timezone by signature; this test validates the load-time error
-    path for a strptime time-bearing integer format without timezone."""
+def test_missing_timestamp_timezone_does_not_block_readiness(semantic_project_factory) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="hour", parse=ms.strptime("%Y%m%d%H%M%S", data_type="integer"), '
-        'description="Updated at int", '
+        'granularity="hour", parse=ms.timestamp(), '
+        'description="Updated at timestamp", '
         'ai_context={"business_definition": "When the order was updated."}',
     )
-    assert "naive_timezone_undetermined" in _issue_kinds(report.blockers)
+    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
 
 def test_declared_timezone_clears_blocker(semantic_project_factory) -> None:
@@ -739,26 +735,28 @@ def test_day_only_string_format_does_not_block(semantic_project_factory) -> None
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
 
-def test_time_bearing_string_format_blocks(semantic_project_factory) -> None:
-    """string data_type with time-bearing date_format (e.g. %Y-%m-%d %H:%M:%S) blocks."""
+def test_time_bearing_string_format_without_timezone_does_not_block(
+    semantic_project_factory,
+) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.strptime("%Y-%m-%d %H:%M:%S", data_type="string"), '
         'description="Created at string", '
         'ai_context={"business_definition": "Timestamp as string."}',
     )
-    assert "naive_timezone_undetermined" in _issue_kinds(report.blockers)
+    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
 
-def test_time_bearing_integer_format_blocks(semantic_project_factory) -> None:
-    """integer data_type with time-bearing date_format also blocks."""
+def test_time_bearing_integer_format_without_timezone_does_not_block(
+    semantic_project_factory,
+) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.strptime("%Y%m%d%H%M%S", data_type="integer"), '
         'description="Created at int", '
         'ai_context={"business_definition": "Timestamp as integer."}',
     )
-    assert "naive_timezone_undetermined" in _issue_kinds(report.blockers)
+    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
 
 def test_required_prefix_does_not_block(semantic_project_factory) -> None:
@@ -770,14 +768,6 @@ def test_required_prefix_does_not_block(semantic_project_factory) -> None:
         'ai_context={"business_definition": "Hour partition key."}',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
-
-
-def test_naive_timezone_issue_kind_is_valid() -> None:
-    from typing import get_args
-
-    from marivo.semantic.readiness import ReadinessIssueKind
-
-    assert "naive_timezone_undetermined" in get_args(ReadinessIssueKind)
 
 
 # -- is_time_bearing_format unit tests -----------------------------------------

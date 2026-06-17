@@ -1037,7 +1037,7 @@ def _coerce_window_bound(value: str, *, bound_name: str) -> pd.Timestamp:
 
 
 def _window_comparison_tz(window: AbsoluteWindow, *, session: Session) -> Any:
-    return session.tz
+    return session.report_tz
 
 
 def _align_window_bound_to_series(

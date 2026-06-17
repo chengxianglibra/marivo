@@ -1,4 +1,4 @@
-"""Session timezone contract: system resolver, no timezone= kwarg."""
+"""Session timezone contract: report timezone persistence and reopen conflict semantics."""
 
 import json
 from zoneinfo import ZoneInfo
@@ -25,43 +25,74 @@ def _chdir(tmp_path, monkeypatch):
     yield
 
 
-def test_create_uses_system_timezone(monkeypatch):
+def test_create_persists_system_report_timezone(monkeypatch):
     monkeypatch.setenv("TZ", "Asia/Shanghai")
 
     s = session_attach.get_or_create(name="demo", default_calendar="cn_holidays")
 
+    assert s.report_tz == ZoneInfo("Asia/Shanghai")
     assert s.tz == ZoneInfo("Asia/Shanghai")
+    assert s.report_tz_name == "Asia/Shanghai"
     assert s.default_calendar == "cn_holidays"
     meta = _read_session_meta(s)
-    assert meta["tz"] == "Asia/Shanghai"
-    assert meta["tz_resolution"] == "iana"
-    assert meta["tz_warning"] is None
+    assert meta["report_tz"] == "Asia/Shanghai"
+    assert meta["report_tz_resolution"] == "iana"
+    assert meta["report_tz_warning"] is None
+    assert "tz" not in meta
+    assert "previous_tz" not in meta
     assert meta["default_calendar"] == "cn_holidays"
 
 
-def test_session_helpers_reject_timezone_kwarg():
-    with pytest.raises(TypeError):
-        session_attach.get_or_create(name="demo", timezone="UTC")  # type: ignore[call-arg]
-    with pytest.raises(TypeError):
-        session_attach.get_or_create(name="fresh", timezone="UTC")  # type: ignore[call-arg]
-
-
-def test_attach_legacy_meta_preserves_existing_audit_timezone(monkeypatch):
+def test_create_accepts_explicit_report_timezone(monkeypatch):
     monkeypatch.setenv("TZ", "Asia/Shanghai")
-    s = session_attach.get_or_create(name="demo")
+
+    s = session_attach.get_or_create(name="demo", report_timezone="UTC")
+
+    assert s.report_tz == ZoneInfo("UTC")
+    assert s.report_tz_name == "UTC"
     meta = _read_session_meta(s)
-    meta["tz"] = "UTC"
-    meta.pop("tz_resolution", None)
-    meta.pop("tz_warning", None)
-    _write_session_meta(s, meta)
+    assert meta["report_tz"] == "UTC"
+    assert meta["report_tz_resolution"] == "iana"
+    assert meta["report_tz_warning"] is None
+
+
+def test_reopen_without_report_timezone_uses_persisted_value(monkeypatch):
+    monkeypatch.setenv("TZ", "UTC")
+    created = session_attach.get_or_create(name="demo", report_timezone="Asia/Shanghai")
     session_attach._reset_process_state()
+    monkeypatch.setenv("TZ", "UTC")
 
     attached = session_attach.get_or_create(name="demo")
 
-    assert attached.tz == ZoneInfo("Asia/Shanghai")
-    upgraded = _read_session_meta(attached)
-    assert upgraded["tz"] == "Asia/Shanghai"
-    assert upgraded["previous_tz"] == "UTC"
+    assert created.id == attached.id
+    assert attached.report_tz == ZoneInfo("Asia/Shanghai")
+    assert _read_session_meta(attached)["report_tz"] == "Asia/Shanghai"
+
+
+def test_reopen_matching_report_timezone_is_idempotent(monkeypatch):
+    monkeypatch.setenv("TZ", "UTC")
+    created = session_attach.get_or_create(name="demo", report_timezone="Asia/Shanghai")
+    session_attach._reset_process_state()
+
+    attached = session_attach.get_or_create(name="demo", report_timezone="Asia/Shanghai")
+
+    assert attached.id == created.id
+    assert attached.report_tz == ZoneInfo("Asia/Shanghai")
+
+
+def test_reopen_conflicting_report_timezone_fails_closed(monkeypatch):
+    from marivo.analysis.errors import SessionTimezoneConflict
+
+    monkeypatch.setenv("TZ", "UTC")
+    session_attach.get_or_create(name="demo", report_timezone="Asia/Shanghai")
+    session_attach._reset_process_state()
+
+    with pytest.raises(SessionTimezoneConflict) as exc_info:
+        session_attach.get_or_create(name="demo", report_timezone="UTC")
+
+    assert exc_info.value.details["persisted_report_tz"] == "Asia/Shanghai"
+    assert exc_info.value.details["requested_report_tz"] == "UTC"
+    assert "delete and recreate" in str(exc_info.value)
 
 
 def test_create_initializes_project_calendar_directory(monkeypatch):

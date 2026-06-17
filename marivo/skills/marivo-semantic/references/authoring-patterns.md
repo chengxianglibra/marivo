@@ -181,8 +181,14 @@ def event_date(table):
 
 For string or integer event-time columns that include time-of-day, declare both
 the physical `date_format` and source `timezone`. `session.observe(...)` parses
-the value as source-local time, converts it to the analysis session timezone,
+the value as source-local time, converts it to the session report timezone,
 and then applies sub-day bucketing:
+
+For localizable wall-clock time fields, `ms.datetime()`, `ms.timestamp()`,
+and time-bearing `ms.strptime(...)` may omit `timezone=`.
+Omitted timezone means the datasource engine default timezone. Add
+`timezone="UTC"` or another IANA name only when the source column's wall-clock
+meaning differs from the datasource default.
 
 ```python
 @ms.time_dimension(

@@ -17,7 +17,12 @@ import ibis
 import ibis.expr.types as ir_types
 
 from marivo.analysis.errors import WindowInvalidError
-from marivo.analysis.executor.runner import apply_slice_to_dataset, apply_window_to_dataset, execute
+from marivo.analysis.executor.runner import (
+    apply_slice_to_dataset,
+    apply_window_to_dataset,
+    datasource_read_timezone,
+    execute,
+)
 from marivo.analysis.intents.observe_errors import (
     ObservePlanningError,
     RepairAction,
@@ -1353,7 +1358,13 @@ def plan_base_observe(
     )
     root_table = dataset_fns[root](backend)
     root_table = apply_window_to_dataset(
-        root_table, resolved_window, dataset_ir=dataset_irs[root], session_tz=session.tz
+        root_table,
+        resolved_window,
+        dataset_ir=dataset_irs[root],
+        report_tz=session.report_tz,
+        datasource_read_tz=datasource_read_timezone(
+            session._connection_runtime, dataset_irs[root].datasource_name
+        ),
     )
 
     planned_where: list[PlannedWhere] = []

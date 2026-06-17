@@ -70,7 +70,10 @@ class CandidateSet(BaseFrame):
     _NEXT_INTENTS = ("select",)
 
     def _repr_identity(self) -> str:
-        return f"CandidateSet ref={self.meta.ref} rows={self.meta.row_count}"
+        return (
+            f"CandidateSet ref={self.meta.ref} objective={self.meta.objective} "
+            f"strategy={self.meta.strategy} rows={self.meta.row_count}"
+        )
 
     def _assert_shape(self, expected: CandidateShape) -> CandidateSet:
         if self.meta.shape != expected:

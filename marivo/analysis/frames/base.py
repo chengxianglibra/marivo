@@ -149,6 +149,30 @@ class FramePreview(BaseModel):
     rows: list[dict[str, Any]]
     is_truncated: bool
 
+    def _repr_identity(self) -> str:
+        return (
+            f"FramePreview ref={self.ref} kind={self.kind} "
+            f"returned={self.returned_row_count}/{self.row_count} "
+            f"truncated={self.is_truncated}"
+        )
+
+    def render(self) -> str:
+        preview_rows = [[str(row.get(column)) for column in self.columns] for row in self.rows]
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            columns=self.columns,
+            rows=preview_rows,
+            row_count=self.row_count,
+            preview_truncation_hint="call .preview(limit=...) or .to_pandas()",
+            available=(".rows (list[dict])", ".columns"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
+
 
 class BaseFrameMeta(BaseModel):
     """Shared ownership and provenance fields for every frame family."""

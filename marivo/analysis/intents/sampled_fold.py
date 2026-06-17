@@ -183,7 +183,8 @@ def sample_point_table(
     *,
     time_field_ir: Any,
     sample_grain: Grain,
-    session_tz: Any,
+    report_tz: Any,
+    datasource_read_tz: Any,
     window: Any,
     dataset_ir: Any | None = None,
 ) -> Any:
@@ -209,7 +210,8 @@ def sample_point_table(
             raw,
             time_meta=time_meta,
             grain=sample_grain,
-            session_tz=session_tz,
+            report_tz=report_tz,
+            datasource_read_tz=datasource_read_tz,
             window=window,
         )
         return table.mutate(sample_point=sample_point)
@@ -231,14 +233,15 @@ def sample_point_table(
         synthetic_meta = types.SimpleNamespace(
             data_type="timestamp",
             granularity=time_meta.granularity,
-            timezone=str(session_tz),
+            timezone=str(report_tz),
             format=None,
         )
         sample_point = bucket_time_expression(
             combined_ts,
             time_meta=synthetic_meta,
             grain=sample_grain,
-            session_tz=session_tz,
+            report_tz=report_tz,
+            datasource_read_tz=datasource_read_tz,
             window=window,
         )
         return table.mutate(sample_point=sample_point)

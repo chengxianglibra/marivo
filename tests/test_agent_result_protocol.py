@@ -6,7 +6,12 @@ from collections.abc import Callable
 
 import pytest
 
-from marivo.analysis.frames.base import FrameSummary
+import marivo.analysis as ma
+import marivo.analysis.frames as analysis_frames
+from marivo.analysis.frames.association import AssociationResultSummary
+from marivo.analysis.frames.base import BaseFrame, FramePreview, FrameSummary
+from marivo.analysis.frames.quality import QualityReportSummary
+from marivo.analysis.help import _FRAME_SYMBOLS as ANALYSIS_FRAME_SYMBOLS
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
 from marivo.datasource.ir import TableSourceIR
@@ -153,6 +158,50 @@ def _frame_summary() -> FrameSummary:
     )
 
 
+def _frame_preview() -> FramePreview:
+    return FramePreview(
+        kind="metric_frame",
+        ref="frame_ab12",
+        row_count=7,
+        returned_row_count=2,
+        columns=["period", "value"],
+        rows=[
+            {"period": "2026-01-01", "value": 10},
+            {"period": "2026-01-02", "value": 12},
+        ],
+        is_truncated=True,
+    )
+
+
+def _quality_report_summary() -> QualityReportSummary:
+    return QualityReportSummary(
+        kind="quality_report",
+        ref="frame_quality",
+        target_metric_id="sales.revenue",
+        target_semantic_kind="time_series",
+        overall_status="warning",
+        blocking_issue_count=0,
+        warning_count=1,
+        checks=[],
+        produced_by_job="job_quality",
+        lineage_oneliner="observe -> assess_quality",
+    )
+
+
+def _association_result_summary() -> AssociationResultSummary:
+    return AssociationResultSummary(
+        kind="association_result",
+        ref="frame_assoc",
+        metric_ids=["sales.revenue", "marketing.spend"],
+        method="pearson",
+        correlation=0.82,
+        aligned_row_count=12,
+        dropped_row_count=1,
+        produced_by_job="job_assoc",
+        lineage_oneliner="correlate",
+    )
+
+
 def _authoring_assessment() -> AuthoringAssessment:
     issue = AssessmentIssue(
         kind="missing_evidence",
@@ -198,6 +247,9 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_frame_summary_entry, id="FrameSummaryEntry"),
     pytest.param(_session_summary, id="SessionSummary"),
     pytest.param(_frame_summary, id="FrameSummary"),
+    pytest.param(_frame_preview, id="FramePreview"),
+    pytest.param(_quality_report_summary, id="QualityReportSummary"),
+    pytest.param(_association_result_summary, id="AssociationResultSummary"),
     pytest.param(_authoring_assessment, id="AuthoringAssessment"),
     pytest.param(_domain_brief, id="DomainBrief"),
     pytest.param(_derived_metric_brief, id="DerivedMetricBrief"),
@@ -207,3 +259,26 @@ TERMINAL_BUILDERS: list = [
 @pytest.mark.parametrize("builder", TERMINAL_BUILDERS)
 def test_terminal_type_conforms(builder: Callable[[], object]) -> None:
     assert_conforms(builder())
+
+
+def _walk_concrete_analysis_frame_classes() -> list[type[BaseFrame]]:
+    pending = list(BaseFrame.__subclasses__())
+    seen: set[type[BaseFrame]] = set()
+    found: list[type[BaseFrame]] = []
+    while pending:
+        cls = pending.pop()
+        if cls in seen:
+            continue
+        seen.add(cls)
+        pending.extend(cls.__subclasses__())
+        if cls.__module__.startswith("marivo.analysis.frames"):
+            found.append(cls)
+    return sorted(found, key=lambda cls: f"{cls.__module__}.{cls.__name__}")
+
+
+def test_concrete_analysis_frames_are_public_and_descriptive() -> None:
+    assert analysis_frames.__all__
+    for cls in _walk_concrete_analysis_frame_classes():
+        assert cls._repr_identity is not BaseFrame._repr_identity, cls.__name__
+        assert cls.__name__ in ma.__all__, cls.__name__
+        assert cls.__name__ in ANALYSIS_FRAME_SYMBOLS, cls.__name__

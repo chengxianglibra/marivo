@@ -31,6 +31,7 @@ from marivo.analysis.evidence.types import Subject
 from marivo.analysis.executor.runner import (
     apply_time_series_bucket,
     bucket_start_expr,
+    datasource_read_timezone,
     ensure_bucket_start_timestamp,
     execute,
     normalize_slice_for_storage,
@@ -662,11 +663,13 @@ def _execute_sampled_base(
         sample_interval=sample_interval,
     )
     sample_grain = Grain(count=sample_interval.count, unit=sample_interval.unit)
+    read_tz = datasource_read_timezone(session._connection_runtime, plan.datasource_name)
     table = sample_point_table(
         plan.table,
         time_field_ir=root_time_adapter,
         sample_grain=sample_grain,
-        session_tz=cast("ZoneInfo", session.tz),
+        report_tz=cast("ZoneInfo", session.report_tz),
+        datasource_read_tz=read_tz,
         window=resolved_window,
         dataset_ir=root_adapter,
     )
@@ -728,7 +731,7 @@ def _execute_sampled_base(
                 time_meta=root_time_adapter.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
-                session_tz=cast("ZoneInfo", session.tz),
+                report_tz=cast("ZoneInfo", session.report_tz),
             )
             if resolved_window.grain.is_day:
                 with suppress(AttributeError):
@@ -753,7 +756,7 @@ def _execute_sampled_base(
             time_meta=root_time_adapter.time_meta,
             dataset_ir=root_adapter,
             grain=resolved_window.grain,
-            session_tz=cast("ZoneInfo", session.tz),
+            report_tz=cast("ZoneInfo", session.report_tz),
         )
     if (
         resolved_window is not None
@@ -816,6 +819,7 @@ def _execute_base(
     metric_name = metric_ir.name
     metric_datasets = tuple(metric_ir.entities)
     primary_datasource = plan.datasource_name
+    read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
     dataset_tables = plan.dataset_tables
     resolved_dimensions = [
         (dimension.field.entity, dimension.field) for dimension in plan.dimensions
@@ -841,7 +845,8 @@ def _execute_base(
             plan.table,
             field_ir=time_dimension_ir,
             window=resolved_window,
-            session_tz=cast("ZoneInfo", session.tz),
+            report_tz=cast("ZoneInfo", session.report_tz),
+            datasource_read_tz=read_tz,
             dataset_ir=root_adapter,
         )
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
@@ -876,7 +881,7 @@ def _execute_base(
                 time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
-                session_tz=cast("ZoneInfo", session.tz),
+                report_tz=cast("ZoneInfo", session.report_tz),
             )
         if (
             resolved_window.grain is not None
@@ -916,7 +921,8 @@ def _execute_base(
             plan.table,
             field_ir=time_dimension_ir,
             window=resolved_window,
-            session_tz=cast("ZoneInfo", session.tz),
+            report_tz=cast("ZoneInfo", session.report_tz),
+            datasource_read_tz=read_tz,
             dataset_ir=root_adapter,
         )
         dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
@@ -941,7 +947,7 @@ def _execute_base(
                 time_meta=time_dimension_ir.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
-                session_tz=cast("ZoneInfo", session.tz),
+                report_tz=cast("ZoneInfo", session.report_tz),
             )
         axes = {
             "time": {
@@ -1037,11 +1043,13 @@ def _execute_folded_component(
         sample_interval=sample_interval,
     )
     sample_grain = Grain(count=sample_interval.count, unit=sample_interval.unit)
+    read_tz = datasource_read_timezone(session._connection_runtime, cp.base_plan.datasource_name)
     table = sample_point_table(
         cp.base_plan.table,
         time_field_ir=root_time_adapter,
         sample_grain=sample_grain,
-        session_tz=cast("ZoneInfo", session.tz),
+        report_tz=cast("ZoneInfo", session.report_tz),
+        datasource_read_tz=read_tz,
         window=resolved_window,
         dataset_ir=root_adapter,
     )
@@ -1094,7 +1102,7 @@ def _execute_folded_component(
             time_meta=root_time_adapter.time_meta,
             dataset_ir=root_adapter,
             grain=resolved_window.grain,
-            session_tz=cast("ZoneInfo", session.tz),
+            report_tz=cast("ZoneInfo", session.report_tz),
         )
         if resolved_window.grain.is_day:
             with suppress(AttributeError):
@@ -1119,7 +1127,7 @@ def _execute_folded_component(
                 time_meta=root_time_adapter.time_meta,
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
-                session_tz=cast("ZoneInfo", session.tz),
+                report_tz=cast("ZoneInfo", session.report_tz),
             )
             if resolved_window.grain.is_day:
                 with suppress(AttributeError):
@@ -1281,11 +1289,15 @@ def _execute_derived(
                         else None
                     ) or "day"
                     ensure_grain_supported(resolved_window.grain, base)
+                read_tz = datasource_read_timezone(
+                    session._connection_runtime, cp.base_plan.datasource_name
+                )
                 table = apply_time_series_bucket(
                     table,
                     field_ir=time_dimension_ir,
                     window=resolved_window,
-                    session_tz=cast("ZoneInfo", session.tz),
+                    report_tz=cast("ZoneInfo", session.report_tz),
+                    datasource_read_tz=read_tz,
                     dataset_ir=root_adapter,
                 )
                 group_names = ["bucket_start", *dim_columns]
@@ -1324,7 +1336,7 @@ def _execute_derived(
                     time_meta=time_dimension_ir.time_meta,
                     dataset_ir=root_adapter,
                     grain=resolved_window.grain if resolved_window else None,
-                    session_tz=cast("ZoneInfo", session.tz),
+                    report_tz=cast("ZoneInfo", session.report_tz),
                 )
             if (
                 has_time
@@ -1752,7 +1764,7 @@ def observe(
                 params_timescope = {
                     "original": original_timescope,
                     "resolved": dump_window(resolved_window),
-                    "session_tz": str(session.tz),
+                    "report_tz": session.report_tz_name,
                 }
             params = {
                 "metric": metric_id,
@@ -1928,7 +1940,7 @@ def observe(
             params_timescope = {
                 "original": original_timescope,
                 "resolved": dump_window(resolved_window),
-                "session_tz": str(session.tz),
+                "report_tz": session.report_tz_name,
             }
         params = {
             "metric": metric_id,

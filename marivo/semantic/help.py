@@ -497,10 +497,10 @@ def _datetime_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="datetime",
-        summary="datetime parse variant with required timezone for ms.time_dimension(parse=ms.datetime(tz))",
+        summary="datetime parse variant with optional timezone for ms.time_dimension(parse=ms.datetime(...))",
         content={
-            "form": "ms.datetime(timezone='UTC')",
-            "usage": "Requires timezone argument for datetime columns with zone info.",
+            "form": "ms.datetime(timezone=None, sample_interval=None)",
+            "usage": "For datetime columns. timezone is optional; omitted means datasource engine timezone.",
             "related_help": [
                 "ms.help('time_dimension')",
             ],
@@ -508,10 +508,10 @@ def _datetime_topic() -> Descriptor:
         doc=(
             "marivo.semantic datetime\n"
             "\n"
-            "datetime parse variant with required timezone for ms.time_dimension(parse=ms.datetime(tz))\n"
+            "datetime parse variant with optional timezone for ms.time_dimension(parse=ms.datetime(...))\n"
             "\n"
             "Form:\n"
-            "  ms.datetime(timezone='UTC')"
+            "  ms.datetime(timezone=None, sample_interval=None)"
         ),
         see_also=("ms.help('time_dimension')",),
     )
@@ -522,10 +522,10 @@ def _timestamp_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="timestamp",
-        summary="timestamp parse variant with timezone and sample interval",
+        summary="timestamp parse variant with optional timezone and sample interval",
         content={
-            "form": "ms.timestamp(timezone='UTC', sample_interval=None)",
-            "usage": "For sub-day timestamp columns. Requires timezone; sample_interval is optional.",
+            "form": "ms.timestamp(timezone=None, sample_interval=None)",
+            "usage": "For timestamp columns. timezone is optional; omitted means datasource engine timezone.",
             "related_help": [
                 "ms.help('time_dimension')",
             ],
@@ -533,10 +533,10 @@ def _timestamp_topic() -> Descriptor:
         doc=(
             "marivo.semantic timestamp\n"
             "\n"
-            "timestamp parse variant with timezone and sample interval\n"
+            "timestamp parse variant with optional timezone and sample interval\n"
             "\n"
             "Form:\n"
-            "  ms.timestamp(timezone='UTC', sample_interval=None)"
+            "  ms.timestamp(timezone=None, sample_interval=None)"
         ),
         see_also=("ms.help('time_dimension')",),
     )

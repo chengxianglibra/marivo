@@ -8,6 +8,7 @@ from typing import Literal, cast
 from pydantic import BaseModel, ConfigDict
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.render import format_bounded_card, result_repr
 
 
 class CheckResult(BaseModel):
@@ -32,6 +33,28 @@ class QualityReportSummary(BaseModel):
     produced_by_job: str | None
     lineage_oneliner: str
 
+    def _repr_identity(self) -> str:
+        return (
+            f"QualityReportSummary ref={self.ref} status={self.overall_status} "
+            f"blocking={self.blocking_issue_count}"
+        )
+
+    def render(self) -> str:
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=(
+                f"{self.overall_status}; blocking={self.blocking_issue_count} "
+                f"warning={self.warning_count}"
+            ),
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
+
 
 class QualityReportMeta(BaseFrameMeta):
     model_config = ConfigDict(extra="forbid")
@@ -54,7 +77,10 @@ class QualityReport(BaseFrame):
     meta: QualityReportMeta
 
     def _repr_identity(self) -> str:
-        return f"QualityReport ref={self.meta.ref} rows={self.meta.row_count}"
+        return (
+            f"QualityReport ref={self.meta.ref} status={self.meta.overall_status} "
+            f"blocking={self.meta.blocking_issue_count} rows={self.meta.row_count}"
+        )
 
     def summary(self) -> QualityReportSummary:  # type: ignore[override]  # replaces meaningless FrameSummary fields with quality-specific ones
         step_intents = [step.intent for step in self.meta.lineage.steps]
