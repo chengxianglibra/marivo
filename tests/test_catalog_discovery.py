@@ -34,14 +34,14 @@ from marivo.semantic.ir import ParityStatus, SourceLocation
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True, description="Sales model.")
+    ms.domain(name="sales", default=True)
 """)
 
 _DATASETS_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.dimension(entity=orders, description="Sales region.")
+    @ms.dimension(entity=orders)
     def region(table):
         return table.region
 
@@ -52,7 +52,6 @@ _DATASETS_PY = textwrap.dedent("""\
     @ms.metric(
         entities=[orders],
         additivity="additive",
-        description="Gross revenue.",
     )
     def revenue(table):
         return table.amount.sum()
@@ -267,7 +266,6 @@ def test_discovery_domain_details_repr_is_single_line():
         kind=SemanticKind.DOMAIN,
         name="sales",
         domain="sales",
-        description="Sales model.",
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(),
@@ -288,7 +286,6 @@ def test_discovery_domain_details_render_returns_str():
         kind=SemanticKind.DOMAIN,
         name="sales",
         domain="sales",
-        description="Sales model.",
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(),
@@ -309,7 +306,6 @@ def test_discovery_domain_details_show_prints_output(capsys):
         kind=SemanticKind.DOMAIN,
         name="sales",
         domain="sales",
-        description="Sales model.",
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(),
@@ -329,7 +325,6 @@ def test_discovery_metric_details_repr_is_single_line():
         kind=SemanticKind.METRIC,
         name="revenue",
         domain="sales",
-        description="Gross revenue.",
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -360,7 +355,6 @@ def test_discovery_metric_details_render_shows_additivity():
         kind=SemanticKind.METRIC,
         name="revenue",
         domain="sales",
-        description="Gross revenue.",
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -389,7 +383,6 @@ def test_discovery_datasource_details_repr():
         kind=SemanticKind.DATASOURCE,
         name="warehouse",
         domain=None,
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(),
@@ -412,7 +405,6 @@ def test_discovery_entity_details_render():
         kind=SemanticKind.ENTITY,
         name="orders",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("warehouse", SemanticKind.DATASOURCE),),
@@ -435,7 +427,6 @@ def test_discovery_dimension_details_render():
         kind=SemanticKind.DIMENSION,
         name="region",
         domain="sales",
-        description="Sales region.",
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -454,7 +445,6 @@ def test_discovery_time_dimension_details_render():
         kind=SemanticKind.TIME_DIMENSION,
         name="created_at",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -480,7 +470,6 @@ def test_discovery_relationship_details_render():
         kind=SemanticKind.RELATIONSHIP,
         name="orders_to_users",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(

@@ -144,7 +144,6 @@ def test_datasource_details_fields():
         kind=SemanticKind.DATASOURCE,
         name="warehouse",
         domain=None,
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(),
@@ -167,7 +166,6 @@ def test_domain_details_fields():
         kind=SemanticKind.DOMAIN,
         name="sales",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(),
@@ -188,7 +186,6 @@ def test_entity_details_fields():
         kind=SemanticKind.ENTITY,
         name="orders",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("warehouse", SemanticKind.DATASOURCE),),
@@ -236,7 +233,6 @@ def test_dimension_details_fields():
         kind=SemanticKind.DIMENSION,
         name="region",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -255,7 +251,6 @@ def test_measure_details_fields():
         kind=SemanticKind.MEASURE,
         name="amount",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -277,7 +272,6 @@ def test_time_dimension_details_fields():
         kind=SemanticKind.TIME_DIMENSION,
         name="created_at",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -306,7 +300,6 @@ def test_metric_details_fields():
         kind=SemanticKind.METRIC,
         name="revenue",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -337,7 +330,6 @@ def test_relationship_details_fields():
         kind=SemanticKind.RELATIONSHIP,
         name="orders_customers",
         domain="sales",
-        description=None,
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(
@@ -363,7 +355,6 @@ def _make_metric_obj() -> SemanticObject:
         kind=SemanticKind.METRIC,
         name="revenue",
         domain="sales",
-        description="Gross revenue.",
         context=_make_ctx(),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
@@ -387,7 +378,6 @@ def _make_metric_obj() -> SemanticObject:
         kind=SemanticKind.METRIC,
         name="revenue",
         domain="sales",
-        description="Gross revenue.",
         context=_make_ctx(),
         source_location=_make_loc(),
         python_symbol="revenue",
@@ -404,7 +394,6 @@ def test_semantic_object_fields():
     assert obj.kind == SemanticKind.METRIC
     assert obj.name == "revenue"
     assert obj.domain == "sales"
-    assert obj.description == "Gross revenue."
 
 
 def test_semantic_object_details_returns_typed_details():
@@ -490,14 +479,14 @@ def test_semantic_object_list_empty_renders_actionable_message():
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True, description="Sales model.")
+    ms.domain(name="sales", default=True)
 """)
 
 _DATASETS_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-    @ms.dimension(entity=orders, description="Sales region.")
+    @ms.dimension(entity=orders)
     def region(table):
         return table.region
 
@@ -508,7 +497,6 @@ _DATASETS_PY = textwrap.dedent("""\
     @ms.metric(
         entities=[orders],
         additivity="additive",
-        description="Gross revenue.",
     )
     def revenue(table):
         return table.amount.sum()
@@ -521,7 +509,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         name="orders",
         datasource="warehouse",
         source=ms.table("orders"),
-        description="Orders table.",
         ai_context={
             "business_definition": "One row per completed order.",
             "guardrails": ["Exclude test orders."],
@@ -534,7 +521,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
 
     @ms.dimension(
         entity=orders,
-        description="Sales region.",
         ai_context={
             "business_definition": "Region assigned to the completed order.",
             "guardrails": ["Do not infer sales ownership from region alone."],
@@ -551,7 +537,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         entity=orders,
         additivity="additive",
         unit="USD",
-        description="Gross amount.",
         ai_context={
             "business_definition": "Gross order amount before refunds.",
             "guardrails": ["Does not net out refunds."],
@@ -584,7 +569,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         name="revenue",
         measure=amount,
         agg="sum",
-        description="Gross revenue.",
         ai_context={
             "business_definition": "Total gross order amount before refunds.",
             "guardrails": ["Do not use as net revenue."],
@@ -921,7 +905,6 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
                 @ms.metric(
                     entities=[orders],
                     additivity="additive",
-                    description="Gross revenue.",
                     ai_context={"business_definition": "All completed order amounts."},
                 )
                 def revenue(table):
@@ -934,10 +917,16 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
     assert obj.context.business_definition == "All completed order amounts."
 
 
-def test_catalog_get_description_matches_authored_description(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
+def test_catalog_get_business_definition_matches_authored_context(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
     obj = catalog.get("sales.revenue")
-    assert obj.description == "Gross revenue."
+    assert obj.context.business_definition == "Total gross order amount before refunds."
 
 
 def test_catalog_get_source_location_is_populated(semantic_project_factory):
@@ -1262,7 +1251,7 @@ def test_catalog_load_reloads_project(semantic_project_factory):
             import marivo.semantic as ms
             orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-            @ms.dimension(entity=orders, description="Sales region.")
+            @ms.dimension(entity=orders)
             def region(table):
                 return table.region
 
@@ -1273,7 +1262,6 @@ def test_catalog_load_reloads_project(semantic_project_factory):
             @ms.metric(
                 entities=[orders],
                 additivity="additive",
-                description="Gross revenue.",
             )
             def revenue(table):
                 return table.amount.sum()
@@ -1281,7 +1269,6 @@ def test_catalog_load_reloads_project(semantic_project_factory):
             @ms.metric(
                 entities=[orders],
                 additivity="additive",
-                description="Gross profit.",
             )
             def profit(table):
                 return table.profit.sum()

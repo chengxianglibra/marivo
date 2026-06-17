@@ -448,7 +448,6 @@ def domain(
     *,
     name: str,
     default: bool = True,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> DomainRef:
     """Declare a semantic domain namespace inside a project file.
@@ -461,7 +460,6 @@ def domain(
         name: Domain namespace, e.g. ``"sales"``.
         default: If True, subsequent decorators in this file resolve to this
             domain when no explicit ``domain=`` kwarg is passed.
-        description: Free-text description; surfaced in agent/help output.
         ai_context: Optional ``AiContext`` (or compatible dict) with extra
             agent-facing hints.
 
@@ -483,7 +481,6 @@ def domain(
 
     ir = DomainIR(
         name=name,
-        description=description,
         default=default,
         ai_context=ai_ctx,
         location=location,
@@ -504,7 +501,6 @@ def aggregate(
     fold: str | tuple[Literal["quantile"], float] | None = None,
     unit: str | None = None,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> MetricRef:
     """Declare a tier-1 simple metric: an aggregation over a measure.
@@ -520,7 +516,6 @@ def aggregate(
         unit: Override the unit derived from ``measure`` at load. Leave None to
             inherit the measure's unit (count/count_distinct derive nothing).
         domain: Override the active domain.
-        description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Example:
@@ -550,7 +545,6 @@ def aggregate(
         composition=None,
         additivity=None,  # resolved at load: downgrade(measure.additivity, agg) + fold override
         provenance=None,
-        description=description,
         ai_context=ai_ctx,
         body_ast_hash=_compute_agg_hash(measure_id, agg, fold_ir),
         python_symbol=obj_name,
@@ -573,7 +567,6 @@ def metric(
     unit: str | None = None,
     provenance: SqlProvenance | None = None,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
     """Declare a metric from an ibis body. Declares ``additivity`` directly.
@@ -587,7 +580,6 @@ def metric(
         unit: UCUM unit token.
         provenance: Optional ``SqlProvenance`` from ``ms.from_sql(sql=..., dialect=...)``.
         domain: Override the active domain namespace.
-        description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Returns:
@@ -640,7 +632,6 @@ def metric(
             composition=None,
             additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
             provenance=provenance,
-            description=description,
             ai_context=ai_ctx,
             body_ast_hash=body_hash,
             python_symbol=fn.__name__,
@@ -696,7 +687,6 @@ def entity(
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> EntityRef:
     """Declare an entity over a structured physical source.
@@ -710,7 +700,6 @@ def entity(
         primary_key: Optional list of column names forming the primary key.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        description: Free-text description; surfaced in agent/help output.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Returns:
@@ -752,7 +741,6 @@ def entity(
         datasource=ds_ref,
         source=source,
         primary_key=pk,
-        description=description,
         ai_context=ai_ctx,
         python_symbol=name,
         location=location,
@@ -768,7 +756,6 @@ def dimension(
     name: str | None = None,
     entity: EntityRef | str,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> Callable[[Callable[..., Any]], DimensionRef]:
     """Declare a categorical dimension whose body returns an ibis expression over its entity.
@@ -786,7 +773,6 @@ def dimension(
             ``"<domain>.<entity>"`` string.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Returns:
@@ -829,7 +815,6 @@ def dimension(
             domain=resolved_domain,
             entity=entity_ref,
             name=obj_name,
-            description=description,
             ai_context=ai_ctx,
             is_time_dimension=False,
             kind=DimensionKind.CATEGORICAL,
@@ -852,7 +837,6 @@ def measure(
     additivity: Additivity,
     unit: str | None = None,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> Callable[[Callable[..., Any]], MeasureRef]:
     """Declare a row-level quantitative measure whose expression can be aggregated.
@@ -870,7 +854,6 @@ def measure(
         unit: UCUM unit token (e.g. ``"USD"``, ``"CNY"``, ``"%"``).
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Returns:
@@ -912,7 +895,6 @@ def measure(
             domain=resolved_domain,
             entity=entity_ref,
             name=obj_name,
-            description=description,
             ai_context=ai_ctx,
             additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
             unit=unit,
@@ -1039,7 +1021,6 @@ def time_dimension(
     parse: SemanticParse,
     is_default: bool = False,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> Callable[[Callable[..., Any]], TimeDimensionRef]:
     """Declare a time-aware dimension that carries grain and parsing metadata.
@@ -1062,7 +1043,6 @@ def time_dimension(
             dimension is used automatically.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Returns:
@@ -1113,7 +1093,6 @@ def time_dimension(
             domain=resolved_domain,
             entity=ds_ref,
             name=obj_name,
-            description=description,
             ai_context=ai_ctx,
             is_time_dimension=True,
             kind=DimensionKind.TIME,
@@ -1139,7 +1118,6 @@ def relationship(
     to_entity: EntityRef | str,
     keys: list[JoinKey],
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> RelationshipRef:
     """Declare a join relationship between two entities.
@@ -1154,7 +1132,6 @@ def relationship(
         keys: List of ``ms.join_on(from_key, to_key)`` pairs.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        description: Free-text description.
         ai_context: Optional ``AiContext`` with extra agent-facing hints.
 
     Returns:
@@ -1200,7 +1177,6 @@ def relationship(
         from_entity=from_ds,
         to_entity=to_ds,
         keys=resolved_keys,
-        description=description,
         ai_context=ai_ctx,
         location=location,
     )
@@ -1362,7 +1338,6 @@ def _derived(
     composition: Composition,
     unit: str | None,
     domain: DomainRef | None,
-    description: str | None,
     ai_context: AiContext | None,
 ) -> MetricRef:
     ctx = _require_ctx()
@@ -1383,7 +1358,6 @@ def _derived(
         composition=composition,
         additivity=None,  # propagated at load from components
         provenance=None,
-        description=description,
         ai_context=ai_ctx,
         body_ast_hash=_compute_composition_hash(composition),
         python_symbol=name,
@@ -1401,7 +1375,6 @@ def ratio(
     denominator: MetricRef | str,
     unit: str | None = None,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> MetricRef:
     """Declare a derived ratio metric (no body). Override the unit derived from the components at load.
@@ -1418,7 +1391,6 @@ def ratio(
         ),
         unit=unit,
         domain=domain,
-        description=description,
         ai_context=ai_context,
     )
 
@@ -1430,7 +1402,6 @@ def weighted_average(
     weight: MetricRef | str,
     unit: str | None = None,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> MetricRef:
     """Declare a derived weighted-average metric (no body). Override the unit derived from the components at load.
@@ -1444,7 +1415,6 @@ def weighted_average(
         ),
         unit=unit,
         domain=domain,
-        description=description,
         ai_context=ai_context,
     )
 
@@ -1456,7 +1426,6 @@ def linear(
     subtract: list[MetricRef | str] | tuple[MetricRef | str, ...] = (),
     unit: str | None = None,
     domain: DomainRef | None = None,
-    description: str | None = None,
     ai_context: AiContext | None = None,
 ) -> MetricRef:
     """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``. Override the unit derived from the components at load.
@@ -1481,7 +1450,6 @@ def linear(
         composition=LinearComposition(terms=terms),
         unit=unit,
         domain=domain,
-        description=description,
         ai_context=ai_context,
     )
 

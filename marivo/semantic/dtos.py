@@ -208,7 +208,6 @@ class VersioningHints:
 @dataclass(frozen=True)
 class DomainBriefSummary:
     name: str
-    description: str | None
     default: bool
     object_counts: dict[str, int]
 

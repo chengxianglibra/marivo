@@ -114,7 +114,6 @@ def prepare_domain(project: SemanticProject, *, name: str) -> DomainBrief:
     domain_summaries = tuple(
         DomainBriefSummary(
             name=domain_name,
-            description=reg.domains[domain_name].description,
             default=reg.domains[domain_name].default,
             object_counts={
                 "entity": sum(1 for d in reg.entities.values() if d.domain == domain_name),

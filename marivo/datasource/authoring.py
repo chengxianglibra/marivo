@@ -69,7 +69,6 @@ class DatasourceSpec:
     Args:
         name: Datasource name (flat identifier, no dots).
         backend_type: Backend type (e.g. ``"duckdb"``, ``"mysql"``).
-        description: Free-text description.
         ai_context: Optional AI-facing context hints.
         **fields: Connection fields.  Sensitive fields use ``*_env``
             references; all other fields are stored as literals.
@@ -89,7 +88,6 @@ class DatasourceSpec:
     backend_type: str
     fields: dict[str, Any]
     env_refs: dict[str, str]
-    description: str | None
     ai_context: AiContextIR
 
     def __init__(
@@ -97,7 +95,6 @@ class DatasourceSpec:
         *,
         name: str,
         backend_type: str,
-        description: str | None = None,
         ai_context: AiContext | dict[str, Any] | None = None,
         **fields: Any,
     ) -> None:
@@ -116,7 +113,6 @@ class DatasourceSpec:
         object.__setattr__(self, "backend_type", backend_type)
         object.__setattr__(self, "fields", literal_fields)
         object.__setattr__(self, "env_refs", env_refs)
-        object.__setattr__(self, "description", description)
         object.__setattr__(self, "ai_context", _build_ai_context(ai_context))
 
 
@@ -268,7 +264,6 @@ def _ir_from_spec(spec: DatasourceSpec, *, location: DatasourceSourceLocation) -
         backend_type=spec.backend_type,
         fields=dict(spec.fields),
         env_refs=dict(spec.env_refs),
-        description=spec.description,
         ai_context=spec.ai_context,
         python_symbol=spec.name,
         location=location,
@@ -280,14 +275,13 @@ def datasource(
     *,
     name: str | None = None,
     backend_type: str | None = None,
-    description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     **fields: Any,
 ) -> None:
     """Declare one project-level datasource."""
     ctx = _require_ctx()
     if spec is not None:
-        if name is not None or backend_type is not None or description is not None or fields:
+        if name is not None or backend_type is not None or fields:
             raise DatasourceFieldInvalidError(
                 message="md.datasource accepts either a DatasourceSpec or keyword fields, not both",
                 details={
@@ -312,7 +306,6 @@ def datasource(
             DatasourceSpec(
                 name=name,
                 backend_type=backend_type,
-                description=description,
                 ai_context=ai_context,
                 **fields,
             ),

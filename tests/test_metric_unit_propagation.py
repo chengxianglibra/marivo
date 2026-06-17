@@ -25,7 +25,6 @@ def test_measure_ir_unit_allowed() -> None:
         domain="sales",
         entity="sales.orders",
         name="amount",
-        description=None,
         ai_context=AiContextIR(),
         additivity="additive",
         unit="CNY",

@@ -82,7 +82,7 @@ def _preview_result() -> PreviewResult:
 
 
 def _datasource_summary() -> DatasourceSummary:
-    return DatasourceSummary(name="wh", backend_type="duckdb", description=None)
+    return DatasourceSummary(name="wh", backend_type="duckdb")
 
 
 def _datasource_test_result() -> DatasourceTestResult:

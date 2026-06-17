@@ -94,7 +94,6 @@ class DatasourceCatalog:
         return DatasourceSummary(
             name=datasource.name,
             backend_type=datasource.backend_type,
-            description=datasource.description,
         )
 
     def describe(self, name: str) -> DatasourceDescription:

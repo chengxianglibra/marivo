@@ -257,7 +257,6 @@ class _DetailsBase:
     kind: SemanticKind
     name: str
     domain: str | None
-    description: str | None
     context: AiContextView
     source_location: SourceLocation
     parents: tuple[SemanticRef, ...]
@@ -304,7 +303,7 @@ class DatasourceDetails(_DetailsBase):
         )
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -327,7 +326,7 @@ class DomainDetails(_DetailsBase):
         extra.append(f"default: {self.default}")
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -360,7 +359,7 @@ class EntityDetails(_DetailsBase):
         )
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -383,7 +382,7 @@ class DimensionDetails(_DetailsBase):
         extra.append(f"entity: {self.entity.ref}")
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -410,7 +409,7 @@ class MeasureDetails(_DetailsBase):
             extra.append(f"unit: {self.unit}")
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -451,7 +450,7 @@ class TimeDimensionDetails(_DetailsBase):
         )
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -540,7 +539,7 @@ class SimpleMetricDetails(_DetailsBase):
             extra.append(f"measure: {self.measure.ref}")
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -609,7 +608,7 @@ class DerivedMetricDetails(_DetailsBase):
             extra.append(f"required_relationships: {_format_refs(self.required_relationships)}")
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -654,7 +653,7 @@ class RelationshipDetails(_DetailsBase):
         )
         return _render_details_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             extra_lines=tuple(extra),
         )
 
@@ -705,7 +704,6 @@ class SemanticObject:
     kind: SemanticKind
     name: str
     domain: str | None
-    description: str | None
     context: AiContextView
     source_location: SourceLocation
     python_symbol: str
@@ -758,7 +756,7 @@ class SemanticObject:
         """Return a bounded plain-text object card without a trailing newline."""
         return format_bounded_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=self.context.business_definition,
             available=(".details()", ".show()"),
         )
 
@@ -919,7 +917,6 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         kind=SemanticKind.DATASOURCE,
         name=ds_ir.name,
         domain=None,
-        description=ds_ir.description,
         context=ds_ir.ai_context,
         source_location=_normalize_location(ds_ir.location),
         parents=(),
@@ -935,7 +932,6 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         kind=SemanticKind.DATASOURCE,
         name=ds_ir.name,
         domain=None,
-        description=ds_ir.description,
         context=ds_ir.ai_context,
         source_location=_normalize_location(ds_ir.location),
         python_symbol=ds_ir.python_symbol,
@@ -961,7 +957,6 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         kind=SemanticKind.DOMAIN,
         name=model_ir.name,
         domain=model_ir.name,
-        description=model_ir.description,
         context=model_ir.ai_context,
         source_location=model_ir.location,
         parents=(),
@@ -975,7 +970,6 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         kind=SemanticKind.DOMAIN,
         name=model_ir.name,
         domain=model_ir.name,
-        description=model_ir.description,
         context=model_ir.ai_context,
         source_location=model_ir.location,
         python_symbol="",
@@ -1020,7 +1014,6 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
         kind=SemanticKind.ENTITY,
         name=ds_ir.name,
         domain=ds_ir.domain,
-        description=ds_ir.description,
         context=ds_ir.ai_context,
         source_location=ds_ir.location,
         parents=(ds_ref,),
@@ -1037,7 +1030,6 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
         kind=SemanticKind.ENTITY,
         name=ds_ir.name,
         domain=ds_ir.domain,
-        description=ds_ir.description,
         context=ds_ir.ai_context,
         source_location=ds_ir.location,
         python_symbol=ds_ir.python_symbol,
@@ -1113,7 +1105,6 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             kind=kind,
             name=f_ir.name,
             domain=f_ir.domain,
-            description=f_ir.description,
             context=f_ir.ai_context,
             source_location=f_ir.location,
             parents=(ds_ref,),
@@ -1135,7 +1126,6 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             kind=kind,
             name=f_ir.name,
             domain=f_ir.domain,
-            description=f_ir.description,
             context=f_ir.ai_context,
             source_location=f_ir.location,
             parents=(ds_ref,),
@@ -1149,7 +1139,6 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
         kind=kind,
         name=f_ir.name,
         domain=f_ir.domain,
-        description=f_ir.description,
         context=f_ir.ai_context,
         source_location=f_ir.location,
         python_symbol=f_ir.python_symbol,
@@ -1170,7 +1159,6 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry) -> SemanticObject:
         kind=SemanticKind.MEASURE,
         name=m_ir.name,
         domain=m_ir.domain,
-        description=m_ir.description,
         context=m_ir.ai_context,
         source_location=m_ir.location,
         parents=(entity_ref,),
@@ -1186,7 +1174,6 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry) -> SemanticObject:
         kind=SemanticKind.MEASURE,
         name=m_ir.name,
         domain=m_ir.domain,
-        description=m_ir.description,
         context=m_ir.ai_context,
         source_location=m_ir.location,
         python_symbol=m_ir.python_symbol,
@@ -1246,7 +1233,6 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
             kind=SemanticKind.METRIC,
             name=m_ir.name,
             domain=m_ir.domain,
-            description=m_ir.description,
             context=m_ir.ai_context,
             source_location=m_ir.location,
             parents=parents,
@@ -1273,7 +1259,6 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
             kind=SemanticKind.METRIC,
             name=m_ir.name,
             domain=m_ir.domain,
-            description=m_ir.description,
             context=m_ir.ai_context,
             source_location=m_ir.location,
             parents=parents,
@@ -1299,7 +1284,6 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         kind=SemanticKind.METRIC,
         name=m_ir.name,
         domain=m_ir.domain,
-        description=m_ir.description,
         context=m_ir.ai_context,
         source_location=m_ir.location,
         python_symbol=m_ir.python_symbol,
@@ -1316,7 +1300,6 @@ def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticO
         kind=SemanticKind.RELATIONSHIP,
         name=r_ir.name,
         domain=r_ir.domain,
-        description=r_ir.description,
         context=r_ir.ai_context,
         source_location=r_ir.location,
         parents=(from_ref, to_ref),
@@ -1333,7 +1316,6 @@ def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticO
         kind=SemanticKind.RELATIONSHIP,
         name=r_ir.name,
         domain=r_ir.domain,
-        description=r_ir.description,
         context=r_ir.ai_context,
         source_location=r_ir.location,
         python_symbol="",
