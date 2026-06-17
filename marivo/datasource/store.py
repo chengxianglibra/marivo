@@ -41,8 +41,6 @@ def _write_datasource_file(
             continue
         kwargs[f"{stem}_env"] = env_var
     lines = ["import marivo.datasource as md", "", "datasource = md.DatasourceSpec("]
-    if spec.description is not None:
-        kwargs["description"] = spec.description
     for key, value in kwargs.items():
         lines.append(f"    {key}={_literal(value)},")
     lines.append(")")

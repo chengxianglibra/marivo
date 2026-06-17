@@ -39,7 +39,7 @@ def test_metric_details_has_split_fields_not_legacy():
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
-ms.domain(name="sales", default=True, description="Sales model.")
+ms.domain(name="sales", default=True)
 """
 
 _MODELS_PY = """\

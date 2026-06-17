@@ -44,7 +44,6 @@ class DatasourceSummary:
 
     name: str
     backend_type: str
-    description: str | None = None
 
     @property
     def semantic_id(self) -> str:
@@ -57,7 +56,7 @@ class DatasourceSummary:
     def render(self) -> str:
         return format_bounded_card(
             identity=self._repr_identity(),
-            status=self.description,
+            status=None,
             available=(".render()", ".show()"),
         )
 
@@ -129,9 +128,7 @@ def register(
         (password, token, key) must use ``*_env`` references, not literals.
     """
     stored = _store.save_one(spec, project_root=project_root)
-    return DatasourceSummary(
-        name=stored.name, backend_type=stored.backend_type, description=stored.description
-    )
+    return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)
 
 
 def remove(name: str) -> bool:
@@ -169,7 +166,7 @@ def list() -> builtins.list[DatasourceSummary]:
         Only datasources with a persisted project file are included.
     """
     return [
-        DatasourceSummary(name=p.name, backend_type=p.backend_type, description=p.description)
+        DatasourceSummary(name=p.name, backend_type=p.backend_type)
         for p in sorted(_store.load_all().values(), key=lambda item: item.name)
     ]
 

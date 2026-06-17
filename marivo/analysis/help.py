@@ -956,8 +956,6 @@ def _semantic_ir_help_lines(ir: object, *, kind: str) -> list[str]:
     lines: list[str] = [
         f"{kind}: {semantic_id}",
     ]
-    if typed_ir.description:
-        lines.append(f"description: {typed_ir.description}")
     unit = getattr(ir, "unit", None)
     if unit:
         lines.append(f"unit: {unit}")

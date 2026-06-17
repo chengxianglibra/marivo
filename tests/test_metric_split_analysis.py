@@ -61,7 +61,6 @@ def metric_details_factory(
         "kind": SemanticKind.METRIC,
         "name": overrides.pop("name", ref.ref.rsplit(".", 1)[-1]),
         "domain": overrides.pop("domain", "test"),
-        "description": overrides.pop("description", None),
         "context": overrides.pop("context", _make_ctx()),
         "source_location": overrides.pop("source_location", _make_loc()),
         "parents": overrides.pop("parents", ()),

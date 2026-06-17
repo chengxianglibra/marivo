@@ -21,7 +21,7 @@ from marivo.semantic.ir import SqlProvenance
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
-ms.domain(name="sales", default=True, description="Sales domain.")
+ms.domain(name="sales", default=True)
 """
 
 _MODEL_PY = """\

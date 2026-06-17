@@ -126,13 +126,12 @@ def test_relationship_outside_context_raises() -> None:
 def test_model_creates_model_ir() -> None:
     ctx = _enter_ctx()
     try:
-        ms.domain(name="sales", default=True, description="Sales model")
+        ms.domain(name="sales", default=True)
         # Should have one pending object
         assert len(ctx.pending_objects) == 1
         ir, callable_ = ctx.pending_objects[0]
         assert ir.name == "sales"
         assert ir.default is True
-        assert ir.description == "Sales model"
         # model() is not a decorator — no callable
         assert callable_ is None
     finally:

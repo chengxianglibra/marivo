@@ -219,7 +219,6 @@ class DomainIR:
     """Semantic domain container."""
 
     name: str
-    description: str | None
     default: bool
     ai_context: AiContextIR
     location: SourceLocation
@@ -235,7 +234,6 @@ class EntityIR:
     datasource: str
     source: EntitySourceIR
     primary_key: tuple[str, ...]
-    description: str | None
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation
@@ -369,7 +367,6 @@ class DimensionIR:
     domain: str
     entity: str
     name: str
-    description: str | None
     ai_context: AiContextIR
     is_time_dimension: bool
     kind: DimensionKind
@@ -401,7 +398,6 @@ class MeasureIR:
     domain: str
     entity: str
     name: str
-    description: str | None
     ai_context: AiContextIR
     additivity: Additivity
     unit: str | None
@@ -485,7 +481,6 @@ class MetricIR:
     composition: Composition | None
     additivity: Additivity | None
     provenance: SqlProvenance | None
-    description: str | None
     ai_context: AiContextIR
     body_ast_hash: str
     python_symbol: str
@@ -564,7 +559,6 @@ class RelationshipIR:
     from_entity: str
     to_entity: str
     keys: tuple[JoinKey, ...]
-    description: str | None
     ai_context: AiContextIR
     location: SourceLocation
 

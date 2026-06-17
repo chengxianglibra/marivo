@@ -92,7 +92,6 @@ def test_unsupported_backend_type(project_root: Path) -> None:
         backend_type="wat-backend",
         fields={"path": ":memory:"},
         env_refs={},
-        description=None,
         ai_context=AiContextIR(),
         python_symbol="wh",
         location=SourceLocation(file="<test>", line=1),

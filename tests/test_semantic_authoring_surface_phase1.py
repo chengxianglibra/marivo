@@ -121,7 +121,6 @@ def test_measure_ir_holds_measure_only_fields() -> None:
         domain="sales",
         entity="sales.orders",
         name="amount",
-        description=None,
         ai_context=AiContextIR(),
         additivity="additive",
         unit="USD",

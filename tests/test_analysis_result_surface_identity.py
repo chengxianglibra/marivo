@@ -137,7 +137,6 @@ def test_exploration_result_identity_includes_source_kind() -> None:
         meta=ExplorationResultMeta(
             **_base_meta(kind="exploration_result", ref="frame_explore", row_count=1),
             source_kind="pandas",
-            description="scratch",
         ),
     )
 

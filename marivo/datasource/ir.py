@@ -54,7 +54,6 @@ class DatasourceIR:
     backend_type: str
     fields: dict[str, Any]
     env_refs: dict[str, str]
-    description: str | None
     ai_context: AiContextIR
     python_symbol: str
     location: DatasourceSourceLocation
