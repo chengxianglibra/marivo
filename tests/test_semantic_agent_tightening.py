@@ -211,6 +211,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
         "01_single_domain_file.py",
         "02_source_evidence_to_check.py",
         "03_closeout_readiness_richness.py",
+        "04_derived_metrics.py",
     }
     names = {path.name for path in examples_dir.glob("*.py")}
     assert expected == names
