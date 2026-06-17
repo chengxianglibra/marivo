@@ -1324,9 +1324,10 @@ def _normalize_slice_predicate(raw: Any) -> tuple[str, Any]:
         op = raw["op"]
         value = raw["value"]
         if not isinstance(op, str) or op not in _SUPPORTED_SLICE_OPS:
+            _supported = sorted(_SUPPORTED_SLICE_OPS)
             raise SliceInvalidError(
-                message=f"unsupported slice predicate op {op!r}",
-                details={"supported_ops": sorted(_SUPPORTED_SLICE_OPS)},
+                message=f"unsupported slice predicate op {op!r}; supported ops: {_supported}",
+                details={"supported_ops": _supported},
             )
         _validate_slice_value_shape(op, value)
         return str(op), value

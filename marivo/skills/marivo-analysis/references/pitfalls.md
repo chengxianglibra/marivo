@@ -264,6 +264,28 @@ session.observe(
 Do not default to natural-language periods or bare quarter strings in new skill
 content. Resolve metric ids with `session.catalog.get("<metric_id>")`.
 
+## SQL-style slice predicate op
+
+**Symptom:**
+
+```text
+SliceInvalidError: unsupported slice predicate op 'eq'; supported ops: ['!=', '<', '<=', '==', '>', '>=', 'between', 'in']
+```
+
+**Action:** use Python-style operators in `where` structured predicates. The supported
+ops are `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `between` — not `eq`, `ne`, `gte`, etc.
+
+```python
+# Wrong — SQL-style
+where={region: {"op": "eq", "value": "US"}}
+
+# Right — Python-style
+where={region: {"op": "==", "value": "US"}}
+
+# Right — scalar shorthand (implies ==)
+where={region: "US"}
+```
+
 ## Discover returns CandidateSet
 
 **Symptom:** code calls the removed `mv.detect(...)` helper or expects anomaly

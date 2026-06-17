@@ -20,7 +20,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 
 | Intent | Inputs | Output | Agent rule |
 | --- | --- | --- | --- |
-| `session.observe` | `session.catalog.get("domain.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or structured `where={dimension: {"op": ..., "value": ...}}`. |
+| `session.observe` | `session.catalog.get("domain.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or `where={dimension: value}` (see Where Predicate Ops below). |
 | `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
 | `session.decompose` | `DeltaFrame`, catalog dimension ref | `AttributionFrame` | Always pass `axis=session.catalog.get("<dimension_id>").ref`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape` (from `marivo.analysis.frames.candidate`). |
@@ -29,6 +29,34 @@ mv.help('MetricFrame.components')        # method signature and doc
 | `session.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
 | `session.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
 | `session.assess_quality(frame)` | `MetricFrame` | `QualityReport` | Row count, null ratio, time coverage, duplicate key checks |
+
+## Where Predicate Ops
+
+`observe(where=...)` accepts Python-style structured predicates.
+`transform.slice(where=...)` uses shorthand forms only (scalar, list, tuple).
+
+### observe structured predicates
+
+| Shorthand | Equivalent structured | Value shape |
+| --- | --- | --- |
+| `"US"` | `{"op": "==", "value": "US"}` | scalar (str, int, float, bool, None) |
+| — | `{"op": "!=", "value": "US"}` | scalar |
+| — | `{"op": ">", "value": 100}` | scalar |
+| — | `{"op": ">=", "value": 100}` | scalar |
+| — | `{"op": "<", "value": 100}` | scalar |
+| — | `{"op": "<=", "value": 100}` | scalar |
+| `["US", "CA"]` | `{"op": "in", "value": ["US", "CA"]}` | non-empty list |
+| — | `{"op": "between", "value": ["2026-07-01", "2026-09-30"]}` | exactly two elements |
+
+SQL-style ops like `"eq"`, `"ne"`, `"gte"` are **not** supported. Use Python operators.
+
+### transform.slice shorthand values
+
+| Value | Meaning |
+| --- | --- |
+| `"US"` | equality (`==`) |
+| `["US", "CA"]` | membership (`in`) |
+| `("2026-07-01", "2026-09-30")` | range (`between`, both ends inclusive) |
 
 ## Frame Flow
 
