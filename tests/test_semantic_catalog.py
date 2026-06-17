@@ -11,6 +11,7 @@ import marivo.semantic as ms
 from marivo.semantic.catalog import (
     AiContextView,
     DatasourceDetails,
+    DerivedMetricDetails,
     DimensionDetails,
     DomainDetails,
     EntityDetails,
@@ -22,6 +23,7 @@ from marivo.semantic.catalog import (
     SemanticObject,
     SemanticObjectList,
     SemanticRef,
+    SimpleMetricDetails,
     SnapshotVersioning,
     TimeDimensionDetails,
     ValidityVersioning,
@@ -299,7 +301,7 @@ def test_time_dimension_details_fields():
 
 
 def test_metric_details_fields():
-    d = MetricDetails(
+    d = SimpleMetricDetails(
         ref=_make_ref("sales.revenue", SemanticKind.METRIC),
         kind=SemanticKind.METRIC,
         name="revenue",
@@ -313,13 +315,8 @@ def test_metric_details_fields():
         **_common_details_kwargs(python_symbol="revenue"),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        metric_type="simple",
         aggregation=None,
         measure=None,
-        composition=None,
-        components=(),
-        linear_terms=(),
-        required_relationships=(),
         additivity="additive",
         fanout_policy="block",
         unit=None,
@@ -330,8 +327,6 @@ def test_metric_details_fields():
     )
     assert d.metric_type == "simple"
     assert d.aggregation is None
-    assert d.composition is None
-    assert d.components == ()
     assert d.fold is None
     assert d.status_time_dimension is None
 
@@ -363,7 +358,7 @@ def test_relationship_details_fields():
 
 def _make_metric_obj() -> SemanticObject:
     ref = SemanticRef(ref="sales.revenue", kind=SemanticKind.METRIC)
-    details = MetricDetails(
+    details = SimpleMetricDetails(
         ref=ref,
         kind=SemanticKind.METRIC,
         name="revenue",
@@ -377,13 +372,8 @@ def _make_metric_obj() -> SemanticObject:
         **_common_details_kwargs(python_symbol="revenue"),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        metric_type="simple",
         aggregation=None,
         measure=None,
-        composition=None,
-        components=(),
-        linear_terms=(),
-        required_relationships=(),
         additivity="additive",
         fanout_policy="block",
         unit=None,
@@ -1102,7 +1092,7 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
 
     details = catalog.get("sales.conversion").details()
 
-    assert isinstance(details, MetricDetails)
+    assert isinstance(details, DerivedMetricDetails)
     assert details.components == (
         ("numerator", SemanticRef(ref="sales.revenue", kind=SemanticKind.METRIC)),
         ("denominator", SemanticRef(ref="sales.order_count", kind=SemanticKind.METRIC)),
@@ -1686,12 +1676,13 @@ def test_catalog_details_cover_all_public_ir_fields() -> None:
     from marivo.datasource.ir import DatasourceIR
     from marivo.semantic.catalog import (
         DatasourceDetails,
+        DerivedMetricDetails,
         DimensionDetails,
         DomainDetails,
         EntityDetails,
         MeasureDetails,
-        MetricDetails,
         RelationshipDetails,
+        SimpleMetricDetails,
         TimeDimensionDetails,
     )
     from marivo.semantic.ir import (
@@ -1715,7 +1706,8 @@ def test_catalog_details_cover_all_public_ir_fields() -> None:
         | {"ref", "source_location", "context"},
         MeasureIR: {field.name for field in fields(MeasureDetails)}
         | {"ref", "source_location", "context"},
-        MetricIR: {field.name for field in fields(MetricDetails)}
+        MetricIR: {field.name for field in fields(SimpleMetricDetails)}
+        | {field.name for field in fields(DerivedMetricDetails)}
         | {"ref", "source_location", "context"},
         RelationshipIR: {field.name for field in fields(RelationshipDetails)}
         | {"ref", "source_location", "context", "keys"},
@@ -1739,6 +1731,7 @@ def test_catalog_details_cover_all_public_ir_fields() -> None:
             "body_ast_hash",
             "semantic_id",
             "fold_override",
+            "metric_type",
         },
         RelationshipIR: {"location", "ai_context", "semantic_id"},
     }

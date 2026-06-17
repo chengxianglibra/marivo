@@ -18,11 +18,11 @@ from marivo.semantic.catalog import (
     DimensionDetails,
     DomainDetails,
     EntityDetails,
-    MetricDetails,
     RelationshipDetails,
     SemanticCatalog,
     SemanticKind,
     SemanticRef,
+    SimpleMetricDetails,
     TimeDimensionDetails,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
@@ -324,7 +324,7 @@ def test_discovery_domain_details_show_prints_output(capsys):
 
 
 def test_discovery_metric_details_repr_is_single_line():
-    d = MetricDetails(
+    d = SimpleMetricDetails(
         ref=_make_ref("sales.revenue", SemanticKind.METRIC),
         kind=SemanticKind.METRIC,
         name="revenue",
@@ -338,13 +338,8 @@ def test_discovery_metric_details_repr_is_single_line():
         **_common_details_kwargs(python_symbol="revenue"),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        metric_type="simple",
         aggregation=None,
         measure=None,
-        composition=None,
-        components=(),
-        linear_terms=(),
-        required_relationships=(),
         additivity="additive",
         fanout_policy="block",
         unit=None,
@@ -360,7 +355,7 @@ def test_discovery_metric_details_repr_is_single_line():
 
 
 def test_discovery_metric_details_render_shows_additivity():
-    d = MetricDetails(
+    d = SimpleMetricDetails(
         ref=_make_ref("sales.revenue", SemanticKind.METRIC),
         kind=SemanticKind.METRIC,
         name="revenue",
@@ -374,13 +369,8 @@ def test_discovery_metric_details_render_shows_additivity():
         **_common_details_kwargs(python_symbol="revenue"),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        metric_type="simple",
         aggregation=None,
         measure=None,
-        composition=None,
-        components=(),
-        linear_terms=(),
-        required_relationships=(),
         additivity="additive",
         fanout_policy="block",
         unit=None,

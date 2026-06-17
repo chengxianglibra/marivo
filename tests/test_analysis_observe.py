@@ -16,7 +16,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import DerivedMetricDetails, SemanticKind, SemanticRef
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
@@ -359,6 +359,12 @@ def test_observe_planner_does_not_require_catalog_private_state(
 
     def metric_adapter(ref):
         details = guarded_catalog.get(ref).details()
+        composition_ns = None
+        if isinstance(details, DerivedMetricDetails):
+            composition_ns = SimpleNamespace(
+                kind=details.composition,
+                components={role: component.ref for role, component in details.components},
+            )
         return SimpleNamespace(
             semantic_id=details.ref.ref,
             name=details.name,
@@ -367,10 +373,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
             additivity=details.additivity,
             fanout_policy=details.fanout_policy,
             metric_type=details.metric_type,
-            composition=SimpleNamespace(
-                kind=details.composition,
-                components={role: component.ref for role, component in details.components},
-            ),
+            composition=composition_ns,
             time_fold=None,
             status_time_dimension=details.status_time_dimension,
             unit=details.unit,

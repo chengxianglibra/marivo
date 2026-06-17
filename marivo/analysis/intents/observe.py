@@ -88,11 +88,12 @@ from marivo.analysis.windows.spec import (
     normalize_timescope_input,
 )
 from marivo.semantic.catalog import (
+    DerivedMetricDetails,
     DimensionDetails,
     EntityDetails,
-    MetricDetails,
     SemanticKind,
     SemanticRef,
+    SimpleMetricDetails,
     TimeDimensionDetails,
 )
 from marivo.semantic.ir import HourPrefixParse
@@ -1600,7 +1601,7 @@ def _metric_planner_scope(catalog: Any, metric_ir: Any) -> set[str]:
     if metric_ir.metric_type == "derived":
         for component_id in metric_ir.composition.components.values():
             component_details = catalog.get(component_id).details()
-            if isinstance(component_details, MetricDetails):
+            if isinstance(component_details, (SimpleMetricDetails, DerivedMetricDetails)):
                 component_ir = _planned_metric(component_details)
                 scoped.update(component_ir.entities)
                 component_root = getattr(component_ir, "root_entity", None)
@@ -1628,7 +1629,7 @@ def observe(
     metric_id = _normalize_metric_boundary(catalog, metric)
     model_name, metric_name = metric_id.split(".", 1)
     metric_details = catalog.get(metric_id).details()
-    assert isinstance(metric_details, MetricDetails)
+    assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
     metric_ir = _planned_metric(metric_details)
     planner_scope = _metric_planner_scope(catalog, metric_ir)
     time_dimension_id = (
@@ -1680,7 +1681,7 @@ def observe(
     ):
         for _role, _comp_id in metric_ir.composition.components.items():
             _comp_details = catalog.get(_comp_id).details()
-            assert isinstance(_comp_details, MetricDetails)
+            assert isinstance(_comp_details, (SimpleMetricDetails, DerivedMetricDetails))
             _comp_ir = _planned_metric(_comp_details)
             if (
                 getattr(_comp_ir, "additivity", None) == "semi_additive"
@@ -1737,7 +1738,7 @@ def observe(
             for component_id in metric_ir.composition.components.values()
             if isinstance(
                 component_details := catalog.get(component_id).details(),
-                MetricDetails,
+                (SimpleMetricDetails, DerivedMetricDetails),
             )
         }
 

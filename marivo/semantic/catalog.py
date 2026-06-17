@@ -71,6 +71,7 @@ _ListOfSemanticObject = list["SemanticObject"]
 __all__ = [
     "AiContextView",
     "DatasourceDetails",
+    "DerivedMetricDetails",
     "DimensionDetails",
     "DomainDetails",
     "EntityDetails",
@@ -86,6 +87,7 @@ __all__ = [
     "SemanticObjectList",
     "SemanticRef",
     "SemanticRefInput",
+    "SimpleMetricDetails",
     "SnapshotVersioning",
     "TimeDimensionDetails",
     "ValidityVersioning",
@@ -454,19 +456,49 @@ class TimeDimensionDetails(_DetailsBase):
         )
 
 
+def _metric_common_lines(
+    *,
+    entities: tuple[SemanticRef, ...],
+    root_entity: SemanticRef | None,
+    metric_type: Literal["simple", "derived"],
+    additivity: Literal["additive", "semi_additive", "non_additive"],
+    fold: str | None,
+    status_time_dimension: str | None,
+    fanout_policy: Literal["block", "aggregate_then_join"],
+    unit: str | None,
+    provenance: SqlProvenance | None,
+    parity_status: ParityStatus,
+) -> list[str]:
+    """Render lines shared by all metric detail variants."""
+    lines = [
+        f"entities: {_format_refs(entities)}",
+        f"root_entity: {_format_ref(root_entity)}",
+        f"type: {metric_type}",
+        f"additivity: {additivity}",
+    ]
+    if fold is not None:
+        lines.append(f"fold: {fold} over {status_time_dimension}")
+    lines.append(f"fanout_policy: {fanout_policy}")
+    if unit:
+        lines.append(f"unit: {unit}")
+    lines.append(f"provenance: {_provenance_text(provenance)}")
+    lines.append(f"parity_status: {parity_status}")
+    return lines
+
+
 @dataclass(frozen=True, repr=False)
-class MetricDetails(_DetailsBase):
-    """Details for a metric (entity-backed, derived, or cross-entity)."""
+class SimpleMetricDetails(_DetailsBase):
+    """Details for a simple (entity-backed) metric.
+
+    Simple metrics are declared with ``@ms.metric(...)`` or ``ms.aggregate(...)``.
+    They have an optional aggregation and measure reference; they never have
+    composition, components, or linear_terms.
+    """
 
     entities: tuple[SemanticRef, ...]
     root_entity: SemanticRef | None
-    metric_type: Literal["simple", "derived"]
     aggregation: str | None
     measure: SemanticRef | None
-    composition: Literal["ratio", "weighted_average", "linear"] | None
-    components: tuple[tuple[str, SemanticRef], ...]
-    linear_terms: tuple[tuple[str, str], ...]
-    required_relationships: tuple[SemanticRef, ...]
     additivity: Literal["additive", "semi_additive", "non_additive"]
     fold: str | None
     status_time_dimension: str | None
@@ -474,6 +506,10 @@ class MetricDetails(_DetailsBase):
     unit: str | None
     provenance: SqlProvenance | None
     parity_status: ParityStatus
+
+    @property
+    def metric_type(self) -> Literal["simple"]:
+        return "simple"
 
     def render(self) -> str:
         extra = _common_detail_lines(
@@ -485,19 +521,81 @@ class MetricDetails(_DetailsBase):
             dependents=self.dependents,
         )
         extra.extend(
-            (
-                f"entities: {_format_refs(self.entities)}",
-                f"root_entity: {_format_ref(self.root_entity)}",
-                f"type: {self.metric_type}",
-                f"additivity: {self.additivity}",
+            _metric_common_lines(
+                entities=self.entities,
+                root_entity=self.root_entity,
+                metric_type=self.metric_type,
+                additivity=self.additivity,
+                fold=self.fold,
+                status_time_dimension=self.status_time_dimension,
+                fanout_policy=self.fanout_policy,
+                unit=self.unit,
+                provenance=self.provenance,
+                parity_status=self.parity_status,
             )
         )
-        if self.metric_type == "simple" and self.aggregation is not None:
+        if self.aggregation is not None:
             extra.append(f"aggregation: {self.aggregation}")
         if self.measure is not None:
             extra.append(f"measure: {self.measure.ref}")
-        if self.composition is not None:
-            extra.append(f"composition: {self.composition}")
+        return _render_details_card(
+            identity=self._repr_identity(),
+            status=self.description,
+            extra_lines=tuple(extra),
+        )
+
+
+@dataclass(frozen=True, repr=False)
+class DerivedMetricDetails(_DetailsBase):
+    """Details for a derived (composed) metric.
+
+    Derived metrics are declared with ``ms.ratio(...)``, ``ms.weighted_average(...)``,
+    or ``ms.linear(...)``.  They always carry a composition kind and components;
+    they never have aggregation or measure.
+    """
+
+    entities: tuple[SemanticRef, ...]
+    root_entity: SemanticRef | None
+    composition: Literal["ratio", "weighted_average", "linear"]
+    components: tuple[tuple[str, SemanticRef], ...]
+    linear_terms: tuple[tuple[str, str], ...]
+    required_relationships: tuple[SemanticRef, ...]
+    additivity: Literal["additive", "semi_additive", "non_additive"]
+    fold: str | None
+    status_time_dimension: str | None
+    fanout_policy: Literal["block", "aggregate_then_join"]
+    unit: str | None
+    provenance: SqlProvenance | None
+    parity_status: ParityStatus
+
+    @property
+    def metric_type(self) -> Literal["derived"]:
+        return "derived"
+
+    def render(self) -> str:
+        extra = _common_detail_lines(
+            context=self.context,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.extend(
+            _metric_common_lines(
+                entities=self.entities,
+                root_entity=self.root_entity,
+                metric_type=self.metric_type,
+                additivity=self.additivity,
+                fold=self.fold,
+                status_time_dimension=self.status_time_dimension,
+                fanout_policy=self.fanout_policy,
+                unit=self.unit,
+                provenance=self.provenance,
+                parity_status=self.parity_status,
+            )
+        )
+        extra.append(f"composition: {self.composition}")
         if self.components:
             extra.append(
                 "components: " + ", ".join(f"{role}={ref.ref}" for role, ref in self.components)
@@ -509,18 +607,14 @@ class MetricDetails(_DetailsBase):
             )
         if self.required_relationships:
             extra.append(f"required_relationships: {_format_refs(self.required_relationships)}")
-        if self.fold is not None:
-            extra.append(f"fold: {self.fold} over {self.status_time_dimension}")
-        extra.append(f"fanout_policy: {self.fanout_policy}")
-        if self.unit:
-            extra.append(f"unit: {self.unit}")
-        extra.append(f"provenance: {_provenance_text(self.provenance)}")
-        extra.append(f"parity_status: {self.parity_status}")
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
             extra_lines=tuple(extra),
         )
+
+
+MetricDetails = SimpleMetricDetails | DerivedMetricDetails
 
 
 @dataclass(frozen=True, repr=False)
@@ -1143,35 +1237,63 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
     )
     parity_status = propagated_parity_status(project, m_ir.semantic_id)
     add = m_ir.additivity
-    details = MetricDetails(
-        ref=ref,
-        kind=SemanticKind.METRIC,
-        name=m_ir.name,
-        domain=m_ir.domain,
-        description=m_ir.description,
-        context=m_ir.ai_context,
-        source_location=m_ir.location,
-        parents=parents,
-        children=(),
-        dependents=dependents,
-        python_symbol=m_ir.python_symbol,
-        entities=entity_refs,
-        root_entity=root_entity_ref,
-        metric_type=m_ir.metric_type,
-        aggregation=_format_agg(m_ir.aggregation),
-        measure=SemanticRef(ref=m_ir.measure, kind=SemanticKind.MEASURE) if m_ir.measure else None,
-        composition=m_ir.composition.kind if m_ir.composition is not None else None,
-        components=components,
-        linear_terms=linear_terms,
-        required_relationships=required_rels,
-        additivity=additivity_bucket(add) if add is not None else "non_additive",
-        fold=add.fold.label() if isinstance(add, SemiAdditive) else None,
-        status_time_dimension=add.over if isinstance(add, SemiAdditive) else None,
-        fanout_policy=m_ir.fanout_policy,
-        unit=m_ir.unit,
-        provenance=m_ir.provenance,
-        parity_status=parity_status,
-    )
+    if m_ir.metric_type == "derived":
+        assert m_ir.composition is not None, (
+            f"Derived metric {m_ir.semantic_id!r} has no composition IR"
+        )
+        details: MetricDetails = DerivedMetricDetails(
+            ref=ref,
+            kind=SemanticKind.METRIC,
+            name=m_ir.name,
+            domain=m_ir.domain,
+            description=m_ir.description,
+            context=m_ir.ai_context,
+            source_location=m_ir.location,
+            parents=parents,
+            children=(),
+            dependents=dependents,
+            python_symbol=m_ir.python_symbol,
+            entities=entity_refs,
+            root_entity=root_entity_ref,
+            composition=m_ir.composition.kind,
+            components=components,
+            linear_terms=linear_terms,
+            required_relationships=required_rels,
+            additivity=additivity_bucket(add) if add is not None else "non_additive",
+            fold=add.fold.label() if isinstance(add, SemiAdditive) else None,
+            status_time_dimension=add.over if isinstance(add, SemiAdditive) else None,
+            fanout_policy=m_ir.fanout_policy,
+            unit=m_ir.unit,
+            provenance=m_ir.provenance,
+            parity_status=parity_status,
+        )
+    else:
+        details = SimpleMetricDetails(
+            ref=ref,
+            kind=SemanticKind.METRIC,
+            name=m_ir.name,
+            domain=m_ir.domain,
+            description=m_ir.description,
+            context=m_ir.ai_context,
+            source_location=m_ir.location,
+            parents=parents,
+            children=(),
+            dependents=dependents,
+            python_symbol=m_ir.python_symbol,
+            entities=entity_refs,
+            root_entity=root_entity_ref,
+            aggregation=_format_agg(m_ir.aggregation),
+            measure=SemanticRef(ref=m_ir.measure, kind=SemanticKind.MEASURE)
+            if m_ir.measure
+            else None,
+            additivity=additivity_bucket(add) if add is not None else "non_additive",
+            fold=add.fold.label() if isinstance(add, SemiAdditive) else None,
+            status_time_dimension=add.over if isinstance(add, SemiAdditive) else None,
+            fanout_policy=m_ir.fanout_policy,
+            unit=m_ir.unit,
+            provenance=m_ir.provenance,
+            parity_status=parity_status,
+        )
     return SemanticObject(
         ref=ref,
         kind=SemanticKind.METRIC,
