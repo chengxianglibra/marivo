@@ -851,7 +851,17 @@ class SemanticObjectList:
         for obj in self._items:
             kind_str = str(obj.kind)
             ref_str = obj.ref.ref
-            lines.append(f"  {kind_str:<12}{ref_str}")
+            # When listing under an entity parent, annotate metrics whose ref
+            # is at the domain level to prevent agents from constructing an
+            # incorrect entity-qualified reference path (e.g. domain.entity.metric).
+            if (
+                obj.kind == SemanticKind.METRIC
+                and self._parent_label is not None
+                and not ref_str.startswith(self._parent_label + ".")
+            ):
+                lines.append(f"  {kind_str:<12}{ref_str}  (domain-level ref)")
+            else:
+                lines.append(f"  {kind_str:<12}{ref_str}")
 
         lines.append("")
         lines.append("next steps:")
