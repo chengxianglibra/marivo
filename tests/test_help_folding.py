@@ -40,6 +40,7 @@ def test_semantic_fold_partition() -> None:
     fams = _families(surface)
     assert fams["Detail shapes"] == [
         "DatasourceDetails",
+        "DerivedMetricDetails",
         "DimensionDetails",
         "DomainDetails",
         "EntityDetails",
@@ -47,6 +48,7 @@ def test_semantic_fold_partition() -> None:
         "MetricDetails",
         "RelationshipDetails",
         "SemanticObjectDetails",
+        "SimpleMetricDetails",
         "TimeDimensionDetails",
     ]
     assert fams["Briefs"] == [

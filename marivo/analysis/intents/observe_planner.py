@@ -34,12 +34,14 @@ from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.analysis.windows.spec import is_date_only
 from marivo.introspection._fuzzy import did_you_mean
 from marivo.semantic.catalog import (
+    DerivedMetricDetails,
     DimensionDetails,
     EntityDetails,
     MetricDetails,
     RelationshipDetails,
     SemanticCatalog,
     SemanticKind,
+    SimpleMetricDetails,
     TimeDimensionDetails,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
@@ -217,7 +219,7 @@ class _MetricDetailsAdapter:
 
     @property
     def composition(self) -> Any:
-        if self.details.composition is None:
+        if not isinstance(self.details, DerivedMetricDetails):
             return None
         return SimpleNamespace(
             kind=self.details.composition,
@@ -234,15 +236,21 @@ class _MetricDetailsAdapter:
 
     @property
     def linear_terms(self) -> tuple[tuple[str, str], ...]:
-        return self.details.linear_terms
+        if isinstance(self.details, DerivedMetricDetails):
+            return self.details.linear_terms
+        return ()
 
     @property
     def aggregation(self) -> Any:
-        return self.details.aggregation
+        if isinstance(self.details, SimpleMetricDetails):
+            return self.details.aggregation
+        return None
 
     @property
     def measure(self) -> str | None:
-        return self.details.measure.ref if self.details.measure else None
+        if isinstance(self.details, SimpleMetricDetails):
+            return self.details.measure.ref if self.details.measure else None
+        return None
 
     @property
     def time_fold(self) -> Any | None:
@@ -301,7 +309,7 @@ def _entity(catalog: SemanticCatalog, ref: str) -> EntityDetails:
 
 def _metric(catalog: SemanticCatalog, ref: str) -> MetricDetails:
     details = _details(catalog, ref)
-    if not isinstance(details, MetricDetails):
+    if not isinstance(details, (SimpleMetricDetails, DerivedMetricDetails)):
         raise_observe_planning_error(
             code="derived-shared-planner-unsupported",
             message=f"Metric reference {ref!r} was not found.",

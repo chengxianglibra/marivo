@@ -9,9 +9,11 @@ import pytest
 from marivo.analysis.intents.observe_planner import _planned_metric
 from marivo.semantic.catalog import (
     AiContextView,
+    DerivedMetricDetails,
     MetricDetails,
     SemanticKind,
     SemanticRef,
+    SimpleMetricDetails,
 )
 from marivo.semantic.ir import ParityStatus, SourceLocation
 
@@ -49,12 +51,12 @@ def metric_details_factory(
     linear_terms: tuple[tuple[str, str], ...] = (),
     **overrides,
 ) -> MetricDetails:
-    """Build a MetricDetails with sensible defaults for analysis-layer tests."""
+    """Build a MetricDetails variant with sensible defaults for analysis-layer tests."""
     ref = overrides.pop("ref", None) or _make_ref("test.metric")
     comp_refs = tuple(
         (role, SemanticRef(ref=comp_id, kind=SemanticKind.METRIC)) for role, comp_id in components
     )
-    kwargs = {
+    common_kwargs = {
         "ref": ref,
         "kind": SemanticKind.METRIC,
         "name": overrides.pop("name", ref.ref.rsplit(".", 1)[-1]),
@@ -67,13 +69,6 @@ def metric_details_factory(
         "dependents": overrides.pop("dependents", ()),
         "entities": overrides.pop("entities", (_make_ref("test.entity", SemanticKind.ENTITY),)),
         "root_entity": overrides.pop("root_entity", _make_ref("test.entity", SemanticKind.ENTITY)),
-        "metric_type": metric_type,
-        "aggregation": overrides.pop("aggregation", "sum" if metric_type == "simple" else None),
-        "measure": overrides.pop("measure", None),
-        "composition": composition,
-        "components": comp_refs,
-        "linear_terms": linear_terms,
-        "required_relationships": overrides.pop("required_relationships", ()),
         "additivity": overrides.pop("additivity", "additive"),
         "fold": overrides.pop("fold", None),
         "status_time_dimension": overrides.pop("status_time_dimension", None),
@@ -81,15 +76,30 @@ def metric_details_factory(
         "unit": overrides.pop("unit", None),
         "provenance": overrides.pop("provenance", None),
         "parity_status": overrides.pop("parity_status", ParityStatus.UNVERIFIED),
+        "python_symbol": overrides.pop("python_symbol", ref.ref.rsplit(".", 1)[-1]),
     }
-    context = kwargs["context"]
-    kwargs.update(
-        {
-            "python_symbol": overrides.pop("python_symbol", ref.ref.rsplit(".", 1)[-1]),
-        }
+
+    # Pop variant-specific overrides before updating common_kwargs so they
+    # aren't consumed twice.
+    required_relationships = overrides.pop("required_relationships", ())
+    aggregation = overrides.pop("aggregation", "sum")
+    measure = overrides.pop("measure", None)
+
+    common_kwargs.update(overrides)
+
+    if metric_type == "derived":
+        return DerivedMetricDetails(
+            **common_kwargs,
+            composition=composition or "ratio",
+            components=comp_refs,
+            linear_terms=linear_terms,
+            required_relationships=required_relationships,
+        )
+    return SimpleMetricDetails(
+        **common_kwargs,
+        aggregation=aggregation,
+        measure=measure,
     )
-    kwargs.update(overrides)
-    return MetricDetails(**kwargs)
 
 
 # ---------------------------------------------------------------------------

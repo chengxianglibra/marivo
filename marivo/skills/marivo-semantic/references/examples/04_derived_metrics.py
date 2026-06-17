@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 import marivo.semantic as ms
-from marivo.semantic.catalog import MetricDetails
+from marivo.semantic.catalog import DerivedMetricDetails, SimpleMetricDetails
 
 DOMAIN = """
 import marivo.datasource as md
@@ -154,7 +154,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "sales.total_amount",
     ]:
         details = catalog.get(metric_id).details()
-        assert isinstance(details, MetricDetails)
+        assert isinstance(details, SimpleMetricDetails)
         print(f"base metric: {details.ref} type={details.metric_type}")
 
     # Verify derived metrics
@@ -164,7 +164,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "sales.net_revenue",
     ]:
         details = catalog.get(metric_id).details()
-        assert isinstance(details, MetricDetails)
+        assert isinstance(details, DerivedMetricDetails)
         print(
             f"derived metric: {details.ref} type={details.metric_type} composition={details.composition}"
         )

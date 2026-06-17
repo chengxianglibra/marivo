@@ -5,21 +5,32 @@ from __future__ import annotations
 import dataclasses
 
 from marivo.semantic import dtos
-from marivo.semantic.catalog import MetricDetails, SemanticCatalog
+from marivo.semantic.catalog import (
+    DerivedMetricDetails,
+    SemanticCatalog,
+    SimpleMetricDetails,
+)
 
 # ---------------------------------------------------------------------------
-# Task 1: MetricDetails new shape
+# Task 1: MetricDetails closed union shape
 # ---------------------------------------------------------------------------
 
 
 def test_metric_details_has_split_fields_not_legacy():
-    names = {f.name for f in dataclasses.fields(MetricDetails)}
-    # New split fields must be present
-    assert {"metric_type", "aggregation", "measure", "composition", "additivity", "fold"} <= names
-    # Legacy fields must be gone
-    assert "is_derived" not in names
-    assert "decomposition" not in names
-    assert "component_metrics" not in names
+    simple_names = {f.name for f in dataclasses.fields(SimpleMetricDetails)}
+    derived_names = {f.name for f in dataclasses.fields(DerivedMetricDetails)}
+    # Simple-specific fields must be present on SimpleMetricDetails
+    assert {"aggregation", "measure", "additivity", "fold"} <= simple_names
+    # Derived-specific fields must be present on DerivedMetricDetails
+    assert {"composition", "components", "linear_terms", "required_relationships"} <= derived_names
+    # Cross-cut fields must be absent from the other variant
+    assert "aggregation" not in derived_names
+    assert "composition" not in simple_names
+    # Legacy fields must be gone from both
+    for names in (simple_names, derived_names):
+        assert "is_derived" not in names
+        assert "decomposition" not in names
+        assert "component_metrics" not in names
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +72,7 @@ def _make_catalog(semantic_project_factory) -> SemanticCatalog:
 def test_build_metric_object_metric(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     rev = catalog.get("sales.revenue").details()
+    assert isinstance(rev, SimpleMetricDetails)
     assert rev.metric_type == "simple"
     assert rev.aggregation == "sum"
     assert rev.measure is not None
@@ -68,18 +80,35 @@ def test_build_metric_object_metric(semantic_project_factory):
     assert rev.measure.kind == "measure"
     assert rev.provenance is None
     assert rev.additivity == "additive"
-    assert rev.composition is None
-    assert rev.components == ()
     assert rev.fold is None
 
 
 def test_build_metric_object_derived_ratio(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     aov = catalog.get("sales.aov").details()
+    assert isinstance(aov, DerivedMetricDetails)
     assert aov.metric_type == "derived"
     assert aov.composition == "ratio"
     assert dict(aov.components).keys() == {"numerator", "denominator"}
     assert aov.additivity == "non_additive"
+
+
+def test_derived_metric_details_render_includes_composition(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    aov = catalog.get("sales.aov").details()
+    assert isinstance(aov, DerivedMetricDetails)
+    rendered = aov.render()
+    assert "composition: ratio" in rendered
+    assert "type: derived" in rendered
+
+
+def test_simple_metric_details_render_includes_additivity(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    rev = catalog.get("sales.revenue").details()
+    assert isinstance(rev, SimpleMetricDetails)
+    rendered = rev.render()
+    assert "additivity: additive" in rendered
+    assert "type: simple" in rendered
 
 
 # ---------------------------------------------------------------------------
