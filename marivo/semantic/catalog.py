@@ -9,7 +9,7 @@ import contextlib
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn, TypedDict
 
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.scan import ScanScope
@@ -156,6 +156,124 @@ def _render_details_card(
     return "\n".join(lines)
 
 
+def _source_location_text(source_location: SourceLocation) -> str:
+    return f"{source_location.file}:{source_location.line}"
+
+
+def _format_ref(ref: SemanticRef | None) -> str:
+    return ref.ref if ref is not None else "(none)"
+
+
+def _format_refs(refs: tuple[SemanticRef, ...], *, limit: int = 6) -> str:
+    if not refs:
+        return "(none)"
+    visible = [ref.ref for ref in refs[:limit]]
+    if len(refs) > limit:
+        visible.append(f"... (+{len(refs) - limit} more)")
+    return ", ".join(visible)
+
+
+def _format_tuple_values(values: tuple[str, ...], *, limit: int = 6) -> str:
+    if not values:
+        return "(none)"
+    visible = list(values[:limit])
+    if len(values) > limit:
+        visible.append(f"... (+{len(values) - limit} more)")
+    return ", ".join(visible)
+
+
+def _format_mapping(mapping: dict[str, object] | dict[str, str]) -> str:
+    if not mapping:
+        return "(none)"
+    return ", ".join(f"{key}: {value}" for key, value in sorted(mapping.items()))
+
+
+def _source_text(source: DatasetSource) -> str:
+    if hasattr(source, "to_dict"):
+        return str(source.to_dict())
+    return repr(source)
+
+
+def _versioning_text(versioning: DatasetVersioning | None) -> str:
+    if versioning is None:
+        return "(none)"
+    return repr(versioning)
+
+
+def _provenance_text(provenance: SqlProvenance | None) -> str:
+    if provenance is None:
+        return "(none)"
+    return f"{provenance.kind} dialect={provenance.dialect} sql={provenance.sql!r}"
+
+
+class _CommonAiDetailKwargs(TypedDict):
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
+
+
+def _common_ai_fields(context: AiContextView, *, python_symbol: str) -> _CommonAiDetailKwargs:
+    return {
+        "business_definition": context.business_definition,
+        "guardrails": context.guardrails,
+        "synonyms": context.synonyms,
+        "examples": context.examples,
+        "instructions": context.instructions,
+        "owner_notes": context.owner_notes,
+        "python_symbol": python_symbol,
+    }
+
+
+def _common_detail_lines(
+    *,
+    business_definition: str | None,
+    guardrails: tuple[str, ...],
+    synonyms: tuple[str, ...],
+    examples: tuple[str, ...],
+    instructions: str | None,
+    owner_notes: str | None,
+    python_symbol: str,
+    source_location: SourceLocation,
+    parents: tuple[SemanticRef, ...],
+    children: tuple[SemanticRef, ...],
+    dependents: tuple[SemanticRef, ...],
+) -> list[str]:
+    lines = [
+        f"business_definition: {business_definition or '(none)'}",
+        "guardrails:",
+    ]
+    lines.extend(f"- {guardrail}" for guardrail in guardrails[:6])
+    if not guardrails:
+        lines.append("- (none)")
+    if len(guardrails) > 6:
+        lines.append(f"- ... (+{len(guardrails) - 6} more)")
+    if synonyms:
+        lines.append(f"synonyms: {_format_tuple_values(synonyms)}")
+    if examples:
+        lines.append("examples:")
+        lines.extend(f"- {example}" for example in examples[:3])
+        if len(examples) > 3:
+            lines.append(f"- ... (+{len(examples) - 3} more)")
+    if instructions:
+        lines.append(f"instructions: {instructions}")
+    if owner_notes:
+        lines.append(f"owner_notes: {owner_notes}")
+    lines.extend(
+        (
+            f"source_location: {_source_location_text(source_location)}",
+            f"python_symbol: {python_symbol or '(none)'}",
+            f"parents: {_format_refs(parents)}",
+            f"children: {_format_refs(children)}",
+            f"dependents: {_format_refs(dependents)}",
+        )
+    )
+    return lines
+
+
 @dataclass(frozen=True, repr=False)
 class DatasourceDetails:
     """Details for a datasource object."""
@@ -170,7 +288,16 @@ class DatasourceDetails:
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
     backend_type: str
+    fields: dict[str, object]
+    env_refs: dict[str, str]
 
     def _repr_identity(self) -> str:
         return f"DatasourceDetails ref={self.ref.ref}"
@@ -179,10 +306,30 @@ class DatasourceDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
+        extra = _common_detail_lines(
+            business_definition=self.business_definition,
+            guardrails=self.guardrails,
+            synonyms=self.synonyms,
+            examples=self.examples,
+            instructions=self.instructions,
+            owner_notes=self.owner_notes,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.extend(
+            (
+                f"backend_type: {self.backend_type}",
+                f"fields: {_format_mapping(self.fields)}",
+                f"env_refs: {_format_mapping(self.env_refs)}",
+            )
+        )
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
-            extra_lines=(f"backend_type: {self.backend_type}",),
+            extra_lines=tuple(extra),
         )
 
     def show(self) -> None:
@@ -203,6 +350,14 @@ class DomainDetails:
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
+    default: bool
 
     def _repr_identity(self) -> str:
         return f"DomainDetails ref={self.ref.ref}"
@@ -211,11 +366,24 @@ class DomainDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
-        child_count = len(self.children)
+        extra = _common_detail_lines(
+            business_definition=self.business_definition,
+            guardrails=self.guardrails,
+            synonyms=self.synonyms,
+            examples=self.examples,
+            instructions=self.instructions,
+            owner_notes=self.owner_notes,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.append(f"default: {self.default}")
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
-            extra_lines=(f"children: {child_count} objects",),
+            extra_lines=tuple(extra),
         )
 
     def show(self) -> None:
@@ -236,6 +404,13 @@ class EntityDetails:
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
     datasource: SemanticRef
     source: DatasetSource
     primary_key: tuple[str, ...]
@@ -248,14 +423,31 @@ class EntityDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
-        child_count = len(self.children)
+        extra = _common_detail_lines(
+            business_definition=self.business_definition,
+            guardrails=self.guardrails,
+            synonyms=self.synonyms,
+            examples=self.examples,
+            instructions=self.instructions,
+            owner_notes=self.owner_notes,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.extend(
+            (
+                f"datasource: {self.datasource.ref}",
+                f"source: {_source_text(self.source)}",
+                f"primary_key: {_format_tuple_values(self.primary_key)}",
+                f"versioning: {_versioning_text(self.versioning)}",
+            )
+        )
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
-            extra_lines=(
-                f"datasource: {self.datasource.ref}",
-                f"children: {child_count} objects",
-            ),
+            extra_lines=tuple(extra),
         )
 
     def show(self) -> None:
@@ -276,6 +468,13 @@ class DimensionDetails:
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
     entity: SemanticRef
 
     def _repr_identity(self) -> str:
@@ -285,10 +484,24 @@ class DimensionDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
+        extra = _common_detail_lines(
+            business_definition=self.business_definition,
+            guardrails=self.guardrails,
+            synonyms=self.synonyms,
+            examples=self.examples,
+            instructions=self.instructions,
+            owner_notes=self.owner_notes,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.append(f"entity: {self.entity.ref}")
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
-            extra_lines=(f"entity: {self.entity.ref}",),
+            extra_lines=tuple(extra),
         )
 
     def show(self) -> None:
@@ -309,6 +522,13 @@ class MeasureDetails:
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
     entity: SemanticRef
     additivity: Literal["additive", "semi_additive", "non_additive"]
     unit: str | None
@@ -320,7 +540,20 @@ class MeasureDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
-        extra = [f"entity: {self.entity.ref}", f"additivity: {self.additivity}"]
+        extra = _common_detail_lines(
+            business_definition=self.business_definition,
+            guardrails=self.guardrails,
+            synonyms=self.synonyms,
+            examples=self.examples,
+            instructions=self.instructions,
+            owner_notes=self.owner_notes,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.extend((f"entity: {self.entity.ref}", f"additivity: {self.additivity}"))
         if self.unit:
             extra.append(f"unit: {self.unit}")
         return _render_details_card(
@@ -347,6 +580,13 @@ class TimeDimensionDetails:
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
     entity: SemanticRef
     parse_kind: Literal["date", "datetime", "timestamp", "strptime", "hour_prefix"]
     data_type: str | None
@@ -363,14 +603,35 @@ class TimeDimensionDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
+        extra = _common_detail_lines(
+            business_definition=self.business_definition,
+            guardrails=self.guardrails,
+            synonyms=self.synonyms,
+            examples=self.examples,
+            instructions=self.instructions,
+            owner_notes=self.owner_notes,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.extend(
+            (
+                f"entity: {self.entity.ref}",
+                f"parse_kind: {self.parse_kind}",
+                f"data_type: {self.data_type}",
+                f"granularity: {self.granularity}",
+                f"format: {self.format!r}",
+                f"timezone: {self.timezone!r}",
+                f"is_default: {self.is_default}",
+                f"sample_interval: {self.sample_interval.to_token() if self.sample_interval else '(none)'}",
+            )
+        )
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
-            extra_lines=(
-                f"entity: {self.entity.ref}",
-                f"granularity: {self.granularity}",
-                f"timezone: {self.timezone!r}",
-            ),
+            extra_lines=tuple(extra),
         )
 
     def show(self) -> None:
@@ -391,6 +652,13 @@ class MetricDetails:
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
     entities: tuple[SemanticRef, ...]
     root_entity: SemanticRef | None
     metric_type: Literal["simple", "derived"]
@@ -407,7 +675,6 @@ class MetricDetails:
     unit: str | None
     provenance: SqlProvenance | None
     parity_status: ParityStatus
-    python_symbol: str
 
     def _repr_identity(self) -> str:
         return f"MetricDetails ref={self.ref.ref}"
@@ -416,15 +683,51 @@ class MetricDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
-        extra = [f"type: {self.metric_type}", f"additivity: {self.additivity}"]
+        extra = _common_detail_lines(
+            business_definition=self.business_definition,
+            guardrails=self.guardrails,
+            synonyms=self.synonyms,
+            examples=self.examples,
+            instructions=self.instructions,
+            owner_notes=self.owner_notes,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.extend(
+            (
+                f"entities: {_format_refs(self.entities)}",
+                f"root_entity: {_format_ref(self.root_entity)}",
+                f"type: {self.metric_type}",
+                f"additivity: {self.additivity}",
+            )
+        )
         if self.metric_type == "simple" and self.aggregation is not None:
             extra.append(f"aggregation: {self.aggregation}")
+        if self.measure is not None:
+            extra.append(f"measure: {self.measure.ref}")
         if self.composition is not None:
             extra.append(f"composition: {self.composition}")
+        if self.components:
+            extra.append(
+                "components: " + ", ".join(f"{role}={ref.ref}" for role, ref in self.components)
+            )
+        if self.linear_terms:
+            extra.append(
+                "linear_terms: "
+                + ", ".join(f"{sign}{metric}" for sign, metric in self.linear_terms)
+            )
+        if self.required_relationships:
+            extra.append(f"required_relationships: {_format_refs(self.required_relationships)}")
         if self.fold is not None:
             extra.append(f"fold: {self.fold} over {self.status_time_dimension}")
+        extra.append(f"fanout_policy: {self.fanout_policy}")
         if self.unit:
             extra.append(f"unit: {self.unit}")
+        extra.append(f"provenance: {_provenance_text(self.provenance)}")
+        extra.append(f"parity_status: {self.parity_status}")
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
@@ -449,6 +752,13 @@ class RelationshipDetails:
     parents: tuple[SemanticRef, ...]
     children: tuple[SemanticRef, ...]
     dependents: tuple[SemanticRef, ...]
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    synonyms: tuple[str, ...]
+    examples: tuple[str, ...]
+    instructions: str | None
+    owner_notes: str | None
+    python_symbol: str
     from_entity: SemanticRef
     to_entity: SemanticRef
     from_dimensions: tuple[str, ...]
@@ -467,13 +777,34 @@ class RelationshipDetails:
         return result_repr(self._repr_identity())
 
     def render(self) -> str:
+        extra = _common_detail_lines(
+            business_definition=self.business_definition,
+            guardrails=self.guardrails,
+            synonyms=self.synonyms,
+            examples=self.examples,
+            instructions=self.instructions,
+            owner_notes=self.owner_notes,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
+        extra.extend(
+            (
+                f"from: {self.from_entity.ref}",
+                f"to: {self.to_entity.ref}",
+                "join_keys: "
+                + ", ".join(
+                    f"{left}={right}"
+                    for left, right in zip(self.from_dimensions, self.to_dimensions, strict=True)
+                ),
+            )
+        )
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.description,
-            extra_lines=(
-                f"from: {self.from_entity.ref}",
-                f"to: {self.to_entity.ref}",
-            ),
+            extra_lines=tuple(extra),
         )
 
     def show(self) -> None:
@@ -746,7 +1077,10 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
         parents=(),
         children=(),
         dependents=dependents,
+        **_common_ai_fields(ds_ir.ai_context, python_symbol=ds_ir.python_symbol),
         backend_type=ds_ir.backend_type,
+        fields=dict(ds_ir.fields),
+        env_refs=dict(ds_ir.env_refs),
     )
     return SemanticObject(
         ref=ref,
@@ -785,6 +1119,8 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         parents=(),
         children=children,
         dependents=(),
+        **_common_ai_fields(model_ir.ai_context, python_symbol=""),
+        default=model_ir.default,
     )
     return SemanticObject(
         ref=ref,
@@ -842,6 +1178,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
         parents=(ds_ref,),
         children=children,
         dependents=metric_dependents,
+        **_common_ai_fields(ds_ir.ai_context, python_symbol=ds_ir.python_symbol),
         datasource=ds_ref,
         source=ds_ir.source,
         primary_key=ds_ir.primary_key,
@@ -906,6 +1243,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             parents=(ds_ref,),
             children=(),
             dependents=(),
+            **_common_ai_fields(f_ir.ai_context, python_symbol=f_ir.python_symbol),
             entity=ds_ref,
             parse_kind=parse_kind,
             data_type=data_type,
@@ -927,6 +1265,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             parents=(ds_ref,),
             children=(),
             dependents=(),
+            **_common_ai_fields(f_ir.ai_context, python_symbol=f_ir.python_symbol),
             entity=ds_ref,
         )
     return SemanticObject(
@@ -961,6 +1300,7 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry) -> SemanticObject:
         parents=(entity_ref,),
         children=(),
         dependents=dependents,
+        **_common_ai_fields(m_ir.ai_context, python_symbol=m_ir.python_symbol),
         entity=entity_ref,
         additivity=additivity_bucket(m_ir.additivity),
         unit=m_ir.unit,
@@ -1032,6 +1372,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         parents=parents,
         children=(),
         dependents=dependents,
+        **_common_ai_fields(m_ir.ai_context, python_symbol=m_ir.python_symbol),
         entities=entity_refs,
         root_entity=root_entity_ref,
         metric_type=m_ir.metric_type,
@@ -1048,7 +1389,6 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         unit=m_ir.unit,
         provenance=m_ir.provenance,
         parity_status=parity_status,
-        python_symbol=m_ir.python_symbol,
     )
     return SemanticObject(
         ref=ref,
@@ -1078,6 +1418,7 @@ def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticO
         parents=(from_ref, to_ref),
         children=(),
         dependents=(),
+        **_common_ai_fields(r_ir.ai_context, python_symbol=""),
         from_entity=from_ref,
         to_entity=to_ref,
         from_dimensions=tuple(k.from_key for k in r_ir.keys),

@@ -29,7 +29,7 @@ def _make_ctx() -> AiContextView:
 
     return AiContextIR(
         business_definition=None,
-        guardrails=None,
+        guardrails=(),
         synonyms=(),
         examples=(),
         instructions=None,
@@ -81,8 +81,21 @@ def metric_details_factory(
         "unit": overrides.pop("unit", None),
         "provenance": overrides.pop("provenance", None),
         "parity_status": overrides.pop("parity_status", ParityStatus.UNVERIFIED),
-        "python_symbol": overrides.pop("python_symbol", ref.ref.rsplit(".", 1)[-1]),
     }
+    context = kwargs["context"]
+    kwargs.update(
+        {
+            "business_definition": overrides.pop(
+                "business_definition", context.business_definition
+            ),
+            "guardrails": overrides.pop("guardrails", context.guardrails),
+            "synonyms": overrides.pop("synonyms", context.synonyms),
+            "examples": overrides.pop("examples", context.examples),
+            "instructions": overrides.pop("instructions", context.instructions),
+            "owner_notes": overrides.pop("owner_notes", context.owner_notes),
+            "python_symbol": overrides.pop("python_symbol", ref.ref.rsplit(".", 1)[-1]),
+        }
+    )
     kwargs.update(overrides)
     return MetricDetails(**kwargs)
 

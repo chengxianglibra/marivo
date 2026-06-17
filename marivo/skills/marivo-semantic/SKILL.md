@@ -46,14 +46,17 @@ catalog.list(kind="metric").show()            # all metrics across every domain
 catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
 revenue = catalog.get("sales.revenue")
 revenue.details()                             # kind-specific details
-revenue.details().show()                      # bounded details card
+revenue.details().show()                      # full bounded object inspection
 revenue.children                              # child refs (empty for leaf objects)
 ```
 
-Use `ms.help(ref)` for a bounded consumption briefing on any semantic ref.
-This is the default path before passing an object to analysis APIs:
+Use `mv.help(ref)` for a short consumption briefing on a semantic object.
+Use `ms.help("<topic>")` for semantic authoring and validation contract help.
+Use `catalog.get(ref).details().show()` when you need the full semantic object
+metadata, graph refs, source/provenance, and authored AI context.
 
 ```python
+ms.help("metric")                   # authoring contract help
 mv.help(revenue)                    # bounded consumption context
 mv.help(revenue, project=project)   # explicit project when not in CWD
 ```
