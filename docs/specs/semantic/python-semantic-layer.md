@@ -413,11 +413,15 @@ def hh(orders):
 
 - 需要作为时间窗口、时间粒度或 calendar axis 使用的维度必须声明为 `time_dimension`。
 - 普通 `dimension` 不应靠名称如 `dt`、`date`、`event_time` 被自动推断为时间维度。
-- `data_type` 支持 `date`、`datetime`、`timestamp`、`string`、`integer`。`date_format` 仅在 `data_type` 为 `string` 或 `integer` 且未声明 `required_prefix` 时使用。
-- `date_format` 必须是 Python strptime 格式串（`%` 前缀），例如 `"%Y%m%d"`、`"%Y-%m-%d"`、`"%Y%m%d%H"`、`"%Y-%m-%d %H:%M:%S"`。简写别名（`yyyymmdd`、`hh` 等）不再被接受；格式串原样传给 backend 的 `date_parse`，作者需按目标 backend 语义书写（参见下一节 `%M` 与 `%i` 注意事项）。`data_type` 为 `date`、`datetime`、`timestamp` 时不允许 `date_format`（列已是时间类型）；声明了 `required_prefix` 的 hour-only 字段也不允许 `date_format`（运行时用 `lpad(2, "0")` 归一化 hour 列）。
-- `granularity` 支持 `year` | `quarter` | `month` | `week` | `day` | `hour` | `minute` | `second`。`minute` 和 `second` 要求 `data_type` 为 `datetime` 或 `timestamp`；`hour` 在非 timestamp 类型上必须声明 `required_prefix`。
-- `data_type` 必须与 body 返回的 ibis dtype 兼容：`.cast("date")` → `data_type="date"`；`.cast("timestamp")` 或原始 timestamp 列 → `data_type="datetime"` 或 `"timestamp"`。不匹配时执行器 TypeError。
-- hour-only 字段（例如 `data_type="string"` 或 `data_type="integer"`，且列只存小时数值）必须显式声明 `required_prefix` 且不得声明 `date_format`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。hour-only 字段支持可选的 `sample_interval`，使其可作为 sampled semi-additive metric 的时间轴。
+- `parse` 参数决定源列的物理类型和解析方式，必须与 body 返回的 ibis dtype 兼容：
+  - `ms.date()`：源列是原生 date 类型。
+  - `ms.datetime(timezone?, sample_interval?)`：源列是原生 datetime 类型。
+  - `ms.timestamp(timezone?, sample_interval?)`：源列是原生 timestamp 类型。
+  - `ms.strptime(format, data_type, timezone?, sample_interval?)`：源列是 string 或 integer，需按 Python strptime 格式解析。`data_type` 为 `"string"` 或 `"integer"`；`format` 必须是 `%` 前缀的 Python strptime 格式串（例如 `"%Y%m%d"`、`"%Y-%m-%d %H:%M:%S"`），原样传给 backend 的 `date_parse`，作者需按目标 backend 语义书写（参见下一节 `%M` 与 `%i` 注意事项）。
+  - `ms.hour_prefix(prefix, data_type, sample_interval?)`：源列只编码小时分量（例如 `"01"`、`"23"`），需与一个 day-level time dimension 结合。`data_type` 为 `"string"` 或 `"integer"`；`prefix` 是该 day-level time dimension 的 semantic id。
+- parse variant 与 ibis dtype 必须匹配：`.cast("date")` 或原生 date 列 → `ms.date()`；`.cast("timestamp")` 或原生 timestamp 列 → `ms.datetime(...)` 或 `ms.timestamp(...)`；string/integer 列 → `ms.strptime(...)` 或 `ms.hour_prefix(...)`。不匹配时执行器 TypeError。
+- `granularity` 支持 `year` | `quarter` | `month` | `week` | `day` | `hour` | `minute` | `second`。`minute` 和 `second` 要求 `ms.datetime(...)` 或 `ms.timestamp(...)`；`hour` 在 `ms.strptime(...)` 或 `ms.hour_prefix(...)` 上要求 strptime 格式包含时间指令，`ms.hour_prefix(...)` 仅允许 `granularity="hour"`。
+- `ms.datetime(...)`、`ms.timestamp(...)`、`ms.strptime(...)`、`ms.hour_prefix(...)` 支持可选的 `sample_interval`，使 time dimension 可作为 sampled semi-additive metric 的时间轴。
 - 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `dimension` / `time_dimension`，再在 metric 中引用。
 - `@ms.dimension` / `@ms.time_dimension` 不要求 provenance status。它们的可信度来自所属 entity、row-level 表达式可读性和 materialization 校验。`provenance` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
 - `is_default` (optional, default `False`): Mark this dimension as the default time axis
@@ -429,10 +433,10 @@ def hh(orders):
 
 #### Format specifier divergence: Python strptime vs MySQL/Trino/Presto
 
-`date_format` strings flow unchanged to the backend's `date_parse`
-function. Trino and Presto `date_parse` accept MySQL-style format
-specifiers, which agree with Python strptime on most common tokens
-(`%Y %m %d %H %S %y %j`) but disagree on minutes:
+The `format` string passed to `ms.strptime(format, ...)` flows unchanged to
+the backend's `date_parse` function. Trino and Presto `date_parse` accept
+MySQL-style format specifiers, which agree with Python strptime on most
+common tokens (`%Y %m %d %H %S %y %j`) but disagree on minutes:
 
 | Specifier | Python strptime | Trino/Presto `date_parse` |
 |---|---|---|
@@ -441,7 +445,8 @@ specifiers, which agree with Python strptime on most common tokens
 | `%c` | Locale-dependent datetime | Month, numeric (1..12) |
 
 For minute-granularity string dimensions on Trino/Presto backends, write
-`%i` for minutes, not `%M`. Example: `date_format="%Y-%m-%d %H:%i:%S"`.
+`%i` for minutes, not `%M`. Example:
+`parse=ms.strptime("%Y-%m-%d %H:%i:%S", data_type="string")`.
 
 Marivo does not translate Python strptime to MySQL format. The contract
 is: the format string reaches the backend's `date_parse` unchanged;
