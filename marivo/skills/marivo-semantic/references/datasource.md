@@ -254,6 +254,7 @@ def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
 
-When the body produces a DateColumn (via `.cast("date")`), declare
-`data_type="date"`, not `data_type="datetime"`. A mismatch between declared
-data_type and the body's ibis dtype causes TypeError at execution.
+When the body produces a DateColumn (via `.cast("date")`), use
+`parse=ms.date()`, not `parse=ms.datetime(...)`. A mismatch between the
+parse variant's implied type and the body's ibis dtype causes TypeError at
+execution.
