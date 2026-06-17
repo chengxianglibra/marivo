@@ -193,9 +193,9 @@ API 形态。`ms.help()` 打印帮助文本并返回 None。
 
 Use `catalog.list(...)` to browse by domain and kind, then `catalog.get(ref).details()` for structured object inspection. The catalog surface is deterministic and does not depend on fuzzy or embedding-based recall. At the top level (no parent), `kind="metric"` searches across all domains; `domain="sales"` scopes to a single domain.
 
-`catalog.list(...)` 和 `catalog.get(...)` 不写 stdout。需要人类可读输出时显式调用 `.show()`；程序化消费使用 `SemanticObject.ref`、`.details()`、`.children` 和 `SemanticObjectList.objects`。`details()` 返回的结构化 dataclass 也支持 `.render()` / `.show()` 用于 agent-facing bounded card 输出。
+`catalog.list(...)` 和 `catalog.get(...)` 不写 stdout。需要人类可读输出时显式调用 `.show()`；程序化消费使用 `SemanticObject.ref`、`.details()`、`.children` 和 `SemanticObjectList.objects`。`details()` 返回的结构化 dataclass 也支持 `.render()` / `.show()`，用于 agent-facing bounded card 输出。
 
-`catalog.get(ref).details()` 返回结构化 dataclass，而不是只打印文本。最小字段按对象类型暴露 `ref`、`kind`、`domain`、`description`、`business_definition`、`guardrails`、`parity_status`、`provenance`、`python_symbol`、`source_location` 和 `unit` 等可用信息。对于 metric 对象，`unit` 字段来自 `MetricIR.unit`（默认 `None`）。
+`catalog.get(ref).details()` 返回结构化 dataclass，而不是只打印文本。所有 details 对象直接暴露 `ref`、`kind`、`name`、`domain`、`description`、`context`、`business_definition`、`guardrails`、`synonyms`、`examples`、`instructions`、`owner_notes`、`python_symbol`、`source_location`、`parents`、`children` 和 `dependents`。各类型还暴露自己的公共语义事实：datasource 的 `backend_type`、literal `fields` 和 env var 名称 `env_refs`；domain 的 `default`；entity 的 `datasource`、`source`、`primary_key` 和 `versioning`；measure 的 `additivity` 和 `unit`；time dimension 的 parse/granularity/timezone/sample interval；metric 的 entity/composition/additivity/provenance/parity/unit；relationship 的 join keys。`details().show()` 输出同一信息的有界可读卡片；secret 只允许以 env var 名称出现，不能输出解析后的 secret value。
 
 free function 形态只允许作为 REPL 糖保留；如果没有显式 active project，必须 fail closed，不能 silent fallback 到 CWD 推断。
 

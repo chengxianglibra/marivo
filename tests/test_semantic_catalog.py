@@ -114,17 +114,30 @@ def _make_ref(r: str, kind: SemanticKind) -> SemanticRef:
 
 def _make_ctx() -> AiContextView:
     return AiContextView(
-        business_definition=None,
-        guardrails=(),
-        synonyms=(),
-        examples=(),
-        instructions=None,
-        owner_notes=None,
+        business_definition="Revenue from completed orders.",
+        guardrails=("Exclude refunds.",),
+        synonyms=("gross revenue",),
+        examples=("Q3 total: $1.2M",),
+        instructions="Always filter by status='complete'.",
+        owner_notes="Finance team owns this.",
     )
 
 
 def _make_loc() -> SourceLocation:
     return SourceLocation(file="models/semantic/sales/_domain.py", line=5)
+
+
+def _common_details_kwargs(*, python_symbol: str = "revenue") -> dict[str, object]:
+    ctx = _make_ctx()
+    return {
+        "business_definition": ctx.business_definition,
+        "guardrails": ctx.guardrails,
+        "synonyms": ctx.synonyms,
+        "examples": ctx.examples,
+        "instructions": ctx.instructions,
+        "owner_notes": ctx.owner_notes,
+        "python_symbol": python_symbol,
+    }
 
 
 # --- Kind-specific details ---
@@ -142,10 +155,15 @@ def test_datasource_details_fields():
         parents=(),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="warehouse"),
         backend_type="duckdb",
+        fields={"path": ":memory:"},
+        env_refs={"password": "WAREHOUSE_PASSWORD"},
     )
     assert d.backend_type == "duckdb"
     assert d.domain is None
+    assert d.fields == {"path": ":memory:"}
+    assert d.env_refs == {"password": "WAREHOUSE_PASSWORD"}
 
 
 def test_domain_details_fields():
@@ -160,8 +178,11 @@ def test_domain_details_fields():
         parents=(),
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
+        **_common_details_kwargs(python_symbol=""),
+        default=True,
     )
     assert d.children[0].ref == "sales.orders"
+    assert d.default is True
 
 
 def test_entity_details_fields():
@@ -178,6 +199,7 @@ def test_entity_details_fields():
         parents=(_make_ref("warehouse", SemanticKind.DATASOURCE),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="orders"),
         datasource=_make_ref("warehouse", SemanticKind.DATASOURCE),
         source=TableSource(table="orders", database=None),
         primary_key=("order_id",),
@@ -225,6 +247,7 @@ def test_dimension_details_fields():
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="region"),
         entity=_make_ref("sales.orders", SemanticKind.ENTITY),
     )
     assert d.entity.ref == "sales.orders"
@@ -243,6 +266,7 @@ def test_measure_details_fields():
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(_make_ref("sales.revenue", SemanticKind.METRIC),),
+        **_common_details_kwargs(python_symbol="amount"),
         entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         additivity="additive",
         unit="USD",
@@ -264,6 +288,7 @@ def test_time_dimension_details_fields():
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="created_at"),
         entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         parse_kind="timestamp",
         data_type="timestamp",
@@ -292,6 +317,7 @@ def test_metric_details_fields():
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="revenue"),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         metric_type="simple",
@@ -306,7 +332,6 @@ def test_metric_details_fields():
         unit=None,
         provenance=None,
         parity_status=ParityStatus.UNVERIFIED,
-        python_symbol="revenue",
         fold=None,
         status_time_dimension=None,
     )
@@ -333,6 +358,7 @@ def test_relationship_details_fields():
         ),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol=""),
         from_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         to_entity=_make_ref("sales.customers", SemanticKind.ENTITY),
         from_dimensions=("customer_id",),
@@ -355,6 +381,7 @@ def _make_metric_obj() -> SemanticObject:
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="revenue"),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         metric_type="simple",
@@ -369,7 +396,6 @@ def _make_metric_obj() -> SemanticObject:
         unit=None,
         provenance=None,
         parity_status=ParityStatus.UNVERIFIED,
-        python_symbol="revenue",
         fold=None,
         status_time_dimension=None,
     )
@@ -503,6 +529,88 @@ _DATASETS_PY = textwrap.dedent("""\
     )
     def revenue(table):
         return table.amount.sum()
+""")
+
+_RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+
+    orders = ms.entity(
+        name="orders",
+        datasource="warehouse",
+        source=ms.table("orders"),
+        description="Orders table.",
+        ai_context={
+            "business_definition": "One row per completed order.",
+            "guardrails": ["Exclude test orders."],
+            "synonyms": ["transactions"],
+            "examples": ["completed order count"],
+            "instructions": "Use created_at for reporting windows.",
+            "owner_notes": "Finance analytics owns this entity.",
+        },
+    )
+
+    @ms.dimension(
+        entity=orders,
+        description="Sales region.",
+        ai_context={
+            "business_definition": "Region assigned to the completed order.",
+            "guardrails": ["Do not infer sales ownership from region alone."],
+            "synonyms": ["market"],
+            "examples": ["APAC"],
+            "instructions": "Use for geographic slicing.",
+            "owner_notes": "Maintained by sales ops.",
+        },
+    )
+    def region(table):
+        return table.region
+
+    @ms.measure(
+        entity=orders,
+        additivity="additive",
+        unit="USD",
+        description="Gross amount.",
+        ai_context={
+            "business_definition": "Gross order amount before refunds.",
+            "guardrails": ["Does not net out refunds."],
+            "synonyms": ["gross sales"],
+            "examples": ["order amount"],
+            "instructions": "Aggregate with sum for revenue.",
+            "owner_notes": "Finance validates monthly.",
+        },
+    )
+    def amount(table):
+        return table.amount
+
+    @ms.time_dimension(
+        entity=orders,
+        granularity="day",
+        parse=ms.timestamp(timezone="UTC"),
+        ai_context={
+            "business_definition": "Order creation timestamp.",
+            "guardrails": ["Do not use as payment settlement time."],
+            "synonyms": ["created time"],
+            "examples": ["2026-01-01T00:00:00Z"],
+            "instructions": "Use as the default time window.",
+            "owner_notes": "UTC normalized upstream.",
+        },
+    )
+    def created_at(table):
+        return table.created_at
+
+    revenue = ms.aggregate(
+        name="revenue",
+        measure=amount,
+        agg="sum",
+        description="Gross revenue.",
+        ai_context={
+            "business_definition": "Total gross order amount before refunds.",
+            "guardrails": ["Do not use as net revenue."],
+            "synonyms": ["gross revenue"],
+            "examples": ["Q1 gross revenue"],
+            "instructions": "Use created_at for reporting windows.",
+            "owner_notes": "Owned by finance analytics.",
+        },
+    )
 """)
 
 
@@ -855,6 +963,95 @@ def test_catalog_get_source_location_is_populated(semantic_project_factory):
     loc = obj.source_location
     assert loc.file != ""
     assert loc.line > 0
+
+
+def test_catalog_details_expose_common_ai_context_fields_directly(semantic_project_factory):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    cases = {
+        "sales.orders": "orders",
+        "sales.orders.region": "region",
+        "sales.orders.amount": "amount",
+        "sales.orders.created_at": "created_at",
+        "sales.revenue": "revenue",
+    }
+    for ref, python_symbol in cases.items():
+        details = catalog.get(ref).details()
+        assert details.business_definition
+        assert details.guardrails
+        assert details.synonyms
+        assert details.examples
+        assert details.instructions
+        assert details.owner_notes
+        assert details.python_symbol == python_symbol
+        assert details.source_location.file
+        assert details.source_location.line > 0
+        assert details.business_definition == details.context.business_definition
+        assert details.guardrails == details.context.guardrails
+
+
+def test_catalog_details_render_includes_agent_consumption_context(
+    semantic_project_factory,
+):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    metric_rendered = catalog.get("sales.revenue").details().render()
+    assert "business_definition: Total gross order amount before refunds." in metric_rendered
+    assert "guardrails:" in metric_rendered
+    assert "- Do not use as net revenue." in metric_rendered
+    assert "source_location:" in metric_rendered
+    assert "python_symbol: revenue" in metric_rendered
+    assert "parents: sales.orders" in metric_rendered
+    assert "measure: sales.orders.amount" in metric_rendered
+    assert "parity_status:" in metric_rendered
+
+    entity_rendered = catalog.get("sales.orders").details().render()
+    assert "datasource: warehouse" in entity_rendered
+    assert "source:" in entity_rendered
+    assert "children:" in entity_rendered
+    assert "sales.orders.region" in entity_rendered
+
+
+def test_catalog_datasource_details_do_not_expose_secret_values(
+    semantic_project_factory,
+    monkeypatch,
+):
+    monkeypatch.setenv("WAREHOUSE_PASSWORD", "plaintext-secret")
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\n"
+                "warehouse = md.DatasourceSpec(\n"
+                "    name='warehouse', backend_type='duckdb', path=':memory:',\n"
+                "    password_env='WAREHOUSE_PASSWORD')\n"
+                "md.datasource(warehouse)\n"
+            ),
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    details = catalog.get("warehouse").details()
+    assert isinstance(details, DatasourceDetails)
+    assert details.fields == {"path": ":memory:"}
+    assert details.env_refs == {"password": "WAREHOUSE_PASSWORD"}
+    rendered = details.render()
+    assert "WAREHOUSE_PASSWORD" in rendered
+    assert "plaintext-secret" not in rendered
+    assert "password: WAREHOUSE_PASSWORD" in rendered
 
 
 def test_catalog_get_dataset_details_correct_datasource_ref(semantic_project_factory):
@@ -1460,45 +1657,67 @@ def test_catalog_metric_details_unit_defaults_to_none(semantic_project_factory):
     assert d.unit is None
 
 
-def test_catalog_details_cover_required_ir_fields() -> None:
+def test_catalog_details_cover_all_public_ir_fields() -> None:
     from dataclasses import fields
 
+    from marivo.datasource.ir import DatasourceIR
     from marivo.semantic.catalog import (
+        DatasourceDetails,
         DimensionDetails,
+        DomainDetails,
         EntityDetails,
+        MeasureDetails,
         MetricDetails,
+        RelationshipDetails,
         TimeDimensionDetails,
     )
-    from marivo.semantic.ir import DimensionIR, EntityIR, MetricIR
+    from marivo.semantic.ir import (
+        DimensionIR,
+        DomainIR,
+        EntityIR,
+        MeasureIR,
+        MetricIR,
+        RelationshipIR,
+    )
 
     coverage = {
+        DatasourceIR: {field.name for field in fields(DatasourceDetails)}
+        | {"ref", "source_location", "context"},
+        DomainIR: {field.name for field in fields(DomainDetails)}
+        | {"ref", "source_location", "context"},
         EntityIR: {field.name for field in fields(EntityDetails)}
-        | {"ref", "kind", "parents", "children", "dependents", "source_location", "context"},
-        MetricIR: {field.name for field in fields(MetricDetails)}
-        | {"ref", "kind", "parents", "children", "dependents", "source_location", "context"},
+        | {"ref", "source_location", "context"},
         DimensionIR: {field.name for field in fields(DimensionDetails)}
         | {field.name for field in fields(TimeDimensionDetails)}
-        | {"ref", "kind", "parents", "children", "dependents", "source_location", "context"},
+        | {"ref", "source_location", "context"},
+        MeasureIR: {field.name for field in fields(MeasureDetails)}
+        | {"ref", "source_location", "context"},
+        MetricIR: {field.name for field in fields(MetricDetails)}
+        | {"ref", "source_location", "context"},
+        RelationshipIR: {field.name for field in fields(RelationshipDetails)}
+        | {"ref", "source_location", "context", "keys"},
     }
     allowed_internal = {
-        EntityIR: {"location", "ai_context", "python_symbol", "semantic_id"},
-        MetricIR: {
-            "location",
-            "ai_context",
-            "body_ast_hash",
-            "provenance",
-            "semantic_id",
-            "fold_override",
-        },
+        DatasourceIR: {"location", "ai_context", "semantic_id"},
+        DomainIR: {"location", "ai_context"},
+        EntityIR: {"location", "ai_context", "semantic_id"},
         DimensionIR: {
             "location",
             "ai_context",
             "is_time_dimension",
             "kind",
-            "python_symbol",
             "semantic_id",
             "parse",
         },
+        MeasureIR: {"location", "ai_context", "semantic_id", "kind"},
+        MetricIR: {
+            "location",
+            "ai_context",
+            "body_ast_hash",
+            "semantic_id",
+            "fold_override",
+        },
+        RelationshipIR: {"location", "ai_context", "semantic_id"},
     }
 
     for ir_type, detail_fields in coverage.items():

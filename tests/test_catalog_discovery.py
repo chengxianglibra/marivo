@@ -108,6 +108,19 @@ def _make_loc() -> SourceLocation:
     return SourceLocation(file="models/semantic/sales/_domain.py", line=5)
 
 
+def _common_details_kwargs(*, python_symbol: str = "") -> dict[str, object]:
+    ctx = _make_ctx()
+    return {
+        "business_definition": ctx.business_definition,
+        "guardrails": ctx.guardrails,
+        "synonyms": ctx.synonyms,
+        "examples": ctx.examples,
+        "instructions": ctx.instructions,
+        "owner_notes": ctx.owner_notes,
+        "python_symbol": python_symbol,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Change 1: catalog.list(kind="metric") returns metrics at top level
 # ---------------------------------------------------------------------------
@@ -267,6 +280,8 @@ def test_discovery_domain_details_repr_is_single_line():
         parents=(),
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
+        **_common_details_kwargs(),
+        default=True,
     )
     r = repr(d)
     assert isinstance(r, str)
@@ -286,6 +301,8 @@ def test_discovery_domain_details_render_returns_str():
         parents=(),
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
+        **_common_details_kwargs(),
+        default=True,
     )
     rendered = d.render()
     assert isinstance(rendered, str)
@@ -305,6 +322,8 @@ def test_discovery_domain_details_show_prints_output(capsys):
         parents=(),
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
+        **_common_details_kwargs(),
+        default=True,
     )
     d.show()
     out = capsys.readouterr().out
@@ -323,6 +342,7 @@ def test_discovery_metric_details_repr_is_single_line():
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="revenue"),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         metric_type="simple",
@@ -337,7 +357,6 @@ def test_discovery_metric_details_repr_is_single_line():
         unit=None,
         provenance=None,
         parity_status=ParityStatus.UNVERIFIED,
-        python_symbol="revenue",
         fold=None,
         status_time_dimension=None,
     )
@@ -359,6 +378,7 @@ def test_discovery_metric_details_render_shows_additivity():
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="revenue"),
         entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         metric_type="simple",
@@ -373,7 +393,6 @@ def test_discovery_metric_details_render_shows_additivity():
         unit=None,
         provenance=None,
         parity_status=ParityStatus.UNVERIFIED,
-        python_symbol="revenue",
         fold=None,
         status_time_dimension=None,
     )
@@ -393,7 +412,10 @@ def test_discovery_datasource_details_repr():
         parents=(),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="warehouse"),
         backend_type="duckdb",
+        fields={"path": ":memory:"},
+        env_refs={},
     )
     r = repr(d)
     assert "warehouse" in r
@@ -413,6 +435,7 @@ def test_discovery_entity_details_render():
         parents=(_make_ref("warehouse", SemanticKind.DATASOURCE),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="orders"),
         datasource=_make_ref("warehouse", SemanticKind.DATASOURCE),
         source=TableSource(table="orders", database=None),
         primary_key=("order_id",),
@@ -435,6 +458,7 @@ def test_discovery_dimension_details_render():
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="region"),
         entity=_make_ref("sales.orders", SemanticKind.ENTITY),
     )
     rendered = d.render()
@@ -453,6 +477,7 @@ def test_discovery_time_dimension_details_render():
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
         dependents=(),
+        **_common_details_kwargs(python_symbol="created_at"),
         entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         parse_kind="timestamp",
         data_type="timestamp",
@@ -481,6 +506,7 @@ def test_discovery_relationship_details_render():
         ),
         children=(),
         dependents=(),
+        **_common_details_kwargs(),
         from_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
         to_entity=_make_ref("sales.users", SemanticKind.ENTITY),
         from_dimensions=("user_id",),
