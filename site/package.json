@@ -1,0 +1,25 @@
+{
+  "name": "marivo-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "verify:content": "node scripts/verify-site-content.mjs"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.35.3",
+    "astro": "5.7.14"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@astrojs/sitemap": "3.3.0",
+    "chokidar": "4.0.3",
+    "vite": "6.3.5"
+  }
+}

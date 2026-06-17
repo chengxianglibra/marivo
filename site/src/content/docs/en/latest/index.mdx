@@ -1,0 +1,38 @@
+---
+title: Marivo
+description: Metric-centered analysis runtime for AI agents.
+template: splash
+hero:
+  tagline: Metric-centered analysis runtime for AI agents.
+  image:
+    alt: Marivo
+    file: ../../../../assets/marivo-mark.svg
+  actions:
+    - text: Install Marivo
+      link: /en/latest/installation/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/lumendata/marivo
+      variant: secondary
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Marivo is a Python library, not a hosted service. It gives AI agents a typed semantic layer, a metric-centered analysis workflow, and an auditable evidence trail for analytical conclusions.
+
+Marivo is not a text-to-SQL wrapper. Python declarations are the contract, ibis expressions are the execution language, and typed frames are the analysis boundary between steps.
+
+<CardGrid>
+  <Card title="Unified semantics" icon="seti:data">
+    Datasources, entities, metrics, dimensions, and relationships are declared in Python and addressed through semantic refs.
+  </Card>
+  <Card title="Metric-centered analysis" icon="seti:python">
+    Agents start from trusted metrics and compose observe, compare, decompose, correlate, forecast, and quality checks.
+  </Card>
+  <Card title="Trustworthy evidence" icon="seti:config">
+    Operators record findings, propositions, and assessments so results can be traced and reviewed.
+  </Card>
+  <Card title="Readiness gates" icon="seti:lock">
+    Catalog readiness keeps incomplete semantic objects out of analysis until authoring and access issues are resolved.
+  </Card>
+</CardGrid>

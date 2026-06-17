@@ -61,10 +61,13 @@ frontend/node_modules/
 frontend/*.tsbuildinfo
 frontend/.env.local
 
-# npm (root-level — only frontend uses node_modules)
+# npm (root-level — frontend and site use package-local metadata)
 node_modules/
 package.json
 package-lock.json
+!site/package.json
+!site/package-lock.json
+site/.astro/
 
 # Config (contains local paths/credentials)
 marivo.yaml

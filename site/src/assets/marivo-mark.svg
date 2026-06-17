@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Marivo">
+  <rect width="128" height="128" rx="24" fill="#0d4639"/>
+  <path d="M28 90V38h16l20 30 20-30h16v52H86V60L68 86h-8L42 60v30H28Z" fill="#b9f4dd"/>
+  <circle cx="102" cy="26" r="8" fill="#2bbf95"/>
+</svg>

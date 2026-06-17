@@ -1,0 +1,27 @@
+---
+title: 参与贡献
+description: 本地设置 Marivo，并在提交 pull request 前运行 repository checks。
+---
+
+贡献代码前请阅读 `agent-guide.md`。它是本仓库稳定 coding、testing 和 documentation 规则的来源。
+
+设置本地 editable install：
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev,duckdb,trino]"
+```
+
+使用 repository entrypoints，不要直接调用裸 Python 工具：
+
+```bash
+make format
+make lint
+make typecheck
+make test
+make examples-check
+```
+
+在这个仓库中，Python 相关命令不要使用裸 `python`、`pytest`、`mypy` 或 `ruff`。请使用 `make` entrypoints 或明确的 `.venv/bin/...` 路径。
+
+保持变更范围清晰。行为变化需要同步更新相关用户文档或 API 文档。不要把内部 planning material 当成用户文档发布。

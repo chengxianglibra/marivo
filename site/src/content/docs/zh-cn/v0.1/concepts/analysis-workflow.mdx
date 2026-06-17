@@ -1,0 +1,11 @@
+---
+slug: zh-cn/v0.1/concepts/analysis-workflow
+title: Analysis Workflow
+description: 通过 metric-centered sessions 和 typed frames 让 agent analysis 可重复。
+---
+
+Marivo 的每次 analysis 都从一个 metric 开始。Agent 使用一个 guiding question 打开 session，从 semantic catalog 中解析 metric，然后通过 typed frames 串联 operators。
+
+核心 operators 包括 `observe`、`compare`、`decompose`、`correlate`、`forecast` 和 `assess_quality`。每个 operator 返回 typed result，例如 `MetricFrame`、`DeltaFrame`、`AttributionFrame`、`AssociationResult`、`ForecastFrame` 或 `QualityReport`。
+
+Frames 会持久化在 project-local `.marivo/` 状态中，并携带 lineage，让后续步骤可以解释每个结果来自哪些输入。

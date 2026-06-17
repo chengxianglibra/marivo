@@ -1,0 +1,11 @@
+---
+slug: zh-cn/v0.1/concepts/readiness
+title: Readiness
+description: 阻止未完成 semantic objects 进入 analysis 的 gate。
+---
+
+`catalog.readiness()` 检查 semantic objects 是否足够完整，可以进入 analysis。它会报告 blockers、warnings、backend access status、parity status 和 enrichment issues。
+
+一个新 project 可以成功 load，但 readiness 仍然是 blocked。Agents 应该检查 `report.show()`，并先解决缺失定义、source access、preview、parity 或 enrichment 问题，再运行 metric analysis。
+
+Readiness 可以避免 agents 基于半成品 semantics 进行推理。

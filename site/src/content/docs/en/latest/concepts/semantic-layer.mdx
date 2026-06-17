@@ -1,0 +1,10 @@
+---
+title: Semantic Layer
+description: Python declarations that give agents trusted names, definitions, and guardrails.
+---
+
+The Marivo semantic layer is authored in Python. Datasources, domains, entities, dimensions, metrics, and relationships are declared as code so agents can address data by semantic ref instead of raw table and column names.
+
+Semantic objects carry `ai_context` with business definitions, guardrails, synonyms, examples, instructions, and owner notes. This context is the contract between human authors and AI agents.
+
+Python declarations are the contract. Ibis expressions are the execution language. Raw SQL text belongs in provenance metadata when needed, not in executable semantic bodies.

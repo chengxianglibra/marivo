@@ -1,0 +1,11 @@
+---
+slug: zh-cn/v0.1/concepts/evidence
+title: Evidence
+description: 通过 findings、propositions 和 assessments 让 analytical conclusions 可审计。
+---
+
+每个 analysis operator 都会把 evidence 写入 session。Evidence 让 agent 不只说明发生了什么变化，也能说明它如何得出结论。
+
+Evidence store 跟踪 findings、propositions 和 assessments。`session.knowledge()` 会汇总 established facts、driver facts、open anomalies 和 suggested follow-ups。
+
+Human reviewers 可以从 proposition 追踪回支持它的 findings 和 assessments。

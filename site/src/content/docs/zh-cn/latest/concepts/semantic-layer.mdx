@@ -1,0 +1,10 @@
+---
+title: Semantic Layer
+description: 让 agents 获得可信名称、定义和 guardrails 的 Python declarations。
+---
+
+Marivo semantic layer 使用 Python authoring。Datasources、domains、entities、dimensions、metrics 和 relationships 都以代码声明，因此 agents 可以使用 semantic refs，而不是直接依赖原始表名和列名。
+
+Semantic objects 携带 `ai_context`，包括 business definitions、guardrails、synonyms、examples、instructions 和 owner notes。这些上下文是 human authors 和 AI agents 之间的契约。
+
+Python declarations 是契约。Ibis expressions 是执行语言。需要 SQL 文本时，应把它放在 provenance metadata 中，而不是 executable semantic bodies 中。

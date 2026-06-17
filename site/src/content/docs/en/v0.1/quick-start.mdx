@@ -1,0 +1,143 @@
+---
+slug: en/v0.1/quick-start
+title: Quick Start
+description: Create a Marivo project, load a semantic catalog, and run the first metric-centered analysis.
+---
+
+A minimal Marivo project has a manifest, datasource declarations, and semantic declarations:
+
+```text
+your-project/
+  marivo.toml
+  models/
+    datasources/
+      warehouse.py
+    semantic/
+      sales/
+        _domain.py
+```
+
+Declare a datasource:
+
+```python
+import marivo.datasource as md
+
+md.datasource(
+    md.DatasourceSpec(
+        name="warehouse",
+        backend_type="duckdb",
+        path="warehouse.duckdb",
+        ai_context={
+            "business_definition": "Local DuckDB warehouse for sales analysis.",
+            "guardrails": ["Use only for development or approved local analysis."],
+        },
+    )
+)
+```
+
+Declare semantic objects:
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(
+    name="sales",
+    default=True,
+    ai_context={
+        "business_definition": "Sales order analysis domain.",
+        "guardrails": ["Revenue metrics should only use completed orders."],
+    },
+)
+
+orders = ms.entity(
+    name="orders",
+    datasource=md.ref("warehouse"),
+    source=ms.table("orders"),
+    primary_key=["order_id"],
+    ai_context={
+        "business_definition": "One row per sales order.",
+        "guardrails": ["Exclude cancelled test data in metric definitions."],
+    },
+)
+
+
+@ms.dimension(
+    entity=orders,
+    name="region",
+    ai_context={
+        "business_definition": "Sales region assigned to the order.",
+        "guardrails": ["Do not treat missing region as a real region."],
+    },
+)
+def region(orders):
+    return orders.region
+
+
+@ms.time_dimension(
+    entity=orders,
+    name="order_date",
+    granularity="day",
+    parse=ms.date(),
+    is_default=True,
+    ai_context={
+        "business_definition": "Calendar date when the order was placed.",
+        "guardrails": ["Use this as the default time axis for order metrics."],
+    },
+)
+def order_date(orders):
+    return orders.order_date
+
+
+@ms.metric(
+    entities=[orders],
+    additivity="additive",
+    name="revenue",
+    ai_context={
+        "business_definition": "Total completed order amount.",
+        "guardrails": ["Use only where order amount is already net of cancellations."],
+    },
+)
+def revenue(orders):
+    return orders.amount.sum()
+```
+
+Discover the catalog before analysis:
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+catalog.list().show()
+
+report = catalog.readiness()
+if report.status == "blocked":
+    report.show()
+```
+
+Run an analysis session after the catalog is ready:
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("sales.revenue")
+region = catalog.get("sales.orders.region").ref
+
+current = session.observe(
+    revenue,
+    timescope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+baseline = session.observe(
+    revenue,
+    timescope={"start": "2025-10-01", "end": "2026-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+delta = session.compare(current, baseline, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+attribution = session.decompose(delta, axis=region)
+attribution.show()
+```
