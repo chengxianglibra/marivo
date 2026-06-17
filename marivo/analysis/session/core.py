@@ -88,9 +88,13 @@ class FrameSummaryEntry:
     semantic_kind: str | None
     semantic_model: str | None
     created_at: str | None
+    row_count: int | None = None
 
     def _repr_identity(self) -> str:
-        return f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
+        parts = f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
+        if self.metric_id:
+            parts += f" metric={self.metric_id}"
+        return parts
 
     def render(self) -> str:
         return format_bounded_card(
@@ -387,6 +391,7 @@ class Session:
                         semantic_kind=meta.get("semantic_kind"),
                         semantic_model=meta.get("semantic_model"),
                         created_at=meta.get("created_at"),
+                        row_count=meta.get("row_count"),
                     )
                 )
         entries.sort(key=lambda e: (e.created_at or "", e.ref))

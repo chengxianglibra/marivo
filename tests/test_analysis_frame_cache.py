@@ -192,6 +192,8 @@ def test_frame_summaries_contains_rich_metadata(tmp_path):
     assert entry.metric_id == "sales.revenue"
     assert entry.semantic_kind is not None
     assert entry.semantic_model is not None
+    assert entry.row_count is not None
+    assert entry.row_count >= 1
 
 
 # --- derived-metric observe caching ---
