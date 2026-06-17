@@ -267,6 +267,7 @@ _BRIEF_NAMES = [
     "DimensionBrief",
     "TimeDimensionBrief",
     "MetricBrief",
+    "MeasureBrief",
     "RelationshipBrief",
     "CrossEntityMetricBrief",
     "DerivedMetricBrief",
@@ -512,3 +513,55 @@ def test_entity_brief_satisfies_agent_result_protocol() -> None:
 
     brief = _make_entity_brief()
     assert isinstance(brief, AgentResult)
+
+
+# ---------------------------------------------------------------------------
+# MeasureBrief and FormatCandidate redesign
+# ---------------------------------------------------------------------------
+
+
+def test_measure_brief_is_frozen_dataclass_with_required_fields():
+    from marivo.semantic.dtos import MeasureBrief
+
+    with pytest.raises(TypeError):
+        MeasureBrief()  # missing required fields
+
+
+def test_format_candidate_carries_variant():
+    from marivo.semantic.dtos import FormatCandidate
+
+    c = FormatCandidate(
+        variant="strptime",
+        strptime_format="%Y%m%d",
+        data_type="string",
+        match_rate=1.0,
+        backend_caveats=(),
+    )
+    assert c.variant == "strptime"
+    assert c.strptime_format == "%Y%m%d"
+    assert c.data_type == "string"
+
+    c2 = FormatCandidate(variant="datetime", timezone="UTC", match_rate=1.0, backend_caveats=())
+    assert c2.variant == "datetime"
+    assert c2.timezone == "UTC"
+    assert c2.strptime_format is None
+
+
+# ---------------------------------------------------------------------------
+# RelationshipBrief keys redesign
+# ---------------------------------------------------------------------------
+
+
+def test_relationship_brief_uses_keys_not_dimensions():
+    import dataclasses
+
+    from marivo.semantic.dtos import RelationshipBrief
+
+    field_names = {f.name for f in dataclasses.fields(RelationshipBrief)}
+    assert "keys" in field_names, "RelationshipBrief must have a 'keys' field"
+    assert "from_dimensions" not in field_names, (
+        "RelationshipBrief must not have 'from_dimensions' — replaced by 'keys'"
+    )
+    assert "to_dimensions" not in field_names, (
+        "RelationshipBrief must not have 'to_dimensions' — replaced by 'keys'"
+    )

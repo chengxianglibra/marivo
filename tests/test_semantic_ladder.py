@@ -150,6 +150,13 @@ def test_prepare_metric_raises_without_verify(tmp_path: Path, semantic_project_f
         project.prepare_metric(entity="sales.orders", measure_columns=["amount"])
 
 
+def test_prepare_measure_raises_without_verify(tmp_path: Path, semantic_project_factory) -> None:
+    project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
+
+    with pytest.raises(LadderOrderError, match="prepare_measure"):
+        project.prepare_measure(entity="sales.orders", column="amount")
+
+
 def test_prepare_dimension_works_after_verify(tmp_path: Path, semantic_project_factory) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
@@ -168,6 +175,17 @@ def test_prepare_metric_works_after_verify(tmp_path: Path, semantic_project_fact
     assert result is not None
 
 
+def test_prepare_measure_works_after_verify(tmp_path: Path, semantic_project_factory) -> None:
+    from marivo.semantic.dtos import MeasureBrief
+
+    project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
+
+    project.verify_object("sales.orders")
+
+    result = project.prepare_measure(entity="sales.orders", column="amount")
+    assert isinstance(result, MeasureBrief)
+
+
 def test_prepare_relationship_checks_both_entities(
     tmp_path: Path, semantic_project_factory
 ) -> None:
@@ -181,8 +199,7 @@ def test_prepare_relationship_checks_both_entities(
         project.prepare_relationship(
             from_entity="sales.orders",
             to_entity="sales.customers",
-            from_dimensions=["sales.orders.customer_id"],
-            to_dimensions=["sales.customers.customer_id"],
+            keys=[("sales.orders.customer_id", "sales.customers.customer_id")],
         )
 
 
@@ -202,8 +219,7 @@ def test_prepare_relationship_works_after_both_verified(
         result = project.prepare_relationship(
             from_entity="sales.orders",
             to_entity="sales.customers",
-            from_dimensions=["sales.orders.customer_id"],
-            to_dimensions=["sales.customers.customer_id"],
+            keys=[("sales.orders.customer_id", "sales.customers.customer_id")],
         )
         assert result is not None
     except LadderOrderError:
@@ -319,6 +335,24 @@ def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_facto
     assert result.status == "failed"
     assert result.issues[0].kind == "project_load_failed"
     assert "intentional load error" in result.issues[0].message
+
+
+def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
+    model = (
+        "import marivo.semantic as ms\n"
+        "ms.domain(name='sales')\n"
+        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "@ms.measure(entity=orders, additivity='additive')\n"
+        "def amount(orders):\n"
+        "    return orders.amount\n"
+    )
+    project = semantic_project_factory({"sales/_domain.py": model})
+    project.load()
+
+    result = project.verify_object("sales.orders.amount")
+
+    assert result.status == "passed"
+    assert result.kind == "measure"
 
 
 def test_verify_object_known_ref_still_not_found_when_loaded(

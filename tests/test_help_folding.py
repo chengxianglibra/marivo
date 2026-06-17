@@ -54,6 +54,7 @@ def test_semantic_fold_partition() -> None:
         "DimensionBrief",
         "DomainBrief",
         "EntityBrief",
+        "MeasureBrief",
         "MetricBrief",
         "RelationshipBrief",
         "TimeDimensionBrief",

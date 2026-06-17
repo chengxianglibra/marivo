@@ -92,6 +92,7 @@ from marivo.semantic.dtos import (
     FileSource,
     FormatCandidate,
     JoinPathFact,
+    MeasureBrief,
     MetricBrief,
     PrimaryKeyCandidate,
     RegisteredMatch,
@@ -248,12 +249,43 @@ def prepare_metric(
     )
 
 
+def prepare_measure(
+    *,
+    entity: str,
+    column: str,
+    scope: ScanScope | None = None,
+) -> MeasureBrief:
+    """Prepare a measure authoring brief for one entity column.
+
+    Profiles the column data from the datasource and provides an additivity
+    hint based on the column's data type. Checks for matches against existing
+    measures in the registry.
+
+    Args:
+        entity: Qualified entity reference (e.g. ``"sales.orders"``).
+        column: Column name to prepare a measure brief for.
+        scope: Scan scope controlling partition, max rows, and timeout.
+
+    Returns:
+        A ``MeasureBrief`` with status, profile, additivity hint, and match evidence.
+
+    Example:
+        >>> brief = ms.prepare_measure(entity="sales.orders", column="amount")
+    """
+    from marivo.semantic.reader import SemanticProject
+
+    project = SemanticProject()
+    project.load()
+    if scope is None:
+        scope = ScanScope()
+    return project.prepare_measure(entity=entity, column=column, scope=scope)
+
+
 def prepare_relationship(
     *,
     from_entity: str,
     to_entity: str,
-    from_dimensions: tuple[str, ...] | list[str],
-    to_dimensions: tuple[str, ...] | list[str],
+    keys: list[tuple[str, str]],
     scope: ScanScope | None = None,
 ) -> RelationshipBrief:
     """Prepare a relationship authoring brief with join-key probe evidence."""
@@ -266,8 +298,7 @@ def prepare_relationship(
     return project.prepare_relationship(
         from_entity=from_entity,
         to_entity=to_entity,
-        from_dimensions=from_dimensions,
-        to_dimensions=to_dimensions,
+        keys=keys,
         scope=scope,
     )
 
@@ -560,6 +591,7 @@ __all__ = [
     "JoinKey",
     "JoinPathFact",
     "LadderOrderError",
+    "MeasureBrief",
     "MeasureIR",
     "MeasureRef",
     "MetricBrief",
@@ -618,6 +650,7 @@ __all__ = [
     "prepare_dimension",
     "prepare_domain",
     "prepare_entity",
+    "prepare_measure",
     "prepare_metric",
     "prepare_relationship",
     "prepare_time_dimension",

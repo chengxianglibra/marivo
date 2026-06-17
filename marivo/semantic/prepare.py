@@ -39,6 +39,7 @@ from marivo.semantic.dtos import (
     EntityBrief,
     FormatCandidate,
     JoinPathFact,
+    MeasureBrief,
     MetricBrief,
     PrimaryKeyCandidate,
     RegisteredMatch,
@@ -127,6 +128,7 @@ def prepare_domain(project: SemanticProject, *, name: str) -> DomainBrief:
                     for f in reg.dimensions.values()
                     if f.domain == domain_name and f.is_time_dimension
                 ),
+                "measure": sum(1 for m in reg.measures.values() if m.domain == domain_name),
                 "metric": sum(1 for m in reg.metrics.values() if m.domain == domain_name),
                 "datasource": 0,
                 "relationship": sum(
@@ -576,27 +578,112 @@ def prepare_metric(
     )
 
 
+def _additivity_hint(
+    profile: ScanColumnProfile,
+) -> Literal["additive", "non_additive", "semi_additive", "unknown"]:
+    """Infer additivity from the column's data type."""
+    dt = profile.data_type.lower()
+    if dt in ("int", "integer", "bigint", "smallint", "tinyint"):
+        return "additive"
+    if dt in ("float", "double", "decimal", "numeric"):
+        return "additive"
+    return "unknown"
+
+
+def _measure_matches(
+    project: SemanticProject,
+    *,
+    entity: str,
+    column: str,
+) -> tuple[RegisteredMatch, ...]:
+    """Find registered measures with the same column or name."""
+    reg = project._registry
+    if reg is None:
+        return ()
+    matches: list[RegisteredMatch] = []
+    for measure_ir in reg.measures.values():
+        if measure_ir.entity != entity:
+            continue
+        if measure_ir.name == column:
+            matches.append(RegisteredMatch(ref=measure_ir.semantic_id, basis="name_exact"))
+        elif measure_ir.python_symbol == column:
+            matches.append(RegisteredMatch(ref=measure_ir.semantic_id, basis="same_column"))
+    return tuple(matches)
+
+
+def prepare_measure(
+    project: SemanticProject,
+    *,
+    entity: str,
+    column: str,
+    scope: ScanScope = _DEFAULT_SCOPE,
+) -> MeasureBrief:
+    """Prepare a measure authoring brief for one entity column.
+
+    Profiles the column data from the datasource and provides an additivity
+    hint based on the column's data type. Checks for matches against existing
+    measures in the registry.
+
+    Args:
+        project: The loaded semantic project.
+        entity: Qualified entity reference (e.g. ``"sales.orders"``).
+        column: Column name to prepare a measure brief for.
+        scope: Bounded scan configuration.
+
+    Returns:
+        A ``MeasureBrief`` with status, profile, additivity hint, and match evidence.
+    """
+    from marivo import datasource as md
+
+    entity_ir, source = _require_entity(project, entity)
+    inspection = md.inspect_columns(
+        entity_ir.datasource,
+        source,
+        columns=(column,),
+        scope=scope,
+        project_root=project.workspace_dir,
+    )
+    profile = inspection.profiles[0] if inspection.profiles else _unknown_profile(column)
+    is_missing = profile is None or profile.data_type == "UNKNOWN"
+    issues: list[AssessmentIssue] = list(
+        _missing_column_issue(entity, column) if is_missing else ()
+    )
+    shadow_issue = _ibis_shadowing_issue(entity, column)
+    if shadow_issue is not None:
+        issues.append(shadow_issue)
+    questions: tuple[AuthoringQuestion, ...] = ()
+    return MeasureBrief(
+        status=derive_brief_status(issues=tuple(issues), questions=questions),
+        entity=entity,
+        column=column,
+        profile=profile or _unknown_profile(column),
+        additivity_hint=_additivity_hint(profile) if not is_missing else "unknown",
+        matches=_measure_matches(project, entity=entity, column=column),
+        questions=questions,
+        issues=tuple(issues),
+        scan=inspection.scan,
+    )
+
+
 def prepare_relationship(
     project: SemanticProject,
     *,
     from_entity: str,
     to_entity: str,
-    from_dimensions: Sequence[str],
-    to_dimensions: Sequence[str],
+    keys: Sequence[tuple[str, str]],
     scope: ScanScope = _DEFAULT_SCOPE,
 ) -> RelationshipBrief:
     """Prepare a relationship authoring brief with join-key probe evidence.
 
     Probes join compatibility between the from-entity and to-entity on the
-    specified dimension columns and checks for matching relationships in the
-    registry.
+    specified key pairs and checks for matching relationships in the registry.
 
     Args:
         project: The loaded semantic project.
         from_entity: Qualified entity reference (e.g. ``"sales.orders"``).
         to_entity: Qualified entity reference (e.g. ``"sales.customers"``).
-        from_dimensions: Dimension refs on the from side of the join.
-        to_dimensions: Dimension refs on the to side of the join.
+        keys: Join-key pairs as ``(from_key, to_key)`` tuples, matching
+            ``ms.join_on(left, right)``.
         scope: Bounded scan configuration.
 
     Returns:
@@ -606,14 +693,14 @@ def prepare_relationship(
 
     from_ir, from_source = _require_entity(project, from_entity)
     to_ir, to_source = _require_entity(project, to_entity)
-    _require_dimensions(project, tuple(from_dimensions) + tuple(to_dimensions))
+    from_keys = tuple(k[0] for k in keys)
+    to_keys = tuple(k[1] for k in keys)
+    _require_keys(project, from_keys + to_keys)
     probe = md.probe_join_keys(
         from_side=JoinSide(
-            from_ir.datasource, from_source, columns=_dimension_columns(project, from_dimensions)
+            from_ir.datasource, from_source, columns=_key_columns(project, from_keys)
         ),
-        to_side=JoinSide(
-            to_ir.datasource, to_source, columns=_dimension_columns(project, to_dimensions)
-        ),
+        to_side=JoinSide(to_ir.datasource, to_source, columns=_key_columns(project, to_keys)),
         scope=scope,
         project_root=project.workspace_dir,
     )
@@ -623,13 +710,10 @@ def prepare_relationship(
         status=derive_brief_status(issues=issues, questions=questions),
         from_entity=from_entity,
         to_entity=to_entity,
-        from_dimensions=tuple(from_dimensions),
-        to_dimensions=tuple(to_dimensions),
+        keys=tuple(keys),
         probe=probe,
         to_entity_versioning=None,
-        matches=_relationship_matches(
-            project, from_entity, to_entity, from_dimensions, to_dimensions
-        ),
+        matches=_relationship_matches(project, from_entity, to_entity, from_keys, to_keys),
         questions=questions,
         issues=issues,
     )
@@ -868,9 +952,20 @@ def _value_shape(
 def _detect_time_formats(profile: ScanColumnProfile) -> tuple[FormatCandidate, ...]:
     """Detect candidate time formats for string/integer columns."""
     dt = profile.data_type.lower()
+    if dt in ("date",):
+        return (FormatCandidate(variant="date", match_rate=1.0, backend_caveats=()),)
+    if dt in ("datetime",):
+        return (
+            FormatCandidate(variant="datetime", timezone=None, match_rate=1.0, backend_caveats=()),
+        )
+    if "timestamp" in dt:
+        return (
+            FormatCandidate(variant="timestamp", timezone=None, match_rate=1.0, backend_caveats=()),
+        )
     if dt not in ("string", "varchar", "text", "integer", "int", "bigint"):
         return ()
     candidates: list[FormatCandidate] = []
+    data_type_hint = "string" if dt in ("string", "varchar", "text") else "integer"
     for value in profile.sample_values:
         if not isinstance(value, str):
             continue
@@ -878,11 +973,12 @@ def _detect_time_formats(profile: ScanColumnProfile) -> tuple[FormatCandidate, .
             if re.match(pattern, value):
                 try:
                     datetime.strptime(value, fmt)
-                    # Check if we already have this format
-                    if not any(c.strptime == fmt for c in candidates):
+                    if not any(c.strptime_format == fmt for c in candidates):
                         candidates.append(
                             FormatCandidate(
-                                strptime=fmt,
+                                variant="strptime",
+                                strptime_format=fmt,
+                                data_type=data_type_hint,
                                 match_rate=1.0,
                                 backend_caveats=(),
                             )
@@ -970,6 +1066,54 @@ def _dimension_columns(project: SemanticProject, dimensions: Sequence[str]) -> t
         else:
             # Fallback: use the last segment of the semantic_id
             columns.append(dim_ref.rsplit(".", 1)[-1])
+    return tuple(columns)
+
+
+def _require_keys(project: SemanticProject, key_refs: tuple[str, ...]) -> None:
+    """Validate that all key refs exist in the registry as dimensions or measures."""
+    reg = project._registry
+    if reg is None:
+        from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError
+
+        raise SemanticLoadFailed(
+            [
+                SemanticRuntimeError(
+                    kind=ErrorKind.PROJECT_NOT_LOADED,
+                    message="Project is not loaded. Call project.load() first.",
+                )
+            ]
+        )
+    missing = tuple(
+        ref for ref in key_refs if ref not in reg.dimensions and ref not in reg.measures
+    )
+    if missing:
+        from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+
+        raise SemanticRuntimeError(
+            kind=ErrorKind.INVALID_REF,
+            message=f"Key ref(s) not found: {', '.join(missing)}.",
+        )
+
+
+def _key_columns(project: SemanticProject, key_refs: Sequence[str]) -> tuple[str, ...]:
+    """Resolve key refs to their physical column names.
+
+    Checks both dimensions and measures registries.
+    """
+    reg = project._registry
+    if reg is None:
+        return ()
+    columns: list[str] = []
+    for key_ref in key_refs:
+        field_ir = reg.dimensions.get(key_ref)
+        if field_ir is not None:
+            columns.append(field_ir.name)
+            continue
+        measure_ir = reg.measures.get(key_ref)
+        if measure_ir is not None:
+            columns.append(measure_ir.name)
+            continue
+        columns.append(key_ref.rsplit(".", 1)[-1])
     return tuple(columns)
 
 
