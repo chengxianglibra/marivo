@@ -1019,6 +1019,30 @@ def _prefix_date_expr(table: ibis.Table, prefix_field_ir: Any) -> Any:
     )
 
 
+def combine_prefix_hour_to_timestamp(
+    table: ibis.Table,
+    *,
+    hour_field_ir: Any,
+    dataset_ir: Any,
+) -> Any:
+    """Combine a day-level prefix field and an hour-only column into a timestamp.
+
+    Returns an ibis timestamp expression representing the start of each hour
+    sample point.
+    """
+    prefix_field_ir = _resolve_required_prefix_time_field(dataset_ir, hour_field_ir)
+    if prefix_field_ir is None or prefix_field_ir.time_meta is None:
+        raise WindowInvalidError(
+            message=f"hour_prefix time field '{hour_field_ir.name}' requires a "
+            f"day-level prefix for timestamp construction",
+        )
+    prefix_date = _prefix_date_expr(table, prefix_field_ir)
+    raw = hour_field_ir.fn(table)
+    time_meta = hour_field_ir.time_meta
+    hour_int = raw.cast("int") if time_meta.data_type == "string" else raw
+    return prefix_date.cast("timestamp") + (hour_int * 3600).as_interval("s")
+
+
 def _apply_hour_only_bucket(
     table: ibis.Table,
     *,

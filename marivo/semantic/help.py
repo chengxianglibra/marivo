@@ -575,7 +575,7 @@ def _hour_prefix_topic() -> Descriptor:
         summary="hour-prefix parse variant for partitioned hourly time dimensions",
         content={
             "form": "ms.hour_prefix(prefix='dt', data_type='string')",
-            "usage": "For hour-granularity partitioned columns. Requires hour granularity on the time dimension.",
+            "usage": "For hour-granularity partitioned columns. Requires hour granularity on the time dimension. Optional sample_interval=(count, unit) enables sampled-fold axis.",
             "related_help": [
                 "ms.help('time_dimension')",
             ],
@@ -586,7 +586,8 @@ def _hour_prefix_topic() -> Descriptor:
             "hour-prefix parse variant for partitioned hourly time dimensions\n"
             "\n"
             "Form:\n"
-            "  ms.hour_prefix(prefix='dt', data_type='string')"
+            "  ms.hour_prefix(prefix='dt', data_type='string')\n"
+            "  ms.hour_prefix(prefix='dt', data_type='string', sample_interval=(1, 'hour'))"
         ),
         see_also=("ms.help('time_dimension')",),
     )

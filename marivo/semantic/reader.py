@@ -127,21 +127,26 @@ def _time_dimension_identity_fingerprint(field_ir: DimensionIR) -> str:
     format_val: str | None = None
     timezone_val: str | None = None
     required_prefix_val: str | None = None
+    sample_interval_val: str | None = None
     if isinstance(parse, DateParse):
         data_type_val = "date"
     elif isinstance(parse, DatetimeParse):
         data_type_val = "datetime"
         timezone_val = parse.timezone
+        sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
     elif isinstance(parse, TimestampParse):
         data_type_val = "timestamp"
         timezone_val = parse.timezone
+        sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
     elif isinstance(parse, StrptimeParse):
         data_type_val = parse.data_type
         format_val = parse.format
         timezone_val = parse.timezone
+        sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
     elif isinstance(parse, HourPrefixParse):
         data_type_val = parse.data_type
         required_prefix_val = parse.prefix
+        sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
     return _semantic_fingerprint(
         {
             "data_type": data_type_val,
@@ -149,6 +154,7 @@ def _time_dimension_identity_fingerprint(field_ir: DimensionIR) -> str:
             "format": format_val,
             "timezone": timezone_val,
             "required_prefix": required_prefix_val,
+            "sample_interval": sample_interval_val,
             "is_default": field_ir.is_default,
         }
     )

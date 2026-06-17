@@ -1231,6 +1231,7 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
         elif isinstance(parse, HourPrefixParse):
             parse_kind = "hour_prefix"
             data_type = parse.data_type
+            sample_interval = parse.sample_interval
         else:
             raise AssertionError(f"unsupported time parse variant: {type(parse).__name__}")
         details: SemanticObjectDetails = TimeDimensionDetails(

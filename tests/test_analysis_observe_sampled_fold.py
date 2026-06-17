@@ -427,3 +427,171 @@ def test_decompose_allows_mean_fold_delta(sampled_bandwidth_project) -> None:
         delta, axis=SemanticRef("province", kind=SemanticKind.DIMENSION)
     )
     assert result.meta.attribution_kind == "decomposition"
+
+
+# ---------------------------------------------------------------------------
+# hour_prefix sampled fold tests
+# ---------------------------------------------------------------------------
+
+
+def _seed_hour_prefix(con):
+    """Seed hourly_bandwidth with one row per hour per day per province.
+
+    Each row carries a constant upstream_bw value:
+    - beijing: 300 per hour (1 sample point per hour, no intra-hour variation)
+    - shanghai: 90 per hour
+    """
+    con.raw_sql(
+        "CREATE TABLE hourly_bandwidth ("
+        "obs_id INTEGER, dt VARCHAR, hh VARCHAR, upstream_bw DOUBLE, bw_var DOUBLE, province VARCHAR)"
+    )
+    rows = []
+    oid = 1
+    for day in ("2026-01-01", "2026-01-02"):
+        dt_val = day.replace("-", "")
+        for hour in range(24):
+            hh_val = f"{hour:02d}"
+            # bw_var carries hour-varying values so min/max/first/last produce
+            # distinguishable results. Only beijing gets non-zero values;
+            # per-hour spatial sum = (hour+1)*10 → min=10, max=240, first=10, last=240.
+            rows.append(f"({oid}, '{dt_val}', '{hh_val}', 300.0, {(hour + 1) * 10.0}, 'beijing')")
+            oid += 1
+            rows.append(f"({oid}, '{dt_val}', '{hh_val}', 90.0, 0.0, 'shanghai')")
+            oid += 1
+    con.raw_sql("INSERT INTO hourly_bandwidth VALUES " + ",".join(rows))
+
+
+def _bootstrap_hour_prefix(tmp_path):
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = semantic_dir.parent.parent / "datasources"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.semantic as ms\n"
+        "\n"
+        "hourly_bandwidth = ms.entity(\n"
+        "    name='hourly_bandwidth',\n"
+        "    datasource='warehouse',\n"
+        "    primary_key=['obs_id'],\n"
+        "    source=ms.table('hourly_bandwidth'),\n"
+        ")\n"
+        "\n"
+        "@ms.time_dimension(entity=hourly_bandwidth, granularity='day', parse=ms.strptime('%Y%m%d', data_type='string'))\n"
+        "def dt(hourly_bandwidth):\n"
+        "    return hourly_bandwidth.dt\n"
+        "\n"
+        "@ms.time_dimension(\n"
+        "    entity=hourly_bandwidth,\n"
+        "    granularity='hour',\n"
+        "    parse=ms.hour_prefix('sales.hourly_bandwidth.dt', data_type='string', sample_interval=(1, 'hour')),\n"
+        ")\n"
+        "def hh(hourly_bandwidth):\n"
+        "    return hourly_bandwidth.hh\n"
+        "\n"
+        "@ms.dimension(entity=hourly_bandwidth)\n"
+        "def province(hourly_bandwidth):\n"
+        "    return hourly_bandwidth.province\n"
+        "\n"
+        "@ms.metric(\n"
+        "    entities=[hourly_bandwidth],\n"
+        "    additivity=ms.semi_additive(over=hh, fold='mean'),\n"
+        ")\n"
+        "def upstream_bw(hourly_bandwidth):\n"
+        "    return hourly_bandwidth.upstream_bw.sum()\n"
+        "\n"
+        "@ms.metric(\n"
+        "    name='bw_min',\n"
+        "    entities=[hourly_bandwidth],\n"
+        "    additivity=ms.semi_additive(over=hh, fold='min'),\n"
+        ")\n"
+        "def bw_min(hourly_bandwidth):\n"
+        "    return hourly_bandwidth.bw_var.sum()\n"
+        "\n"
+        "@ms.metric(\n"
+        "    name='bw_max',\n"
+        "    entities=[hourly_bandwidth],\n"
+        "    additivity=ms.semi_additive(over=hh, fold='max'),\n"
+        ")\n"
+        "def bw_max(hourly_bandwidth):\n"
+        "    return hourly_bandwidth.bw_var.sum()\n"
+        "\n"
+        "@ms.metric(\n"
+        "    name='bw_first',\n"
+        "    entities=[hourly_bandwidth],\n"
+        "    additivity=ms.semi_additive(over=hh, fold='first'),\n"
+        ")\n"
+        "def bw_first(hourly_bandwidth):\n"
+        "    return hourly_bandwidth.bw_var.sum()\n"
+        "\n"
+        "@ms.metric(\n"
+        "    name='bw_last',\n"
+        "    entities=[hourly_bandwidth],\n"
+        "    additivity=ms.semi_additive(over=hh, fold='last'),\n"
+        ")\n"
+        "def bw_last(hourly_bandwidth):\n"
+        "    return hourly_bandwidth.bw_var.sum()\n"
+    )
+
+
+@pytest.fixture()
+def hour_prefix_bandwidth_project(tmp_path):
+    _bootstrap_hour_prefix(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_hour_prefix(con)
+    s = session_attach.get_or_create(name="demo_hp", backends={"warehouse": lambda: con})
+    return s
+
+
+def test_hour_prefix_sampled_fold_aggregates_space_then_time(hour_prefix_bandwidth_project) -> None:
+    session = hour_prefix_bandwidth_project
+
+    frame = session.observe(
+        SemanticRef("sales.upstream_bw", kind=SemanticKind.METRIC),
+        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        grain="day",
+        dimensions=[SemanticRef("sales.hourly_bandwidth.province", kind=SemanticKind.DIMENSION)],
+    )
+
+    df = frame.to_pandas().sort_values(["bucket_start", "province"]).reset_index(drop=True)
+    # 24 hourly samples per day, each at 300 (beijing) or 90 (shanghai); mean = same
+    assert df[["province", "upstream_bw"]].to_dict("records") == [
+        {"province": "beijing", "upstream_bw": 300.0},
+        {"province": "shanghai", "upstream_bw": 90.0},
+    ]
+    assert frame.meta.fold["time_fold"] == "mean"
+    assert frame.meta.fold["status_time_dimension"] == "sales.hourly_bandwidth.hh"
+
+
+@pytest.mark.parametrize(
+    ("metric_ref", "expected"),
+    [
+        ("sales.bw_min", 10.0),
+        ("sales.bw_max", 240.0),
+        ("sales.bw_first", 10.0),
+        ("sales.bw_last", 240.0),
+    ],
+)
+def test_hour_prefix_non_mean_folds_with_varying_values(
+    metric_ref: str, expected: float, hour_prefix_bandwidth_project
+) -> None:
+    session = hour_prefix_bandwidth_project
+
+    frame = session.observe(
+        SemanticRef(metric_ref, kind=SemanticKind.METRIC),
+        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        grain="day",
+    )
+
+    df = frame.to_pandas()
+    col_name = metric_ref.rsplit(".", 1)[1]
+    # Without dimension slicing the spatial sum (beijing + shanghai) is folded;
+    # shanghai contributes 0 so the fold result equals the beijing-only value.
+    assert df[col_name].iloc[0] == expected
