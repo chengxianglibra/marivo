@@ -70,11 +70,11 @@ _ListOfSemanticObject = list["SemanticObject"]
 
 __all__ = [
     "AiContextView",
-    "DatasetVersioning",
     "DatasourceDetails",
     "DimensionDetails",
     "DomainDetails",
     "EntityDetails",
+    "EntityVersioning",
     "MeasureDetails",
     "MetricDetails",
     "RelationshipDetails",
@@ -99,7 +99,7 @@ SemanticKind = SymbolKind
 AiContextView = AiContextIR
 SnapshotVersioning = SnapshotVersioningIR
 ValidityVersioning = ValidityVersioningIR
-DatasetVersioning = EntityVersioningIR
+EntityVersioning = EntityVersioningIR
 
 
 @dataclass(frozen=True)
@@ -194,7 +194,7 @@ def _source_text(source: DatasetSource) -> str:
     return repr(source)
 
 
-def _versioning_text(versioning: DatasetVersioning | None) -> str:
+def _versioning_text(versioning: EntityVersioning | None) -> str:
     if versioning is None:
         return "(none)"
     return repr(versioning)
@@ -414,7 +414,7 @@ class EntityDetails:
     datasource: SemanticRef
     source: DatasetSource
     primary_key: tuple[str, ...]
-    versioning: DatasetVersioning | None
+    versioning: EntityVersioning | None
 
     def _repr_identity(self) -> str:
         return f"EntityDetails ref={self.ref.ref}"
@@ -761,8 +761,8 @@ class RelationshipDetails:
     python_symbol: str
     from_entity: SemanticRef
     to_entity: SemanticRef
-    from_dimensions: tuple[str, ...]
-    to_dimensions: tuple[str, ...]
+    from_keys: tuple[str, ...]
+    to_keys: tuple[str, ...]
 
     def __post_init__(self) -> None:
         # Compatibility: these are no longer stored directly on RelationshipIR,
@@ -797,7 +797,7 @@ class RelationshipDetails:
                 "join_keys: "
                 + ", ".join(
                     f"{left}={right}"
-                    for left, right in zip(self.from_dimensions, self.to_dimensions, strict=True)
+                    for left, right in zip(self.from_keys, self.to_keys, strict=True)
                 ),
             )
         )
@@ -1421,8 +1421,8 @@ def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticO
         **_common_ai_fields(r_ir.ai_context, python_symbol=""),
         from_entity=from_ref,
         to_entity=to_ref,
-        from_dimensions=tuple(k.from_key for k in r_ir.keys),
-        to_dimensions=tuple(k.to_key for k in r_ir.keys),
+        from_keys=tuple(k.from_key for k in r_ir.keys),
+        to_keys=tuple(k.to_key for k in r_ir.keys),
     )
     return SemanticObject(
         ref=ref,
@@ -1483,29 +1483,29 @@ class SemanticCatalog:
     def load(
         self,
         *,
-        models: str | Sequence[str] | None = None,
+        domains: str | Sequence[str] | None = None,
     ) -> None:
         """Reload the semantic project from disk and refresh the catalog registry.
 
         Args:
-            models: When specified, only those model directories are loaded.
-                Pass a single model name as a string or a list of names.
+            domains: When specified, only those domain directories are loaded.
+                Pass a single domain name as a string or a list of names.
                 When omitted, the previously active filter (if any) is reused.
 
         Example:
-            >>> catalog.load(models="sales")
-            >>> catalog.load(models=["sales", "inventory"])
+            >>> catalog.load(domains="sales")
+            >>> catalog.load(domains=["sales", "inventory"])
         """
-        if isinstance(models, str):
-            models = [models]
+        if isinstance(domains, str):
+            domains = [domains]
         resolved = (
-            models
-            if models is not None
+            domains
+            if domains is not None
             else (
                 list(self._project._filtered_domains) if self._project._filtered_domains else None
             )
         )
-        result = self._project.load(models=resolved)
+        result = self._project.load(domains=resolved)
         self._reg = self._project._registry
         if result.status != "ready":
             raise SemanticLoadFailed(result.errors)
@@ -2079,16 +2079,16 @@ class SemanticCatalog:
 def load(
     *,
     workspace_dir: str | Path | None = None,
-    models: str | Sequence[str] | None = None,
+    domains: str | Sequence[str] | None = None,
 ) -> SemanticCatalog:
     """Load a semantic project and return a browseable SemanticCatalog.
 
     Args:
         workspace_dir: Path to the project root containing ``marivo.toml``.
             Defaults to the current working directory when omitted.
-        models: When specified, only those model directories are loaded.
-            Pass a single model name as a string or a list of names.
-            Cross-model references to filtered-out models produce warnings
+        domains: When specified, only those domain directories are loaded.
+            Pass a single domain name as a string or a list of names.
+            Cross-domain references to filtered-out domains produce warnings
             instead of errors, so the registry remains usable.
 
     Returns:
@@ -2098,7 +2098,7 @@ def load(
         >>> import marivo.semantic as ms
         >>> catalog = ms.load()
         >>> catalog.list().show()
-        >>> catalog = ms.load(models=["sales"])
+        >>> catalog = ms.load(domains=["sales"])
         >>> catalog.list().show()
 
     Constraints:
@@ -2114,7 +2114,7 @@ def load(
         workspace_dir = env if env else Path.cwd()
 
     project = SemanticProject(workspace_dir=workspace_dir)
-    result = project.load(models=models)
+    result = project.load(domains=domains)
     if result.status != "ready":
         from marivo.semantic.errors import SemanticLoadFailed
 

@@ -579,9 +579,9 @@ def test_load_result_has_warnings_field(semantic_project_factory) -> None:
     assert isinstance(result.warnings, tuple)
 
 
-def test_sql_parity_metric_missing_source_dialect_errors(semantic_project_factory) -> None:
+def test_provenance_from_sql_requires_dialect(semantic_project_factory) -> None:
     """ms.from_sql() requires both sql and dialect, so it is impossible to
-    create a provenance with source_sql but no source_dialect at the
+    create a provenance with SQL but no dialect at the
     authoring level. This test verifies that ms.from_sql() enforces both."""
     import marivo.semantic as ms
 
@@ -590,11 +590,11 @@ def test_sql_parity_metric_missing_source_dialect_errors(semantic_project_factor
         ms.from_sql(sql="SELECT 1")  # type: ignore[call-arg]
 
 
-def test_derived_metric_with_source_sql_errors(semantic_project_factory) -> None:
+def test_derived_metric_with_provenance_errors(semantic_project_factory) -> None:
     # Derived metric constructors (ms.ratio, ms.weighted_average, ms.linear)
-    # do not accept source_sql/source_dialect at all — the constraint is
+    # do not accept provenance at all — the constraint is
     # enforced by construction, not by a load-time error.
-    with pytest.raises(TypeError, match="source_sql"):
+    with pytest.raises(TypeError, match="provenance"):
         from tests.shared_fixtures import authoring_session
 
         with authoring_session(domain="sales") as s:
@@ -604,7 +604,7 @@ def test_derived_metric_with_source_sql_errors(semantic_project_factory) -> None
                 name="ratio",
                 numerator="sales.revenue",
                 denominator="sales.revenue",
-                source_sql="SELECT 1",  # type: ignore[call-arg]
+                provenance=ms.from_sql(sql="SELECT 1", dialect="duckdb"),
             )
 
 
@@ -1173,7 +1173,7 @@ def test_load_models_parameter_loads_only_specified(semantic_project_factory) ->
         },
         load=False,
     )
-    result = project.load(models=["sales"])
+    result = project.load(domains=["sales"])
     assert project.is_ready()
     assert project._registry is not None
     assert "sales" in project._registry.domains
@@ -1203,7 +1203,7 @@ def test_load_models_with_nonexistent_name(semantic_project_factory) -> None:
         },
         load=False,
     )
-    result = project.load(models=["sales", "nonexistent"])
+    result = project.load(domains=["sales", "nonexistent"])
     assert project.is_ready()
     assert "sales" in project._registry.domains
     filtered_warnings = [w for w in result.warnings if w.kind == "filtered_domain_ref"]
@@ -1222,7 +1222,7 @@ def test_load_models_skips_bad_model(semantic_project_factory) -> None:
         },
         load=False,
     )
-    result = project.load(models=["sales"])
+    result = project.load(domains=["sales"])
     assert project.is_ready()
     assert project._registry is not None
     assert "sales" in project._registry.domains
@@ -1238,7 +1238,7 @@ def test_load_models_intra_model_error_still_blocks(semantic_project_factory) ->
         },
         load=False,
     )
-    result = project.load(models=["sales"])
+    result = project.load(domains=["sales"])
     assert not project.is_ready()
     assert project._registry is None
 
@@ -1269,7 +1269,7 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
         },
         load=False,
     )
-    result = project.load(models=["sales"])
+    result = project.load(domains=["sales"])
     assert project.is_ready()
     assert project._registry is not None
     filtered_warnings = [w for w in result.warnings if w.kind == "filtered_domain_ref"]
@@ -1284,7 +1284,7 @@ def test_load_without_models_loads_all(semantic_project_factory) -> None:
         },
         load=False,
     )
-    project.load(models=["sales"])
+    project.load(domains=["sales"])
     assert "sales" in project._registry.domains
     assert "finance" not in project._registry.domains
     project.load()
@@ -1300,8 +1300,8 @@ def test_load_can_change_filter(semantic_project_factory) -> None:
         },
         load=False,
     )
-    project.load(models=["sales"])
+    project.load(domains=["sales"])
     assert "finance" not in project._registry.domains
-    project.load(models=["sales", "finance"])
+    project.load(domains=["sales", "finance"])
     assert "sales" in project._registry.domains
     assert "finance" in project._registry.domains

@@ -75,92 +75,6 @@ class Registry:
 Sidecar = dict[str, Callable[..., Any]]
 
 
-_SUBDAY_GRANULARITIES: frozenset[str] = frozenset({"hour", "minute", "second"})
-_TIME_BEARING_FORMAT_HINTS: tuple[str, ...] = (
-    "%H",
-    "%I",
-    "%k",
-    "%l",
-    "%M",
-    "%S",
-    "%T",
-    "%p",
-)
-
-
-def _subday_granularity_needs_time(field_ir: DimensionIR) -> bool:
-    """True when a sub-day granularity is declared on a field that cannot carry time."""
-    if not field_ir.is_time_dimension or field_ir.granularity not in _SUBDAY_GRANULARITIES:
-        return False
-    parse = field_ir.parse
-    if isinstance(parse, (DatetimeParse, TimestampParse)):
-        return False
-    if isinstance(parse, (StrptimeParse, HourPrefixParse)):
-        # Hour-only fields with a required_prefix carry time via the prefix.
-        if field_ir.granularity == "hour" and isinstance(parse, HourPrefixParse):
-            return False
-        if isinstance(parse, StrptimeParse):
-            fmt = parse.format or ""
-            return not any(hint in fmt for hint in _TIME_BEARING_FORMAT_HINTS)
-        return True
-    # DateParse or unset -> cannot carry sub-day time
-    return True
-
-
-def _requires_required_prefix(field_ir: DimensionIR) -> bool:
-    """Return True for hour-only string/integer time dimensions missing a prefix.
-
-    Hour-only dimensions are those with granularity "hour" and string/integer
-    data_type that carry no date component in their own value (either no
-    format or an hour-only format like %H). Such dimensions require a separate
-    day-level required_prefix to supply date context.
-    """
-    if not field_ir.is_time_dimension or field_ir.granularity != "hour":
-        return False
-    parse = field_ir.parse
-    if isinstance(parse, HourPrefixParse):
-        return False  # already has prefix
-    if isinstance(parse, StrptimeParse):
-        if parse.data_type not in {"string", "integer"}:
-            return False
-        fmt = parse.format
-        if fmt is None or not fmt.startswith("%"):
-            return True
-        # Inspect strptime directives: hour-only if there are hour directives
-        # but no date directives.
-        import re
-
-        tokens = set(re.findall(r"%[a-zA-Z]", fmt))
-        date_directives = {"%Y", "%y", "%m", "%d", "%j", "%U", "%W"}
-        hour_directives = {"%H", "%I", "%k", "%l", "%p", "%P"}
-        has_date = bool(tokens & date_directives)
-        has_hour = bool(tokens & hour_directives)
-        return has_hour and not has_date
-    # DatetimeParse, TimestampParse, DateParse never need a required_prefix
-    return False
-
-
-def _resolve_required_prefix_field(
-    registry: Registry,
-    *,
-    field_ir: DimensionIR,
-) -> DimensionIR | None:
-    parse = field_ir.parse
-    if isinstance(parse, HourPrefixParse):
-        prefix_name = parse.prefix
-    else:
-        return None
-    direct = registry.dimensions.get(prefix_name)
-    if direct is not None:
-        return direct
-    matches = [
-        candidate
-        for candidate in registry.dimensions.values()
-        if candidate.entity == field_ir.entity and candidate.name == prefix_name
-    ]
-    return matches[0] if len(matches) == 1 else None
-
-
 _PARTITION_TIME_COLUMN_NAMES = {
     "dt",
     "date",
@@ -1192,72 +1106,38 @@ def assembly_validate(
                         )
                     )
 
-    # -- Validate hour-only time_dimension required_prefix -------------------
-    # -- Validate sub-day granularity requires time-bearing data_type --------
+    # -- Validate HourPrefixParse prefix cross-reference ---------------------
     for f_id, f_ir in registry.dimensions.items():
-        if _requires_required_prefix(f_ir):
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.HOUR_TIME_DIMENSION_PREFIX_MISSING,
-                    message=f"Hour-only time dimension {f_id!r} requires a "
-                    f"required_prefix pointing to a day-level time dimension.",
-                    refs=(f_id,),
-                )
-            )
-        if _subday_granularity_needs_time(f_ir):
-            parse = f_ir.parse
-            data_type_str: str | None = None
-            if isinstance(parse, DateParse):
-                data_type_str = "date"
-            elif isinstance(parse, DatetimeParse):
-                data_type_str = "datetime"
-            elif isinstance(parse, TimestampParse):
-                data_type_str = "timestamp"
-            elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
-                data_type_str = parse.data_type
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.SUBDAY_GRANULARITY_WITHOUT_TIME,
-                    message=(
-                        f"time dimension {f_id!r} declares sub-day granularity "
-                        f"{f_ir.granularity!r} but its data_type {data_type_str!r} cannot carry time"
-                    ),
-                    refs=(f_id,),
-                    constraint_id=ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME,
-                    details={
-                        "kind": "SubdayGranularityWithoutTime",
-                        "field": f_id,
-                        "granularity": f_ir.granularity,
-                        "data_type": data_type_str,
-                    },
-                )
-            )
-        required_prefix_name: str | None = None
         if f_ir.is_time_dimension and isinstance(f_ir.parse, HourPrefixParse):
-            required_prefix_name = f_ir.parse.prefix
-        if required_prefix_name is not None and (
-            (prefix_field := _resolve_required_prefix_field(registry, field_ir=f_ir)) is None
-            or not prefix_field.is_time_dimension
-        ):
-            if _is_filtered_domain_ref(required_prefix_name, loaded_models):
-                warnings.append(
-                    _filtered_domain_ref_warning(f_id, required_prefix_name, "Time dimension")
-                )
-            else:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.MISSING_DIMENSION_REF,
-                        message=f"Time dimension {f_id!r} required_prefix "
-                        f"{required_prefix_name!r} is not a registered time dimension.",
-                        refs=(f_id, required_prefix_name),
-                        details={
-                            "missing_ref": required_prefix_name,
-                            "did_you_mean": did_you_mean(
-                                required_prefix_name, sorted(registry.dimensions.keys())
-                            ),
-                        },
+            prefix_name = f_ir.parse.prefix
+            prefix_field = registry.dimensions.get(prefix_name)
+            if prefix_field is None:
+                candidates = [
+                    d
+                    for d in registry.dimensions.values()
+                    if d.entity == f_ir.entity and d.name == prefix_name
+                ]
+                prefix_field = candidates[0] if len(candidates) == 1 else None
+            if prefix_field is None or not prefix_field.is_time_dimension:
+                if _is_filtered_domain_ref(prefix_name, loaded_models):
+                    warnings.append(
+                        _filtered_domain_ref_warning(f_id, prefix_name, "Time dimension")
                     )
-                )
+                else:
+                    errors.append(
+                        SemanticLoadError(
+                            kind=ErrorKind.MISSING_DIMENSION_REF,
+                            message=f"Time dimension {f_id!r} prefix "
+                            f"{prefix_name!r} is not a registered time dimension.",
+                            refs=(f_id, prefix_name),
+                            details={
+                                "missing_ref": prefix_name,
+                                "did_you_mean": did_you_mean(
+                                    prefix_name, sorted(registry.dimensions.keys())
+                                ),
+                            },
+                        )
+                    )
 
     # -- Validate at most one default time_dimension per entity --------------
     _validate_default_time_dimension_unique(errors, registry)
@@ -1291,14 +1171,14 @@ def assembly_validate(
         if prov is not None and not prov.dialect:
             errors.append(
                 SemanticLoadError(
-                    kind=ErrorKind.SOURCE_SQL_MISSING,
+                    kind=ErrorKind.PROVENANCE_DIALECT_MISSING,
                     message=(
-                        f"Metric {m_id!r} declares source_sql but not source_dialect. "
+                        f"Metric {m_id!r} declares provenance SQL but not a dialect. "
                         "Both are required for SQL parity verification."
                     ),
                     refs=(m_id,),
                     location=m_ir.location,
-                    constraint_id=ConstraintId.SOURCE_SQL_REQUIRED,
+                    constraint_id=ConstraintId.PROVENANCE_DIALECT_REQUIRED,
                 )
             )
 

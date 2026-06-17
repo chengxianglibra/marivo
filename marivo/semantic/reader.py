@@ -296,16 +296,16 @@ class SemanticProject:
 
     # -- lifecycle -----------------------------------------------------------
 
-    def load(self, models: str | Sequence[str] | None = None) -> LoadResult:
+    def load(self, domains: str | Sequence[str] | None = None) -> LoadResult:
         """Load the project from disk.
 
-        When *models* is specified, only those model directories are loaded.
-        Pass a single model name as a string or a list of names.
-        Cross-model references to filtered-out models produce warnings instead
+        When *domains* is specified, only those domain directories are loaded.
+        Pass a single domain name as a string or a list of names.
+        Cross-domain references to filtered-out domains produce warnings instead
         of errors, so the registry remains usable.
         """
-        if isinstance(models, str):
-            models = [models]
+        if isinstance(domains, str):
+            domains = [domains]
         if self._status != "unloaded":
             self._status = "unloaded"
             self._errors = ()
@@ -322,8 +322,8 @@ class SemanticProject:
                 cls=SemanticLoadError,
                 refs=(str(self._semantic_root),),
             )
-        if models is not None and len(models) > 0:
-            self._filtered_domains = tuple(models)
+        if domains is not None and len(domains) > 0:
+            self._filtered_domains = tuple(domains)
         else:
             self._filtered_domains = ()
         result = load_project(
@@ -743,7 +743,7 @@ class SemanticProject:
         if scope is None:
             scope = self._DEFAULT_SCOPE
 
-        self.load(models=list(self._filtered_domains) if self._filtered_domains else None)
+        self.load(domains=list(self._filtered_domains) if self._filtered_domains else None)
 
         # If the project failed to load, report the load failure directly
         # instead of falling through to the misleading "not found" path.

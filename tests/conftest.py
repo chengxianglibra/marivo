@@ -67,7 +67,7 @@ def semantic_project_factory(tmp_path):
 
         project = SemanticProject(workspace_dir=effective_dir)
         if load:
-            project.load(models=models)
+            project.load(domains=models)
         return project
 
     return _make

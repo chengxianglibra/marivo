@@ -262,7 +262,7 @@ def test_semantic_docs_and_skills_cover_parity_verification() -> None:
     ]
     combined = "\n".join(_read(path) for path in paths)
 
-    assert "source_sql" in combined
+    assert "provenance_sql" in combined
     assert "declared_status" not in combined
 
 

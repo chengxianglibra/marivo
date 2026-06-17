@@ -576,17 +576,17 @@ def _build_registry(
 
 
 def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResult:
-    """Load models from the semantic project root.
+    """Load domains from the semantic project root.
 
     Two-pass pipeline:
-    1. Discover model directories and execute their files.
+    1. Discover domain directories and execute their files.
     2. Build registry, validate, and assemble the loaded objects.
 
-    When *models* is specified, only those model directories are loaded.
-    Cross-model references to filtered-out models produce warnings instead
+    When *models* is specified, only those domain directories are loaded.
+    Cross-domain references to filtered-out domains produce warnings instead
     of errors, so the registry remains usable.
 
-    Note: Each model directory is expected to contain a ``_domain.py`` file
+    Note: Each domain directory is expected to contain a ``_domain.py`` file
     that calls ``ms.domain(name=...)``.
 
     Returns a LoadResult with status, errors, warnings, registry, and sidecar.

@@ -559,9 +559,9 @@ def test_relationship_brief_uses_keys_not_dimensions():
 
     field_names = {f.name for f in dataclasses.fields(RelationshipBrief)}
     assert "keys" in field_names, "RelationshipBrief must have a 'keys' field"
-    assert "from_dimensions" not in field_names, (
-        "RelationshipBrief must not have 'from_dimensions' — replaced by 'keys'"
+    assert "from_keys" not in field_names, (
+        "RelationshipBrief must not have 'from_keys' — replaced by 'keys'"
     )
-    assert "to_dimensions" not in field_names, (
-        "RelationshipBrief must not have 'to_dimensions' — replaced by 'keys'"
+    assert "to_keys" not in field_names, (
+        "RelationshipBrief must not have 'to_keys' — replaced by 'keys'"
     )

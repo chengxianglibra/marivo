@@ -85,6 +85,7 @@ def test_all_list_matches_expected() -> None:
         "DimensionDetails",
         "DimensionRef",
         "DimensionValueFact",
+        "EntityVersioning",
         "DomainBrief",
         "DomainBriefSummary",
         "DomainDetails",
@@ -191,7 +192,6 @@ def test_all_list_matches_expected() -> None:
         "RichnessGap",
         "DimensionSummary",
         "RelationshipSummary",
-        "simple_metric",
         "file",
         "FileSourceIR",
     ):
@@ -355,7 +355,7 @@ def test_help_json_top_level_returns_compact_directory() -> None:
     assert "typing" in entry_names
 
 
-def test_help_json_simple_metric_includes_body_rule_and_related_help() -> None:
+def test_help_json_metric_includes_body_rule_and_related_help() -> None:
     result = _ms_json_data("metric")
 
     assert isinstance(result, dict)
@@ -506,8 +506,7 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "missing_metric_ref",
     "cross_model_cycle",
     "cross_datasource_not_supported",
-    "hour_time_dimension_prefix_missing",
-    "subday_granularity_without_time",
+    "provenance_dialect_missing",
     "duplicate_default_time_dimension",
     "invalid_relationship_endpoint",
     "organization_error",
@@ -529,7 +528,6 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "unsupported_list_parent",
     "ladder_order",
     "unverified_provenance",
-    "source_sql_missing",
     "invalid_measure_aggregation",
     "incommensurable_linear_units",
     "missing_measure_additivity",
@@ -556,7 +554,7 @@ _EXPECTED_RUNTIME_KINDS = {
 }
 
 _EXPECTED_PARITY_KINDS = {
-    "source_sql_missing",
+    "provenance_dialect_missing",
     "unverified_provenance",
     "parity_value_mismatch",
     "parity_not_scalar",
@@ -956,7 +954,7 @@ def test_help_additivity_documents_semi_additive_semantics(capsys) -> None:
     assert "fold" in out
 
 
-def test_help_simple_metric_mentions_fold_is_definition_choice(capsys) -> None:
+def test_help_metric_mentions_fold_is_definition_choice(capsys) -> None:
     ms.help("metric")
     out = capsys.readouterr().out
     assert "body" in out

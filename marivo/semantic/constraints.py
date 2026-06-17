@@ -46,8 +46,6 @@ class ConstraintId(StrEnum):
     DIMENSION_REF_EXISTS = "dimension_ref_exists"
     METRIC_REF_EXISTS = "metric_ref_exists"
     METRIC_GRAPH_ACYCLIC = "metric_graph_acyclic"
-    HOUR_TIME_DIMENSION_PREFIX = "hour_time_dimension_prefix"
-    SUBDAY_GRANULARITY_WITHOUT_TIME = "subday_granularity_without_time"
     TIME_DIMENSION_PARTITION_PUSHDOWN = "time_dimension_partition_pushdown"
     TIME_DIMENSION_DTYPE_COMPAT = "time_dimension_dtype_compat"
     TIME_DIMENSION_DEFAULT_UNIQUE = "time_dimension_default_unique"
@@ -73,7 +71,7 @@ class ConstraintId(StrEnum):
     BACKEND_DIALECT_MATCH = "backend_dialect_match"
     COMPILE_EXPRESSION = "compile_expression"
     SINGLE_DATASOURCE_METRIC = "single_datasource_metric"
-    SOURCE_SQL_REQUIRED = "source_sql_required"
+    PROVENANCE_DIALECT_REQUIRED = "provenance_dialect_required"
     PROVENANCE_VERIFIED = "provenance_verified"
     PARITY_VALUE_MATCH = "parity_value_match"
     PARITY_SCALAR_RESULT = "parity_scalar_result"
@@ -358,26 +356,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Cycles cannot be compiled into a finite metric expression.",
         "Remove the circular component reference chain.",
     ),
-    ConstraintId.HOUR_TIME_DIMENSION_PREFIX: _constraint(
-        ConstraintId.HOUR_TIME_DIMENSION_PREFIX,
-        "hour_time_dimension_prefix_missing",
-        "assembly",
-        ("time_dimension",),
-        "Hour-only string/integer time dimensions need a day-level required_prefix.",
-        "A standalone hour value is not a complete time axis.",
-        "Set required_prefix to a registered day-level time dimension.",
-        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
-    ),
-    ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME: _constraint(
-        ConstraintId.SUBDAY_GRANULARITY_WITHOUT_TIME,
-        "subday_granularity_without_time",
-        "assembly",
-        ("time_dimension",),
-        "Sub-day granularity requires a time-bearing data_type.",
-        "A time dimension declaring hour/minute/second granularity on data_type='date' cannot carry time-of-day information; string/integer formats that lack hour/minute/second tokens likewise cannot.",
-        "Use data_type='datetime'/'timestamp', or a time-bearing string/integer format like yyyymmddhhmm.",
-        docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
-    ),
     ConstraintId.TIME_DIMENSION_PARTITION_PUSHDOWN: _constraint(
         ConstraintId.TIME_DIMENSION_PARTITION_PUSHDOWN,
         "time_dimension_pushdown_advisory",
@@ -606,12 +584,12 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Cross-datasource metric execution has no single backend to compile against.",
         "Keep component datasets on one datasource or model the integration upstream.",
     ),
-    ConstraintId.SOURCE_SQL_REQUIRED: _constraint(
-        ConstraintId.SOURCE_SQL_REQUIRED,
-        "source_sql_missing",
+    ConstraintId.PROVENANCE_DIALECT_REQUIRED: _constraint(
+        ConstraintId.PROVENANCE_DIALECT_REQUIRED,
+        "provenance_dialect_missing",
         "parity",
         ("metric",),
-        "Parity checks require metric provenance SQL.",
+        "Metric provenance SQL requires a dialect.",
         "The parity engine compares Python metric output with the original SQL.",
         "Add provenance=ms.from_sql(sql=..., dialect=...) to the metric decorator.",
     ),

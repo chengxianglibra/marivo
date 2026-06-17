@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from marivo.datasource.ir import TableSourceIR, qualify_source_sql
+from marivo.datasource.ir import TableSourceIR, qualify_provenance_sql
 from marivo.semantic.errors import ErrorKind, SemanticParityError, _raise
 from marivo.semantic.ir import MetricIR, ParityStatus
 
@@ -104,7 +104,7 @@ def parity_check(
     Raises SemanticParityError for pre-condition violations:
     - Metric not found
     - Derived metric (not supported for direct SQL parity)
-    - Missing sql_parity verification mode, source_sql, or source_dialect
+    - Missing sql_parity verification mode, provenance SQL, or dialect
     - Dialect mismatch with datasource backend_type
     - Cross-datasource metric
 
@@ -125,7 +125,7 @@ def parity_check(
     # Derived metrics don't support direct SQL parity
     if metric_ir.metric_type == "derived":
         _raise(
-            ErrorKind.SOURCE_SQL_MISSING,
+            ErrorKind.PROVENANCE_DIALECT_MISSING,
             f"Derived metric {metric_id!r} does not support direct SQL parity check. "
             f"Check component metrics instead.",
             cls=SemanticParityError,
@@ -135,7 +135,7 @@ def parity_check(
     # Must have provenance SQL (enables parity verification)
     if metric_ir.provenance is None or not metric_ir.provenance.sql:
         _raise(
-            ErrorKind.SOURCE_SQL_MISSING,
+            ErrorKind.PROVENANCE_DIALECT_MISSING,
             f"Metric {metric_id!r} has no provenance SQL. "
             f"Add provenance=ms.from_sql(...) to the decorator before running parity checks.",
             cls=SemanticParityError,
@@ -146,7 +146,7 @@ def parity_check(
     assert metric_ir.provenance is not None
     if not metric_ir.provenance.dialect:
         _raise(
-            ErrorKind.SOURCE_SQL_MISSING,
+            ErrorKind.PROVENANCE_DIALECT_MISSING,
             f"Metric {metric_id!r} has no provenance dialect. "
             f"Add dialect= to ms.from_sql(...) before running parity checks.",
             cls=SemanticParityError,
@@ -176,7 +176,7 @@ def parity_check(
     # Determine the single datasource
     if not datasource_ids:
         _raise(
-            ErrorKind.SOURCE_SQL_MISSING,
+            ErrorKind.PROVENANCE_DIALECT_MISSING,
             f"Metric {metric_id!r} has no entities; cannot determine datasource.",
             cls=SemanticParityError,
             refs=(metric_id,),
@@ -232,7 +232,7 @@ def parity_check(
                 db = ".".join(db)
             table_qualifiers[source.table] = f"{db}.{source.table}"
 
-    qualified_sql = qualify_source_sql(
+    qualified_sql = qualify_provenance_sql(
         metric_ir.provenance.sql,
         table_qualifiers,
         dialect=metric_ir.provenance.dialect,
@@ -306,9 +306,9 @@ def compute_self_status(
 
     This is Step 1 of the two-step status computation.
 
-    | source_sql | last parity_check | self status |
-    |------------|-------------------|-------------|
-    | absent     | any               | VERIFIED    |
+    | provenance_sql | last parity_check | self status |
+    |----------------|-------------------|-------------|
+    | absent         | any               | VERIFIED    |
     | present    | no / not run      | UNVERIFIED  |
     | present    | ok=True           | VERIFIED    |
     | present    | ok=False          | DRIFTED     |
@@ -325,7 +325,7 @@ def compute_self_status(
     if prov is None:
         return ParityStatus.VERIFIED
 
-    # Metrics with source_sql compute status from the latest in-memory parity result.
+    # Metrics with SQL provenance compute status from the latest in-memory parity result.
     parity_result = project._parity_results.get(metric_id)
 
     if parity_result is None:
