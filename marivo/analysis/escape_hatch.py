@@ -8,9 +8,9 @@ import hashlib
 import json
 import math
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype, is_object_dtype
@@ -35,7 +35,7 @@ from marivo.analysis.windows import (
     normalize_absolute_window_input,
 )
 from marivo.semantic.catalog import SemanticKind as CatalogSemanticKind
-from marivo.semantic.catalog import SemanticObject
+from marivo.semantic.catalog import SemanticObject, SemanticRef
 
 DimensionAnchorInput = DimensionInput
 
@@ -108,14 +108,12 @@ def _raise_promotion_failed(
     ambiguous: list[str],
     available_columns: list[str],
     source_refs: list[str],
-    missing_columns: list[str] | None = None,
-) -> NoReturn:
+) -> None:
     raise PromotionFailedError(
         message=f"cannot promote scratch result to {target_kind}",
         details={
             "target_kind": target_kind,
             "missing": missing,
-            "missing_columns": missing_columns or [],
             "ambiguous": ambiguous,
             "available_columns": available_columns,
             "source_refs": source_refs,
@@ -131,15 +129,14 @@ def _validate_columns(
     numeric: list[str],
     source_refs: list[str],
 ) -> None:
-    missing_columns = [column for column in required if column not in df.columns]
+    missing = [column for column in required if column not in df.columns]
     non_numeric = [
         column for column in numeric if column in df.columns and not is_numeric_dtype(df[column])
     ]
-    if missing_columns or non_numeric:
+    if missing or non_numeric:
         _raise_promotion_failed(
             target_kind=target_kind,
-            missing=[],
-            missing_columns=missing_columns,
+            missing=missing,
             ambiguous=[f"non_numeric:{column}" for column in non_numeric],
             available_columns=list(map(str, df.columns)),
             source_refs=source_refs,
@@ -200,7 +197,7 @@ def _load_metric_ref(ref: ArtifactRef | None, *, session: Session) -> MetricFram
             available_columns=loaded.columns,
             source_refs=[ref.id],
         )
-    return loaded
+    return cast("MetricFrame", loaded)
 
 
 def _load_delta_ref(ref: ArtifactRef | None, *, session: Session) -> DeltaFrame | None:
@@ -215,7 +212,7 @@ def _load_delta_ref(ref: ArtifactRef | None, *, session: Session) -> DeltaFrame 
             available_columns=loaded.columns,
             source_refs=[ref.id],
         )
-    return loaded
+    return cast("DeltaFrame", loaded)
 
 
 def _validate_delta_formula(
@@ -330,6 +327,7 @@ def _dimension_anchor_kind(ref: DimensionAnchorInput) -> CatalogSemanticKind | N
 def _validate_dimension_anchors(
     *,
     axes: dict[str, DimensionAnchorInput] | None,
+    time_axis: str | DimensionAnchorInput | None,
     available_columns: list[str],
     source_refs: list[str],
 ) -> None:
@@ -338,6 +336,10 @@ def _validate_dimension_anchors(
         kind = _dimension_anchor_kind(ref)
         if kind not in {CatalogSemanticKind.DIMENSION, CatalogSemanticKind.TIME_DIMENSION}:
             ambiguous.append(f"axis_ref_kind:{column}:{_dimension_anchor_id(ref)}:{kind}")
+    if isinstance(time_axis, SemanticRef | SemanticObject):
+        kind = _dimension_anchor_kind(time_axis)
+        if kind not in {CatalogSemanticKind.DIMENSION, CatalogSemanticKind.TIME_DIMENSION}:
+            ambiguous.append(f"time_axis_ref_kind:{_dimension_anchor_id(time_axis)}:{kind}")
     if ambiguous:
         _raise_promotion_failed(
             target_kind="metric_frame",
@@ -355,51 +357,15 @@ def _axis_meta(axes: dict[str, DimensionAnchorInput] | None) -> dict[str, dict[s
     }
 
 
-def _normalize_time_axis(
-    time_axis: str | Mapping[str, DimensionAnchorInput] | None,
-    *,
-    available_columns: list[str],
-    source_refs: list[str],
+def _time_axis_column_and_ref(
+    time_axis: str | DimensionAnchorInput | None,
 ) -> tuple[str, str] | None:
-    """Resolve ``time_axis`` to a ``(dataframe_column, catalog_ref)`` pair.
-
-    Accepts a plain column-name string (column and ref are identical) or a
-    single-entry ``{column: ref}`` mapping that decouples the dataframe column
-    name from the catalog time ref, mirroring ``axes``. A bare ref does not name
-    a dataframe column and is rejected with guidance.
-    """
     if time_axis is None:
         return None
-    if isinstance(time_axis, str):
-        return time_axis, time_axis
-    if isinstance(time_axis, Mapping):
-        items = list(time_axis.items())
-        if len(items) != 1:
-            _raise_promotion_failed(
-                target_kind="metric_frame",
-                missing=[],
-                ambiguous=[f"time_axis_single_entry:{len(items)}"],
-                available_columns=available_columns,
-                source_refs=source_refs,
-            )
-        column, ref = items[0]
-        kind = _dimension_anchor_kind(ref)
-        if kind not in {CatalogSemanticKind.DIMENSION, CatalogSemanticKind.TIME_DIMENSION}:
-            _raise_promotion_failed(
-                target_kind="metric_frame",
-                missing=[],
-                ambiguous=[f"time_axis_ref_kind:{column}:{_dimension_anchor_id(ref)}:{kind}"],
-                available_columns=available_columns,
-                source_refs=source_refs,
-            )
-        return column, _dimension_anchor_id(ref)
-    _raise_promotion_failed(
-        target_kind="metric_frame",
-        missing=[],
-        ambiguous=[f"time_axis_requires_column:{_dimension_anchor_id(time_axis)}"],
-        available_columns=available_columns,
-        source_refs=source_refs,
-    )
+    if isinstance(time_axis, SemanticRef | SemanticObject):
+        axis_id = _dimension_anchor_id(time_axis)
+        return axis_id, axis_id
+    return time_axis, time_axis
 
 
 def _axis_identifiers(
@@ -700,7 +666,7 @@ def promote_metric_frame(
     semantic_kind: SemanticKind | None = None,
     measure_column: str | None = None,
     axes: dict[str, DimensionAnchorInput] | None = None,
-    time_axis: str | dict[str, DimensionAnchorInput] | None = None,
+    time_axis: str | DimensionAnchorInput | None = None,
     semantic_model: str | None = None,
     window: object | None = None,
     where: dict[str, Any] | None = None,
@@ -744,14 +710,11 @@ def promote_metric_frame(
     source_refs = [scratch.ref]
     _validate_dimension_anchors(
         axes=axes,
+        time_axis=time_axis_ref,
         available_columns=available_columns,
         source_refs=source_refs,
     )
-    time_axis_meta = _normalize_time_axis(
-        time_axis_ref,
-        available_columns=available_columns,
-        source_refs=source_refs,
-    )
+    time_axis_meta = _time_axis_column_and_ref(time_axis_ref)
     _validate_metric_in_catalog(
         metric_id,
         session=resolved_session,

@@ -20,7 +20,7 @@ for name in list(sys.modules):
 
 import marivo.datasource as md
 
-assert md.datasource is not None
+assert md.duckdb is not None
 assert "marivo.semantic" not in sys.modules
 assert "marivo.analysis" not in sys.modules
 """
@@ -54,8 +54,8 @@ def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+        encoding="utf-8",
     )
 
     result = load_datasources(datasource_dir)
@@ -65,21 +65,20 @@ def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
     assert result.datasources[0].name == "warehouse"
 
 
-def test_datasource_spec_splits_literal_fields_and_env_refs() -> None:
-    import marivo.datasource as md
+def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
+    from marivo.datasource.authoring import _TrinoSpec
 
-    spec = md.DatasourceSpec(
+    spec = _TrinoSpec(
         name="warehouse",
-        backend_type="trino",
         host="trino.example",
         catalog="hive",
-        password_env="TRINO_PASSWORD",
+        auth_env="TRINO_AUTH",
     )
 
     assert spec.name == "warehouse"
     assert spec.backend_type == "trino"
     assert spec.fields == {"host": "trino.example", "catalog": "hive"}
-    assert spec.env_refs == {"password": "TRINO_PASSWORD"}
+    assert spec.env_refs == {"auth": "TRINO_AUTH"}
 
 
 def test_datasource_ref_uses_global_short_name() -> None:
@@ -107,6 +106,11 @@ def test_datasource_public_exports() -> None:
         "table",
         "parquet",
         "csv",
+        "duckdb",
+        "trino",
+        "mysql",
+        "postgres",
+        "clickhouse",
     ):
         assert hasattr(md, name), f"marivo.datasource missing export: {name}"
 

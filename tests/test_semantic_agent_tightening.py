@@ -160,7 +160,7 @@ def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
     pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
 
     combined = "\n".join((skill, workflow, datasource, authoring, pitfalls))
-    assert 'backend_type="trino"' in combined
+    assert "md.trino" in combined
     assert "client_tags" in combined
     assert "user_env" in combined
     assert 'source=ms.table("orders", database="sales_mart")' in combined

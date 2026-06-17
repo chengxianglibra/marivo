@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
+
+if TYPE_CHECKING:
+    from marivo.semantic.ir import _BaseRef
+    from marivo.semantic.reader import SemanticProject
 
 from marivo.introspection.constraints import Constraint
 from marivo.introspection.render import format_family_block
@@ -12,10 +16,10 @@ from marivo.introspection.surface import Surface, render, top_level_families
 
 from .constraints import constraints_for_symbol, iter_constraints
 
-if TYPE_CHECKING:
-    from marivo.semantic.catalog import SemanticObject, SemanticRef
-    from marivo.semantic.ir import _BaseRef
-    from marivo.semantic.reader import SemanticProject
+
+class _SemanticHelpIR(Protocol):
+    semantic_id: str
+    description: str | None
 
 
 _HELP_ONLY_ENTRIES: tuple[str, ...] = (
@@ -753,35 +757,29 @@ def help_text(symbol: str | None = None) -> str:
 
 
 def help(
-    target: str | SemanticObject | SemanticRef | _BaseRef | None = None,
+    target: str | _BaseRef | None = None,
     *,
     project: SemanticProject | None = None,
 ) -> None:
     """Print bounded help text for a Marivo analysis symbol or semantic ref.
-
-    For semantic objects (``SemanticObject`` or ``SemanticRef``), this
-    delegates to ``catalog.get(ref).details().show()`` — the canonical
-    inspection path.  ``SemanticObject`` targets skip project resolution
-    entirely because the details are already materialized.
 
     Args:
         target: One of:
             - None -- print top-level analysis surface help.
             - str -- print help for a named symbol or topic (e.g. "observe",
               "MetricFrame", "session").
-            - SemanticObject -- print full details for this catalog object.
-            - SemanticRef -- resolve via catalog and print full details.
-            - _BaseRef -- resolve project, build catalog, and print details.
+            - _BaseRef -- print semantic-object help for an already-defined
+              Python semantic authoring ref (metric, entity, etc.).
         project: Explicit SemanticProject for semantic ref resolution.
-            Required when ``target`` is a ``SemanticRef`` or ``_BaseRef``
-            and no project can be inferred from the current working directory.
+            Required when ``target`` is a ``_BaseRef`` and no project can be
+            inferred from the current working directory.
 
     Returns:
         None
 
     Raises:
-        SemanticError: When a ref target cannot be resolved (no loaded project
-            found; pass ``project=project``).
+        SemanticError: When target is a _BaseRef and the project cannot be
+            resolved (no loaded project found; pass ``project=project``).
         TypeError: When called with ``format=``, ``json=``, or other
             unsupported keyword arguments.
 
@@ -789,21 +787,19 @@ def help(
         >>> mv.help()                       # top-level analysis help
         >>> mv.help("observe")              # intent help
         >>> mv.help("MetricFrame")          # frame type help
-        >>> revenue = catalog.get("sales.revenue")
-        >>> revenue.details().show()         # canonical inspection path
-        >>> mv.help(revenue.ref, project=p) # convenience: delegates to details().show()
+        >>> mv.help(revenue.ref, project=p) # semantic-object help
     """
     from marivo.semantic.catalog import SemanticObject, SemanticRef
     from marivo.semantic.ir import _BaseRef as _BaseRefType
 
     if isinstance(target, SemanticObject):
-        target.details().show()
+        _help_catalog_ref(target.ref, project=project)
         return
     if isinstance(target, SemanticRef):
-        _help_via_catalog(target, project=project)
+        _help_catalog_ref(target, project=project)
         return
     if isinstance(target, _BaseRefType):
-        _help_via_catalog_by_id(target.semantic_id, project=project)
+        _help_semantic_ref(target, project=project)
         return
 
     # Route "semantic.<topic>" to the semantic help surface
@@ -818,57 +814,166 @@ def help(
     print(help_text(normalized))
 
 
-def _resolve_project(
-    project: SemanticProject | None,
+def _help_semantic_ref(
+    ref: _BaseRef,
     *,
-    ref_context: str,
-) -> SemanticProject:
-    """Resolve a SemanticProject from an explicit arg or ``find_project()``."""
-    if project is not None:
-        return project
-    try:
-        from marivo.semantic.loader import find_project
-
-        resolved = find_project()
-        if resolved is not None and hasattr(resolved, "load"):
-            resolved.load()
-            return resolved  # type: ignore[no-any-return]
-    except Exception:
-        pass
+    project: SemanticProject | None = None,
+) -> None:
+    """Resolve project and print bounded semantic-object help for a ref."""
     from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 
-    _raise(
-        ErrorKind.INVALID_REF,
-        (
-            f"Cannot resolve project for mv.help({ref_context!r}). "
-            "No loaded semantic project found. "
-            "Pass project=project explicitly: mv.help(ref, project=project)."
-        ),
-        cls=SemanticRuntimeError,
+    resolved_project = project
+    if resolved_project is None:
+        try:
+            from marivo.semantic.loader import find_project
+
+            resolved_project = find_project()
+            if resolved_project is not None:
+                resolved_project.load()
+        except Exception:
+            resolved_project = None
+
+    if resolved_project is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            (
+                f"Cannot resolve project for mv.help({ref.semantic_id!r}). "
+                "No loaded semantic project found. "
+                "Pass project=project explicitly: mv.help(ref, project=project)."
+            ),
+            cls=SemanticRuntimeError,
+        )
+
+    _print_semantic_object_help(ref, resolved_project)
+
+
+def _help_catalog_ref(
+    ref: object,
+    *,
+    project: SemanticProject | None = None,
+) -> None:
+    """Resolve project and print bounded semantic-object help for a catalog ref."""
+    from marivo.semantic.catalog import SemanticKind, SemanticRef
+    from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+
+    if not isinstance(ref, SemanticRef):
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"mv.help expected SemanticRef or SemanticObject, got {type(ref).__name__}.",
+            cls=SemanticRuntimeError,
+        )
+
+    resolved_project = project
+    if resolved_project is None:
+        try:
+            from marivo.semantic.loader import find_project
+
+            resolved_project = find_project()
+            if resolved_project is not None:
+                resolved_project.load()
+        except Exception:
+            resolved_project = None
+
+    if resolved_project is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            (
+                f"Cannot resolve project for mv.help({ref.ref!r}). "
+                "No loaded semantic project found. "
+                "Pass project=project explicitly: mv.help(ref, project=project)."
+            ),
+            cls=SemanticRuntimeError,
+        )
+
+    reg = getattr(resolved_project, "_registry", None)
+    if reg is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"Call ms.load() to load the semantic project before mv.help({ref.ref!r}).",
+            cls=SemanticRuntimeError,
+        )
+
+    ir = None
+    if ref.kind == SemanticKind.METRIC:
+        ir = reg.metrics.get(ref.ref)
+    elif ref.kind == SemanticKind.ENTITY:
+        ir = reg.entities.get(ref.ref)
+    elif ref.kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
+        ir = reg.dimensions.get(ref.ref)
+
+    if ir is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            (
+                f"{ref.kind} {ref.ref!r} not found in loaded project. "
+                "Call catalog.list(kind='metric').ids() to see available ids."
+            ),
+            cls=SemanticRuntimeError,
+        )
+
+    lines = _semantic_ir_help_lines(ir, kind=str(ref.kind))
+    print("\n".join(lines))
+
+
+def _print_semantic_object_help(ref: _BaseRef, project: SemanticProject) -> None:
+    """Print bounded consumption context for a semantic ref."""
+    from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+    from marivo.semantic.ir import SymbolKind
+
+    reg = getattr(project, "_registry", None)
+    if reg is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"Call ms.load() to load the semantic project before mv.help({ref.semantic_id!r}).",
+            cls=SemanticRuntimeError,
+        )
+
+    ir = None
+    if ref.kind == SymbolKind.METRIC:
+        ir = reg.metrics.get(ref.semantic_id)
+    elif ref.kind == SymbolKind.ENTITY:
+        ir = reg.entities.get(ref.semantic_id)
+    elif ref.kind in (SymbolKind.DIMENSION, SymbolKind.TIME_DIMENSION):
+        ir = reg.dimensions.get(ref.semantic_id)
+
+    if ir is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            (
+                f"{ref.kind} {ref.semantic_id!r} not found in loaded project. "
+                "Call catalog.list(kind='metric').ids() to see available ids."
+            ),
+            cls=SemanticRuntimeError,
+        )
+
+    lines = _semantic_ir_help_lines(ir, kind=str(ref.kind))
+    print("\n".join(lines))
+
+
+def _semantic_ir_help_lines(ir: object, *, kind: str) -> list[str]:
+    typed_ir = cast("_SemanticHelpIR", ir)
+    semantic_id = str(typed_ir.semantic_id)
+    lines: list[str] = [
+        f"{kind}: {semantic_id}",
+    ]
+    unit = getattr(ir, "unit", None)
+    if unit:
+        lines.append(f"unit: {unit}")
+    ai = getattr(ir, "ai_context", None)
+    if ai is not None:
+        if getattr(ai, "business_definition", None):
+            lines.append(f"business_definition: {ai.business_definition}")
+        if getattr(ai, "guardrails", None):
+            lines.append("guardrails:")
+            for g in list(ai.guardrails)[:3]:
+                lines.append(f"  - {g}")
+        if getattr(ai, "examples", None):
+            lines.append("examples:")
+            for ex in list(ai.examples)[:3]:
+                lines.append(f"  - {ex}")
+    lines.append("")
+    lines.append(
+        f"use: catalog.list(kind='metric').ids() to enumerate; "
+        f"pass catalog.get({semantic_id!r}) to session.observe(...)"
     )
-
-
-def _help_via_catalog(
-    ref: SemanticRef,
-    *,
-    project: SemanticProject | None = None,
-) -> None:
-    """Resolve the catalog and delegate to ``catalog.get(ref).details().show()``."""
-    from marivo.semantic.catalog import SemanticCatalog
-
-    resolved_project = _resolve_project(project, ref_context=ref.ref)
-    catalog = SemanticCatalog(resolved_project)
-    catalog.get(ref).details().show()
-
-
-def _help_via_catalog_by_id(
-    semantic_id: str,
-    *,
-    project: SemanticProject | None = None,
-) -> None:
-    """Resolve the catalog and delegate to ``catalog.get(id).details().show()``."""
-    from marivo.semantic.catalog import SemanticCatalog
-
-    resolved_project = _resolve_project(project, ref_context=semantic_id)
-    catalog = SemanticCatalog(resolved_project)
-    catalog.get(semantic_id).details().show()
+    return lines

@@ -138,9 +138,7 @@ with tempfile.TemporaryDirectory() as tmp:
     semantic_dir.mkdir(parents=True)
     datasource_dir.mkdir(parents=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-        "md.datasource(warehouse)\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "_domain.py").write_text(DOMAIN)
 

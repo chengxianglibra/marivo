@@ -15,7 +15,15 @@ from marivo.analysis.errors import (
 from marivo.datasource import backends as datasource_backends
 from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource import store as datasource_store
-from marivo.semantic.ir import AiContextIR, DatasourceIR, SourceLocation
+from marivo.datasource.authoring import (
+    DatasourceSpec,
+    _ClickHouseSpec,
+    _DuckDBSpec,
+    _MySQLSpec,
+    _PostgresSpec,
+    _TrinoSpec,
+)
+from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 
 
 @pytest.fixture
@@ -24,8 +32,31 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpec:
-    return md.DatasourceSpec(name=name, backend_type=backend_type, **fields)
+def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
+    if backend_type == "duckdb":
+        return _DuckDBSpec(name=name, **fields)
+    if backend_type == "trino":
+        return _TrinoSpec(name=name, **fields)
+    if backend_type == "mysql":
+        return _MySQLSpec(name=name, **fields)
+    if backend_type == "postgres":
+        return _PostgresSpec(name=name, **fields)
+    if backend_type == "clickhouse":
+        return _ClickHouseSpec(name=name, **fields)
+    raise AssertionError(f"unexpected backend_type: {backend_type}")
+
+
+def _raw_ir(name: str, *, backend_type: str, fields: dict[str, object]) -> DatasourceIR:
+    return DatasourceIR(
+        semantic_id=name,
+        name=name,
+        backend_type=backend_type,
+        fields=dict(fields),
+        env_refs={},
+        ai_context=AiContextIR(),
+        python_symbol=name,
+        location=DatasourceSourceLocation(file="<test>", line=1),
+    )
 
 
 def test_build_duckdb_in_memory(project_root: Path) -> None:
@@ -36,25 +67,24 @@ def test_build_duckdb_in_memory(project_root: Path) -> None:
 
 
 def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TRINO_PASSWORD", "shhh")
+    monkeypatch.setenv("TRINO_AUTH", "shhh")
     datasource = datasource_store.save_one(
-        _spec("wh", backend_type="trino", host="h", catalog="c", password_env="TRINO_PASSWORD")
+        _spec("wh", backend_type="trino", host="h", catalog="c", auth_env="TRINO_AUTH")
     )
     effective = datasource_backends._effective_kwargs(datasource)
-    assert effective.kwargs["password"] == "shhh"
-    assert effective.kwargs["host"] == "h"
-    assert "password_env" not in effective.kwargs
-    assert [secret.name for secret in effective.env_sourced_secrets] == ["TRINO_PASSWORD"]
+    assert effective.kwargs["auth"] == "shhh"
+    assert "auth_env" not in effective.kwargs
+    assert [secret.name for secret in effective.env_sourced_secrets] == ["TRINO_AUTH"]
 
 
 def test_env_ref_resolution_uses_cache_when_env_is_unset(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("TRINO_PASSWORD", raising=False)
+    monkeypatch.delenv("TRINO_AUTH", raising=False)
 
     class _CacheProvider:
         def get(self, name: str) -> str | None:
-            return "cached-secret" if name == "TRINO_PASSWORD" else None
+            return "cached-secret" if name == "TRINO_AUTH" else None
 
     monkeypatch.setattr(
         datasource_secrets,
@@ -62,27 +92,27 @@ def test_env_ref_resolution_uses_cache_when_env_is_unset(
         lambda: (_CacheProvider(),),
     )
     datasource = datasource_store.save_one(
-        _spec("wh", backend_type="trino", host="h", catalog="c", password_env="TRINO_PASSWORD")
+        _spec("wh", backend_type="trino", host="h", catalog="c", auth_env="TRINO_AUTH")
     )
 
     effective = datasource_backends._effective_kwargs(datasource)
 
-    assert effective.kwargs["password"] == "cached-secret"
+    assert effective.kwargs["auth"] == "cached-secret"
     assert effective.env_sourced_secrets == ()
 
 
 def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TRINO_PASSWORD", raising=False)
+    monkeypatch.delenv("TRINO_AUTH", raising=False)
     monkeypatch.setattr(
         datasource_secrets, "default_chain", lambda: (datasource_secrets.EnvProvider(),)
     )
     datasource = datasource_store.save_one(
-        _spec("wh", backend_type="trino", host="h", catalog="c", password_env="TRINO_PASSWORD")
+        _spec("wh", backend_type="trino", host="h", catalog="c", auth_env="TRINO_AUTH")
     )
     with pytest.raises(DatasourceEnvVarMissingError) as exc_info:
         datasource_backends._effective_kwargs(datasource)
-    assert exc_info.value.details["env_var"] == "TRINO_PASSWORD"
-    assert exc_info.value.details["field"] == "password"
+    assert exc_info.value.details["env_var"] == "TRINO_AUTH"
+    assert exc_info.value.details["field"] == "auth"
 
 
 def test_unsupported_backend_type(project_root: Path) -> None:
@@ -94,7 +124,7 @@ def test_unsupported_backend_type(project_root: Path) -> None:
         env_refs={},
         ai_context=AiContextIR(),
         python_symbol="wh",
-        location=SourceLocation(file="<test>", line=1),
+        location=DatasourceSourceLocation(file="<test>", line=1),
     )
     with pytest.raises(DatasourceBackendTypeUnsupportedError) as exc_info:
         datasource_backends.build_backend(datasource)
@@ -102,7 +132,7 @@ def test_unsupported_backend_type(project_root: Path) -> None:
 
 
 def test_trino_required_field_missing(project_root: Path) -> None:
-    datasource = datasource_store.save_one(_spec("wh", backend_type="trino", host="h"))
+    datasource = _raw_ir("wh", backend_type="trino", fields={"host": "h"})
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_backends.build_backend(datasource)
     assert exc_info.value.details["field"] == "catalog"
@@ -216,7 +246,11 @@ def test_postgres_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
         _spec(
-            "pg_wh", backend_type="postgres", host="pg.example", database="mart", sslmode="require"
+            "pg_wh",
+            backend_type="postgres",
+            host="pg.example",
+            database="mart",
+            extra={"sslmode": "require"},
         )
     )
 
@@ -250,7 +284,7 @@ def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_
 
 
 def test_clickhouse_required_field_missing(project_root: Path) -> None:
-    datasource = datasource_store.save_one(_spec("ch_ds", backend_type="clickhouse"))
+    datasource = _raw_ir("ch_ds", backend_type="clickhouse", fields={})
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_backends.build_backend(datasource)
     assert exc_info.value.details["field"] == "host"
@@ -280,10 +314,9 @@ def test_clickhouse_optional_fields_pass_through(
             database="analytics",
             user_env="CLICKHOUSE_USER",
             password_env="CLICKHOUSE_PASSWORD",
-            client_name="marivo",
             secure=True,
-            compression="lz4",
             settings={"max_execution_time": 60},
+            extra={"client_name": "marivo", "compression": "lz4"},
         )
     )
     monkeypatch.setenv("CLICKHOUSE_USER", "reader")
@@ -312,8 +345,8 @@ def test_effective_kwargs_falls_back_to_conventional_env_var(
 ) -> None:
     """When no explicit *_env is given, try MARIVO_{NAME}_{STEM} convention."""
     monkeypatch.setenv("MARIVO_WAREHOUSE_PASSWORD", "conv-secret")
-    monkeypatch.delenv("TRINO_PASSWORD", raising=False)
-    # No password_env specified — convention should kick in.
+    monkeypatch.delenv("TRINO_AUTH", raising=False)
+    # No auth_env specified — convention should kick in.
     datasource = datasource_store.save_one(
         _spec("warehouse", backend_type="trino", host="h", catalog="c")
     )
@@ -344,12 +377,12 @@ def test_explicit_env_ref_overrides_convention(
     """Explicit *_env takes precedence over conventional name."""
     monkeypatch.setenv("CUSTOM_PASSWORD_VAR", "custom-secret")
     monkeypatch.setenv("MARIVO_WAREHOUSE_PASSWORD", "conv-secret")
+    # Use _ClickHouseSpec which has password_env as a typed field.
     datasource = datasource_store.save_one(
         _spec(
             "warehouse",
-            backend_type="trino",
-            host="h",
-            catalog="c",
+            backend_type="clickhouse",
+            host="ch.example",
             password_env="CUSTOM_PASSWORD_VAR",
         )
     )

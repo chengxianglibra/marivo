@@ -76,9 +76,7 @@ def _bootstrap_semantic_layer(root: Path) -> None:
     datasource_dir = root / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / f"{DATASOURCE_NAME}.py").write_text(
-        "import marivo.datasource as md\n"
-        f"{DATASOURCE_NAME} = md.DatasourceSpec(name='{DATASOURCE_NAME}', backend_type='duckdb', path=':memory:')\n"
-        f"md.datasource({DATASOURCE_NAME})\n"
+        f"import marivo.datasource as md\nmd.duckdb(name='{DATASOURCE_NAME}', path=':memory:')\n"
     )
     semantic_dir = root / "models" / "semantic" / DOMAIN_NAME
     semantic_dir.mkdir(parents=True, exist_ok=True)

@@ -6,12 +6,19 @@ from pathlib import Path
 
 import pytest
 
-import marivo.datasource as md
 from marivo.analysis.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
 )
 from marivo.datasource import store as datasource_store
+from marivo.datasource.authoring import (
+    DatasourceSpec,
+    _ClickHouseSpec,
+    _DuckDBSpec,
+    _MySQLSpec,
+    _PostgresSpec,
+    _TrinoSpec,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -27,8 +34,18 @@ def test_load_all_empty_when_no_file() -> None:
     assert datasource_store.load_all() == {}
 
 
-def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpec:
-    return md.DatasourceSpec(name=name, backend_type=backend_type, **fields)
+def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
+    if backend_type == "duckdb":
+        return _DuckDBSpec(name=name, **fields)
+    if backend_type == "trino":
+        return _TrinoSpec(name=name, **fields)
+    if backend_type == "mysql":
+        return _MySQLSpec(name=name, **fields)
+    if backend_type == "postgres":
+        return _PostgresSpec(name=name, **fields)
+    if backend_type == "clickhouse":
+        return _ClickHouseSpec(name=name, **fields)
+    raise AssertionError(f"unexpected backend_type: {backend_type}")
 
 
 def test_save_roundtrip() -> None:
@@ -40,7 +57,7 @@ def test_save_roundtrip() -> None:
             port=8080,
             user_env="TRINO_USER",
             catalog="hive",
-            password_env="TRINO_PASSWORD",
+            auth_env="TRINO_AUTH",
         )
     )
     datasources = datasource_store.load_all()
@@ -48,7 +65,7 @@ def test_save_roundtrip() -> None:
     assert datasources["warehouse"].backend_type == "trino"
     assert datasources["warehouse"].fields["host"] == "trino.example"
     assert datasources["warehouse"].env_refs["user"] == "TRINO_USER"
-    assert datasources["warehouse"].env_refs["password"] == "TRINO_PASSWORD"
+    assert datasources["warehouse"].env_refs["auth"] == "TRINO_AUTH"
     assert datasource_store.datasource_path("warehouse").is_file()
 
 
@@ -62,12 +79,11 @@ def test_save_overwrites_same_name() -> None:
 def test_save_rejects_plaintext_sensitive_field() -> None:
     with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
         datasource_store.save_one(
-            _spec(
-                "wh",
-                backend_type="trino",
+            _TrinoSpec(
+                name="wh",
                 host="h",
                 catalog="c",
-                password="literal-secret",
+                extra={"password": "literal-secret"},
             )
         )
     assert exc_info.value.details["field"] == "password"
@@ -77,7 +93,12 @@ def test_save_rejects_plaintext_sensitive_field() -> None:
 def test_save_rejects_plaintext_user() -> None:
     with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
         datasource_store.save_one(
-            _spec("wh", backend_type="trino", host="h", catalog="c", user="analytics")
+            _TrinoSpec(
+                name="wh",
+                host="h",
+                catalog="c",
+                extra={"user": "analytics"},
+            )
         )
     assert exc_info.value.details["field"] == "user"
 
@@ -85,16 +106,15 @@ def test_save_rejects_plaintext_user() -> None:
 def test_save_rejects_plaintext_auth() -> None:
     with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
         datasource_store.save_one(
-            _spec("wh", backend_type="trino", host="h", catalog="c", auth="literal-token")
+            _TrinoSpec(
+                name="wh",
+                host="h",
+                catalog="c",
+                extra={"auth": "literal-token"},
+            )
         )
     assert exc_info.value.details["field"] == "auth"
     assert "auth_env" in str(exc_info.value)
-
-
-def test_save_rejects_empty_backend_type() -> None:
-    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        datasource_store.save_one(_spec("wh", backend_type="", path=":memory:"))
-    assert exc_info.value.details["field"] == "backend_type"
 
 
 def test_save_allows_json_object_fields() -> None:
@@ -115,16 +135,19 @@ def test_save_allows_json_object_fields() -> None:
 def test_save_rejects_non_json_object_value() -> None:
     with pytest.raises(DatasourceFieldInvalidError):
         datasource_store.save_one(
-            _spec("wh", backend_type="trino", host="h", catalog="c", extras={"nested": object()})
+            _TrinoSpec(
+                name="wh",
+                host="h",
+                catalog="c",
+                extra={"nested": object()},
+            )
         )
 
 
 def test_save_rejects_env_ref_non_string() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        datasource_store.save_one(
-            _spec("wh", backend_type="trino", host="h", catalog="c", password_env="")
-        )
-    assert exc_info.value.details["field"] == "password_env"
+        datasource_store.save_one(_TrinoSpec(name="wh", host="h", catalog="c", auth_env=""))
+    assert exc_info.value.details["field"] == "auth_env"
 
 
 @pytest.mark.parametrize("name", ["foo/bar", "foo\\bar", " foo", "foo bar", "../foo"])

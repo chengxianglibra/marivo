@@ -171,9 +171,9 @@ backend = md.connect("warehouse")
 
 Target APIs for richer inspection are described later in this document.
 
-Use `md.DatasourceSpec(...)` plus `md.datasource(spec)` in
-`models/datasources/<name>.py` when authoring datasource files directly. Use
-`md.register(md.DatasourceSpec(...))` when a script or agent wants
+Use a backend-specific convenience function such as `md.duckdb(...)` or `md.trino(...)`
+in `models/datasources/<name>.py` when authoring datasource files directly. Use
+`md.register(...)` when a script or agent wants
 Marivo to create or replace the datasource file through the public registry API.
 Semantic model files should reference project datasources with `md.ref(...)`;
 datasource configuration itself does not belong inside semantic model files.

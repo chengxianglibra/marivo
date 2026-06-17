@@ -24,7 +24,6 @@ _SUMMARIES: dict[str, str] = {
     "DatasourceIR": "project-level datasource configuration IR",
     "DatasourceRef": "global datasource reference used by semantic declarations",
     "DatasourceSourceLocation": "absolute source location for datasource error reporting",
-    "DatasourceSpec": "validated project-level datasource configuration",
     "DatasourceSummary": "summary row for one configured project datasource",
     "DatasourceTestResult": "result of a datasource connectivity round-trip",
     "JoinKeyProbe": "join compatibility result for one key column pair",
@@ -37,9 +36,10 @@ _SUMMARIES: dict[str, str] = {
     "ScanReport": "report from a scoped datasource scan including column profiles",
     "ScanScope": "scoped datasource scan input with source and sample bounds",
     "TableMetadata": "schema, comments, nullability, and partition metadata for a table",
+    "clickhouse": "declare a ClickHouse datasource",
     "connect": "open a live ibis backend for a datasource; caller disconnects",
-    "datasource": "declare one project-level datasource",
     "describe": "show literal fields and env refs for one datasource",
+    "duckdb": "declare a DuckDB datasource",
     "help": "this introspection entry point",
     "help_text": "return datasource help text without printing",
     "inspect_columns": "profile selected columns from a datasource source with bounded scan",
@@ -47,6 +47,9 @@ _SUMMARIES: dict[str, str] = {
     "inspect_table": "schema, comments, nullability, and partition metadata for a table",
     "list": "list configured project datasources as DatasourceSummary rows",
     "load": "load the project datasource catalog and return a DatasourceCatalog",
+    "mysql": "declare a MySQL datasource",
+    "parquet": "parquet file source for datasource inspection",
+    "postgres": "declare a Postgres datasource",
     "preview": "bounded, filtered preview of one datasource table",
     "probe_join_keys": "probe join compatibility between two sources on specified key columns",
     "ref": "reference a global project datasource by short name",
@@ -54,6 +57,7 @@ _SUMMARIES: dict[str, str] = {
     "remove": "delete the named project datasource file",
     "table": "table source for datasource inspection",
     "test": "round-trip the backend and persist validated env secrets",
+    "trino": "declare a Trino datasource",
 }
 
 
@@ -104,7 +108,12 @@ def _surface() -> Surface:
         summaries=summaries,
         resolve=_resolve,
         catalog=catalog,
-        topics={"constraints": _constraint_topic()},
+        topics={
+            "constraints": _constraint_topic(),
+        },
+        type_aliases=set(),
+        family_suffixes=(),
+        hidden_names=frozenset(),
     )
 
 

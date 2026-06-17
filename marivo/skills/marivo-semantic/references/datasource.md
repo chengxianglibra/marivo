@@ -21,7 +21,7 @@ Marivo resolves `*_env` credentials through a provider chain: **os.environ >
 `md.test(...)` round-trip, resolved env-sourced secrets are
 auto-persisted to the cache.
 
-Before authoring `*_env` fields on a new `DatasourceSpec`, read the cache to
+Before authoring `*_env` fields on a new datasource, read the cache to
 discover which env var names already hold values:
 
 ```bash
@@ -54,12 +54,13 @@ analysis:
 import marivo.datasource as md
 
 md.help()                                       # top-level datasource entries
-md.help('DatasourceSpec')                       # constructor, doc, constraints
+md.help('trino')                               # Trino connection fields
+md.help('duckdb')                              # DuckDB connection fields
 md.help('datasource_secret_env_ref')            # full secret-handling rule
 ```
 
-Use `md.help('DatasourceSpec')` before writing a new datasource
-declaration when credential, backend type, or field-shape details matter.
+Use `md.help('trino')` or `md.help('duckdb')` before writing a new datasource
+declaration when credential or field-shape details matter.
 
 ## Choose the native backend first
 
@@ -165,12 +166,10 @@ print(metadata.columns)
 ```python
 import marivo.datasource as md
 
-warehouse = md.DatasourceSpec(
+warehouse = md.duckdb(
     name="warehouse",
-    backend_type="duckdb",
     path="warehouse.duckdb",
 )
-md.datasource(warehouse)
 ```
 
 DuckDB database-file tables use table sources:
@@ -201,18 +200,16 @@ at table access time when the datasource has no default schema.
 ```python
 import marivo.datasource as md
 
-warehouse = md.DatasourceSpec(
+warehouse = md.trino(
     name="warehouse",
-    backend_type="trino",
     host="trino.example.internal",
     port=8080,
     catalog="hive",
     source="marivo",
-    client_tags=["agent", "semantic-authoring"],
+    client_tags=("agent", "semantic-authoring"),
     user_env="TRINO_USER",
-    password_env="TRINO_PASSWORD",
+    auth_env="TRINO_AUTH",
 )
-md.datasource(warehouse)
 ```
 
 Inspect and author tables with `database="sales_mart"`:

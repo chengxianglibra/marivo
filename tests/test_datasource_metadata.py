@@ -10,6 +10,14 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.authoring import (
+    DatasourceSpec,
+    _ClickHouseSpec,
+    _DuckDBSpec,
+    _MySQLSpec,
+    _PostgresSpec,
+    _TrinoSpec,
+)
 from marivo.datasource.errors import DatasourceMetadataError
 from marivo.datasource.metadata import (
     ColumnMetadata,
@@ -100,8 +108,18 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _spec(name: str, *, backend_type: str, **fields: object) -> md.DatasourceSpec:
-    return md.DatasourceSpec(name=name, backend_type=backend_type, **fields)
+def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
+    if backend_type == "duckdb":
+        return _DuckDBSpec(name=name, **fields)
+    if backend_type == "trino":
+        return _TrinoSpec(name=name, **fields)
+    if backend_type == "mysql":
+        return _MySQLSpec(name=name, **fields)
+    if backend_type == "postgres":
+        return _PostgresSpec(name=name, **fields)
+    if backend_type == "clickhouse":
+        return _ClickHouseSpec(name=name, **fields)
+    raise AssertionError(f"unexpected backend_type: {backend_type}")
 
 
 def _create_metadata_duckdb(path: Path) -> None:

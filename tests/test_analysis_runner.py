@@ -49,8 +49,7 @@ def _bootstrap_project(
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / f"{datasource_name}.py").write_text(
-        "import marivo.datasource as md\n"
-        f"md.datasource(name='{datasource_name}', backend_type='duckdb', path=':memory:')\n"
+        f"import marivo.datasource as md\nmd.duckdb(name='{datasource_name}', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(

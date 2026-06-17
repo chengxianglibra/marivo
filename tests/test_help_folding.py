@@ -124,6 +124,9 @@ def test_datasource_fold_partition() -> None:
 
     surface = _surface()
     fams = _families(surface)
+    # Convenience functions (duckdb, trino, etc.) are top-level callables, not folded.
+    assert "Datasource specs" not in fams
+    assert "DatasourceSpec" not in {name for members in fams.values() for name in members}
     assert fams["References"] == ["DatasourceRef"]
     assert fams["Internal IR types"] == [
         "AiContextIR",
@@ -140,7 +143,6 @@ def test_datasource_fold_partition() -> None:
         "DatasourceConnectionService",
         "DatasourceDescription",
         "DatasourceSourceLocation",
-        "DatasourceSpec",
         "DatasourceSummary",
         "DatasourceTestResult",
         "JoinKeyProbe",

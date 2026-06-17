@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,23 @@ def _literal(value: Any) -> str:
     return repr(value)
 
 
+_SPEC_CLASS_BY_BACKEND: dict[str, str] = {
+    "clickhouse": "_ClickHouseSpec",
+    "duckdb": "_DuckDBSpec",
+    "mysql": "_MySQLSpec",
+    "postgres": "_PostgresSpec",
+    "trino": "_TrinoSpec",
+}
+
+_CONVENIENCE_FUNC_BY_BACKEND: dict[str, str] = {
+    "clickhouse": "clickhouse",
+    "duckdb": "duckdb",
+    "mysql": "mysql",
+    "postgres": "postgres",
+    "trino": "trino",
+}
+
+
 def _write_datasource_file(
     *,
     spec: DatasourceSpec,
@@ -34,17 +52,32 @@ def _write_datasource_file(
 ) -> Path:
     path = datasource_path(spec.name, project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    kwargs = {"name": spec.name, "backend_type": spec.backend_type, **dict(spec.fields)}
+    func_name = _CONVENIENCE_FUNC_BY_BACKEND[spec.backend_type]
+    # Separate declared fields from extra fields.
+    declared_names = {
+        f.name for f in dataclass_fields(spec) if f.name not in ("fields", "env_refs")
+    }
+    declared_kwargs: dict[str, Any] = {}
+    extra_kwargs: dict[str, Any] = {}
+    for key, value in spec.fields.items():
+        if key in declared_names:
+            declared_kwargs[key] = value
+        else:
+            extra_kwargs[key] = value
+    kwargs: dict[str, Any] = {"name": spec.name, **declared_kwargs}
     # Only write explicit *_env overrides; conventional names are implied.
     for stem, env_var in spec.env_refs.items():
         if env_var == conventional_env_var(spec.name, stem):
             continue
         kwargs[f"{stem}_env"] = env_var
-    lines = ["import marivo.datasource as md", "", "datasource = md.DatasourceSpec("]
+    if spec.description is not None:
+        kwargs["description"] = spec.description
+    if extra_kwargs:
+        kwargs["extra"] = extra_kwargs
+    lines = ["import marivo.datasource as md", "", f"md.{func_name}("]
     for key, value in kwargs.items():
         lines.append(f"    {key}={_literal(value)},")
     lines.append(")")
-    lines.append("md.datasource(datasource)")
     path.write_text("\n".join(lines) + "\n")
     return path
 

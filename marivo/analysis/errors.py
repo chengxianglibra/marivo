@@ -471,34 +471,6 @@ class PromotionFailedError(AnalysisError):
         target_kind = self.details.get("target_kind")
         missing = self.details.get("missing")
         target = target_kind if isinstance(target_kind, str) and target_kind else "frame"
-        missing_columns = self.details.get("missing_columns")
-        if isinstance(missing_columns, list) and missing_columns:
-            available = self.details.get("available_columns")
-            available_list = (
-                ", ".join(map(str, available))
-                if isinstance(available, list) and available
-                else "(none)"
-            )
-            return {
-                "location": f"session.promote_{target}",
-                "cause": (
-                    "the source dataframe has no column(s): "
-                    f"{', '.join(map(str, missing_columns))}. "
-                    f"Available columns: {available_list}. measure_column, every axes key, "
-                    "and the time_axis column must each name an existing dataframe column."
-                ),
-                "fix_snippet": (
-                    "# axes and time_axis map a *dataframe column name* to a catalog ref:\n"
-                    "session.promote_metric_frame(\n"
-                    "    scratch,\n"
-                    '    axes={"<df_column>": session.catalog.get("<dimension_ref>").ref},\n'
-                    '    time_axis={"<df_time_column>": '
-                    'session.catalog.get("<time_dimension_ref>").ref},\n'
-                    "    ...,\n"
-                    ")"
-                ),
-                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
-            }
         if isinstance(missing, list) and missing:
             missing_fields = {str(field) for field in missing}
             return {
@@ -519,37 +491,9 @@ class PromotionFailedError(AnalysisError):
                 "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
         ambiguous = self.details.get("ambiguous")
-        ambiguous_list = ambiguous if isinstance(ambiguous, list) else []
-        time_axis_issue = next(
-            (
-                str(item)
-                for item in ambiguous_list
-                if str(item).startswith("time_axis_requires_column:")
-                or str(item).startswith("time_axis_single_entry:")
-            ),
-            None,
-        )
-        if time_axis_issue is not None:
-            ref_hint = time_axis_issue.split(":", 1)[1]
-            return {
-                "location": f"session.promote_{target}",
-                "cause": (
-                    "time_axis must map exactly one dataframe column to one catalog time ref; "
-                    f"got {ref_hint!r}. A bare ref does not say which dataframe column holds "
-                    "the time values."
-                ),
-                "fix_snippet": (
-                    "# pass a {column: ref} mapping (symmetric with axes):\n"
-                    'time_axis={"bucket_start": '
-                    'session.catalog.get("sales.orders.created_at").ref}\n'
-                    "# or, when the column name is already the identifier:\n"
-                    'time_axis="bucket_start"'
-                ),
-                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
-            }
         catalog_misses = [
             str(item).removeprefix("metric_not_in_catalog:")
-            for item in ambiguous_list
+            for item in (ambiguous if isinstance(ambiguous, list) else [])
             if str(item).startswith("metric_not_in_catalog:")
         ]
         if catalog_misses:
@@ -751,7 +695,7 @@ class NoBackendFactoryError(AnalysisError):
                     "import marivo.datasource as md\n"
                     "\n"
                     "# Recommended: persist the project datasource config once.\n"
-                    'md.register(md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:"))\n'
+                    'md.register(md.DuckDBSpec(name="tiny_orders", path=":memory:"))\n'
                     'session = mv.session.get_or_create(name="analysis")  # auto-loads from datasource\n'
                     "\n"
                     "# Or pass an explicit factory (no datasource lookup):\n"
@@ -774,7 +718,7 @@ class NoBackendFactoryError(AnalysisError):
                 "import marivo.analysis as mv\n"
                 "import marivo.datasource as md\n"
                 "\n"
-                'md.register(md.DatasourceSpec(name="tiny_orders", backend_type="duckdb", path=":memory:"))\n'
+                'md.register(md.DuckDBSpec(name="tiny_orders", path=":memory:"))\n'
             ),
             "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }

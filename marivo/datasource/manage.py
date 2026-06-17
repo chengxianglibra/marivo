@@ -13,7 +13,9 @@ from typing import Any, Literal
 from marivo.datasource import backends as _backends
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
-from marivo.datasource.authoring import DatasourceSpec
+from marivo.datasource.authoring import (
+    DatasourceSpec,
+)
 from marivo.datasource.errors import DatasourceMissingError, DatasourcePreviewError
 from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.metadata import TableMetadata
@@ -67,7 +69,7 @@ class DatasourceSummary:
         print(self.render())
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class DatasourceDescription:
     """Literal fields and env refs for one datasource."""
 
@@ -75,6 +77,27 @@ class DatasourceDescription:
     backend_type: str
     literal_fields: dict[str, Any]
     env_refs: dict[str, str]
+
+    def _repr_identity(self) -> str:
+        return (
+            f"DatasourceDescription name={self.name} backend={self.backend_type} "
+            f"fields={len(self.literal_fields)} env_refs={len(self.env_refs)}"
+        )
+
+    def render(self) -> str:
+        field_names = sorted(self.literal_fields)[:8]
+        env_ref_names = sorted(self.env_refs)[:8]
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            columns=field_names + [f"{name}_env" for name in env_ref_names],
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 @dataclass(frozen=True, repr=False)
@@ -112,20 +135,22 @@ def register(
     """Create or replace a project datasource file from a DatasourceSpec.
 
     Args:
-        spec: Validated datasource specification with name, backend_type,
-            and connection fields.
+        spec: An internal backend datasource spec such as ``_DuckDBSpec`` or ``_TrinoSpec``.
         project_root: Optional project root directory; defaults to cwd.
 
     Returns:
         A ``DatasourceSummary`` for the newly stored datasource.
 
     Example:
+        >>> from marivo.datasource.authoring import _DuckDBSpec
         >>> import marivo.datasource as md
-        >>> md.register(md.DatasourceSpec(name="wh", backend_type="duckdb", path=":memory:"))
+        >>> md.register(_DuckDBSpec(name="wh", path=":memory:"))
 
     Constraints:
-        The name must be a flat identifier (no dots).  Sensitive fields
-        (password, token, key) must use ``*_env`` references, not literals.
+        Use one of the internal backend specs such as ``_DuckDBSpec`` or
+        ``_TrinoSpec``. Sensitive fields use named ``*_env`` references, not
+        plaintext literals or generic keyword bags. For datasource file
+        authoring, prefer ``md.duckdb()``, ``md.trino()``, etc.
     """
     stored = _store.save_one(spec, project_root=project_root)
     return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)

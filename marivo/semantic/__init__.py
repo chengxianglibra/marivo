@@ -21,7 +21,6 @@ Public surface::
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from marivo.datasource.scan import ScanScope
@@ -290,7 +289,7 @@ def prepare_relationship(
     *,
     from_entity: str,
     to_entity: str,
-    keys: Sequence[JoinKey | tuple[str, str]],
+    keys: list[tuple[str, str]],
     scope: ScanScope | None = None,
 ) -> RelationshipBrief:
     """Prepare a relationship authoring brief with join-key probe evidence."""

@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from marivo.datasource.authoring import DatasourceRef, DatasourceSpec, datasource, ref
+from marivo.datasource.authoring import (
+    DatasourceRef,
+    clickhouse,
+    duckdb,
+    mysql,
+    postgres,
+    ref,
+    trino,
+)
 from marivo.datasource.catalog import DatasourceCatalog, load
 from marivo.datasource.help import help, help_text
 from marivo.datasource.ir import (
@@ -62,7 +70,6 @@ __all__ = [
     "DatasourceIR",
     "DatasourceRef",
     "DatasourceSourceLocation",
-    "DatasourceSpec",
     "DatasourceSummary",
     "DatasourceTestResult",
     "JoinKeyProbe",
@@ -76,10 +83,11 @@ __all__ = [
     "ScanReport",
     "ScanScope",
     "TableMetadata",
+    "clickhouse",
     "connect",
     "csv",
-    "datasource",
     "describe",
+    "duckdb",
     "help",
     "help_text",
     "inspect_columns",
@@ -87,7 +95,9 @@ __all__ = [
     "inspect_table",
     "list",
     "load",
+    "mysql",
     "parquet",
+    "postgres",
     "preview",
     "probe_join_keys",
     "ref",
@@ -95,4 +105,5 @@ __all__ = [
     "remove",
     "table",
     "test",
+    "trino",
 ]

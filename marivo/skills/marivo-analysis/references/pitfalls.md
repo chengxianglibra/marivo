@@ -89,33 +89,6 @@ artifact refs such as `mv.ArtifactRef("frame_delta")`.
 No metadata is auto-inferred: every required field comes from an explicit
 argument or a `mv.PromotionPolicy(semantic_anchors=...)` fallback.
 
-**Cause (missing columns):** The error details contain `missing_columns`. A
-column you named — `measure_column`, an `axes` key, or the `time_axis` column —
-is not present in the dataframe. `axes` and `time_axis` map a *dataframe column
-name* to a catalog ref, so the key/column must match a real dataframe column.
-
-**Action:** Read `available_columns` from the error details and pass the matching
-column name. Both `axes` and `time_axis` use the same `{column: ref}` shape:
-
-```python
-metric = session.promote_metric_frame(
-    scratch,
-    metric=session.catalog.get("sales.revenue"),
-    semantic_kind="time_series",
-    measure_column="value",
-    time_axis={"bucket_start": session.catalog.get("sales.orders.created_at").ref},
-    semantic_model="sales",
-)
-```
-
-**Cause (bare time_axis ref):** The error details contain
-`time_axis_requires_column:<ref>`. A bare catalog ref was passed as `time_axis`,
-which does not name the dataframe column that holds the time values.
-
-**Action:** Pass a single-entry `{column: ref}` mapping (decoupled, like `axes`),
-or a plain column-name string when the column already is the identifier:
-`time_axis="bucket_start"`.
-
 **Cause (catalog miss):** The error details contain
 `metric_not_in_catalog:<id>`. The session has a ready semantic catalog with
 metrics defined, and the promoted metric id is not one of them.

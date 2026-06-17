@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
+from marivo.datasource.authoring import _DuckDBSpec
 from marivo.semantic import ledger as lg
 from marivo.semantic.dtos import DimensionBrief
 from marivo.semantic.errors import LadderOrderError
@@ -27,7 +28,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
     )
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     return semantic_project_factory(
@@ -75,7 +76,7 @@ def _duckdb_project_with_two_entities(tmp_path: Path, semantic_project_factory):
     )
     con.disconnect()
     md.register(
-        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     return semantic_project_factory(

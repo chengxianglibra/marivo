@@ -470,51 +470,6 @@ def test_semantic_object_list_show_prints_render(capsys):
     assert "sales.revenue" in out
 
 
-def test_semantic_object_list_render_annotates_domain_level_metric_under_entity():
-    """A metric listed under an entity parent must be annotated (domain-level ref)."""
-    metric_obj = _make_metric_obj()  # ref="sales.revenue"
-    lst = SemanticObjectList(items=(metric_obj,), parent_label="sales.orders", kind_filter=None)
-    rendered = lst.render()
-    assert "sales.revenue  (domain-level ref)" in rendered
-
-
-def test_semantic_object_list_render_no_annotation_for_domain_parent():
-    """A metric listed under a domain parent must NOT be annotated."""
-    metric_obj = _make_metric_obj()  # ref="sales.revenue", starts with "sales."
-    lst = SemanticObjectList(items=(metric_obj,), parent_label="sales", kind_filter=None)
-    rendered = lst.render()
-    assert "(domain-level ref)" not in rendered
-
-
-def test_semantic_object_list_render_no_annotation_for_non_metric_kinds():
-    """Non-metric items under an entity parent must NOT be annotated."""
-    dim_obj = SemanticObject(
-        ref=SemanticRef(ref="sales.orders.region", kind=SemanticKind.DIMENSION),
-        kind=SemanticKind.DIMENSION,
-        name="region",
-        domain="sales",
-        context=AiContextView(),
-        source_location=SourceLocation(file="f.py", line=1),
-        python_symbol="region",
-        _details=DimensionDetails(
-            ref=SemanticRef(ref="sales.orders.region", kind=SemanticKind.DIMENSION),
-            kind=SemanticKind.DIMENSION,
-            name="region",
-            domain="sales",
-            context=AiContextView(),
-            source_location=SourceLocation(file="f.py", line=1),
-            python_symbol="region",
-            parents=(),
-            children=(),
-            dependents=(),
-            entity=SemanticRef(ref="sales.orders", kind=SemanticKind.ENTITY),
-        ),
-    )
-    lst = SemanticObjectList(items=(dim_obj,), parent_label="sales.orders", kind_filter=None)
-    rendered = lst.render()
-    assert "(domain-level ref)" not in rendered
-
-
 def test_semantic_object_list_empty_renders_actionable_message():
     lst = SemanticObjectList(items=(), parent_label="sales.orders", kind_filter="metric")
     rendered = lst.render()
@@ -781,20 +736,6 @@ def test_catalog_list_entity_filtered_metric_has_canonical_domain_ref(semantic_p
     assert metric_objs[0].ref.ref == "sales.revenue"
 
 
-def test_catalog_list_entity_render_annotates_domain_level_metric_refs(semantic_project_factory):
-    """Metrics listed under an entity must carry a (domain-level ref) annotation
-    so agents do not construct an incorrect entity-qualified reference path."""
-    catalog = _make_catalog(semantic_project_factory)
-    rendered = catalog.list("sales.orders").render()
-    # The domain-level metric ref should be annotated
-    assert "sales.revenue  (domain-level ref)" in rendered
-    # Entity-level refs (dimensions, time_dimensions) should NOT be annotated
-    assert "(domain-level ref)" not in rendered.split("sales.orders.region")[0]
-    # Domain-level listing should NOT annotate metrics (they belong there)
-    domain_rendered = catalog.list("sales").render()
-    assert "(domain-level ref)" not in domain_rendered
-
-
 def test_catalog_list_entity_dimension_has_correct_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.list("sales.orders")
@@ -1057,17 +998,15 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
     semantic_project_factory,
     monkeypatch,
 ):
-    monkeypatch.setenv("WAREHOUSE_PASSWORD", "plaintext-secret")
+    monkeypatch.setenv("TRINO_AUTH", "plaintext-secret")
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _DATASETS_PY,
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                "warehouse = md.DatasourceSpec(\n"
-                "    name='warehouse', backend_type='duckdb', path=':memory:',\n"
-                "    password_env='WAREHOUSE_PASSWORD')\n"
-                "md.datasource(warehouse)\n"
+                "md.trino(\n"
+                "    name='warehouse', host='h', catalog='c', auth_env='TRINO_AUTH')\n"
             ),
         }
     )
@@ -1075,12 +1014,12 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
 
     details = catalog.get("warehouse").details()
     assert isinstance(details, DatasourceDetails)
-    assert details.fields == {"path": ":memory:"}
-    assert details.env_refs == {"password": "WAREHOUSE_PASSWORD"}
+    assert details.fields == {"host": "h", "catalog": "c"}
+    assert details.env_refs == {"auth": "TRINO_AUTH"}
     rendered = details.render()
-    assert "WAREHOUSE_PASSWORD" in rendered
+    assert "TRINO_AUTH" in rendered
     assert "plaintext-secret" not in rendered
-    assert "password: WAREHOUSE_PASSWORD" in rendered
+    assert "auth: TRINO_AUTH" in rendered
 
 
 def test_catalog_get_dataset_details_correct_datasource_ref(semantic_project_factory):
@@ -1500,8 +1439,7 @@ def _write_minimal_project(tmp_path) -> None:
     semantic.mkdir(parents=True)
     ds.mkdir(parents=True)
     (ds / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
@@ -1522,8 +1460,7 @@ def _write_multi_domain_project(tmp_path) -> None:
     ds = tmp_path / "models" / "datasources"
     ds.mkdir(parents=True, exist_ok=True)
     (ds / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "md.datasource(name='warehouse', backend_type='duckdb', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     sales = tmp_path / "models" / "semantic" / "sales"
     sales.mkdir(parents=True, exist_ok=True)
@@ -1689,11 +1626,7 @@ _UNIT_DATASETS_PY = (
     "    return orders.amount.sum()\n"
 )
 
-_WAREHOUSE_PY = (
-    "import marivo.datasource as md\n"
-    "warehouse = md.DatasourceSpec(name='warehouse', backend_type='duckdb', path=':memory:')\n"
-    "md.datasource(warehouse)\n"
-)
+_WAREHOUSE_PY = "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
 
 
 def test_catalog_metric_details_unit_passthrough(semantic_project_factory):

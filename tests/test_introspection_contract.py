@@ -148,6 +148,16 @@ def _json_help(module: Any, symbol: str | None = None) -> dict[str, Any]:
     return cast("dict[str, Any]", data)
 
 
+def _hidden_names_for(module: Any) -> frozenset[str]:
+    """Return names hidden from the top-level help index for a surface."""
+    help_mod_name = getattr(module.help, "__module__", "")
+    if help_mod_name:
+        help_mod = __import__(help_mod_name, fromlist=["_surface"])
+        surface = help_mod._surface()
+        return surface.hidden_names
+    return frozenset()
+
+
 def _help_text(module: Any, name: str) -> str:
     if hasattr(module, "help_text"):
         if module.__name__ in {"marivo.analysis", "marivo.datasource"}:
@@ -192,7 +202,9 @@ def test_top_level_listing_matches_public_surface(
     entry_names = {entry["name"] for entry in data["entries"]}
     folded_names = {name for fam in data.get("families", []) for name in fam["members"]}
     assert entry_names.isdisjoint(folded_names)
-    assert entry_names | folded_names == set(module.__all__) | extra_names
+    assert entry_names | folded_names == (set(module.__all__) | extra_names) - _hidden_names_for(
+        module
+    )
     assert _json_size(data) < 12_000
 
 
@@ -203,7 +215,7 @@ def test_every_listed_name_resolves_to_descriptor(
     catalog: dict[Any, Any],
     extra_names: set[str],
 ) -> None:
-    names = set(module.__all__) | extra_names
+    names = (set(module.__all__) | extra_names) - _hidden_names_for(module)
     for name in sorted(names):
         data = _json_help(module, name)
         assert data["schema_version"] == "1"
@@ -339,11 +351,11 @@ def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
     assert "tier2" in content
 
 
-def test_datasource_spec_descriptor_lists_secret_env_constraint() -> None:
-    result = _json_help(md, "DatasourceSpec")
+def test_datasource_trino_descriptor_lists_secret_env_constraint() -> None:
+    result = _json_help(md, "trino")
 
-    assert result["kind"] == "class"
-    assert result["symbol"] == "DatasourceSpec"
+    assert result["kind"] == "callable"
+    assert result["symbol"] == "trino"
     constraints = cast("list[dict[str, Any]]", result["constraints"])
     assert {constraint["id"] for constraint in constraints} >= {"datasource_secret_env_ref"}
 
@@ -379,23 +391,23 @@ def test_datasource_constraint_defaults_use_error_details() -> None:
 def test_datasource_text_help_prints_and_can_be_suppressed(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    result = md.help("DatasourceSpec")
+    result = md.help("trino")
 
     captured = capsys.readouterr()
     assert result is None
-    assert "marivo.datasource: DatasourceSpec" in captured.out
+    assert "marivo.datasource: trino" in captured.out
 
-    suppressed = md.help("DatasourceSpec", print=False)
+    suppressed = md.help("trino", print=False)
     captured = capsys.readouterr()
     assert isinstance(suppressed, str)
-    assert "marivo.datasource: DatasourceSpec" in suppressed
+    assert "marivo.datasource: trino" in suppressed
     assert captured.out == ""
 
 
 def test_datasource_help_json_print_false_suppresses_stdout(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    result = md.help("DatasourceSpec", format="json", print=False)
+    result = md.help("trino", format="json", print=False)
     captured = capsys.readouterr()
     assert captured.out == ""
     assert isinstance(result, dict)

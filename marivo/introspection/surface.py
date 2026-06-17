@@ -30,11 +30,18 @@ _FAMILY_SUFFIXES: tuple[tuple[str, str], ...] = (
 )
 _OTHER_FAMILY = "Other types"
 _FAMILY_ORDER: tuple[str, ...] = (*(label for _, label in _FAMILY_SUFFIXES), _OTHER_FAMILY)
+
+
+def _family_order(surface: Surface) -> tuple[str, ...]:
+    surface_labels = tuple(label for _, label in surface.family_suffixes)
+    return (*surface_labels, *_FAMILY_ORDER)
+
+
 _ENUMERATED_KINDS: frozenset[Kind] = frozenset({"callable", "module", "topic"})
 
 
-def _family_label(name: str) -> str:
-    for suffix, label in _FAMILY_SUFFIXES:
+def _family_label(surface: Surface, name: str) -> str:
+    for suffix, label in (*surface.family_suffixes, *_FAMILY_SUFFIXES):
         if name.endswith(suffix):
             return label
     return _OTHER_FAMILY
@@ -55,6 +62,8 @@ class Surface:
     constructed_by: Mapping[str, str] = field(default_factory=dict)
     see_also: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     pinned_entries: tuple[str, ...] = ()
+    family_suffixes: tuple[tuple[str, str], ...] = ()
+    hidden_names: frozenset[str] = frozenset()
 
 
 def _catalog_by_id(surface: Surface) -> dict[str, Constraint]:
@@ -82,16 +91,18 @@ def _top_level_descriptor(surface: Surface) -> Descriptor:
     entries: list[TopLevelEntry] = []
     folded: dict[str, list[str]] = {}
     for name in surface.all_names:
+        if name in surface.hidden_names:
+            continue
         kind = _entry_kind(surface, name)
         if kind in _ENUMERATED_KINDS or name in surface.pinned_entries:
             entries.append(
                 TopLevelEntry(name=name, kind=kind, summary=surface.summaries.get(name, ""))
             )
         else:
-            folded.setdefault(_family_label(name), []).append(name)
+            folded.setdefault(_family_label(surface, name), []).append(name)
     families = tuple(
         FamilyFold(label=label, members=tuple(folded[label]))
-        for label in _FAMILY_ORDER
+        for label in _family_order(surface)
         if label in folded
     )
     return Descriptor(
