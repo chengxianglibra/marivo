@@ -284,7 +284,7 @@ gross_revenue_per_order = ms.ratio(
 
 ## Derived metrics
 
-Derived metrics use `ms.ratio` / `ms.weighted_average` / `ms.linear` and do not have Python bodies:
+Derived metrics use `ms.ratio` / `ms.weighted_average` / `ms.linear` and do not have Python bodies. For a runnable example, see `references/examples/04_derived_metrics.py`.
 
 ```python
 aov = ms.ratio(
