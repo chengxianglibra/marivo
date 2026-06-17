@@ -998,7 +998,7 @@ def _validate_sample_interval_granularity(
     elif isinstance(parse, TimestampParse):
         sample_ir = parse.sample_interval
         data_type_str = "timestamp"
-    elif isinstance(parse, StrptimeParse):
+    elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
         sample_ir = parse.sample_interval
         data_type_str = parse.data_type
     if sample_ir is None or data_type_str is None:
@@ -1663,7 +1663,13 @@ def strptime(
     )
 
 
-def hour_prefix(prefix: str, /, *, data_type: Literal["string", "integer"]) -> HourPrefixParse:
+def hour_prefix(
+    prefix: str,
+    /,
+    *,
+    data_type: Literal["string", "integer"],
+    sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
+) -> HourPrefixParse:
     """Declare an hour-only partition parse using a day prefix column.
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
@@ -1674,6 +1680,9 @@ def hour_prefix(prefix: str, /, *, data_type: Literal["string", "integer"]) -> H
         prefix: The semantic id of a day-level time dimension that supplies
             the date context for this hour column.
         data_type: ``"string"`` or ``"integer"`` — the physical column type.
+        sample_interval: Optional ``(count, unit)`` declaring the periodic
+            sampling cadence (e.g. ``(1, "hour")`` for hourly samples).
+            When set, the time dimension can serve as a sampled-fold axis.
 
     Returns:
         An ``HourPrefixParse`` value object.
@@ -1686,7 +1695,19 @@ def hour_prefix(prefix: str, /, *, data_type: Literal["string", "integer"]) -> H
         ...                    parse=ms.hour_prefix("ops.logs.dt", data_type="string"))
         ... def hh(logs):
         ...     return logs.hh
+        >>> @ms.time_dimension(entity=logs, granularity="hour",
+        ...                    parse=ms.hour_prefix("ops.logs.dt", data_type="string",
+        ...                                        sample_interval=(1, "hour")))
+        ... def hh(logs):
+        ...     return logs.hh
     """
     if data_type not in {"string", "integer"}:
         raise TypeError(f"hour_prefix() data_type must be 'string' or 'integer', got {data_type!r}")
-    return HourPrefixParse(prefix=prefix, data_type=data_type)
+    return HourPrefixParse(
+        prefix=prefix,
+        data_type=data_type,
+        sample_interval=_normalize_sample_interval_value(
+            sample_interval,
+            data_type=data_type,
+        ),
+    )

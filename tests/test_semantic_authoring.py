@@ -912,6 +912,52 @@ def test_strptime_time_dimension_coarser_granularity_error_suggests_fix() -> Non
         _exit_ctx()
 
 
+def test_hour_prefix_accepts_sample_interval() -> None:
+    from marivo.semantic.ir import HourPrefixParse
+
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.time_dimension(
+            entity="sales.bandwidth_samples",
+            granularity="hour",
+            parse=ms.hour_prefix(
+                "sales.bandwidth_samples.dt", data_type="string", sample_interval=(1, "hour")
+            ),
+        )
+        def hh(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        irs = [obj for obj, _ in ctx.pending_objects if isinstance(obj, DimensionIR)]
+        ir = irs[-1]
+        assert isinstance(ir.parse, HourPrefixParse)
+        assert ir.parse.sample_interval is not None
+        assert ir.parse.sample_interval.count == 1
+        assert ir.parse.sample_interval.unit == "hour"
+    finally:
+        _exit_ctx()
+
+
+def test_hour_prefix_rejects_sample_interval_day_unit() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.time_dimension(
+                entity="sales.bandwidth_samples",
+                granularity="hour",
+                parse=ms.hour_prefix(
+                    "sales.bandwidth_samples.dt", data_type="string", sample_interval=(1, "day")
+                ),  # type: ignore[arg-type]
+            )
+            def hh(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ms.metric() decorator
 # ---------------------------------------------------------------------------

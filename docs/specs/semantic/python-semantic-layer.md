@@ -417,7 +417,7 @@ def hh(orders):
 - `date_format` 必须是 Python strptime 格式串（`%` 前缀），例如 `"%Y%m%d"`、`"%Y-%m-%d"`、`"%Y%m%d%H"`、`"%Y-%m-%d %H:%M:%S"`。简写别名（`yyyymmdd`、`hh` 等）不再被接受；格式串原样传给 backend 的 `date_parse`，作者需按目标 backend 语义书写（参见下一节 `%M` 与 `%i` 注意事项）。`data_type` 为 `date`、`datetime`、`timestamp` 时不允许 `date_format`（列已是时间类型）；声明了 `required_prefix` 的 hour-only 字段也不允许 `date_format`（运行时用 `lpad(2, "0")` 归一化 hour 列）。
 - `granularity` 支持 `year` | `quarter` | `month` | `week` | `day` | `hour` | `minute` | `second`。`minute` 和 `second` 要求 `data_type` 为 `datetime` 或 `timestamp`；`hour` 在非 timestamp 类型上必须声明 `required_prefix`。
 - `data_type` 必须与 body 返回的 ibis dtype 兼容：`.cast("date")` → `data_type="date"`；`.cast("timestamp")` 或原始 timestamp 列 → `data_type="datetime"` 或 `"timestamp"`。不匹配时执行器 TypeError。
-- hour-only 字段（例如 `data_type="string"` 或 `data_type="integer"`，且列只存小时数值）必须显式声明 `required_prefix` 且不得声明 `date_format`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。
+- hour-only 字段（例如 `data_type="string"` 或 `data_type="integer"`，且列只存小时数值）必须显式声明 `required_prefix` 且不得声明 `date_format`；timestamp/datetime hour 字段或单列完整 hour 格式不需要。hour-only 字段支持可选的 `sample_interval`，使其可作为 sampled semi-additive metric 的时间轴。
 - 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `dimension` / `time_dimension`，再在 metric 中引用。
 - `@ms.dimension` / `@ms.time_dimension` 不要求 provenance status。它们的可信度来自所属 entity、row-level 表达式可读性和 materialization 校验。`provenance` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
 - `is_default` (optional, default `False`): Mark this dimension as the default time axis
@@ -599,7 +599,7 @@ def gmv_with_items(orders, order_items):
 
 ### Sampled Semi-Additive Metrics
 
-Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inventory, or device-reported rates. The time dimension declares physical precision with `granularity` and reporting cadence with `sample_interval`; the metric declares the business status axis and fold. `sample_interval` is supported on native `ms.datetime(...)` / `ms.timestamp(...)` parses and on string/integer `ms.strptime(...)` parses; `ms.hour_prefix(...)` is not a sampled-fold axis.
+Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inventory, or device-reported rates. The time dimension declares physical precision with `granularity` and reporting cadence with `sample_interval`; the metric declares the business status axis and fold. `sample_interval` is supported on native `ms.datetime(...)` / `ms.timestamp(...)` parses, on string/integer `ms.strptime(...)` parses, and on `ms.hour_prefix(...)` parses.
 
 ```python
 @ms.time_dimension(

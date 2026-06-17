@@ -185,8 +185,12 @@ def sample_point_table(
     sample_grain: Grain,
     session_tz: Any,
     window: Any,
+    dataset_ir: Any | None = None,
 ) -> Any:
-    from marivo.analysis.executor.runner import bucket_time_expression
+    from marivo.analysis.executor.runner import (
+        bucket_time_expression,
+        combine_prefix_hour_to_timestamp,
+    )
 
     raw = time_field_ir.fn(table)
     time_meta = time_field_ir.time_meta
@@ -209,9 +213,38 @@ def sample_point_table(
             window=window,
         )
         return table.mutate(sample_point=sample_point)
+    if getattr(time_meta, "parse_kind", None) == "hour_prefix":
+        if dataset_ir is None:
+            raise_observe_planning_error(
+                code="status-time-dimension-unsupported-type",
+                message="hour_prefix sampled time dimensions require dataset context.",
+                candidates={"time_dimension": time_field_ir.semantic_id},
+                repair=[],
+            )
+        combined_ts = combine_prefix_hour_to_timestamp(
+            table,
+            hour_field_ir=time_field_ir,
+            dataset_ir=dataset_ir,
+        )
+        import types
+
+        synthetic_meta = types.SimpleNamespace(
+            data_type="timestamp",
+            granularity=time_meta.granularity,
+            timezone=str(session_tz),
+            format=None,
+        )
+        sample_point = bucket_time_expression(
+            combined_ts,
+            time_meta=synthetic_meta,
+            grain=sample_grain,
+            session_tz=session_tz,
+            window=window,
+        )
+        return table.mutate(sample_point=sample_point)
     raise_observe_planning_error(
         code="status-time-dimension-unsupported-type",
-        message="sampled folds require a datetime, timestamp, or strptime sampled time dimension.",
+        message="sampled folds require a datetime, timestamp, strptime, or hour_prefix sampled time dimension.",
         candidates={"time_dimension": time_field_ir.semantic_id, "data_type": time_meta.data_type},
         repair=[],
     )

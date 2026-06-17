@@ -668,6 +668,7 @@ def _execute_sampled_base(
         sample_grain=sample_grain,
         session_tz=cast("ZoneInfo", session.tz),
         window=resolved_window,
+        dataset_ir=root_adapter,
     )
     dimension_names = [dimension.column for dimension in plan.dimensions]
     metric_datasets = tuple(metric_ir.entities)
@@ -1042,6 +1043,7 @@ def _execute_folded_component(
         sample_grain=sample_grain,
         session_tz=cast("ZoneInfo", session.tz),
         window=resolved_window,
+        dataset_ir=root_adapter,
     )
     dimension_names = [dimension.column for dimension in cp.base_plan.dimensions]
     dataset_tables = dict.fromkeys(component_datasets, table)

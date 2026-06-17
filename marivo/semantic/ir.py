@@ -290,6 +290,7 @@ class StrptimeParse:
 class HourPrefixParse:
     prefix: str
     data_type: Literal["string", "integer"]
+    sample_interval: SampleIntervalIR | None = None
     kind: Literal["hour_prefix"] = "hour_prefix"
 
 
