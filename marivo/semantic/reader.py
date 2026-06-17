@@ -26,6 +26,7 @@ from marivo.semantic.dtos import (
     DimensionBrief,
     DomainBrief,
     EntityBrief,
+    MeasureBrief,
     MetricBrief,
     RelationshipBrief,
     TimeDimensionBrief,
@@ -623,13 +624,27 @@ class SemanticProject:
             scope=scope,
         )
 
+    def prepare_measure(
+        self,
+        *,
+        entity: str,
+        column: str,
+        scope: ScanScope | None = None,
+    ) -> MeasureBrief:
+        """Prepare a measure authoring brief for one entity column."""
+        self._require_entity_verified(entity, "prepare_measure")
+        from marivo.semantic.prepare import prepare_measure
+
+        if scope is None:
+            scope = ScanScope()
+        return prepare_measure(self, entity=entity, column=column, scope=scope)
+
     def prepare_relationship(
         self,
         *,
         from_entity: str,
         to_entity: str,
-        from_dimensions: Sequence[str],
-        to_dimensions: Sequence[str],
+        keys: Sequence[tuple[str, str]],
         scope: ScanScope | None = None,
     ) -> RelationshipBrief:
         """Prepare a relationship authoring brief with join-key probe evidence."""
@@ -643,8 +658,7 @@ class SemanticProject:
             self,
             from_entity=from_entity,
             to_entity=to_entity,
-            from_dimensions=from_dimensions,
-            to_dimensions=to_dimensions,
+            keys=keys,
             scope=scope,
         )
 
@@ -812,6 +826,16 @@ class SemanticProject:
                 scan=None,
                 auto_recorded=(),
             )
+        if kind == "measure":
+            return VerifyResult(
+                status="passed",
+                ref=ref,
+                kind="measure",
+                issues=(),
+                warnings=(),
+                scan=None,
+                auto_recorded=(),
+            )
         if kind == "time_dimension":
             from marivo.semantic.ir import (
                 DateParse,
@@ -891,6 +915,8 @@ class SemanticProject:
         if ref in self._registry.dimensions:
             field = self._registry.dimensions[ref]
             return "time_dimension" if field.is_time_dimension else "dimension"
+        if ref in self._registry.measures:
+            return "measure"
         if ref in self._registry.metrics:
             metric = self._registry.metrics[ref]
             return "derived_metric" if metric.metric_type == "derived" else "metric"

@@ -45,6 +45,7 @@ AuthoringObjectKind = Literal[
     "entity",
     "dimension",
     "time_dimension",
+    "measure",
     "metric",
     "derived_metric",
     "relationship",
@@ -346,9 +347,14 @@ class EntityBrief(_BriefResult):
 
 @dataclass(frozen=True)
 class FormatCandidate:
-    strptime: str
+    variant: Literal["date", "datetime", "timestamp", "strptime", "hour_prefix"]
     match_rate: float
     backend_caveats: tuple[str, ...]
+    strptime_format: str | None = None
+    data_type: str | None = None
+    timezone: str | None = None
+    sample_interval: str | None = None
+    prefix: str | None = None
 
 
 @dataclass(frozen=True, repr=False)
@@ -382,7 +388,9 @@ class TimeDimensionBrief(_BriefResult):
         metadata={"description": "Bounded-sample profile for the column."}
     )
     detected_formats: tuple[FormatCandidate, ...] = field(
-        metadata={"description": "strptime format matches with backend caveats."}
+        metadata={
+            "description": "Parse-variant candidates describing which ms.date/datetime/timestamp/strptime/hour_prefix to author."
+        }
     )
     value_range: tuple[object | None, object | None] = field(
         metadata={"description": "Sample-local (min, max) of the column."}
@@ -438,15 +446,36 @@ class MetricBrief(_BriefResult):
 
 
 @dataclass(frozen=True, repr=False)
+class MeasureBrief(_BriefResult):
+    status: BriefStatus = field(metadata={"description": _STATUS_DOC})
+    entity: str = field(metadata={"description": "Entity ref the measure column belongs to."})
+    column: str = field(metadata={"description": "The inspected source column."})
+    profile: ScanColumnProfile = field(  # from marivo.datasource.scan
+        metadata={"description": "Bounded-sample profile for the column."}
+    )
+    additivity_hint: Literal["additive", "non_additive", "semi_additive", "unknown"] = field(
+        metadata={"description": "Inferred additivity hint based on column type and values."}
+    )
+    matches: tuple[RegisteredMatch, ...] = field(metadata={"description": _MATCHES_DOC})
+    questions: tuple[AuthoringQuestion, ...] = field(metadata={"description": _QUESTIONS_DOC})
+    issues: tuple[AssessmentIssue, ...] = field(metadata={"description": _ISSUES_DOC})
+    scan: ScanReport = field(  # from marivo.datasource.scan
+        metadata={"description": _SCAN_DOC}
+    )
+
+    def _repr_identity(self) -> str:
+        return f"MeasureBrief entity={self.entity} column={self.column} status={self.status}"
+
+
+@dataclass(frozen=True, repr=False)
 class RelationshipBrief(_BriefResult):
     status: BriefStatus = field(metadata={"description": _STATUS_DOC})
     from_entity: str = field(metadata={"description": "From-side entity ref."})
     to_entity: str = field(metadata={"description": "To-side entity ref."})
-    from_dimensions: tuple[str, ...] = field(
-        metadata={"description": "From-side join-key dimension refs."}
-    )
-    to_dimensions: tuple[str, ...] = field(
-        metadata={"description": "To-side join-key dimension refs."}
+    keys: tuple[tuple[str, str], ...] = field(
+        metadata={
+            "description": "Join-key pairs as (from_key, to_key) matching ms.join_on(left, right)."
+        }
     )
     probe: JoinKeyProbe = field(  # from marivo.datasource.scan
         metadata={"description": "Key match rate, cardinality, and scan reports for the join."}

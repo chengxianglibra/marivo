@@ -370,7 +370,7 @@ def test_prepare_metric_warns_on_shadowing_measure_column(
 # ---------------------------------------------------------------------------
 
 
-def test_prepare_relationship_uses_join_probe(tmp_path: Path, semantic_project_factory) -> None:
+def test_prepare_relationship_uses_keys_parameter(tmp_path: Path, semantic_project_factory) -> None:
     import ibis
 
     import marivo.datasource as md
@@ -410,12 +410,12 @@ def test_prepare_relationship_uses_join_probe(tmp_path: Path, semantic_project_f
     brief = project.prepare_relationship(
         from_entity="sales.orders",
         to_entity="sales.customers",
-        from_dimensions=("sales.orders.customer_id",),
-        to_dimensions=("sales.customers.customer_id",),
+        keys=[("sales.orders.customer_id", "sales.customers.customer_id")],
         scope=md.ScanScope(partition=None),
     )
 
     assert brief.status == "sufficient"
+    assert brief.keys == (("sales.orders.customer_id", "sales.customers.customer_id"),)
     assert brief.probe.sampled_key_count == 3
     assert brief.probe.matched_key_count == 2
 
@@ -505,3 +505,134 @@ def test_prepare_derived_metric_weighted_average_unit_hint_keeps_value(
     brief = project.prepare_derived_metric(numerator="sales.price", weight="sales.qty")
 
     assert brief.unit_hint == "CNY"
+
+
+def test_prepare_domain_includes_measure_in_object_counts(
+    semantic_project_factory,
+):
+    project = semantic_project_factory(
+        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+    )
+    project.load()
+
+    brief = project.prepare_domain(name="sales")
+
+    assert "measure" in brief.existing_domains[0].object_counts
+
+
+def test_prepare_measure_profiles_numeric_column(tmp_path: Path, semantic_project_factory) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table("orders", {"order_id": [1, 2], "amount": [100.0, 200.0]})
+    con.disconnect()
+
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales')\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+            )
+        },
+        workspace_dir=tmp_path,
+    )
+    project.load()
+    project.verify_object("sales.orders")
+
+    brief = project.prepare_measure(
+        entity="sales.orders",
+        column="amount",
+        scope=md.ScanScope(partition=None),
+    )
+
+    assert brief.entity == "sales.orders"
+    assert brief.column == "amount"
+    assert brief.additivity_hint in ("additive", "non_additive", "semi_additive", "unknown")
+    assert brief.status == "sufficient"
+
+
+def test_prepare_time_dimension_emits_variant_candidates(
+    tmp_path: Path, semantic_project_factory
+) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table("orders", {"order_id": [1, 2], "dt": ["20260611", "20260612"]})
+    con.disconnect()
+
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales')\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+            )
+        },
+        workspace_dir=tmp_path,
+    )
+    project.load()
+    project.verify_object("sales.orders")
+
+    brief = project.prepare_time_dimension(
+        entity="sales.orders",
+        column="dt",
+        scope=md.ScanScope(partition=None),
+    )
+
+    assert len(brief.detected_formats) > 0
+    first = brief.detected_formats[0]
+    assert first.variant == "strptime"
+    assert first.strptime_format is not None
+    assert first.match_rate == 1.0
+
+
+def test_prepare_measure_blocks_unknown_column(tmp_path: Path, semantic_project_factory) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table("orders", {"order_id": [1, 2], "status": ["open", "closed"]})
+    con.disconnect()
+
+    md.register(
+        md.DatasourceSpec(name="warehouse", backend_type="duckdb", path=str(db_path)),
+        project_root=tmp_path,
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales')\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+            )
+        },
+        workspace_dir=tmp_path,
+    )
+    project.load()
+    project.verify_object("sales.orders")
+
+    brief = project.prepare_measure(
+        entity="sales.orders",
+        column="missing_col",
+        scope=md.ScanScope(partition=None),
+    )
+
+    assert brief.status == "blocked"
+    assert brief.issues[0].kind == "missing_column"
