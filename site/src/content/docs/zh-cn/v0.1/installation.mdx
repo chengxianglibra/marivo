@@ -1,0 +1,32 @@
+---
+slug: zh-cn/v0.1/installation
+title: 安装
+description: 安装 Marivo，并为你的 datasource 选择对应 backend extra。
+---
+
+Marivo 需要 Python 3.12 或更高版本。
+
+从 PyPI 安装基础库：
+
+```bash
+pip install marivo
+```
+
+根据要查询的 datasource 安装 backend extra：
+
+| Backend | 安装命令 |
+| --- | --- |
+| DuckDB | `pip install "marivo[duckdb]"` |
+| MySQL | `pip install "marivo[mysql]"` |
+| Trino | `pip install "marivo[trino]"` |
+| 所有已打包 backends | `pip install "marivo[all]"` |
+
+Marivo 是 Python library，不是托管服务。部署 Marivo project 的方式是在 agent 运行环境安装 library，提交 datasource 和 semantic declarations，并通过 `*_env` 字段引用的环境变量提供 datasource secrets。
+
+从当前仓库进行本地开发：
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev,duckdb,trino]"
+.venv/bin/python -c "import marivo; print(marivo.__name__)"
+```

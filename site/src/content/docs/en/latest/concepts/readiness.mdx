@@ -1,0 +1,10 @@
+---
+title: Readiness
+description: The gate that keeps incomplete semantic objects out of analysis.
+---
+
+`catalog.readiness()` checks whether semantic objects are complete enough for analysis. It reports blockers, warnings, backend access status, parity status, and enrichment issues.
+
+A new project can load successfully while readiness is still blocked. Agents should inspect `report.show()` and resolve missing definitions, source access, preview, parity, or enrichment work before running metric analysis.
+
+Readiness keeps agents from reasoning over half-specified semantics.

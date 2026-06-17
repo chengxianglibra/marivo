@@ -1,0 +1,10 @@
+---
+title: Analysis Workflow
+description: Metric-centered sessions and typed frames for repeatable agent analysis.
+---
+
+Every Marivo analysis starts from a metric. An agent opens a session with a guiding question, resolves a metric from the semantic catalog, and chains operators through typed frames.
+
+Core operators include `observe`, `compare`, `decompose`, `correlate`, `forecast`, and `assess_quality`. Each operator returns a typed result such as `MetricFrame`, `DeltaFrame`, `AttributionFrame`, `AssociationResult`, `ForecastFrame`, or `QualityReport`.
+
+Frames are persisted under project-local `.marivo/` state and carry lineage so later steps can explain which inputs produced each result.

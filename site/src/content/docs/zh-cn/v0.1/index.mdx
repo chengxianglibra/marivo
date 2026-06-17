@@ -1,0 +1,39 @@
+---
+slug: zh-cn/v0.1
+title: Marivo
+description: 面向 AI agents 的指标中心分析运行时。
+template: splash
+hero:
+  tagline: 面向 AI agents 的指标中心分析运行时。
+  image:
+    alt: Marivo
+    file: ../../../../assets/marivo-mark.svg
+  actions:
+    - text: 安装 Marivo
+      link: /zh-cn/v0.1/installation/
+      icon: right-arrow
+    - text: 查看 GitHub
+      link: https://github.com/lumendata/marivo
+      variant: secondary
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Marivo 是一个 Python library，不是托管服务。它为 AI agents 提供类型化语义层、指标中心分析流程，以及可审计的证据链。
+
+Marivo 不是 text-to-SQL wrapper。Python declarations 是契约，ibis expressions 是执行语言，typed frames 是分析步骤之间的边界。
+
+<CardGrid>
+  <Card title="统一语义" icon="seti:data">
+    Datasources、entities、metrics、dimensions 和 relationships 使用 Python 声明，并通过 semantic refs 被 agents 引用。
+  </Card>
+  <Card title="指标中心分析" icon="seti:python">
+    Agents 从可信 metrics 出发，组合 observe、compare、decompose、correlate、forecast 和质量检查。
+  </Card>
+  <Card title="可信证据" icon="seti:config">
+    Operators 会记录 findings、propositions 和 assessments，让结果可以追踪和审查。
+  </Card>
+  <Card title="Readiness gates" icon="seti:lock">
+    Catalog readiness 会阻止未完成的语义对象进入分析流程。
+  </Card>
+</CardGrid>

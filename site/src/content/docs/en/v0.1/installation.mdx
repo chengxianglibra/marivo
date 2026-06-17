@@ -1,0 +1,32 @@
+---
+slug: en/v0.1/installation
+title: Installation
+description: Install Marivo and choose the backend extra for your datasource.
+---
+
+Marivo requires Python 3.12 or newer.
+
+Install the base library from PyPI:
+
+```bash
+pip install marivo
+```
+
+Install the backend extra that matches the datasource you want to query:
+
+| Backend | Install command |
+| --- | --- |
+| DuckDB | `pip install "marivo[duckdb]"` |
+| MySQL | `pip install "marivo[mysql]"` |
+| Trino | `pip install "marivo[trino]"` |
+| All packaged backends | `pip install "marivo[all]"` |
+
+Marivo is a Python library, not a hosted service. Deploy a Marivo project by installing the library where the agent runs, checking in datasource and semantic declarations, and providing datasource secrets through environment variables referenced by `*_env` fields.
+
+For local development from this repository:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev,duckdb,trino]"
+.venv/bin/python -c "import marivo; print(marivo.__name__)"
+```
