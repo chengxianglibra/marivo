@@ -210,6 +210,7 @@ def _provenance_text(provenance: SqlProvenance | None) -> str:
 
 def _common_detail_lines(
     *,
+    ref: SemanticRef,
     context: AiContextView,
     python_symbol: str,
     source_location: SourceLocation,
@@ -244,6 +245,7 @@ def _common_detail_lines(
             f"parents: {_format_refs(parents)}",
             f"children: {_format_refs(children)}",
             f"dependents: {_format_refs(dependents)}",
+            f"use: catalog.get({ref.ref!r}) to inspect; session.observe(catalog.get({ref.ref!r})) to analyze",
         )
     )
     return lines
@@ -287,6 +289,7 @@ class DatasourceDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -316,6 +319,7 @@ class DomainDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -342,6 +346,7 @@ class EntityDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -372,6 +377,7 @@ class DimensionDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -397,6 +403,7 @@ class MeasureDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -429,6 +436,7 @@ class TimeDimensionDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -512,6 +520,7 @@ class SimpleMetricDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -573,6 +582,7 @@ class DerivedMetricDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -633,6 +643,7 @@ class RelationshipDetails(_DetailsBase):
 
     def render(self) -> str:
         extra = _common_detail_lines(
+            ref=self.ref,
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
