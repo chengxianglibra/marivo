@@ -6,6 +6,7 @@ from marivo.analysis.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,
     MetricNotFoundError,
+    PromotionFailedError,
     SemanticKindMismatchError,
     WindowInvalidError,
 )
@@ -48,6 +49,50 @@ def test_base_template_omits_missing_optional_sections():
     assert "Hint:" not in rendered
     assert "Fix:" not in rendered
     assert "Docs:" not in rendered
+
+
+def test_promotion_missing_columns_lists_available_columns():
+    err = PromotionFailedError(
+        message="cannot promote scratch result to metric_frame",
+        details={
+            "target_kind": "metric_frame",
+            "missing": [],
+            "missing_columns": ["bucket_start"],
+            "ambiguous": [],
+            "available_columns": ["log_hour", "ratio"],
+            "source_refs": ["frame_x"],
+        },
+    )
+
+    rendered = str(err)
+
+    assert "Location: session.promote_metric_frame" in rendered
+    assert "bucket_start" in rendered
+    assert "Available columns: log_hour, ratio" in rendered
+    assert "Fix:" in rendered
+    assert "time_axis=" in rendered
+
+
+def test_promotion_bare_time_axis_ref_explains_column_mapping():
+    err = PromotionFailedError(
+        message="cannot promote scratch result to metric_frame",
+        details={
+            "target_kind": "metric_frame",
+            "missing": [],
+            "missing_columns": [],
+            "ambiguous": ["time_axis_requires_column:sales.orders.created_at"],
+            "available_columns": ["bucket_start", "value"],
+            "source_refs": ["frame_x"],
+        },
+    )
+
+    rendered = str(err)
+
+    assert "sales.orders.created_at" in rendered
+    assert "Fix:" in rendered
+    assert 'time_axis={"bucket_start": session.catalog.get("sales.orders.created_at").ref}' in (
+        rendered
+    )
 
 
 def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:
