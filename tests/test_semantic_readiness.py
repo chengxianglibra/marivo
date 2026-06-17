@@ -126,6 +126,21 @@ def test_project_readiness_accepts_refs_argument(
     assert report.input_summary.refs == ("sales.orders",)
 
 
+def test_project_readiness_accepts_semantic_ref_objects(
+    semantic_project_factory,
+) -> None:
+    """readiness() must accept SemanticRef objects from catalog.list().refs()."""
+    from marivo.semantic.catalog import SemanticKind, SemanticRef
+
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
+
+    refs = (SemanticRef(ref="sales.orders", kind=SemanticKind.ENTITY),)
+    report = project.readiness(refs=refs)
+
+    assert report.input_summary.refs == ("sales.orders",)
+    assert "unknown_ref" not in _issue_kinds(report.blockers)
+
+
 def test_readiness_blocks_unknown_requested_ref(semantic_project_factory) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 

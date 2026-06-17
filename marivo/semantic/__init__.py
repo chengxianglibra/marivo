@@ -373,7 +373,7 @@ def verify_object(
 
 def readiness(
     *,
-    refs: tuple[str, ...] | list[str] | None = None,
+    refs: Sequence[SemanticRefInput] | None = None,
 ) -> ReadinessReport:
     """Run structural readiness check for the given semantic refs.
 
@@ -382,8 +382,9 @@ def readiness(
     ``ms.parity_check(...)``, and ``ms.richness()``.
 
     Args:
-        refs: Semantic refs to check. Resolves the full dependency closure
-            for each ref. None checks all loaded objects.
+        refs: Semantic refs to check. Accepts strings or SemanticRef objects.
+            Resolves the full dependency closure for each ref. None checks
+            all loaded objects.
 
     Returns:
         ReadinessReport indicating whether analysis handoff is safe.
