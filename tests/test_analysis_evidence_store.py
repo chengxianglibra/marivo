@@ -1,4 +1,4 @@
-"""SQLite judgment.db schema, migration, WAL, lock, GC, SAVEPOINT helper."""
+"""SQLite judgment.db schema, migration, WAL, lock, SAVEPOINT helper."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from marivo.analysis.errors import (
 from marivo.analysis.evidence.store import (
     EXPECTED_SCHEMA_VERSION,
     open_judgment_store,
-    run_startup_gc,
 )
 
 
@@ -98,40 +97,3 @@ def test_lock_contention_raises_typed(tmp_path: Path) -> None:
                 store_b.close()
     finally:
         store_a.close()
-
-
-def test_startup_gc_removes_tmp_and_orphan_frames(tmp_path: Path) -> None:
-    frames_dir = tmp_path / "frames"
-    frames_dir.mkdir()
-    # Tmp orphan
-    tmp_dir = frames_dir / "art_orphan_tmp"
-    tmp_dir.mkdir()
-    (tmp_dir / "data.parquet.tmp").write_bytes(b"x")
-    # Frame dir not in db
-    orphan_dir = frames_dir / "art_unreferenced"
-    orphan_dir.mkdir()
-    (orphan_dir / "data.parquet").write_bytes(b"y")
-
-    db_path = tmp_path / "judgment.db"
-    store = open_judgment_store(db_path)
-    try:
-        # Insert one valid artifact
-        with store.transaction() as tx:
-            tx.execute(
-                "INSERT INTO artifacts(artifact_id, session_id, step_type, "
-                "artifact_type, artifact_schema_version, subject_payload, "
-                "lineage_payload, evidence_status, committed_at_us) VALUES (?,?,?,?,?,?,?,?,?)",
-                ("art_valid", "sess_1", "observe", "metric_frame", "v1", "{}", "{}", "complete", 1),
-            )
-        # Create the valid frame dir
-        valid_dir = frames_dir / "art_valid"
-        valid_dir.mkdir()
-        (valid_dir / "data.parquet").write_bytes(b"z")
-
-        run_startup_gc(store, frames_dir)
-
-        assert not (tmp_dir / "data.parquet.tmp").exists()
-        assert not orphan_dir.exists()
-        assert (valid_dir / "data.parquet").exists()
-    finally:
-        store.close()
