@@ -10,6 +10,7 @@ import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
 from marivo.analysis.frames.association import AssociationResultSummary
 from marivo.analysis.frames.base import BaseFrame, FramePreview, FrameSummary
+from marivo.analysis.frames.hypothesis import HypothesisTestResultSummary
 from marivo.analysis.frames.quality import QualityReportSummary
 from marivo.analysis.help import _FRAME_SYMBOLS as ANALYSIS_FRAME_SYMBOLS
 from marivo.analysis.session._store import SessionSummary
@@ -211,6 +212,24 @@ def _association_result_summary() -> AssociationResultSummary:
     )
 
 
+def _hypothesis_test_result_summary() -> HypothesisTestResultSummary:
+    return HypothesisTestResultSummary(
+        kind="hypothesis_test_result",
+        ref="frame_test",
+        metric_ids=["sales.revenue", "sales.revenue"],
+        hypothesis="mean_changed",
+        method="paired_t",
+        alpha=0.05,
+        result_shape="single",
+        segment_dimensions=[],
+        rejected_count=1,
+        not_enough_data_count=0,
+        row_count=1,
+        produced_by_job="job_test",
+        lineage_oneliner="observe -> test",
+    )
+
+
 def _authoring_assessment() -> AuthoringAssessment:
     issue = AssessmentIssue(
         kind="missing_evidence",
@@ -260,6 +279,7 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_frame_preview, id="FramePreview"),
     pytest.param(_quality_report_summary, id="QualityReportSummary"),
     pytest.param(_association_result_summary, id="AssociationResultSummary"),
+    pytest.param(_hypothesis_test_result_summary, id="HypothesisTestResultSummary"),
     pytest.param(_authoring_assessment, id="AuthoringAssessment"),
     pytest.param(_domain_brief, id="DomainBrief"),
     pytest.param(_derived_metric_brief, id="DerivedMetricBrief"),

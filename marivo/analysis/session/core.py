@@ -961,7 +961,7 @@ class Session:
 
         Example:
             >>> result = session.hypothesis_test(cur, base)
-            >>> result.summary()
+            >>> result.summary().show()
         """
         from marivo.analysis.intents.test import hypothesis_test
 
