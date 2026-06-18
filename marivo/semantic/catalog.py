@@ -1812,7 +1812,7 @@ class SemanticCatalog:
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
     ) -> PreviewResult:
-        """Return a bounded preview for an entity, dimension, time dimension, or metric.
+        """Return a bounded preview for an entity, dimension, time dimension, measure, or metric.
 
         Args:
             ref: Full semantic ref string or SemanticRef to preview.
@@ -1827,12 +1827,13 @@ class SemanticCatalog:
 
         Example:
             >>> catalog.preview("sales.orders.region", context_columns=("order_id",))
+            >>> catalog.preview("sales.orders.amount")
             >>> catalog.preview("sales.revenue").warnings
 
         Constraints:
             ``context_columns`` is valid only for dimension and time-dimension
-            refs. Metric previews use the existing approximate pre-aggregate
-            sample behavior.
+            refs. Measure previews show bounded row-level values. Metric previews
+            use the existing approximate pre-aggregate sample behavior.
         """
         reg = self._require_ready()
         ref_str = _to_ref_str(ref)
@@ -1881,7 +1882,7 @@ class SemanticCatalog:
             report_tz = system_timezone_name()
             return preview_ibis_table(
                 preview_table,
-                kind="semantic_dimension",
+                kind="semantic_measure",
                 ref=ref_str,
                 limit=preview_limit,
                 sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),

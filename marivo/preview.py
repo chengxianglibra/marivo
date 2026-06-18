@@ -16,6 +16,7 @@ PreviewKind = Literal[
     "datasource_table",
     "semantic_dataset",
     "semantic_dimension",
+    "semantic_measure",
     "semantic_field",
     "semantic_metric",
     "analysis_frame",

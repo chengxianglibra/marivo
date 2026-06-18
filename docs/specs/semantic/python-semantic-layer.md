@@ -172,7 +172,7 @@ revenue.children                               # child SemanticRef values
 | `ms.load(workspace_dir=None)` | 加载当前项目并返回 `SemanticCatalog` |
 | `catalog.list(parent=None, kind=None, domain=None)` | 浏览 domain、datasource、entity、dimension、time_dimension、metric、relationship；`domain=` 按域缩小范围；顶层 `kind="metric"` 跨域搜索 |
 | `catalog.get(ref)` | 按完整 semantic ref 读取单个 `SemanticObject` |
-| `catalog.preview(ref, limit=..., context_columns=None)` | 对 entity / dimension / time_dimension / metric 做有界预览 |
+| `catalog.preview(ref, limit=..., context_columns=None)` | 对 entity / dimension / time_dimension / measure / metric 做有界预览 |
 | `catalog.readiness(refs=None)` | 对 handoff refs 做结构 readiness gate |
 | `project.load()` | 重新加载该项目 |
 | `project.richness(demand=None)` | 返回纯 advisory 的 demand-ranked semantic coverage/depth gap report，不阻塞 readiness |
@@ -370,19 +370,19 @@ def region(orders):
     return orders.region.upper()
 ```
 
-Measure dimensions carry a `unit` dimension — the authoritative declaration site for
-physical units. Tier-1 metrics inherit it at load; derived metrics propagate it
-through the composition algebra:
+Measure 是 row-level 数值事实，也是 `additivity` 和物理 `unit` 的权威声明点。
+Tier-1 metric 默认聚合已验证 measure；derived metric 再通过 composition algebra
+传播 unit：
 
 ```python
-@ms.dimension(
-    kind="measure", entity=orders, additivity="additive", unit="CNY",
+@ms.measure(
+    entity=orders, additivity="additive", unit="CNY",
     description="Order amount in CNY.",
 )
 def amount(orders):
     return orders.amount
 
-@ms.aggregate(name="revenue", measure=amount, agg="sum")
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
 
 time dimension 是特殊 dimension，显式承载时间轴元数据：
@@ -450,26 +450,27 @@ error; Marivo does not pre-validate against backend support.
 
 ### Metric
 
-`@ms.metric(...)` only declares entity-backed base metrics. Base metrics require
-non-empty `entities=[...]` and a single-return Ibis reduction body. When
+Metric 默认走 tier-1 aggregate：先用 `@ms.measure(...)` 声明并验证 row-level
+measure，再用 `ms.aggregate(name=..., measure=..., agg=...)` 生成 metric。
+`@ms.metric(...)` 保留为 tier-2 expression-body escape hatch；只有 metric 不能自然表达为
+`measure + aggregate` 时才使用。For tier-2 `@ms.metric(...)`, when
 `provenance=ms.from_sql(...)` is provided, SQL parity verification is automatically enabled.
 
 ```python
-@ms.metric(
-    entities=[orders],
+@ms.measure(
+    entity=orders,
     additivity="additive",
-    description="Total revenue from paid orders.",
     unit="CNY",
-    provenance=ms.from_sql(
-        sql="select sum(amount) as value from orders where pay_status = 1",
-        dialect="duckdb",
-    ),
+    description="Paid order amount in CNY.",
 )
-def revenue(order_rows):
-    return order_rows.filter(is_paid(order_rows)).amount.sum()
+def paid_amount(order_rows):
+    return order_rows.filter(is_paid(order_rows)).amount
+
+revenue = ms.aggregate(name="revenue", measure=paid_amount, agg="sum")
 ```
 
-base metric 使用 `entities=[...]` 显式声明依赖。函数 body 的参数只是局部 alias，按 `entities` 顺序注入 materialized table；参数名不能决定 entity identity。
+Tier-2 metric 使用 `entities=[...]` 显式声明依赖。函数 body 的参数只是局部 alias，
+按 `entities` 顺序注入 materialized table；参数名不能决定 entity identity。
 
 Derived metrics are direct calls, not decorators. They combine already
 registered metrics through a canonical composition and have no Python body:
@@ -496,8 +497,8 @@ Shape classification must fail closed:
 
 ### Metric unit (UCUM)
 
-`@ms.dimension(kind="measure")` / `@ms.metric` / `ms.aggregate` /
-`ms.ratio` / `ms.weighted_average` / `ms.linear` accept optional `unit: str | None`
+`@ms.measure` / `@ms.metric` / `ms.aggregate` / `ms.ratio` /
+`ms.weighted_average` / `ms.linear` accept optional `unit: str | None`
 (default `None`). Values use the UCUM case-sensitive vocabulary, with one explicit
 extension: bare ISO 4217 uppercase three-letter codes represent currencies.
 
@@ -810,7 +811,8 @@ print(frame.summary())
 | 问题 | 选择 |
 | --- | --- |
 | 每一行都能计算出来，例如国家、平台、订单日期 | `@ms.dimension` 或 `@ms.time_dimension` |
-| 需要跨行聚合，例如 revenue、DAU、conversion rate | `@ms.metric` or `ms.aggregate` |
+| 每一行都能计算出来的数值事实，例如 amount、quantity、bytes | `@ms.measure`，然后用 `ms.aggregate` 生成 metric |
+| 需要跨行聚合，例如 revenue、DAU、conversion rate | 默认 `@ms.measure` + `ms.aggregate`；必要时才用 tier-2 `@ms.metric` |
 | 只是 metric 内部的一段条件表达式，不需要下游引用 | 可直接写在 metric Ibis 表达式内 |
 | 会被多个 metric、filter、relationship 或分析 slice 复用 | 提升为 dimension/time_dimension |
 

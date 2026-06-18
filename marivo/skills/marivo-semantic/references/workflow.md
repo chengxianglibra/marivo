@@ -4,7 +4,7 @@ This is the stepwise authoring ladder for agents building reusable Marivo
 semantic objects. Each rung produces exactly one object per cycle, verified
 before advancing.
 
-## The Eight-Rung Ladder
+## The Nine-Rung Ladder
 
 Within one domain, build objects in this order:
 
@@ -13,10 +13,11 @@ Within one domain, build objects in this order:
 2 entity                  (one per physical table, one at a time)
 3 dimension               (per entity, one column at a time)
 4 time_dimension          (per entity)
-5 metric                  (single-entity base metrics)
-6 relationship
-7 cross-entity base metric
-8 derived metric
+5 measure                 (row-level quantitative facts, one column at a time)
+6 metric                  (tier-1 aggregate over a verified measure by default)
+7 relationship
+8 cross-entity base metric
+9 derived metric
 ```
 
 Datasource registration is a prerequisite owned by `marivo.datasource`, not a
@@ -171,7 +172,46 @@ if verify.status == "failed":
     raise SystemExit("Fix the authored time dimension before continuing.")
 ```
 
-## Rung 5: Metrics
+## Rung 5: Measures
+
+```python
+measure_brief = ms.prepare_measure(
+    entity="sales.orders",
+    column="amount",
+    scope=md.ScanScope(),
+)
+if measure_brief.status == "blocked":
+    measure_brief.show()
+    raise SystemExit("Fix blockers before authoring the measure.")
+```
+
+Author and verify:
+
+```python
+@ms.measure(
+    entity=orders,
+    additivity="additive",
+    unit="USD",
+    ai_context={
+        "business_definition": "Gross order amount before refunds.",
+    },
+)
+def amount(table):
+    return table.amount
+```
+
+```python
+verify = ms.verify_object("sales.orders.amount")
+if verify.status == "failed":
+    verify.show()
+    raise SystemExit("Fix the authored measure before continuing.")
+```
+
+## Rung 6: Metrics
+
+Default to a tier-1 aggregate over a verified measure. Use `@ms.metric(...)`
+only when the metric needs an expression body that cannot be naturally expressed
+as `ms.aggregate(...)`.
 
 ```python
 metric_brief = ms.prepare_metric(
@@ -181,34 +221,28 @@ metric_brief = ms.prepare_metric(
 )
 ```
 
-Author and verify:
+Author and verify the aggregate metric:
 
 ```python
-@ms.metric(
-    entities=[orders],
-    additivity="additive",
+revenue = ms.aggregate(
     name="revenue",
-    provenance=ms.from_sql(
-        sql="SELECT SUM(amount) AS revenue FROM orders",
-        dialect="duckdb",
-    ),
+    measure=amount,
+    agg="sum",
     ai_context={
         "business_definition": "Gross order amount before refunds.",
         "guardrails": ["Validate refund exclusions before using as net revenue."],
     },
 )
-def revenue(table):
-    return table.amount.sum()
 ```
 
 ```python
 verify = ms.verify_object("sales.revenue")
 if verify.status == "failed":
     verify.show()
-    raise SystemExit("Fix the authored metric before continuing.")
+    raise SystemExit("Fix the authored aggregate metric before continuing.")
 ```
 
-## Rung 6: Relationships
+## Rung 7: Relationships
 
 `prepare_relationship` runs `md.probe_join_keys` internally using sources
 resolved from the two entity refs.
@@ -233,7 +267,7 @@ ms.relationship(
 )
 ```
 
-## Rung 7: Cross-Entity Base Metrics
+## Rung 8: Cross-Entity Base Metrics
 
 ```python
 cross_brief = ms.prepare_cross_entity_metric(
@@ -244,7 +278,7 @@ cross_brief = ms.prepare_cross_entity_metric(
 )
 ```
 
-## Rung 8: Derived Metrics
+## Rung 9: Derived Metrics
 
 Registry-only; no datasource access needed.
 
@@ -260,7 +294,7 @@ derived_brief = ms.prepare_derived_metric(
 After all objects pass `verify_object`, run `ms.readiness(...)` once:
 
 ```python
-report = ms.readiness(refs=("sales.orders", "sales.revenue"))
+report = ms.readiness(refs=("sales.orders", "sales.orders.amount", "sales.revenue"))
 report.show()
 if report.status == "blocked":
     raise SystemExit("Semantic project is not ready for analysis handoff.")

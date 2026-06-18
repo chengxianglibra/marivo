@@ -242,15 +242,24 @@ Marivo has two metric tiers with distinct authoring shapes:
 
 | Tier | Authoring form | Has body? | Examples |
 | --- | --- | --- | --- |
-| Tier-1 aggregate | `ms.aggregate(measure=..., agg=...)` | No | sum, count over a measure dimension |
-| Tier-2 simple | `@ms.metric(entities=[...], additivity=...)` | Yes | ibis expression body |
+| Tier-1 aggregate | `ms.aggregate(measure=..., agg=...)` | No | default path for sum/count/mean over a verified measure |
+| Tier-2 simple | `@ms.metric(entities=[...], additivity=...)` | Yes | escape hatch for ibis expression bodies |
 | Derived ratio | `ms.ratio(name=..., numerator=..., denominator=...)` | No | percentage, per-unit rate |
 | Derived weighted average | `ms.weighted_average(name=..., value=..., weight=...)` | No | weighted averages |
 | Derived linear | `ms.linear(name=..., add=[...], subtract=[...])` | No | net = gross - refunds |
 
-**Rule:** body→decorator / no-body→call. Use `@ms.metric` for
-expression-body metrics; use `ms.ratio` / `ms.weighted_average` / `ms.linear`
-for body-free derived metrics.
+**Rule:** default to `ms.prepare_measure(...)`, `@ms.measure(...)`,
+`ms.verify_object(measure_ref)`, then `ms.aggregate(...)`. Use `@ms.metric`
+only when the metric needs an expression body; use `ms.ratio` /
+`ms.weighted_average` / `ms.linear` for body-free derived metrics.
+
+```python
+@ms.measure(entity=orders, additivity="additive", unit="USD")
+def amount(orders):
+    return orders.amount
+
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+```
 
 ```python
 @ms.metric(
@@ -368,8 +377,8 @@ def on_hand_units(inventory_daily):
 
 ## Metric unit authoring
 
-`@ms.dimension(kind="measure")` / `@ms.metric` / `ms.aggregate` /
-`ms.ratio` / `ms.weighted_average` / `ms.linear` accept optional `unit`
+`@ms.measure` / `@ms.metric` / `ms.aggregate` / `ms.ratio` /
+`ms.weighted_average` / `ms.linear` accept optional `unit`
 (UCUM case-sensitive code; bare ISO 4217 uppercase code = currency). The unit
 describes emitted values exactly; nothing converts based on it.
 
