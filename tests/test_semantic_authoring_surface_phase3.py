@@ -192,7 +192,7 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
         preview = catalog.preview("sales.orders.amount", limit=3)
 
     assert preview.ref == "sales.orders.amount"
-    assert preview.kind == "semantic_dimension"
+    assert preview.kind == "semantic_measure"
     assert "amount" in preview.columns
 
     with pytest.raises(SemanticRuntimeError) as exc_info:

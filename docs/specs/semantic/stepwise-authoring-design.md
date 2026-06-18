@@ -570,9 +570,34 @@ candidates; the Brief reminds the author that `date_format` must be omitted
 for them. Typical questions: business time-axis choice when multiple
 candidates exist (blocking), timezone, `date_format` confirmation.
 
-### `prepare_metric(*, entity, measure_columns, filter_dimensions=(), scope=ScanScope()) -> MetricBrief`
+### `prepare_measure(*, entity, column, scope=ScanScope()) -> MeasureBrief`
 
-Single-entity base metrics.
+Single-column row-level quantitative facts. This is the default rung before
+authoring tier-1 aggregate metrics.
+
+```python
+@dataclass(frozen=True)
+class MeasureBrief:
+    status: BriefStatus
+    entity: str
+    column: str
+    profile: ColumnProfile
+    additivity_hint: Literal["additive", "non_additive", "semi_additive", "unknown"]
+    matches: tuple[RegisteredMatch, ...]
+    questions: tuple[AuthoringQuestion, ...]
+    issues: tuple[AssessmentIssue, ...]
+    scan: ScanReport
+```
+
+Typical questions: unit, amount sign, whether the quantity is additive,
+non-additive, or semi-additive, and the correct status time axis for sampled
+semi-additive measures.
+
+### `prepare_metric(*, entity, measure_columns=(), filter_dimensions=(), scope=ScanScope()) -> MetricBrief`
+
+Single-entity metric context after row-level measures are verified. Default
+metric authoring uses `ms.aggregate(name=..., measure=<verified_measure>, agg=...)`;
+`@ms.metric(...)` is the expression-body fallback.
 
 ```python
 @dataclass(frozen=True)
@@ -593,10 +618,11 @@ class DimensionValueFact:
     top_values: tuple[tuple[object, int], ...]
 ```
 
-`measure_columns` may be empty for pure row-count metrics; measure profiling
-is then skipped while filter-dimension and registry facts are still
-collected. Typical questions: unit, filter caliber (refunds/test orders),
-additivity, decomposition, `verification_mode` (is there `source_sql`?).
+`measure_columns` remains available for metric-level evidence and compatibility
+with existing workflows, but the default ladder profiles numeric columns through
+`prepare_measure` first. Typical questions: filter caliber (refunds/test
+orders), whether the verified measure should be aggregated as sum/count/mean,
+and whether the metric needs the tier-2 `@ms.metric(...)` escape hatch.
 
 ### `prepare_relationship(*, from_entity, to_entity, from_dimensions, to_dimensions, scope=ScanScope()) -> RelationshipBrief`
 

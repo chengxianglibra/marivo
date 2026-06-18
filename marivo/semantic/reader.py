@@ -641,7 +641,13 @@ class SemanticProject:
         filter_dimensions: Sequence[str] = (),
         scope: ScanScope | None = None,
     ) -> MetricBrief:
-        """Prepare a metric authoring brief with measure evidence."""
+        """Prepare a metric authoring brief after row-level measures are verified.
+
+        The default metric authoring path is ``prepare_measure`` ->
+        ``@ms.measure`` -> ``ms.verify_object(measure_ref)`` ->
+        ``ms.aggregate(...)``. ``measure_columns`` remains available for
+        metric-level evidence and compatibility with existing workflows.
+        """
         self._require_entity_verified(entity, "prepare_metric")
         from marivo.semantic.prepare import prepare_metric
 

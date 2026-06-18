@@ -366,6 +366,12 @@ def test_help_json_metric_includes_body_rule_and_related_help() -> None:
     assert "tier1" in content
     assert "tier2" in content
     assert "body_rule" in content
+    assert content["default_path"] == (
+        "Default to prepare_measure -> @ms.measure -> verify_object(measure) "
+        "-> ms.aggregate -> verify_object(metric)."
+    )
+    assert "recommended default" in cast("str", content["tier1"])
+    assert "escape hatch" in cast("str", content["tier2"])
 
 
 def test_help_json_time_dimension_includes_partition_pushdown_advisory() -> None:

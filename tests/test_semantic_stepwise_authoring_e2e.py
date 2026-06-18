@@ -1,5 +1,5 @@
 """End-to-end test exercising the entire stepwise authoring ladder:
-domain -> entity -> dimension -> time_dimension -> metric -> readiness.
+domain -> entity -> dimension -> time_dimension -> measure -> metric -> readiness.
 """
 
 from __future__ import annotations
@@ -105,7 +105,26 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
     verify = project.verify_object("sales.orders.dt", scope=md.ScanScope(partition=None))
     assert verify.status == "passed", f"Time dimension verify failed: {verify.issues}"
 
-    # -- Rung 5: Metric - prepare, author, verify -----------------------------
+    # -- Rung 5: Measure - prepare, author, verify ----------------------------
+    measure_brief = project.prepare_measure(
+        entity="sales.orders",
+        column="amount",
+        scope=md.ScanScope(partition=None),
+    )
+    assert measure_brief.status == "sufficient"
+
+    domain_file.write_text(
+        domain_file.read_text(encoding="utf-8")
+        + "@ms.measure(entity=orders, additivity='additive')\n"
+        "def amount(orders):\n"
+        "    return orders.amount\n",
+        encoding="utf-8",
+    )
+    project.load()
+    verify = project.verify_object("sales.orders.amount", scope=md.ScanScope(partition=None))
+    assert verify.status == "passed", f"Measure verify failed: {verify.issues}"
+
+    # -- Rung 6: Metric - aggregate the verified measure, then verify ---------
     metric_brief = project.prepare_metric(
         entity="sales.orders",
         measure_columns=("amount",),
@@ -115,9 +134,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")
-        + "@ms.metric(entities=[orders], additivity='additive', )\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n",
+        + "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n",
         encoding="utf-8",
     )
     project.load()
@@ -126,7 +143,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     # -- Closeout: Readiness --------------------------------------------------
     report = project.readiness(
-        refs=("sales.orders", "sales.revenue"),
+        refs=("sales.orders", "sales.orders.amount", "sales.revenue"),
     )
 
     # Structural readiness may report blockers (e.g. missing business_definition)

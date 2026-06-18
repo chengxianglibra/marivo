@@ -56,6 +56,7 @@ import marivo.semantic as ms
 catalog = ms.load()
 catalog.preview("sales.orders", limit=20)
 catalog.preview("sales.orders.order_date", limit=20)
+catalog.preview("sales.orders.amount", limit=20)
 catalog.preview("sales.revenue", limit=20)
 ```
 

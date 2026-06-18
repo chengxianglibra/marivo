@@ -203,11 +203,22 @@ def _composition_topic() -> Descriptor:
 def _metric_content() -> dict[str, object]:
     return {
         "summary": (
-            "declare an aggregate metric either with ms.aggregate(name=..., measure=..., agg=...) "
-            "or with @ms.metric(entities=..., additivity=..., provenance=ms.from_sql(...) optional)"
+            "declare metrics from measures by default with ms.aggregate(name=..., measure=..., agg=...); "
+            "use @ms.metric(...) only for tier-2 expression-body metrics"
         ),
-        "tier1": "ms.aggregate(name=..., measure=<measure_ref>, agg='sum'|'count'|'mean'|'min'|'max')",
-        "tier2": "@ms.metric(entities=[...], additivity='additive'|'non_additive'|ms.semi_additive(over, fold))",
+        "default_path": (
+            "Default to prepare_measure -> @ms.measure -> verify_object(measure) "
+            "-> ms.aggregate -> verify_object(metric)."
+        ),
+        "tier1": (
+            "recommended default: ms.aggregate(name=..., measure=<verified_measure_ref>, "
+            "agg='sum'|'count'|'mean'|'min'|'max')"
+        ),
+        "tier2": (
+            "escape hatch: @ms.metric(entities=[...], "
+            "additivity='additive'|'non_additive'|ms.semi_additive(over, fold), "
+            "provenance=ms.from_sql(...) optional)"
+        ),
         "body_rule": "No body for tier-1 (call-form); body required for tier-2 (decorator-form).",
         "related_help": [
             "ms.help('composition')",
@@ -224,6 +235,9 @@ def _metric_text(content: dict[str, object]) -> str:
         "marivo.semantic metric",
         "",
         str(content["summary"]),
+        "",
+        "Default path:",
+        f"  {content['default_path']}",
         "",
         "Tier-1 (call-form, no body):",
         f"  {content['tier1']}",

@@ -238,7 +238,14 @@ def prepare_metric(
     filter_dimensions: tuple[str, ...] | list[str] = (),
     scope: ScanScope | None = None,
 ) -> MetricBrief:
-    """Prepare a metric authoring brief with measure evidence."""
+    """Prepare a metric authoring brief after row-level measures are verified.
+
+    The default metric authoring path is ``prepare_measure`` ->
+    ``@ms.measure`` -> ``ms.verify_object(measure_ref)`` ->
+    ``ms.aggregate(...)``. Use this brief for metric-level context such as
+    filter dimensions, time dimensions, and compatibility with existing
+    measure-column workflows.
+    """
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject()
