@@ -18,21 +18,80 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Marivo is a Python library, not a hosted service. It gives AI agents a typed semantic layer, a metric-centered analysis workflow, and an auditable evidence trail for analytical conclusions.
+Marivo is a Python library, not a hosted service. It gives AI agents a typed
+semantic layer, a metric-centered analysis workflow, and an auditable evidence
+trail for every analytical conclusion.
 
-Marivo is not a text-to-SQL wrapper. Python declarations are the contract, ibis expressions are the execution language, and typed frames are the analysis boundary between steps.
+Marivo is not a text-to-SQL wrapper. Python declarations are the contract, ibis
+expressions are the execution language, and typed frames are the boundary between
+analysis steps.
 
 <CardGrid>
   <Card title="Unified semantics" icon="seti:data">
-    Datasources, entities, metrics, dimensions, and relationships are declared in Python and addressed through semantic refs.
+    Datasources, entities, metrics, dimensions, and relationships are declared in
+    Python and addressed by semantic ref — names and definitions, not raw tables.
   </Card>
   <Card title="Metric-centered analysis" icon="seti:python">
-    Agents start from trusted metrics and compose observe, compare, decompose, correlate, forecast, and quality checks.
+    Agents start from trusted metrics and chain typed intents: observe, compare,
+    decompose, correlate, forecast, and quality checks.
   </Card>
   <Card title="Trustworthy evidence" icon="seti:config">
-    Operators record findings, propositions, and assessments so results can be traced and reviewed.
+    Operators record findings, propositions, and assessments so any result can be
+    traced back to the inputs that produced it.
   </Card>
   <Card title="Readiness gates" icon="seti:lock">
-    Catalog readiness keeps incomplete semantic objects out of analysis until authoring and access issues are resolved.
+    Catalog readiness keeps incomplete semantic objects out of analysis until
+    authoring and access issues are resolved.
+  </Card>
+</CardGrid>
+
+## How it works
+
+1. **Declare** datasources in `models/datasources/` and semantics (domains,
+   entities, dimensions, metrics) in `models/semantic/` — using `marivo.datasource`
+   (`md`) and `marivo.semantic` (`ms`).
+2. **Load and gate.** `ms.load()` builds the catalog; `ms.readiness()` blocks
+   analysis until every object an agent needs is complete and reachable.
+3. **Open a session** from a guiding question and resolve a trusted metric from the
+   catalog.
+4. **Chain typed intents** — `observe → compare → decompose`, and more — each
+   returning a typed frame and leaving an evidence trail.
+
+## A first analysis
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("sales.revenue")
+region = catalog.get("sales.orders.region").ref
+
+current = session.observe(revenue, timescope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
+baseline = session.observe(revenue, timescope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
+
+delta = session.compare(current, baseline, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+attribution = session.decompose(delta, axis=region)
+attribution.show()
+```
+
+## Next steps
+
+<CardGrid>
+  <Card title="Install" icon="rocket">
+    [Install Marivo](/en/latest/installation/) and pick the backend extra for your
+    datasource.
+  </Card>
+  <Card title="Quick Start" icon="open-book">
+    [Build a project](/en/latest/quick-start/): datasource, semantics, and a first
+    metric-centered analysis.
+  </Card>
+  <Card title="Semantic Layer" icon="seti:data">
+    [Declare meaning](/en/latest/concepts/semantic-layer/): every object and field,
+    with usage.
+  </Card>
+  <Card title="Analysis Workflow" icon="seti:python">
+    [Run analysis](/en/latest/concepts/analysis-workflow/): sessions, intents, and
+    typed frames.
   </Card>
 </CardGrid>
