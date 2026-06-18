@@ -161,7 +161,8 @@ def test_readiness_accepts_domain_ref(semantic_project_factory) -> None:
     assert "sales" in report.input_summary.refs
 
 
-def test_readiness_maps_time_dimension_pushdown_advisory(semantic_project_factory) -> None:
+def test_readiness_no_dtype_advisory_when_parse_deferred(semantic_project_factory) -> None:
+    """When parse is omitted (deferred), dtype advisory is skipped at readiness time."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": textwrap.dedent("""\
@@ -171,7 +172,7 @@ def test_readiness_maps_time_dimension_pushdown_advisory(semantic_project_factor
 
                 orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
 
-                @ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+                @ms.time_dimension(entity=orders, granularity="day")
                 def order_date(table):
                     return table.dt.cast("date")
             """)
@@ -180,7 +181,9 @@ def test_readiness_maps_time_dimension_pushdown_advisory(semantic_project_factor
 
     report = project.readiness()
 
-    assert any(issue.kind == "time_dimension_pushdown_advisory" for issue in report.warnings)
+    # With deferred parse, the dtype advisory is not emitted at readiness time;
+    # dtype mismatch is caught at analysis time instead.
+    assert not any("dtype" in issue.kind for issue in report.warnings)
 
 
 def test_readiness_warns_for_missing_business_definition(
@@ -717,8 +720,7 @@ def test_date_data_type_does_not_block(semantic_project_factory) -> None:
     """ms.date() has no timezone ambiguity; should not trigger blocker."""
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="day", parse=ms.date(), '
-        'ai_context={"business_definition": "Date of the order."}',
+        'granularity="day", ai_context={"business_definition": "Date of the order."}',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
@@ -727,7 +729,7 @@ def test_day_only_string_format_does_not_block(semantic_project_factory) -> None
     """string data_type with day-only date_format (e.g. %Y%m%d) has no TZ ambiguity."""
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="day", parse=ms.strptime("%Y%m%d", data_type="string"), '
+        'granularity="day", parse=ms.strptime("%Y%m%d"), '
         'ai_context={"business_definition": "Day partition key."}',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
@@ -738,7 +740,7 @@ def test_time_bearing_string_format_without_timezone_does_not_block(
 ) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="hour", parse=ms.strptime("%Y-%m-%d %H:%M:%S", data_type="string"), '
+        'granularity="hour", parse=ms.strptime("%Y-%m-%d %H:%M:%S"), '
         'ai_context={"business_definition": "Timestamp as string."}',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
@@ -749,7 +751,7 @@ def test_time_bearing_integer_format_without_timezone_does_not_block(
 ) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="hour", parse=ms.strptime("%Y%m%d%H%M%S", data_type="integer"), '
+        'granularity="hour", parse=ms.strptime("%Y%m%d%H%M%S"), '
         'ai_context={"business_definition": "Timestamp as integer."}',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
@@ -759,7 +761,7 @@ def test_required_prefix_does_not_block(semantic_project_factory) -> None:
     """Hour-only dimensions (hour_prefix) are partition encodings, not TZ-relevant."""
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="hour", parse=ms.hour_prefix("20260101", data_type="string"), '
+        'granularity="hour", parse=ms.hour_prefix("20260101"), '
         'ai_context={"business_definition": "Hour partition key."}',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)

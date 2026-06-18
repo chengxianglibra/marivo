@@ -46,7 +46,7 @@ def _bootstrap_snapshot_as_of(tmp_path):
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
-        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "@ms.dimension(entity=orders)\n"
@@ -273,7 +273,7 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         if root_with_time
@@ -409,7 +409,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
         "    primary_key=['user_id', 'valid_from'],\n"
         "    versioning=ms.validity(valid_from='sales.user_history.valid_from', valid_to='sales.user_history.valid_to', interval='closed_closed', open_end=(None,)),\n"
         ")\n"
-        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "@ms.dimension(entity=orders)\n"
@@ -659,7 +659,7 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
-        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "@ms.dimension(entity=orders)\n"

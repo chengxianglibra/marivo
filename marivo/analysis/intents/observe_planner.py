@@ -726,12 +726,18 @@ def _derive_version_mode(
     Literal["timescope_end", "as_of_current_time", "root"],
     date | None,
 ]:
-    qualifying = root_time_dimension is not None and getattr(
-        root_time_dimension, "data_type", None
-    ) in {
-        "date",
-        "timestamp",
-    }
+    qualifying = (
+        root_time_dimension is not None
+        and getattr(root_time_dimension, "data_type", None)
+        in {
+            "date",
+            "timestamp",
+        }
+    ) or (
+        root_time_dimension is not None
+        and getattr(root_time_dimension, "data_type", None) is None
+        and getattr(root_time_dimension, "parse_kind", None) is None
+    )
     if qualifying:
         return ("as_of_root_time", "root", None)
     target_tz = ZoneInfo(_resolved_target_timezone(target_versioning))

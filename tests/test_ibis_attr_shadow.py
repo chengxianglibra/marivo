@@ -83,7 +83,7 @@ def _bootstrap_schema_project(tmp_path):
         "\n"
         "queries = ms.entity(name='queries', datasource=warehouse, source=ms.table('queries'))\n"
         "\n"
-        "@ms.time_dimension(entity=queries, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=queries, granularity='day')\n"
         "def query_date(queries):\n"
         "    return queries.query_date.cast('date')\n\n"
         "@ms.dimension(name='schema', entity=queries)\n"

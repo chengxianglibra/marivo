@@ -20,6 +20,8 @@ class FakeMeta:
     data_type: str | None
     format: str | None = None
     timezone: str | None = None
+    parse_kind: str | None = None
+    granularity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,7 +60,7 @@ def test_window_bound_predicates_timestamp_date_only_end_uses_exclusive_end_date
     lower, upper = _window_bound_predicates(
         table.event_ts,
         window,
-        FakeMeta("timestamp"),
+        FakeMeta("timestamp", parse_kind="timestamp"),
         report_tz=ZoneInfo("Asia/Shanghai"),
         datasource_read_tz=ZoneInfo("Asia/Shanghai"),
     )
@@ -82,7 +84,7 @@ def test_apply_window_to_dataset_timestamp_date_only_uses_report_tz():
     dataset_ir = _dataset_ir_for(
         field_name="event_ts",
         column="event_ts",
-        time_meta=FakeMeta("timestamp"),
+        time_meta=FakeMeta("timestamp", parse_kind="timestamp"),
     )
     filtered = apply_window_to_dataset(
         con.table("events"),
@@ -112,7 +114,7 @@ def test_apply_window_to_dataset_timestamp_explicit_datetime_end_is_exclusive():
     dataset_ir = _dataset_ir_for(
         field_name="event_ts",
         column="event_ts",
-        time_meta=FakeMeta("timestamp"),
+        time_meta=FakeMeta("timestamp", parse_kind="timestamp"),
     )
     filtered = apply_window_to_dataset(
         con.table("events"),
@@ -143,7 +145,7 @@ def test_window_bound_invalid_iso_raises_window_invalid_error(start: str, end: s
         _window_bound_predicates(
             table.event_ts,
             window,
-            FakeMeta("timestamp"),
+            FakeMeta("timestamp", parse_kind="timestamp"),
             report_tz=ZoneInfo("UTC"),
             datasource_read_tz=ZoneInfo("UTC"),
         )
@@ -157,7 +159,7 @@ def test_timezone_declaration_on_date_field_fails_closed():
         _window_bound_predicates(
             table.order_date,
             window,
-            FakeMeta("date", timezone="UTC"),
+            FakeMeta("date", parse_kind="date", timezone="UTC"),
             report_tz=ZoneInfo("Asia/Shanghai"),
             datasource_read_tz=ZoneInfo("Asia/Shanghai"),
         )
@@ -172,7 +174,7 @@ def test_timezone_declaration_on_partition_field_fails_closed():
         _window_bound_predicates(
             table.order_day,
             window,
-            FakeMeta("string", "%Y%m%d", timezone="UTC"),
+            FakeMeta("string", "%Y%m%d", parse_kind="strptime", timezone="UTC"),
             report_tz=ZoneInfo("Asia/Shanghai"),
             datasource_read_tz=ZoneInfo("Asia/Shanghai"),
         )
@@ -196,7 +198,7 @@ def test_time_bearing_string_timezone_compares_as_declared_instant():
     dataset_ir = _dataset_ir_for(
         field_name="event_ts",
         column="event_ts",
-        time_meta=FakeMeta("string", "%Y-%m-%d %H:%M:%S", timezone="UTC"),
+        time_meta=FakeMeta("string", "%Y-%m-%d %H:%M:%S", parse_kind="strptime", timezone="UTC"),
     )
 
     filtered = apply_window_to_dataset(
@@ -229,7 +231,7 @@ def test_naive_timestamp_defaults_to_system_timezone_window():
     dataset_ir = _dataset_ir_for(
         field_name="event_ts",
         column="event_ts",
-        time_meta=FakeMeta("timestamp"),
+        time_meta=FakeMeta("timestamp", parse_kind="timestamp"),
     )
 
     filtered = apply_window_to_dataset(
@@ -352,7 +354,7 @@ def test_subday_bucket_for_declared_utc_string_uses_session_local_time():
     field = FakeField(
         "event_ts",
         "event_ts",
-        FakeMeta("string", "%Y-%m-%d %H:%M:%S", timezone="UTC"),
+        FakeMeta("string", "%Y-%m-%d %H:%M:%S", parse_kind="strptime", timezone="UTC"),
     )
 
     bucketed = apply_time_series_bucket(
@@ -383,7 +385,7 @@ def test_subday_bucket_for_same_timezone_string_does_not_shift():
     field = FakeField(
         "event_ts",
         "event_ts",
-        FakeMeta("string", "%Y-%m-%d %H:%M:%S", timezone="Asia/Shanghai"),
+        FakeMeta("string", "%Y-%m-%d %H:%M:%S", parse_kind="strptime", timezone="Asia/Shanghai"),
     )
 
     bucketed = apply_time_series_bucket(
@@ -415,52 +417,52 @@ def test_validate_time_field_dtype_date_declared_datetime_raises():
     """DateColumn with data_type='datetime' is a mismatch."""
     table = ibis.table([("dt", "date")], name="events")
     with pytest.raises(DataTypeMismatchError, match="data_type='datetime'"):
-        _validate_time_field_dtype(table.dt, FakeMeta("datetime"))
+        _validate_time_field_dtype(table.dt, FakeMeta("datetime", parse_kind="datetime"))
 
 
 def test_validate_time_field_dtype_date_declared_date_ok():
     """DateColumn with data_type='date' is compatible."""
     table = ibis.table([("dt", "date")], name="events")
-    _validate_time_field_dtype(table.dt, FakeMeta("date"))
+    _validate_time_field_dtype(table.dt, FakeMeta("date", parse_kind="date"))
 
 
 def test_validate_time_field_dtype_non_nullable_date_declared_date_ok():
     """Non-nullable DateColumn with data_type='date' is compatible."""
     expr = FakeTypedExpr(ibis.dtype("!date"))
-    _validate_time_field_dtype(expr, FakeMeta("date"))
+    _validate_time_field_dtype(expr, FakeMeta("date", parse_kind="date"))
 
 
 def test_validate_time_field_dtype_timestamp_declared_datetime_ok():
     """TimestampColumn with data_type='datetime' is compatible (ibis uses 'timestamp' for both)."""
     table = ibis.table([("ts", "timestamp")], name="events")
-    _validate_time_field_dtype(table.ts, FakeMeta("datetime"))
+    _validate_time_field_dtype(table.ts, FakeMeta("datetime", parse_kind="datetime"))
 
 
 def test_validate_time_field_dtype_timestamp_declared_timestamp_ok():
     """TimestampColumn with data_type='timestamp' is compatible."""
     table = ibis.table([("ts", "timestamp")], name="events")
-    _validate_time_field_dtype(table.ts, FakeMeta("timestamp"))
+    _validate_time_field_dtype(table.ts, FakeMeta("timestamp", parse_kind="timestamp"))
 
 
 def test_validate_time_field_dtype_non_nullable_timestamp_declared_temporal_ok():
     """Non-nullable TimestampColumn remains compatible with timestamp declarations."""
     expr = FakeTypedExpr(ibis.dtype("!timestamp(6)"))
-    _validate_time_field_dtype(expr, FakeMeta("timestamp"))
-    _validate_time_field_dtype(expr, FakeMeta("datetime"))
+    _validate_time_field_dtype(expr, FakeMeta("timestamp", parse_kind="timestamp"))
+    _validate_time_field_dtype(expr, FakeMeta("datetime", parse_kind="datetime"))
 
 
 def test_validate_time_field_dtype_timestamp_declared_date_raises():
     """TimestampColumn with data_type='date' is a mismatch."""
     table = ibis.table([("ts", "timestamp")], name="events")
     with pytest.raises(DataTypeMismatchError, match="data_type='date'"):
-        _validate_time_field_dtype(table.ts, FakeMeta("date"))
+        _validate_time_field_dtype(table.ts, FakeMeta("date", parse_kind="date"))
 
 
 def test_validate_time_field_dtype_non_nullable_timestamp_declared_date_raises():
     """Non-nullable TimestampColumn with data_type='date' remains a mismatch."""
     expr = FakeTypedExpr(ibis.dtype("!timestamp(6)"))
     with pytest.raises(DataTypeMismatchError, match="data_type='date'"):
-        _validate_time_field_dtype(expr, FakeMeta("date"))
+        _validate_time_field_dtype(expr, FakeMeta("date", parse_kind="date"))
 
 
 def test_validate_time_field_dtype_none_data_type_skips():
@@ -476,7 +478,7 @@ def test_apply_time_series_bucket_dtype_mismatch_raises():
     field = FakeField(
         name="dt",
         column="dt",
-        time_meta=FakeMeta("datetime"),
+        time_meta=FakeMeta("datetime", parse_kind="datetime"),
     )
     with pytest.raises(DataTypeMismatchError):
         apply_time_series_bucket(
@@ -485,6 +487,50 @@ def test_apply_time_series_bucket_dtype_mismatch_raises():
             window=AbsoluteWindow(start="2026-05-01", end="2026-05-31", grain="day"),
             report_tz=ZoneInfo("UTC"),
             datasource_read_tz=ZoneInfo("UTC"),
+        )
+
+
+def test_validate_time_field_dtype_deferred_date_with_hour_granularity_raises():
+    """Deferred-parse date column with sub-day granularity must fail closed."""
+    table = ibis.table([("dt", "date")], name="events")
+    with pytest.raises(DataTypeMismatchError, match="sub-day resolution"):
+        _validate_time_field_dtype(
+            table.dt, FakeMeta(data_type=None, parse_kind=None, granularity="hour")
+        )
+
+
+def test_validate_time_field_dtype_deferred_date_with_minute_granularity_raises():
+    """Deferred-parse date column with minute granularity must fail closed."""
+    table = ibis.table([("dt", "date")], name="events")
+    with pytest.raises(DataTypeMismatchError, match="sub-day resolution"):
+        _validate_time_field_dtype(
+            table.dt, FakeMeta(data_type=None, parse_kind=None, granularity="minute")
+        )
+
+
+def test_validate_time_field_dtype_deferred_date_with_day_granularity_ok():
+    """Deferred-parse date column with day granularity is fine."""
+    table = ibis.table([("dt", "date")], name="events")
+    _validate_time_field_dtype(
+        table.dt, FakeMeta(data_type=None, parse_kind=None, granularity="day")
+    )
+
+
+def test_validate_time_field_dtype_deferred_string_without_parse_raises():
+    """Deferred-parse on a string column must error — string requires ms.strptime."""
+    table = ibis.table([("dt", "string")], name="events")
+    with pytest.raises(DataTypeMismatchError, match="not a native temporal type"):
+        _validate_time_field_dtype(
+            table.dt, FakeMeta(data_type=None, parse_kind=None, granularity="day")
+        )
+
+
+def test_validate_time_field_dtype_deferred_integer_without_parse_raises():
+    """Deferred-parse on an integer column must error — integer requires ms.strptime."""
+    table = ibis.table([("dt", "int32")], name="events")
+    with pytest.raises(DataTypeMismatchError, match="not a native temporal type"):
+        _validate_time_field_dtype(
+            table.dt, FakeMeta(data_type=None, parse_kind=None, granularity="day")
         )
 
 

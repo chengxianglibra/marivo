@@ -35,7 +35,7 @@ def _bootstrap(tmp_path: Path) -> None:
         "import marivo.semantic as ms\n"
         "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
         "order_items = ms.entity(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
-        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "@ms.dimension(entity=orders)\n"

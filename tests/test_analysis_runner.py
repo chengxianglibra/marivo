@@ -58,18 +58,17 @@ def _bootstrap_project(
 
     time_field_block = ""
     if with_time_dimension:
-        parse_kw = ""
         if time_field_data_type == "date":
-            parse_kw = "parse=ms.date()"
+            parse_kw = ""
         elif time_field_data_type in ("timestamp", "datetime"):
             effective_tz = time_field_timezone or "UTC"
             parse_fn = "ms.timestamp" if time_field_data_type == "timestamp" else "ms.datetime"
-            parse_kw = f"parse={parse_fn}(timezone='{effective_tz}')"
+            parse_kw = f", parse={parse_fn}(timezone='{effective_tz}')"
         else:
-            parse_kw = f"parse=ms.strptime('%Y%m%d', data_type='{time_field_data_type}')"
+            parse_kw = ", parse=ms.strptime('%Y%m%d')"
         time_field_block = (
             f"\n@ms.time_dimension(entity={dataset_name}, "
-            f"granularity='day', {parse_kw})\n"
+            f"granularity='day'{parse_kw})\n"
             f"def created_at({dataset_name}):\n"
             f"    return {dataset_name}.created_at\n"
         )

@@ -98,7 +98,7 @@ def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_proj
                 "ms.domain(name='sales')\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', "
                 "source=ms.table('orders'))\n"
-                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d', data_type='string'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
                 "@ms.metric(entities=[orders], additivity='additive', )\n"
@@ -128,7 +128,7 @@ def test_verify_time_dimension_auto_records_identity(
     assert obj is not None
     assert any(d.decision_kind == "time_dimension_identity" for d in obj.decisions)
     td_decision = next(d for d in obj.decisions if d.decision_kind == "time_dimension_identity")
-    assert td_decision.chosen == "string/day"
+    assert td_decision.chosen == "strptime/day"
     assert td_decision.agreement_confidence == "high"
     assert td_decision.qualifying_sources == ("semantic_declaration",)
     assert td_decision.evidence_fingerprint.startswith("sha256:")
@@ -198,7 +198,7 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
                 "ms.domain(name='sales')\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', "
                 "source=ms.table('orders'))\n"
-                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d', data_type='string'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
             )
@@ -220,7 +220,7 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
                 "ms.domain(name='sales')\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', "
                 "source=ms.table('orders'))\n"
-                "@ms.time_dimension(entity=orders, granularity='month', parse=ms.strptime('%Y%m%d', data_type='string'))\n"
+                "@ms.time_dimension(entity=orders, granularity='month', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
             )
@@ -235,7 +235,7 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
     assert len(obj.decisions) == 1, "Stale decision should be replaced, not accumulated"
     second_fp = obj.decisions[0].evidence_fingerprint
     assert second_fp != first_fp, "Fingerprint should differ after declaration change"
-    assert obj.decisions[0].chosen == "string/month"
+    assert obj.decisions[0].chosen == "strptime/month"
 
 
 def test_verify_dimension_no_auto_record(tmp_path: Path, semantic_project_factory) -> None:
@@ -339,7 +339,7 @@ def test_verify_clears_readiness_unresolved_clarification(
                 "ms.domain(name='sales')\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', "
                 "source=ms.table('orders'))\n"
-                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d', data_type='string'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
                 "@ms.metric(entities=[orders], additivity='additive', )\n"

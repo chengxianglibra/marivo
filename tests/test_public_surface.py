@@ -84,7 +84,6 @@ SEMANTIC_PUBLIC = {
     "VersioningHints",
     "aggregate",
     "csv",
-    "date",
     "datetime",
     "dimension",
     "domain",

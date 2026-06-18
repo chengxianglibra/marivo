@@ -138,18 +138,22 @@ def _is_lexicographic_day_format(fmt: str | None) -> bool:
 
 
 def _is_day_partition_meta(time_meta: Any) -> bool:
+    parse_kind = getattr(time_meta, "parse_kind", None)
     data_type = time_meta.data_type
-    if data_type not in {"string", "integer"}:
-        return False
-    fmt = time_meta.format
-    if fmt is None or not fmt.startswith("%"):
-        return False
-    return _classify_strptime_format(fmt) == "day"
+    # strptime with string/integer data_type (or deferred data_type) is a
+    # partition-style dimension; check the format classification.
+    if parse_kind == "strptime" or data_type in {"string", "integer"}:
+        fmt = time_meta.format
+        if fmt is None or not fmt.startswith("%"):
+            return False
+        return _classify_strptime_format(fmt) == "day"
+    return False
 
 
 def _is_hour_precision_partition_meta(time_meta: Any) -> bool:
+    parse_kind = getattr(time_meta, "parse_kind", None)
     data_type = time_meta.data_type
-    if data_type not in {"string", "integer"}:
+    if parse_kind != "strptime" and data_type not in {"string", "integer"}:
         return False
     fmt = time_meta.format
     if fmt is None or not fmt.startswith("%"):
@@ -378,7 +382,52 @@ def _normalize_ibis_dtype(dtype_name: str) -> str:
 
 
 def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
+    # Ensure data_type is resolved before validation.
+    _ensure_resolved_data_type(field_expr, time_meta)
+    parse_kind = getattr(time_meta, "parse_kind", None)
     declared = time_meta.data_type
+    # When parse was deferred, data_type was just inferred from ibis dtype.
+    # Check if the inferred type is non-temporal (string/integer without parse).
+    if parse_kind is None:
+        if declared in {"string", "integer"}:
+            try:
+                dtype_name = str(field_expr.type())
+            except Exception:
+                return
+            raise DataTypeMismatchError(
+                message=f"time_dimension column has ibis dtype {dtype_name!r} which is "
+                f"not a native temporal type; provide parse=ms.strptime(...) "
+                f"for string/integer time columns.",
+                hint="Add parse=ms.strptime(format) to the time_dimension declaration.",
+                details={
+                    "kind": "InferredNonTemporal",
+                    "inferred_data_type": declared,
+                    "actual_ibis_dtype": dtype_name,
+                },
+            )
+        # A date column cannot support sub-day granularity — ibis would raise
+        # SignatureValidationError when trying to bucket a DateColumn at hour/
+        # minute/second grain.  Fail closed with a Marivo error instead.
+        if declared == "date":
+            granularity = getattr(time_meta, "granularity", None)
+            if granularity in {"hour", "minute", "second"}:
+                raise DataTypeMismatchError(
+                    message=(
+                        f"time_dimension inferred data_type='date' but "
+                        f"granularity={granularity!r} requires sub-day resolution. "
+                        "Date columns do not carry time-of-day information."
+                    ),
+                    hint=(
+                        "Use a datetime/timestamp column for sub-day granularity, "
+                        "or change granularity to 'day' or coarser."
+                    ),
+                    details={
+                        "kind": "InferredDateWithSubDayGranularity",
+                        "inferred_data_type": declared,
+                        "granularity": granularity,
+                    },
+                )
+        return
     if declared is None:
         return
     try:
@@ -414,6 +463,65 @@ def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
                 "actual_ibis_dtype": dtype_name,
             },
         )
+
+
+def _infer_data_type_from_ibis(field_expr: Any) -> str | None:
+    """Infer declared data_type from an ibis expression's dtype.
+
+    Returns one of ``"date"``, ``"datetime"``, ``"timestamp"``,
+    ``"string"``, ``"integer"``, or ``None`` when the dtype is
+    not recognized.
+    """
+    try:
+        dtype_name = str(field_expr.type())
+    except Exception:
+        return None
+    normalized = _normalize_ibis_dtype(dtype_name)
+    compatible = _IBIS_DTYPE_TO_DECLARED.get(normalized)
+    if compatible is None:
+        return None
+    return sorted(compatible)[0]
+
+
+def resolve_time_parse(dimension_ir: Any, field_expr: Any) -> Any:
+    """Resolve the full SemanticParse from a DimensionIR and materialized ibis expression.
+
+    When ``dimension_ir.parse`` is not None, returns it directly (filling in
+    ``data_type`` on StrptimeParse/HourPrefixParse if still absent).
+    When ``dimension_ir.parse`` is None, infers the parse variant from the
+    column's ibis dtype.
+    """
+    from marivo.semantic.ir import DateParse, DatetimeParse
+
+    parse = dimension_ir.parse
+    if parse is not None:
+        return parse
+    # No explicit parse — infer from column type.
+    inferred = _infer_data_type_from_ibis(field_expr)
+    if inferred == "date":
+        return DateParse()
+    if inferred in ("datetime", "timestamp"):
+        return DatetimeParse()
+    if inferred in ("string", "integer"):
+        raise DataTypeMismatchError(
+            message=f"time_dimension column has ibis dtype mapping to data_type={inferred!r} "
+            f"which is not a native temporal type; provide parse=ms.strptime(...) "
+            f"for string/integer time columns.",
+            hint="Add parse=ms.strptime(format) to the time_dimension declaration.",
+            details={
+                "kind": "InferredNonTemporalNoParse",
+                "inferred_data_type": inferred,
+            },
+        )
+    raise DataTypeMismatchError(
+        message="time_dimension column has unrecognized ibis dtype; "
+        "cannot infer parse variant. Provide an explicit parse parameter.",
+        hint="Use parse=ms.datetime(...), ms.timestamp(...), or ms.strptime(...).",
+        details={
+            "kind": "InferredUnknown",
+            "inferred_data_type": inferred,
+        },
+    )
 
 
 def _is_naive_temporal_expr(field_expr: Any) -> bool:
@@ -454,7 +562,38 @@ def _column_timezone(time_meta: Any, *, datasource_read_tz: ZoneInfo) -> ZoneInf
     return zoneinfo_from_name(declared) if declared is not None else datasource_read_tz
 
 
+def _ensure_resolved_data_type(field_expr: Any, time_meta: Any) -> None:
+    """Resolve data_type from the ibis expression when it was not declared.
+
+    When ``parse_kind is None`` (deferred parse) or when ``data_type`` is
+    still a placeholder (strptime/hour_prefix no longer carry data_type),
+    this function infers the actual type from the ibis expression and patches
+    the adapter in place.
+    """
+    parse_kind = getattr(time_meta, "parse_kind", None)
+    # Deferred parse — always resolve
+    if parse_kind is None:
+        inferred = _infer_data_type_from_ibis(field_expr)
+        if inferred is not None:
+            try:
+                time_meta.data_type = inferred
+            except AttributeError:
+                object.__setattr__(time_meta, "data_type", inferred)
+        return
+    # strptime/hour_prefix — data_type was removed from the IR; resolve from column.
+    # The adapter may have set a default ("string") but the actual column could be
+    # integer, so always infer from the ibis expression.
+    if parse_kind in {"strptime", "hour_prefix"}:
+        inferred = _infer_data_type_from_ibis(field_expr)
+        if inferred in {"string", "integer"}:
+            try:
+                time_meta.data_type = inferred
+            except AttributeError:
+                object.__setattr__(time_meta, "data_type", inferred)
+
+
 def _validate_time_field_timezone(field_expr: Any, time_meta: Any) -> None:
+    _ensure_resolved_data_type(field_expr, time_meta)
     declared = _declared_timezone(time_meta)
     if declared is None:
         return

@@ -64,7 +64,7 @@ before making the dimension the default time axis for metrics or entities.
 on string/integer hour-granularity time dimensions. You must choose one.
 
 Choose by column shape — single column with date+hour (e.g. `"2025061403"`)
-uses `parse=ms.strptime("%Y%m%d%H", data_type="string")`; separate day and
+uses `parse=ms.strptime("%Y%m%d%H")`; separate day and
 hour columns use `parse=ms.hour_prefix(...)` on the hour dimension and no
 date-bearing strptime. When `hour_prefix` is set, Marivo concatenates the
 prefix value with the hour column at query time, so a strptime format would
@@ -75,9 +75,8 @@ code examples.
 
 Do not make cast/parse expressions the partition dimension default when a day/hour
 partition column already stores a sortable encoded value. Prefer
-`parse=ms.strptime(...)` with `data_type="string"` or `data_type="integer"`
-for day partition columns, and use `parse=ms.hour_prefix(...)` for hour-only
-fields such as `HH`. This preserves simple partition predicates for engine-side
+`parse=ms.strptime(...)` for day partition columns, and use `parse=ms.hour_prefix(...)`
+for hour-only fields such as `HH`. This preserves simple partition predicates for engine-side
 predicate pushdown. Use cast/parse expressions only when the established
 business time axis is not the raw partition value.
 
@@ -86,7 +85,7 @@ business time axis is not the raw partition value.
 Do not cast a Trino VARCHAR datetime directly to DATE:
 
 ```python
-@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+@ms.time_dimension(entity=orders, granularity="day")
 def order_date(table):
     return table.order_time.cast("date")
 ```
@@ -94,22 +93,24 @@ def order_date(table):
 Parse through timestamp first:
 
 ```python
-@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+@ms.time_dimension(entity=orders, granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
 
-Note: both examples use `parse=ms.date()` because the body produces a
-DateColumn. Using `parse=ms.datetime(...)` with a `.cast("date")` body
-causes a TypeError at execution.
+Note: both examples omit `parse` because the body produces a DateColumn
+and the parse variant is inferred at analysis time. Using
+`parse=ms.datetime(...)` with a `.cast("date")` body causes a TypeError
+at execution.
 
 ## parse variant vs body dtype mismatch
 
 The `parse` variant on `ms.time_dimension(...)` determines the physical
 column type. It must match the ibis dtype produced by the body function:
 
-- `.cast("date")` or a raw date column -> `parse=ms.date()`
-- `.cast("timestamp")` or a raw timestamp column -> `parse=ms.datetime(...)` or `parse=ms.timestamp(...)`
+- `.cast("date")` or a raw date column -> omit `parse` (inferred as date)
+- `.cast("timestamp")` or a raw timestamp column -> omit `parse` or use `parse=ms.datetime(...)` / `parse=ms.timestamp(...)`
+- A string/integer column -> `parse=ms.strptime(format)`
 
 When the parse variant implies a different type than the body's ibis dtype,
 the executor dispatches to the wrong code path and raises TypeError
@@ -121,8 +122,8 @@ the executor dispatches to the wrong code path and raises TypeError
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 
-# CORRECT - ms.date() parse with .cast("date") body
-@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+# CORRECT - omit parse; inferred from body's ibis dtype
+@ms.time_dimension(entity=orders, granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```

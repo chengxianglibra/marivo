@@ -30,7 +30,7 @@ orders = ms.entity(
     entity=orders,
     name="log_date",
     granularity="day",
-    parse=ms.strptime("%Y%m%d", data_type="string"),
+    parse=ms.strptime("%Y%m%d"),
     ai_context={
         "business_definition": "Partition date used for default order reporting windows.",
         "guardrails": ["Use event time instead only when source SQL defines that axis."],
@@ -43,7 +43,7 @@ def log_date(table):
     entity=orders,
     name="log_hour",
     granularity="hour",
-    parse=ms.hour_prefix("log_date", data_type="string"),
+    parse=ms.hour_prefix("log_date"),
     ai_context={
         "business_definition": "Hour partition used with log_date for hourly reporting windows.",
         "guardrails": ["Use full event timestamp only when source SQL defines that axis."],
@@ -154,7 +154,7 @@ compile to simple partition comparisons for predicate pushdown. Do not add
 filtered as physical partition keys, not interpreted instants.
 
 ```python
-@ms.time_dimension(entity=orders, name="log_date", granularity="day", parse=ms.strptime("%Y%m%d", data_type="string"))
+@ms.time_dimension(entity=orders, name="log_date", granularity="day", parse=ms.strptime("%Y%m%d"))
 def log_date(table):
     return table.dt
 
@@ -162,7 +162,7 @@ def log_date(table):
     entity=orders,
     name="log_hour",
     granularity="hour",
-    parse=ms.hour_prefix("log_date", data_type="string"),
+    parse=ms.hour_prefix("log_date"),
 )
 def log_hour(table):
     return table.hh
@@ -173,7 +173,7 @@ business axis, but they are not the partition dimension default and may not pres
 predicate pushdown:
 
 ```python
-@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+@ms.time_dimension(entity=orders, granularity="day")
 def event_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
@@ -193,14 +193,15 @@ meaning differs from the datasource default.
 @ms.time_dimension(
     entity=orders,
     granularity="minute",
-    parse=ms.strptime("%Y-%m-%d %H:%M:%S", data_type="string", timezone="UTC"),
+    parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="UTC"),
 )
 def create_time(table):
     return table.create_time
 ```
 
-When the body returns a date-typed expression (via `.cast("date")`), use
-`parse=ms.date()`. Using `parse=ms.datetime(...)` with a `.cast("date")`
+When the body returns a date-typed expression (via `.cast("date")`), omit
+`parse` — the parse variant is inferred from the column's ibis dtype at
+analysis time. Using `parse=ms.datetime(...)` with a `.cast("date")`
 body causes a TypeError at execution because ibis cannot add intervals to
 DateColumns.
 
@@ -208,7 +209,7 @@ For Trino VARCHAR datetime columns storing values like `"2025-04-04 06:59:59"`,
 do not cast VARCHAR directly to DATE. Parse through timestamp first:
 
 ```python
-@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+@ms.time_dimension(entity=orders, granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```

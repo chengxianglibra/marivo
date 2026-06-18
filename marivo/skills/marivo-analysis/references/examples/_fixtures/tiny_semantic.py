@@ -92,7 +92,7 @@ def _bootstrap_semantic_layer(root: Path) -> None:
         "\n"
         f"orders = ms.entity(name='orders', datasource={DATASOURCE_NAME}, source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def created_at(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"

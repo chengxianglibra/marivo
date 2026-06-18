@@ -21,19 +21,25 @@ from marivo.analysis.windows.spec import AbsoluteWindow, normalize_timescope_inp
 
 
 class FakeMeta:
-    def __init__(self, data_type, format=None, required_prefix=None, granularity=None):
+    def __init__(
+        self, data_type, format=None, required_prefix=None, granularity=None, parse_kind=None
+    ):
         self.data_type = data_type
         self.format = format
         self.required_prefix = required_prefix
         self.granularity = granularity
+        self.parse_kind = parse_kind
+        self.timezone = None
 
 
 class FakeField:
-    def __init__(self, name, data_type, format=None, required_prefix=None, granularity=None):
+    def __init__(
+        self, name, data_type, format=None, required_prefix=None, granularity=None, parse_kind=None
+    ):
         self.name = name
         self.semantic_id = f"sales.{name}"
         self.is_time = True
-        self.time_meta = FakeMeta(data_type, format, required_prefix, granularity)
+        self.time_meta = FakeMeta(data_type, format, required_prefix, granularity, parse_kind)
 
     def fn(self, table):
         return table[self.name]
@@ -87,12 +93,21 @@ def _compile_window_filter(
     end="2025-07-31",
     report_tz=None,
     datasource_read_tz=None,
+    parse_kind=None,
 ):
     table = ibis.table({column: ibis_type or meta_data_type}, name="orders")
+    # Infer parse_kind from data_type when not explicit
+    if parse_kind is None:
+        if meta_data_type in ("string", "integer") and format is not None:
+            parse_kind = "strptime"
+        elif meta_data_type == "date":
+            parse_kind = "date"
+        elif meta_data_type in ("datetime", "timestamp"):
+            parse_kind = meta_data_type
     lower, upper = _window_bound_predicates(
         table[column],
         AbsoluteWindow(start=start, end=end),
-        FakeMeta(meta_data_type, format),
+        FakeMeta(meta_data_type, format, parse_kind=parse_kind),
         report_tz=report_tz,
         datasource_read_tz=datasource_read_tz if datasource_read_tz is not None else report_tz,
     )
@@ -199,13 +214,16 @@ def _compile_composite_window_filter(
     )
     dataset = FakeDataset(
         [
-            FakeField("log_date", date_data_type, date_format, granularity="day"),
+            FakeField(
+                "log_date", date_data_type, date_format, granularity="day", parse_kind="strptime"
+            ),
             FakeField(
                 "log_hour",
                 hour_data_type,
                 hour_format,
                 required_prefix="log_date",
                 granularity="hour",
+                parse_kind="hour_prefix",
             ),
         ]
     )
@@ -369,7 +387,7 @@ def test_strptime_minute_uses_timestamp_comparison():
 
 def test_strptime_day_bucket():
     table = ibis.table({"log_date": "string"}, name="orders")
-    field = FakeField("log_date", "string", "%Y/%m/%d")
+    field = FakeField("log_date", "string", "%Y/%m/%d", parse_kind="strptime")
     result = apply_time_series_bucket(
         table,
         field_ir=field,
@@ -383,7 +401,7 @@ def test_strptime_day_bucket():
 
 def test_strptime_hour_bucket():
     table = ibis.table({"log_hour": "string"}, name="orders")
-    field = FakeField("log_hour", "string", "%Y%m%d%H")
+    field = FakeField("log_hour", "string", "%Y%m%d%H", parse_kind="strptime")
     result = apply_time_series_bucket(
         table,
         field_ir=field,
@@ -397,7 +415,7 @@ def test_strptime_hour_bucket():
 
 def test_strptime_minute_bucket():
     table = ibis.table({"log_ts": "string"}, name="orders")
-    field = FakeField("log_ts", "string", "%Y-%m-%d %H:%M")
+    field = FakeField("log_ts", "string", "%Y-%m-%d %H:%M", parse_kind="strptime")
     result = apply_time_series_bucket(
         table,
         field_ir=field,
@@ -459,8 +477,15 @@ def _hour_bucket_dataset():
     """
     return FakeDataset(
         [
-            FakeField("log_date", "string", "%Y-%m-%d", granularity="day"),
-            FakeField("log_hour", "string", None, required_prefix="log_date", granularity="hour"),
+            FakeField("log_date", "string", "%Y-%m-%d", granularity="day", parse_kind="strptime"),
+            FakeField(
+                "log_hour",
+                "string",
+                None,
+                required_prefix="log_date",
+                granularity="hour",
+                parse_kind="hour_prefix",
+            ),
         ]
     )
 
@@ -468,7 +493,14 @@ def _hour_bucket_dataset():
 def test_hour_only_bucket_grain_matches_field():
     """Grain == field granularity: combine prefix date + hour into timestamp."""
     table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
-    field = FakeField("log_hour", "string", None, required_prefix="log_date", granularity="hour")
+    field = FakeField(
+        "log_hour",
+        "string",
+        None,
+        required_prefix="log_date",
+        granularity="hour",
+        parse_kind="hour_prefix",
+    )
     result = apply_time_series_bucket(
         table,
         field_ir=field,
@@ -484,7 +516,14 @@ def test_hour_only_bucket_grain_matches_field():
 def test_hour_only_bucket_grain_coarser_uses_prefix_date():
     """Grain > field granularity: use prefix date only, truncate to grain."""
     table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
-    field = FakeField("log_hour", "string", None, required_prefix="log_date", granularity="hour")
+    field = FakeField(
+        "log_hour",
+        "string",
+        None,
+        required_prefix="log_date",
+        granularity="hour",
+        parse_kind="hour_prefix",
+    )
     result = apply_time_series_bucket(
         table,
         field_ir=field,
@@ -500,7 +539,14 @@ def test_hour_only_bucket_grain_coarser_uses_prefix_date():
 def test_hour_only_bucket_grain_finer_raises():
     """Grain < field granularity: raise WindowInvalidError."""
     table = ibis.table({"log_date": "string", "log_hour": "string"}, name="orders")
-    field = FakeField("log_hour", "string", None, required_prefix="log_date", granularity="hour")
+    field = FakeField(
+        "log_hour",
+        "string",
+        None,
+        required_prefix="log_date",
+        granularity="hour",
+        parse_kind="hour_prefix",
+    )
     with pytest.raises(WindowInvalidError, match="finer than"):
         apply_time_series_bucket(
             table,
@@ -515,7 +561,7 @@ def test_hour_only_bucket_grain_finer_raises():
 def test_unresolvable_string_format_raises():
     """Unresolvable string format raises explicit error instead of crashing."""
     table = ibis.table({"log_date": "string"}, name="orders")
-    field = FakeField("log_date", "string", "made_up_format")
+    field = FakeField("log_date", "string", "made_up_format", parse_kind="strptime")
     with pytest.raises(WindowInvalidError, match="cannot compute bucket"):
         apply_time_series_bucket(
             table,
@@ -535,12 +581,21 @@ def test_ensure_bucket_start_timestamp_yyyymmdd_hour_grain():
     """%Y%m%d prefix + hour grain: "2026060100" → pd.Timestamp("2026-06-01 00:00")."""
     dataset = FakeDataset(
         [
-            FakeField("log_date", "string", "%Y%m%d", granularity="day"),
-            FakeField("log_hour", "string", None, required_prefix="log_date", granularity="hour"),
+            FakeField("log_date", "string", "%Y%m%d", granularity="day", parse_kind="strptime"),
+            FakeField(
+                "log_hour",
+                "string",
+                None,
+                required_prefix="log_date",
+                granularity="hour",
+                parse_kind="hour_prefix",
+            ),
         ]
     )
     series = pd.Series(["2026060100", "2026060101", "2026060123"])
-    time_meta = FakeMeta("string", None, required_prefix="log_date", granularity="hour")
+    time_meta = FakeMeta(
+        "string", None, required_prefix="log_date", granularity="hour", parse_kind="hour_prefix"
+    )
     result = ensure_bucket_start_timestamp(
         series,
         time_meta=time_meta,
@@ -556,12 +611,21 @@ def test_ensure_bucket_start_timestamp_yyyymmdd_day_grain():
     """%Y%m%d prefix + day grain: "20260601" → pd.Timestamp("2026-06-01")."""
     dataset = FakeDataset(
         [
-            FakeField("log_date", "string", "%Y%m%d", granularity="day"),
-            FakeField("log_hour", "string", None, required_prefix="log_date", granularity="hour"),
+            FakeField("log_date", "string", "%Y%m%d", granularity="day", parse_kind="strptime"),
+            FakeField(
+                "log_hour",
+                "string",
+                None,
+                required_prefix="log_date",
+                granularity="hour",
+                parse_kind="hour_prefix",
+            ),
         ]
     )
     series = pd.Series(["20260601", "20260602"])
-    time_meta = FakeMeta("string", None, required_prefix="log_date", granularity="hour")
+    time_meta = FakeMeta(
+        "string", None, required_prefix="log_date", granularity="hour", parse_kind="hour_prefix"
+    )
     result = ensure_bucket_start_timestamp(
         series,
         time_meta=time_meta,
@@ -575,7 +639,9 @@ def test_ensure_bucket_start_timestamp_yyyymmdd_day_grain():
 def test_ensure_bucket_start_timestamp_yyyy_mm_dd_hour_grain():
     """%Y-%m-%d prefix + hour grain: "2026-06-01-08" → pd.Timestamp("2026-06-01 08:00")."""
     series = pd.Series(["2026-06-01-08", "2026-06-01-23"])
-    time_meta = FakeMeta("string", None, required_prefix="log_date", granularity="hour")
+    time_meta = FakeMeta(
+        "string", None, required_prefix="log_date", granularity="hour", parse_kind="hour_prefix"
+    )
     result = ensure_bucket_start_timestamp(
         series,
         time_meta=time_meta,
@@ -590,7 +656,9 @@ def test_ensure_bucket_start_timestamp_yyyy_mm_dd_hour_grain():
 def test_ensure_bucket_start_timestamp_skips_non_string():
     """Non-string bucket_start is returned unchanged."""
     series = pd.Series([pd.Timestamp("2026-06-01"), pd.Timestamp("2026-06-02")])
-    time_meta = FakeMeta("string", None, required_prefix="log_date", granularity="hour")
+    time_meta = FakeMeta(
+        "string", None, required_prefix="log_date", granularity="hour", parse_kind="hour_prefix"
+    )
     result = ensure_bucket_start_timestamp(
         series,
         time_meta=time_meta,
@@ -616,7 +684,9 @@ def test_ensure_bucket_start_timestamp_skips_non_hour_only():
 def test_ensure_bucket_start_timestamp_skips_none_grain():
     """grain=None returns series unchanged."""
     series = pd.Series(["2026060100"])
-    time_meta = FakeMeta("string", None, required_prefix="log_date", granularity="hour")
+    time_meta = FakeMeta(
+        "string", None, required_prefix="log_date", granularity="hour", parse_kind="hour_prefix"
+    )
     result = ensure_bucket_start_timestamp(
         series,
         time_meta=time_meta,

@@ -1124,7 +1124,6 @@ def test_catalog_strptime_time_dimension_details_include_sample_interval(semanti
                 "    granularity='minute',\n"
                 "    parse=ms.strptime(\n"
                 "        '%Y%m%d%H%M%S',\n"
-                "        data_type='string',\n"
                 "        timezone='UTC',\n"
                 "        sample_interval=(5, 'minute'),\n"
                 "    ),\n"

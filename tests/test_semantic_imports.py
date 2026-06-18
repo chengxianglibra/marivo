@@ -143,7 +143,6 @@ def test_all_list_matches_expected() -> None:
         "entity",
         "csv",
         "parquet",
-        "date",
         "datetime",
         "dimension",
         "time_dimension",

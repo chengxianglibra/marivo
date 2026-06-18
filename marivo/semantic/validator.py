@@ -208,14 +208,18 @@ def _time_dimension_dtype_advisory(
     # Extract data_type from parse variant for comparison
     parse = field_ir.parse
     data_type_val: str | None = None
+    if parse is None:
+        return None  # deferred parse — cannot validate at this stage
     if isinstance(parse, DateParse):
         data_type_val = "date"
     elif isinstance(parse, DatetimeParse):
         data_type_val = "datetime"
     elif isinstance(parse, TimestampParse):
         data_type_val = "timestamp"
-    elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
-        data_type_val = parse.data_type
+    elif isinstance(parse, StrptimeParse):
+        data_type_val = "strptime"
+    elif isinstance(parse, HourPrefixParse):
+        data_type_val = "hour_prefix"
     if data_type_val not in compatible:
         return inferred
     return None
@@ -1212,14 +1216,18 @@ def assembly_validate(
             compatible = sorted(_CAST_TARGET_TO_DECLARED.get(inferred, set()))
             parse = f_ir.parse
             declared_data_type: str | None = None
-            if isinstance(parse, DateParse):
+            if parse is None:
+                continue  # deferred parse — skip dtype advisory
+            elif isinstance(parse, DateParse):
                 declared_data_type = "date"
             elif isinstance(parse, DatetimeParse):
                 declared_data_type = "datetime"
             elif isinstance(parse, TimestampParse):
                 declared_data_type = "timestamp"
-            elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
-                declared_data_type = parse.data_type
+            elif isinstance(parse, StrptimeParse):
+                declared_data_type = "strptime"
+            elif isinstance(parse, HourPrefixParse):
+                declared_data_type = "hour_prefix"
             warnings.append(
                 StructuredWarning(
                     kind=WarningKind.TIME_DIMENSION_DTYPE_ADVISORY.value,

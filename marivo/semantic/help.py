@@ -467,31 +467,6 @@ def _csv_topic() -> Descriptor:
     )
 
 
-def _date_topic() -> Descriptor:
-    return Descriptor(
-        surface="marivo.semantic",
-        kind="topic",
-        symbol="date",
-        summary="date-only parse variant for ms.time_dimension(parse=ms.date())",
-        content={
-            "form": "ms.date()",
-            "usage": "No timezone or format arguments — date-only columns.",
-            "related_help": [
-                "ms.help('time_dimension')",
-            ],
-        },
-        doc=(
-            "marivo.semantic date\n"
-            "\n"
-            "date-only parse variant for ms.time_dimension(parse=ms.date())\n"
-            "\n"
-            "Form:\n"
-            "  ms.date()"
-        ),
-        see_also=("ms.help('time_dimension')",),
-    )
-
-
 def _datetime_topic() -> Descriptor:
     return Descriptor(
         surface="marivo.semantic",
@@ -547,10 +522,10 @@ def _strptime_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="strptime",
-        summary="strptime parse variant with format, data_type, and optional sample interval",
+        summary="strptime parse variant with format and optional sample interval",
         content={
-            "form": "ms.strptime(format='%Y%m%d', data_type='string', sample_interval=None)",
-            "usage": "For string/integer columns needing explicit format parsing. sample_interval is optional for sampled time dimensions.",
+            "form": "ms.strptime(format='%Y%m%d', sample_interval=None)",
+            "usage": "For string/integer columns needing explicit format parsing. The physical column type (string or integer) is inferred at analysis time. sample_interval is optional for sampled time dimensions.",
             "related_help": [
                 "ms.help('time_dimension')",
             ],
@@ -558,10 +533,10 @@ def _strptime_topic() -> Descriptor:
         doc=(
             "marivo.semantic strptime\n"
             "\n"
-            "strptime parse variant with format, data_type, and optional sample interval\n"
+            "strptime parse variant with format and optional sample interval\n"
             "\n"
             "Form:\n"
-            "  ms.strptime(format='%Y%m%d', data_type='string', sample_interval=None)"
+            "  ms.strptime(format='%Y%m%d', sample_interval=None)"
         ),
         see_also=("ms.help('time_dimension')",),
     )
@@ -574,8 +549,8 @@ def _hour_prefix_topic() -> Descriptor:
         symbol="hour_prefix",
         summary="hour-prefix parse variant for partitioned hourly time dimensions",
         content={
-            "form": "ms.hour_prefix(prefix='dt', data_type='string')",
-            "usage": "For hour-granularity partitioned columns. Requires hour granularity on the time dimension. Optional sample_interval=(count, unit) enables sampled-fold axis.",
+            "form": "ms.hour_prefix(prefix='dt')",
+            "usage": "For hour-granularity partitioned columns. The physical column type (string or integer) is inferred at analysis time. Requires hour granularity on the time dimension. Optional sample_interval=(count, unit) enables sampled-fold axis.",
             "related_help": [
                 "ms.help('time_dimension')",
             ],
@@ -586,8 +561,8 @@ def _hour_prefix_topic() -> Descriptor:
             "hour-prefix parse variant for partitioned hourly time dimensions\n"
             "\n"
             "Form:\n"
-            "  ms.hour_prefix(prefix='dt', data_type='string')\n"
-            "  ms.hour_prefix(prefix='dt', data_type='string', sample_interval=(1, 'hour'))"
+            "  ms.hour_prefix(prefix='dt')\n"
+            "  ms.hour_prefix(prefix='dt', sample_interval=(1, 'hour'))"
         ),
         see_also=("ms.help('time_dimension')",),
     )
@@ -623,7 +598,6 @@ def _surface() -> Surface:
                 "join_on",
                 "parquet",
                 "csv",
-                "date",
                 "datetime",
                 "timestamp",
                 "strptime",
@@ -649,7 +623,6 @@ def _surface() -> Surface:
             "join_on": _join_on_topic(),
             "parquet": _parquet_topic(),
             "csv": _csv_topic(),
-            "date": _date_topic(),
             "datetime": _datetime_topic(),
             "timestamp": _timestamp_topic(),
             "strptime": _strptime_topic(),

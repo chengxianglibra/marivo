@@ -29,7 +29,7 @@ SALES_FILES = {
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "\n"
-        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
         "\n"

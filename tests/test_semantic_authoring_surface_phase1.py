@@ -140,8 +140,8 @@ def test_time_parse_value_objects_are_closed_variants() -> None:
         TimestampParse(timezone="UTC", sample_interval=SampleIntervalIR(5, "minute")).kind
         == "timestamp"
     )
-    assert StrptimeParse(format="%Y%m%d", data_type="string").kind == "strptime"
-    assert HourPrefixParse(prefix="dt", data_type="integer").kind == "hour_prefix"
+    assert StrptimeParse(format="%Y%m%d").kind == "strptime"
+    assert HourPrefixParse(prefix="dt").kind == "hour_prefix"
 
 
 def test_metric_provenance_and_join_key_value_objects() -> None:
@@ -291,9 +291,7 @@ def test_time_dimension_uses_parse_value_object() -> None:
             name="orders", datasource="warehouse", source=ms.table("orders"), domain=sales
         )
 
-        @ms.time_dimension(
-            entity=orders, granularity="day", parse=ms.strptime("%Y%m%d", data_type="string")
-        )
+        @ms.time_dimension(entity=orders, granularity="day", parse=ms.strptime("%Y%m%d"))
         def dt(orders_table):
             return orders_table.dt
 
@@ -314,12 +312,13 @@ def test_datetime_and_timestamp_accept_optional_timezone() -> None:
 
 
 def test_time_dimension_parse_invalid_combinations_are_unconstructable() -> None:
-    with pytest.raises(TypeError):
-        ms.date(timezone="UTC")
+    # data_type is no longer a parameter on strptime or hour_prefix
     with pytest.raises(TypeError):
         ms.strptime(data_type="string")
     with pytest.raises(TypeError):
         ms.hour_prefix("dt", data_type="date")
+    # ms.date has been removed — native temporal columns don't need parse
+    assert not hasattr(ms, "date")
 
 
 def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
@@ -331,9 +330,7 @@ def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
         )
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_dimension(
-                entity=orders, granularity="day", parse=ms.hour_prefix("dt", data_type="string")
-            )
+            @ms.time_dimension(entity=orders, granularity="day", parse=ms.hour_prefix("dt"))
             def hh(orders_table):
                 return orders_table.hh
 

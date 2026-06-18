@@ -33,6 +33,9 @@ def gross(orders): return orders.gross
 @ms.measure(entity=orders, additivity="additive")
 def refund(orders): return orders.refund
 
+@ms.metric(entities=[orders], additivity="additive", name="revenue_via_measure")
+def revenue_via_measure(orders): return amount(orders).sum()
+
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
 order_count = ms.aggregate(measure=amount, agg="count", name="order_count")
 gross_total = ms.aggregate(measure=gross, agg="sum", name="gross_total")
@@ -122,6 +125,14 @@ def test_tier1_count_materializes_as_count(materialized_project):
     # order_count = ms.aggregate(measure=amount, agg="count")
     value = materialized_project.materializer.metric("sales.order_count")
     assert materialized_project.execute_scalar(value) == materialized_project.row_count("orders")
+
+
+def test_tier2_body_can_reference_measure(materialized_project):
+    # revenue_via_measure: a tier-2 @ms.metric body that calls the `amount`
+    # measure -> amount(orders).sum(). The MeasureRef must resolve to its
+    # sidecar callable inside a loaded project, like DimensionRef does.
+    value = materialized_project.materializer.metric("sales.revenue_via_measure")
+    assert materialized_project.execute_scalar(value) == materialized_project.expected_sum("amount")
 
 
 # ---------------------------------------------------------------------------

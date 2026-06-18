@@ -181,7 +181,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "import marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(entity=orders, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n\n"
         if with_time

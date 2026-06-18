@@ -38,7 +38,7 @@ orders = ms.entity(
     entity=orders,
     name="order_date",
     granularity="day",
-    parse=ms.date(),
+
     ai_context={
         "business_definition": "Daily order partition.",
         "guardrails": ["Use as the default reporting window axis."],

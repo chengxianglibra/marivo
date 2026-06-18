@@ -29,7 +29,7 @@ orders = ms.entity(
     entity=orders,
     name="log_date",
     granularity="day",
-    parse=ms.strptime("%Y%m%d", data_type="string"),
+    parse=ms.strptime("%Y%m%d", ),
     is_default=True,
     ai_context={
         "business_definition": "Partition time dimension for order reporting windows.",
@@ -43,7 +43,7 @@ def log_date(table):
     entity=orders,
     name="log_hour",
     granularity="hour",
-    parse=ms.hour_prefix("log_date", data_type="string"),
+    parse=ms.hour_prefix("log_date", ),
     ai_context={
         "business_definition": "Hour partition used with log_date for hourly reporting windows.",
         "guardrails": ["Use full event timestamp only when source evidence defines that axis."],

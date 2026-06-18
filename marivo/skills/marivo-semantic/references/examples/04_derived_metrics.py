@@ -36,7 +36,7 @@ orders = ms.entity(
     entity=orders,
     name="log_date",
     granularity="day",
-    parse=ms.strptime("%Y%m%d", data_type="string"),
+    parse=ms.strptime("%Y%m%d", ),
     is_default=True,
 )
 def log_date(table):

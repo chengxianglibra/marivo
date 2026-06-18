@@ -363,7 +363,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("time_dimension",),
         "Partition time dimensions should preserve raw sortable encodings when possible.",
         "Raw day/hour partition comparisons are easier for SQL engines to push down than parsed or cast expressions.",
-        "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer data_type='string' or 'integer' with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
+        "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer string or integer format with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
         docs_ref="marivo/skills/marivo-semantic/references/authoring-patterns.md",
     ),
     ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
