@@ -228,23 +228,27 @@ A time dimension is a special dimension that carries grain and parsing metadata.
 | `name` | `str` | No | function name | Dimension name. |
 | `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
 | `granularity` | grain literal | Yes | — | `year`, `quarter`, `month`, `week`, `day`, `hour`, `minute`, or `second` — the finest grain at which queries are meaningful. |
-| `parse` | parse variant | Yes | — | How the source column becomes a time value (see below). |
+| `parse` | parse variant | No | `None` | How the source column becomes a time value (see below). Omit for native temporal columns — the parse variant is inferred at analysis time. |
 | `is_default` | `bool` | No | `False` | Marks the default time axis when the entity has several. `observe` uses it when `time_dimension=` is omitted. |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
 | `ai_context` | `AiContext` | No | `None` | Agent-facing context. |
 
 ### Parse variants
 
-The `parse=` value declares the physical encoding of the column. The variant must
-be compatible with `granularity` (e.g. an hour grain needs a time-bearing format).
+The `parse=` value declares the physical encoding of the column. When omitted,
+the parse variant is inferred from the column's ibis dtype at analysis time
+(native `date`, `datetime`, and `timestamp` columns do not need an explicit parse).
+For string or integer columns, provide `ms.strptime(format)` or
+`ms.hour_prefix(prefix)`. The variant must be compatible with `granularity`
+(e.g. an hour grain needs a time-bearing format).
 
 | Builder | Source column is… | Key parameters |
 | --- | --- | --- |
-| `ms.date()` | a native `date` | — |
+| *(omit `parse`)* | a native temporal column | — |
 | `ms.datetime()` | a native `datetime` | `timezone` (IANA), `sample_interval` |
 | `ms.timestamp()` | a native `timestamp` | `timezone` (IANA), `sample_interval` |
-| `ms.strptime(format)` | a string/integer to parse | `data_type` (`"string"` or `"integer"`), `timezone`, `sample_interval` |
-| `ms.hour_prefix(prefix)` | an hour-only partition | `data_type`, `sample_interval` — `prefix` is the day-grain time-dimension id that supplies the date |
+| `ms.strptime(format)` | a string/integer to parse | `timezone`, `sample_interval` |
+| `ms.hour_prefix(prefix)` | an hour-only partition | `sample_interval` — `prefix` is the day-grain time-dimension id that supplies the date |
 
 `timezone` defaults to the datasource engine timezone; set it (e.g. `"UTC"`) only
 when the column's wall-clock meaning differs. `sample_interval` like `(5, "minute")`
@@ -256,7 +260,7 @@ marks a periodically-sampled axis used by semi-additive folds.
     entity=orders,
     name="log_date",
     granularity="day",
-    parse=ms.strptime("%Y%m%d", data_type="string"),
+    parse=ms.strptime("%Y%m%d"),
     is_default=True,
 )
 def log_date(table):

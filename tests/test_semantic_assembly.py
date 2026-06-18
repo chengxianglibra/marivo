@@ -234,7 +234,7 @@ def test_hour_prefix_with_valid_short_name_ok() -> None:
         is_time_dimension=True,
         kind=DimensionKind.TIME,
         granularity="hour",
-        parse=HourPrefixParse(prefix="order_date", data_type="string"),
+        parse=HourPrefixParse(prefix="order_date"),
         python_symbol="order_hour",
         location=_LOC,
     )
@@ -253,7 +253,7 @@ def test_hour_prefix_with_invalid_prefix() -> None:
         is_time_dimension=True,
         kind=DimensionKind.TIME,
         granularity="hour",
-        parse=HourPrefixParse(prefix="sales.orders.nonexistent_date", data_type="string"),
+        parse=HourPrefixParse(prefix="sales.orders.nonexistent_date"),
         python_symbol="order_hour",
         location=_LOC,
     )
@@ -275,7 +275,7 @@ def test_hour_prefix_must_reference_time_dimension() -> None:
         is_time_dimension=True,
         kind=DimensionKind.TIME,
         granularity="hour",
-        parse=HourPrefixParse(prefix="amount", data_type="string"),
+        parse=HourPrefixParse(prefix="amount"),
         python_symbol="order_hour",
         location=_LOC,
     )
@@ -329,7 +329,7 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
         is_time_dimension=True,
         kind=DimensionKind.TIME,
         granularity="day",
-        parse=StrptimeParse(format="%Y%m%d", data_type="string"),
+        parse=StrptimeParse(format="%Y%m%d"),
         python_symbol="order_date",
         location=_LOC,
     )

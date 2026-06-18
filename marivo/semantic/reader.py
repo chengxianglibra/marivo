@@ -142,12 +142,12 @@ def _time_dimension_identity_fingerprint(field_ir: DimensionIR) -> str:
         timezone_val = parse.timezone
         sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
     elif isinstance(parse, StrptimeParse):
-        data_type_val = parse.data_type
+        data_type_val = "strptime"
         format_val = parse.format
         timezone_val = parse.timezone
         sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
     elif isinstance(parse, HourPrefixParse):
-        data_type_val = parse.data_type
+        data_type_val = "hour_prefix"
         required_prefix_val = parse.prefix
         sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
     return _semantic_fingerprint(
@@ -890,8 +890,10 @@ class SemanticProject:
                 data_type_str = "datetime"
             elif isinstance(parse, TimestampParse):
                 data_type_str = "timestamp"
-            elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
-                data_type_str = parse.data_type
+            elif isinstance(parse, StrptimeParse):
+                data_type_str = "strptime"
+            elif isinstance(parse, HourPrefixParse):
+                data_type_str = "hour_prefix"
             chosen = f"{data_type_str}/{field_ir.granularity}"
             recorded = self._auto_record_decision(
                 ref,

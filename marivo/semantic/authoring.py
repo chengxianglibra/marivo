@@ -74,7 +74,6 @@ __all__ = [
     "DomainRef",
     "aggregate",
     "csv",
-    "date",
     "datetime",
     "dimension",
     "domain",
@@ -317,8 +316,6 @@ def _validate_timezone(timezone: str) -> None:
 
 def _normalize_sample_interval_value(
     sample_interval: tuple[int, Literal["minute", "hour"]] | None,
-    *,
-    data_type: Literal["datetime", "timestamp", "string", "integer"] = "datetime",
 ) -> SampleIntervalIR | None:
     """Normalize a sample_interval tuple from a parse builder, using a synthetic semantic_id."""
     if sample_interval is None:
@@ -327,7 +324,7 @@ def _normalize_sample_interval_value(
     return _normalize_sample_interval(
         sample_interval,
         semantic_id="<parse>",
-        data_type=data_type,
+        data_type="datetime",
         granularity=unit,
     )
 
@@ -913,9 +910,11 @@ def _validate_time_parse_granularity(
     *,
     semantic_id: str,
     granularity: str,
-    parse: SemanticParse,
+    parse: SemanticParse | None,
 ) -> None:
     """Validate that the parse variant is compatible with the declared granularity."""
+    if parse is None:
+        return
     if isinstance(parse, HourPrefixParse) and granularity != "hour":
         _raise(
             ErrorKind.INVALID_REF,
@@ -970,9 +969,11 @@ def _validate_sample_interval_granularity(
     *,
     semantic_id: str,
     granularity: str,
-    parse: SemanticParse,
+    parse: SemanticParse | None,
 ) -> None:
     """Validate that sample_interval unit is not coarser than the declared granularity."""
+    if parse is None:
+        return
     sample_ir: SampleIntervalIR | None = None
     data_type_str: str | None = None
     if isinstance(parse, DatetimeParse):
@@ -981,9 +982,12 @@ def _validate_sample_interval_granularity(
     elif isinstance(parse, TimestampParse):
         sample_ir = parse.sample_interval
         data_type_str = "timestamp"
-    elif isinstance(parse, (StrptimeParse, HourPrefixParse)):
+    elif isinstance(parse, StrptimeParse):
         sample_ir = parse.sample_interval
-        data_type_str = parse.data_type
+        data_type_str = "strptime"
+    elif isinstance(parse, HourPrefixParse):
+        sample_ir = parse.sample_interval
+        data_type_str = "hour_prefix"
     if sample_ir is None or data_type_str is None:
         return
     # Re-run the granularity check from _normalize_sample_interval with the real granularity
@@ -1018,7 +1022,7 @@ def time_dimension(
     name: str | None = None,
     entity: EntityRef | str,
     granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
-    parse: SemanticParse,
+    parse: SemanticParse | None = None,
     is_default: bool = False,
     domain: DomainRef | None = None,
     ai_context: AiContext | None = None,
@@ -1027,16 +1031,20 @@ def time_dimension(
 
     Time dimensions are the only dimensions usable as window axes by ``session.observe``.
     The body may return any ibis expression that represents the intended time
-    axis. Use ``ms.date()``, ``ms.datetime()``, ``ms.timestamp()``,
-    ``ms.strptime()``, or ``ms.hour_prefix()`` to declare the parse variant.
+    axis. When ``parse`` is omitted, the parse variant is inferred from the
+    column type at analysis time. Use ``ms.datetime(...)``, ``ms.timestamp(...)``,
+    ``ms.strptime(...)``, or ``ms.hour_prefix(...)`` to declare a parse variant
+    explicitly when you need timezone, sample_interval, or string/integer parsing.
 
     Args:
         name: Dimension name. Defaults to the function name.
         entity: Owning entity (``EntityRef`` or qualified string).
         granularity: ``year | quarter | month | week | day | hour | minute | second`` — the
             finest grain at which queries are meaningful.
-        parse: A parse variant returned by ``ms.date()``, ``ms.datetime(...)``,
-            ``ms.timestamp(...)``, ``ms.strptime(...)``, or ``ms.hour_prefix(...)``.
+        parse: Optional parse variant. Omit for native temporal columns (the parse
+            is inferred at analysis time). Use ``ms.datetime(timezone=...)``,
+            ``ms.timestamp(timezone=...)``, ``ms.strptime(format)``, or
+            ``ms.hour_prefix(prefix)`` when explicit configuration is needed.
         is_default: Mark this dimension as the default time axis when multiple time dimensions
             exist on the entity. At most one time dimension per entity may carry
             is_default=True. When observe() is called without time_dimension=, the default
@@ -1054,7 +1062,7 @@ def time_dimension(
             with the declared granularity.
 
     Example:
-        >>> @ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+        >>> @ms.time_dimension(entity=orders, granularity="day")
         ... def created_at(orders):
         ...     return orders.created_at
     """
@@ -1498,23 +1506,6 @@ def join_on(from_key: DimensionRef | str, to_key: DimensionRef | str, /) -> Join
 # ---------------------------------------------------------------------------
 
 
-def date() -> DateParse:
-    """Declare an already-temporal date column parse.
-
-    Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
-    source column is a native date type.
-
-    Returns:
-        A ``DateParse`` value object.
-
-    Example:
-        >>> @ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
-        ... def order_date(orders):
-        ...     return orders.order_date
-    """
-    return DateParse()
-
-
 def datetime(
     *,
     timezone: str | None = None,
@@ -1591,7 +1582,6 @@ def strptime(
     format: str,
     /,
     *,
-    data_type: Literal["string", "integer"],
     timezone: str | None = None,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
 ) -> StrptimeParse:
@@ -1599,12 +1589,12 @@ def strptime(
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
     source column is a string or integer that must be parsed with a Python
-    strptime format.
+    strptime format. The physical column type (string or integer) is inferred
+    from the ibis expression at analysis time.
 
     Args:
         format: Canonical Python strptime format string (e.g. ``"%Y%m%d"``,
             ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
-        data_type: ``"string"`` or ``"integer"`` — the physical column type.
         timezone: Optional IANA timezone for time-bearing formats.
         sample_interval: Optional periodic sampling interval for sampled time
             dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
@@ -1618,7 +1608,7 @@ def strptime(
 
     Example:
         >>> @ms.time_dimension(entity=orders, granularity="day",
-        ...                    parse=ms.strptime("%Y%m%d", data_type="string"))
+        ...                    parse=ms.strptime("%Y%m%d"))
         ... def dt(orders):
         ...     return orders.dt
     """
@@ -1634,11 +1624,9 @@ def strptime(
             )
     return StrptimeParse(
         format=normalized,
-        data_type=data_type,
         timezone=timezone,
         sample_interval=_normalize_sample_interval_value(
             sample_interval,
-            data_type=data_type,
         ),
     )
 
@@ -1647,19 +1635,19 @@ def hour_prefix(
     prefix: str,
     /,
     *,
-    data_type: Literal["string", "integer"],
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
 ) -> HourPrefixParse:
     """Declare an hour-only partition parse using a day prefix column.
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
     source column encodes only the hour component (e.g. ``"01"``, ``"23"``)
-    and must be combined with a day-level time dimension prefix.
+    and must be combined with a day-level time dimension prefix. The physical
+    column type (string or integer) is inferred from the ibis expression at
+    analysis time.
 
     Args:
         prefix: The semantic id of a day-level time dimension that supplies
             the date context for this hour column.
-        data_type: ``"string"`` or ``"integer"`` — the physical column type.
         sample_interval: Optional ``(count, unit)`` declaring the periodic
             sampling cadence (e.g. ``(1, "hour")`` for hourly samples).
             When set, the time dimension can serve as a sampled-fold axis.
@@ -1667,27 +1655,20 @@ def hour_prefix(
     Returns:
         An ``HourPrefixParse`` value object.
 
-    Raises:
-        TypeError: ``data_type`` is not ``"string"`` or ``"integer"``.
-
     Example:
         >>> @ms.time_dimension(entity=logs, granularity="hour",
-        ...                    parse=ms.hour_prefix("ops.logs.dt", data_type="string"))
+        ...                    parse=ms.hour_prefix("ops.logs.dt"))
         ... def hh(logs):
         ...     return logs.hh
         >>> @ms.time_dimension(entity=logs, granularity="hour",
-        ...                    parse=ms.hour_prefix("ops.logs.dt", data_type="string",
+        ...                    parse=ms.hour_prefix("ops.logs.dt",
         ...                                        sample_interval=(1, "hour")))
         ... def hh(logs):
         ...     return logs.hh
     """
-    if data_type not in {"string", "integer"}:
-        raise TypeError(f"hour_prefix() data_type must be 'string' or 'integer', got {data_type!r}")
     return HourPrefixParse(
         prefix=prefix,
-        data_type=data_type,
         sample_interval=_normalize_sample_interval_value(
             sample_interval,
-            data_type=data_type,
         ),
     )

@@ -223,23 +223,25 @@ Time dimension 是携带 grain 和解析元数据的特殊 dimension。**只有 
 | `name` | `str` | 否 | 函数名 | Dimension 名称。 |
 | `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
 | `granularity` | grain 字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
-| `parse` | parse 变体 | 是 | — | 源列如何变成时间值（见下）。 |
+| `parse` | parse 变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断 parse 变体。 |
 | `is_default` | `bool` | 否 | `False` | 当 entity 有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
 | `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
 
 ### Parse 变体
 
-`parse=` 值声明列的物理编码。该变体必须与 `granularity` 兼容（例如 hour 粒度需要带时间的
-格式）。
+`parse=` 值声明列的物理编码。省略时，分析时会根据列的 ibis dtype 自动推断 parse 变体（原生
+`date`、`datetime`、`timestamp` 列无需显式指定 parse）。对于 string 或 integer 列，需提供
+`ms.strptime(format)` 或 `ms.hour_prefix(prefix)`。该变体必须与 `granularity` 兼容（例如
+hour 粒度需要带时间的格式）。
 
 | Builder | 源列是… | 关键参数 |
 | --- | --- | --- |
-| `ms.date()` | 原生 `date` | — |
+| *（省略 `parse`）* | 原生时间列 | — |
 | `ms.datetime()` | 原生 `datetime` | `timezone`（IANA）、`sample_interval` |
 | `ms.timestamp()` | 原生 `timestamp` | `timezone`（IANA）、`sample_interval` |
-| `ms.strptime(format)` | 需要解析的 string/integer | `data_type`（`"string"` 或 `"integer"`）、`timezone`、`sample_interval` |
-| `ms.hour_prefix(prefix)` | 仅含小时的分区 | `data_type`、`sample_interval` —— `prefix` 是提供日期的 day 粒度 time-dimension id |
+| `ms.strptime(format)` | 需要解析的 string/integer | `timezone`、`sample_interval` |
+| `ms.hour_prefix(prefix)` | 仅含小时的分区 | `sample_interval` —— `prefix` 是提供日期的 day 粒度 time-dimension id |
 
 `timezone` 默认为 datasource 引擎时区；只有当列的挂钟含义不同时才设置它（例如 `"UTC"`）。
 形如 `(5, "minute")` 的 `sample_interval` 标记一个被周期采样的时间轴，供 semi-additive
@@ -251,7 +253,7 @@ fold 使用。
     entity=orders,
     name="log_date",
     granularity="day",
-    parse=ms.strptime("%Y%m%d", data_type="string"),
+    parse=ms.strptime("%Y%m%d"),
     is_default=True,
 )
 def log_date(table):

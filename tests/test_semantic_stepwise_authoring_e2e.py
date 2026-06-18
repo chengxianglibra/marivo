@@ -96,7 +96,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")
-        + "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d', data_type='string'))\n"
+        + "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
         "def dt(orders):\n"
         "    return orders.dt\n",
         encoding="utf-8",

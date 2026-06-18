@@ -21,6 +21,7 @@ Public surface::
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from marivo.datasource.scan import ScanScope
@@ -30,7 +31,6 @@ from marivo.semantic.authoring import (
     DomainRef,
     aggregate,
     csv,
-    date,
     datetime,
     dimension,
     domain,
@@ -637,7 +637,6 @@ __all__ = [
     "VersioningHints",
     "aggregate",
     "csv",
-    "date",
     "datetime",
     "dimension",
     "domain",

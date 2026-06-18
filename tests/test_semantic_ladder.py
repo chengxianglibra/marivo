@@ -38,7 +38,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
                 "ms.domain(name='sales')\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', "
                 "source=ms.table('orders'))\n"
-                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d', data_type='string'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
                 "@ms.dimension(entity=orders)\n"

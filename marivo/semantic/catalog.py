@@ -419,7 +419,7 @@ class TimeDimensionDetails(_DetailsBase):
     """Details for a time dimension object."""
 
     entity: SemanticRef
-    parse_kind: Literal["date", "datetime", "timestamp", "strptime", "hour_prefix"]
+    parse_kind: Literal["date", "datetime", "timestamp", "strptime", "hour_prefix"] | None
     data_type: str | None
     granularity: str | None
     format: str | None
@@ -436,11 +436,11 @@ class TimeDimensionDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
+        parse_kind_display = self.parse_kind or "(inferred)"
         extra.extend(
             (
                 f"entity: {self.entity.ref}",
-                f"parse_kind: {self.parse_kind}",
-                f"data_type: {self.data_type}",
+                f"parse_kind: {parse_kind_display}",
                 f"granularity: {self.granularity}",
                 f"format: {self.format!r}",
                 f"timezone: {self.timezone!r}",
@@ -1075,8 +1075,12 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
         fmt: str | None = None
         tz: str | None = None
         sample_interval: SampleIntervalIR | None = None
-        if isinstance(parse, DateParse):
-            parse_kind: Literal["date", "datetime", "timestamp", "strptime", "hour_prefix"] = "date"
+        if parse is None:
+            parse_kind: (
+                Literal["date", "datetime", "timestamp", "strptime", "hour_prefix"] | None
+            ) = None
+        elif isinstance(parse, DateParse):
+            parse_kind = "date"
             data_type = "date"
         elif isinstance(parse, DatetimeParse):
             parse_kind = "datetime"
@@ -1090,13 +1094,11 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
             sample_interval = parse.sample_interval
         elif isinstance(parse, StrptimeParse):
             parse_kind = "strptime"
-            data_type = parse.data_type
             fmt = parse.format
             tz = parse.timezone
             sample_interval = parse.sample_interval
         elif isinstance(parse, HourPrefixParse):
             parse_kind = "hour_prefix"
-            data_type = parse.data_type
             sample_interval = parse.sample_interval
         else:
             raise AssertionError(f"unsupported time parse variant: {type(parse).__name__}")

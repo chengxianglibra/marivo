@@ -150,7 +150,7 @@ its physical encoding with a `parse` variant:
     entity=orders,
     name="log_date",
     granularity="day",
-    parse=ms.strptime("%Y%m%d", data_type="string"),
+    parse=ms.strptime("%Y%m%d"),
     is_default=True,
     ai_context={
         "business_definition": "Partition date used for default order reporting windows.",

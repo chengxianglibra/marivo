@@ -421,7 +421,7 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
         "    source=ms.table('bandwidth_samples'),\n"
         ")\n"
         "\n"
-        "@ms.time_dimension(entity=bandwidth_samples, granularity='day', parse=ms.date())\n"
+        "@ms.time_dimension(entity=bandwidth_samples, granularity='day')\n"
         "def dt(bandwidth_samples):\n"
         "    return bandwidth_samples.dt.cast('date')\n"
         "\n"

@@ -54,8 +54,8 @@ class LoaderContext:
     current_model_file: str | None = None
     default_domain: str | None = None
     pending_objects: list[Any] = field(default_factory=list)
-    #: DimensionRef/TimeDimensionRef instances returned by decorators, to have
-    #: their _resolver wired up after the two-pass load completes.
+    #: DimensionRef/TimeDimensionRef/MeasureRef instances returned by decorators,
+    #: to have their _resolver wired up after the two-pass load completes.
     pending_refs: list[Any] = field(default_factory=list)
 
 
@@ -509,6 +509,7 @@ def _build_registry(
         DimensionIR,
         DimensionRef,
         EntityIR,
+        MeasureRef,
         MetricIR,
         RelationshipIR,
         TimeDimensionRef,
@@ -548,14 +549,14 @@ def _build_registry(
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
 
-    # Wire up DimensionRef/TimeDimensionRef resolvers so that calling
-    # dimension_ref(parent_table) in metric bodies resolves to the sidecar callable.
+    # Wire up DimensionRef/TimeDimensionRef/MeasureRef resolvers so that calling
+    # field_ref(parent_table) in metric bodies resolves to the sidecar callable.
     def _make_field_resolver(sidecar_dict: Sidecar) -> Callable[[str, Any], Any]:
         def _resolver(semantic_id: str, parent_table: Any) -> Any:
             callable_ = sidecar_dict.get(semantic_id)
             if callable_ is None:
                 raise RuntimeError(
-                    f"DimensionRef({semantic_id!r}) resolver: no sidecar callable found."
+                    f"semantic field {semantic_id!r} resolver: no sidecar callable found."
                 )
             return callable_(parent_table)
 
@@ -563,11 +564,12 @@ def _build_registry(
 
     resolver = _make_field_resolver(sidecar)
 
-    # Set _resolver on all DimensionRef/TimeDimensionRef instances that were
-    # registered during decorator execution via ctx.pending_refs.
+    # Set _resolver on all DimensionRef/TimeDimensionRef/MeasureRef instances that
+    # were registered during decorator execution via ctx.pending_refs. This lets
+    # metric bodies call a measure/dimension ref with the entity table.
     for ctx in all_contexts:
         for ref in ctx.pending_refs:
-            if isinstance(ref, (DimensionRef, TimeDimensionRef)):
+            if isinstance(ref, (DimensionRef, TimeDimensionRef, MeasureRef)):
                 ref._resolver = resolver
 
     _resolve_metric_additivity(registry)

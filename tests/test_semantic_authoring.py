@@ -90,7 +90,7 @@ def test_field_outside_context_raises() -> None:
 def test_time_field_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
-        @ms.time_dimension(entity="orders", granularity="day", parse=ms.date())
+        @ms.time_dimension(entity="orders", granularity="day")
         def order_date(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -508,7 +508,7 @@ def test_time_field_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.time_dimension(entity="sales.orders", granularity="day", parse=ms.date())
+        @ms.time_dimension(entity="sales.orders", granularity="day")
         def order_date(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -527,7 +527,7 @@ def test_time_field_ir_has_time_metadata() -> None:
         @ms.time_dimension(
             entity="sales.orders",
             granularity="hour",
-            parse=ms.hour_prefix("order_date", data_type="string"),
+            parse=ms.hour_prefix("order_date"),
         )
         def order_hour(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -559,7 +559,7 @@ def test_time_field_body_rejects_sql_escape_hatch() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.time_dimension(entity="sales.orders", granularity="day", parse=ms.date())
+            @ms.time_dimension(entity="sales.orders", granularity="day")
             def order_date(backend: object) -> object:
                 return backend.sql("select current_date")
 
@@ -654,13 +654,13 @@ def test_time_field_rejects_invalid_timezone() -> None:
 def test_time_field_rejects_yyyymmdd_shorthand() -> None:
     """Shorthand aliases like 'yyyymmdd' are no longer accepted by ms.strptime()."""
     with pytest.raises(ValueError, match="%"):
-        ms.strptime("yyyymmdd", data_type="string")
+        ms.strptime("yyyymmdd")
 
 
 def test_time_field_rejects_hh_shorthand() -> None:
     """Shorthand 'hh' is no longer accepted by ms.strptime()."""
     with pytest.raises(ValueError, match="%"):
-        ms.strptime("hh", data_type="string")
+        ms.strptime("hh")
 
 
 def test_time_field_rejects_date_format_on_temporal_type() -> None:
@@ -690,7 +690,6 @@ def test_time_field_rejects_date_format_on_date_type() -> None:
             @ms.time_dimension(
                 entity="sales.orders",
                 granularity="day",
-                parse=ms.date(),
                 date_format="%Y-%m-%d",  # type: ignore[call-arg]
             )
             def order_date(table: object) -> object:
@@ -708,7 +707,7 @@ def test_time_field_rejects_date_format_on_hour_only_field() -> None:
             @ms.time_dimension(
                 entity="sales.orders",
                 granularity="hour",
-                parse=ms.hour_prefix("order_date", data_type="string"),
+                parse=ms.hour_prefix("order_date"),
                 date_format="%H",  # type: ignore[call-arg]
             )
             def order_hour(table: object) -> object:
@@ -717,18 +716,21 @@ def test_time_field_rejects_date_format_on_hour_only_field() -> None:
         _exit_ctx()
 
 
-def test_time_field_rejects_missing_parse() -> None:
-    """time_dimension requires parse= parameter; string/integer without parse is TypeError."""
-    _enter_ctx(default_domain="sales")
+def test_time_dimension_without_parse_is_valid() -> None:
+    """time_dimension without parse is allowed — parse is inferred at analysis time."""
+    ctx = _enter_ctx(default_domain="sales")
     try:
-        with pytest.raises(TypeError):
 
-            @ms.time_dimension(
-                entity="sales.orders",
-                granularity="day",
-            )
-            def order_date(table: object) -> object:
-                return None  # type: ignore[unreachable]
+        @ms.time_dimension(
+            entity="sales.orders",
+            granularity="day",
+        )
+        def order_date(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        ir, _ = ctx.pending_objects[-1]
+        assert ir.is_time_dimension
+        assert ir.parse is None
     finally:
         _exit_ctx()
 
@@ -741,7 +743,7 @@ def test_time_field_accepts_canonical_strptime() -> None:
         @ms.time_dimension(
             entity="sales.orders",
             granularity="day",
-            parse=ms.strptime("%Y%m%d", data_type="string"),
+            parse=ms.strptime("%Y%m%d"),
         )
         def order_date(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -763,7 +765,7 @@ def test_time_field_strips_whitespace_from_strptime() -> None:
         @ms.time_dimension(
             entity="sales.orders",
             granularity="day",
-            parse=ms.strptime("  %Y-%m-%d  ", data_type="string"),
+            parse=ms.strptime("  %Y-%m-%d  "),
         )
         def order_date(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -780,7 +782,7 @@ def test_time_field_strips_whitespace_from_strptime() -> None:
 def test_time_field_rejects_invalid_strptime_directive() -> None:
     """Unknown strptime directives like %Q are rejected by ms.strptime()."""
     with pytest.raises(ValueError):
-        ms.strptime("%Q%m%d", data_type="string")
+        ms.strptime("%Q%m%d")
 
 
 def test_time_dimension_accepts_sample_interval() -> None:
@@ -808,8 +810,7 @@ def test_time_dimension_accepts_sample_interval() -> None:
         _exit_ctx()
 
 
-@pytest.mark.parametrize("data_type", ["string", "integer"])
-def test_strptime_time_dimension_accepts_sample_interval(data_type: str) -> None:
+def test_strptime_time_dimension_accepts_sample_interval() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -818,7 +819,6 @@ def test_strptime_time_dimension_accepts_sample_interval(data_type: str) -> None
             granularity="second",
             parse=ms.strptime(
                 "%Y%m%d%H%M%S",
-                data_type=data_type,  # type: ignore[arg-type]
                 timezone="UTC",
                 sample_interval=(5, "minute"),
             ),
@@ -867,7 +867,6 @@ def test_strptime_time_dimension_rejects_invalid_sample_interval_unit() -> None:
                 granularity="second",
                 parse=ms.strptime(
                     "%Y%m%d%H%M%S",
-                    data_type="string",
                     timezone="UTC",
                     sample_interval=(1, "day"),  # type: ignore[arg-type]
                 ),
@@ -893,7 +892,6 @@ def test_strptime_time_dimension_rejects_sample_interval_without_date_context(
                 granularity="hour",
                 parse=ms.strptime(
                     fmt,
-                    data_type="string",
                     sample_interval=(1, "hour"),
                 ),
             )
@@ -937,7 +935,6 @@ def test_strptime_time_dimension_coarser_granularity_error_suggests_fix() -> Non
                 granularity="day",
                 parse=ms.strptime(
                     "%Y%m%d%H%M%S",
-                    data_type="string",
                     timezone="UTC",
                     sample_interval=(5, "minute"),
                 ),
@@ -962,9 +959,7 @@ def test_hour_prefix_accepts_sample_interval() -> None:
         @ms.time_dimension(
             entity="sales.bandwidth_samples",
             granularity="hour",
-            parse=ms.hour_prefix(
-                "sales.bandwidth_samples.dt", data_type="string", sample_interval=(1, "hour")
-            ),
+            parse=ms.hour_prefix("sales.bandwidth_samples.dt", sample_interval=(1, "hour")),
         )
         def hh(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -987,9 +982,7 @@ def test_hour_prefix_rejects_sample_interval_day_unit() -> None:
             @ms.time_dimension(
                 entity="sales.bandwidth_samples",
                 granularity="hour",
-                parse=ms.hour_prefix(
-                    "sales.bandwidth_samples.dt", data_type="string", sample_interval=(1, "day")
-                ),  # type: ignore[arg-type]
+                parse=ms.hour_prefix("sales.bandwidth_samples.dt", sample_interval=(1, "day")),  # type: ignore[arg-type]
             )
             def hh(table: object) -> object:
                 return None  # type: ignore[unreachable]
@@ -1435,7 +1428,7 @@ def test_field_and_time_field_same_name_same_dataset_collides() -> None:
                 entity=ds,
                 name="log_date",
                 granularity="day",
-                parse=ms.strptime("%Y%m%d", data_type="string"),
+                parse=ms.strptime("%Y%m%d"),
             )
             def log_date_tf(table):
                 return table.log_date
@@ -1745,14 +1738,14 @@ def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
         _exit_ctx()
 
 
-def test_date_parse_does_not_accept_timezone_keyword() -> None:
-    with pytest.raises(TypeError):
-        ms.date(timezone="UTC")  # type: ignore[call-arg]
+def test_date_parse_no_longer_exported() -> None:
+    # ms.date() has been removed — native temporal columns don't need parse
+    assert not hasattr(ms, "date")
 
 
 def test_date_only_strptime_rejects_timezone() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.strptime("%Y%m%d", data_type="string", timezone="UTC")
+        ms.strptime("%Y%m%d", timezone="UTC")
 
     assert "timezone" in exc_info.value.message
     assert "date-only" in exc_info.value.message

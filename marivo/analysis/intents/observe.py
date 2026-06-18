@@ -226,8 +226,19 @@ def _build_entity_adapter(
                 dim_ir = reg.dimensions.get(field.ref.ref) if reg else None
                 if dim_ir is not None and isinstance(dim_ir.parse, HourPrefixParse):
                     required_prefix = dim_ir.parse.prefix
+            # Resolve data_type: when the IR no longer carries data_type on
+            # strptime/hour_prefix, infer from parse_kind so the adapter has a
+            # usable value before the runner's _ensure_resolved_data_type runs.
+            if field.data_type is not None:
+                effective_data_type = field.data_type
+            elif field.parse_kind in ("strptime", "hour_prefix"):
+                effective_data_type = "string"
+            elif field.parse_kind is not None:
+                effective_data_type = field.parse_kind  # date/datetime/timestamp
+            else:
+                effective_data_type = "date"  # deferred — resolved later by runner
             time_meta = _TimeFieldMetaAdapter(
-                data_type=field.data_type or "date",
+                data_type=effective_data_type,
                 granularity=field.granularity or "day",
                 format=field.format,
                 required_prefix=required_prefix,

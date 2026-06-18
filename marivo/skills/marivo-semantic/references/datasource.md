@@ -246,12 +246,12 @@ Do not cast a Trino VARCHAR datetime directly to date. Parse through timestamp
 first:
 
 ```python
-@ms.time_dimension(entity=orders, granularity="day", parse=ms.date())
+@ms.time_dimension(entity=orders, granularity="day")
 def order_date(table):
     return table.order_time.cast("timestamp").cast("date")
 ```
 
-When the body produces a DateColumn (via `.cast("date")`), use
-`parse=ms.date()`, not `parse=ms.datetime(...)`. A mismatch between the
-parse variant's implied type and the body's ibis dtype causes TypeError at
-execution.
+When the body produces a DateColumn (via `.cast("date")`), omit `parse`
+— the parse variant is inferred from the column's ibis dtype at analysis
+time. Using `parse=ms.datetime(...)` with a `.cast("date")` body causes
+TypeError at execution.

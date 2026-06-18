@@ -278,7 +278,6 @@ class TimestampParse:
 @dataclass(frozen=True)
 class StrptimeParse:
     format: str
-    data_type: Literal["string", "integer"]
     timezone: str | None = None
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["strptime"] = "strptime"
@@ -287,7 +286,6 @@ class StrptimeParse:
 @dataclass(frozen=True)
 class HourPrefixParse:
     prefix: str
-    data_type: Literal["string", "integer"]
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["hour_prefix"] = "hour_prefix"
 
@@ -382,8 +380,6 @@ class DimensionIR:
                 f"DimensionIR {self.semantic_id!r}: is_time_dimension={self.is_time_dimension} "
                 f"inconsistent with kind={self.kind.value!r}"
             )
-        if self.kind == DimensionKind.TIME and self.parse is None:
-            raise ValueError(f"DimensionIR {self.semantic_id!r}: time dimension requires parse")
         if self.kind == DimensionKind.CATEGORICAL and self.parse is not None:
             raise ValueError(
                 f"DimensionIR {self.semantic_id!r}: categorical dimension must not carry parse"
