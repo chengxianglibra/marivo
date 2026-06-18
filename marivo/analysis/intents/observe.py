@@ -118,6 +118,8 @@ class _TimeFieldMetaAdapter:
         required_prefix: str | None = None,
         timezone: str | None = None,
         parse_kind: str | None = None,
+        semantic_id: str | None = None,
+        name: str | None = None,
     ) -> None:
         self.data_type = data_type
         self.granularity = granularity
@@ -125,6 +127,8 @@ class _TimeFieldMetaAdapter:
         self.required_prefix = required_prefix
         self.timezone = timezone
         self.parse_kind = parse_kind
+        self.semantic_id = semantic_id
+        self.name = name
 
 
 class _DimensionIRAdapter:
@@ -244,6 +248,8 @@ def _build_entity_adapter(
                 required_prefix=required_prefix,
                 timezone=field.timezone,
                 parse_kind=field.parse_kind,
+                semantic_id=field.ref.ref,
+                name=field.name,
             )
         else:
             is_time = False
