@@ -53,6 +53,8 @@ def format_bounded_card(
     row_count: int | None = None,
     preview_truncation_hint: str | None = None,
     available: tuple[str, ...],
+    max_preview_rows: int | None = None,
+    preview_label: str | None = None,
 ) -> str:
     """Return a bounded plain-text result card without a trailing newline.
 
@@ -60,21 +62,28 @@ def format_bounded_card(
         identity: First line; identifies result type, ref/id, scale/status.
         status: Optional status segment appended as ``status: <value>``.
         columns: Column names for tabular results (capped at 8).
-        rows: Preview row values as pre-serialized strings (capped at 5 rows).
+        rows: Preview row values as pre-serialized strings (capped at
+            ``max_preview_rows`` rows, default 5).
         row_count: Total row count used to compute the truncation message.
         preview_truncation_hint: Suffix for the truncation line when rows are
             truncated (e.g. ``"call .preview(limit=...) or .to_pandas()"``)
         available: Tuple of method strings listed in the ``available:``
             section (e.g. ``(".summary()", ".render()")``)
+        max_preview_rows: Override the default preview row cap. When ``None``,
+            falls back to the module-level ``_MAX_PREVIEW_ROWS`` (5).
+        preview_label: Override the default ``"preview:"`` section header.
+            When ``None``, falls back to ``"preview:"``.
 
     Returns:
         Bounded plain-text card without a trailing newline.
 
     Constraints:
-        Columns are capped at 8. Preview rows are capped at 5. When rows is
-        provided and row_count exceeds the shown row count, a truncation line
-        is appended using preview_truncation_hint.
+        Columns are capped at 8. Preview rows are capped at
+        ``max_preview_rows`` (default 5). When rows is provided and
+        row_count exceeds the shown row count, a truncation line is appended
+        using preview_truncation_hint.
     """
+    effective_max_rows = max_preview_rows if max_preview_rows is not None else _MAX_PREVIEW_ROWS
     lines: list[str] = [identity]
 
     if status is not None:
@@ -85,8 +94,8 @@ def format_bounded_card(
         lines.append(f"columns: {' | '.join(visible)}")
 
     if rows is not None:
-        lines.append("preview:")
-        shown_rows = rows[:_MAX_PREVIEW_ROWS]
+        lines.append(preview_label or "preview:")
+        shown_rows = rows[:effective_max_rows]
         for row in shown_rows:
             lines.append(" | ".join(row))
         if row_count is not None and row_count > len(shown_rows):

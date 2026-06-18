@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, FrameSummary
+from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 
 
@@ -236,8 +237,6 @@ def test_metric_frame_advertises_next_intents() -> None:
 
 
 def test_delta_frame_advertises_next_intents() -> None:
-    from marivo.analysis.frames.delta import DeltaFrame
-
     assert DeltaFrame._NEXT_INTENTS == ("decompose", "discover", "transform")
 
 
@@ -255,6 +254,110 @@ def test_terminal_frame_has_empty_next_intents() -> None:
     assert AttributionFrame._NEXT_INTENTS == ()
     assert ForecastFrame._NEXT_INTENTS == ()
     assert HypothesisTestResult._NEXT_INTENTS == ()
+
+
+def _make_hypothesis_meta():
+    from marivo.analysis.frames.hypothesis import HypothesisTestResultMeta
+
+    return HypothesisTestResultMeta(
+        kind="hypothesis_test_result",
+        ref="frame_hypothesis123",
+        session_id="s_abc",
+        project_root="/tmp/proj",
+        produced_by_job="job_test1",
+        created_at=datetime(2026, 6, 18, tzinfo=UTC),
+        row_count=2,
+        byte_size=0,
+        lineage=Lineage(
+            steps=[
+                LineageStep(
+                    intent="observe",
+                    job_ref="job_observe1",
+                    inputs=[],
+                    params_digest="a",
+                ),
+                LineageStep(
+                    intent="test",
+                    job_ref="job_test1",
+                    inputs=["frame_cur", "frame_base"],
+                    params_digest="b",
+                ),
+            ],
+        ),
+        source_refs=["frame_cur", "frame_base"],
+        metric_ids=["sales.revenue", "sales.revenue"],
+        semantic_kinds=["panel", "panel"],
+        semantic_models=["sales", "sales"],
+        hypothesis="mean_changed",
+        method="paired_t",
+        alignment={"kind": "window_bucket"},
+        sampling={"pairing": "window_bucket"},
+        alpha=0.05,
+        result_shape="per_segment",
+        segment_dimensions=["country"],
+        rejected_count=1,
+        not_enough_data_count=1,
+    )
+
+
+def test_hypothesis_test_summary_returns_typed_agent_result(capsys) -> None:
+    from marivo.analysis.frames.base import FrameSummary
+    from marivo.analysis.frames.hypothesis import (
+        HypothesisTestResult,
+        HypothesisTestResultSummary,
+    )
+    from marivo.render import AgentResult
+
+    df = pd.DataFrame(
+        {
+            "segment": ["US", "CA"],
+            "p_value": [0.01, None],
+            "rejected": [True, False],
+            "reason_code": ["ok", "insufficient_pairs"],
+        },
+    )
+    frame = HypothesisTestResult(_df=df, meta=_make_hypothesis_meta())
+
+    s = frame.summary()
+
+    assert type(s) is HypothesisTestResultSummary
+    assert not isinstance(s, FrameSummary)
+    assert isinstance(s, AgentResult)
+    assert s.kind == "hypothesis_test_result"
+    assert s.ref == "frame_hypothesis123"
+    assert s.metric_ids == ["sales.revenue", "sales.revenue"]
+    assert s.hypothesis == "mean_changed"
+    assert s.method == "paired_t"
+    assert s.alpha == 0.05
+    assert s.result_shape == "per_segment"
+    assert s.segment_dimensions == ["country"]
+    assert s.rejected_count == 1
+    assert s.not_enough_data_count == 1
+    assert s.row_count == 2
+    assert s.lineage_oneliner == "observe -> test"
+
+    r = repr(s)
+    assert r == (
+        "<HypothesisTestResultSummary ref=frame_hypothesis123 "
+        "hypothesis=mean_changed method=paired_t rejected=1; call .show() to inspect>"
+    )
+    assert "\n" not in r
+
+    rendered = s.render()
+    assert rendered.startswith(
+        "HypothesisTestResultSummary ref=frame_hypothesis123 "
+        "hypothesis=mean_changed method=paired_t rejected=1",
+    )
+    assert (
+        "status: alpha=0.05 shape=per_segment rows=2 not_enough_data=1 lineage=observe -> test"
+    ) in rendered
+    assert "- .render()" in rendered
+    assert "- .show()" in rendered
+    assert not rendered.endswith("\n")
+
+    assert s.show() is None
+    captured = capsys.readouterr()
+    assert captured.out == rendered + "\n"
 
 
 def _make_association_meta(
@@ -365,3 +468,163 @@ def test_association_repr_empty_frame() -> None:
 
     assert r.startswith("<AssociationResult")
     assert "call .show() to inspect" in r
+
+
+# ---------------------------------------------------------------------------
+# DeltaFrame render / preview tests
+# ---------------------------------------------------------------------------
+
+
+def _make_delta_meta(
+    *,
+    row_count: int = 5,
+    semantic_kind: str = "panel",
+    unit: str | None = None,
+) -> DeltaFrameMeta:
+    return DeltaFrameMeta(
+        kind="delta_frame",
+        ref="frame_delta123",
+        session_id="s_abc",
+        project_root="/tmp/proj",
+        produced_by_job="job_cmp1",
+        created_at=datetime(2026, 6, 18, tzinfo=UTC),
+        row_count=row_count,
+        byte_size=0,
+        metric_id="sales.revenue",
+        source_current_ref="frame_cur",
+        source_baseline_ref="frame_base",
+        alignment={"kind": "window_bucket"},
+        semantic_kind=semantic_kind,
+        semantic_model="sales",
+        unit=unit,
+    )
+
+
+def _make_delta_df(n: int = 5) -> pd.DataFrame:
+    """Return a delta DataFrame with pct_change sorted ascending (worst first)."""
+    return pd.DataFrame(
+        {
+            "cluster": [f"seg_{i}" for i in range(n)],
+            "current": [100.0 + i * 10 for i in range(n)],
+            "baseline": [100.0] * n,
+            "delta": [float(i * 10) for i in range(n)],
+            "pct_change": [float(i) / 10 for i in range(n)],
+            "pct_change_status": ["computed"] * n,
+        },
+    )
+
+
+def test_delta_render_sorts_by_abs_pct_change_descending() -> None:
+    df = _make_delta_df(5)
+    frame = DeltaFrame(_df=df, meta=_make_delta_meta())
+
+    rendered = frame.render()
+    lines = rendered.splitlines()
+
+    # Find the data rows (between preview: and available:)
+    data_start = next(i for i, line in enumerate(lines) if line.startswith("preview"))
+    data_end = next(i for i, line in enumerate(lines) if line.startswith("available:"))
+    data_lines = lines[data_start + 1 : data_end]
+    # Filter out truncation hints
+    data_lines = [line for line in data_lines if not line.startswith("...")]
+
+    # pct_change values are 0.0, 0.1, 0.2, 0.3, 0.4 → sorted by |abs| desc
+    # so first should be seg_4 (0.4), last should be seg_0 (0.0)
+    assert "seg_4" in data_lines[0]
+    assert "seg_0" in data_lines[-1]
+
+
+def test_delta_render_shows_20_rows_when_data_exceeds_limit() -> None:
+    df = _make_delta_df(30)
+    frame = DeltaFrame(_df=df, meta=_make_delta_meta(row_count=30))
+
+    rendered = frame.render()
+    lines = rendered.splitlines()
+
+    data_start = next(i for i, line in enumerate(lines) if line.startswith("preview"))
+    data_end = next(i for i, line in enumerate(lines) if line.startswith("available:"))
+    data_lines = [line for line in lines[data_start + 1 : data_end] if not line.startswith("...")]
+
+    assert len(data_lines) == 20
+
+
+def test_delta_render_preview_label_includes_total_row_count() -> None:
+    df = _make_delta_df(50)
+    frame = DeltaFrame(_df=df, meta=_make_delta_meta(row_count=50))
+
+    rendered = frame.render()
+
+    assert "preview (top 20 of 50 rows):" in rendered
+
+
+def test_delta_render_preview_label_plain_when_fewer_rows_than_limit() -> None:
+    df = _make_delta_df(5)
+    frame = DeltaFrame(_df=df, meta=_make_delta_meta())
+
+    rendered = frame.render()
+
+    # When rows <= 20, just show "preview:" (no "top N of M" qualifier)
+    assert "preview:" in rendered
+    assert "top " not in rendered
+
+
+def test_delta_render_handles_nan_and_inf_pct_change() -> None:
+    df = pd.DataFrame(
+        {
+            "cluster": ["big", "nan_row", "inf_row", "from_zero", "small"],
+            "current": [150.0, float("nan"), 100.0, 10.0, 105.0],
+            "baseline": [100.0, 100.0, 100.0, 0.0, 100.0],
+            "delta": [50.0, float("nan"), 0.0, 10.0, 5.0],
+            "pct_change": [0.5, float("nan"), float("inf"), float("inf"), 0.05],
+            "pct_change_status": [
+                "computed",
+                "not_computable",
+                "from_zero_growth",
+                "from_zero_growth",
+                "computed",
+            ],
+        },
+    )
+    frame = DeltaFrame(_df=df, meta=_make_delta_meta())
+
+    rendered = frame.render()
+    lines = rendered.splitlines()
+
+    data_start = next(i for i, line in enumerate(lines) if line.startswith("preview"))
+    data_end = next(i for i, line in enumerate(lines) if line.startswith("available:"))
+    data_lines = [line for line in lines[data_start + 1 : data_end] if not line.startswith("...")]
+
+    # "big" (|pct_change|=0.5) should be first
+    assert "big" in data_lines[0]
+    # Rows with NaN/inf pct_change and no usable delta should be at the bottom
+    bottom_clusters = {line.split()[0] for line in data_lines[-2:]}
+    assert "nan_row" in bottom_clusters or "inf_row" in bottom_clusters
+
+
+def test_delta_preview_returns_sorted_rows() -> None:
+    df = _make_delta_df(5)
+    frame = DeltaFrame(_df=df, meta=_make_delta_meta())
+
+    preview = frame.preview(limit=3)
+
+    assert preview.is_truncated is True
+    assert preview.returned_row_count == 3
+    # Rows should be sorted by |pct_change| descending: seg_4, seg_3, seg_2
+    assert preview.rows[0]["cluster"] == "seg_4"
+    assert preview.rows[1]["cluster"] == "seg_3"
+    assert preview.rows[2]["cluster"] == "seg_2"
+
+
+def test_delta_render_without_pct_change_columns_does_not_crash() -> None:
+    """A delta frame without pct_change/delta columns falls back to original order."""
+    df = pd.DataFrame(
+        {
+            "cluster": ["A", "B", "C"],
+            "value": [1.0, 2.0, 3.0],
+        },
+    )
+    frame = DeltaFrame(_df=df, meta=_make_delta_meta())
+
+    rendered = frame.render()
+    assert "DeltaFrame" in rendered
+    assert "preview:" in rendered
