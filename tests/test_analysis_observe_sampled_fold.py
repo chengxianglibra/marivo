@@ -365,6 +365,25 @@ def test_sampled_ratio_uses_folded_components_and_min_coverage(sampled_bandwidth
     assert {"upstream_bw_p95", "reserved_bw"}.issubset(set(components["component_metric_id"]))
 
 
+def test_compare_folded_ratio_persists_component_delta(sampled_bandwidth_project) -> None:
+    """compare on a ratio with folded components must not raise KeyError."""
+    from marivo.analysis.frames.delta import DeltaFrame
+
+    cur = sampled_bandwidth_project.observe(
+        SemanticRef("sales.p95_utilization", kind=SemanticKind.METRIC),
+        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+    )
+    base = sampled_bandwidth_project.observe(
+        SemanticRef("sales.p95_utilization", kind=SemanticKind.METRIC),
+        timescope={"start": "2026-01-02T00:00:00", "end": "2026-01-02T01:00:00"},
+        grain="hour",
+    )
+    delta = sampled_bandwidth_project.compare(cur, base)
+    assert isinstance(delta, DeltaFrame)
+    assert delta.meta.component_ref is not None
+
+
 def test_rollup_rejects_non_reaggregatable_folded_frame(sampled_bandwidth_project) -> None:
     from marivo.analysis.errors import TransformShapeUnsupportedError
 
