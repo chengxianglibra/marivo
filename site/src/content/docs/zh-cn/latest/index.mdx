@@ -18,21 +18,73 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Marivo 是一个 Python library，不是托管服务。它为 AI agents 提供类型化语义层、指标中心分析流程，以及可审计的证据链。
+Marivo 是一个 Python library，不是托管服务。它为 AI agents 提供类型化的 semantic
+layer、以 metric 为中心的分析流程，以及面向每一个分析结论的可审计 evidence 链。
 
-Marivo 不是 text-to-SQL wrapper。Python declarations 是契约，ibis expressions 是执行语言，typed frames 是分析步骤之间的边界。
+Marivo 不是 text-to-SQL wrapper。Python declarations 是契约，ibis expressions 是执行
+语言，typed frames 是分析步骤之间的边界。
 
 <CardGrid>
   <Card title="统一语义" icon="seti:data">
-    Datasources、entities、metrics、dimensions 和 relationships 使用 Python 声明，并通过 semantic refs 被 agents 引用。
+    Datasources、entities、metrics、dimensions 和 relationships 用 Python 声明，并通过
+    semantic ref 引用 —— 用名称与定义，而非原始表。
   </Card>
   <Card title="指标中心分析" icon="seti:python">
-    Agents 从可信 metrics 出发，组合 observe、compare、decompose、correlate、forecast 和质量检查。
+    Agents 从可信 metrics 出发，串联 typed intents：observe、compare、decompose、
+    correlate、forecast 和质量检查。
   </Card>
   <Card title="可信证据" icon="seti:config">
-    Operators 会记录 findings、propositions 和 assessments，让结果可以追踪和审查。
+    Operators 记录 findings、propositions 和 assessments，任何结果都能追溯回产生它的输入。
   </Card>
   <Card title="Readiness gates" icon="seti:lock">
-    Catalog readiness 会阻止未完成的语义对象进入分析流程。
+    Catalog readiness 在 authoring 与访问问题解决之前，阻止未完成的语义对象进入分析。
+  </Card>
+</CardGrid>
+
+## 它如何工作
+
+1. **声明**：在 `models/datasources/` 中声明 datasources，在 `models/semantic/` 中声明
+   semantics（domains、entities、dimensions、metrics）—— 使用 `marivo.datasource`
+   （`md`）和 `marivo.semantic`（`ms`）。
+2. **加载并设闸**：`ms.load()` 构建 catalog；`ms.readiness()` 在 agent 所需的每个对象
+   都完整且可达之前阻止分析。
+3. **打开 session**：从一个 guiding question 出发，并从 catalog 解析出一个可信 metric。
+4. **串联 typed intents** —— `observe → compare → decompose` 等 —— 每一步返回一个 typed
+   frame 并留下 evidence 痕迹。
+
+## 第一次分析
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("sales.revenue")
+region = catalog.get("sales.orders.region").ref
+
+current = session.observe(revenue, timescope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
+baseline = session.observe(revenue, timescope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
+
+delta = session.compare(current, baseline, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+attribution = session.decompose(delta, axis=region)
+attribution.show()
+```
+
+## 后续步骤
+
+<CardGrid>
+  <Card title="安装" icon="rocket">
+    [安装 Marivo](/zh-cn/latest/installation/)，并为你的 datasource 选择 backend extra。
+  </Card>
+  <Card title="快速开始" icon="open-book">
+    [构建一个 project](/zh-cn/latest/quick-start/)：datasource、semantics，以及第一次
+    指标中心分析。
+  </Card>
+  <Card title="Semantic Layer" icon="seti:data">
+    [声明含义](/zh-cn/latest/concepts/semantic-layer/)：每个对象与字段，及其用法。
+  </Card>
+  <Card title="Analysis Workflow" icon="seti:python">
+    [运行分析](/zh-cn/latest/concepts/analysis-workflow/)：sessions、intents 和 typed
+    frames。
   </Card>
 </CardGrid>

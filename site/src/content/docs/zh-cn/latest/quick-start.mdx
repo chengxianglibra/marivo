@@ -21,16 +21,13 @@ your-project/
 ```python
 import marivo.datasource as md
 
-md.datasource(
-    md.DatasourceSpec(
-        name="warehouse",
-        backend_type="duckdb",
-        path="warehouse.duckdb",
-        ai_context={
-            "business_definition": "Local DuckDB warehouse for sales analysis.",
-            "guardrails": ["Use only for development or approved local analysis."],
-        },
-    )
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context={
+        "business_definition": "Local DuckDB warehouse for sales analysis.",
+        "guardrails": ["Use only for development or approved local analysis."],
+    },
 )
 ```
 
