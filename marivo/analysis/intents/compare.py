@@ -243,6 +243,37 @@ def _component_role_columns(component: ComponentFrame) -> list[str]:
     return resolve_role_columns(component.meta.components)
 
 
+def _unmelt_component_frame(
+    component: ComponentFrame,
+    metric_name: str,
+) -> ComponentFrame:
+    """Un-melt a long-format (folded) component frame back to wide format.
+
+    When ``_add_fold_metadata_to_component_df`` melted the frame during
+    observe, role columns like ``"upstream_bw_p95"`` were replaced by a
+    single ``"value"`` column with ``"component_metric_id"`` rows.  This
+    reverses the melt so ``_align_component_frames`` can find role columns
+    by name.  If the frame is already in wide format, it is returned as-is.
+    """
+    df = component._df
+    if "component_metric_id" not in df.columns:
+        return component  # already wide format — nothing to do
+
+    axis_columns = _component_axis_columns(component)
+    index_cols = axis_columns + ([metric_name] if metric_name in df.columns else [])
+    pivoted = df.pivot_table(
+        index=index_cols,
+        columns="component_metric_id",
+        values="value",
+    ).reset_index()
+    pivoted.columns.name = None
+    # Preserve column order: axis columns, then role columns, then metric value
+    role_cols = [c for c in pivoted.columns if c not in set(index_cols)]
+    ordered = [*axis_columns, *role_cols, *[c for c in index_cols if c not in set(axis_columns)]]
+    pivoted = pivoted[[c for c in ordered if c in pivoted.columns]]
+    return ComponentFrame(_df=pivoted, meta=component.meta)
+
+
 def _component_value_column(component: ComponentFrame, parent: MetricFrame) -> str | None:
     """Return the metric-name value column if present in the component frame."""
     measure_name = (
@@ -366,6 +397,16 @@ def _align_component_frames(
     session: Session,
 ) -> pd.DataFrame:
     """Merge current/baseline component data with delta columns using parent alignment logic."""
+    # Un-melt folded (long-format) component frames so role columns are
+    # accessible by name.  Wide-format frames pass through unchanged.
+    metric_name = (
+        current_parent.meta.measure.get("name")
+        if isinstance(current_parent.meta.measure, dict)
+        else None
+    ) or ""
+    current_comp = _unmelt_component_frame(current_comp, metric_name)
+    baseline_comp = _unmelt_component_frame(baseline_comp, metric_name)
+
     role_columns = _component_role_columns(current_comp)
     value_column = _component_value_column(current_comp, current_parent)
     # The value column (e.g. "bandwidth_utilization") is aligned through the
