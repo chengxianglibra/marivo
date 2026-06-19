@@ -915,7 +915,7 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
         "total_count",
         "failure_rate",
     ]
-    by_bucket = {str(row.bucket_start): row for row in component_df.itertuples()}
+    by_bucket = {str(row.bucket_start.date()): row for row in component_df.itertuples()}
     assert by_bucket["2026-07-01"].failed_count == pytest.approx(1.0)
     assert by_bucket["2026-07-01"].total_count == pytest.approx(1.0)
     assert by_bucket["2026-07-01"].failure_rate == pytest.approx(1.0)
