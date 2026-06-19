@@ -16,7 +16,8 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
-from marivo.semantic.catalog import DerivedMetricDetails, SemanticKind, SemanticRef
+from marivo.semantic.catalog import DerivedMetricDetails, SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
@@ -356,13 +357,13 @@ def test_observe_planner_does_not_require_catalog_private_state(
         if isinstance(details, DerivedMetricDetails):
             composition_ns = SimpleNamespace(
                 kind=details.composition,
-                components={role: component.ref for role, component in details.components},
+                components={role: component.id for role, component in details.components},
             )
         return SimpleNamespace(
-            semantic_id=details.ref.ref,
+            semantic_id=details.ref.id,
             name=details.name,
-            root_entity=details.root_entity.ref if details.root_entity is not None else None,
-            entities=tuple(entity.ref for entity in details.entities),
+            root_entity=details.root_entity.id if details.root_entity is not None else None,
+            entities=tuple(entity.id for entity in details.entities),
             additivity=details.additivity,
             fanout_policy=details.fanout_policy,
             metric_type=details.metric_type,
@@ -375,7 +376,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
     dataset_irs = {"sales.orders": SimpleNamespace(datasource_name="warehouse")}
     dataset_fns = {"sales.orders": lambda backend: backend.table("orders")}
 
-    assert metric.ref.ref == "sales.revenue"
+    assert metric.ref.id == "sales.revenue"
     assert hasattr(session, "catalog")
     planner_parameters = inspect.signature(plan_base_observe).parameters
     assert "catalog" in planner_parameters
@@ -413,7 +414,7 @@ def test_observe_returns_metric_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-    mf = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    mf = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     assert isinstance(mf, MetricFrame)
     assert mf.meta.metric_id == "sales.revenue"
     assert mf.meta.session_id == s.id
@@ -455,7 +456,7 @@ def test_observe_applies_window(tmp_path):
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
@@ -469,7 +470,7 @@ def test_observe_string_partition_window_keeps_closed_result_semantics(tmp_path)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2024-10-11", "end": "2025-08-01"},
         session=s,
     )
@@ -487,7 +488,7 @@ def test_observe_single_hour_partition_window_keeps_closed_result_semantics(tmp_
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
         session=s,
     )
@@ -505,9 +506,9 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
-        time_dimension=SemanticRef("log_hour", kind=SemanticKind.DIMENSION),
+        time_dimension=make_ref("log_hour", SemanticKind.DIMENSION),
         session=s,
     )
 
@@ -526,7 +527,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
 
     with pytest.raises(WindowInvalidError) as exc_info:
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            make_ref("sales.revenue", SemanticKind.METRIC),
             timescope={"start": "2026-07-01", "end": "2026-07-31"},
             session=s,
         )
@@ -546,9 +547,9 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
-        time_dimension=SemanticRef("create_date", kind=SemanticKind.DIMENSION),
+        time_dimension=make_ref("create_date", SemanticKind.DIMENSION),
         session=s,
     )
 
@@ -562,7 +563,7 @@ def test_observe_uses_default_time_field_when_not_specified(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
@@ -578,7 +579,7 @@ def test_observe_multiple_time_fields_no_default_error_mentions_is_default(tmp_p
 
     with pytest.raises(WindowInvalidError) as exc_info:
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            make_ref("sales.revenue", SemanticKind.METRIC),
             timescope={"start": "2026-07-01", "end": "2026-07-31"},
             session=s,
         )
@@ -592,8 +593,8 @@ def test_observe_applies_slice(tmp_path):
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-        where={SemanticRef("region", kind=SemanticKind.DIMENSION): "NORTH"},
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        where={make_ref("region", SemanticKind.DIMENSION): "NORTH"},
         session=s,
     )
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(70.0)
@@ -604,8 +605,8 @@ def test_observe_cache_hit_clears_query_capture(tmp_path):
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
 
-    observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
-    observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
+    observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
 
     assert s._connection_runtime._capture_buffer is None
 
@@ -617,8 +618,8 @@ def test_observe_legacy_dimension_ref_where_must_be_declared(tmp_path):
 
     with pytest.raises((ObservePlanningError, SemanticKindMismatchError)):
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-            where={SemanticRef("amount", kind=SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
+            make_ref("sales.revenue", SemanticKind.METRIC),
+            where={make_ref("amount", SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
             session=s,
         )
 
@@ -667,8 +668,8 @@ def test_observe_legacy_dimension_ref_where_does_not_borrow_out_of_scope_dimensi
 
     with pytest.raises((ObservePlanningError, SemanticKindMismatchError)):
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-            where={SemanticRef("amount", kind=SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
+            make_ref("sales.revenue", SemanticKind.METRIC),
+            where={make_ref("amount", SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
             session=s,
         )
 
@@ -679,7 +680,7 @@ def test_observe_rejects_bare_string_time_field(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            make_ref("sales.revenue", SemanticKind.METRIC),
             time_dimension="created_at",
             session=s,
         )
@@ -692,7 +693,7 @@ def test_observe_rejects_bare_string_where_key(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            make_ref("sales.revenue", SemanticKind.METRIC),
             where={"region": "NORTH"},
             session=s,
         )
@@ -704,7 +705,7 @@ def test_observe_unknown_metric_raises(tmp_path):
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     with pytest.raises(MetricNotFoundError):
-        observe(SemanticRef("sales.nonexistent", kind=SemanticKind.METRIC), session=s)
+        observe(make_ref("sales.nonexistent", SemanticKind.METRIC), session=s)
 
 
 def test_observe_errored_project_raises(tmp_path, monkeypatch):
@@ -731,7 +732,7 @@ def test_observe_errored_project_raises(tmp_path, monkeypatch):
     s.catalog._project._status = "unloaded"
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+        observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     assert exc_info.value.kind == "project_not_loaded"
 
 
@@ -739,14 +740,14 @@ def test_observe_read_only_session_raises(tmp_path):
     bootstrap_sales_project(tmp_path)
     s = session_attach.get_or_create(name="demo", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
-        observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+        observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
 
 
 def test_observe_persists_job_and_frame(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-    mf = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    mf = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     summaries = s.jobs()
     assert len(summaries) == 1
     assert summaries[0].intent == "observe"
@@ -759,7 +760,7 @@ def test_observe_read_only_session_without_backend_raises(tmp_path):
     # Session without backend factory is read-only and cannot execute.
     s = session_attach.get_or_create(name="demo", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
-        observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+        observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
 
 
 def test_observe_stale_session_without_backend_raises(tmp_path):
@@ -771,14 +772,14 @@ def test_observe_stale_session_without_backend_raises(tmp_path):
     # Re-open without backends -> session becomes read-only.
     s_ro = session_attach.get_or_create(name="demo", use_datasources=False)
     with pytest.raises(NoBackendFactoryError):
-        observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s_ro)
+        observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s_ro)
 
 
 def test_observe_frame_survives_reattach(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-    mf = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    mf = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     session_attach._reset_process_state()
     reattached = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     loaded = reattached.get_frame(mf.ref)
@@ -850,7 +851,7 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
     _seed_failure_rate(con)
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
-    frame = observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC), session=session)
+    frame = observe(make_ref("sales.failure_rate", SemanticKind.METRIC), session=session)
 
     assert frame.meta.component_ref is not None
     assert frame.meta.composition == {
@@ -860,7 +861,7 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
             "denominator": "sales.total_count",
         },
     }
-    assert set(frame.to_pandas().columns) == {"failure_rate"}
+    assert set(frame.to_pandas().columns) == {"value"}
     assert "failed_count" not in frame.summary().columns
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
@@ -876,10 +877,8 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
     assert component_df.iloc[0]["total_count"] == pytest.approx(4.0)
     assert component_df.iloc[0]["failure_rate"] == pytest.approx(0.5)
 
-    self_ratio = observe(
-        SemanticRef("sales.failed_count_ratio", kind=SemanticKind.METRIC), session=session
-    )
-    assert self_ratio.to_pandas().iloc[0]["failed_count_ratio"] == pytest.approx(1.0)
+    self_ratio = observe(make_ref("sales.failed_count_ratio", SemanticKind.METRIC), session=session)
+    assert self_ratio.to_pandas().iloc[0]["value"] == pytest.approx(1.0)
     self_components = self_ratio.components().to_pandas()
     assert list(self_components.columns) == ["numerator", "denominator", "failed_count_ratio"]
     assert self_components.iloc[0]["numerator"] == pytest.approx(2.0)
@@ -894,7 +893,7 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     frame = observe(
-        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
+        make_ref("sales.failure_rate", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-04"},
         grain="day",
         session=session,
@@ -903,7 +902,7 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     assert frame.meta.semantic_kind == "time_series"
     assert frame.meta.component_ref is not None
     assert frame.meta.axes["time"]["column"] == "bucket_start"
-    assert set(frame.to_pandas().columns) == {"bucket_start", "failure_rate"}
+    assert set(frame.to_pandas().columns) == {"bucket_start", "value"}
 
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
@@ -969,7 +968,7 @@ def test_observe_strptime_day_format_filters_correctly(tmp_path):
     _seed_strptime_slash_orders(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2024-10-11", "end": "2025-08-01"},
         session=s,
     )
@@ -984,7 +983,7 @@ def test_observe_strptime_day_format_time_series(tmp_path):
     _seed_strptime_slash_orders(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2024-10-10", "end": "2025-08-02"},
         grain="day",
         session=s,
@@ -1040,10 +1039,10 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
     _seed_string_timestamp_timezone_orders(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-02"},
         grain=(30, "minute"),
-        time_dimension=SemanticRef("create_time", kind=SemanticKind.DIMENSION),
+        time_dimension=make_ref("create_time", SemanticKind.DIMENSION),
         session=s,
     )
 
@@ -1055,7 +1054,7 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
         "2026-05-01 00:00:00",
         "2026-05-01 00:30:00",
     ]
-    assert df["revenue"].tolist() == pytest.approx([10.0, 20.0])
+    assert df["value"].tolist() == pytest.approx([10.0, 20.0])
 
 
 def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
@@ -1102,7 +1101,7 @@ def test_observe_strptime_integer_format_filters_correctly(tmp_path):
     _seed_strptime_integer_orders(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2024-10-11", "end": "2025-08-01"},
         session=s,
     )
@@ -1116,9 +1115,7 @@ def test_observe_expect_shape_accepts_matching_scalar(tmp_path):
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
 
-    mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC), expect_shape="scalar", session=s
-    )
+    mf = observe(make_ref("sales.revenue", SemanticKind.METRIC), expect_shape="scalar", session=s)
 
     assert mf.meta.semantic_kind == "scalar"
 
@@ -1131,7 +1128,7 @@ def test_observe_expect_shape_rejects_mismatch(tmp_path):
     # No grain and no dimensions -> predicted shape is "scalar", not "time_series".
     with pytest.raises(SemanticKindMismatchError) as excinfo:
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            make_ref("sales.revenue", SemanticKind.METRIC),
             expect_shape="time_series",
             session=s,
         )

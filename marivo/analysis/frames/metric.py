@@ -42,6 +42,9 @@ class MetricFrameMeta(BaseFrameMeta):
 class MetricFrame(BaseFrame):
     meta: MetricFrameMeta
 
+    #: Canonical column name for the metric value in the wrapped DataFrame.
+    VALUE_COLUMN: str = "value"
+
     _NEXT_INTENTS = (
         "compare",
         "discover",

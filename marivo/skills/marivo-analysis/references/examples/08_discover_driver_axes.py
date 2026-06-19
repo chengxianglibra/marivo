@@ -12,7 +12,7 @@ from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
-from marivo.semantic import SemanticKind, SemanticRef  # noqa: E402
+from marivo.semantic.refs import DimensionRef  # noqa: E402
 
 session = mv.session.current()
 region = session.catalog.get("sales.orders.region").ref
@@ -38,8 +38,8 @@ axis_candidates = session.discover.driver_axes(
     search_space=[region],
 )
 top_axis = axis_candidates.select(rank=1, attribute="axis")
-assert top_axis == SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION)
-print(f"top_axis={top_axis.ref}")
+assert top_axis == DimensionRef("sales.orders.region")
+print(f"top_axis={top_axis.id}")
 
 drivers = session.decompose(delta, axis=top_axis)
 print(f"drivers.kind={drivers.meta.kind!r}")

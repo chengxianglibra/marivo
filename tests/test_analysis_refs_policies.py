@@ -14,16 +14,17 @@ from marivo.analysis.policies import (
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef
 from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.refs import make_ref
 
 
 def test_refs_are_exported_and_preserve_ids():
     assert mv.AlignmentKind is AlignmentKind
-    assert mv.SemanticRef("sales.revenue", kind=SemanticKind.METRIC).ref == "sales.revenue"
-    assert mv.SemanticRef("region", kind=SemanticKind.DIMENSION).ref == "region"
+    assert mv.make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"
+    assert mv.make_ref("region", SemanticKind.DIMENSION).id == "region"
     assert mv.SemanticRef is SemanticRef
     assert mv.CalendarRef("cn_holidays").id == "cn_holidays"
-    assert SemanticRef("sales.revenue", kind=SemanticKind.METRIC).ref == "sales.revenue"
-    assert SemanticRef("region", kind=SemanticKind.DIMENSION).ref == "region"
+    assert make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"
+    assert make_ref("region", SemanticKind.DIMENSION).id == "region"
     assert CalendarRef("cn_holidays").id == "cn_holidays"
 
 
@@ -120,14 +121,14 @@ def test_promotion_policy_defaults_and_forbids_extra_fields():
 def test_promotion_policy_accepts_typed_anchors_only():
     policy = PromotionPolicy(
         semantic_anchors=PromotionSemanticAnchors(
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-            subject=SemanticRef("account", kind=SemanticKind.DIMENSION),
-            time_axis=SemanticRef("order_day", kind=SemanticKind.DIMENSION),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
+            subject=make_ref("account", SemanticKind.DIMENSION),
+            time_axis=make_ref("order_day", SemanticKind.DIMENSION),
             source_metric=ArtifactRef("frame_metric"),
             source_delta=ArtifactRef("frame_delta"),
             current=ArtifactRef("frame_current"),
             baseline=ArtifactRef("frame_baseline"),
-            axis=SemanticRef("country", kind=SemanticKind.DIMENSION),
+            axis=make_ref("country", SemanticKind.DIMENSION),
         ),
         required_fields=["measure_column", "semantic_model"],
     )
@@ -144,11 +145,11 @@ def test_promotion_policy_accepts_typed_anchors_only():
 
 
 def test_promotion_semantic_anchors_store_plain_strings():
-    from marivo.semantic.catalog import SemanticKind, SemanticRef
+    from marivo.semantic.catalog import SemanticKind
 
     anchors = PromotionSemanticAnchors(
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-        subject=SemanticRef("sales.orders.country", kind=SemanticKind.DIMENSION),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
+        subject=make_ref("sales.orders.country", SemanticKind.DIMENSION),
     )
 
     assert anchors.metric == "sales.revenue"
@@ -156,23 +157,19 @@ def test_promotion_semantic_anchors_store_plain_strings():
 
 
 def test_promotion_semantic_anchors_reject_wrong_ref_kinds():
-    from marivo.semantic.catalog import SemanticKind, SemanticRef
+    from marivo.semantic.catalog import SemanticKind
 
     with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(
-            metric=SemanticRef("sales.orders.country", kind=SemanticKind.DIMENSION)
-        )
+        PromotionSemanticAnchors(metric=make_ref("sales.orders.country", SemanticKind.DIMENSION))
 
     with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(subject=SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
+        PromotionSemanticAnchors(subject=make_ref("sales.revenue", SemanticKind.METRIC))
 
     with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(subject=SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
+        PromotionSemanticAnchors(subject=make_ref("sales.revenue", SemanticKind.METRIC))
 
     with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(
-            metric=SemanticRef("sales.orders.country", kind=SemanticKind.DIMENSION)
-        )
+        PromotionSemanticAnchors(metric=make_ref("sales.orders.country", SemanticKind.DIMENSION))
 
 
 def test_promotion_semantic_anchors_accept_semantic_object(semantic_project_factory):

@@ -6,7 +6,8 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.intents.observe import observe
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -126,8 +127,8 @@ def test_observe_single_dimension_returns_segmented_frame(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -135,8 +136,8 @@ def test_observe_single_dimension_returns_segmented_frame(tmp_path):
     assert "region" in mf.meta.axes
     assert mf.meta.axes["region"]["role"] == "dimension"
     df = mf.to_pandas()
-    assert set(df.columns) == {"region", "revenue"}
-    by_region = df.set_index("region")["revenue"].to_dict()
+    assert set(df.columns) == {"region", "value"}
+    by_region = df.set_index("region")["value"].to_dict()
     assert by_region == {"NORTH": pytest.approx(70.0), "SOUTH": pytest.approx(30.0)}
 
 
@@ -147,17 +148,17 @@ def test_observe_multi_dimension_segmented(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         dimensions=[
-            SemanticRef("region", kind=SemanticKind.DIMENSION),
-            SemanticRef("channel", kind=SemanticKind.DIMENSION),
+            make_ref("region", SemanticKind.DIMENSION),
+            make_ref("channel", SemanticKind.DIMENSION),
         ],
         session=s,
     )
 
     assert mf.meta.semantic_kind == "segmented"
     df = mf.to_pandas()
-    assert {"region", "channel", "revenue"} == set(df.columns)
+    assert {"region", "channel", "value"} == set(df.columns)
 
 
 def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
@@ -167,16 +168,16 @@ def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.failure_rate", SemanticKind.METRIC),
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=s,
     )
 
     assert mf.meta.semantic_kind == "segmented"
     assert mf.meta.measure["name"] == "failure_rate"
     df = mf.to_pandas()
-    assert set(df.columns) == {"region", "failure_rate"}
-    by_region = df.set_index("region")["failure_rate"].to_dict()
+    assert set(df.columns) == {"region", "value"}
+    by_region = df.set_index("region")["value"].to_dict()
     assert by_region == {"NORTH": pytest.approx(1 / 3), "SOUTH": pytest.approx(1.0)}
 
 
@@ -187,14 +188,14 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     full = observe(
-        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.failure_rate", SemanticKind.METRIC),
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=s,
     )
     windowed = observe(
-        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
+        make_ref("sales.failure_rate", SemanticKind.METRIC),
         timescope={"start": "2026-07-02", "end": "2026-08-02"},
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -213,8 +214,8 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
         "resolved": windowed.meta.window,
         "report_tz": s.report_tz_name,
     }
-    windowed_by_region = windowed.to_pandas().set_index("region")["failure_rate"].to_dict()
-    full_by_region = full.to_pandas().set_index("region")["failure_rate"].to_dict()
+    windowed_by_region = windowed.to_pandas().set_index("region")["value"].to_dict()
+    full_by_region = full.to_pandas().set_index("region")["value"].to_dict()
     assert windowed_by_region == {"NORTH": pytest.approx(0.0), "SOUTH": pytest.approx(1.0)}
     assert windowed_by_region["NORTH"] != pytest.approx(full_by_region["NORTH"])
 
@@ -234,12 +235,12 @@ def test_observe_derived_metric_scalar_uses_component_datasets(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    mf = observe(SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC), session=s)
+    mf = observe(make_ref("sales.failure_rate", SemanticKind.METRIC), session=s)
 
     assert mf.meta.semantic_kind == "scalar"
     assert mf.meta.measure["name"] == "failure_rate"
     df = mf.to_pandas()
-    assert set(df.columns) == {"failure_rate"}
+    assert set(df.columns) == {"value"}
     assert df.iloc[0, 0] == pytest.approx(0.5)
 
 
@@ -250,15 +251,15 @@ def test_observe_derived_metric_dimension_via_relationship(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("tier", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.failure_rate", SemanticKind.METRIC),
+        dimensions=[make_ref("tier", SemanticKind.DIMENSION)],
         session=s,
     )
 
     assert mf.meta.semantic_kind == "segmented"
     df = mf.to_pandas()
-    assert set(df.columns) == {"tier", "failure_rate"}
-    by_tier = df.set_index("tier")["failure_rate"].to_dict()
+    assert set(df.columns) == {"tier", "value"}
+    by_tier = df.set_index("tier")["value"].to_dict()
     assert by_tier == {"gold": pytest.approx(1 / 3), "silver": pytest.approx(1.0)}
 
 
@@ -271,7 +272,7 @@ def test_observe_empty_dimensions_list_is_rejected(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), dimensions=[], session=s)
+        observe(make_ref("sales.revenue", SemanticKind.METRIC), dimensions=[], session=s)
 
     assert "For time-series observations, omit dimensions or pass None" in str(exc_info.value)
 
@@ -286,10 +287,10 @@ def test_observe_duplicate_dimensions_are_rejected(tmp_path):
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            make_ref("sales.revenue", SemanticKind.METRIC),
             dimensions=[
-                SemanticRef("region", kind=SemanticKind.DIMENSION),
-                SemanticRef("region", kind=SemanticKind.DIMENSION),
+                make_ref("region", SemanticKind.DIMENSION),
+                make_ref("region", SemanticKind.DIMENSION),
             ],
             session=s,
         )
@@ -306,14 +307,14 @@ def test_observe_segmented_multi_dataset_metric_with_root_dimension(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     frame = observe(
-        SemanticRef("sales.revenue_plus_user_count", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("channel", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.revenue_plus_user_count", SemanticKind.METRIC),
+        dimensions=[make_ref("channel", SemanticKind.DIMENSION)],
         session=s,
     )
 
     assert frame.meta.semantic_kind == "segmented"
     df = frame.to_pandas()
-    assert set(df.columns) == {"channel", "revenue_plus_user_count"}
+    assert set(df.columns) == {"channel", "value"}
 
 
 def test_observe_segmented_multi_dataset_missing_dimension_is_blocked(tmp_path):
@@ -325,8 +326,8 @@ def test_observe_segmented_multi_dataset_missing_dimension_is_blocked(tmp_path):
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            SemanticRef("sales.revenue_plus_user_count", kind=SemanticKind.METRIC),
-            dimensions=[SemanticRef("missing", kind=SemanticKind.DIMENSION)],
+            make_ref("sales.revenue_plus_user_count", SemanticKind.METRIC),
+            dimensions=[make_ref("missing", SemanticKind.DIMENSION)],
             session=s,
         )
 
@@ -340,13 +341,13 @@ def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     by_region = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=s,
     )
     by_channel = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("channel", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        dimensions=[make_ref("channel", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -371,8 +372,8 @@ def test_observe_dimension_not_found(tmp_path):
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
-            dimensions=[SemanticRef("not_a_real_field", kind=SemanticKind.DIMENSION)],
+            make_ref("sales.revenue", SemanticKind.METRIC),
+            dimensions=[make_ref("not_a_real_field", SemanticKind.DIMENSION)],
             session=s,
         )
 
@@ -390,7 +391,7 @@ def test_observe_dimension_rejects_bare_string(tmp_path):
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            make_ref("sales.revenue", SemanticKind.METRIC),
             dimensions=["region"],  # type: ignore[list-item]
             session=s,
         )
@@ -405,13 +406,13 @@ def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path)
     session = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     frame = observe(
-        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.failure_rate", SemanticKind.METRIC),
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=session,
     )
 
     assert frame.meta.component_ref is not None
-    assert set(frame.to_pandas().columns) == {"region", "failure_rate"}
+    assert set(frame.to_pandas().columns) == {"region", "value"}
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
     component_df = components.to_pandas()

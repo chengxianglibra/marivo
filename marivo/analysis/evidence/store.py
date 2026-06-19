@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -226,8 +227,27 @@ def open_judgment_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> Judgme
     return JudgmentStore(conn, db_path)
 
 
+def run_startup_gc(store: JudgmentStore, frames_dir: Path) -> None:
+    """Delete .tmp orphans and frame dirs not referenced by judgment.db."""
+    if not frames_dir.is_dir():
+        return
+    referenced: set[str] = {
+        row[0] for row in store.read().execute("SELECT artifact_id FROM artifacts").fetchall()
+    }
+    for child in frames_dir.iterdir():
+        if not child.is_dir():
+            continue
+        # Remove any .tmp files inside the directory
+        for tmp in child.rglob("*.tmp"):
+            tmp.unlink(missing_ok=True)
+        # Remove orphan directories not referenced by any artifact
+        if child.name not in referenced:
+            shutil.rmtree(child, ignore_errors=True)
+
+
 __all__ = [
     "EXPECTED_SCHEMA_VERSION",
     "JudgmentStore",
     "open_judgment_store",
+    "run_startup_gc",
 ]

@@ -6,6 +6,7 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import PropositionNotFoundError
 from marivo.analysis.evidence.types import Assessment, Finding, Proposition, Subject
+from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
 
 
@@ -41,14 +42,14 @@ def _session(tmp_path: Path, *, name: str = "t"):
 
 
 def _compare(session):
-    from marivo.semantic.catalog import SemanticKind, SemanticRef
+    from marivo.semantic.catalog import SemanticKind
 
     cur = session.observe(
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-07"},
     )
     bas = session.observe(
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-24", "end": "2026-04-30"},
     )
     return session.compare(cur, bas)

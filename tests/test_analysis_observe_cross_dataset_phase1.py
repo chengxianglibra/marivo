@@ -8,7 +8,8 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -98,15 +99,15 @@ def test_segmented_cross_dataset_dimension_preserves_unmatched_root_rows(tmp_pat
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     frame = observe(
-        SemanticRef("sales.revenue_by_user", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("sales.users.tier", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.revenue_by_user", SemanticKind.METRIC),
+        dimensions=[make_ref("sales.users.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
     assert frame.meta.semantic_kind == "segmented"
     df = frame.to_pandas()
-    assert set(df.columns) == {"tier", "revenue_by_user"}
-    by_tier = {row.tier: row.revenue_by_user for row in df.itertuples()}
+    assert set(df.columns) == {"tier", "value"}
+    by_tier = {row.tier: row.value for row in df.itertuples()}
     assert by_tier["gold"] == pytest.approx(30.0)
     assert by_tier["silver"] == pytest.approx(30.0)
     # Unmatched root rows (user_id=999) produce NULL tier after left join,
@@ -120,8 +121,8 @@ def test_cross_dataset_where_filters_after_left_join(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     frame = observe(
-        SemanticRef("sales.revenue_by_user", kind=SemanticKind.METRIC),
-        where={SemanticRef("sales.users.country", kind=SemanticKind.DIMENSION): "US"},
+        make_ref("sales.revenue_by_user", SemanticKind.METRIC),
+        where={make_ref("sales.users.country", SemanticKind.DIMENSION): "US"},
         session=_session(con),
     )
 
@@ -136,16 +137,16 @@ def test_panel_cross_dataset_dimension_uses_root_time_axis(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     frame = observe(
-        SemanticRef("sales.revenue_by_user", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue_by_user", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-05"},
         grain="day",
-        dimensions=[SemanticRef("sales.users.tier", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.users.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
     assert frame.meta.semantic_kind == "panel"
     assert frame.meta.axes["time"]["time_dimension"] == "order_date"
-    assert set(frame.to_pandas().columns) == {"bucket_start", "tier", "revenue_by_user"}
+    assert set(frame.to_pandas().columns) == {"bucket_start", "tier", "value"}
 
 
 def test_one_to_many_traversal_is_blocked(tmp_path):
@@ -217,8 +218,8 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            SemanticRef("sales.order_total_with_items", kind=SemanticKind.METRIC),
-            dimensions=[SemanticRef("sales.order_items.item_name", kind=SemanticKind.DIMENSION)],
+            make_ref("sales.order_total_with_items", SemanticKind.METRIC),
+            dimensions=[make_ref("sales.order_items.item_name", SemanticKind.DIMENSION)],
             session=_session(con),
         )
 
@@ -307,13 +308,13 @@ def test_snapshot_as_of_root_time_per_row_partition(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed_snapshot(con)
     frame = observe(
-        SemanticRef("sales.revenue_by_profile", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue_by_profile", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-03"},
-        dimensions=[SemanticRef("sales.user_profile_daily.tier", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.user_profile_daily.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
-    by_tier = frame.to_pandas().set_index("tier")["revenue_by_profile"].to_dict()
+    by_tier = frame.to_pandas().set_index("tier")["value"].to_dict()
     # With as_of_root_time: order 1 (2026-07-01) -> partition 20260701 -> tier 'gold'
     # order 2 (2026-07-02) -> partition 20260701 -> tier 'new_silver'
     assert by_tier == {"gold": pytest.approx(10.0), "new_silver": pytest.approx(20.0)}
@@ -325,8 +326,8 @@ def test_relationships_lineage_records_distinct_from_and_to_dataset(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     frame = observe(
-        SemanticRef("sales.revenue_by_user", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("sales.users.tier", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.revenue_by_user", SemanticKind.METRIC),
+        dimensions=[make_ref("sales.users.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
 

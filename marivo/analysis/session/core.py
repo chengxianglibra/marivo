@@ -597,7 +597,7 @@ class Session:
         if self._judgment_store_unavailable:
             return None
         from marivo.analysis.errors import EvidenceStoreUnavailableError
-        from marivo.analysis.evidence.store import open_judgment_store
+        from marivo.analysis.evidence.store import open_judgment_store, run_startup_gc
 
         db_path = self._layout.session_dir / "judgment.db"
         try:
@@ -605,6 +605,7 @@ class Session:
         except EvidenceStoreUnavailableError:
             self._judgment_store_unavailable = True
             return None
+        run_startup_gc(store, self._layout.frames_dir)
         self._judgment_store = store
         return store
 
@@ -961,7 +962,7 @@ class Session:
 
         Example:
             >>> result = session.hypothesis_test(cur, base)
-            >>> result.summary().show()
+            >>> result.summary()
         """
         from marivo.analysis.intents.test import hypothesis_test
 

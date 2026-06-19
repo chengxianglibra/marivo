@@ -13,7 +13,8 @@ import marivo.analysis as mv
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.session.core import Session
 from marivo.introspection.surface import render
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 def _json_data(symbol: str | None = None) -> dict[str, Any]:
@@ -377,7 +378,7 @@ def test_mv_help_accepts_metric_ref(capsys: CaptureFixture[str]):
 
     from marivo.semantic.errors import SemanticError
 
-    ref = SemanticRef("sales.revenue", kind=SemanticKind.METRIC)
+    ref = make_ref("sales.revenue", SemanticKind.METRIC)
     with pytest.raises(Exception) as exc_info:
         mv.help(ref)
     assert isinstance(exc_info.value, SemanticError)
@@ -404,10 +405,10 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
     )
     from marivo.semantic.catalog import SemanticCatalog
 
-    metric_ids = [ref.ref for ref in SemanticCatalog(project).list("sales", kind="metric").refs()]
+    metric_ids = [ref.id for ref in SemanticCatalog(project).list("sales", kind="metric").refs()]
     if not metric_ids:
         pytest.skip("no metrics in fixture")
-    ref = SemanticRef(metric_ids[0], kind=SemanticKind.METRIC)
+    ref = make_ref(metric_ids[0], SemanticKind.METRIC)
     mv.help(ref, project=project)
     captured = capsys.readouterr()
     assert len(captured.out) > 0
@@ -467,7 +468,7 @@ def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
             ),
         }
     )
-    mv.help(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), project=project)
+    mv.help(make_ref("sales.revenue", SemanticKind.METRIC), project=project)
     out = capsys.readouterr().out
     assert "unit: CNY" in out
 

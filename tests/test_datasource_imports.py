@@ -86,8 +86,7 @@ def test_datasource_ref_uses_global_short_name() -> None:
 
     ref = md.ref("warehouse")
 
-    assert ref.semantic_id == "warehouse"
-    assert ref.name == "warehouse"
+    assert ref.id == "warehouse"
     assert repr(ref) == "DatasourceRef('warehouse')"
 
 

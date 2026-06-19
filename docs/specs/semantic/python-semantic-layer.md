@@ -162,7 +162,7 @@ catalog.list(kind="metric").show()             # all metrics across every domain
 catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
 revenue = catalog.get("sales.revenue")
 revenue.details().show()                       # bounded details card
-revenue.children                               # child SemanticRef values
+revenue.children                               # child SemanticRef subclass values (each has .id and .kind)
 ```
 
 目标态 reader / introspection surface 以 catalog methods 为主：

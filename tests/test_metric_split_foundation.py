@@ -13,6 +13,7 @@ import marivo.semantic as ms
 from marivo.semantic import authoring, ir
 from marivo.semantic.errors import SemanticDecoratorError
 from marivo.semantic.ir import AiContextIR, SourceLocation
+from marivo.semantic.refs import MetricRef
 from tests.shared_fixtures import authoring_session
 
 # ---------------------------------------------------------------------------
@@ -165,7 +166,7 @@ def test_categorical_dimension_rejects_additivity():
 
 
 def test_ref_is_not_callable_teaches():
-    r = ir.MetricRef("d.loss_rate")
+    r = MetricRef("d.loss_rate")
     with pytest.raises(SemanticDecoratorError) as exc:
         r(lambda: None)  # simulates `@ms.ratio(...) def loss_rate(): ...`
     assert "not a decorator" in str(exc.value)

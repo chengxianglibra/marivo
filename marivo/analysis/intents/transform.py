@@ -422,9 +422,9 @@ def _params_digest(params: dict[str, Any]) -> str:
 
 def _normalize_param_value(value: Any) -> Any:
     if isinstance(value, SemanticObject):
-        return {"ref": value.ref.ref, "kind": str(value.kind)}
+        return {"ref": value.ref.id, "kind": str(value.kind)}
     if isinstance(value, SemanticRef):
-        return {"ref": value.ref, "kind": str(value.kind)}
+        return {"ref": value.id, "kind": str(value.kind)}
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
     if isinstance(value, (datetime, date)):
@@ -453,9 +453,9 @@ def _axis_names(value: Any) -> set[str]:
     if value is None:
         return set()
     if isinstance(value, SemanticObject):
-        return {value.ref.ref}
+        return {value.ref.id}
     if isinstance(value, SemanticRef):
-        return {value.ref}
+        return {value.id}
     if isinstance(value, str):
         return {value}
     if isinstance(value, (list, tuple, set)):
@@ -471,15 +471,15 @@ def _dimension_input_id(value: DimensionInput) -> str:
         if value.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
             raise TransformArgError(
                 message="transform dimension input requires a dimension or time_dimension object",
-                details={"actual_kind": str(value.kind), "ref": value.ref.ref},
+                details={"actual_kind": str(value.kind), "ref": value.ref.id},
             )
-        return value.ref.ref
+        return value.ref.id
     if value.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
         raise TransformArgError(
             message="transform dimension input requires a dimension or time_dimension ref",
-            details={"actual_kind": str(value.kind), "ref": value.ref},
+            details={"actual_kind": str(value.kind), "ref": value.id},
         )
-    return value.ref
+    return value.id
 
 
 def _axis_matches(axis_id: str, axis_meta: Any, requested: str) -> bool:
@@ -651,6 +651,9 @@ def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:
         if isinstance(column, str) and column not in axis_columns
     ]
     if isinstance(frame, MetricFrame):
+        # Canonical "value" column takes priority.
+        if "value" in df.columns and "value" not in axis_columns:
+            return "value"
         declared_column = frame.meta.measure.get("column")
         if declared_column is not None:
             if not isinstance(declared_column, str) or declared_column not in df.columns:
@@ -1395,7 +1398,7 @@ def _resolve_slice_column(
         message="transform(op='slice') where keys must be catalog dimension refs or str",
         hint=(
             'Use where={session.catalog.get("<dimension_id>").ref: "US"} '
-            "or where={'revenue': (10, 20)}."
+            "or where={'value': (10, 20)}."
         ),
         details={"op": "slice", "actual_key_type": type(key).__name__},
     )
@@ -1515,7 +1518,7 @@ def _ordered_take(
     if not isinstance(by, str):
         raise TransformArgError(
             message=f"transform(op='{op_name}') requires by to be a column name",
-            hint=f"Pass by='revenue' or another persisted frame column for {op_name}.",
+            hint=f"Pass by='value' or another persisted frame column for {op_name}.",
             details={
                 "op": op_name,
                 "argument": "by",
@@ -1614,7 +1617,7 @@ def _op_rank(frame: TransformFrame, params: _TransformParams) -> _TransformHandl
     if not isinstance(by, str):
         raise TransformArgError(
             message="transform(op='rank') requires by to be a column name",
-            hint="Pass by='revenue' or another persisted frame column for rank.",
+            hint="Pass by='value' or another persisted frame column for rank.",
             details={"op": "rank", "argument": "by", "actual_type": type(by).__name__},
         )
 
@@ -1807,7 +1810,7 @@ def _op_slice(
             message="transform(op='slice') requires a non-empty where dict",
             hint=(
                 'Pass where={session.catalog.get("<dimension_id>").ref: "US"} '
-                "or where={'revenue': (10, 20)}."
+                "or where={'value': (10, 20)}."
             ),
             details={"op": "slice", "argument": "where"},
         )

@@ -8,7 +8,8 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -144,7 +145,7 @@ def test_timescope_without_grain_stays_scalar(tmp_path):
     )
 
     frame = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-25"},
         session=s,
     )
@@ -174,7 +175,7 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
     )
 
     frame = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-25"},
         grain="day",
         session=s,
@@ -189,7 +190,7 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
             "time_dimension": "order_date",
         }
     }
-    assert list(frame.to_pandas().columns) == ["bucket_start", "revenue"]
+    assert list(frame.to_pandas().columns) == ["bucket_start", "value"]
 
 
 def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
@@ -205,7 +206,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            SemanticRef("sales.net", kind=SemanticKind.METRIC),
+            make_ref("sales.net", SemanticKind.METRIC),
             timescope={"start": "2026-05-01", "end": "2026-05-24"},
             grain="day",
             session=s,
@@ -226,7 +227,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
     )
 
     frame = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-25"},
         grain="day",
         session=s,
@@ -256,7 +257,7 @@ def test_date_time_series_day_bucket_respects_report_tz(tmp_path):
     )
 
     frame = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-05-01", "end": "2026-05-02"},
         grain="day",
         session=s,
@@ -264,5 +265,5 @@ def test_date_time_series_day_bucket_respects_report_tz(tmp_path):
 
     df = frame.to_pandas()
     assert frame.meta.semantic_kind == "time_series"
-    assert df["revenue"].tolist() == pytest.approx([30.0])
+    assert df["value"].tolist() == pytest.approx([30.0])
     assert [item.strftime("%Y-%m-%d") for item in df["bucket_start"]] == ["2026-05-01"]

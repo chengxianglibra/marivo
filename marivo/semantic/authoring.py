@@ -32,24 +32,18 @@ from marivo.semantic.ir import (
     DatetimeParse,
     DimensionIR,
     DimensionKind,
-    DimensionRef,
     DomainIR,
-    DomainRef,
     EntityIR,
-    EntityRef,
     EntitySourceIR,
     HourPrefixParse,
     JoinKey,
     LinearComposition,
     LinearTerm,
     MeasureIR,
-    MeasureRef,
     MetricIR,
-    MetricRef,
     ParquetSourceIR,
     RatioComposition,
     RelationshipIR,
-    RelationshipRef,
     SampleIntervalIR,
     SemanticParse,
     SemiAdditive,
@@ -58,7 +52,6 @@ from marivo.semantic.ir import (
     SqlProvenance,
     StrptimeParse,
     TableSourceIR,
-    TimeDimensionRef,
     TimeFoldIR,
     TimestampParse,
     ValidityVersioningIR,
@@ -66,6 +59,15 @@ from marivo.semantic.ir import (
     is_time_bearing_format,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from marivo.semantic.refs import (
+    DimensionRef,
+    DomainRef,
+    EntityRef,
+    MeasureRef,
+    MetricRef,
+    RelationshipRef,
+    TimeDimensionRef,
+)
 from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContext
 from marivo.semantic.validator import validate_metric_body_ast
@@ -119,7 +121,7 @@ def _require_ctx() -> LoaderContext:
 def _resolve_domain(explicit: DomainRef | None, ctx: LoaderContext) -> str:
     """Resolve the domain name: explicit ref > default_domain > error."""
     if isinstance(explicit, DomainRef):
-        return explicit.semantic_id
+        return explicit.id
     if explicit is not None:
         return explicit
     if ctx.default_domain is not None:
@@ -399,10 +401,10 @@ def _resolve_ref_string(
     | DatasourceRef
     | str,
 ) -> str:
-    """Extract semantic_id string from a ref object or pass through a string."""
+    """Extract id string from a ref object or pass through a string."""
     if isinstance(ref, str):
         return ref
-    return ref.semantic_id
+    return ref.id
 
 
 def _resolve_datasource_ref(ref: DatasourceRef | str) -> str:
@@ -410,7 +412,7 @@ def _resolve_datasource_ref(ref: DatasourceRef | str) -> str:
     if isinstance(ref, str):
         return ref
     if isinstance(ref, DatasourceRef):
-        return ref.semantic_id
+        return ref.id
     _raise(
         ErrorKind.INVALID_REF,
         "ms.entity(datasource=...) accepts a datasource ref or global datasource name string.",
@@ -1207,7 +1209,7 @@ def snapshot(
 ) -> SnapshotVersioningIR:
     """Declare daily snapshot partition versioning for an entity."""
     if isinstance(partition_field, (DimensionRef, TimeDimensionRef)):
-        partition_ref = partition_field.semantic_id
+        partition_ref = partition_field.id
     else:
         partition_ref = partition_field
     if grain != "day":
@@ -1287,12 +1289,10 @@ def validity(
                 details={"field": "timezone", "reason": f"unknown IANA timezone {timezone!r}"},
             )
     valid_from_ref = (
-        valid_from.semantic_id
-        if isinstance(valid_from, (DimensionRef, TimeDimensionRef))
-        else valid_from
+        valid_from.id if isinstance(valid_from, (DimensionRef, TimeDimensionRef)) else valid_from
     )
     valid_to_ref = (
-        valid_to.semantic_id if isinstance(valid_to, (DimensionRef, TimeDimensionRef)) else valid_to
+        valid_to.id if isinstance(valid_to, (DimensionRef, TimeDimensionRef)) else valid_to
     )
     return ValidityVersioningIR(
         kind="validity",

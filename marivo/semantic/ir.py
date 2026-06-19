@@ -7,10 +7,10 @@ stored in a sidecar map, not in the IR itself.
 from __future__ import annotations
 
 import re as _re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Literal
 
 from marivo.datasource.ir import (
     AiContextIR,
@@ -23,6 +23,7 @@ from marivo.datasource.ir import (
     source_name,
     source_to_dict,
 )
+from marivo.refs import SymbolKind
 
 __all__ = [
     "Additivity",
@@ -37,12 +38,9 @@ __all__ = [
     "DatetimeParse",
     "DimensionIR",
     "DimensionKind",
-    "DimensionRef",
     "DomainIR",
-    "DomainRef",
     "EntityIR",
     "EntityProvenance",
-    "EntityRef",
     "EntitySourceIR",
     "EntityVersioningIR",
     "HourPrefixParse",
@@ -50,15 +48,12 @@ __all__ = [
     "LinearComposition",
     "LinearTerm",
     "MeasureIR",
-    "MeasureRef",
     "MetricAdditivity",
     "MetricIR",
-    "MetricRef",
     "ParityStatus",
     "ParquetSourceIR",
     "RatioComposition",
     "RelationshipIR",
-    "RelationshipRef",
     "SampleIntervalIR",
     "SemanticParse",
     "SemiAdditive",
@@ -68,12 +63,10 @@ __all__ = [
     "StrptimeParse",
     "SymbolKind",
     "TableSourceIR",
-    "TimeDimensionRef",
     "TimeFoldIR",
     "TimestampParse",
     "ValidityVersioningIR",
     "WeightedAverageComposition",
-    "_BaseRef",
     "is_time_bearing_format",
     "source_from_dict",
     "source_label",
@@ -87,19 +80,6 @@ DatasourceAiContextIR = AiContextIR
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
-
-
-class SymbolKind(StrEnum):
-    """Kind of semantic object."""
-
-    DOMAIN = "domain"
-    DATASOURCE = "datasource"
-    ENTITY = "entity"
-    DIMENSION = "dimension"
-    MEASURE = "measure"
-    TIME_DIMENSION = "time_dimension"
-    METRIC = "metric"
-    RELATIONSHIP = "relationship"
 
 
 class DimensionKind(StrEnum):
@@ -562,170 +542,6 @@ class RelationshipIR:
 # ---------------------------------------------------------------------------
 # Ref types
 # ---------------------------------------------------------------------------
-
-
-class _BaseRef:
-    """Base class for decorator return refs.
-
-    Subclasses are returned by the authoring decorators instead of
-    the raw function, closing the ambiguity where a decorated metric
-    could still be called directly by user code.
-    """
-
-    __slots__ = ("kind", "semantic_id")
-
-    def __init__(self, semantic_id: str, kind: SymbolKind) -> None:
-        normalized = semantic_id.strip()
-        if not normalized:
-            raise ValueError("ref semantic_id must be non-empty")
-        self.semantic_id = normalized
-        self.kind = kind
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.semantic_id!r})"
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        # Deferred import avoids an ir <-> errors import cycle.
-        from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-
-        _raise(
-            ErrorKind.INVALID_REF,
-            f"{self.semantic_id!r} is a declared semantic object, not a decorator. "
-            "Body-free constructors (ms.ratio / ms.weighted_average / ms.linear / "
-            "ms.aggregate / ms.relationship) return a ref — assign it, e.g. "
-            "`loss_rate = ms.ratio(name=..., numerator=..., denominator=...)`. "
-            "They have no function body.",
-            cls=SemanticDecoratorError,
-        )
-
-    def __str__(self) -> str:
-        return self.semantic_id
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, _BaseRef):
-            return NotImplemented
-        return type(self) is type(other) and self.semantic_id == other.semantic_id
-
-    def __hash__(self) -> int:
-        return hash((type(self), self.semantic_id))
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, _source_type: Any, _handler: Any) -> Any:
-        """Allow ref types to be used as Pydantic field types (e.g. PromotionSemanticAnchors)."""
-        from pydantic_core import core_schema
-
-        # _source_type is the concrete ref subclass (DimensionRef, MetricRef, …)
-        # which only requires semantic_id. Fall back to cls when Pydantic
-        # resolves the schema directly on _BaseRef.
-        ref_cls: type[_BaseRef] = _source_type if _source_type is not _BaseRef else cls
-
-        def validate(value: Any) -> _BaseRef:
-            if isinstance(value, ref_cls):
-                return value
-            if isinstance(value, str):
-                return ref_cls(value)  # type: ignore[call-arg]
-            raise ValueError(f"expected str or {ref_cls.__name__}, got {type(value).__name__}")
-
-        return core_schema.no_info_plain_validator_function(
-            validate,
-            serialization=core_schema.plain_serializer_function_ser_schema(
-                lambda v: v.semantic_id,
-                info_arg=False,
-            ),
-        )
-
-
-class EntityRef(_BaseRef):
-    """Ref returned by ms.entity().  Not callable."""
-
-    def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.ENTITY)
-
-
-class DimensionRef(_BaseRef):
-    """Ref returned by ms.dimension().  Callable in base metric bodies.
-
-    Calling ``dimension_ref(parent_table)`` resolves to the sidecar callable
-    stored in the loader registry and invokes it with the parent table.
-    """
-
-    _resolver: Callable[[str, Any], Any] | None
-
-    def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.DIMENSION)
-        self._resolver = None
-
-    def __call__(self, parent_table: Any) -> Any:
-        if self._resolver is None:
-            raise RuntimeError(
-                f"DimensionRef({self.semantic_id!r}) has no resolver. "
-                "DimensionRefs can only be called inside a loaded semantic project."
-            )
-        return self._resolver(self.semantic_id, parent_table)
-
-
-class TimeDimensionRef(_BaseRef):
-    """Ref returned by ms.time_dimension().  Callable like DimensionRef."""
-
-    _resolver: Callable[[str, Any], Any] | None
-
-    def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.TIME_DIMENSION)
-        self._resolver = None
-
-    def __call__(self, parent_table: Any) -> Any:
-        if self._resolver is None:
-            raise RuntimeError(
-                f"TimeDimensionRef({self.semantic_id!r}) has no resolver. "
-                "TimeDimensionRefs can only be called inside a loaded semantic project."
-            )
-        return self._resolver(self.semantic_id, parent_table)
-
-
-class MeasureRef(_BaseRef):
-    """Ref returned by ms.measure(). Callable like DimensionRef."""
-
-    _resolver: Callable[[str, Any], Any] | None
-
-    def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.MEASURE)
-        self._resolver = None
-
-    def __call__(self, parent_table: Any) -> Any:
-        if self._resolver is None:
-            raise RuntimeError(
-                f"MeasureRef({self.semantic_id!r}) has no resolver. "
-                "MeasureRefs can only be called inside a loaded semantic project."
-            )
-        return self._resolver(self.semantic_id, parent_table)
-
-
-class MetricRef(_BaseRef):
-    """Ref returned by ms.aggregate(), @ms.metric(), and derived constructors.
-
-    Not callable as a decorator. _BaseRef.__call__ raises a teaching error.
-    """
-
-    def __init__(self, semantic_id: str) -> None:
-        normalized = semantic_id.strip()
-        model, separator, metric = normalized.partition(".")
-        if not separator or not model or not metric:
-            raise ValueError(f"metric ref must be '<model>.<metric>', got {semantic_id!r}")
-        super().__init__(normalized, SymbolKind.METRIC)
-
-
-class RelationshipRef(_BaseRef):
-    """Ref returned by ms.relationship().  Not callable."""
-
-    def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.RELATIONSHIP)
-
-
-class DomainRef(_BaseRef):
-    """Ref returned by ms.domain().  Not callable."""
-
-    def __init__(self, semantic_id: str) -> None:
-        super().__init__(semantic_id, SymbolKind.DOMAIN)
 
 
 # ---------------------------------------------------------------------------

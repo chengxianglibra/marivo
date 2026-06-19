@@ -33,6 +33,7 @@ from marivo.analysis.intents.sampled_fold import ensure_status_time_dimension_ma
 from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.analysis.windows.spec import is_date_only
 from marivo.introspection._fuzzy import did_you_mean
+from marivo.refs import SemanticRef
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     DimensionDetails,
@@ -125,7 +126,7 @@ class _PlannedFieldDetails:
 
     @property
     def semantic_id(self) -> str:
-        return self.details.ref.ref
+        return self.details.ref.id
 
     @property
     def name(self) -> str:
@@ -133,7 +134,7 @@ class _PlannedFieldDetails:
 
     @property
     def entity(self) -> str:
-        return self.details.entity.ref
+        return self.details.entity.id
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.details, name)
@@ -155,15 +156,15 @@ class _PlannedRelationshipDetails:
 
     @property
     def semantic_id(self) -> str:
-        return self.details.ref.ref
+        return self.details.ref.id
 
     @property
     def from_entity(self) -> str:
-        return self.details.from_entity.ref
+        return self.details.from_entity.id
 
     @property
     def to_entity(self) -> str:
-        return self.details.to_entity.ref
+        return self.details.to_entity.id
 
     @property
     def from_keys(self) -> tuple[str, ...]:
@@ -191,7 +192,7 @@ class _MetricDetailsAdapter:
 
     @property
     def semantic_id(self) -> str:
-        return self.details.ref.ref
+        return self.details.ref.id
 
     @property
     def name(self) -> str:
@@ -199,11 +200,11 @@ class _MetricDetailsAdapter:
 
     @property
     def root_entity(self) -> str | None:
-        return self.details.root_entity.ref if self.details.root_entity is not None else None
+        return self.details.root_entity.id if self.details.root_entity is not None else None
 
     @property
     def entities(self) -> tuple[str, ...]:
-        return tuple(entity.ref for entity in self.details.entities)
+        return tuple(entity.id for entity in self.details.entities)
 
     @property
     def additivity(self) -> str | None:
@@ -224,7 +225,7 @@ class _MetricDetailsAdapter:
         return SimpleNamespace(
             kind=self.details.composition,
             components={
-                role: (ref.ref if hasattr(ref, "ref") else ref)
+                role: (ref.id if isinstance(ref, SemanticRef) else str(ref))
                 for role, ref in self.details.components
             },
             signs=(
@@ -249,7 +250,7 @@ class _MetricDetailsAdapter:
     @property
     def measure(self) -> str | None:
         if isinstance(self.details, SimpleMetricDetails):
-            return self.details.measure.ref if self.details.measure else None
+            return self.details.measure.id if self.details.measure else None
         return None
 
     @property
@@ -432,13 +433,13 @@ def _resolve_field_ref(
         scoped_dataset_ids
         if not allow_qualified_outside_scope and not allow_unqualified_outside_scope
         else {
-            obj.ref.ref
+            obj.ref.id
             for domain in catalog.list(kind=SemanticKind.DOMAIN)
             for obj in catalog.list(domain.ref, kind=SemanticKind.ENTITY)
         },
     )
     if "." in ref_id:
-        matches = [f for f in fields if f.ref.ref == ref_id]
+        matches = [f for f in fields if f.ref.id == ref_id]
         if matches and (
             allow_qualified_outside_scope or _entity_id(matches[0]) in scoped_dataset_ids
         ):
@@ -449,7 +450,7 @@ def _resolve_field_ref(
         if not matches and allow_unqualified_outside_scope:
             matches = [f for f in fields if f.name == ref_id]
     if not matches:
-        all_field_ids = sorted(f.ref.ref for f in fields)
+        all_field_ids = sorted(f.ref.id for f in fields)
         pool = all_field_ids if "." in ref_id else sorted({f.name for f in fields})
         suggestions = did_you_mean(ref_id, pool)
         repair_actions: list[RepairAction] = []
@@ -487,7 +488,7 @@ def _resolve_field_ref(
         raise_observe_planning_error(
             code="field-ref-ambiguous",
             message=f"Field reference {ref_id!r} is ambiguous in observe plan scope.",
-            candidates={"fields": sorted(f.ref.ref for f in matches)},
+            candidates={"fields": sorted(f.ref.id for f in matches)},
             repair=[],
         )
     return matches[0]
@@ -554,7 +555,7 @@ def resolve_observe_fields(
             raise_observe_planning_error(
                 code="field-ref-ambiguous",
                 message=f"Field reference {key!r} is ambiguous in observe plan scope.",
-                candidates={"fields": sorted(f.ref.ref for f in non_root_matches)},
+                candidates={"fields": sorted(f.ref.id for f in non_root_matches)},
                 repair=[],
             )
         raw_root_where_keys.append(key)
@@ -570,7 +571,7 @@ def resolve_observe_fields(
             raise_observe_planning_error(
                 code="non-root-time-dimension",
                 message="observe time_dimension must belong to the metric root entity.",
-                candidates={"root_entity": root, "field": resolved_time_dimension_details.ref.ref},
+                candidates={"root_entity": root, "field": resolved_time_dimension_details.ref.id},
                 repair=[],
             )
         resolved_time_dimension = _planned_field(resolved_time_dimension_details)
@@ -663,7 +664,7 @@ def _effective_key_semantic_ids(catalog: SemanticCatalog, dataset_id: str) -> fr
     if not col_names:
         return frozenset()
     all_dataset_fields = _fields_for_entity(catalog, dataset_id)
-    by_name = frozenset(f.ref.ref for f in all_dataset_fields if f.name in col_names)
+    by_name = frozenset(f.ref.id for f in all_dataset_fields if f.name in col_names)
     if len(by_name) == len(col_names):
         return by_name
     dataset = _entity(catalog, dataset_id)
@@ -683,7 +684,7 @@ def _effective_key_semantic_ids(catalog: SemanticCatalog, dataset_id: str) -> fr
         except Exception:
             continue
         if out_name in col_names:
-            result.add(field_detail.ref.ref)
+            result.add(field_detail.ref.id)
     return frozenset(result)
 
 
@@ -1038,7 +1039,7 @@ def _resolve_snapshot_as_of_root_time(
             repair=[],
         )
     target_tz = _resolved_target_timezone(snapshot_versioning)
-    time_field_fn = _field_fn(catalog, root_time_dimension.ref.ref)
+    time_field_fn = _field_fn(catalog, root_time_dimension.ref.id)
     time_field_expr = time_field_fn(root_table)
     anchor_dates = _discover_anchor_dates(
         root_table=root_table,
@@ -1189,7 +1190,7 @@ def _resolve_validity_as_of_predicate(
         )
     valid_from_local = validity_versioning.valid_from.rsplit(".", 1)[-1]
     valid_to_local = validity_versioning.valid_to.rsplit(".", 1)[-1]
-    anchor = _field_fn(catalog, root_time_dimension.ref.ref)(current_table).cast("date")
+    anchor = _field_fn(catalog, root_time_dimension.ref.id)(current_table).cast("date")
     valid_from = validity_table[valid_from_local]
     valid_to_raw = validity_table[valid_to_local]
     open_end = _validity_open_end_predicate(validity_table, validity_versioning)
@@ -1288,7 +1289,7 @@ def _aggregate_then_join_pre_aggregate(
         f for f in resolved_fields.where_fields.values() if _entity_id(f) == unsafe_dataset_id
     ]
     for f in other_fields:
-        field_id = f.ref.ref
+        field_id = f.ref.id
         if field_id not in seen_ids:
             grain_field_ids.append(field_id)
             seen_ids.add(field_id)
@@ -1567,7 +1568,7 @@ def plan_base_observe(
                     # mapping is non-None only in as_of_root_time mode, which
                     # requires root_time_dimension to be non-None.
                     assert root_time_dimension is not None
-                    anchor_expr = _field_fn(catalog, root_time_dimension.ref.ref)(
+                    anchor_expr = _field_fn(catalog, root_time_dimension.ref.id)(
                         widened_table
                     ).cast("date")
                     extra_predicates = [anchor_expr == next_table.anchor_date]

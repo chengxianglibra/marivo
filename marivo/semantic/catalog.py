@@ -23,6 +23,7 @@ from marivo.preview import (
     preview_ibis_value,
     validate_preview_limit,
 )
+from marivo.refs import SemanticRef
 from marivo.render import format_bounded_card, result_repr
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import DatasetSource
@@ -53,6 +54,7 @@ from marivo.semantic.ir import (
     composition_components,
 )
 from marivo.semantic.parity import propagated_parity_status
+from marivo.semantic.refs import as_ref_id, make_ref
 
 if TYPE_CHECKING:
     from marivo.semantic.dtos import VerifyResult
@@ -104,38 +106,6 @@ ValidityVersioning = ValidityVersioningIR
 EntityVersioning = EntityVersioningIR
 
 
-@dataclass(frozen=True)
-class SemanticRef:
-    """Stable semantic identifier that can be handed off to analysis APIs.
-
-    Args:
-        ref: Full semantic ref string such as ``"sales.revenue"``.
-        kind: Semantic kind of the object this ref identifies.
-
-    Returns:
-        SemanticRef whose ``str()`` representation is the plain ref string.
-
-    Example:
-        >>> r = SemanticRef(ref="sales.revenue", kind=SemanticKind.METRIC)
-        >>> str(r)
-        'sales.revenue'
-        >>> session.observe(metric=r)
-
-    Constraints:
-        Only full ref strings are accepted. Short names such as ``"revenue"``
-        are not valid SemanticRef values.
-    """
-
-    ref: str
-    kind: SemanticKind
-
-    def __str__(self) -> str:
-        return self.ref
-
-    def __repr__(self) -> str:
-        return f"SemanticRef({self.ref!r}, kind={str(self.kind)!r})"
-
-
 # ---------------------------------------------------------------------------
 # Kind-specific details
 # ---------------------------------------------------------------------------
@@ -163,13 +133,13 @@ def _source_location_text(source_location: SourceLocation) -> str:
 
 
 def _format_ref(ref: SemanticRef | None) -> str:
-    return ref.ref if ref is not None else "(none)"
+    return ref.id if ref is not None else "(none)"
 
 
 def _format_refs(refs: tuple[SemanticRef, ...], *, limit: int = 6) -> str:
     if not refs:
         return "(none)"
-    visible = [ref.ref for ref in refs[:limit]]
+    visible = [ref.id for ref in refs[:limit]]
     if len(refs) > limit:
         visible.append(f"... (+{len(refs) - limit} more)")
     return ", ".join(visible)
@@ -265,7 +235,7 @@ class _DetailsBase:
     python_symbol: str
 
     def _repr_identity(self) -> str:
-        return f"{self.__class__.__name__} ref={self.ref.ref}"
+        return f"{self.__class__.__name__} ref={self.ref.id}"
 
     def __repr__(self) -> str:
         return result_repr(self._repr_identity())
@@ -351,7 +321,7 @@ class EntityDetails(_DetailsBase):
         )
         extra.extend(
             (
-                f"datasource: {self.datasource.ref}",
+                f"datasource: {self.datasource.id}",
                 f"source: {_source_text(self.source)}",
                 f"primary_key: {_format_tuple_values(self.primary_key)}",
                 f"versioning: {_versioning_text(self.versioning)}",
@@ -379,7 +349,7 @@ class DimensionDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.append(f"entity: {self.entity.ref}")
+        extra.append(f"entity: {self.entity.id}")
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.context.business_definition,
@@ -404,7 +374,7 @@ class MeasureDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.extend((f"entity: {self.entity.ref}", f"additivity: {self.additivity}"))
+        extra.extend((f"entity: {self.entity.id}", f"additivity: {self.additivity}"))
         if self.unit:
             extra.append(f"unit: {self.unit}")
         return _render_details_card(
@@ -439,7 +409,7 @@ class TimeDimensionDetails(_DetailsBase):
         parse_kind_display = self.parse_kind or "(inferred)"
         extra.extend(
             (
-                f"entity: {self.entity.ref}",
+                f"entity: {self.entity.id}",
                 f"parse_kind: {parse_kind_display}",
                 f"granularity: {self.granularity}",
                 f"format: {self.format!r}",
@@ -536,7 +506,7 @@ class SimpleMetricDetails(_DetailsBase):
         if self.aggregation is not None:
             extra.append(f"aggregation: {self.aggregation}")
         if self.measure is not None:
-            extra.append(f"measure: {self.measure.ref}")
+            extra.append(f"measure: {self.measure.id}")
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.context.business_definition,
@@ -597,7 +567,7 @@ class DerivedMetricDetails(_DetailsBase):
         extra.append(f"composition: {self.composition}")
         if self.components:
             extra.append(
-                "components: " + ", ".join(f"{role}={ref.ref}" for role, ref in self.components)
+                "components: " + ", ".join(f"{role}={ref.id}" for role, ref in self.components)
             )
         if self.linear_terms:
             extra.append(
@@ -642,8 +612,8 @@ class RelationshipDetails(_DetailsBase):
         )
         extra.extend(
             (
-                f"from: {self.from_entity.ref}",
-                f"to: {self.to_entity.ref}",
+                f"from: {self.from_entity.id}",
+                f"to: {self.to_entity.id}",
                 "join_keys: "
                 + ", ".join(
                     f"{left}={right}"
@@ -688,7 +658,7 @@ class SemanticObject:
 
     Example:
         >>> revenue = catalog.get("sales.revenue")
-        >>> revenue.ref           # SemanticRef("sales.revenue", kind="metric")
+        >>> revenue.ref           # make_ref("sales.revenue", "metric")
         >>> revenue.description   # "Gross revenue."
         >>> revenue.context.business_definition
         >>> revenue.details().additivity
@@ -750,7 +720,7 @@ class SemanticObject:
         return self._details
 
     def _repr_identity(self) -> str:
-        return f"SemanticObject kind={self.kind} ref={self.ref.ref}"
+        return f"SemanticObject kind={self.kind} ref={self.ref.id}"
 
     def render(self) -> str:
         """Return a bounded plain-text object card without a trailing newline."""
@@ -811,7 +781,7 @@ class SemanticObjectList:
 
     def ids(self) -> list[str]:
         """Return plain-string refs for every object in this list."""
-        return [obj.ref.ref for obj in self._items]
+        return [obj.ref.id for obj in self._items]
 
     def __len__(self) -> int:
         return len(self._items)
@@ -839,13 +809,13 @@ class SemanticObjectList:
 
         for obj in self._items:
             kind_str = str(obj.kind)
-            ref_str = obj.ref.ref
+            ref_str = obj.ref.id
             lines.append(f"  {kind_str:<12}{ref_str}")
 
         lines.append("")
         lines.append("next steps:")
         if self._items:
-            first_ref = self._items[0].ref.ref
+            first_ref = self._items[0].ref.id
             lines.append(
                 f"  catalog.get({first_ref!r}){'': <4}# retrieve a SemanticObject by full ref"
             )
@@ -886,7 +856,7 @@ _BROWSABLE_PARENT_KINDS: frozenset[str] = frozenset(
 
 
 def _to_ref_str(ref: SemanticRefInput) -> str:
-    return str(ref)  # works for both str and SemanticRef
+    return as_ref_id(ref)
 
 
 def _validate_kind(kind_input: SemanticKindInput) -> SemanticKind:
@@ -906,9 +876,9 @@ def _normalize_location(loc: SourceLocation | DatasourceSourceLocation) -> Sourc
 
 
 def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObject:
-    ref = SemanticRef(ref=ds_ir.semantic_id, kind=SemanticKind.DATASOURCE)
+    ref = make_ref(ds_ir.semantic_id, SemanticKind.DATASOURCE)
     dependents = tuple(
-        SemanticRef(ref=d.semantic_id, kind=SemanticKind.ENTITY)
+        make_ref(d.semantic_id, SemanticKind.ENTITY)
         for d in reg.entities.values()
         if d.datasource == ds_ir.semantic_id
     )
@@ -940,14 +910,14 @@ def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObje
 
 
 def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
-    ref = SemanticRef(ref=model_ir.name, kind=SemanticKind.DOMAIN)
+    ref = make_ref(model_ir.name, SemanticKind.DOMAIN)
     datasets_refs = tuple(
-        SemanticRef(ref=d.semantic_id, kind=SemanticKind.ENTITY)
+        make_ref(d.semantic_id, SemanticKind.ENTITY)
         for d in reg.entities.values()
         if d.domain == model_ir.name
     )
     metrics_refs = tuple(
-        SemanticRef(ref=m.semantic_id, kind=SemanticKind.METRIC)
+        make_ref(m.semantic_id, SemanticKind.METRIC)
         for m in reg.metrics.values()
         if m.domain == model_ir.name
     )
@@ -978,34 +948,34 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
 
 
 def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
-    ref = SemanticRef(ref=ds_ir.semantic_id, kind=SemanticKind.ENTITY)
-    ds_ref = SemanticRef(ref=ds_ir.datasource, kind=SemanticKind.DATASOURCE)
+    ref = make_ref(ds_ir.semantic_id, SemanticKind.ENTITY)
+    ds_ref = make_ref(ds_ir.datasource, SemanticKind.DATASOURCE)
     fields_refs = tuple(
-        SemanticRef(
-            ref=f.semantic_id,
-            kind=SemanticKind.TIME_DIMENSION if f.is_time_dimension else SemanticKind.DIMENSION,
+        make_ref(
+            f.semantic_id,
+            SemanticKind.TIME_DIMENSION if f.is_time_dimension else SemanticKind.DIMENSION,
         )
         for f in reg.dimensions.values()
         if f.entity == ds_ir.semantic_id
     )
     measure_refs = tuple(
-        SemanticRef(ref=m.semantic_id, kind=SemanticKind.MEASURE)
+        make_ref(m.semantic_id, SemanticKind.MEASURE)
         for m in reg.measures.values()
         if m.entity == ds_ir.semantic_id
     )
     rels_refs = tuple(
-        SemanticRef(ref=r.semantic_id, kind=SemanticKind.RELATIONSHIP)
+        make_ref(r.semantic_id, SemanticKind.RELATIONSHIP)
         for r in reg.relationships.values()
         if r.from_entity == ds_ir.semantic_id or r.to_entity == ds_ir.semantic_id
     )
     metric_refs = tuple(
-        SemanticRef(ref=m.semantic_id, kind=SemanticKind.METRIC)
+        make_ref(m.semantic_id, SemanticKind.METRIC)
         for m in reg.metrics.values()
         if ds_ir.semantic_id in m.entities
     )
     children = fields_refs + measure_refs + metric_refs + rels_refs
     metric_dependents = tuple(
-        SemanticRef(ref=m.semantic_id, kind=SemanticKind.METRIC)
+        make_ref(m.semantic_id, SemanticKind.METRIC)
         for m in reg.metrics.values()
         if ds_ir.semantic_id in m.entities
     )
@@ -1066,8 +1036,8 @@ def _preview_timezones_for_field(
 def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
     is_time = f_ir.is_time_dimension
     kind = SemanticKind.TIME_DIMENSION if is_time else SemanticKind.DIMENSION
-    ref = SemanticRef(ref=f_ir.semantic_id, kind=kind)
-    ds_ref = SemanticRef(ref=f_ir.entity, kind=SemanticKind.ENTITY)
+    ref = make_ref(f_ir.semantic_id, kind)
+    ds_ref = make_ref(f_ir.entity, SemanticKind.ENTITY)
     if is_time:
         # Extract time-dimension metadata from the parse variant
         parse = f_ir.parse
@@ -1149,10 +1119,10 @@ def _build_dimension_object(f_ir: DimensionIR, reg: Registry) -> SemanticObject:
 
 
 def _build_measure_object(m_ir: MeasureIR, reg: Registry) -> SemanticObject:
-    ref = SemanticRef(ref=m_ir.semantic_id, kind=SemanticKind.MEASURE)
-    entity_ref = SemanticRef(ref=m_ir.entity, kind=SemanticKind.ENTITY)
+    ref = make_ref(m_ir.semantic_id, SemanticKind.MEASURE)
+    entity_ref = make_ref(m_ir.entity, SemanticKind.ENTITY)
     dependents = tuple(
-        SemanticRef(ref=metric.semantic_id, kind=SemanticKind.METRIC)
+        make_ref(metric.semantic_id, SemanticKind.METRIC)
         for metric in reg.metrics.values()
         if metric.measure == m_ir.semantic_id
     )
@@ -1192,15 +1162,12 @@ def _format_agg(agg: object) -> str | None:
 
 
 def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject) -> SemanticObject:
-    ref = SemanticRef(ref=m_ir.semantic_id, kind=SemanticKind.METRIC)
-    entity_refs = tuple(SemanticRef(ref=ds, kind=SemanticKind.ENTITY) for ds in m_ir.entities)
-    root_entity_ref = (
-        SemanticRef(ref=m_ir.root_entity, kind=SemanticKind.ENTITY) if m_ir.root_entity else None
-    )
+    ref = make_ref(m_ir.semantic_id, SemanticKind.METRIC)
+    entity_refs = tuple(make_ref(ds, SemanticKind.ENTITY) for ds in m_ir.entities)
+    root_entity_ref = make_ref(m_ir.root_entity, SemanticKind.ENTITY) if m_ir.root_entity else None
     comp_map = composition_components(m_ir.composition) if m_ir.composition is not None else {}
     components = tuple(
-        (role, SemanticRef(ref=comp_ref, kind=SemanticKind.METRIC))
-        for role, comp_ref in comp_map.items()
+        (role, make_ref(comp_ref, SemanticKind.METRIC)) for role, comp_ref in comp_map.items()
     )
     component_refs = tuple(r for _, r in components)
     linear_terms = (
@@ -1211,7 +1178,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
     required_rels: tuple[SemanticRef, ...] = ()
     if len(m_ir.entities) > 1:
         required_rels = tuple(
-            SemanticRef(ref=r.semantic_id, kind=SemanticKind.RELATIONSHIP)
+            make_ref(r.semantic_id, SemanticKind.RELATIONSHIP)
             for r in reg.relationships.values()
             if r.domain == m_ir.domain
             and r.from_entity in m_ir.entities
@@ -1219,7 +1186,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         )
     parents = entity_refs + component_refs + required_rels
     dependents = tuple(
-        SemanticRef(ref=m2.semantic_id, kind=SemanticKind.METRIC)
+        make_ref(m2.semantic_id, SemanticKind.METRIC)
         for m2 in reg.metrics.values()
         if m2.composition is not None
         and m_ir.semantic_id in composition_components(m2.composition).values()
@@ -1270,9 +1237,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
             entities=entity_refs,
             root_entity=root_entity_ref,
             aggregation=_format_agg(m_ir.aggregation),
-            measure=SemanticRef(ref=m_ir.measure, kind=SemanticKind.MEASURE)
-            if m_ir.measure
-            else None,
+            measure=make_ref(m_ir.measure, SemanticKind.MEASURE) if m_ir.measure else None,
             additivity=additivity_bucket(add) if add is not None else "non_additive",
             fold=add.fold.label() if isinstance(add, SemiAdditive) else None,
             status_time_dimension=add.over if isinstance(add, SemiAdditive) else None,
@@ -1294,9 +1259,9 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
 
 
 def _build_relationship_object(r_ir: RelationshipIR, reg: Registry) -> SemanticObject:
-    ref = SemanticRef(ref=r_ir.semantic_id, kind=SemanticKind.RELATIONSHIP)
-    from_ref = SemanticRef(ref=r_ir.from_entity, kind=SemanticKind.ENTITY)
-    to_ref = SemanticRef(ref=r_ir.to_entity, kind=SemanticKind.ENTITY)
+    ref = make_ref(r_ir.semantic_id, SemanticKind.RELATIONSHIP)
+    from_ref = make_ref(r_ir.from_entity, SemanticKind.ENTITY)
+    to_ref = make_ref(r_ir.to_entity, SemanticKind.ENTITY)
     details = RelationshipDetails(
         ref=ref,
         kind=SemanticKind.RELATIONSHIP,
@@ -1854,7 +1819,7 @@ class SemanticCatalog:
                     refs=(ref_str,),
                 )
             preview_limit = validate_preview_limit(limit)
-            table = resolver.table(SemanticRef(ref_str, kind=SemanticKind.ENTITY))
+            table = resolver.table(make_ref(ref_str, SemanticKind.ENTITY))
             report_tz = system_timezone_name()
             return preview_ibis_table(
                 table,
@@ -1875,8 +1840,8 @@ class SemanticCatalog:
                 )
             preview_limit = validate_preview_limit(limit)
             measure_ir = reg.measures[ref_str]
-            parent_table = resolver.table(SemanticRef(measure_ir.entity, kind=SemanticKind.ENTITY))
-            measure_value = resolver.measure(SemanticRef(ref_str, kind=SemanticKind.MEASURE))
+            parent_table = resolver.table(make_ref(measure_ir.entity, SemanticKind.ENTITY))
+            measure_value = resolver.measure(make_ref(ref_str, SemanticKind.MEASURE))
             measure_column_name = ref_str.rsplit(".", 1)[-1]
             preview_table = parent_table.select(measure_value.name(measure_column_name))
             report_tz = system_timezone_name()
@@ -1892,8 +1857,8 @@ class SemanticCatalog:
         if kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
             preview_limit = validate_preview_limit(limit)
             field_ir = reg.dimensions[ref_str]
-            parent_table = resolver.table(SemanticRef(field_ir.entity, kind=SemanticKind.ENTITY))
-            field_value = resolver.dimension(SemanticRef(ref_str, kind=kind))
+            parent_table = resolver.table(make_ref(field_ir.entity, SemanticKind.ENTITY))
+            field_value = resolver.dimension(make_ref(ref_str, kind))
             field_column_name = ref_str.rsplit(".", 1)[-1]
             report_tz = system_timezone_name()
             datasource_timezone = None
@@ -1947,7 +1912,7 @@ class SemanticCatalog:
                     refs=(ref_str,),
                 )
             preview_limit = validate_preview_limit(limit)
-            metric_value = resolver.metric(SemanticRef(ref_str, kind=SemanticKind.METRIC))
+            metric_value = resolver.metric(make_ref(ref_str, SemanticKind.METRIC))
             result = preview_ibis_value(
                 metric_value,
                 kind="semantic_metric",

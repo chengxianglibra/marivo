@@ -44,6 +44,18 @@ def make_metric_frame(
 
     ensure_session_can_execute(session)
     resolved_window = normalize_absolute_window_input(window)
+
+    # Normalize the value column to the canonical "value" name.  Callers may
+    # pass a DataFrame whose value column matches the metric name (legacy
+    # convention); rename it so the frame matches production observe() output.
+    df = df.copy()
+    measure_name = measure.get("name") or measure.get("column")
+    if measure_name and str(measure_name) in df.columns and "value" not in df.columns:
+        df = df.rename(columns={str(measure_name): "value"})
+    # Ensure measure always has a "name" key for downstream discovery.
+    if "name" not in measure and measure_name:
+        measure = {**measure, "name": str(measure_name)}
+
     frame_ref = f"frame_{secrets.token_hex(4)}"
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -73,7 +85,7 @@ def make_metric_frame(
         semantic_kind=semantic_kind,
         semantic_model=semantic_model,
     )
-    frame = MetricFrame(_df=df.copy(), meta=meta)
+    frame = MetricFrame(_df=df, meta=meta)
     frame.meta = persist_frame(session, frame)
     return frame
 

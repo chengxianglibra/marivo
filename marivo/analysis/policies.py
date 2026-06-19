@@ -75,10 +75,10 @@ def _semantic_anchor_id(value: SemanticAnchorInput | None, *, field_name: str) -
         return None
     if isinstance(value, SemanticObject):
         _validate_anchor_kind(value, field_name=field_name, kind=value.kind)
-        return value.ref.ref
+        return value.ref.id
     if isinstance(value, SemanticRef):
         _validate_anchor_kind(value, field_name=field_name, kind=value.kind)
-        return value.ref
+        return value.id
     if isinstance(value, Mapping):
         raise ValueError(
             f"expected str, SemanticRef, or SemanticObject, got {type(value).__name__}"

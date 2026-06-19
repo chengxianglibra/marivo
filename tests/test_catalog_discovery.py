@@ -27,6 +27,7 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import ParityStatus, SourceLocation
+from marivo.semantic.refs import make_ref
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,7 +88,7 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
 
 
 def _make_ref(r: str, kind: SemanticKind) -> SemanticRef:
-    return SemanticRef(ref=r, kind=kind)
+    return make_ref(r, kind)
 
 
 def _make_ctx():
@@ -128,14 +129,14 @@ def test_discovery_list_kind_metric_returns_metrics(semantic_project_factory):
 def test_discovery_list_kind_metric_includes_revenue(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.list(kind="metric")
-    refs = {obj.ref.ref for obj in result.objects}
+    refs = {obj.ref.id for obj in result.objects}
     assert "sales.revenue" in refs
 
 
 def test_discovery_list_kind_metric_cross_domain(semantic_project_factory):
     catalog = _make_multi_domain_catalog(semantic_project_factory)
     result = catalog.list(kind="metric")
-    refs = {obj.ref.ref for obj in result.objects}
+    refs = {obj.ref.id for obj in result.objects}
     assert "sales.revenue" in refs
     assert "ops.event_count" in refs
 
@@ -223,20 +224,20 @@ def test_discovery_domain_filter_with_kind_metric(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.list(domain="sales", kind="metric")
     assert all(str(obj.kind) == "metric" for obj in result.objects)
-    assert any(obj.ref.ref == "sales.revenue" for obj in result.objects)
+    assert any(obj.ref.id == "sales.revenue" for obj in result.objects)
 
 
 def test_discovery_domain_filter_with_kind_entity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.list(domain="sales", kind="entity")
     assert all(str(obj.kind) == "entity" for obj in result.objects)
-    assert any(obj.ref.ref == "sales.orders" for obj in result.objects)
+    assert any(obj.ref.id == "sales.orders" for obj in result.objects)
 
 
 def test_discovery_domain_filter_multi_domain_scopes_correctly(semantic_project_factory):
     catalog = _make_multi_domain_catalog(semantic_project_factory)
     result = catalog.list(domain="ops", kind="metric")
-    refs = {obj.ref.ref for obj in result.objects}
+    refs = {obj.ref.id for obj in result.objects}
     assert "ops.event_count" in refs
     assert "sales.revenue" not in refs
 
@@ -498,7 +499,7 @@ def test_discovery_domain_object_children_returns_refs(semantic_project_factory)
     domain_obj = catalog.get("sales")
     children = domain_obj.children
     assert isinstance(children, tuple)
-    child_refs = {r.ref for r in children}
+    child_refs = {r.id for r in children}
     assert "sales.orders" in child_refs
     assert "sales.revenue" in child_refs
 
@@ -508,7 +509,7 @@ def test_discovery_entity_object_children_returns_field_refs(semantic_project_fa
     entity_obj = catalog.get("sales.orders")
     children = entity_obj.children
     assert isinstance(children, tuple)
-    child_refs = {r.ref for r in children}
+    child_refs = {r.id for r in children}
     assert "sales.orders.region" in child_refs or "sales.orders.created_at" in child_refs
 
 

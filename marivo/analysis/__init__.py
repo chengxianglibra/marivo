@@ -49,7 +49,9 @@ from marivo.analysis.windows.spec import (
     TimeScope,
     TimeScopeInput,
 )
-from marivo.semantic.catalog import SemanticObject, SemanticRef
+from marivo.refs import SemanticRef
+from marivo.semantic.catalog import SemanticObject
+from marivo.semantic.refs import make_ref
 
 
 def __getattr__(name: str) -> _Any:
@@ -65,6 +67,10 @@ def __getattr__(name: str) -> _Any:
         from importlib import import_module
 
         return import_module("marivo.analysis.publish")
+    if name == "SemanticKind":
+        from marivo.semantic.catalog import SemanticKind
+
+        return SemanticKind
     raise AttributeError(name)
 
 
@@ -118,6 +124,7 @@ __all__ = [
     "frames",
     "help",
     "help_text",
+    "make_ref",
     "publish",
     "session",
 ]

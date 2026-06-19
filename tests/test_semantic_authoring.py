@@ -25,14 +25,16 @@ from marivo.semantic.ir import (
     AiContextIR,
     DimensionIR,
     DimensionKind,
+    MetricIR,
+)
+from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+from marivo.semantic.refs import (
     DimensionRef,
     EntityRef,
-    MetricIR,
     MetricRef,
     RelationshipRef,
     TimeDimensionRef,
 )
-from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -171,7 +173,7 @@ def test_model_returns_model_ref() -> None:
     try:
         ref = ms.domain(name="sales", default=True)
         assert isinstance(ref, ms.DomainRef)
-        assert ref.semantic_id == "sales"
+        assert ref.id == "sales"
     finally:
         _exit_ctx()
 
@@ -190,7 +192,7 @@ def test_field_accepts_model_ref() -> None:
         def region(table):
             return table.region
 
-        assert region.semantic_id == "sales.orders.region"
+        assert region.id == "sales.orders.region"
     finally:
         _exit_ctx()
 
@@ -206,7 +208,7 @@ def test_dataset_returns_ref() -> None:
         orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
 
         assert isinstance(orders, EntityRef)
-        assert orders.semantic_id == "sales.orders"
+        assert orders.id == "sales.orders"
     finally:
         _exit_ctx()
 
@@ -230,7 +232,7 @@ def test_dataset_explicit_name() -> None:
         )
 
         assert isinstance(_orders_impl, EntityRef)
-        assert _orders_impl.semantic_id == "sales.orders_tbl"
+        assert _orders_impl.id == "sales.orders_tbl"
     finally:
         _exit_ctx()
 
@@ -240,7 +242,7 @@ def test_dataset_pushes_ir_without_callable() -> None:
     try:
         ref = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
         ir, callable_ = ctx.pending_objects[-1]
-        assert ref.semantic_id == "sales.orders"
+        assert ref.id == "sales.orders"
         assert ir.semantic_id == "sales.orders"
         assert ir.domain == "sales"
         assert ir.name == "orders"
@@ -387,7 +389,7 @@ def test_field_returns_ref() -> None:
             return None  # type: ignore[unreachable]
 
         assert isinstance(amount, DimensionRef)
-        assert amount.semantic_id == "sales.orders.amount"
+        assert amount.id == "sales.orders.amount"
     finally:
         _exit_ctx()
 
@@ -513,7 +515,7 @@ def test_time_field_returns_ref() -> None:
             return None  # type: ignore[unreachable]
 
         assert isinstance(order_date, TimeDimensionRef)
-        assert order_date.semantic_id == "sales.orders.order_date"
+        assert order_date.id == "sales.orders.order_date"
     finally:
         _exit_ctx()
 
@@ -1006,7 +1008,7 @@ def test_metric_returns_ref() -> None:
             return None  # type: ignore[unreachable]
 
         assert isinstance(revenue, MetricRef)
-        assert revenue.semantic_id == "sales.revenue"
+        assert revenue.id == "sales.revenue"
     finally:
         _exit_ctx()
 
@@ -1125,7 +1127,7 @@ def test_aggregate_returns_ref() -> None:
     try:
         ref = ms.aggregate(name="amount", measure="sales.orders.amount", agg="sum")
         assert isinstance(ref, MetricRef)
-        assert ref.semantic_id == "sales.amount"
+        assert ref.id == "sales.amount"
     finally:
         _exit_ctx()
 
@@ -1149,7 +1151,7 @@ def test_aggregate_infers_name_from_measure() -> None:
     _enter_ctx(default_domain="sales")
     try:
         ref = ms.aggregate(name="amount", measure="sales.orders.amount", agg="sum")
-        assert ref.semantic_id == "sales.amount"
+        assert ref.id == "sales.amount"
     finally:
         _exit_ctx()
 
@@ -1158,7 +1160,7 @@ def test_aggregate_explicit_name() -> None:
     _enter_ctx(default_domain="sales")
     try:
         ref = ms.aggregate(name="revenue", measure="sales.orders.amount", agg="sum")
-        assert ref.semantic_id == "sales.revenue"
+        assert ref.id == "sales.revenue"
     finally:
         _exit_ctx()
 
@@ -1178,7 +1180,7 @@ def test_ratio_returns_ref_and_pushes_body_free_ir() -> None:
         )
 
         assert isinstance(ref, MetricRef)
-        assert ref.semantic_id == "sales.margin"
+        assert ref.id == "sales.margin"
         ir, sidecar_entry = ctx.pending_objects[-1]
         assert sidecar_entry is None
         assert ir.semantic_id == "sales.margin"
@@ -1222,7 +1224,7 @@ def test_linear_returns_ref_and_pushes_ir() -> None:
             subtract=["sales.refunds"],
         )
         assert isinstance(ref, MetricRef)
-        assert ref.semantic_id == "sales.net_revenue"
+        assert ref.id == "sales.net_revenue"
         ir, _ = ctx.pending_objects[-1]
         assert ir.metric_type == "derived"
         assert ir.composition is not None
@@ -1288,7 +1290,7 @@ def test_relationship_returns_ref() -> None:
             keys=[ms.join_on("sales.orders.id", "sales.items.order_id")],
         )
         assert isinstance(rel, RelationshipRef)
-        assert rel.semantic_id == "sales.orders_to_items"
+        assert rel.id == "sales.orders_to_items"
     finally:
         _exit_ctx()
 
@@ -1393,7 +1395,7 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
             datasource="warehouse",
             source=ms.table("dau_7d_portrait"),
         )
-        assert ds.semantic_id == "sales.dau_7d_portrait"
+        assert ds.id == "sales.dau_7d_portrait"
 
         @ms.metric(
             entities=[ds],
@@ -1403,7 +1405,7 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
         def dau_7d_portrait(table):
             return table.dau.sum()
 
-        assert dau_7d_portrait.semantic_id == "sales.dau_7d_portrait"
+        assert dau_7d_portrait.id == "sales.dau_7d_portrait"
     finally:
         _exit_ctx()
 
@@ -1649,8 +1651,8 @@ def test_two_datasets_same_column_name_distinct_ids() -> None:
         def portrait_region(table):
             return table.region
 
-        assert orders_region.semantic_id == "sales.orders.region"
-        assert portrait_region.semantic_id == "sales.portrait.region"
+        assert orders_region.id == "sales.orders.region"
+        assert portrait_region.id == "sales.portrait.region"
     finally:
         _exit_ctx()
 

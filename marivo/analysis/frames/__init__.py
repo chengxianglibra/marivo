@@ -9,11 +9,7 @@ from marivo.analysis.frames.coverage import CoverageFrame, CoverageFrameMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.exploration import ExplorationResult, ExplorationResultMeta
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
-from marivo.analysis.frames.hypothesis import (
-    HypothesisTestResult,
-    HypothesisTestResultMeta,
-    HypothesisTestResultSummary,
-)
+from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import (
     CheckResult,
@@ -45,7 +41,6 @@ __all__ = [
     "FramePreview",
     "HypothesisTestResult",
     "HypothesisTestResultMeta",
-    "HypothesisTestResultSummary",
     "MetricFrame",
     "MetricFrameMeta",
     "QualityReport",

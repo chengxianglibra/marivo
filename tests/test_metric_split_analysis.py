@@ -16,6 +16,7 @@ from marivo.semantic.catalog import (
     SimpleMetricDetails,
 )
 from marivo.semantic.ir import ParityStatus, SourceLocation
+from marivo.semantic.refs import make_ref
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -23,7 +24,7 @@ from marivo.semantic.ir import ParityStatus, SourceLocation
 
 
 def _make_ref(ref: str, kind: SemanticKind = SemanticKind.METRIC) -> SemanticRef:
-    return SemanticRef(ref=ref, kind=kind)
+    return make_ref(ref, kind)
 
 
 def _make_ctx() -> AiContextView:
@@ -54,12 +55,12 @@ def metric_details_factory(
     """Build a MetricDetails variant with sensible defaults for analysis-layer tests."""
     ref = overrides.pop("ref", None) or _make_ref("test.metric")
     comp_refs = tuple(
-        (role, SemanticRef(ref=comp_id, kind=SemanticKind.METRIC)) for role, comp_id in components
+        (role, make_ref(comp_id, SemanticKind.METRIC)) for role, comp_id in components
     )
     common_kwargs = {
         "ref": ref,
         "kind": SemanticKind.METRIC,
-        "name": overrides.pop("name", ref.ref.rsplit(".", 1)[-1]),
+        "name": overrides.pop("name", ref.id.rsplit(".", 1)[-1]),
         "domain": overrides.pop("domain", "test"),
         "context": overrides.pop("context", _make_ctx()),
         "source_location": overrides.pop("source_location", _make_loc()),
@@ -75,7 +76,7 @@ def metric_details_factory(
         "unit": overrides.pop("unit", None),
         "provenance": overrides.pop("provenance", None),
         "parity_status": overrides.pop("parity_status", ParityStatus.UNVERIFIED),
-        "python_symbol": overrides.pop("python_symbol", ref.ref.rsplit(".", 1)[-1]),
+        "python_symbol": overrides.pop("python_symbol", ref.id.rsplit(".", 1)[-1]),
     }
 
     # Pop variant-specific overrides before updating common_kwargs so they

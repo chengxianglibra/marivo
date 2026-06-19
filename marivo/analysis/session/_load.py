@@ -97,6 +97,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     if kind not in _FRAME_CLASSES:
         raise FrameRefNotFound(message=f"unknown frame kind '{kind}' for ref '{ref}'")
     _coerce_metric_window_meta(meta, frame_ref=ref)
+    # Backward compat: frames persisted before the value-column rename used the
+    # metric name (e.g. "revenue") as the DataFrame value column.  Rename it to
+    # the canonical "value" so downstream consumers always see a uniform schema.
+    if kind == "metric_frame":
+        measure_name = (
+            meta.get("measure", {}).get("name") if isinstance(meta.get("measure"), dict) else None
+        )
+        if measure_name and str(measure_name) in df.columns and "value" not in df.columns:
+            df = df.rename(columns={str(measure_name): "value"})
     frame_cls, meta_cls = _FRAME_CLASSES[kind]
     return cast("BaseFrame", frame_cls(_df=df, meta=meta_cls(**meta)))
 

@@ -6,7 +6,8 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import GrainUnsupportedError
 from marivo.analysis.intents.observe import observe
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +59,7 @@ def test_observe_five_minute_grain(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     frame = observe(
-        SemanticRef("ops.hits", kind=SemanticKind.METRIC),
+        make_ref("ops.hits", SemanticKind.METRIC),
         timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
         grain=(5, "minute"),
         session=s,
@@ -67,7 +68,7 @@ def test_observe_five_minute_grain(tmp_path):
     assert frame.meta.semantic_kind == "time_series"
     assert frame.meta.axes["time"]["grain"] == "5minute"
     df = frame.to_pandas()
-    mapping = {str(b): v for b, v in zip(df["bucket_start"], df["hits"], strict=True)}
+    mapping = {str(b): v for b, v in zip(df["bucket_start"], df["value"], strict=True)}
     assert mapping["2026-06-03 00:05:00"] == 1.0
     assert mapping["2026-06-03 00:10:00"] == 2.0
     assert mapping["2026-06-03 00:15:00"] == 4.0
@@ -81,7 +82,7 @@ def test_observe_grain_finer_than_base_rejected(tmp_path):
 
     with pytest.raises(GrainUnsupportedError):
         observe(
-            SemanticRef("ops.hits", kind=SemanticKind.METRIC),
+            make_ref("ops.hits", SemanticKind.METRIC),
             timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
             grain=(30, "second"),
             session=s,
@@ -97,7 +98,7 @@ def test_resolved_window_and_promotion_store_grain_token(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
 
     observe(
-        SemanticRef("ops.hits", kind=SemanticKind.METRIC),
+        make_ref("ops.hits", SemanticKind.METRIC),
         timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
         grain=(5, "minute"),
         session=s,

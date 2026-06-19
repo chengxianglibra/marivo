@@ -110,7 +110,8 @@ def parity_check(
 
     Returns ParityResult on success or value mismatch.
     """
-    from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticRef
+    from marivo.semantic.catalog import SemanticCatalog, SemanticKind
+    from marivo.semantic.refs import make_ref
 
     catalog = project if isinstance(project, SemanticCatalog) else SemanticCatalog(project)
     cache_project = catalog._project
@@ -187,7 +188,7 @@ def parity_check(
     # Execute the ibis metric -> single scalar
     try:
         resolver = catalog._resolver()
-        metric_expr = resolver.metric(SemanticRef(metric_id, kind=SemanticKind.METRIC))
+        metric_expr = resolver.metric(make_ref(metric_id, SemanticKind.METRIC))
         actual_result = metric_expr.to_pandas()
         actual_val = _extract_scalar(actual_result, metric_id, "Metric")
     except SemanticParityError:

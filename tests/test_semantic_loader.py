@@ -18,9 +18,10 @@ import textwrap
 
 import pytest
 
-from marivo.semantic.catalog import EntityDetails, SemanticCatalog, SemanticKind, SemanticRef
+from marivo.semantic.catalog import EntityDetails, SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.reader import SemanticProject
+from marivo.semantic.refs import make_ref
 
 # ---------------------------------------------------------------------------
 # Minimal model files
@@ -88,13 +89,13 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     assert project.is_ready()
     catalog = SemanticCatalog(project)
     datasources = catalog.list(kind="datasource").objects
-    assert [ds.ref.ref for ds in datasources] == ["warehouse"]
+    assert [ds.ref.id for ds in datasources] == ["warehouse"]
     orders = catalog.get("sales.orders").details()
     refunds = catalog.get("finance.refunds").details()
     assert isinstance(orders, EntityDetails)
     assert isinstance(refunds, EntityDetails)
-    assert orders.datasource.ref == "warehouse"
-    assert refunds.datasource.ref == "warehouse"
+    assert orders.datasource.id == "warehouse"
+    assert refunds.datasource.id == "warehouse"
 
 
 def test_duplicate_global_datasource_declaration_must_match(semantic_project_factory) -> None:
@@ -887,11 +888,9 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     with patch.object(project, "_connection_service", return_value=fake_service):
         catalog = SemanticCatalog(project)
         resolver = catalog._resolver()
-        table = resolver.table(SemanticRef("sales.orders", kind=SemanticKind.ENTITY))
+        table = resolver.table(make_ref("sales.orders", SemanticKind.ENTITY))
 
-        field_expr = resolver.dimension(
-            SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION)
-        )
+        field_expr = resolver.dimension(make_ref("sales.orders.region", SemanticKind.DIMENSION))
     assert field_expr is not None
 
 
@@ -1077,7 +1076,7 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
         result = (
             SemanticCatalog(project)
             ._resolver()
-            .table(SemanticRef("sales.orders", kind=SemanticKind.ENTITY))
+            .table(make_ref("sales.orders", SemanticKind.ENTITY))
         )
     assert isinstance(result, ibis.expr.types.Table)
     assert backend.calls == ["orders"]
@@ -1139,7 +1138,7 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
         result = (
             SemanticCatalog(project)
             ._resolver()
-            .table(SemanticRef("sales.orders", kind=SemanticKind.ENTITY))
+            .table(make_ref("sales.orders", SemanticKind.ENTITY))
         )
     assert isinstance(result, ibis.expr.types.Table)
 

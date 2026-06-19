@@ -7,8 +7,10 @@ from typing import NoReturn
 
 from marivo.analysis.errors import MetricNotFoundError, SemanticKindMismatchError
 from marivo.analysis.intents._types import SliceValue
-from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticObject, SemanticRef
+from marivo.refs import SemanticRef
+from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticObject
 from marivo.semantic.errors import SemanticRuntimeError
+from marivo.semantic.refs import make_ref
 
 SemanticInput = SemanticObject | SemanticRef
 MetricInput = SemanticInput
@@ -35,9 +37,9 @@ def _available_dimension_ids(catalog: SemanticCatalog) -> list[str]:
 
 def _ref_and_kind(value: object) -> tuple[str, SemanticKind | None, str]:
     if isinstance(value, SemanticObject):
-        return value.ref.ref, value.kind, str(value.kind)
+        return value.ref.id, value.kind, str(value.kind)
     if isinstance(value, SemanticRef):
-        return value.ref, value.kind, str(value.kind)
+        return value.id, value.kind, str(value.kind)
     return str(value), None, type(value).__name__
 
 
@@ -127,7 +129,7 @@ def normalize_dimension_input(
             if len(candidates) == 1:
                 return normalize_dimension_input(
                     catalog,
-                    SemanticRef(candidates[0], kind=kind),
+                    make_ref(candidates[0], kind),
                     argument=argument,
                 )
             if len(candidates) > 1:
@@ -165,28 +167,28 @@ def normalize_dimension_boundary(
             if dimension.kind == SemanticKind.MEASURE:
                 raise SemanticKindMismatchError(
                     message=(
-                        f"{dimension.ref.ref!r} is a measure, which is aggregated, not a group-by axis; "
+                        f"{dimension.ref.id!r} is a measure, which is aggregated, not a group-by axis; "
                         "slice by a categorical dimension or aggregate it into a metric."
                     ),
                     details={
-                        "ref": dimension.ref.ref,
+                        "ref": dimension.ref.id,
                         "actual_kind": "measure",
                         "expected_kind": "dimension",
                     },
                 )
             if dimension.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
                 _reject_kind(
-                    ref=dimension.ref.ref,
+                    ref=dimension.ref.id,
                     actual_kind=str(dimension.kind),
                     expected_kind="dimension",
                     argument=argument,
                 )
-            return dimension.ref.ref
+            return dimension.ref.id
         if isinstance(dimension, SemanticRef) and dimension.kind in {
             SemanticKind.DIMENSION,
             SemanticKind.TIME_DIMENSION,
         }:
-            return dimension.ref
+            return dimension.id
     return normalize_dimension_input(catalog, dimension, argument=argument)
 
 

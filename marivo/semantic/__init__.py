@@ -25,6 +25,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from marivo.datasource.scan import ScanScope
+from marivo.refs import SemanticRef
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
@@ -71,7 +72,6 @@ from marivo.semantic.catalog import (
     SemanticObject,
     SemanticObjectDetails,
     SemanticObjectList,
-    SemanticRef,
     SemanticRefInput,
     SimpleMetricDetails,
     SnapshotVersioning,
@@ -111,17 +111,11 @@ from marivo.semantic.help import help, help_text
 from marivo.semantic.ir import (
     DateParse,
     DatetimeParse,
-    DimensionRef,
-    EntityRef,
     HourPrefixParse,
     JoinKey,
     MeasureIR,
-    MeasureRef,
-    MetricRef,
-    RelationshipRef,
     SqlProvenance,
     StrptimeParse,
-    TimeDimensionRef,
     TimestampParse,
 )
 from marivo.semantic.ledger import DecisionRecord
@@ -130,6 +124,15 @@ from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
+)
+from marivo.semantic.refs import (
+    DimensionRef,
+    EntityRef,
+    MeasureRef,
+    MetricRef,
+    RelationshipRef,
+    TimeDimensionRef,
+    make_ref,
 )
 from marivo.semantic.richness import DemandSignal, RichnessReport
 from marivo.semantic.typing import AiContext
@@ -656,6 +659,7 @@ __all__ = [
     "join_on",
     "linear",
     "load",
+    "make_ref",
     "measure",
     "metric",
     "parity_check",
