@@ -16,7 +16,8 @@ from marivo.analysis.executor.query_record import (
 from marivo.analysis.executor.runner import ExecutionResult, execute
 from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
 
 
@@ -246,7 +247,7 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
     )
     job_id = frame.meta.produced_by_job
@@ -284,16 +285,16 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-08-31"},
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
     )
     delta = s.compare(
         frame,
         frame,
         alignment=mv.AlignmentPolicy(kind="window_bucket"),
     )
-    attr = s.decompose(delta, axis=SemanticRef("region", kind=SemanticKind.DIMENSION))
+    attr = s.decompose(delta, axis=make_ref("region", SemanticKind.DIMENSION))
     job_id = attr.meta.produced_by_job
     assert job_id is not None
     job = s.job(job_id)
@@ -348,7 +349,7 @@ def test_time_series_observe_has_queries(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
         grain="day",
     )
@@ -388,7 +389,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
 
     # Scalar
     scalar = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
     )
     job = s.job(scalar.meta.produced_by_job)
@@ -401,7 +402,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
 
     # Time series
     ts = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
         grain="month",
     )
@@ -411,19 +412,19 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
 
     # Segmented
     seg = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
     )
     job = s.job(seg.meta.produced_by_job)
     assert len(job["queries"]) >= 1
 
     # Panel
     panel = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
         grain="month",
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
     )
     job = s.job(panel.meta.produced_by_job)
     assert len(job["queries"]) >= 1
@@ -452,11 +453,11 @@ def test_same_query_shape_same_digest(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     f1 = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
     )
     f2 = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-08-01", "end": "2026-08-31"},
     )
     j1 = s.job(f1.meta.produced_by_job)
@@ -487,7 +488,7 @@ def test_evidence_chain_reaches_queries(tmp_path, monkeypatch):
         backends={"warehouse": lambda: con},
     )
     frame = s.observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-09-30"},
     )
     job_id = frame.meta.produced_by_job
@@ -537,7 +538,7 @@ def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
         pytest.raises(mv.errors.BackendError),
     ):
         s.observe(
-            SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            make_ref("sales.revenue", SemanticKind.METRIC),
             timescope={"start": "2026-07-01", "end": "2026-09-30"},
         )
 

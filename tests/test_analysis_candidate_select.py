@@ -17,7 +17,8 @@ from marivo.analysis.intents._candidate_columns import (
     validate_shape_columns,
 )
 from marivo.analysis.lineage import Lineage
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import make_metric_frame
 
@@ -315,7 +316,7 @@ def test_select_axis_returns_catalog_ref_for_discovered_driver_axis(tmp_path):
         search_space=[session.catalog.get("sales.orders.region").ref],
     )
     selected_axis = axis_candidates.select(rank=1, attribute="axis")
-    assert selected_axis == SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION)
+    assert selected_axis == make_ref("sales.orders.region", SemanticKind.DIMENSION)
 
     drivers = session.decompose(src, axis=selected_axis)
     assert drivers.meta.kind == "attribution_frame"
@@ -360,7 +361,7 @@ def test_select_selector_feeds_transform_slice(tmp_path):
     )
     selector = slice_cands.select(rank=1, attribute="selector")
     assert selector == {
-        SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION): "US",
+        make_ref("sales.orders.region", SemanticKind.DIMENSION): "US",
     }
     focus = session.transform.slice(src, where=selector)
     assert focus.meta.kind == "delta_frame"
@@ -385,7 +386,7 @@ def test_select_selector_without_search_space_returns_catalog_ref(tmp_path):
     )
     selector = slice_cands.select(rank=1, attribute="selector")
     assert selector == {
-        SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION): "US",
+        make_ref("sales.orders.region", SemanticKind.DIMENSION): "US",
     }
     focus = session.transform.slice(src, where=selector)
     assert focus.meta.kind == "delta_frame"

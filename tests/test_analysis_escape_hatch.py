@@ -13,7 +13,8 @@ from marivo.analysis.frames.exploration import (
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import persist_frame
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
 
 
@@ -258,7 +259,7 @@ def test_core_operators_reject_exploration_result_inputs():
     scratch = session.from_pandas(pd.DataFrame({"value": [1.0]}))
     metric = session.promote_metric_frame(
         pd.DataFrame({"value": [1.0]}),
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="scalar",
         measure_column="value",
         axes={},
@@ -269,7 +270,7 @@ def test_core_operators_reject_exploration_result_inputs():
         session.compare(metric, scratch)  # type: ignore[arg-type]
 
     with pytest.raises(mv.errors.SemanticKindMismatchError):
-        session.decompose(scratch, axis=SemanticRef("country", kind=SemanticKind.DIMENSION))  # type: ignore[arg-type]
+        session.decompose(scratch, axis=make_ref("country", SemanticKind.DIMENSION))  # type: ignore[arg-type]
 
     with pytest.raises(mv.errors.SemanticKindMismatchError):
         session.discover.point_anomalies(scratch)  # type: ignore[arg-type]
@@ -286,10 +287,10 @@ def test_promote_metric_frame_creates_canonical_metric_frame():
 
     metric = session.promote_metric_frame(
         scratch,
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="segmented",
         measure_column="value",
-        axes={"country": SemanticRef("country", kind=SemanticKind.DIMENSION)},
+        axes={"country": make_ref("country", SemanticKind.DIMENSION)},
         semantic_model="sales",
     )
 
@@ -312,11 +313,11 @@ def test_promote_metric_frame_accepts_catalog_axis_ref():
     scratch = session.from_pandas(
         pd.DataFrame({"country": ["US", "CA"], "value": [10.0, 5.0]}),
     )
-    region = SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION)
+    region = make_ref("sales.orders.region", SemanticKind.DIMENSION)
 
     metric = session.promote_metric_frame(
         scratch,
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="segmented",
         measure_column="value",
         axes={"country": region},
@@ -337,10 +338,10 @@ def test_promote_metric_frame_rejects_metric_ref_as_catalog_axis():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="segmented",
             measure_column="value",
-            axes={"country": SemanticRef("sales.revenue", kind=SemanticKind.METRIC)},
+            axes={"country": make_ref("sales.revenue", SemanticKind.METRIC)},
             semantic_model="sales",
         )
 
@@ -353,7 +354,7 @@ def test_promote_metric_frame_accepts_direct_dataframe():
 
     metric = session.promote_metric_frame(
         pd.DataFrame({"value": [42.0]}),
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="scalar",
         measure_column="value",
         axes={},
@@ -390,7 +391,7 @@ def test_promote_metric_frame_rejects_non_numeric_measure_column():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="scalar",
             measure_column="value",
             semantic_model="sales",
@@ -410,10 +411,10 @@ def test_promote_metric_frame_rejects_missing_axis_column():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="segmented",
             measure_column="value",
-            axes={"country": SemanticRef("country", kind=SemanticKind.DIMENSION)},
+            axes={"country": make_ref("country", SemanticKind.DIMENSION)},
             semantic_model="sales",
         )
 
@@ -430,7 +431,7 @@ def test_promote_metric_frame_rejects_segmented_without_axes():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="segmented",
             measure_column="value",
             semantic_model="sales",
@@ -449,7 +450,7 @@ def test_promote_metric_frame_rejects_cross_session_scratch():
     with pytest.raises(mv.errors.CrossSessionFrameError):
         other_session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="scalar",
             measure_column="value",
             semantic_model="sales",
@@ -465,7 +466,7 @@ def test_promote_metric_frame_rejects_relative_window():
     with pytest.raises(mv.errors.WindowInvalidError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="time_series",
             measure_column="value",
             semantic_model="sales",
@@ -483,7 +484,7 @@ def test_promote_metric_frame_rejects_time_series_without_time_axis():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="time_series",
             measure_column="value",
             semantic_model="sales",
@@ -503,10 +504,10 @@ def test_promote_metric_frame_rejects_time_series_with_dimension_axes():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="time_series",
             measure_column="value",
-            axes={"country": SemanticRef("country", kind=SemanticKind.DIMENSION)},
+            axes={"country": make_ref("country", SemanticKind.DIMENSION)},
             time_axis="bucket_start",
             semantic_model="sales",
         )
@@ -529,10 +530,10 @@ def test_promote_metric_frame_rejects_segmented_with_time_axis():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="segmented",
             measure_column="value",
-            axes={"country": SemanticRef("country", kind=SemanticKind.DIMENSION)},
+            axes={"country": make_ref("country", SemanticKind.DIMENSION)},
             time_axis="bucket_start",
             semantic_model="sales",
         )
@@ -548,10 +549,10 @@ def test_promote_metric_frame_rejects_scalar_with_axes():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="scalar",
             measure_column="value",
-            axes={"country": SemanticRef("country", kind=SemanticKind.DIMENSION)},
+            axes={"country": make_ref("country", SemanticKind.DIMENSION)},
             semantic_model="sales",
         )
 
@@ -566,10 +567,10 @@ def test_promote_metric_frame_rejects_measure_column_used_as_axis():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="segmented",
             measure_column="country",
-            axes={"country": SemanticRef("country", kind=SemanticKind.DIMENSION)},
+            axes={"country": make_ref("country", SemanticKind.DIMENSION)},
             semantic_model="sales",
         )
 
@@ -584,7 +585,7 @@ def test_promote_metric_frame_rejects_scalar_with_extra_columns():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="scalar",
             measure_column="value",
             semantic_model="sales",
@@ -603,10 +604,10 @@ def test_promote_metric_frame_rejects_panel_time_axis_collision():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="panel",
             measure_column="value",
-            axes={"time": SemanticRef("time", kind=SemanticKind.DIMENSION)},
+            axes={"time": make_ref("time", SemanticKind.DIMENSION)},
             time_axis="bucket_start",
             semantic_model="sales",
         )
@@ -624,10 +625,10 @@ def test_promote_metric_frame_rejects_panel_time_axis_ref_collision():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="panel",
             measure_column="value",
-            axes={"country": SemanticRef("time", kind=SemanticKind.DIMENSION)},
+            axes={"country": make_ref("time", SemanticKind.DIMENSION)},
             time_axis="bucket_start",
             semantic_model="sales",
         )
@@ -645,10 +646,10 @@ def test_promote_metric_frame_rejects_panel_time_axis_column_key_collision():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="panel",
             measure_column="value",
-            axes={"bucket_start": SemanticRef("country", kind=SemanticKind.DIMENSION)},
+            axes={"bucket_start": make_ref("country", SemanticKind.DIMENSION)},
             time_axis="bucket_start",
             semantic_model="sales",
         )
@@ -666,10 +667,10 @@ def test_promote_metric_frame_rejects_panel_time_axis_column_ref_collision():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.revenue", SemanticKind.METRIC),
             semantic_kind="panel",
             measure_column="value",
-            axes={"country": SemanticRef("bucket_start", kind=SemanticKind.DIMENSION)},
+            axes={"country": make_ref("bucket_start", SemanticKind.DIMENSION)},
             time_axis="bucket_start",
             semantic_model="sales",
         )
@@ -683,10 +684,10 @@ def _promoted_scalar_metric(session, value, *, semantic_kind="scalar", semantic_
     axes = {}
     if semantic_kind == "segmented":
         df = pd.DataFrame({"country": ["US"], "value": [value]})
-        axes = {"country": SemanticRef("country", kind=SemanticKind.DIMENSION)}
+        axes = {"country": make_ref("country", SemanticKind.DIMENSION)}
     return session.promote_metric_frame(
         df,
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind=semantic_kind,
         measure_column="value",
         axes=axes,
@@ -789,7 +790,7 @@ def test_promote_delta_frame_rejects_metric_override_mismatch():
             scratch,
             current=mv.ArtifactRef(current.ref),
             baseline=mv.ArtifactRef(baseline.ref),
-            metric=SemanticRef("sales.profit", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.profit", SemanticKind.METRIC),
             delta_column="delta",
             current_column="current",
             baseline_column="baseline",
@@ -847,18 +848,18 @@ def test_promote_delta_frame_rejects_source_axes_mismatch():
     session = mv.session.get_or_create(name="demo")
     current = session.promote_metric_frame(
         pd.DataFrame({"country": ["US"], "value": [30.0]}),
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="segmented",
         measure_column="value",
-        axes={"country": SemanticRef("country", kind=SemanticKind.DIMENSION)},
+        axes={"country": make_ref("country", SemanticKind.DIMENSION)},
         semantic_model="sales",
     )
     baseline = session.promote_metric_frame(
         pd.DataFrame({"platform": ["web"], "value": [20.0]}),
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="segmented",
         measure_column="value",
-        axes={"platform": SemanticRef("platform", kind=SemanticKind.DIMENSION)},
+        axes={"platform": make_ref("platform", SemanticKind.DIMENSION)},
         semantic_model="sales",
     )
     scratch = session.from_pandas(
@@ -902,7 +903,7 @@ def test_promoted_segmented_delta_alignment_includes_axes_for_decompose():
 
     assert delta.meta.alignment["axes"] == current.meta.axes
     assert "country" in delta.to_pandas().columns
-    attribution = session.decompose(delta, axis=SemanticRef("country", kind=SemanticKind.DIMENSION))
+    attribution = session.decompose(delta, axis=make_ref("country", SemanticKind.DIMENSION))
     assert attribution.meta.driver_field == "country"
     assert attribution.to_pandas().iloc[0]["contribution"] == 10.0
 
@@ -930,7 +931,7 @@ def test_promote_delta_frame_rejects_asymmetric_window_grain():
     session = mv.session.get_or_create(name="demo")
     current = session.promote_metric_frame(
         pd.DataFrame({"value": [30.0]}),
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="scalar",
         measure_column="value",
         semantic_model="sales",
@@ -938,7 +939,7 @@ def test_promote_delta_frame_rejects_asymmetric_window_grain():
     )
     baseline = session.promote_metric_frame(
         pd.DataFrame({"value": [20.0]}),
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="scalar",
         measure_column="value",
         semantic_model="sales",
@@ -1246,7 +1247,7 @@ def test_promote_metric_frame_rejects_metric_missing_from_ready_catalog(tmp_path
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         session.promote_metric_frame(
             scratch,
-            metric=SemanticRef("sales.ghost", kind=SemanticKind.METRIC),
+            metric=make_ref("sales.ghost", SemanticKind.METRIC),
             semantic_kind="scalar",
             measure_column="value",
             axes={},
@@ -1264,7 +1265,7 @@ def test_promote_metric_frame_accepts_metric_defined_in_ready_catalog(tmp_path):
 
     metric = session.promote_metric_frame(
         pd.DataFrame({"value": [42.0]}),
-        metric=SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        metric=make_ref("sales.revenue", SemanticKind.METRIC),
         semantic_kind="scalar",
         measure_column="value",
         axes={},

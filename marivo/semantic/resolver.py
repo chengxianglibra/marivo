@@ -8,16 +8,17 @@ from typing import Any
 import ibis
 import ibis.expr.types as ir
 
-from marivo.semantic.catalog import SemanticKind, SemanticObject, SemanticRef
+from marivo.refs import SemanticRef, SymbolKind
+from marivo.semantic.catalog import SemanticKind, SemanticObject
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.materializer import Materializer
+from marivo.semantic.refs import as_ref
 
 
-def _ref_and_kind(value: SemanticRef | SemanticObject | str) -> tuple[str, SemanticKind | None]:
-    if isinstance(value, SemanticObject):
-        return value.ref.ref, value.kind
-    if isinstance(value, SemanticRef):
-        return value.ref, value.kind
+def _ref_and_kind(value: SemanticRef | SemanticObject | str) -> tuple[str, SymbolKind | None]:
+    ref = as_ref(value)
+    if ref is not None:
+        return ref.id, ref.kind
     return str(value), None
 
 

@@ -23,7 +23,8 @@ from marivo.datasource.authoring import (
     _PostgresSpec,
     _TrinoSpec,
 )
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
 
 
@@ -78,7 +79,7 @@ def test_observe_uses_global_datasource_name(tmp_path: Path, fake_home: Path) ->
     md.register(_spec("warehouse", backend_type="duckdb", path=str(db_path)))
 
     session = mv.session.get_or_create(name="s")
-    frame = session.observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
+    frame = session.observe(make_ref("sales.revenue", SemanticKind.METRIC))
 
     assert frame.to_pandas().iloc[0, 0] == 10.0
     # The observe succeeded using the global datasource, meaning the frame

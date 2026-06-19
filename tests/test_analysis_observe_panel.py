@@ -5,7 +5,8 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -75,10 +76,10 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="day",
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=s,
     )
 
@@ -86,9 +87,9 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
     assert mf.meta.axes["time"]["grain"] == "day"
     assert mf.meta.axes["region"]["role"] == "dimension"
     df = mf.to_pandas()
-    assert {"bucket_start", "region", "revenue"} == set(df.columns)
+    assert {"bucket_start", "region", "value"} == set(df.columns)
     assert len(df) == 4
-    by_key = {(str(row.bucket_start), row.region): row.revenue for row in df.itertuples()}
+    by_key = {(str(row.bucket_start), row.region): row.value for row in df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")] == pytest.approx(10.0)
     assert by_key[("2026-07-02", "SOUTH")] == pytest.approx(40.0)
 
@@ -100,19 +101,19 @@ def test_observe_panel_multi_dimension(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     mf = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="day",
         dimensions=[
-            SemanticRef("region", kind=SemanticKind.DIMENSION),
-            SemanticRef("channel", kind=SemanticKind.DIMENSION),
+            make_ref("region", SemanticKind.DIMENSION),
+            make_ref("channel", SemanticKind.DIMENSION),
         ],
         session=s,
     )
 
     assert mf.meta.semantic_kind == "panel"
     df = mf.to_pandas()
-    assert {"bucket_start", "region", "channel", "revenue"} == set(df.columns)
+    assert {"bucket_start", "region", "channel", "value"} == set(df.columns)
 
 
 # ---------------------------------------------------------------------------
@@ -197,16 +198,16 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
     session = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     frame = observe(
-        SemanticRef("sales.failure_rate", kind=SemanticKind.METRIC),
+        make_ref("sales.failure_rate", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=session,
     )
 
     assert frame.meta.semantic_kind == "panel"
     assert frame.meta.component_ref is not None
-    assert set(frame.to_pandas().columns) == {"bucket_start", "region", "failure_rate"}
+    assert set(frame.to_pandas().columns) == {"bucket_start", "region", "value"}
     components = frame.components()
     assert components.meta.semantic_kind == "panel"
     assert components.meta.axes == frame.meta.axes
@@ -233,10 +234,10 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
     session = session_attach.get_or_create(name="demo", backends=_backends(con))
 
     frame = observe(
-        SemanticRef("sales.weighted_failure_rate", kind=SemanticKind.METRIC),
+        make_ref("sales.weighted_failure_rate", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=session,
     )
 
@@ -245,7 +246,7 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
     assert set(frame.to_pandas().columns) == {
         "bucket_start",
         "region",
-        "weighted_failure_rate",
+        "value",
     }
     component_df = components.to_pandas()
     assert "total_weight" in component_df.columns

@@ -23,8 +23,9 @@ from marivo.analysis.intents.observe_planner import (
     unique_shortest_relationship_path,
 )
 from marivo.semantic._registry_bridge import get_metric_ir
-from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+from marivo.semantic.refs import make_ref
 
 
 def test_observe_planning_error_payload_is_stable():
@@ -128,7 +129,7 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
     resolved = resolve_observe_fields(
         catalog,
         metric,
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         where=None,
         time_dimension=None,
     )
@@ -138,7 +139,7 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
         resolve_observe_fields(
             catalog,
             metric,
-            dimensions=[SemanticRef("tier", kind=SemanticKind.DIMENSION)],
+            dimensions=[make_ref("tier", SemanticKind.DIMENSION)],
             where=None,
             time_dimension=None,
         )
@@ -174,7 +175,7 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
         resolve_observe_fields(
             catalog,
             metric,
-            dimensions=[SemanticRef("regn", kind=SemanticKind.DIMENSION)],
+            dimensions=[make_ref("regn", SemanticKind.DIMENSION)],
             where=None,
             time_dimension=None,
         )
@@ -190,7 +191,7 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
     resolved = resolve_observe_fields(
         catalog,
         metric,
-        dimensions=[SemanticRef("sales.users.tier", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.users.tier", SemanticKind.DIMENSION)],
         where=None,
         time_dimension=None,
     )
@@ -220,7 +221,7 @@ def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_f
         resolve_observe_fields(
             catalog,
             metric,
-            dimensions=[SemanticRef("desc", kind=SemanticKind.DIMENSION)],
+            dimensions=[make_ref("desc", SemanticKind.DIMENSION)],
             where=None,
             time_dimension=None,
         )

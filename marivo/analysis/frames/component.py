@@ -10,14 +10,19 @@ from pydantic import ConfigDict
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 
 
-def resolve_role_column_name(components: dict[str, str], role: str) -> str:
+def resolve_role_column_name(components: dict[str, str | Any], role: str) -> str:
     """Resolve a composition role to its DataFrame column name.
 
     Uses the component metric's short name (part after the last dot). Falls
     back to the role name when two components share the same short name.
     """
-    short_name: str = components[role].rsplit(".", 1)[-1]
-    short_names: list[str] = [mid.rsplit(".", 1)[-1] for mid in components.values()]
+    from marivo.refs import SemanticRef
+
+    def _to_id(v: str | Any) -> str:
+        return v.id if isinstance(v, SemanticRef) else str(v)
+
+    short_name: str = _to_id(components[role]).rsplit(".", 1)[-1]
+    short_names: list[str] = [_to_id(mid).rsplit(".", 1)[-1] for mid in components.values()]
     if len(short_names) != len(set(short_names)):
         return role
     return short_name

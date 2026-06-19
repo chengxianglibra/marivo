@@ -11,7 +11,8 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +63,7 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
 
     attribution = session.decompose(
         _delta(session),
-        axis=SemanticRef("country", kind=SemanticKind.DIMENSION),
+        axis=make_ref("country", SemanticKind.DIMENSION),
     )
 
     assert attribution.meta.artifact_id is not None

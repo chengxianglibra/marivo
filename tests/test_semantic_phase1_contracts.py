@@ -51,7 +51,7 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
     assert isinstance(metric, MetricDetails)
     assert metric.additivity == "additive"
     assert metric.root_entity is not None
-    assert metric.root_entity.ref == "sales.orders"
+    assert metric.root_entity.id == "sales.orders"
 
 
 def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_factory):
@@ -104,7 +104,7 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
     metric = SemanticCatalog(project).get("sales.revenue").details()
     assert isinstance(metric, MetricDetails)
     assert metric.root_entity is not None
-    assert metric.root_entity.ref == "sales.orders"
+    assert metric.root_entity.id == "sales.orders"
 
 
 def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_project_factory):

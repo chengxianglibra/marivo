@@ -15,6 +15,7 @@ from marivo.datasource.errors import (
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.typing import AiContext
 from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
+from marivo.refs import SemanticRef, SymbolKind
 
 
 def _datasource_ai_context_error(message: str, details: dict[str, Any]) -> None:
@@ -344,18 +345,14 @@ class _ClickHouseSpec(_SpecBase):
 DatasourceSpec: TypeAlias = _DuckDBSpec | _TrinoSpec | _MySQLSpec | _PostgresSpec | _ClickHouseSpec  # noqa: UP040
 
 
-class DatasourceRef:
+class DatasourceRef(SemanticRef):
     """Global datasource reference used by semantic declarations."""
 
-    __slots__ = ("name", "semantic_id")
+    __slots__ = ()
 
     def __init__(self, name: str) -> None:
         validate_datasource_name(name)
-        self.name = name
-        self.semantic_id = name
-
-    def __repr__(self) -> str:
-        return f"DatasourceRef({self.semantic_id!r})"
+        super().__init__(name, SymbolKind.DATASOURCE)
 
 
 def ref(name: str) -> DatasourceRef:

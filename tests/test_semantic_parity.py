@@ -721,7 +721,7 @@ def test_catalog_metric_details_reflect_parity_status(
 
     # Before parity check: UNVERIFIED
     metrics = catalog.list("sales", kind="metric").objects
-    assert any(metric.ref.ref == "sales.total_amount" for metric in metrics)
+    assert any(metric.ref.id == "sales.total_amount" for metric in metrics)
     details = catalog.get("sales.total_amount").details()
     assert isinstance(details, MetricDetails)
     assert details.parity_status == ParityStatus.UNVERIFIED

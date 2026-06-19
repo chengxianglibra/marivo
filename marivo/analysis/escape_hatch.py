@@ -310,14 +310,14 @@ def _raise_delta_metadata_mismatch(
 
 def _metric_anchor_id(ref: MetricInput) -> str:
     if isinstance(ref, SemanticObject):
-        return ref.ref.ref
-    return ref.ref
+        return ref.ref.id
+    return ref.id
 
 
 def _dimension_anchor_id(ref: DimensionAnchorInput) -> str:
     if isinstance(ref, SemanticObject):
-        return ref.ref.ref
-    return ref.ref
+        return ref.ref.id
+    return ref.id
 
 
 def _dimension_anchor_kind(ref: DimensionAnchorInput) -> CatalogSemanticKind | None:

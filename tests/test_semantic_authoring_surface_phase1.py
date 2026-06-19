@@ -25,7 +25,6 @@ from marivo.semantic.ir import (
     HourPrefixParse,
     JoinKey,
     MeasureIR,
-    MeasureRef,
     SampleIntervalIR,
     SemanticParse,
     SourceLocation,
@@ -37,6 +36,7 @@ from marivo.semantic.ir import (
     source_from_dict,
 )
 from marivo.semantic.loader import LoaderContext, loader_context
+from marivo.semantic.refs import MeasureRef
 
 
 def test_typed_source_builders_have_no_options_bag() -> None:
@@ -109,7 +109,7 @@ def test_file_source_builder_is_removed_from_public_surface() -> None:
 
 def test_measure_ref_and_kind_are_first_class() -> None:
     ref = MeasureRef("sales.orders.amount")
-    assert ref.semantic_id == "sales.orders.amount"
+    assert ref.id == "sales.orders.amount"
     assert ref.kind == SymbolKind.MEASURE
     assert SymbolKind.MEASURE.value == "measure"
     assert {item.value for item in DimensionKind} == {"categorical", "time"}
@@ -205,7 +205,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
     assert kinds["sales.orders.region"] == "DimensionIR"
     assert kinds["sales.orders.amount"] == "MeasureIR"
     assert kinds["sales.revenue"] == "MetricIR"
-    assert average_amount.semantic_id == "sales.average_amount"
+    assert average_amount.id == "sales.average_amount"
 
 
 def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
@@ -274,7 +274,7 @@ def test_relationship_uses_join_key_pairs() -> None:
         for ir, _callable in ctx.pending_objects
         if getattr(ir, "semantic_id", "") == "sales.orders_to_customers"
     )
-    assert ref.semantic_id == "sales.orders_to_customers"
+    assert ref.id == "sales.orders_to_customers"
     assert relationship_ir.keys[0].to_tuple() == ("sales.orders.customer_id", "sales.customers.id")
 
 
@@ -371,5 +371,5 @@ def test_error_kinds_use_entity_vocabulary() -> None:
 
 
 def test_resolver_accepts_measure_for_internal_resolution() -> None:
-    measure_ref = ms.SemanticRef("sales.orders.amount", kind=ms.SemanticKind.MEASURE)
+    measure_ref = ms.make_ref("sales.orders.amount", ms.SemanticKind.MEASURE)
     assert measure_ref.kind == ms.SemanticKind.MEASURE

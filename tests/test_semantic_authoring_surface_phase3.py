@@ -13,11 +13,11 @@ from marivo.semantic.catalog import (
     MetricDetails,
     SemanticCatalog,
     SemanticKind,
-    SemanticRef,
     TimeDimensionDetails,
 )
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import SqlProvenance
+from marivo.semantic.refs import make_ref
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -102,10 +102,10 @@ def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -
     details = obj.details()
 
     assert obj.kind == SemanticKind.MEASURE
-    assert obj.ref == SemanticRef("sales.orders.amount", kind=SemanticKind.MEASURE)
+    assert obj.ref == make_ref("sales.orders.amount", SemanticKind.MEASURE)
     assert isinstance(details, MeasureDetails)
     assert details.ref.kind == SemanticKind.MEASURE
-    assert details.entity == SemanticRef("sales.orders", kind=SemanticKind.ENTITY)
+    assert details.entity == make_ref("sales.orders", SemanticKind.ENTITY)
     assert details.additivity == "additive"
     assert details.unit == "USD"
     assert repr(details) == "<MeasureDetails ref=sales.orders.amount; call .show() to inspect>"
@@ -117,7 +117,7 @@ def test_catalog_lists_measure_kind_at_top_level_and_under_entity(semantic_proje
     assert catalog.list(kind="measure").ids() == ["sales.orders.amount"]
     assert catalog.list("sales.orders", kind="measure").ids() == ["sales.orders.amount"]
     assert catalog.list(
-        SemanticRef("sales.orders", kind=SemanticKind.ENTITY), kind=SemanticKind.MEASURE
+        make_ref("sales.orders", SemanticKind.ENTITY), kind=SemanticKind.MEASURE
     ).ids() == ["sales.orders.amount"]
 
 
@@ -129,7 +129,7 @@ def test_entity_children_include_dimension_measure_time_dimension_metrics_and_re
     details = catalog.get("sales.orders").details()
 
     assert isinstance(details, EntityDetails)
-    child_refs = {(child.ref, child.kind) for child in details.children}
+    child_refs = {(child.id, child.kind) for child in details.children}
     assert ("sales.orders.region", SemanticKind.DIMENSION) in child_refs
     assert ("sales.orders.amount", SemanticKind.MEASURE) in child_refs
     assert ("sales.orders.order_date", SemanticKind.TIME_DIMENSION) in child_refs
@@ -146,7 +146,7 @@ def test_dimension_and_time_dimension_details_do_not_expose_legacy_shape(
     time_dim = catalog.get("sales.orders.order_date").details()
 
     assert isinstance(dim, DimensionDetails)
-    assert dim.entity.ref == "sales.orders"
+    assert dim.entity.id == "sales.orders"
     assert not hasattr(dim, "dimension_kind")
 
     assert isinstance(time_dim, TimeDimensionDetails)
@@ -166,7 +166,7 @@ def test_metric_details_measure_ref_and_provenance_are_phase3_shape(
     native_metric = catalog.get("sales.native_revenue").details()
 
     assert isinstance(aggregate_metric, MetricDetails)
-    assert aggregate_metric.measure == SemanticRef("sales.orders.amount", kind=SemanticKind.MEASURE)
+    assert aggregate_metric.measure == make_ref("sales.orders.amount", SemanticKind.MEASURE)
     assert aggregate_metric.provenance is None
 
     assert isinstance(native_metric, MetricDetails)

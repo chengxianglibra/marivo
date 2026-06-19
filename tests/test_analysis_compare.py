@@ -18,7 +18,8 @@ from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._layout import read_frame_from_disk
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
 from tests.shared_fixtures import make_metric_frame
 
@@ -47,12 +48,12 @@ def test_compare_returns_delta_frame(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
@@ -74,12 +75,12 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
@@ -93,12 +94,12 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
@@ -126,9 +127,9 @@ def test_compare_semantic_kind_mismatch_raises(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     b = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="day",
         session=s,
@@ -142,8 +143,8 @@ def test_compare_rejects_non_alignment_policy(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
-    b = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
+    b = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         compare(a, b, alignment="window_bucket", session=s)  # type: ignore[arg-type]
@@ -158,12 +159,12 @@ def test_compare_rejects_loose_align_parameter(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
@@ -178,13 +179,13 @@ def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_pat
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         session=s,
     )
     base = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-04-03"},
         grain="day",
         session=s,
@@ -239,13 +240,13 @@ def test_window_bucket_no_overlap_different_expected_counts_uses_outer_ordinal_u
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         session=s,
     )
     base = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-04-02"},
         grain="day",
         session=s,
@@ -273,13 +274,13 @@ def test_window_bucket_strict_lengths_rejects_different_expected_counts(tmp_path
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-02"},
         grain="day",
         session=s,
     )
     base = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-04-01"},
         grain="day",
         session=s,
@@ -669,8 +670,8 @@ def test_compare_persists_job_and_frame(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
-    b = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
+    b = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     d = compare(a, b, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
     compare_jobs = [j for j in s.jobs() if j.intent == "compare"]
     assert len(compare_jobs) == 1
@@ -685,8 +686,8 @@ def test_compare_works_in_read_only_session(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s_write = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s_write)
-    b = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s_write)
+    a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s_write)
+    b = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s_write)
     s_write.close()
     session_attach._reset_process_state()
     s_read = session_attach.get_or_create(name="demo", use_datasources=False)
@@ -707,8 +708,8 @@ def test_compare_works_in_read_only_session_no_backend(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
-    b = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
+    b = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     # Re-open session without backend -> read-only, but compare still works.
     session_attach._reset_process_state()
     s_ro = session_attach.get_or_create(name="demo", use_datasources=False)
@@ -721,8 +722,8 @@ def test_compare_works_after_archive_reopen(tmp_path):
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    a = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
-    b = observe(SemanticRef("sales.revenue", kind=SemanticKind.METRIC), session=s)
+    a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
+    b = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     session_attach._reset_process_state()
     # Re-open without backends; compare still works since it only needs
     # persisted frame data, not a live backend connection.
@@ -804,13 +805,13 @@ def test_compare_propagates_metric_unit_to_delta_meta(tmp_path):
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     assert q3.meta.unit == "CNY"
     q2 = observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )

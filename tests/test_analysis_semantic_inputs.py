@@ -13,7 +13,8 @@ from marivo.analysis.semantic_inputs import (
     normalize_metric_input,
     normalize_where_inputs,
 )
-from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticCatalog, SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 class _EmptyCatalogList:
@@ -84,7 +85,7 @@ def test_normalize_metric_rejects_forged_metric_ref_to_dimension(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    forged = SemanticRef("sales.orders.country", kind=SemanticKind.METRIC)
+    forged = make_ref("sales.orders.country", SemanticKind.METRIC)
 
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_metric_input(catalog, forged)
@@ -97,7 +98,7 @@ def test_normalize_metric_unknown_ref_raises_metric_not_found(semantic_project_f
     catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(MetricNotFoundError) as exc:
-        normalize_metric_input(catalog, SemanticRef("sales.missing", kind=SemanticKind.METRIC))
+        normalize_metric_input(catalog, make_ref("sales.missing", SemanticKind.METRIC))
 
     assert exc.value.details["metric"] == "sales.missing"
     assert "sales.revenue" in exc.value.details["available_ids"]
@@ -108,7 +109,7 @@ def test_normalize_metric_does_not_swallow_unexpected_catalog_failure() -> None:
     catalog = cast("SemanticCatalog", _ExplodingCatalog())
 
     with pytest.raises(RuntimeError, match="boom"):
-        normalize_metric_input(catalog, SemanticRef("sales.revenue", kind=SemanticKind.METRIC))
+        normalize_metric_input(catalog, make_ref("sales.revenue", SemanticKind.METRIC))
 
 
 def test_normalize_dimension_accepts_dimension_and_time_dimension(semantic_project_factory) -> None:
@@ -130,7 +131,7 @@ def test_normalize_dimension_rejects_forged_dimension_ref_to_metric(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    forged = SemanticRef("sales.revenue", kind=SemanticKind.DIMENSION)
+    forged = make_ref("sales.revenue", SemanticKind.DIMENSION)
 
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_dimension_input(catalog, forged)
@@ -160,7 +161,7 @@ def test_normalize_dimension_unknown_ref_raises_analysis_error(
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_dimension_input(
             catalog,
-            SemanticRef("sales.orders.missing", kind=SemanticKind.DIMENSION),
+            make_ref("sales.orders.missing", SemanticKind.DIMENSION),
         )
 
     assert exc.value.details["argument"] == "dimension"
@@ -192,7 +193,7 @@ def test_normalize_where_inputs_unknown_key_raises_analysis_error(
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_where_inputs(
             catalog,
-            {SemanticRef("sales.orders.missing", kind=SemanticKind.DIMENSION): "US"},
+            {make_ref("sales.orders.missing", SemanticKind.DIMENSION): "US"},
         )
 
     assert exc.value.details["argument"] == "where"
@@ -211,7 +212,7 @@ def test_measure_ref_is_rejected_as_dimension_axis(semantic_project_factory) -> 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_dimension_input(
             catalog,
-            SemanticRef("sales.orders.amount", kind=SemanticKind.MEASURE),
+            make_ref("sales.orders.amount", SemanticKind.MEASURE),
         )
 
     message = str(exc_info.value)

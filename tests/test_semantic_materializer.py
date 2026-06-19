@@ -23,10 +23,11 @@ from unittest.mock import patch
 import ibis
 import pytest
 
-from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
 from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
+from marivo.semantic.refs import make_ref
 
 # ---------------------------------------------------------------------------
 # DuckDB backend fixture
@@ -89,19 +90,15 @@ def _patch_connection_service(project, factory):
 
 
 def _materialize_dataset(project, ref: str):
-    return SemanticCatalog(project)._resolver().table(SemanticRef(ref, kind=SemanticKind.ENTITY))
+    return SemanticCatalog(project)._resolver().table(make_ref(ref, SemanticKind.ENTITY))
 
 
 def _materialize_field(project, ref: str):
-    return (
-        SemanticCatalog(project)
-        ._resolver()
-        .dimension(SemanticRef(ref, kind=SemanticKind.DIMENSION))
-    )
+    return SemanticCatalog(project)._resolver().dimension(make_ref(ref, SemanticKind.DIMENSION))
 
 
 def _materialize_metric(project, ref: str):
-    return SemanticCatalog(project)._resolver().metric(SemanticRef(ref, kind=SemanticKind.METRIC))
+    return SemanticCatalog(project)._resolver().metric(make_ref(ref, SemanticKind.METRIC))
 
 
 # ---------------------------------------------------------------------------

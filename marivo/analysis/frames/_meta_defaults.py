@@ -41,6 +41,9 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
 
     if isinstance(measure, dict):
         col = measure.get("field") or measure.get("name")
+        # Canonical "value" column takes priority over the legacy metric-name column.
+        if "value" in frame._df.columns:
+            col = "value"
         if col and col in frame._df.columns:
             n = len(frame._df)
             null_rate = 0.0 if n == 0 else float(frame._df[col].isna().sum()) / n

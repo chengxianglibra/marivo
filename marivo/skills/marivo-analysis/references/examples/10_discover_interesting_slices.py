@@ -41,7 +41,7 @@ slice_cands = session.discover.interesting_slices(
 print(f"slices.row_count={slice_cands.meta.row_count}")
 if slice_cands.meta.row_count:
     selector = slice_cands.select(rank=1, attribute="selector")
-    rendered = {ref.ref: value for ref, value in selector.items()}
+    rendered = {ref.id: value for ref, value in selector.items()}
     print(f"selector={rendered}")
     focus = session.transform.slice(delta, where=selector)
     print(f"focus.kind={focus.meta.kind!r}")

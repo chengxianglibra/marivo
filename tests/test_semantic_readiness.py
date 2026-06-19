@@ -130,11 +130,12 @@ def test_project_readiness_accepts_semantic_ref_objects(
     semantic_project_factory,
 ) -> None:
     """readiness() must accept SemanticRef objects from catalog.list().refs()."""
-    from marivo.semantic.catalog import SemanticKind, SemanticRef
+    from marivo.semantic.catalog import SemanticKind
+    from marivo.semantic.refs import make_ref
 
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
-    refs = (SemanticRef(ref="sales.orders", kind=SemanticKind.ENTITY),)
+    refs = (make_ref("sales.orders", SemanticKind.ENTITY),)
     report = project.readiness(refs=refs)
 
     assert report.input_summary.refs == ("sales.orders",)

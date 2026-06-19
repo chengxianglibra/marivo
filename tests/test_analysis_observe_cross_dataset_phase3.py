@@ -9,7 +9,8 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -96,16 +97,16 @@ def test_segmented_observe_aggregate_then_join(tmp_path):
     _seed(con)
 
     frame = observe(
-        SemanticRef("sales.gmv_by_category", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("sales.order_items.category", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
+        dimensions=[make_ref("sales.order_items.category", SemanticKind.DIMENSION)],
         session=_session(con),
     )
     df = frame.to_pandas().set_index("category")
     # order 1 (10): shirt + pants -> shirt=10, pants=10
     # order 2 (20): shirt -> shirt += 20 -> shirt=30
     # order 3 (30): pants -> pants += 30 -> pants=40
-    assert df.loc["shirt", "gmv_by_category"] == 30.0
-    assert df.loc["pants", "gmv_by_category"] == 40.0
+    assert df.loc["shirt", "value"] == 30.0
+    assert df.loc["pants", "value"] == 40.0
 
 
 def test_panel_observe_aggregate_then_join(tmp_path):
@@ -114,14 +115,14 @@ def test_panel_observe_aggregate_then_join(tmp_path):
     _seed(con)
 
     frame = observe(
-        SemanticRef("sales.gmv_by_category", kind=SemanticKind.METRIC),
+        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
         timescope={"start": "2026-07-01", "end": "2026-07-05"},
         grain="day",
-        dimensions=[SemanticRef("sales.order_items.category", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.order_items.category", SemanticKind.DIMENSION)],
         session=_session(con),
     )
     df = frame.to_pandas()
     assert frame.meta.semantic_kind == "panel"
     # Spot-check: order 1 on 2026-07-01 contributes 10 to both shirt and pants.
     row = df[(df["bucket_start"].astype(str) == "2026-07-01") & (df["category"] == "shirt")]
-    assert float(row["gmv_by_category"].iloc[0]) == 10.0
+    assert float(row["value"].iloc[0]) == 10.0

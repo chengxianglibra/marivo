@@ -12,7 +12,9 @@ from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.followups import _parse_item_followups
 from marivo.analysis.frames.candidate import CandidateSet, CandidateShape
 from marivo.analysis.windows import AbsoluteWindow
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.refs import SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import DimensionRef, make_ref
 
 SelectField = Literal[
     "axis",
@@ -116,7 +118,7 @@ def select(
     if base_attr == "axis":
         semantic_id = row.get("axis_semantic_id")
         if isinstance(semantic_id, str) and semantic_id:
-            return SemanticRef(semantic_id, kind=SemanticKind.DIMENSION)
+            return make_ref(semantic_id, SemanticKind.DIMENSION)
         return str(row["axis"])
     if base_attr == "selector":
         raw = row["selector_json"]
@@ -182,7 +184,7 @@ def _select_dot_path(row: pd.Series, shape: CandidateShape, base_attr: str, key:
 
 def _selector_key(name: str) -> SemanticRef | str:
     if name.count(".") >= 2:
-        return SemanticRef(name, kind=SemanticKind.DIMENSION)
+        return DimensionRef(name)
     return name
 
 

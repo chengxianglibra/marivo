@@ -10,7 +10,8 @@ from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.decompose import decompose
 from marivo.analysis.policies import AlignmentPolicy
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -78,7 +79,7 @@ def _panel_delta(tmp_path):
 def test_decompose_panel_per_bucket(tmp_path):
     session, delta = _panel_delta(tmp_path)
 
-    out = decompose(delta, axis=SemanticRef("region", kind=SemanticKind.DIMENSION), session=session)
+    out = decompose(delta, axis=make_ref("region", SemanticKind.DIMENSION), session=session)
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.semantic_kind == "panel"
@@ -104,7 +105,7 @@ def test_decompose_panel_accepts_model_prefixed_axis_ref(tmp_path):
     session, delta = _panel_delta(tmp_path)
 
     out = decompose(
-        delta, axis=SemanticRef("sales.orders.region", kind=SemanticKind.DIMENSION), session=session
+        delta, axis=make_ref("sales.orders.region", SemanticKind.DIMENSION), session=session
     )
 
     assert out.meta.driver_field == "region"
@@ -116,7 +117,7 @@ def test_decompose_panel_axis_not_in_dimensions(tmp_path):
     delta._df = delta.to_pandas().assign(channel="WEB")
 
     with pytest.raises(AxisNotInPanelDimensionsError) as exc_info:
-        decompose(delta, axis=SemanticRef("channel", kind=SemanticKind.DIMENSION), session=session)
+        decompose(delta, axis=make_ref("channel", SemanticKind.DIMENSION), session=session)
 
     assert exc_info.value.details["axis"] == "channel"
     assert exc_info.value.details["available_dimensions"] == ["region"]

@@ -507,13 +507,11 @@ def _build_registry(
     """
     from marivo.semantic.ir import (
         DimensionIR,
-        DimensionRef,
         EntityIR,
-        MeasureRef,
         MetricIR,
         RelationshipIR,
-        TimeDimensionRef,
     )
+    from marivo.semantic.refs import DimensionRef, MeasureRef, TimeDimensionRef
 
     registry = Registry()
     sidecar: Sidecar = {}

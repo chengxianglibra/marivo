@@ -16,7 +16,8 @@ from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.session._runtime import persist_frame
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -86,10 +87,10 @@ def _session(tmp_path):
 
 def _panel(session, *, start: str, end: str, grain: str = "day"):
     return observe(
-        SemanticRef("sales.revenue", kind=SemanticKind.METRIC),
+        make_ref("sales.revenue", SemanticKind.METRIC),
         timescope={"start": start, "end": end},
         grain=grain,
-        dimensions=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=session,
     )
 

@@ -31,19 +31,21 @@ from marivo.semantic.ir import (
     DatasourceIR,
     DimensionIR,
     DimensionKind,
-    DimensionRef,
     DomainIR,
     EntityIR,
     EntityProvenance,
-    EntityRef,
     MetricIR,
-    MetricRef,
     ParityStatus,
     RelationshipIR,
-    RelationshipRef,
     SourceLocation,
     SqlProvenance,
     SymbolKind,
+)
+from marivo.semantic.refs import (
+    DimensionRef,
+    EntityRef,
+    MetricRef,
+    RelationshipRef,
     TimeDimensionRef,
 )
 
@@ -104,6 +106,7 @@ def test_all_list_matches_expected() -> None:
         "MeasureDetails",
         "MeasureIR",
         "MeasureRef",
+        "make_ref",
         "MetricBrief",
         "MetricDetails",
         "MetricRef",
@@ -699,14 +702,14 @@ def test_field_kind_is_str_enum() -> None:
 
 def test_dataset_ref() -> None:
     ref = EntityRef("sales.orders")
-    assert ref.semantic_id == "sales.orders"
+    assert ref.id == "sales.orders"
     assert ref.kind == SymbolKind.ENTITY
     assert "EntityRef" in repr(ref)
 
 
 def test_field_ref() -> None:
     ref = DimensionRef("sales.orders.amount")
-    assert ref.semantic_id == "sales.orders.amount"
+    assert ref.id == "sales.orders.amount"
     assert ref.kind == SymbolKind.DIMENSION
 
 
@@ -718,7 +721,7 @@ def test_field_ref_callable_without_resolver_raises() -> None:
 
 def test_time_field_ref() -> None:
     ref = TimeDimensionRef("sales.orders.order_date")
-    assert ref.semantic_id == "sales.orders.order_date"
+    assert ref.id == "sales.orders.order_date"
     assert ref.kind == SymbolKind.TIME_DIMENSION
 
 
@@ -730,7 +733,7 @@ def test_time_field_ref_callable_without_resolver_raises() -> None:
 
 def test_metric_ref() -> None:
     ref = MetricRef("sales.revenue")
-    assert ref.semantic_id == "sales.revenue"
+    assert ref.id == "sales.revenue"
     assert ref.kind == SymbolKind.METRIC
 
 
@@ -749,7 +752,7 @@ def test_metric_ref_not_callable_raises_helpful_error() -> None:
 
 def test_relationship_ref() -> None:
     ref = RelationshipRef("sales.orders_to_items")
-    assert ref.semantic_id == "sales.orders_to_items"
+    assert ref.id == "sales.orders_to_items"
     assert ref.kind == SymbolKind.RELATIONSHIP
 
 

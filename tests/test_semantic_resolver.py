@@ -5,8 +5,9 @@ from contextlib import contextmanager
 import ibis
 import pytest
 
-from marivo.semantic.catalog import SemanticCatalog, SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+from marivo.semantic.refs import make_ref
 
 
 class _FakeConnections:
@@ -65,7 +66,7 @@ def test_resolver_dimension_on_accepts_semantic_ref(semantic_project_factory):
     table = ibis.table({"amount": "float64"}, name="supplied_orders")
 
     value = resolver.dimension_on(
-        SemanticRef(ref="sales.orders.amount", kind=SemanticKind.DIMENSION),
+        make_ref("sales.orders.amount", SemanticKind.DIMENSION),
         table,
     )
 
@@ -77,9 +78,7 @@ def test_resolver_metric_on_rejects_wrong_kind(semantic_project_factory):
     table = ibis.table({"amount": "float64"}, name="supplied_orders")
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        resolver.metric_on(
-            SemanticRef(ref="sales.orders.amount", kind=SemanticKind.DIMENSION), table
-        )
+        resolver.metric_on(make_ref("sales.orders.amount", SemanticKind.DIMENSION), table)
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "expected metric" in str(exc_info.value)

@@ -260,6 +260,10 @@ def _unmelt_component_frame(
         return component  # already wide format — nothing to do
 
     axis_columns = _component_axis_columns(component)
+    # In the melted format, "value" is the melted role column (pivoted by
+    # component_metric_id).  The metric value column carries the overall
+    # metric and is named after the metric (e.g. "p95_utilization").
+    # Use the metric-name column as the pivot index.
     index_cols = axis_columns + ([metric_name] if metric_name in df.columns else [])
     pivoted = df.pivot_table(
         index=index_cols,
@@ -275,7 +279,8 @@ def _unmelt_component_frame(
 
 
 def _component_value_column(component: ComponentFrame, parent: MetricFrame) -> str | None:
-    """Return the metric-name value column if present in the component frame."""
+    """Return the metric value column if present in the component frame."""
+    # Current frames use the metric name as the value column in component frames.
     measure_name = (
         parent.meta.measure.get("name") if isinstance(parent.meta.measure, dict) else None
     )
@@ -1031,6 +1036,9 @@ def _aggregate_window_info(infos: list[dict[str, Any]]) -> dict[str, Any] | None
 
 
 def _value_column(frame: MetricFrame, df: pd.DataFrame, *, time_column: str) -> str:
+    # Canonical "value" column (current frames) takes priority.
+    if "value" in df.columns and time_column != "value":
+        return "value"
     non_time_columns = [str(column) for column in df.columns if str(column) != time_column]
     measure_name = frame.meta.measure.get("name")
     if (
@@ -1069,6 +1077,9 @@ def _value_column_segmented(frame: MetricFrame, df: pd.DataFrame, *, dim_columns
                 "available_columns": [str(column) for column in df.columns],
             },
         )
+    # Canonical "value" column (current frames) takes priority.
+    if "value" in df.columns and "value" not in dim_columns:
+        return "value"
     non_dimension_columns = [str(column) for column in df.columns if str(column) not in dim_columns]
     measure_name = frame.meta.measure.get("name")
     if (

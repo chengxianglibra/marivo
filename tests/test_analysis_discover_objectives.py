@@ -15,7 +15,8 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import DiscoverInsufficientDataError, SemanticKindMismatchError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -125,7 +126,7 @@ def test_discover_api_methods_set_objective_shape_and_strategy():
         (
             session.discover.driver_axes(
                 delta_segmented,
-                search_space=[SemanticRef("country", kind=SemanticKind.DIMENSION)],
+                search_space=[make_ref("country", SemanticKind.DIMENSION)],
             ),
             "driver_axes",
             "driver_axis",
@@ -247,7 +248,7 @@ def test_driver_axes_rejects_metric_frame():
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     with pytest.raises(SemanticKindMismatchError):
         session.discover.driver_axes(
-            frame, search_space=[SemanticRef("country", kind=SemanticKind.DIMENSION)]
+            frame, search_space=[make_ref("country", SemanticKind.DIMENSION)]
         )  # type: ignore[arg-type]
 
 
@@ -359,8 +360,8 @@ def test_driver_axes_rank_one_is_largest_axis():
     out = session.discover.driver_axes(
         src,
         search_space=[
-            SemanticRef("country", kind=SemanticKind.DIMENSION),
-            SemanticRef("platform", kind=SemanticKind.DIMENSION),
+            make_ref("country", SemanticKind.DIMENSION),
+            make_ref("platform", SemanticKind.DIMENSION),
         ],
     )
     rows = out.to_pandas()
@@ -382,7 +383,7 @@ def test_driver_axes_records_reason_codes():
     src = _delta(session, df, semantic_kind="segmented")
     out = session.discover.driver_axes(
         src,
-        search_space=[SemanticRef("country", kind=SemanticKind.DIMENSION)],
+        search_space=[make_ref("country", SemanticKind.DIMENSION)],
     )
     rows = out.to_pandas()
     codes = json.loads(rows.loc[0, "reason_codes_json"])
@@ -403,8 +404,8 @@ def test_interesting_slices_returns_selector_dict_round_trip():
     out = session.discover.interesting_slices(
         src,
         search_space=[
-            SemanticRef("country", kind=SemanticKind.DIMENSION),
-            SemanticRef("platform", kind=SemanticKind.DIMENSION),
+            make_ref("country", SemanticKind.DIMENSION),
+            make_ref("platform", SemanticKind.DIMENSION),
         ],
         threshold=2.0,
     )
@@ -429,7 +430,7 @@ def test_interesting_slices_metric_input_uses_zscore():
     )
     out = session.discover.interesting_slices(
         metric,
-        search_space=[SemanticRef("country", kind=SemanticKind.DIMENSION)],
+        search_space=[make_ref("country", SemanticKind.DIMENSION)],
         threshold=1.0,
     )
     rows = out.to_pandas()
@@ -507,7 +508,7 @@ def test_cross_sectional_outliers_records_peer_scope():
     out = session.discover.cross_sectional_outliers(
         metric,
         threshold=3.0,
-        peer_scope=[SemanticRef("region", kind=SemanticKind.DIMENSION)],
+        peer_scope=[make_ref("region", SemanticKind.DIMENSION)],
     )
     rows = out.to_pandas()
     assert json.loads(rows.loc[0, "peer_scope_json"]) == ["region"]
@@ -570,7 +571,7 @@ def test_persistence_round_trip(objective, source_kind, builder):
             ),
             semantic_kind="segmented",
         )
-        kwargs = {"search_space": [SemanticRef("country", kind=SemanticKind.DIMENSION)]}
+        kwargs = {"search_space": [make_ref("country", SemanticKind.DIMENSION)]}
         if objective == "interesting_slices":
             kwargs["threshold"] = 1.0
     else:

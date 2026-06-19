@@ -87,16 +87,17 @@ from marivo.analysis.windows.spec import (
     make_absolute_window,
     normalize_timescope_input,
 )
+from marivo.refs import SemanticRef
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     DimensionDetails,
     EntityDetails,
     SemanticKind,
-    SemanticRef,
     SimpleMetricDetails,
     TimeDimensionDetails,
 )
 from marivo.semantic.ir import HourPrefixParse
+from marivo.semantic.refs import make_ref
 
 # ---------------------------------------------------------------------------
 # catalog-details -> runner adapter types
@@ -173,7 +174,7 @@ class _EntityIRAdapter:
 
 
 def catalog_ref(ref: str, kind: SemanticKind) -> SemanticRef:
-    return SemanticRef(ref=ref, kind=kind)
+    return make_ref(ref, kind)
 
 
 def _entity_details(catalog: Any, ref: str) -> EntityDetails:
@@ -214,7 +215,7 @@ def _build_entity_adapter(
         return resolver.table(_ref)
 
     field_adapters: dict[str, _DimensionIRAdapter] = {}
-    for field in _fields_for_entity(catalog, entity.ref.ref):
+    for field in _fields_for_entity(catalog, entity.ref.id):
         field_ref = field.ref
 
         def _field_fn(table_arg: Any, *, _ref: SemanticRef = field_ref) -> Any:
@@ -227,7 +228,7 @@ def _build_entity_adapter(
             required_prefix: str | None = None
             if field.parse_kind == "hour_prefix":
                 reg = catalog._reg
-                dim_ir = reg.dimensions.get(field.ref.ref) if reg else None
+                dim_ir = reg.dimensions.get(field.ref.id) if reg else None
                 if dim_ir is not None and isinstance(dim_ir.parse, HourPrefixParse):
                     required_prefix = dim_ir.parse.prefix
             # Resolve data_type: when the IR no longer carries data_type on
@@ -248,14 +249,14 @@ def _build_entity_adapter(
                 required_prefix=required_prefix,
                 timezone=field.timezone,
                 parse_kind=field.parse_kind,
-                semantic_id=field.ref.ref,
+                semantic_id=field.ref.id,
                 name=field.name,
             )
         else:
             is_time = False
             time_meta = None
         adapter = _DimensionIRAdapter(
-            semantic_id=field.ref.ref,
+            semantic_id=field.ref.id,
             name=field.name,
             dataset_name=entity.name,
             fn=_field_fn,
@@ -268,7 +269,7 @@ def _build_entity_adapter(
     return _EntityIRAdapter(
         name=entity.name,
         fn=_source_fn,
-        datasource_name=entity.datasource.ref,
+        datasource_name=entity.datasource.id,
         fields=field_adapters,
     )
 
@@ -408,7 +409,10 @@ def _persist_metric_component_frame(
             parent_kind="metric_frame",
             metric_id=parent.meta.metric_id,
             composition_kind=metric_ir.composition.kind,
-            components=dict(metric_ir.composition.components),
+            components={
+                k: (v.id if isinstance(v, SemanticRef) else str(v))
+                for k, v in metric_ir.composition.components.items()
+            },
             linear_terms=metric_ir.linear_terms if metric_ir.composition.kind == "linear" else (),
             axes=axes,
             semantic_kind=semantic_kind,
@@ -714,14 +718,12 @@ def _execute_sampled_base(
     if group_names:
         grouped_expr = (
             phase_b_source.group_by(group_names)
-            .aggregate(**{metric_ir.name: folded_value})
+            .aggregate(value=folded_value)
             .order_by(group_names)
-            .select(*group_names, metric_ir.name)
+            .select(*group_names, "value")
         )
     else:
-        grouped_expr = phase_b_source.aggregate(**{metric_ir.name: folded_value}).select(
-            metric_ir.name
-        )
+        grouped_expr = phase_b_source.aggregate(value=folded_value).select("value")
     result = execute(
         grouped_expr,
         datasource_name=plan.datasource_name,
@@ -834,7 +836,6 @@ def _execute_base(
             session=session,
             resolved_window=resolved_window,
         )
-    metric_name = metric_ir.name
     metric_datasets = tuple(metric_ir.entities)
     primary_datasource = plan.datasource_name
     read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
@@ -883,9 +884,9 @@ def _execute_base(
         group_names = ["bucket_start", *dimension_names]
         grouped_expr = (
             bucketed_table.group_by(group_names)
-            .aggregate(**{metric_name: metric_expr})
+            .aggregate(value=metric_expr)
             .order_by(group_names)
-            .select(*group_names, metric_name)
+            .select(*group_names, "value")
         )
         result = execute(
             grouped_expr,
@@ -949,9 +950,9 @@ def _execute_base(
         )
         grouped_expr = (
             bucketed_table.group_by("bucket_start")
-            .aggregate(**{metric_name: metric_expr})
+            .aggregate(value=metric_expr)
             .order_by("bucket_start")
-            .select("bucket_start", metric_name)
+            .select("bucket_start", "value")
         )
         result = execute(
             grouped_expr,
@@ -986,9 +987,9 @@ def _execute_base(
         )
         grouped_expr = (
             table.group_by(dimension_names)
-            .aggregate(**{metric_name: metric_expr})
+            .aggregate(value=metric_expr)
             .order_by(dimension_names)
-            .select(*dimension_names, metric_name)
+            .select(*dimension_names, "value")
         )
         result = execute(
             grouped_expr,
@@ -1005,7 +1006,7 @@ def _execute_base(
         metric_expr = _metric_expr(
             catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables
         )
-        grouped_expr = plan.table.aggregate(**{metric_name: metric_expr})
+        grouped_expr = plan.table.aggregate(value=metric_expr)
         result = execute(
             grouped_expr,
             datasource_name=primary_datasource,
@@ -1368,7 +1369,7 @@ def _execute_derived(
         component_frames.append(df)
 
     if not component_frames:
-        merged = pandas.DataFrame(columns=[*merge_keys, metric_name])
+        merged = pandas.DataFrame(columns=[*merge_keys, "value"])
     else:
         merged = component_frames[0]
         for frame in component_frames[1:]:
@@ -1376,18 +1377,19 @@ def _execute_derived(
                 merged = pandas.merge(merged, frame, on=merge_keys, how="outer")
             else:
                 merged = pandas.concat([merged, frame], axis=1)
-    merged[metric_name] = _evaluate_composition_on_frame(metric_ir, merged)
+    merged["value"] = _evaluate_composition_on_frame(metric_ir, merged)
     if merge_keys:
-        result_df = (
-            merged[[*merge_keys, metric_name]].sort_values(merge_keys).reset_index(drop=True)
-        )
+        result_df = merged[[*merge_keys, "value"]].sort_values(merge_keys).reset_index(drop=True)
     else:
-        result_df = merged[[metric_name]]
+        result_df = merged[["value"]]
 
     component_df: Any | None = None
     if _is_component_aware_composition(metric_ir):
+        # ComponentFrame keeps the metric name as its value column so that the
+        # melt in _add_fold_metadata_to_component_df (which renames role
+        # columns to "value") does not collide with the metric value column.
         component_df = _component_frame_df(
-            raw_df=merged,
+            raw_df=merged.rename(columns={"value": metric_name}),
             metric_ir=metric_ir,
             axes_columns=merge_keys,
             metric_value_column=metric_name,
@@ -1741,7 +1743,7 @@ def observe(
         # Build adapters for all catalog entities so derived components can plan
         # across any entity they reference.
         all_entity_refs = {
-            obj.ref.ref
+            obj.ref.id
             for domain in catalog.list(kind=SemanticKind.DOMAIN)
             for obj in catalog.list(domain.ref, kind=SemanticKind.ENTITY)
         }
@@ -1927,7 +1929,7 @@ def observe(
     required_entity_refs = set(metric_datasets)
     for field_id in [*(dimension_refs or []), *where_by_id]:
         if "." in field_id:
-            required_entity_refs.add(_field_details(catalog, field_id).entity.ref)
+            required_entity_refs.add(_field_details(catalog, field_id).entity.id)
     _entity_details_by_id, _dataset_tables, dataset_irs, dataset_fns = _entity_adapter_maps(
         catalog=catalog,
         resolver=resolver,

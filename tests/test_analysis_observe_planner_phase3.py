@@ -13,7 +13,8 @@ from marivo.analysis.intents.observe_errors import (
     ObservePlanningError,
     RepairSafety,
 )
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -98,8 +99,8 @@ def test_unsafe_fanout_repair_payload_lists_root_then_policy(tmp_path):
 
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
-            SemanticRef("sales.gmv_with_items", kind=SemanticKind.METRIC),
-            dimensions=[SemanticRef("sales.order_items.qty", kind=SemanticKind.DIMENSION)],
+            make_ref("sales.gmv_with_items", SemanticKind.METRIC),
+            dimensions=[make_ref("sales.order_items.qty", SemanticKind.DIMENSION)],
             session=_session(con),
         )
 
@@ -119,8 +120,8 @@ def test_aggregate_then_join_executes_one_to_many(tmp_path):
     _seed(con)
 
     frame = observe(
-        SemanticRef("sales.gmv_with_items", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("sales.order_items.qty", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.gmv_with_items", SemanticKind.METRIC),
+        dimensions=[make_ref("sales.order_items.qty", SemanticKind.DIMENSION)],
         session=_session(con),
     )
 
@@ -131,7 +132,7 @@ def test_aggregate_then_join_executes_one_to_many(tmp_path):
     # order 3 (30): qty=3
     # Group by qty: qty=1 -> 10, qty=2 -> 10, qty=3 -> 30, qty=5 -> 20
     expected = {1: 10.0, 2: 10.0, 3: 30.0, 5: 20.0}
-    assert dict(zip(df["qty"], df["gmv_with_items"], strict=True)) == expected
+    assert dict(zip(df["qty"], df["value"], strict=True)) == expected
 
 
 def test_aggregate_then_join_records_lineage(tmp_path):
@@ -140,8 +141,8 @@ def test_aggregate_then_join_records_lineage(tmp_path):
     _seed(con)
 
     frame = observe(
-        SemanticRef("sales.gmv_with_items", kind=SemanticKind.METRIC),
-        dimensions=[SemanticRef("sales.order_items.qty", kind=SemanticKind.DIMENSION)],
+        make_ref("sales.gmv_with_items", SemanticKind.METRIC),
+        dimensions=[make_ref("sales.order_items.qty", SemanticKind.DIMENSION)],
         session=_session(con),
     )
     params = frame.meta.lineage.steps[0].params
@@ -162,8 +163,8 @@ def test_observe_does_not_accept_fanout_policy_kwarg(tmp_path):
 
     with pytest.raises(TypeError):
         observe(
-            SemanticRef("sales.gmv_with_items", kind=SemanticKind.METRIC),
-            dimensions=[SemanticRef("sales.order_items.qty", kind=SemanticKind.DIMENSION)],
+            make_ref("sales.gmv_with_items", SemanticKind.METRIC),
+            dimensions=[make_ref("sales.order_items.qty", SemanticKind.DIMENSION)],
             session=_session(con),
             fanout_policy="aggregate_then_join",  # type: ignore[call-arg]
         )

@@ -158,7 +158,10 @@ Physical references appear in exactly two places:
 
 After an entity is registered, every API input is a semantic ref
 (`"sales.orders"` strings or typed `EntityRef` / `DimensionRef` / `MetricRef`,
-i.e. `SemanticRefInput`). Prepare and verify resolve physical sources and
+i.e. `SemanticRefInput`). All typed ref classes are subclasses of the
+cross-layer `SemanticRef` base (`marivo.refs.SemanticRef`), which exposes a
+single `.id` accessor for the identity string and a `.kind` property for the
+`SymbolKind`. Prepare and verify resolve physical sources and
 datasources from the registry; the agent never re-supplies
 datasource/table/column tuples for registered objects.
 
