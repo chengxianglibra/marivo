@@ -24,12 +24,36 @@ function docsItems(version) {
 }
 
 export default defineConfig({
-  // The Python API reference is a single English Sphinx subtree at /api/.
-  // Starlight localizes the sidebar link to /en/api/ and /zh-cn/api/, so
-  // redirect those locale-prefixed paths back to the canonical /api/ tree.
+  // The Python API reference is a single English Sphinx subtree emitted by
+  // Sphinx into site/public/api/ and served at /api/. Starlight rewrites the
+  // sidebar link to the locale-prefixed /en/api and /zh-cn/api, so redirect
+  // those to the real index file. We must NOT add a redirect for the bare
+  // /api itself: in a static build that would emit dist/api/index.html and
+  // clobber the Sphinx index. Hosts (and `astro preview`) resolve the bare
+  // directory /api/ to /api/index.html on their own.
   redirects: {
-    '/en/api': '/api/',
-    '/zh-cn/api': '/api/',
+    '/en/api': '/api/index.html',
+    '/zh-cn/api': '/api/index.html',
+  },
+  // Dev-only: the Vite dev server serves files in public/ but does not resolve
+  // the bare directory URL /api/ to /api/index.html (production hosts and
+  // `astro preview` do). Rewrite the request in dev so /api/ works there too.
+  // `apply: 'serve'` keeps this out of the production build.
+  vite: {
+    plugins: [
+      {
+        name: 'marivo-api-dir-index-dev',
+        apply: 'serve',
+        configureServer(server) {
+          server.middlewares.use((req, _res, next) => {
+            if (req.url === '/api' || req.url === '/api/') {
+              req.url = '/api/index.html';
+            }
+            next();
+          });
+        },
+      },
+    ],
   },
   integrations: [
     starlight({
