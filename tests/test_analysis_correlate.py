@@ -391,3 +391,90 @@ def test_correlate_does_not_accept_lag_policy_argument():
 
     with pytest.raises(TypeError):
         session.correlate(a, b, lag_policy={"mode": "single", "offset": 0})  # type: ignore[arg-type]
+
+
+def test_correlate_normalizes_mismatched_bucket_start_dtypes():
+    """Correlate should handle object (date) vs datetime64 bucket_start columns."""
+    from datetime import date
+
+    session = session_attach.get_or_create(name="demo")
+
+    # Frame A: bucket_start as object dtype (Python date objects)
+    a = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket_start": pd.Series(
+                    [date(2026, 7, 1), date(2026, 7, 2), date(2026, 7, 3)],
+                    dtype="object",
+                ),
+                "value": [10.0, 20.0, 30.0],
+            }
+        ),
+        metric_id="sales.revenue",
+    )
+    # Frame B: bucket_start as datetime64
+    b = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02", "2026-07-03"]),
+                "value": [1.0, 2.0, 3.0],
+            }
+        ),
+        metric_id="sales.orders",
+    )
+
+    result = session.correlate(a, b)
+    assert isinstance(result, AssociationResult)
+    assert -1.0 <= result.meta.correlation <= 1.0
+
+
+def test_normalize_key_dtypes_casts_object_date_to_datetime64():
+    """Unit test for the _normalize_key_dtypes helper."""
+    from datetime import date
+
+    from marivo.analysis.intents.correlate import _normalize_key_dtypes
+
+    left = pd.DataFrame(
+        {
+            "bucket_start": pd.Series([date(2026, 7, 1), date(2026, 7, 2)], dtype="object"),
+            "value_a": [1.0, 2.0],
+        }
+    )
+    right = pd.DataFrame(
+        {
+            "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+            "value_b": [3.0, 4.0],
+        }
+    )
+
+    norm_left, norm_right = _normalize_key_dtypes(left, right, ["bucket_start"])
+    assert pd.api.types.is_datetime64_any_dtype(norm_left["bucket_start"])
+    assert pd.api.types.is_datetime64_any_dtype(norm_right["bucket_start"])
+
+    merged = pd.merge(norm_left, norm_right, on=["bucket_start"], validate="one_to_one")
+    assert len(merged) == 2
+
+
+def test_normalize_key_dtypes_skips_non_datetime_object_keys():
+    """Object-dtype columns that don't look like dates should be left untouched."""
+    from marivo.analysis.intents.correlate import _normalize_key_dtypes
+
+    left = pd.DataFrame(
+        {
+            "region": pd.Series(["NORTH", "SOUTH"], dtype="object"),
+            "value_a": [1.0, 2.0],
+        }
+    )
+    right = pd.DataFrame(
+        {
+            "region": pd.Series(["NORTH", "SOUTH"], dtype="object"),
+            "value_b": [3.0, 4.0],
+        }
+    )
+
+    # Both sides are object dtype — no mismatch, so no normalization needed.
+    norm_left, norm_right = _normalize_key_dtypes(left, right, ["region"])
+    assert norm_left["region"].dtype == object
+    assert norm_right["region"].dtype == object

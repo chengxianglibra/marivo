@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
@@ -753,9 +752,6 @@ def _execute_sampled_base(
                 grain=resolved_window.grain,
                 report_tz=cast("ZoneInfo", session.report_tz),
             )
-            if resolved_window.grain.is_day:
-                with suppress(AttributeError):
-                    coverage_df["bucket_start"] = coverage_df["bucket_start"].dt.date
         # Compute expected_samples from bucket duration and sample interval
         bucket_seconds = _fixed_grain_seconds_for_coverage(
             resolved_window.grain.count, resolved_window.grain.unit
@@ -778,14 +774,6 @@ def _execute_sampled_base(
             grain=resolved_window.grain,
             report_tz=cast("ZoneInfo", session.report_tz),
         )
-    if (
-        resolved_window is not None
-        and resolved_window.grain is not None
-        and resolved_window.grain.is_day
-        and "bucket_start" in result.df
-    ):
-        with suppress(AttributeError):
-            result.df["bucket_start"] = result.df["bucket_start"].dt.date
     axes = dict(plan.axes_metadata)
     if is_time_series and resolved_window is not None:
         assert resolved_window.grain is not None
@@ -902,13 +890,6 @@ def _execute_base(
                 grain=resolved_window.grain,
                 report_tz=cast("ZoneInfo", session.report_tz),
             )
-        if (
-            resolved_window.grain is not None
-            and resolved_window.grain.is_day
-            and "bucket_start" in result.df
-        ):
-            with suppress(AttributeError):
-                result.df["bucket_start"] = result.df["bucket_start"].dt.date
         axes = {
             "time": {
                 "role": "time",
@@ -1123,9 +1104,6 @@ def _execute_folded_component(
             grain=resolved_window.grain,
             report_tz=cast("ZoneInfo", session.report_tz),
         )
-        if resolved_window.grain.is_day:
-            with suppress(AttributeError):
-                df["bucket_start"] = df["bucket_start"].dt.date
     # Coverage sidecar
     coverage_df: Any | None = None
     if is_time_series and resolved_window is not None:
@@ -1148,9 +1126,6 @@ def _execute_folded_component(
                 grain=resolved_window.grain,
                 report_tz=cast("ZoneInfo", session.report_tz),
             )
-            if resolved_window.grain.is_day:
-                with suppress(AttributeError):
-                    coverage_df["bucket_start"] = coverage_df["bucket_start"].dt.date
         bucket_seconds = _fixed_grain_seconds_for_coverage(
             resolved_window.grain.count, resolved_window.grain.unit
         )
@@ -1357,15 +1332,6 @@ def _execute_derived(
                     grain=resolved_window.grain if resolved_window else None,
                     report_tz=cast("ZoneInfo", session.report_tz),
                 )
-            if (
-                has_time
-                and resolved_window
-                and resolved_window.grain is not None
-                and resolved_window.grain.is_day
-                and "bucket_start" in df
-            ):
-                with suppress(AttributeError):
-                    df["bucket_start"] = df["bucket_start"].dt.date
         component_frames.append(df)
 
     if not component_frames:

@@ -89,7 +89,7 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
     df = mf.to_pandas()
     assert {"bucket_start", "region", "value"} == set(df.columns)
     assert len(df) == 4
-    by_key = {(str(row.bucket_start), row.region): row.value for row in df.itertuples()}
+    by_key = {(str(row.bucket_start.date()), row.region): row.value for row in df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")] == pytest.approx(10.0)
     assert by_key[("2026-07-02", "SOUTH")] == pytest.approx(40.0)
 
@@ -219,7 +219,7 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
         "total_count",
         "failure_rate",
     ]
-    by_key = {(str(row.bucket_start), row.region): row for row in component_df.itertuples()}
+    by_key = {(str(row.bucket_start.date()), row.region): row for row in component_df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")].failed_count == pytest.approx(1.0)
     assert by_key[("2026-07-01", "NORTH")].total_count == pytest.approx(2.0)
     assert by_key[("2026-07-01", "NORTH")].failure_rate == pytest.approx(0.5)
@@ -251,7 +251,7 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
     component_df = components.to_pandas()
     assert "total_weight" in component_df.columns
     assert "total_count" not in component_df.columns
-    by_key = {(str(row.bucket_start), row.region): row for row in component_df.itertuples()}
+    by_key = {(str(row.bucket_start.date()), row.region): row for row in component_df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")].weighted_failed == pytest.approx(2.0)
     assert by_key[("2026-07-01", "NORTH")].total_weight == pytest.approx(3.0)
     assert by_key[("2026-07-01", "NORTH")].weighted_failure_rate == pytest.approx(2.0 / 3.0)

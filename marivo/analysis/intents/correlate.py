@@ -6,12 +6,12 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from time import monotonic
 from typing import Any, Literal, cast
 
 import pandas as pd
-from pandas.api.types import is_numeric_dtype
+from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype, is_object_dtype
 
 from marivo.analysis.errors import AlignmentFailedError, SemanticKindMismatchError
 from marivo.analysis.evidence.pipeline import (
@@ -220,6 +220,38 @@ def correlate(
     return result
 
 
+def _looks_like_datetime(series: pd.Series) -> bool:
+    """Return True if an object-dtype Series contains date or datetime values."""
+    non_null = series.dropna()
+    if non_null.empty:
+        return False
+    first_valid = non_null.iloc[0]
+    return isinstance(first_valid, (date, pd.Timestamp))
+
+
+def _normalize_key_dtypes(
+    left: pd.DataFrame, right: pd.DataFrame, keys: list[str]
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Coerce merge-key columns to a common dtype when they differ."""
+    for key in keys:
+        left_dtype = left[key].dtype
+        right_dtype = right[key].dtype
+        if left_dtype == right_dtype:
+            continue
+        left_is_dt = is_datetime64_any_dtype(left_dtype)
+        right_is_dt = is_datetime64_any_dtype(right_dtype)
+        left_is_obj = is_object_dtype(left_dtype)
+        right_is_obj = is_object_dtype(right_dtype)
+        # If one side is datetime64 and the other is object that looks like dates,
+        # normalize both to datetime64.
+        if (left_is_dt and right_is_obj and _looks_like_datetime(right[key])) or (
+            right_is_dt and left_is_obj and _looks_like_datetime(left[key])
+        ):
+            left[key] = pd.to_datetime(left[key])
+            right[key] = pd.to_datetime(right[key])
+    return left, right
+
+
 def _align(
     a_df: pd.DataFrame,
     b_df: pd.DataFrame,
@@ -245,6 +277,7 @@ def _align(
     _ensure_unique_keys(b_df, keys=keys, label="b")
     left = a_df[[*keys, a_value]].rename(columns={a_value: "value_a"})
     right = b_df[[*keys, b_value]].rename(columns={b_value: "value_b"})
+    left, right = _normalize_key_dtypes(left, right, keys)
     return pd.merge(left, right, on=keys, validate="one_to_one"), ",".join(keys)
 
 
