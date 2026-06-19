@@ -777,6 +777,7 @@ def help(
 
     Args:
         target: One of:
+
             - None -- print top-level analysis surface help.
             - str -- print help for a named symbol or topic (e.g. "observe",
               "MetricFrame", "session").

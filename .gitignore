@@ -68,6 +68,7 @@ package-lock.json
 !site/package.json
 !site/package-lock.json
 site/.astro/
+site/public/api/
 
 # Config (contains local paths/credentials)
 marivo.yaml

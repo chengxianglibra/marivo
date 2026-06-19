@@ -1389,7 +1389,7 @@ def ratio(
 
     Example::
 
-    loss_rate = ms.ratio(name="loss_rate", numerator=lost, denominator=total, unit="1")
+        loss_rate = ms.ratio(name="loss_rate", numerator=lost, denominator=total, unit="1")
     """
     return _derived(
         name=name,

@@ -24,6 +24,13 @@ function docsItems(version) {
 }
 
 export default defineConfig({
+  // The Python API reference is a single English Sphinx subtree at /api/.
+  // Starlight localizes the sidebar link to /en/api/ and /zh-cn/api/, so
+  // redirect those locale-prefixed paths back to the canonical /api/ tree.
+  redirects: {
+    '/en/api': '/api/',
+    '/zh-cn/api': '/api/',
+  },
   integrations: [
     starlight({
       title: 'Marivo',
@@ -60,6 +67,13 @@ export default defineConfig({
           label: 'v0.1',
           items: docsItems('v0.1'),
           collapsed: true,
+        },
+        {
+          label: 'Python API Reference',
+          translations: {
+            'zh-CN': 'Python API 参考',
+          },
+          link: '/api/',
         },
       ],
     }),

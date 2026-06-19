@@ -86,6 +86,26 @@ make lint
 make typecheck
 ```
 
+### 构建 API 文档
+使用 Sphinx 从公共模块（`marivo.datasource` / `marivo.semantic` /
+`marivo.analysis`）的 docstring 生成 HTML API 参考。输出位于
+`site/public/api/`（已在 `.gitignore` 中忽略），由 Astro 站点在 `/api/` 路径发布。
+
+```bash
+# 安装文档依赖
+.venv/bin/pip install -e ".[docs]"
+
+# 生成 API 文档
+make docs-api
+```
+
+完整站点构建会先自动生成 API 文档（`site` 的 npm `prebuild` 脚本会调用
+`make docs-api`），因此发布构建需在具备 Python 环境的主机上运行：
+
+```bash
+cd site && npm run build
+```
+
 ## 测试
 
 ### 运行测试
