@@ -1,4 +1,4 @@
-.PHONY: test typecheck lint format check examples-check pypi-build pypi-check pypi-clean
+.PHONY: test typecheck lint format check examples-check docs-api pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
 VENV_BIN := .venv/Scripts
@@ -51,6 +51,12 @@ format:
 	@$(VENV_RUFF) check --fix .
 
 check: lint typecheck examples-check test
+
+docs-api: ## Build the Sphinx Python API reference into site/public/api/
+	@./scripts/require-venv.sh sphinx-build
+	@rm -rf site/public/api
+	@$(VENV_BIN)/sphinx-build$(EXE_SUFFIX) -W --keep-going -b html docs/api site/public/api
+	@echo "API docs built in site/public/api"
 
 pypi-build: ## Build PyPI sdist and wheel into dist/pypi/
 	@./scripts/require-venv.sh pip

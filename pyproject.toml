@@ -46,6 +46,10 @@ all = [
     "PyMySQL>=1.1",
     "trino>=0.330",
 ]
+docs = [
+    "sphinx>=7",
+    "pydata-sphinx-theme>=0.15",
+]
 dev = [
     "duckdb>=1.2.2",
     "pyarrow>=15.0.0",

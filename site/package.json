@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
+    "prebuild": "cd .. && make docs-api",
     "build": "astro check && astro build",
     "preview": "astro preview",
     "verify:content": "node scripts/verify-site-content.mjs"
