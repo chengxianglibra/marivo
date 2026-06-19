@@ -25,7 +25,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 | `session.decompose` | `DeltaFrame`, catalog dimension ref | `AttributionFrame` | Always pass `axis=session.catalog.get("<dimension_id>").ref`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape` (from `marivo.analysis.frames.candidate`). |
 | `candidates.select(...)` | `CandidateSet` | typed value (`SemanticRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
-| `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.AlignmentPolicy(kind="window_bucket")`; default lag is zero. |
+| `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.window_bucket()`; default lag is zero. |
 | `session.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
 | `session.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
 | `session.assess_quality(frame)` | `MetricFrame` | `QualityReport` | Row count, null ratio, time coverage, duplicate key checks |
@@ -82,7 +82,7 @@ Frames are immutable. Use `frame.summary()` for a cheap read,
 
 Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension refs from
 `session.catalog.get("<dimension_id>").ref`, `mv.CalendarRef(...)`, and
-`mv.AlignmentPolicy(...)` at public operator boundaries. Do not pass bare
+`mv.window_bucket()` / calendar alignment helpers at public operator boundaries. Do not pass bare
 strings directly to `observe`, `decompose`, `transform`, or calendar-backed
 `compare`.
 
@@ -99,7 +99,7 @@ base = session.observe(
     session.catalog.get("sales.revenue"),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("sales.orders.created_at").ref
 attribution = session.decompose(delta, axis=created_at)
 print(attribution.summary())
@@ -271,7 +271,7 @@ session.observe(
 
 Valid `AlignmentPolicy.kind` values are `window_bucket`, `dow_aligned`,
 `holiday_aligned`, and `holiday_and_dow_aligned`; there is no separate
-`ordinal` kind. `AlignmentPolicy(kind="window_bucket")` aligns by shared
+`ordinal` kind. `mv.window_bucket()` aligns by shared
 `bucket_start` when available. For same-grain WoW/YoY windows with no shared
 dates, it builds the expected buckets from each window, pairs them by ordinal
 position, preserves the baseline date as `bucket_start_b`, and treats sparse

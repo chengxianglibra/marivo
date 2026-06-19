@@ -54,7 +54,7 @@ Operators 接受 catalog 对象和若干共享的值对象。几乎每个 intent
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | 时间桶大小。存在 ⇒ time series 或 panel。 |
 | `dimensions` | `[region, country]` | 分段轴。v1 中全部必须解析到 metric 所属 entity。 |
 | `where` | `{region: "US"}` 或 `{amount: {"op": ">", "value": 100}}` | 聚合前的行过滤（见下方运算符）。 |
-| `AlignmentPolicy` | `mv.AlignmentPolicy(kind="window_bucket")` | `compare` / `correlate` 时两个窗口如何配对。 |
+| `AlignmentPolicy` | `mv.window_bucket()` | `compare` / `correlate` 时两个窗口如何配对。 |
 
 结果的 **semantic kind** 由 `grain` 和 `dimensions` 决定：`scalar`（都没有）、
 `time_series`（仅 grain）、`segmented`（仅 dimensions）或 `panel`（两者皆有）。
@@ -115,7 +115,7 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(current, baseline, alignment=mv.window_bucket())
 ```
 
 `AlignmentPolicy.kind` 取 `window_bucket`（默认）、`dow_aligned`、`holiday_aligned` 或
@@ -268,7 +268,7 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(current, baseline, alignment=mv.window_bucket())
 attribution = session.decompose(delta, axis=region)
 attribution.show()
 ```

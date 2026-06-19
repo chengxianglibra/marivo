@@ -736,7 +736,7 @@ class Session:
         Args:
             current: Current-period MetricFrame.
             baseline: Baseline-period MetricFrame.
-            alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``. For
+            alignment: Defaults to ``mv.window_bucket()``. For
                 ``segmented`` frames, only ``window_bucket`` is supported in v1.
 
         Raises:
@@ -751,7 +751,7 @@ class Session:
             >>> revenue = session.catalog.get("sales.revenue")
             >>> cur  = session.observe(revenue, timescope={"start": "2026-07-01", "end": "2026-10-01"})
             >>> base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-10-01"})
-            >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+            >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
         """
         from marivo.analysis.intents.compare import compare
 
@@ -781,7 +781,7 @@ class Session:
             CrossSessionFrameError: ``frame`` belongs to a different session.
 
         Example:
-            >>> delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+            >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
             >>> attribution = session.decompose(delta, axis=session.catalog.get("sales.orders.country").ref)
             >>> attribution.summary()
         """
@@ -811,7 +811,7 @@ class Session:
             b: Second MetricFrame.
             measure_a: Numeric column on ``a``. Defaults to the frame's measure column.
             measure_b: Numeric column on ``b``. Defaults to the frame's measure column.
-            alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``.
+            alignment: Defaults to ``mv.window_bucket()``.
             method: Only ``"pearson"`` in v1.
 
         Raises:
@@ -823,7 +823,7 @@ class Session:
         Example:
             >>> result = session.correlate(
             ...     a, b,
-            ...     alignment=mv.AlignmentPolicy(kind="window_bucket"),
+            ...     alignment=mv.window_bucket(),
             ... )
             >>> result.summary()
         """
@@ -948,7 +948,7 @@ class Session:
             hypothesis: Only ``"mean_changed"`` in v1.
             value_a: Numeric column on ``a``. Defaults to the frame's measure column.
             value_b: Numeric column on ``b``. Defaults to the frame's measure column.
-            alignment: Defaults to ``AlignmentPolicy(kind="window_bucket")``.
+            alignment: Defaults to ``mv.window_bucket()``.
             sampling: Defaults to ``SamplingPolicy()`` (pairing inferred from shape).
             alpha: Significance level in (0, 0.5].
 

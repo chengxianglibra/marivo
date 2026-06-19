@@ -111,6 +111,10 @@ _SUMMARIES: dict[str, str] = {
     "AbsoluteWindow": "half-open time interval [start, end) for observe timescope",
     "AlignmentKind": "literal values for AlignmentPolicy.kind",
     "AlignmentPolicy": "alignment strategy for compare and correlate",
+    "window_bucket": "construct window-bucket AlignmentPolicy",
+    "dow_aligned": "construct day-of-week calendar AlignmentPolicy",
+    "holiday_aligned": "construct holiday calendar AlignmentPolicy",
+    "holiday_and_dow_aligned": "construct holiday-then-day-of-week AlignmentPolicy",
     "ArtifactRef": "session-local analysis artifact ref",
     "BlockingIssue": "blocking issue attached to frame meta",
     "CalendarPolicy": "calendar provider policy for calendar-backed alignment",
@@ -481,6 +485,12 @@ def _observe_text(content: dict[str, object]) -> str:
 def _alignment_content() -> dict[str, object]:
     return {
         "summary": "mv.AlignmentPolicy variants and calendar-backed alignment columns.",
+        "helpers": [
+            "mv.window_bucket()",
+            "mv.dow_aligned(calendar=mv.CalendarRef(...))",
+            "mv.holiday_aligned(calendar=mv.CalendarRef(...))",
+            "mv.holiday_and_dow_aligned(calendar=mv.CalendarRef(...))",
+        ],
         "variants": [
             {
                 "kind": "window_bucket",
@@ -521,16 +531,14 @@ def _alignment_content() -> dict[str, object]:
             {"kind": "workday", "workday_ordinal": 1},
             {"kind": "fallback_workday", "baseline_date": "2026-04-03"},
         ],
-        "example": (
-            "mv.AlignmentPolicy(kind='dow_aligned', "
-            "calendar=mv.CalendarRef('cn_holidays'), period='month')"
-        ),
+        "example": "mv.dow_aligned(calendar=mv.CalendarRef('cn_holidays'), period='month')",
     }
 
 
 def _alignment_text(content: dict[str, object]) -> str:
     variants = cast("list[dict[str, object]]", content["variants"])
     examples = cast("list[dict[str, object]]", content["align_key_examples"])
+    helpers = cast("list[str]", content["helpers"])
     lines = ["mv.AlignmentPolicy variants:", "", "Valid kind values:"]
     for variant in variants:
         calendar = (
@@ -539,6 +547,9 @@ def _alignment_text(content: dict[str, object]) -> str:
             else "no calendar argument"
         )
         lines.append(f"  kind='{variant['kind']}' {calendar}")
+    lines.extend(("", "Helper constructors:"))
+    for helper in helpers:
+        lines.append(f"  {helper}")
     lines.extend(("", "window_bucket behavior:"))
     for note in cast("list[str]", variants[0]["notes"]):
         lines.append(f"  {note}")

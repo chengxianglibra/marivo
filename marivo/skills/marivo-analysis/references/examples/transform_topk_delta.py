@@ -45,7 +45,7 @@ baseline = session.promote_metric_frame(
 delta_frame = session.compare(
     current,
     baseline,
-    alignment=mv.AlignmentPolicy(kind="window_bucket"),
+    alignment=mv.window_bucket(),
 )
 top_decreases = session.transform.topk(delta_frame, by="delta", limit=3, order="decrease")
 print(top_decreases.summary())

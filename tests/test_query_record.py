@@ -292,7 +292,7 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
     delta = s.compare(
         frame,
         frame,
-        alignment=mv.AlignmentPolicy(kind="window_bucket"),
+        alignment=mv.window_bucket(),
     )
     attr = s.decompose(delta, axis=make_ref("region", SemanticKind.DIMENSION))
     job_id = attr.meta.produced_by_job

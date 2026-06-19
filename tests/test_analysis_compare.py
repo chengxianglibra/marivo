@@ -114,10 +114,7 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
         in rendered
     )
     assert "Fix:" in rendered
-    assert (
-        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
-        in rendered
-    )
+    assert "delta = session.compare(cur, base, alignment=mv.window_bucket())" in rendered
     assert exc_info.value.details["expected_kind"] == "metric_frame"
     assert exc_info.value.details["got_kind"] == "delta_frame"
 

@@ -140,6 +140,130 @@ class AlignmentPolicy(BaseModel):
         return self
 
 
+def window_bucket(
+    *,
+    mode: WindowBucketMode = "ordinal_bucket",
+    strict_lengths: bool = False,
+) -> AlignmentPolicy:
+    """Construct a window-bucket alignment policy.
+
+    Args:
+        mode: Bucket pairing mode. ``"ordinal_bucket"`` pairs buckets by
+            position within each input window; ``"calendar_bucket"`` joins by
+            absolute bucket key.
+        strict_lengths: When ``True``, ordinal window-bucket alignment rejects
+            unequal expected bucket counts.
+
+    Returns:
+        An ``AlignmentPolicy`` with ``kind="window_bucket"``.
+
+    Example:
+        ``session.compare(cur, base, alignment=mv.window_bucket())``.
+
+    Constraints:
+        ``window_bucket`` alignment does not accept a calendar argument.
+    """
+    return AlignmentPolicy(
+        kind="window_bucket",
+        mode=mode,
+        strict_lengths=strict_lengths,
+    )
+
+
+def dow_aligned(
+    *,
+    calendar: CalendarRef,
+    period: AlignPeriod = "month",
+    fallback: CalendarFallback = "drop",
+) -> AlignmentPolicy:
+    """Construct a day-of-week calendar alignment policy.
+
+    Args:
+        calendar: Calendar provider ref used to derive aligned periods.
+        period: Calendar period used when deriving alignment keys.
+        fallback: Fallback behavior for unmatched calendar rows.
+
+    Returns:
+        An ``AlignmentPolicy`` with ``kind="dow_aligned"``.
+
+    Example:
+        ``mv.dow_aligned(calendar=mv.CalendarRef("cn_holidays"))``.
+
+    Constraints:
+        ``calendar`` must be a ``CalendarRef``; use ``mv.CalendarRef(...)`` for
+        provider ids.
+    """
+    return AlignmentPolicy(
+        kind="dow_aligned",
+        calendar=calendar,
+        period=period,
+        fallback=fallback,
+    )
+
+
+def holiday_aligned(
+    *,
+    calendar: CalendarRef,
+    period: AlignPeriod = "month",
+    fallback: CalendarFallback = "drop",
+) -> AlignmentPolicy:
+    """Construct a holiday calendar alignment policy.
+
+    Args:
+        calendar: Calendar provider ref used to derive holiday alignment keys.
+        period: Calendar period used when deriving alignment keys.
+        fallback: Fallback behavior for unmatched calendar rows.
+
+    Returns:
+        An ``AlignmentPolicy`` with ``kind="holiday_aligned"``.
+
+    Example:
+        ``mv.holiday_aligned(calendar=mv.CalendarRef("cn_holidays"))``.
+
+    Constraints:
+        ``calendar`` must be a ``CalendarRef``; use ``mv.CalendarRef(...)`` for
+        provider ids.
+    """
+    return AlignmentPolicy(
+        kind="holiday_aligned",
+        calendar=calendar,
+        period=period,
+        fallback=fallback,
+    )
+
+
+def holiday_and_dow_aligned(
+    *,
+    calendar: CalendarRef,
+    period: AlignPeriod = "month",
+    fallback: CalendarFallback = "drop",
+) -> AlignmentPolicy:
+    """Construct a holiday-then-day-of-week calendar alignment policy.
+
+    Args:
+        calendar: Calendar provider ref used to derive holiday and day-of-week
+            alignment keys.
+        period: Calendar period used when deriving alignment keys.
+        fallback: Fallback behavior for unmatched calendar rows.
+
+    Returns:
+        An ``AlignmentPolicy`` with ``kind="holiday_and_dow_aligned"``.
+
+    Example:
+        ``mv.holiday_and_dow_aligned(calendar=mv.CalendarRef("cn_holidays"))``.
+
+    Constraints:
+        ``calendar`` must be a ``CalendarRef``; use ``mv.CalendarRef(...)`` for
+        provider ids.
+    """
+    return AlignmentPolicy(
+        kind="holiday_and_dow_aligned",
+        calendar=calendar,
+        period=period,
+        fallback=fallback,
+    )
+
+
 class SamplingPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

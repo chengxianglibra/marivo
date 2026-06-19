@@ -49,11 +49,7 @@ base = session.observe(
 delta = session.compare(
     cur,
     base,
-    alignment=mv.AlignmentPolicy(
-        kind="holiday_and_dow_aligned",
-        calendar=mv.CalendarRef(id="cn_holidays"),
-        period="month",
-    ),
+    alignment=mv.holiday_and_dow_aligned(calendar=mv.CalendarRef(id="cn_holidays"), period="month"),
 )
 
 assert delta.meta.alignment["kind"] == "holiday_and_dow_aligned"
