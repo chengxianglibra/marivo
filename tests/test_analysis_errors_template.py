@@ -18,7 +18,7 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
         details={
             "location": "session.compare call",
             "cause": "param a was invalid",
-            "fix_snippet": 'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))',
+            "fix_snippet": "delta = session.compare(cur, base, alignment=mv.window_bucket())",
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         },
     )
@@ -30,10 +30,7 @@ def test_analysis_error_renders_structured_sections_from_details_and_hint():
     assert "Cause: param a was invalid" in rendered
     assert "Hint: try fixing X" in rendered
     assert "Fix:" in rendered
-    assert (
-        '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
-        in rendered
-    )
+    assert "  delta = session.compare(cur, base, alignment=mv.window_bucket())" in rendered
     assert "Docs: marivo/skills/marivo-analysis/references/pitfalls.md" in rendered
 
 
@@ -124,10 +121,7 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
     assert (
         'base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-10-01"})'
     ) in rendered
-    assert (
-        '  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
-        in rendered
-    )
+    assert "  delta = session.compare(cur, base, alignment=mv.window_bucket())" in rendered
     assert 'session.observe("revenue"' not in rendered
 
 
@@ -137,10 +131,7 @@ def test_semantic_kind_mismatch_without_kind_details_is_not_compare_specific():
     rendered = str(err)
 
     assert "session.compare call" not in rendered
-    assert (
-        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
-        not in rendered
-    )
+    assert "delta = session.compare(cur, base, alignment=mv.window_bucket())" not in rendered
 
 
 def test_semantic_kind_mismatch_for_delta_expected_is_not_compare_specific():
@@ -154,10 +145,7 @@ def test_semantic_kind_mismatch_for_delta_expected_is_not_compare_specific():
     assert "metric_frame" in rendered
     assert "delta_frame" in rendered
     assert "session.compare call" not in rendered
-    assert (
-        'delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))'
-        not in rendered
-    )
+    assert "delta = session.compare(cur, base, alignment=mv.window_bucket())" not in rendered
 
 
 def test_window_invalid_has_window_fix_template():

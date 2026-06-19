@@ -38,7 +38,7 @@ print(f"recovered ref={recovered.ref!r} kind={recovered.meta.kind!r}")
 base = session.observe(
     session.catalog.get(METRIC_ID), timescope={"start": "2025-07-01", "end": "2025-10-01"}
 )
-delta = session.compare(recovered, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(recovered, base, alignment=mv.window_bucket())
 print(delta.summary())
 
 # Expected output:

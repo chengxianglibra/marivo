@@ -28,7 +28,7 @@ prev = session.observe(
     grain="day",
     dimensions=[session.catalog.get("sales.orders.region").ref],
 )
-delta = session.compare(cur, prev, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(cur, prev, alignment=mv.window_bucket())
 print(delta.summary())
 
 # Expected output:

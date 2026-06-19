@@ -30,7 +30,7 @@ baseline = session.observe(
 delta = session.compare(
     current,
     baseline,
-    alignment=mv.AlignmentPolicy(kind="window_bucket"),
+    alignment=mv.window_bucket(),
 )
 try:
     shifts = session.discover.period_shifts(delta, value="delta")

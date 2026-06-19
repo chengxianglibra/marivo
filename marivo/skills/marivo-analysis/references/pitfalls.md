@@ -6,7 +6,7 @@ environment where `marivo` is installed.
 
 Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension refs from
 `session.catalog.get("<dimension_id>").ref`, `mv.CalendarRef(...)`, and
-`mv.AlignmentPolicy(...)` at public operator boundaries. Do not pass bare
+`mv.window_bucket()` / calendar alignment helpers at public operator boundaries. Do not pass bare
 strings directly to `observe`, `decompose`, `transform`, or calendar-backed
 `compare`.
 
@@ -38,7 +38,7 @@ Cause: got kind delta_frame, expected metric_frame; this usually means passing a
 Fix:
   cur  = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
   base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
-  delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+  delta = session.compare(cur, base, alignment=mv.window_bucket())
 
 Docs: marivo/skills/marivo-analysis/references/pitfalls.md
 ```
@@ -49,7 +49,7 @@ Docs: marivo/skills/marivo-analysis/references/pitfalls.md
 ```python
 cur = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
 base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("sales.orders.created_at").ref
 attribution = session.decompose(delta, axis=created_at)
 ```
@@ -311,7 +311,7 @@ assert candidates.meta.objective == "point_anomalies"
 correlation = session.correlate(
     a,
     b,
-    alignment=mv.AlignmentPolicy(kind="window_bucket"),
+    alignment=mv.window_bucket(),
 )
 assert correlation.meta.kind == "association_result"
 ```
@@ -331,7 +331,7 @@ TypeError: decompose() missing 1 required keyword-only argument: 'axis'
 in the `DeltaFrame`.
 
 ```python
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("sales.orders.created_at").ref
 attribution = session.decompose(delta, axis=created_at)
 ```

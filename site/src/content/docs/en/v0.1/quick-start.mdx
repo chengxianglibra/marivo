@@ -137,7 +137,7 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(current, baseline, alignment=mv.window_bucket())
 attribution = session.decompose(delta, axis=region)
 attribution.show()
 ```

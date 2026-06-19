@@ -28,7 +28,7 @@ prev = session.observe(
     grain="day",
     dimensions=[region],
 )
-delta = session.compare(cur, prev, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(cur, prev, alignment=mv.window_bucket())
 attribution = session.decompose(delta, axis=region)
 print(attribution.summary())
 

@@ -40,6 +40,10 @@ from marivo.analysis.policies import (
     PromotionPolicy,
     PromotionSemanticAnchors,
     SamplingPolicy,
+    dow_aligned,
+    holiday_aligned,
+    holiday_and_dow_aligned,
+    window_bucket,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef
 from marivo.analysis.session._store import SessionSummary
@@ -119,12 +123,16 @@ __all__ = [
     "SliceValue",
     "TimeScope",
     "TimeScopeInput",
+    "dow_aligned",
     "errors",
     "evidence",
     "frames",
     "help",
     "help_text",
+    "holiday_aligned",
+    "holiday_and_dow_aligned",
     "make_ref",
     "publish",
     "session",
+    "window_bucket",
 ]

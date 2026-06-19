@@ -19,6 +19,10 @@ def test_analysis_keeps_frame_and_policy_exports():
     from marivo.analysis.frames.hypothesis import HypothesisTestResultMeta
     from marivo.analysis.frames.quality import QualityReportMeta
 
+    assert mv.window_bucket().kind == "window_bucket"
+    assert callable(mv.dow_aligned)
+    assert callable(mv.holiday_aligned)
+    assert callable(mv.holiday_and_dow_aligned)
     assert mv.SamplingPolicy().pairing == "window_bucket"
     assert HypothesisTestResultMeta.model_fields["kind"].default == "hypothesis_test_result"
     assert ForecastFrameMeta.model_fields["kind"].default == "forecast_frame"
@@ -80,6 +84,10 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "ArtifactRef",
         "TimeScope",
         "AlignmentPolicy",
+        "window_bucket",
+        "dow_aligned",
+        "holiday_aligned",
+        "holiday_and_dow_aligned",
         "PromotionPolicy",
         "SamplingPolicy",
     }

@@ -28,7 +28,7 @@ base = session.observe(
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="month",
 )
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(cur, base, alignment=mv.window_bucket())
 attribution = session.decompose(delta, axis=created_at)
 summary = attribution.summary()
 print(f"kind={summary.kind!r}")
@@ -68,7 +68,7 @@ ratio_base_series = session.observe(
 ratio_series_delta = session.compare(
     ratio_cur_series,
     ratio_base_series,
-    alignment=mv.AlignmentPolicy(kind="window_bucket"),
+    alignment=mv.window_bucket(),
 )
 ratio_bucket_attr = session.decompose(
     ratio_series_delta,
@@ -92,7 +92,7 @@ ratio_base_panel = session.observe(
 ratio_panel_delta = session.compare(
     ratio_cur_panel,
     ratio_base_panel,
-    alignment=mv.AlignmentPolicy(kind="window_bucket"),
+    alignment=mv.window_bucket(),
 )
 ratio_panel_attr = session.decompose(
     ratio_panel_delta,

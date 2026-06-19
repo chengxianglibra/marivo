@@ -57,10 +57,10 @@ session = mv.session.get_or_create(name="investigation")
 axis = session.catalog.get("model.entity.time_dimension").ref
 
 session.observe(session.catalog.get("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame  (end is exclusive: [start, end))
-session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))      # -> DeltaFrame
+session.compare(cur, base, alignment=mv.window_bucket())      # -> DeltaFrame
 session.decompose(delta, axis=axis)                                                # -> AttributionFrame
 session.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
-session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="window_bucket"))         # -> AssociationResult
+session.correlate(a, b, alignment=mv.window_bucket())         # -> AssociationResult
 session.hypothesis_test(cur, base)                                                    # -> HypothesisTestResult
 session.forecast(series, horizon=7)                                                   # -> ForecastFrame
 session.assess_quality(series)                                                        # -> QualityReport
@@ -73,9 +73,9 @@ frame.show()             # bounded result card; repr hints to .show()
 Every intent returns a typed, immutable frame. Stay in frame world until you
 call `frame.to_pandas()`. Use `frame.show()` for bounded inspection.
 
-`AlignmentPolicy(kind="window_bucket")` compares time-series and panel windows
+`mv.window_bucket()` compares time-series and panel windows
 by ordinal bucket position by default. Use
-`AlignmentPolicy(kind="window_bucket", mode="calendar_bucket")` only when the
+`mv.window_bucket(mode="calendar_bucket")` only when the
 same absolute bucket key should be treated as the same row. Use
 `strict_lengths=True` only when unequal window bucket counts must fail.
 
@@ -224,7 +224,7 @@ import marivo.analysis as mv
 
 cur = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
 base = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(cur, base, alignment=mv.window_bucket())
 time_axis = session.catalog.get("<metric_time_dimension_id>").ref
 attribution = session.decompose(delta, axis=time_axis)
 attribution.show()
@@ -243,7 +243,7 @@ window = candidates.select(rank=1, attribute="window")
 ```python
 a = session.observe(session.catalog.get("<metric_a>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
 b = session.observe(session.catalog.get("<metric_b>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
-result = session.correlate(a, b, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+result = session.correlate(a, b, alignment=mv.window_bucket())
 result.show()
 ```
 
@@ -335,7 +335,7 @@ baseline = session.observe(
     timescope={"start": "2026-04-24", "end": "2026-05-01"}, grain="day",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=ap.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(current, baseline, alignment=ap.window_bucket())
 delta.show()
 
 for issue in delta.meta.blocking_issues:

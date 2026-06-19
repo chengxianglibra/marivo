@@ -60,7 +60,7 @@ across almost every intent:
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
 | `where` | `{region: "US"}` or `{amount: {"op": ">", "value": 100}}` | Pre-aggregation row filter (see ops below). |
-| `AlignmentPolicy` | `mv.AlignmentPolicy(kind="window_bucket")` | How two windows are paired for `compare` / `correlate`. |
+| `AlignmentPolicy` | `mv.window_bucket()` | How two windows are paired for `compare` / `correlate`. |
 
 The result's **semantic kind** follows from `grain` and `dimensions`: `scalar`
 (neither), `time_series` (grain only), `segmented` (dimensions only), or `panel`
@@ -123,7 +123,7 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(current, baseline, alignment=mv.window_bucket())
 ```
 
 `AlignmentPolicy.kind` is one of `window_bucket` (default), `dow_aligned`,
@@ -280,7 +280,7 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(current, baseline, alignment=mv.window_bucket())
 attribution = session.decompose(delta, axis=region)
 attribution.show()
 ```

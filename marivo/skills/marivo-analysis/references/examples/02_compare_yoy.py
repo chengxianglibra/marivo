@@ -24,7 +24,7 @@ base = session.observe(
     session.catalog.get(METRIC_ID),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
-delta = session.compare(cur, base, alignment=mv.AlignmentPolicy(kind="window_bucket"))
+delta = session.compare(cur, base, alignment=mv.window_bucket())
 summary = delta.summary()
 print(f"kind={summary.kind!r}")
 print(f"row_count={summary.row_count}")
