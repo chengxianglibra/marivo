@@ -47,6 +47,69 @@ your-project/
         _domain.py          # ms.domain(name="sales") + entities, metrics, ...
 ```
 
+## Semantic refs
+
+Every semantic object is identified by a **semantic ref** — a typed, immutable
+handle that carries both the qualified name and the kind of object it refers to.
+Refs are the same type at authoring time and in the analysis loop: an
+`ms.entity(...)` call, a `catalog.get(...).ref` lookup, and an analysis intent
+parameter all use the same `SemanticRef` family.
+
+### The `SemanticRef` base
+
+All refs share two read-only attributes:
+
+| Attribute | Type | Meaning |
+| --- | --- | --- |
+| `.id` | `str` | Qualified semantic id (e.g. `"sales.revenue"`). |
+| `.kind` | `SemanticKind` | Object kind — one of the eight values below. |
+
+`str(ref)` returns `.id`, so refs can be used wherever a string id is expected.
+Equality and hashing are by `(type, id)`, so two refs of the same subclass and
+id are interchangeable.
+
+### Per-kind subclasses
+
+Each `SemanticKind` value has a concrete ref subclass:
+
+| Kind | Subclass | Returned by | Callable? |
+| --- | --- | --- | --- |
+| `domain` | `DomainRef` | `ms.domain(...)` | No |
+| `datasource` | `DatasourceRef` | `md.ref(...)` | No |
+| `entity` | `EntityRef` | `ms.entity(...)` | No |
+| `dimension` | `DimensionRef` | `@ms.dimension` | Yes — in metric bodies |
+| `time_dimension` | `TimeDimensionRef` | `@ms.time_dimension` | Yes — in metric bodies |
+| `measure` | `MeasureRef` | `@ms.measure` | Yes — in metric bodies |
+| `metric` | `MetricRef` | `ms.aggregate(...)`, `@ms.metric`, `ms.ratio(...)`, … | No |
+| `relationship` | `RelationshipRef` | `ms.relationship(...)` | No |
+
+Callable field refs (`DimensionRef`, `MeasureRef`, `TimeDimensionRef`) resolve
+to an ibis expression when called inside a metric body. All other refs raise a
+teaching error if accidentally called — they are identity tokens, not
+decorators.
+
+### One family, one accessor
+
+Because authoring refs and catalog refs are the same type family, you can pass
+an authoring ref directly to an analysis intent without wrapping it:
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+# revenue is a MetricRef — pass it directly to observe:
+frame = session.observe(revenue, timescope={...})
+```
+
+The catalog's `catalog.get("sales.revenue").ref` returns the same `MetricRef`
+subclass. There is no `.ref.ref` chain or type mismatch between authoring and
+analysis.
+
+### Factory and normalizers
+
+- `mv.make_ref(id, kind)` — construct the per-kind subclass for a given kind
+  (used internally by the catalog).
+- `as_ref_id(value)` — extract the `.id` string from a `SemanticRef`,
+  `SemanticObject`, or plain `str`. String-tolerant: raw ids pass through.
+
 ## `ai_context`: the human-to-agent contract
 
 Every semantic object accepts an optional `ai_context` dict. This is where business

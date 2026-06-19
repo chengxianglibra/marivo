@@ -45,6 +45,63 @@ your-project/
         _domain.py          # ms.domain(name="sales") + entities, metrics, ...
 ```
 
+## Semantic refs
+
+每个 semantic 对象都由一个 **semantic ref** 标识——一个类型化的、不可变的句柄，
+同时携带限定名和对象种类。Ref 在 authoring 阶段和分析循环中是同一类型：`ms.entity(...)`
+调用、`catalog.get(...).ref` 查找，以及分析 intent 参数，都使用同一个 `SemanticRef` 族。
+
+### `SemanticRef` 基类
+
+所有 ref 共享两个只读属性：
+
+| 属性 | 类型 | 含义 |
+| --- | --- | --- |
+| `.id` | `str` | 限定 semantic id（如 `"sales.revenue"`）。 |
+| `.kind` | `SemanticKind` | 对象种类——以下八个值之一。 |
+
+`str(ref)` 返回 `.id`，因此 ref 可以用在任何接受字符串 id 的地方。
+相等性和哈希基于 `(type, id)`，所以同子类同 id 的两个 ref 可互换。
+
+### Per-kind 子类
+
+每个 `SemanticKind` 值对应一个具体的 ref 子类：
+
+| Kind | 子类 | 由谁返回 | 可调用? |
+| --- | --- | --- | --- |
+| `domain` | `DomainRef` | `ms.domain(...)` | 否 |
+| `datasource` | `DatasourceRef` | `md.ref(...)` | 否 |
+| `entity` | `EntityRef` | `ms.entity(...)` | 否 |
+| `dimension` | `DimensionRef` | `@ms.dimension` | 是——在 metric body 中 |
+| `time_dimension` | `TimeDimensionRef` | `@ms.time_dimension` | 是——在 metric body 中 |
+| `measure` | `MeasureRef` | `@ms.measure` | 是——在 metric body 中 |
+| `metric` | `MetricRef` | `ms.aggregate(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
+| `relationship` | `RelationshipRef` | `ms.relationship(...)` | 否 |
+
+可调用的 field ref（`DimensionRef`、`MeasureRef`、`TimeDimensionRef`）在 metric body
+内被调用时会解析为 ibis expression。其他 ref 如果被误调用会抛出教学性错误——它们是身份令牌，
+不是装饰器。
+
+### 一个族，一个访问器
+
+因为 authoring ref 和 catalog ref 是同一类型族，你可以将 authoring ref 直接传给分析 intent，
+无需包装：
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+# revenue 是一个 MetricRef——直接传给 observe：
+frame = session.observe(revenue, timescope={...})
+```
+
+Catalog 的 `catalog.get("sales.revenue").ref` 返回的是同一个 `MetricRef` 子类。不存在
+`.ref.ref` 链，authoring 和 analysis 之间也没有类型不匹配。
+
+### 工厂与归一化器
+
+- `mv.make_ref(id, kind)` —— 为给定 kind 构造对应的 per-kind 子类（catalog 内部使用）。
+- `as_ref_id(value)` —— 从 `SemanticRef`、`SemanticObject` 或纯 `str` 中提取 `.id` 字符串。
+  对字符串容忍：原始 id 直接通过。
+
 ## `ai_context`：人与 agent 之间的契约
 
 每个 semantic object 都接受可选的 `ai_context` dict。业务含义和 guardrails 就放在这里
