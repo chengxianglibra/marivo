@@ -455,6 +455,10 @@ measure，再用 `ms.aggregate(name=..., measure=..., agg=...)` 生成 metric。
 `@ms.metric(...)` 保留为 tier-2 expression-body escape hatch；只有 metric 不能自然表达为
 `measure + aggregate` 时才使用。For tier-2 `@ms.metric(...)`, when
 `provenance=ms.from_sql(...)` is provided, SQL parity verification is automatically enabled.
+Expression-bearing semantic decorators (`@ms.dimension`, `@ms.time_dimension`,
+`@ms.measure`, and `@ms.metric`) allow an optional leading function docstring,
+then require exactly one `return <ibis expression>` statement; all other body
+statements remain invalid.
 
 ```python
 @ms.measure(

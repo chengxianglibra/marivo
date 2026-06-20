@@ -606,7 +606,7 @@ def metric(
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.METRIC_ENTITIES_REQUIRED,
             )
-        body_hash = validate_metric_body_ast(fn, "base")
+        body_hash = validate_metric_body_ast(fn, "base", body_kind="metric")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
         root_ref = _resolve_ref_string(root_entity) if root_entity is not None else None
@@ -805,7 +805,7 @@ def dimension(
             )
         _check_duplicate(ctx, semantic_id, DimensionIR)
 
-        validate_metric_body_ast(fn, "base")
+        validate_metric_body_ast(fn, "base", body_kind="dimension")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
@@ -886,7 +886,7 @@ def measure(
             )
         _check_duplicate(ctx, semantic_id, MeasureIR)
         _validate_unit(unit, semantic_id, "measure")
-        validate_metric_body_ast(fn, "base")
+        validate_metric_body_ast(fn, "base", body_kind="measure")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
         ir = MeasureIR(
@@ -1087,7 +1087,7 @@ def time_dimension(
             )
         _check_duplicate(ctx, semantic_id, DimensionIR)
 
-        validate_metric_body_ast(fn, "base")
+        validate_metric_body_ast(fn, "base", body_kind="time_dimension")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
