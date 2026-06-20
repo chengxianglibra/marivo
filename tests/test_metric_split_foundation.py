@@ -13,7 +13,7 @@ import marivo.semantic as ms
 from marivo.semantic import authoring, ir
 from marivo.semantic.errors import SemanticDecoratorError
 from marivo.semantic.ir import AiContextIR, SourceLocation
-from marivo.semantic.refs import MetricRef
+from marivo.semantic.refs import MetricRef, TimeDimensionRef
 from tests.shared_fixtures import authoring_session
 
 # ---------------------------------------------------------------------------
@@ -178,15 +178,24 @@ def test_ref_is_not_callable_teaches():
 
 
 def test_semi_additive_builder_normalizes_fold():
-    sa = authoring.semi_additive(over="sales.orders.order_date", fold="last")
+    order_date = TimeDimensionRef("sales.orders.order_date")
+    sa = authoring.semi_additive(over=order_date, fold="last")
     assert isinstance(sa, ir.SemiAdditive)
     assert sa.over == "sales.orders.order_date"
     assert sa.fold.kind == "last"
 
 
 def test_semi_additive_builder_quantile():
-    sa = authoring.semi_additive(over="d.e.t", fold=("quantile", 0.9))
+    t = TimeDimensionRef("d.e.t")
+    sa = authoring.semi_additive(over=t, fold=("quantile", 0.9))
     assert sa.fold.kind == "quantile" and sa.fold.q == 0.9
+
+
+def test_semi_additive_builder_rejects_string_over():
+    with pytest.raises(SemanticDecoratorError) as exc:
+        authoring.semi_additive(over="sales.orders.order_date", fold="last")  # type: ignore[arg-type]
+
+    assert "over must be a TimeDimensionRef" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------
@@ -228,10 +237,11 @@ def test_metric_body_form_declares_additivity():
 
 def test_metric_semi_additive_via_builder():
     with authoring_session(domain="ops") as sess:
+        t = TimeDimensionRef("ops.samples.t")
 
         @authoring.metric(
             entities=["ops.samples"],
-            additivity=authoring.semi_additive(over="ops.samples.t", fold="max"),
+            additivity=authoring.semi_additive(over=t, fold="max"),
         )
         def peak_bw(samples):
             return samples.bw.sum()

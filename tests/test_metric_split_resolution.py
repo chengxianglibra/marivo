@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from marivo.semantic import ir
+import pytest
+
+from marivo.semantic import authoring, ir
 from marivo.semantic.constraints import ConstraintId
-from marivo.semantic.errors import ErrorKind
+from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
+from marivo.semantic.refs import DimensionRef
 from tests.shared_fixtures import load_inline_semantic
 
 # ---------------------------------------------------------------------------
@@ -83,30 +86,17 @@ def test_resolution_fills_additivity() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 4: validator — semi-additive over must be time dimension
+# Task 4: validator — semi-additive over must be a time dimension ref
 # ---------------------------------------------------------------------------
-
-_INLINE_BAD_OVER = """\
-import marivo.semantic as ms
-import marivo.datasource as md
-
-wh = md.ref("wh")
-snap = ms.entity(name="snap", datasource=wh, source=ms.table("snap"))
-
-@ms.dimension(entity=snap)
-def region(snap): return snap.region
-
-@ms.measure(entity=snap, additivity=ms.semi_additive(over="test.snap.region", fold="last"))
-def quantity(snap): return snap.qty
-
-ending = ms.aggregate(measure=quantity, agg="sum", name="ending")
-"""
 
 
 def test_semi_additive_over_must_be_time_dimension() -> None:
-    with load_inline_semantic(_INLINE_BAD_OVER) as result:
-        kinds = {e.kind for e in result.errors}
-        assert ErrorKind.INVALID_STATUS_TIME_DIMENSION in kinds
+    region = DimensionRef("test.snap.region")
+
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        authoring.semi_additive(over=region, fold="last")  # type: ignore[arg-type]
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
 
 
 # ---------------------------------------------------------------------------

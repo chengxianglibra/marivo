@@ -316,9 +316,18 @@ net_revenue = ms.linear(
 
 Use `ms.semi_additive(over=..., fold=...)` as the `additivity` value for
 periodic snapshot facts such as bandwidth, capacity, inventory, or
-device-reported rates:
+device-reported rates. `over` must be the `TimeDimensionRef` returned by
+`@ms.time_dimension(...)`, not a string id:
 
 ```python
+@ms.time_dimension(
+    entity=bw_samples,
+    granularity="minute",
+    parse=ms.timestamp(sample_interval=(1, "minute")),
+)
+def sample_ts(bw_samples):
+    return bw_samples.sample_ts
+
 @ms.metric(
     entities=[bw_samples],
     additivity=ms.semi_additive(over=sample_ts, fold="mean"),
@@ -330,7 +339,7 @@ def upstream_bw(bw_samples):
 
 Rules:
 
-- `additivity=ms.semi_additive(...)` always requires `over` (the status time dimension).
+- `additivity=ms.semi_additive(...)` always requires `over` (the status time dimension ref).
 - `over` binds the business status/as-of time axis.
 - `fold` requires that `over` declares `sample_interval` on the time dimension.
 - `sample_interval` can be declared on `ms.datetime(...)`, `ms.timestamp(...)`,
@@ -346,6 +355,10 @@ For already-summarized snapshot/status facts such as daily inventory, use
 `fold="last"` or `fold="first"` without `sample_interval`:
 
 ```python
+@ms.time_dimension(entity=inventory_daily, granularity="day")
+def snapshot_date(inventory_daily):
+    return inventory_daily.snapshot_date
+
 @ms.metric(
     entities=[inventory_daily],
     additivity=ms.semi_additive(over=snapshot_date, fold="last"),

@@ -1435,11 +1435,12 @@ def validity(
 
 def semi_additive(
     *,
-    over: TimeDimensionRef | str,
+    over: TimeDimensionRef,
     fold: str | tuple[Literal["quantile"], float],
 ) -> SemiAdditive:
     """Declare a semi-additive nature: additive off the ``over`` time axis, folded by ``fold``.
 
+    ``over`` must be a ``TimeDimensionRef`` returned by ``@ms.time_dimension``.
     Use as the ``additivity=`` value on a measure or a metric::
 
         @ms.measure(entity=inventory,
@@ -1447,7 +1448,16 @@ def semi_additive(
         def quantity(inventory):
             return inventory.qty
     """
-    over_id = _resolve_ref_string(over)
+    if not isinstance(over, TimeDimensionRef):
+        received = getattr(over, "id", over)
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.semi_additive(...) over must be a TimeDimensionRef returned by "
+            f"@ms.time_dimension(...); got {type(over).__name__}: {received!r}.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    over_id = over.id
     fold_ir = _normalize_time_fold(fold, semantic_id=over_id)
     if fold_ir is None:
         _raise(

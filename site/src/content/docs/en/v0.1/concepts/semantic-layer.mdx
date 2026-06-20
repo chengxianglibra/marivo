@@ -437,10 +437,23 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 
 - `ms.semi_additive(over, fold)` — for snapshot/status facts that are additive
   across most axes but folded over a time axis. `over` is the status time
-  dimension; `fold` is `"last"`, `"first"`, `"mean"`, `"max"`, or
-  `("quantile", 0.95)`.
+  dimension ref returned by `@ms.time_dimension(...)`; `fold` is `"last"`,
+  `"first"`, `"mean"`, `"max"`, or `("quantile", 0.95)`.
 - `ms.from_sql(sql, dialect)` — attaches SQL as **provenance only**, enabling
   `ms.parity_check(...)`. It is never executed as the metric body.
+
+```python
+@ms.time_dimension(entity=inventory_daily, granularity="day")
+def snapshot_date(inventory_daily):
+    return inventory_daily.snapshot_date
+
+@ms.measure(
+    entity=inventory_daily,
+    additivity=ms.semi_additive(over=snapshot_date, fold="last"),
+)
+def on_hand_units(inventory_daily):
+    return inventory_daily.on_hand_units
+```
 
 ## Relationship
 

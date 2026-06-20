@@ -1194,10 +1194,14 @@ def test_metric_accepts_semi_additive() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
+        @ms.time_dimension(entity="sales.bandwidth_samples", granularity="minute")
+        def sample_ts(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
         @ms.metric(
             entities=["sales.bandwidth_samples"],
             additivity=ms.semi_additive(
-                over="sales.bandwidth_samples.sample_ts",
+                over=sample_ts,
                 fold="mean",
             ),
         )
@@ -1209,6 +1213,15 @@ def test_metric_accepts_semi_additive() -> None:
         assert ir.additivity is not None
     finally:
         _exit_ctx()
+
+
+def test_semi_additive_rejects_string_over() -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.semi_additive(over="sales.orders.order_date", fold="last")  # type: ignore[arg-type]
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "over must be a TimeDimensionRef" in str(exc_info.value)
+    assert "got str" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
