@@ -1,7 +1,165 @@
 marivo.analysis
 ===============
 
+.. currentmodule:: marivo.analysis
+
 .. automodule:: marivo.analysis
-   :members:
-   :show-inheritance:
-   :exclude-members: SemanticRef, SemanticObject
+   :no-members:
+
+``SemanticRef`` and ``SemanticObject`` are re-exported here for convenience and
+documented under :doc:`semantic`.
+
+References
+----------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   make_ref
+
+Alignment & window helpers
+--------------------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   dow_aligned
+   holiday_aligned
+   holiday_and_dow_aligned
+   window_bucket
+
+Discovery
+---------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   help
+   help_text
+
+Frames
+------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   BaseFrame
+   BaseFrameMeta
+   MetricFrame
+   ComponentFrame
+   DeltaFrame
+   CoverageFrame
+   AttributionFrame
+   ForecastFrame
+   FramePreview
+   FrameSummary
+   FrameSummaryEntry
+
+Analysis results
+----------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   AssociationResult
+   HypothesisTestResult
+   ExplorationResult
+   QualityReport
+   CandidateSet
+
+Scopes & windows
+----------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   TimeScope
+   ConfidenceScope
+   AbsoluteWindow
+
+Policies
+--------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   AlignmentPolicy
+   AlignmentKind
+   CalendarPolicy
+   SamplingPolicy
+   PromotionPolicy
+   PromotionSemanticAnchors
+
+Refs & lineage
+--------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   ArtifactRef
+   CalendarRef
+   Lineage
+   LineageStep
+   ReportRegistration
+
+Session & jobs
+--------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   Session
+   SessionSummary
+   JobSummary
+   FollowupAction
+   BlockingIssue
+   CandidateObjective
+   DiscoverSensitivity
+
+Slices
+------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   SlicePredicate
+   SlicePredicateOp
+
+Submodules
+----------
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 0
+
+   * - ``marivo.analysis.errors``
+     - Typed analysis errors raised across frames and sessions.
+   * - ``marivo.analysis.evidence``
+     - Evidence facts, findings, and open-item types for investigations.
+   * - ``marivo.analysis.frames``
+     - Frame classes and their metadata companions.
+   * - ``marivo.analysis.publish``
+     - Report artifact, manifest, and publishing configuration types.
+   * - ``marivo.analysis.session``
+     - Session lifecycle helpers (``get_or_create``, ``current``, ``list``, ``delete``).
+
+Type aliases
+------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   SliceScalar
+   SliceValue
+   TimeScopeInput

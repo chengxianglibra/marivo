@@ -23,6 +23,10 @@ extensions = [
 ]
 
 # Document the public surface re-exported through each package ``__all__``.
+# A custom autosummary class template (``_templates/autosummary/class.rst``)
+# renders each class with ``:members:`` and omits the noisy ``__init__`` rubric
+# emitted by the default template.
+templates_path = ["_templates"]
 autosummary_generate = True
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"

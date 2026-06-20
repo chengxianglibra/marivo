@@ -346,6 +346,8 @@ class EntityBrief(_BriefResult):
 
 @dataclass(frozen=True)
 class FormatCandidate:
+    """A candidate temporal format inferred for a time-dimension column."""
+
     variant: Literal["date", "datetime", "timestamp", "strptime", "hour_prefix"]
     match_rate: float
     backend_caveats: tuple[str, ...]
