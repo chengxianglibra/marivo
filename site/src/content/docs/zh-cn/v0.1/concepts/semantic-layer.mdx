@@ -420,10 +420,24 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ### Additivity 与 provenance 辅助器
 
 - `ms.semi_additive(over, fold)` —— 用于在大多数轴上可加、但需在某个时间轴上折叠的
-  snapshot/status 事实。`over` 是状态时间 dimension；`fold` 为 `"last"`、`"first"`、
-  `"mean"`、`"max"` 或 `("quantile", 0.95)`。
+  snapshot/status 事实。`over` 必须是 `@ms.time_dimension(...)` 返回的状态时间
+  dimension ref；`fold` 为 `"last"`、`"first"`、`"mean"`、`"max"` 或
+  `("quantile", 0.95)`。
 - `ms.from_sql(sql, dialect)` —— 把 SQL 作为**仅 provenance** 附加，用于启用
   `ms.parity_check(...)`。它永远不会作为 metric body 执行。
+
+```python
+@ms.time_dimension(entity=inventory_daily, granularity="day")
+def snapshot_date(inventory_daily):
+    return inventory_daily.snapshot_date
+
+@ms.measure(
+    entity=inventory_daily,
+    additivity=ms.semi_additive(over=snapshot_date, fold="last"),
+)
+def on_hand_units(inventory_daily):
+    return inventory_daily.on_hand_units
+```
 
 ## Relationship
 

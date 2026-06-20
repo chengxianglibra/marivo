@@ -274,7 +274,8 @@ def _additivity_content() -> dict[str, object]:
     return {
         "summary": (
             "Metric summability: additive, non_additive, or semi_additive. "
-            "Semi-additive metrics fold along a time axis via ms.semi_additive(over, fold)."
+            "Semi-additive metrics fold along a time axis via "
+            "ms.semi_additive(over=<TimeDimensionRef>, fold=...)."
         ),
         "buckets": [
             {
@@ -290,11 +291,11 @@ def _additivity_content() -> dict[str, object]:
                 "use": "Summable except along a status time axis; requires fold and over.",
             },
         ],
-        "semi_additive_form": "ms.semi_additive(over=<time_dimension_ref>, fold='last'|'first'|'mean'|'min'|'max')",
+        "semi_additive_form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max')",
         "rules": [
-            "semi_additive requires over to be a declared time dimension",
+            "semi_additive requires over to be a declared @ms.time_dimension(...) ref",
             "fold is a metric definition choice, not an observe parameter",
-            "non-sampled semi_additive metrics omit fold but still declare over",
+            "non-sampled semi_additive metrics still declare over and fold, typically fold='last' or fold='first'",
         ],
         "related_help": [
             "ms.help('metric')",
