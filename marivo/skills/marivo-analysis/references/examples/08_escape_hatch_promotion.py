@@ -27,7 +27,7 @@ metric = session.promote_metric_frame(
     metric=session.catalog.get("sales.revenue"),
     semantic_kind="segmented",
     measure_column="value",
-    axes={"country": session.catalog.get("sales.orders.region").ref},
+    axes={"country": session.catalog.get("sales.orders.region")},
     semantic_model="sales",
 )
 
@@ -46,7 +46,7 @@ baseline_metric = session.promote_metric_frame(
     metric=session.catalog.get("sales.revenue"),
     semantic_kind="segmented",
     measure_column="value",
-    axes={"country": session.catalog.get("sales.orders.region").ref},
+    axes={"country": session.catalog.get("sales.orders.region")},
     semantic_model="sales",
 )
 delta = session.promote_delta_frame(

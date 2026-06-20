@@ -473,8 +473,8 @@ import marivo.semantic as ms
 catalog = ms.load()                       # SemanticCatalog
 catalog.list().show()                     # everything, grouped
 catalog.list(kind="metric").show()        # just metrics
-revenue = catalog.get("sales.revenue")    # one object
-region = catalog.get("sales.orders.region").ref
+revenue = catalog.get("sales.revenue")           # one object
+region = catalog.get("sales.orders.region")      # also an object
 ```
 
 Before any analysis, check **readiness** — the structural gate that keeps
@@ -482,7 +482,7 @@ half-specified objects out of analysis:
 
 ```python
 report = ms.readiness()
-if report.blocked:
+if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
 

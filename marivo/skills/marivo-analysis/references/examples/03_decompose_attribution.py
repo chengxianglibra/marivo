@@ -16,8 +16,8 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
-created_at = session.catalog.get("sales.orders.created_at").ref
-region = session.catalog.get("sales.orders.region").ref
+created_at = session.catalog.get("sales.orders.created_at")
+region = session.catalog.get("sales.orders.region")
 cur = session.observe(
     session.catalog.get(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},

@@ -22,7 +22,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 | --- | --- | --- | --- |
 | `session.observe` | `session.catalog.get("domain.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or `where={dimension: value}` (see Where Predicate Ops below). |
 | `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
-| `session.decompose` | `DeltaFrame`, catalog dimension ref | `AttributionFrame` | Always pass `axis=session.catalog.get("<dimension_id>").ref`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
+| `session.decompose` | `DeltaFrame`, catalog dimension | `AttributionFrame` | Always pass `axis=session.catalog.get("<dimension_id>")`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape` (from `marivo.analysis.frames.candidate`). |
 | `candidates.select(...)` | `CandidateSet` | typed value (`SemanticRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
 | `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.window_bucket()`; default lag is zero. |
@@ -80,8 +80,8 @@ Frames are immutable. Use `frame.summary()` for a cheap read,
 `frame.to_pandas()` when you need a mutable copy. Use
 `frame.to_pandas().head(n)` only when you explicitly want pandas behavior.
 
-Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension refs from
-`session.catalog.get("<dimension_id>").ref`, `mv.CalendarRef(...)`, and
+Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension objects from
+`session.catalog.get("<dimension_id>")`, `mv.CalendarRef(...)`, and
 `mv.window_bucket()` / calendar alignment helpers at public operator boundaries. Do not pass bare
 strings directly to `observe`, `decompose`, `transform`, or calendar-backed
 `compare`.
@@ -100,7 +100,7 @@ base = session.observe(
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-created_at = session.catalog.get("sales.orders.created_at").ref
+created_at = session.catalog.get("sales.orders.created_at")
 attribution = session.decompose(delta, axis=created_at)
 print(attribution.summary())
 ```
@@ -108,7 +108,7 @@ print(attribution.summary())
 ```python
 series = session.observe(
     session.catalog.get("sales.revenue"),
-    where={session.catalog.get("sales.orders.created_at").ref: {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    where={session.catalog.get("sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 candidates = session.discover.point_anomalies(series, threshold=1.0)
 print(candidates.meta.objective)  # "point_anomalies"
@@ -127,7 +127,7 @@ Marivo does not model directly.
 | Export a Marivo frame for mutable local analysis | `df = frame.to_pandas()` |
 | Import pandas or library output into the session | `scratch = session.from_pandas(df, description="feature engineering output")` |
 | Inspect scratch provenance | `scratch.meta.source_kind`, `scratch.meta.source_query`, `scratch.meta.source_datasource` |
-| Re-enter canonical metric flow only when a typed intent needs it | `country = session.catalog.get("sales.orders.country").ref; session.promote_metric_frame(scratch, metric=session.catalog.get("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": country}, semantic_model="sales")` |
+| Re-enter canonical metric flow only when a typed intent needs it | `country = session.catalog.get("sales.orders.country"); session.promote_metric_frame(scratch, metric=session.catalog.get("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": country}, semantic_model="sales")` |
 | Re-enter delta flow only for typed change analysis | `session.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
 | Re-enter attribution flow only for typed driver output | `session.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
 
@@ -168,7 +168,7 @@ scratch = session.from_pandas(df, description="share calculation")
 | --- | --- | --- | --- | --- |
 | `session.discover.point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
 | `session.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | At least 4 time buckets in one series |
-| `session.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[session.catalog.get("sales.orders.region").ref, ...]` |
+| `session.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[session.catalog.get("sales.orders.region"), ...]` |
 | `session.discover.interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
 | `session.discover.interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
 | `session.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
@@ -265,7 +265,7 @@ When a dataset has multiple time dimensions, choose one with top-level `time_dim
 session.observe(
     session.catalog.get("sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-08-01"},
-    time_dimension=session.catalog.get("sales.orders.create_date").ref,
+    time_dimension=session.catalog.get("sales.orders.create_date"),
 )
 ```
 

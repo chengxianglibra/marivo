@@ -3,7 +3,9 @@ title: Quick Start
 description: Create a Marivo project, load a semantic catalog, and run the first metric-centered analysis.
 ---
 
-A minimal Marivo project has a manifest, datasource declarations, and semantic declarations:
+Scaffold the project with `marivo init` (see [Installation](/en/latest/installation/#initialize-a-project)),
+then author your declarations. A minimal Marivo project has a manifest, datasource
+declarations, and semantic declarations:
 
 ```text
 your-project/
@@ -39,7 +41,6 @@ import marivo.semantic as ms
 
 ms.domain(
     name="sales",
-    default=True,
     ai_context={
         "business_definition": "Sales order analysis domain.",
         "guardrails": ["Revenue metrics should only use completed orders."],
@@ -97,6 +98,29 @@ def revenue(orders):
     return orders.amount.sum()
 ```
 
+You don't have to write these by hand. `marivo init` installed the
+**`marivo-semantic` skill** into `.claude/skills/` and `.codex/skills/`, so a coding
+agent (Claude Code or Codex) running in the project can build the semantic layer with
+you. Point it at your tables and ask:
+
+> Use the marivo-semantic skill to model the `orders` table in the `sales` domain.
+
+The skill walks the agent through a disciplined authoring loop, one object at a time:
+
+- **Follow the ladder** — domain → entity → dimension → time dimension → measure →
+  metric → relationship — so each object's dependencies exist before it.
+- **Plan, then write.** For each object the agent calls a `ms.prepare_*` API (e.g.
+  `ms.prepare_metric`) and branches on the returned brief before writing the
+  declaration into `models/semantic/<domain>/_domain.py`.
+- **Verify before advancing.** After each object it runs `ms.verify_object(ref)` and
+  does not move on while that fails.
+- **Gate at closeout.** It finishes with `ms.readiness()` and resolves blockers before
+  handing the catalog to analysis.
+
+The agent only asks you the decisions it cannot infer from the data or project docs
+(for example, whether an amount is already net of refunds). Everything it produces is
+the same Python declarations shown above — reviewable in git like any other code.
+
 Discover the catalog before analysis:
 
 ```python
@@ -118,7 +142,7 @@ import marivo.analysis as mv
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
 revenue = catalog.get("sales.revenue")
-region = catalog.get("sales.orders.region").ref
+region = catalog.get("sales.orders.region")
 
 current = session.observe(
     revenue,
@@ -132,7 +156,58 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.window_bucket())
+delta = session.compare(current, baseline)
 attribution = session.decompose(delta, axis=region)
 attribution.show()
 ```
+
+## Best practices
+
+The same project structure scales from a one-off script to a reviewed, shared
+analysis project. Three habits make the difference.
+
+### Build the semantic layer as a shared knowledge base
+
+The semantic layer is not just plumbing to reach tables — it is the knowledge base
+an agent reads *before* it analyzes. Invest in `ai_context` on every object:
+
+- `business_definition` — what the metric or dimension means, in business terms.
+- `guardrails` — rules an agent must respect: required filters, exclusions, scope
+  limits.
+- `synonyms` and `examples` — so an agent resolves a natural-language question to
+  the right object instead of guessing.
+
+A well-enriched object answers an agent's "can I use this, and how?" without a human
+in the loop. Readiness enforces the floor: a missing `business_definition` blocks
+analysis, and missing `guardrails` raises a warning. See the
+[Semantic Layer](/en/latest/concepts/semantic-layer/) for the full `ai_context`
+contract.
+
+### Manage the project with git
+
+A Marivo project is plain text: `marivo.toml` plus the Python files under `models/`.
+That makes the semantic layer a reviewable, shareable artifact — treat it like
+application code.
+
+- **Version the contract.** Commit `marivo.toml` and `models/`. Every change to a
+  metric definition or guardrail shows up as a diff.
+- **Review semantic changes like code.** Land definition changes through pull
+  requests so a domain owner approves what a metric *means* before agents use it.
+- **Share through the repo.** Anyone who clones the project — and any agent that runs
+  in it — gets the same trusted catalog.
+- **Keep state and secrets out of git.** Add `.marivo/` to `.gitignore`: it holds
+  project-local session and evidence state, not the contract. Credentials are
+  authored as `*_env` references and resolved from the environment (or cached in
+  user-global `~/.marivo/secrets.toml`) — they are never written into the project.
+
+A typical `.gitignore`:
+
+```text
+.marivo/
+```
+
+### Gate before handoff
+
+Run `ms.readiness()` after loading and resolve blockers before any analysis session.
+A project can load while readiness is still blocked, so never pass a blocked catalog
+to an agent. See [Readiness](/en/latest/concepts/readiness/).

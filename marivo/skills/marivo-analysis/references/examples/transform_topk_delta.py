@@ -24,7 +24,7 @@ current = session.promote_metric_frame(
         }
     ),
     metric=session.catalog.get(METRIC_ID),
-    axes={"country": session.catalog.get("sales.orders.region").ref},
+    axes={"country": session.catalog.get("sales.orders.region")},
     measure_column="revenue",
     semantic_kind="segmented",
     semantic_model="sales",
@@ -37,7 +37,7 @@ baseline = session.promote_metric_frame(
         }
     ),
     metric=session.catalog.get(METRIC_ID),
-    axes={"country": session.catalog.get("sales.orders.region").ref},
+    axes={"country": session.catalog.get("sales.orders.region")},
     measure_column="revenue",
     semantic_kind="segmented",
     semantic_model="sales",

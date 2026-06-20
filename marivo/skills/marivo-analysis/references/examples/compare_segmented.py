@@ -19,12 +19,12 @@ session = mv.session.current()
 cur = session.observe(
     session.catalog.get(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    dimensions=[session.catalog.get("sales.orders.region").ref],
+    dimensions=[session.catalog.get("sales.orders.region")],
 )
 prev = session.observe(
     session.catalog.get(METRIC_ID),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
-    dimensions=[session.catalog.get("sales.orders.region").ref],
+    dimensions=[session.catalog.get("sales.orders.region")],
 )
 delta = session.compare(cur, prev, alignment=mv.window_bucket())
 print(delta.summary())

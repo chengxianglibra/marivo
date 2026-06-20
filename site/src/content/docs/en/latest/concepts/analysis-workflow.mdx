@@ -33,8 +33,8 @@ so later steps (and human reviewers) can trace which inputs produced each result
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("sales.revenue")          # a metric object
-region = catalog.get("sales.orders.region").ref  # a dimension ref
+revenue = catalog.get("sales.revenue")           # a metric object
+region = catalog.get("sales.orders.region")      # a dimension object
 ```
 
 `get_or_create` is idempotent: it attaches to an existing session of that name or
@@ -55,7 +55,7 @@ across almost every intent:
 | Value | Shape | Meaning |
 | --- | --- | --- |
 | metric input | `catalog.get("sales.revenue")` | A catalog metric object or its `SemanticRef` subclass (e.g. `MetricRef`). Authoring refs from `ms.aggregate(...)` also work. Bare strings are rejected. |
-| dimension input | `catalog.get("sales.orders.region").ref` | A `DimensionRef` or `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `where` keys, and `axis`. |
+| dimension input | `catalog.get("sales.orders.region")` | A catalog dimension object or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `where` keys, and `axis`. |
 | `timescope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
@@ -68,7 +68,7 @@ The result's **semantic kind** follows from `grain` and `dimensions`: `scalar`
 
 ### `where` predicate operators
 
-Keys are catalog dimension refs; values are a scalar (`==`), a list (`in`), or a
+Keys are catalog dimensions; values are a scalar (`==`), a list (`in`), or a
 structured `{"op": ..., "value": ...}` form:
 
 | Form | Meaning |
@@ -123,12 +123,13 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.window_bucket())
+delta = session.compare(current, baseline)
 ```
 
-`AlignmentPolicy.kind` is one of `window_bucket` (default), `dow_aligned`,
-`holiday_aligned`, or `holiday_and_dow_aligned`; the calendar-backed kinds also
-take `calendar=mv.CalendarRef(...)`.
+`compare` pairs buckets with `window_bucket` by default. Pass `alignment=` to
+override — `mv.dow_aligned()`, `mv.holiday_aligned()`, or
+`mv.holiday_and_dow_aligned()`; the calendar-backed kinds also take
+`calendar=mv.CalendarRef(...)`.
 
 ### `decompose` → `AttributionFrame`
 
@@ -137,7 +138,7 @@ Attribute a delta's movement across one segment axis — *why* did it change?
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | Yes | — | The delta to explain. |
-| `axis` | dimension ref | Yes | — | The segment axis to attribute over. |
+| `axis` | dimension | Yes | — | The segment axis to attribute over. |
 
 ```python
 attribution = session.decompose(delta, axis=region)
@@ -266,7 +267,7 @@ import marivo.analysis as mv
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
 revenue = catalog.get("sales.revenue")
-region = catalog.get("sales.orders.region").ref
+region = catalog.get("sales.orders.region")
 
 current = session.observe(
     revenue,
@@ -280,7 +281,7 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.window_bucket())
+delta = session.compare(current, baseline)
 attribution = session.decompose(delta, axis=region)
 attribution.show()
 ```

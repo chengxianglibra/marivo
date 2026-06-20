@@ -18,13 +18,16 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Marivo is a Python library, not a hosted service. It gives AI agents a typed
-semantic layer, a metric-centered analysis workflow, and an auditable evidence
-trail for every analytical conclusion.
+Marivo is a Python library — not a hosted service or a chat UI — that turns a data
+warehouse into something an AI agent can analyze *reliably*. It gives agents three
+things they otherwise lack: a typed **semantic layer** that fixes what every metric
+and dimension means, a **metric-centered analysis workflow** of typed operators, and
+an **auditable evidence trail** behind every conclusion.
 
 Marivo is not a text-to-SQL wrapper. Python declarations are the contract, ibis
 expressions are the execution language, and typed frames are the boundary between
-analysis steps.
+analysis steps — so an agent composes trusted building blocks instead of generating
+raw SQL and hoping it is correct.
 
 <CardGrid>
   <Card title="Unified semantics" icon="seti:data">
@@ -44,6 +47,26 @@ analysis steps.
     authoring and access issues are resolved.
   </Card>
 </CardGrid>
+
+## Why agentic data analysis needs Marivo
+
+Point an agent at a raw warehouse and ask it to write SQL, and the failure modes
+are predictable: it invents joins, silently drops a required filter, misreads an
+ambiguous column, and returns a confident answer no one can verify. Every query
+starts from zero, so nothing accumulates and nothing is reviewable.
+
+Marivo replaces *generate-SQL-and-hope* with a contract the agent works through:
+
+| Without a semantic runtime | With Marivo |
+| --- | --- |
+| Table and column names guessed per query | Trusted **semantic refs** (`sales.revenue`) carrying human-authored meaning and guardrails |
+| Definitions re-derived every time | One **declared contract** in version control, shared across agents and sessions |
+| Free-form SQL; mistakes surface as wrong numbers | **Typed intents and frames** — invalid steps fail loudly, before any backend work |
+| Conclusions you cannot check | An **evidence trail** linking every result to the inputs that produced it |
+| Half-specified models analyzed anyway | A **readiness gate** that blocks incomplete semantics from analysis |
+
+The result is an agent that reasons over *meaning* instead of column names, in a
+loop a human can review, approve, and replay.
 
 ## How it works
 
@@ -65,12 +88,12 @@ import marivo.analysis as mv
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
 revenue = catalog.get("sales.revenue")
-region = catalog.get("sales.orders.region").ref
+region = catalog.get("sales.orders.region")
 
 current = session.observe(revenue, timescope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
 baseline = session.observe(revenue, timescope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
 
-delta = session.compare(current, baseline, alignment=mv.window_bucket())
+delta = session.compare(current, baseline)
 attribution = session.decompose(delta, axis=region)
 attribution.show()
 ```

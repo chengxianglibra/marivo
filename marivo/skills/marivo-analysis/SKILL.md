@@ -54,7 +54,7 @@ virtualenv yet, create or activate one before using this skill.
 import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="investigation")
-axis = session.catalog.get("model.entity.time_dimension").ref
+axis = session.catalog.get("model.entity.time_dimension")
 
 session.observe(session.catalog.get("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame  (end is exclusive: [start, end))
 session.compare(cur, base, alignment=mv.window_bucket())      # -> DeltaFrame
@@ -225,7 +225,7 @@ import marivo.analysis as mv
 cur = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
 base = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-time_axis = session.catalog.get("<metric_time_dimension_id>").ref
+time_axis = session.catalog.get("<metric_time_dimension_id>")
 attribution = session.decompose(delta, axis=time_axis)
 attribution.show()
 ```
@@ -255,7 +255,7 @@ df = frame.to_pandas()
 scratch = session.from_pandas(df)
 promoted = session.promote_metric_frame(scratch, metric=session.catalog.get("sales.revenue"),
                                    semantic_kind="segmented", measure_column="value",
-                                   axes={"country": session.catalog.get("sales.orders.country").ref},
+                                   axes={"country": session.catalog.get("sales.orders.country")},
                                    semantic_model="sales")
 ```
 
@@ -323,7 +323,7 @@ prev = session.get_frame("<ref>")
 import marivo.analysis as ap
 
 session = ap.session.get_or_create(name="sales_weekly_revenue")
-region = session.catalog.get("sales.orders.region").ref
+region = session.catalog.get("sales.orders.region")
 
 current = session.observe(
     metric=session.catalog.get("sales.revenue"),

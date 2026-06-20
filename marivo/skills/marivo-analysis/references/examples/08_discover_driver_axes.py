@@ -15,7 +15,7 @@ import marivo.analysis as mv  # noqa: E402
 from marivo.semantic.refs import DimensionRef  # noqa: E402
 
 session = mv.session.current()
-region = session.catalog.get("sales.orders.region").ref
+region = session.catalog.get("sales.orders.region")
 current = session.observe(
     session.catalog.get(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
