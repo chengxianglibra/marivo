@@ -31,6 +31,7 @@ from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 from marivo.semantic.refs import (
     DimensionRef,
     EntityRef,
+    MeasureRef,
     MetricRef,
     RelationshipRef,
     TimeDimensionRef,
@@ -394,6 +395,21 @@ def test_field_returns_ref() -> None:
         _exit_ctx()
 
 
+def test_dimension_accepts_leading_docstring() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.dimension(entity="sales.orders")
+        def region(table: object) -> object:
+            """Order region."""
+            return None  # type: ignore[unreachable]
+
+        assert isinstance(region, DimensionRef)
+        assert region.id == "sales.orders.region"
+    finally:
+        _exit_ctx()
+
+
 def test_field_name_defaults_to_function_name() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -465,6 +481,7 @@ def test_field_body_rejects_lambda() -> None:
                 return fn(table)
 
         assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
+        assert "Dimension body of 'amount'" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -501,6 +518,37 @@ def test_field_kind_measure() -> None:
         _exit_ctx()
 
 
+def test_measure_accepts_leading_docstring() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.measure(entity="sales.orders", additivity="additive")
+        def amount(table: object) -> object:
+            """Order amount."""
+            return None  # type: ignore[unreachable]
+
+        assert isinstance(amount, MeasureRef)
+        assert amount.id == "sales.orders.amount"
+    finally:
+        _exit_ctx()
+
+
+def test_measure_body_error_uses_measure_label() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticLoadError) as exc_info:
+
+            @ms.measure(entity="sales.orders", additivity="additive")
+            def amount(table: object) -> object:
+                return table.amount
+                table.amount  # noqa: B018
+
+        assert "Measure body of 'amount'" in str(exc_info.value)
+        assert "forbidden Expr statement" in str(exc_info.value)
+    finally:
+        _exit_ctx()
+
+
 # ---------------------------------------------------------------------------
 # ms.time_dimension() decorator
 # ---------------------------------------------------------------------------
@@ -516,6 +564,37 @@ def test_time_field_returns_ref() -> None:
 
         assert isinstance(order_date, TimeDimensionRef)
         assert order_date.id == "sales.orders.order_date"
+    finally:
+        _exit_ctx()
+
+
+def test_time_dimension_accepts_leading_docstring() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.time_dimension(entity="sales.orders", granularity="day")
+        def order_date(table: object) -> object:
+            """Order date."""
+            return None  # type: ignore[unreachable]
+
+        assert isinstance(order_date, TimeDimensionRef)
+        assert order_date.id == "sales.orders.order_date"
+    finally:
+        _exit_ctx()
+
+
+def test_time_dimension_body_error_uses_time_dimension_label() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticLoadError) as exc_info:
+
+            @ms.time_dimension(entity="sales.orders", granularity="day")
+            def order_date(table: object) -> object:
+                return table.created_at
+                table.created_at  # noqa: B018
+
+        assert "Time dimension body of 'order_date'" in str(exc_info.value)
+        assert "forbidden Expr statement" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -1005,6 +1084,21 @@ def test_metric_returns_ref() -> None:
 
         @ms.metric(entities=["sales.orders"], additivity="additive")
         def revenue(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        assert isinstance(revenue, MetricRef)
+        assert revenue.id == "sales.revenue"
+    finally:
+        _exit_ctx()
+
+
+def test_metric_accepts_leading_docstring() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+
+        @ms.metric(entities=["sales.orders"], additivity="additive")
+        def revenue(table: object) -> object:
+            """Order revenue."""
             return None  # type: ignore[unreachable]
 
         assert isinstance(revenue, MetricRef)

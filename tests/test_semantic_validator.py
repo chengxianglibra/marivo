@@ -41,6 +41,18 @@ def test_base_single_return_allowed() -> None:
     assert len(result) > 0
 
 
+def test_base_leading_docstring_allowed() -> None:
+    """A leading function docstring is metadata, not a body statement."""
+
+    def revenue(table):  # type: ignore[no-untyped-def]
+        """Revenue amount."""
+        return table.amount.sum()
+
+    result = validate_metric_body_ast(revenue, "base")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
 def test_base_method_calls_on_dataset_arg() -> None:
     """Method calls on the dataset argument are allowed."""
 
@@ -136,6 +148,45 @@ def test_base_multiple_statements_error() -> None:
     with pytest.raises(SemanticLoadError) as exc_info:
         validate_metric_body_ast(bad_metric, "base")
     assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
+
+
+def test_base_docstring_without_return_error() -> None:
+    """Docstrings do not satisfy the required return expression."""
+
+    def bad_metric(table):  # type: ignore[no-untyped-def]
+        """Missing return."""
+
+    with pytest.raises(SemanticLoadError) as exc_info:
+        validate_metric_body_ast(bad_metric, "base")
+    assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
+    assert "must contain exactly one return statement, found none" in str(exc_info.value)
+
+
+def test_base_non_leading_string_expr_error() -> None:
+    """Only the leading function docstring may be an expression statement."""
+
+    def bad_metric(table):  # type: ignore[no-untyped-def]
+        """Allowed leading docstring."""
+        return table.amount.sum()
+        "not a docstring"
+
+    with pytest.raises(SemanticLoadError) as exc_info:
+        validate_metric_body_ast(bad_metric, "base")
+    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+    assert "forbidden Expr statement" in str(exc_info.value)
+
+
+def test_forbidden_expr_error_names_body_kind() -> None:
+    """Validator errors use the caller-provided semantic body label."""
+
+    def bad_dimension(table):  # type: ignore[no-untyped-def]
+        return table.amount.sum()
+        table.amount.sum()
+
+    with pytest.raises(SemanticLoadError) as exc_info:
+        validate_metric_body_ast(bad_dimension, "base", body_kind="dimension")
+    assert "Dimension body of 'bad_dimension'" in str(exc_info.value)
+    assert "forbidden Expr statement" in str(exc_info.value)
 
 
 def test_base_import_error() -> None:
@@ -369,6 +420,26 @@ def test_different_bodies_different_hash() -> None:
     hash_a = validate_metric_body_ast(revenue_a, "base")
     hash_b = validate_metric_body_ast(revenue_b, "base")
     assert hash_a != hash_b
+
+
+def test_leading_docstring_excluded_from_body_hash() -> None:
+    """Docstring-only changes should not change expression body identity."""
+
+    def first():
+        def revenue(table):  # type: ignore[no-untyped-def]
+            """First wording."""
+            return table.amount.sum()
+
+        return revenue
+
+    def second():
+        def revenue(table):  # type: ignore[no-untyped-def]
+            """Second wording."""
+            return table.amount.sum()
+
+        return revenue
+
+    assert validate_metric_body_ast(first(), "base") == validate_metric_body_ast(second(), "base")
 
 
 # ---------------------------------------------------------------------------

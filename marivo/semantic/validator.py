@@ -300,8 +300,9 @@ _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
 class _BaseMetricASTValidator(ast.NodeVisitor):
     """Walk a single-return ibis expression body AST and accumulate errors."""
 
-    def __init__(self, fn_name: str) -> None:
+    def __init__(self, fn_name: str, *, body_label: str = "Metric body") -> None:
         self.fn_name = fn_name
+        self.body_label = body_label
         self.errors: list[SemanticError] = []
         self._param_names: set[str] = set()
         self._parent_map: dict[ast.AST, ast.AST] = {}
@@ -341,24 +342,27 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         if len(all_returns) == 0:
             self._add_error(
                 ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN,
-                f"Metric body of {self.fn_name!r} must contain exactly one "
+                f"{self.body_label} of {self.fn_name!r} must contain exactly one "
                 f"return statement, found none.",
                 constraint_id=ConstraintId.AST_SINGLE_RETURN,
             )
         elif len(all_returns) > 1:
             self._add_error(
                 ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN,
-                f"Metric body of {self.fn_name!r} must contain exactly one "
+                f"{self.body_label} of {self.fn_name!r} must contain exactly one "
                 f"return statement, found {len(all_returns)}.",
                 constraint_id=ConstraintId.AST_SINGLE_RETURN,
             )
 
         # Check for forbidden statement types anywhere in the body
+        leading_docstring = node.body[0] if node.body and _is_docstring_stmt(node.body[0]) else None
         for child in ast.walk(node):
             if child is node:
                 continue
             # Skip expression nodes — we only check statement nodes
             if not isinstance(child, ast.stmt):
+                continue
+            if child is leading_docstring:
                 continue
             # Allow the single Return; every other statement violates the
             # expression-body contract.
@@ -373,7 +377,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                         constraint_id = ConstraintId.AST_FORBIDDEN_STATEMENT
                     self._add_error(
                         kind,
-                        f"Metric body of {self.fn_name!r} contains a forbidden "
+                        f"{self.body_label} of {self.fn_name!r} contains a forbidden "
                         f"{type(child).__name__} statement.",
                         constraint_id=constraint_id,
                     )
@@ -389,7 +393,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         if node.attr in _SQL_ESCAPE_ATTRS:
             self._add_error(
                 ErrorKind.SQL_ESCAPE_HATCH,
-                f"Metric body of {self.fn_name!r} uses .{node.attr}(), "
+                f"{self.body_label} of {self.fn_name!r} uses .{node.attr}(), "
                 f"which is not allowed. Use provenance=ms.from_sql(...) on the decorator instead.",
                 constraint_id=ConstraintId.AST_SQL_ESCAPE_HATCH,
             )
@@ -406,7 +410,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             if not (isinstance(parent, ast.Call) and parent.func is node):
                 self._add_error(
                     ErrorKind.IBIS_ATTR_SHADOW,
-                    f"Metric body of {self.fn_name!r} accesses .{node.attr} on the "
+                    f"{self.body_label} of {self.fn_name!r} accesses .{node.attr} on the "
                     f"entity table parameter '{node.value.id}', which shadows an ibis "
                     f"Table method/property. Use bracket notation instead: "
                     f'{node.value.id}["{node.attr}"].',
@@ -424,7 +428,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         ):
             self._add_error(
                 ErrorKind.INVALID_COMPONENT_BODY,
-                f"Metric body of {self.fn_name!r} calls ms.component(), "
+                f"{self.body_label} of {self.fn_name!r} calls ms.component(), "
                 "which is no longer supported. Use ms.ratio/ms.weighted_average/ms.linear "
                 "for body-free derived metric definitions.",
                 constraint_id=ConstraintId.METRIC_COMPONENT_SCOPE,
@@ -434,15 +438,41 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
     def visit_Lambda(self, node: ast.Lambda) -> None:
         self._add_error(
             ErrorKind.INVALID_COMPONENT_BODY,
-            f"Metric body of {self.fn_name!r} contains a lambda expression, which is not allowed.",
+            f"{self.body_label} of {self.fn_name!r} contains a lambda expression, which is not allowed.",
             constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
         )
         # Don't recurse into lambda body
 
 
+def _is_docstring_stmt(node: ast.stmt) -> bool:
+    return (
+        isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    )
+
+
+def _body_hash_without_docstring(func_node: ast.FunctionDef) -> str:
+    body = list(func_node.body)
+    if body and _is_docstring_stmt(body[0]):
+        body = body[1:]
+    normalized = ast.dump(ast.Module(body=body, type_ignores=[]), include_attributes=False)
+    return hashlib.sha256(normalized.encode()).hexdigest()[:16]
+
+
+_BODY_KIND_LABELS = {
+    "dimension": "Dimension body",
+    "time_dimension": "Time dimension body",
+    "measure": "Measure body",
+    "metric": "Metric body",
+}
+
+
 def validate_metric_body_ast(
     fn: Callable[..., Any],
     mode: Literal["base"],
+    *,
+    body_kind: Literal["dimension", "time_dimension", "measure", "metric"] = "metric",
 ) -> str:
     """Layer 2: AST whitelist validation for base metric bodies.
 
@@ -452,6 +482,7 @@ def validate_metric_body_ast(
     """
     if mode != "base":
         raise ValueError(f"unsupported metric body AST validation mode {mode!r}")
+    body_label = _BODY_KIND_LABELS[body_kind]
 
     # Compute body AST hash
     try:
@@ -473,11 +504,7 @@ def validate_metric_body_ast(
         if func_node is None:
             body_hash = hashlib.sha256(b"<no-function>").hexdigest()[:16]
         else:
-            body_source = ast.get_source_segment(source, func_node)
-            if body_source is not None:
-                body_hash = hashlib.sha256(body_source.encode()).hexdigest()[:16]
-            else:
-                body_hash = hashlib.sha256(source.encode()).hexdigest()[:16]
+            body_hash = _body_hash_without_docstring(func_node)
     except (OSError, TypeError, IndentationError):
         body_hash = hashlib.sha256(b"<unavailable>").hexdigest()[:16]
         return body_hash
@@ -485,7 +512,7 @@ def validate_metric_body_ast(
     if func_node is None:
         return body_hash
 
-    base_validator = _BaseMetricASTValidator(fn.__name__)
+    base_validator = _BaseMetricASTValidator(fn.__name__, body_label=body_label)
     base_validator.visit(func_node)
     if base_validator.errors:
         raise base_validator.errors[0]
