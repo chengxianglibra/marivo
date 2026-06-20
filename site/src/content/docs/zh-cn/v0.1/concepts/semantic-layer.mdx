@@ -1,11 +1,485 @@
 ---
 slug: zh-cn/v0.1/concepts/semantic-layer
 title: Semantic Layer
-description: 让 agents 获得可信名称、定义和 guardrails 的 Python declarations。
+description: 用 Python declarations 为 agents 提供可信的名称、定义、字段和 guardrails。
 ---
 
-Marivo semantic layer 使用 Python authoring。Datasources、domains、entities、dimensions、metrics 和 relationships 都以代码声明，因此 agents 可以使用 semantic refs，而不是直接依赖原始表名和列名。
+Semantic layer 是你向 Marivo 说明数据**含义**的地方。你用 Python 声明
+datasources、entities、dimensions 和 metrics，agents 通过 **semantic ref**（形如
+`sales.revenue` 的限定名）来引用它们，而不是直接使用原始表名和列名。
 
-Semantic objects 携带 `ai_context`，包括 business definitions、guardrails、synonyms、examples、instructions 和 owner notes。这些上下文是 human authors 和 AI agents 之间的契约。
+每个对象都遵循三条规则：
 
-Python declarations 是契约。Ibis expressions 是执行语言。需要 SQL 文本时，应把它放在 provenance metadata 中，而不是 executable semantic bodies 中。
+- **Python declarations 是契约。** 被装饰的函数和 builder 调用是名称、定义和形状的
+  唯一真实来源。
+- **Ibis expressions 是执行语言。** Decorator body 返回 ibis expression，绝不返回原始
+  SQL 字符串。
+- **SQL 文本只是元数据。** 需要 SQL（用于 parity 校验）时，它放在
+  `provenance=ms.from_sql(sql=..., dialect=...)` 中，绝不作为可执行的 body。
+
+你通过两个 namespace 工作：
+
+```python
+import marivo.datasource as md   # connections (md.duckdb, md.ref, ...)
+import marivo.semantic as ms     # meaning (ms.entity, ms.metric, ...)
+```
+
+## 名称如何工作
+
+每个对象都归属于一个 **domain**，并通过限定 ref 引用：
+
+- Domain 级对象：`<domain>.<object>` —— 例如 `sales.revenue`、`sales.orders`。
+- Entity 级对象（dimensions 和 measures）：`<domain>.<entity>.<field>` —— 例如
+  `sales.orders.region`。
+
+一个 project 是一组声明文件。Datasources 在 `models/datasources/` 下声明一次；
+semantics 放在 `models/semantic/<domain>/` 下，每个 domain 有一个 `_domain.py`：
+
+```text
+your-project/
+  marivo.toml
+  models/
+    datasources/
+      warehouse.py          # md.duckdb(name="warehouse", ...)
+    semantic/
+      sales/
+        _domain.py          # ms.domain(name="sales") + entities, metrics, ...
+```
+
+## Semantic refs
+
+每个 semantic 对象都由一个 **semantic ref** 标识——一个类型化的、不可变的句柄，
+同时携带限定名和对象种类。Ref 在 authoring 阶段和分析循环中是同一类型：`ms.entity(...)`
+调用、`catalog.get(...).ref` 查找，以及分析 intent 参数，都使用同一个 `SemanticRef` 族。
+
+### `SemanticRef` 基类
+
+所有 ref 共享两个只读属性：
+
+| 属性 | 类型 | 含义 |
+| --- | --- | --- |
+| `.id` | `str` | 限定 semantic id（如 `"sales.revenue"`）。 |
+| `.kind` | `SemanticKind` | 对象种类——以下八个值之一。 |
+
+`str(ref)` 返回 `.id`，因此 ref 可以用在任何接受字符串 id 的地方。
+相等性和哈希基于 `(type, id)`，所以同子类同 id 的两个 ref 可互换。
+
+### Per-kind 子类
+
+每个 `SemanticKind` 值对应一个具体的 ref 子类：
+
+| Kind | 子类 | 由谁返回 | 可调用? |
+| --- | --- | --- | --- |
+| `domain` | `DomainRef` | `ms.domain(...)` | 否 |
+| `datasource` | `DatasourceRef` | `md.ref(...)` | 否 |
+| `entity` | `EntityRef` | `ms.entity(...)` | 否 |
+| `dimension` | `DimensionRef` | `@ms.dimension` | 是——在 metric body 中 |
+| `time_dimension` | `TimeDimensionRef` | `@ms.time_dimension` | 是——在 metric body 中 |
+| `measure` | `MeasureRef` | `@ms.measure` | 是——在 metric body 中 |
+| `metric` | `MetricRef` | `ms.aggregate(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
+| `relationship` | `RelationshipRef` | `ms.relationship(...)` | 否 |
+
+可调用的 field ref（`DimensionRef`、`MeasureRef`、`TimeDimensionRef`）在 metric body
+内被调用时会解析为 ibis expression。其他 ref 如果被误调用会抛出教学性错误——它们是身份令牌，
+不是装饰器。
+
+### 一个族，一个访问器
+
+因为 authoring ref 和 catalog ref 是同一类型族，你可以将 authoring ref 直接传给分析 intent，
+无需包装：
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+# revenue 是一个 MetricRef——直接传给 observe：
+frame = session.observe(revenue, timescope={...})
+```
+
+Catalog 的 `catalog.get("sales.revenue").ref` 返回的是同一个 `MetricRef` 子类。不存在
+`.ref.ref` 链，authoring 和 analysis 之间也没有类型不匹配。
+
+### 工厂与归一化器
+
+- `mv.make_ref(id, kind)` —— 为给定 kind 构造对应的 per-kind 子类（catalog 内部使用）。
+- `as_ref_id(value)` —— 从 `SemanticRef`、`SemanticObject` 或纯 `str` 中提取 `.id` 字符串。
+  对字符串容忍：原始 id 直接通过。
+
+## `ai_context`：人与 agent 之间的契约
+
+每个 semantic object 都接受可选的 `ai_context` dict。业务含义和 guardrails 就放在这里
+—— 这是 agent 在使用对象前会读取的上下文。所有 key 都是可选的，但未知 key 会被拒绝。
+
+| 字段 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `business_definition` | `str` | 否 | `None` | 用一两句话说明对象的业务含义。 |
+| `guardrails` | `list[str]` | 否 | `[]` | agent 必须遵守的规则：必要的过滤、排除项、范围限制。 |
+| `synonyms` | `list[str]` | 否 | `[]` | 别名，方便 agent 解析自然语言引用。 |
+| `examples` | `list[str]` | 否 | `[]` | 该对象能回答的示例问题或表述。 |
+| `instructions` | `str` | 否 | `None` | 关于如何（以及如何不）使用该对象的直接指引。 |
+| `owner_notes` | `str` | 否 | `None` | 来自人类 owner 的备注：来源、注意事项、已知问题。 |
+
+```python
+ai_context={
+    "business_definition": "Gross order amount before refunds.",
+    "guardrails": ["Validate refund exclusions before using as net revenue."],
+    "synonyms": ["sales", "gmv"],
+    "examples": ["What was revenue by region last week?"],
+}
+```
+
+## Datasources
+
+Datasources 在 `models/datasources/*.py` 中声明，每种 backend 用一个 typed helper。
+该 helper 注册连接，本身不返回值。Semantic 文件通过 `md.ref("warehouse")` 按名称引用
+datasource。
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context={
+        "business_definition": "Local DuckDB warehouse for sales analysis.",
+        "guardrails": ["Use only for development or approved local analysis."],
+    },
+)
+```
+
+每个 helper（`md.duckdb`、`md.mysql`、`md.postgres`、`md.trino`、`md.clickhouse`）都
+共享以下参数：
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 是 | — | 全局 datasource 名称（字母、数字、`_`、`-`）。供 `md.ref(name)` 使用。 |
+| `description` | `str` | 否 | `None` | 简短的人类可读摘要。 |
+| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文（见上）。 |
+| `extra` | `dict` | 否 | `None` | typed helper 未建模的、罕见的 JSON 安全 ibis 关键字参数。 |
+
+各 backend 特有的参数：
+
+| Helper | 必填 | 可选 |
+| --- | --- | --- |
+| `md.duckdb` | — | `path`（默认 `":memory:"`）、`read_only`（默认 `False`） |
+| `md.mysql` | `host`、`database` | `port`（3306）、`autocommit`、`user_env`、`password_env` |
+| `md.postgres` | `host`、`database` | `port`（5432）、`schema`、`autocommit`、`user_env`、`password_env` |
+| `md.trino` | `host`、`catalog` | `port`（8080）、`schema`、`source`、`timezone`、`http_scheme`、`client_tags`、`session_properties`、`user_env`、`auth_env` |
+| `md.clickhouse` | `host` | `port`（9000 / 9440 secure）、`database`、`secure`、`settings`、`user_env`、`password_env` |
+
+:::caution[凭据是引用，绝不是明文]
+敏感字段以 `*_env` 引用的形式声明，指向一个环境变量 —— `user_env="TRINO_USER"`、
+`password_env="MYSQL_PASSWORD"`。把 secret 明文写进 datasource 字段会报错。Marivo 通过
+`os.environ` → `~/.marivo/secrets.toml` 解析 `*_env` 值，并在一次通过验证的
+`md.test(...)` 往返之后把解析到的 secret 缓存到那里。
+:::
+
+```python
+# models/datasources/lake.py
+import marivo.datasource as md
+
+md.trino(
+    name="lake",
+    host="trino.example.internal",
+    catalog="hive",
+    user_env="TRINO_USER",
+    auth_env="TRINO_AUTH",
+)
+```
+
+## Domain
+
+`ms.domain(...)` 打开一个 namespace。每个 `_domain.py` 调用一次。它返回一个
+`DomainRef`，你可以把它作为 `domain=` 传入，以覆盖在同级文件中声明的对象的活动 domain。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 是 | — | Domain namespace，例如 `"sales"`。对象成为 `<name>.<object>`。 |
+| `default` | `bool` | 否 | `True` | 为 `True` 时，本文件中的 decorators 在未传 `domain=` 时解析到该 domain。 |
+| `ai_context` | `AiContext` | 否 | `None` | domain 的面向 agent 上下文。 |
+
+```python
+import marivo.semantic as ms
+
+ms.domain(name="sales")
+```
+
+## Entity
+
+Entity 是一个物理源（一张表或一个文件）加上它的 primary key。它是 dimensions、
+measures 和 metrics 依附的锚点。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 是 | — | Entity 名称。成为 `<domain>.<name>`。 |
+| `datasource` | `DatasourceRef \| str` | 是 | — | `md.ref("warehouse")` 或全局 datasource 名称。 |
+| `source` | source builder | 是 | — | `ms.table(...)`、`ms.parquet(...)` 或 `ms.csv(...)`。 |
+| `primary_key` | `list[str]` | 否 | `None` | 构成 primary key 的列名。 |
+| `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | Snapshot 或 SCD2 validity 版本控制（见下）。 |
+| `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
+
+```python
+warehouse = md.ref("warehouse")
+
+orders = ms.entity(
+    name="orders",
+    datasource=warehouse,
+    source=ms.table("orders"),
+    primary_key=["order_id"],
+    ai_context={"business_definition": "One row per order."},
+)
+```
+
+### Source builders
+
+| Builder | 必填 | 可选 | 用于 |
+| --- | --- | --- | --- |
+| `ms.table(name)` | `name` | `database` | datasource 中的一张表（Trino/MySQL 用 `database="schema"`）。 |
+| `ms.parquet(path)` | `path` | `hive_partitioning`、`columns` | Parquet 文件（通常经 DuckDB）。 |
+| `ms.csv(path)` | `path` | `header`、`delimiter`、`columns` | CSV 文件（通常经 DuckDB）。 |
+
+### Versioning（可选）
+
+对于行会随时间变化的 entity，声明如何读取其当前状态：
+
+- `ms.snapshot(partition_field, grain="day", timezone=None, format=None)` ——
+  按天分区的快照；读取最新分区。
+- `ms.validity(valid_from, valid_to, interval, open_end, timezone=None)` ——
+  SCD2 validity 区间。`interval` 为 `"closed_open"`（`[from, to)`）或
+  `"closed_closed"`；`open_end` 列出表示“仍然有效”的哨兵值（例如 SQL `NULL` 用
+  `(None,)`，或 `("9999-12-31",)`）。
+
+## Dimension
+
+Dimension 是用来分组或过滤的分类属性。它是一个 decorator，其 body 返回一个针对 entity
+表的 ibis expression。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 否 | 函数名 | Dimension 名称。成为 `<domain>.<entity>.<name>`。 |
+| `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
+
+```python
+@ms.dimension(
+    entity=orders,
+    name="region",
+    ai_context={"business_definition": "Sales reporting region."},
+)
+def region(table):
+    return table.region
+```
+
+## Time dimension
+
+Time dimension 是携带 grain 和解析元数据的特殊 dimension。**只有 time dimension 才能作为
+`session.observe` 的时间轴。**
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 否 | 函数名 | Dimension 名称。 |
+| `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `granularity` | grain 字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
+| `parse` | parse 变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断 parse 变体。 |
+| `is_default` | `bool` | 否 | `False` | 当 entity 有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
+| `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
+
+### Parse 变体
+
+`parse=` 值声明列的物理编码。省略时，分析时会根据列的 ibis dtype 自动推断 parse 变体（原生
+`date`、`datetime`、`timestamp` 列无需显式指定 parse）。对于 string 或 integer 列，需提供
+`ms.strptime(format)` 或 `ms.hour_prefix(prefix)`。该变体必须与 `granularity` 兼容（例如
+hour 粒度需要带时间的格式）。
+
+| Builder | 源列是… | 关键参数 |
+| --- | --- | --- |
+| *（省略 `parse`）* | 原生时间列 | — |
+| `ms.datetime()` | 原生 `datetime` | `timezone`（IANA）、`sample_interval` |
+| `ms.timestamp()` | 原生 `timestamp` | `timezone`（IANA）、`sample_interval` |
+| `ms.strptime(format)` | 需要解析的 string/integer | `timezone`、`sample_interval` |
+| `ms.hour_prefix(prefix)` | 仅含小时的分区 | `sample_interval` —— `prefix` 是提供日期的 day 粒度 time-dimension id |
+
+`timezone` 默认为 datasource 引擎时区；只有当列的挂钟含义不同时才设置它（例如 `"UTC"`）。
+形如 `(5, "minute")` 的 `sample_interval` 标记一个被周期采样的时间轴，供 semi-additive
+fold 使用。
+
+```python
+# Day partition stored as the string "20260131"
+@ms.time_dimension(
+    entity=orders,
+    name="log_date",
+    granularity="day",
+    parse=ms.strptime("%Y%m%d"),
+    is_default=True,
+)
+def log_date(table):
+    return table.dt
+
+# Native UTC timestamp, usable for sub-day buckets
+@ms.time_dimension(
+    entity=orders,
+    name="event_ts",
+    granularity="minute",
+    parse=ms.timestamp(timezone="UTC"),
+)
+def event_ts(table):
+    return table.event_ts
+```
+
+## Measure
+
+Measure 是你打算聚合的行级数量表达式（例如金额或数量）。和 dimension 一样，它是一个返回
+单个 ibis expression 的 decorator —— 但它携带 additivity 和可选的 unit。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 否 | 函数名 | Measure 名称。成为 `<domain>.<entity>.<name>`。 |
+| `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
+| `unit` | `str` | 否 | `None` | UCUM unit token：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
+| `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
+
+```python
+@ms.measure(entity=orders, additivity="additive", unit="CNY")
+def amount(table):
+    return table.amount
+```
+
+## Metrics
+
+Metric 是 agent 出发所依赖的、可信的、可直接用于分析的数值。Marivo 提供几种 authoring
+形态 —— 按数值的计算方式选择。
+
+### 来自 measure 的简单 metric —— `ms.aggregate`
+
+聚合一个 measure。无 body；additivity 从 measure 继承。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 是 | — | Metric 名称。 |
+| `measure` | `MeasureRef \| str` | 是 | — | 要聚合的 measure。 |
+| `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"count"`、`"count_distinct"`、`"min"`、`"max"` 等。 |
+| `fold` | fold | 否 | `None` | semi-additive measure 的 time-fold 覆盖。 |
+| `unit` | `str` | 否 | 继承 | 覆盖从 measure 推导的 unit。 |
+| `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+```
+
+### 来自 ibis body 的 metric —— `@ms.metric`
+
+当数值是一个表达式时使用 decorator。Body 返回一个 ibis 聚合；你直接声明 `additivity`。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 否 | 函数名 | Metric 名称。 |
+| `entities` | `list[EntityRef \| str]` | 是 | — | Body 读取的 entities。 |
+| `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
+| `root_entity` | `EntityRef \| str` | 否 | 单个 entity | 当 `entities` 多于一个时必填。 |
+| `fanout_policy` | `"block" \| "aggregate_then_join"` | 否 | `"block"` | 如何处理跨 entity 连接的 fan-out。 |
+| `unit` | `str` | 否 | `None` | UCUM unit token。 |
+| `provenance` | `SqlProvenance` | 否 | `None` | 用于 parity 校验的 `ms.from_sql(sql=..., dialect=...)`。 |
+| `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
+
+```python
+@ms.metric(
+    entities=[orders],
+    additivity="additive",
+    name="revenue",
+    provenance=ms.from_sql(
+        sql="SELECT SUM(amount) AS revenue FROM orders",
+        dialect="duckdb",
+    ),
+    ai_context={"business_definition": "Gross order amount before refunds."},
+)
+def revenue(table):
+    return table.amount.sum()
+```
+
+### 派生 metrics —— `ms.ratio` / `ms.weighted_average` / `ms.linear`
+
+由其他 metrics 组合而成、无 body 的 metric。其计算完全来自组成成分。
+
+| Builder | 必填 | 计算 |
+| --- | --- | --- |
+| `ms.ratio(name, numerator, denominator)` | 两个 ref | `numerator / denominator`（如客单价、各类比率） |
+| `ms.weighted_average(name, value, weight)` | 两个 ref | 加权平均；之后 `decompose` 拆分 mix 与 rate |
+| `ms.linear(name, add, subtract)` | `add`（共 ≥2 项） | `add` 之和减去 `subtract`（如 `net = gross - refunds`） |
+
+它们也都接受 `unit`、`domain` 和 `ai_context`。
+
+```python
+net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
+aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
+```
+
+### Additivity 与 provenance 辅助器
+
+- `ms.semi_additive(over, fold)` —— 用于在大多数轴上可加、但需在某个时间轴上折叠的
+  snapshot/status 事实。`over` 是状态时间 dimension；`fold` 为 `"last"`、`"first"`、
+  `"mean"`、`"max"` 或 `("quantile", 0.95)`。
+- `ms.from_sql(sql, dialect)` —— 把 SQL 作为**仅 provenance** 附加，用于启用
+  `ms.parity_check(...)`。它永远不会作为 metric body 执行。
+
+## Relationship
+
+声明两个 entity 如何 join，使 metrics 和 dimensions 能够跨越它们。Keys 使用 dimension
+ref，而非原始列名。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 是 | — | Relationship 名称。 |
+| `from_entity` | `EntityRef \| str` | 是 | — | 源 entity。 |
+| `to_entity` | `EntityRef \| str` | 是 | — | 目标 entity。 |
+| `keys` | `list[JoinKey]` | 是 | — | 一个或多个 `ms.join_on(from_key, to_key)` 配对。 |
+| `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
+
+```python
+ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
+)
+```
+
+## 加载与 readiness gate
+
+声明就绪后，加载 catalog 并检查它：
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()                       # SemanticCatalog
+catalog.list().show()                     # everything, grouped
+catalog.list(kind="metric").show()        # just metrics
+revenue = catalog.get("sales.revenue")           # one object
+region = catalog.get("sales.orders.region")      # also an object
+```
+
+在任何分析之前，检查 **readiness** —— 把未完整声明的对象挡在分析之外的结构性闸门：
+
+```python
+report = ms.readiness()
+if report.status == "blocked":
+    report.show()                         # blockers, with the next step for each
+```
+
+:::caution[分析前必须通过 readiness]
+project 可以在 readiness 仍被阻塞时成功 `load()`。在把任何 ref 传给分析 session 之前，
+先解决 `report.show()` 列出的 blockers。
+:::
+
+另外两个检查支持 authoring：
+
+- `ms.richness()` —— 建议性的覆盖度/深度报告；永不阻塞。
+- `ms.parity_check("sales.revenue")` —— 用 metric 的 `provenance` SQL 运行并比对结果。
+  需要 `provenance=ms.from_sql(...)`。
+
+readiness 如何判断“是否就绪”，见 [Readiness](/zh-cn/v0.1/concepts/readiness/)。
+分析如何记录其结论，见 [Evidence](/zh-cn/v0.1/concepts/evidence/)。
+然后继续阅读 [Analysis Workflow](/zh-cn/v0.1/concepts/analysis-workflow/)。

@@ -1,11 +1,305 @@
 ---
 slug: en/v0.1/concepts/analysis-workflow
 title: Analysis Workflow
-description: Metric-centered sessions and typed frames for repeatable agent analysis.
+description: Metric-centered sessions, typed intents, and frames for repeatable agent analysis.
 ---
 
-Every Marivo analysis starts from a metric. An agent opens a session with a guiding question, resolves a metric from the semantic catalog, and chains operators through typed frames.
+Every Marivo analysis starts from a **metric** and runs as a **write-run-read
+loop**: an agent writes an intent (an operator call plus its fields), runs it, and
+reads a typed result before deciding the next step.
 
-Core operators include `observe`, `compare`, `decompose`, `correlate`, `forecast`, and `assess_quality`. Each operator returns a typed result such as `MetricFrame`, `DeltaFrame`, `AttributionFrame`, `AssociationResult`, `ForecastFrame`, or `QualityReport`.
+The pieces:
 
-Frames are persisted under project-local `.marivo/` state and carry lineage so later steps can explain which inputs produced each result.
+- A **session** holds the guiding question, the semantic catalog, and the
+  persisted results of every step.
+- An **intent** is one operator call — `observe`, `compare`, `decompose`, … — with
+  its parameters. The parameters *are* the analysis specification.
+- A **frame** is the typed result of an intent. Frames are the boundary between
+  steps: each operator consumes specific frame types and produces another.
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+```
+
+:::note[Frames are immutable]
+A frame never changes after it is produced. Read it cheaply with `frame.summary()`
+or `frame.preview(limit=n)`; call `frame.to_pandas()` only when you need a mutable
+copy. Every frame carries lineage and is persisted under project-local `.marivo/`,
+so later steps (and human reviewers) can trace which inputs produced each result.
+:::
+
+## Open a session
+
+```python
+session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("sales.revenue")           # a metric object
+region = catalog.get("sales.orders.region")      # a dimension object
+```
+
+`get_or_create` is idempotent: it attaches to an existing session of that name or
+creates one, and sets it current. The narrow session API is `get_or_create`,
+`current()`, `list()`, and `delete(name)`.
+
+:::caution[Readiness first]
+A session can only reason over a catalog that passes `ms.readiness()`. Resolve
+readiness blockers in the [semantic layer](/en/v0.1/concepts/semantic-layer/)
+before observing.
+:::
+
+## How an intent is specified
+
+Operators take catalog objects and a few shared value objects. You will reuse these
+across almost every intent:
+
+| Value | Shape | Meaning |
+| --- | --- | --- |
+| metric input | `catalog.get("sales.revenue")` | A catalog metric object or its `SemanticRef` subclass (e.g. `MetricRef`). Authoring refs from `ms.aggregate(...)` also work. Bare strings are rejected. |
+| dimension input | `catalog.get("sales.orders.region")` | A catalog dimension object or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/v0.1/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `where` keys, and `axis`. |
+| `timescope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
+| `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
+| `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
+| `where` | `{region: "US"}` or `{amount: {"op": ">", "value": 100}}` | Pre-aggregation row filter (see ops below). |
+| `AlignmentPolicy` | `mv.window_bucket()` | How two windows are paired for `compare` / `correlate`. |
+
+The result's **semantic kind** follows from `grain` and `dimensions`: `scalar`
+(neither), `time_series` (grain only), `segmented` (dimensions only), or `panel`
+(both).
+
+### `where` predicate operators
+
+Keys are catalog dimensions; values are a scalar (`==`), a list (`in`), or a
+structured `{"op": ..., "value": ...}` form:
+
+| Form | Meaning |
+| --- | --- |
+| `"US"` | `==` (equality) |
+| `["US", "CA"]` | `in` (membership) |
+| `{"op": "!=", "value": "US"}` | not equal |
+| `{"op": ">", "value": 100}` (`>=`, `<`, `<=` likewise) | numeric comparison |
+| `{"op": "between", "value": ["2026-07-01", "2026-09-30"]}` | inclusive range (exactly two values) |
+
+## Core operators
+
+### `observe` → `MetricFrame`
+
+The starting point for any analysis: materialize a metric over a time range and/or
+segments.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `metric` | metric object / ref | Yes | — | The metric to materialize. |
+| `timescope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
+| `grain` | grain | No | `None` | Time bucket; present ⇒ time series or panel. |
+| `dimensions` | `list[ref]` | No | `None` | Segment axes. |
+| `where` | dict | No | `None` | Pre-aggregation row filter. |
+| `time_dimension` | ref | No | entity default | Pick the time axis when the entity declares several. |
+| `expect_shape` | shape | No | `None` | Guard; raises before backend work if the predicted shape differs. |
+
+```python
+current = session.observe(
+    revenue,
+    timescope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+```
+
+### `compare` → `DeltaFrame`
+
+Quantify change between two `observe` results (current minus baseline). The frames
+must share metric and semantic kind.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `current` | `MetricFrame` | Yes | — | Current-period frame. |
+| `baseline` | `MetricFrame` | Yes | — | Baseline-period frame. |
+| `alignment` | `AlignmentPolicy` | No | `window_bucket` | How buckets/segments are paired. |
+
+```python
+baseline = session.observe(
+    revenue,
+    timescope={"start": "2025-10-01", "end": "2026-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+delta = session.compare(current, baseline)
+```
+
+`compare` pairs buckets with `window_bucket` by default. Pass `alignment=` to
+override — `mv.dow_aligned()`, `mv.holiday_aligned()`, or
+`mv.holiday_and_dow_aligned()`; the calendar-backed kinds also take
+`calendar=mv.CalendarRef(...)`.
+
+### `decompose` → `AttributionFrame`
+
+Attribute a delta's movement across one segment axis — *why* did it change?
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `frame` | `DeltaFrame` | Yes | — | The delta to explain. |
+| `axis` | dimension | Yes | — | The segment axis to attribute over. |
+
+```python
+attribution = session.decompose(delta, axis=region)
+attribution.show()
+```
+
+### `correlate` → `AssociationResult`
+
+Measure the association between two metrics over aligned buckets.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `a`, `b` | `MetricFrame` | Yes | — | The two frames to associate. |
+| `measure_a`, `measure_b` | `str` | No | frame measure | Numeric column on each frame. |
+| `alignment` | `AlignmentPolicy` | No | `window_bucket` | Bucket pairing. |
+| `method` | `"pearson"` | No | `"pearson"` | Correlation method (v1: Pearson, zero lag). |
+
+### `forecast` → `ForecastFrame`
+
+Project a time series or panel forward.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `history` | `MetricFrame` (time_series/panel) | Yes | — | Continuous history, no NaNs. |
+| `horizon` | `int` | Yes | — | Buckets to project (≥ 1). |
+| `model` | `"naive" \| "seasonal_naive" \| "drift"` | No | `"seasonal_naive"` | Forecast strategy. |
+| `seasonality_period` | `int` | No | by grain | Override the seasonal period (day=7, week=52, month=12, quarter=4). |
+| `interval_level` | `float` | No | `0.95` | Confidence level for the prediction interval. |
+| `measure_column` | `str` | No | frame measure | Column to forecast. |
+
+```python
+history = session.observe(revenue, timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+projection = session.forecast(history, horizon=30)
+```
+
+### `assess_quality` → `QualityReport`
+
+Run quality checks (row counts, null ratios, time coverage, duplicate keys) over a
+`MetricFrame`. Returns per-check rows, blocking issues, and recommended follow-ups.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `frame` | `MetricFrame` | Yes | — | The frame to inspect. |
+
+### `hypothesis_test` → `HypothesisTestResult`
+
+Paired test of whether a metric's mean changed between two periods.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `a`, `b` | `MetricFrame` | Yes | — | Current and baseline frames. |
+| `hypothesis` | `"mean_changed"` | No | `"mean_changed"` | Test type (v1). |
+| `value_a`, `value_b` | `str` | No | frame measure | Numeric column on each frame. |
+| `alignment` | `AlignmentPolicy` | No | `window_bucket` | Pairing for the test. |
+| `sampling` | `SamplingPolicy` | No | inferred | Pairing/min-sample rules. |
+| `alpha` | `float` | No | `0.05` | Significance level. |
+
+## Discovery — `session.discover.*` → `CandidateSet`
+
+Discovery operators search a frame for noteworthy items and return a ranked
+`CandidateSet`. Pass `value="<column>"` to disambiguate when a frame has several
+numeric columns; `threshold` is the cutoff (lower ⇒ more candidates).
+
+| Helper | Source shape | Required | Key options |
+| --- | --- | --- | --- |
+| `point_anomalies` | `MetricFrame` time_series/panel | — | `value`, `threshold=3.0` |
+| `period_shifts` | `DeltaFrame` time_series/panel | ≥ 4 buckets | `value`, `threshold=2.0` |
+| `driver_axes` | `DeltaFrame` | `search_space` | `value`, `limit` |
+| `interesting_slices` | `MetricFrame` or `DeltaFrame` | — | `search_space`, `value`, `threshold=2.0`, `limit` |
+| `interesting_windows` | time_series/panel frame | — | `value`, `threshold=2.0` |
+| `cross_sectional_outliers` | `MetricFrame` segmented/panel | — | `peer_scope`, `value`, `threshold=3.0` |
+
+```python
+series = session.observe(revenue, timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+candidates = session.discover.point_anomalies(series, threshold=2.0)
+candidates.show()
+```
+
+## Transforms — `session.transform.*`
+
+Transforms reshape a frame while preserving its family (`MetricFrame` →
+`MetricFrame`, `DeltaFrame` → `DeltaFrame`).
+
+| Transform | Key parameters | Effect |
+| --- | --- | --- |
+| `filter` | `predicate` (callable) | Keep rows where the predicate returns true. |
+| `slice` | `where` (axis → value/list/range) | Keep rows matching exact axis values. |
+| `rollup` | `drop_axes` | Drop axes and re-aggregate measures. |
+| `topk` | `by`, `limit`, `order` | Keep the top N rows by a measure (`order="decrease"` default). |
+| `bottomk` | `by`, `limit` | Keep the bottom N rows. |
+| `rank` | `by`, `method`, `rank_column` | Add a rank column ordered by a measure. |
+| `normalize` | `mode`, `baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score` (MetricFrame only). |
+| `window` | `window` | Restrict to a time window. |
+
+## Escape hatch and promotion
+
+When a step needs something the built-in intents do not model, drop to scratch
+frames — then promote back into the typed flow before continuing.
+
+- `session.explore_ibis(builder, datasource=...)` — run a custom ibis query →
+  `ExplorationResult`.
+- `session.from_pandas(df)` — import external data → `ExplorationResult`.
+- `session.promote_metric_frame(...)` / `promote_delta_frame(...)` /
+  `promote_attribution_frame(...)` — upgrade a scratch frame into a typed frame.
+  Promotion never infers metadata; you supply `metric`, `semantic_kind`,
+  `measure_column`, etc. (or a `PromotionPolicy` with `semantic_anchors`), and it
+  fails closed when anything required is missing.
+
+## Evidence and knowledge
+
+Every operator records evidence into the session, so conclusions stay auditable.
+
+- `session.knowledge()` — established facts, driver facts, open anomalies, and
+  suggested follow-ups for the whole session.
+- `session.evidence.findings(...)`, `.propositions(...)`, `.assessments(...)`,
+  `.proposition(id)`, `.latest_assessment(id)`, `.trace(id)` — look up the
+  evidence objects, and trace a proposition back to the findings that support it.
+
+See [Evidence](/en/v0.1/concepts/evidence/) for the full model.
+
+## End-to-end
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("sales.revenue")
+region = catalog.get("sales.orders.region")
+
+current = session.observe(
+    revenue,
+    timescope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+baseline = session.observe(
+    revenue,
+    timescope={"start": "2025-10-01", "end": "2026-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+delta = session.compare(current, baseline)
+attribution = session.decompose(delta, axis=region)
+attribution.show()
+```
+
+From the `delta` you can branch: `session.discover.period_shifts(delta)` to find
+when it moved, or `session.forecast(current, horizon=3)` to project it forward.
+
+## Frame types
+
+| Frame | Produced by |
+| --- | --- |
+| `MetricFrame` | `observe` (and `promote_metric_frame`) |
+| `DeltaFrame` | `compare` |
+| `AttributionFrame` | `decompose` |
+| `AssociationResult` | `correlate` |
+| `ForecastFrame` | `forecast` |
+| `QualityReport` | `assess_quality` |
+| `HypothesisTestResult` | `hypothesis_test` |
+| `CandidateSet` | `discover.*` |
+| `ExplorationResult` | `from_pandas`, `explore_ibis` |

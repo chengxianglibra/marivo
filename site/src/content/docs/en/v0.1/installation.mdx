@@ -21,6 +21,51 @@ Install the backend extra that matches the datasource you want to query:
 | Trino | `pip install "marivo[trino]"` |
 | All packaged backends | `pip install "marivo[all]"` |
 
+## Initialize a project
+
+Scaffold a new project in the current directory with the CLI:
+
+```bash
+marivo init
+```
+
+`marivo init` creates the project skeleton and installs the Marivo agent skills:
+
+| Path | Purpose |
+| --- | --- |
+| `marivo.toml` | Project manifest. The project name defaults to the directory name. |
+| `models/` | Where you author datasource and semantic declarations. |
+| `.marivo/` | Project-local state: sessions, evidence, and cached metadata. |
+| `.claude/skills/marivo-semantic`, `.claude/skills/marivo-analysis` | Marivo skills for Claude Code (symlinked into the project). |
+| `.codex/skills/marivo-semantic`, `.codex/skills/marivo-analysis` | The same skills for Codex. |
+
+`init` is idempotent: existing files are left untouched and reported as skipped, so
+it is safe to re-run — for example after upgrading to a release that ships updated
+skills. Re-running only adds what is missing. Use `marivo init --force` to delete
+the artifacts above and recreate them from scratch.
+
+:::note
+`init` refuses to silently skip a `marivo.toml` that contains invalid TOML — fix or
+remove it, or pass `--force`. Skill links are best-effort: if your platform cannot
+create a symlink, `init` prints a warning and continues.
+:::
+
+The result is a ready-to-author project:
+
+```text
+your-project/
+  marivo.toml
+  models/
+  .marivo/
+  .claude/skills/   # marivo-semantic, marivo-analysis
+  .codex/skills/    # marivo-semantic, marivo-analysis
+```
+
+Add `.marivo/` to `.gitignore`; version-control `marivo.toml` and `models/` (see
+[Quick Start](/en/v0.1/quick-start/#manage-the-project-with-git)).
+
+## Deploy and develop
+
 Marivo is a Python library, not a hosted service. Deploy a Marivo project by installing the library where the agent runs, checking in datasource and semantic declarations, and providing datasource secrets through environment variables referenced by `*_env` fields.
 
 For local development from this repository:

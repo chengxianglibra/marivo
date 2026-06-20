@@ -1,11 +1,293 @@
 ---
 slug: zh-cn/v0.1/concepts/analysis-workflow
 title: Analysis Workflow
-description: 通过 metric-centered sessions 和 typed frames 让 agent analysis 可重复。
+description: 以 metric 为中心的 sessions、typed intents 和 frames，让 agent analysis 可重复。
 ---
 
-Marivo 的每次 analysis 都从一个 metric 开始。Agent 使用一个 guiding question 打开 session，从 semantic catalog 中解析 metric，然后通过 typed frames 串联 operators。
+每次 Marivo analysis 都从一个 **metric** 开始，并以**写-运行-读**循环运行：agent 写出一个
+intent（一次 operator 调用加上它的字段），运行它，读取一个 typed result，再决定下一步。
 
-核心 operators 包括 `observe`、`compare`、`decompose`、`correlate`、`forecast` 和 `assess_quality`。每个 operator 返回 typed result，例如 `MetricFrame`、`DeltaFrame`、`AttributionFrame`、`AssociationResult`、`ForecastFrame` 或 `QualityReport`。
+各组成部分：
 
-Frames 会持久化在 project-local `.marivo/` 状态中，并携带 lineage，让后续步骤可以解释每个结果来自哪些输入。
+- **session** 持有 guiding question、semantic catalog，以及每一步的持久化结果。
+- **intent** 是一次 operator 调用 —— `observe`、`compare`、`decompose`…… —— 连同它的
+  参数。这些参数*就是*分析的规格说明。
+- **frame** 是 intent 的 typed result。Frames 是步骤之间的边界：每个 operator 消费特定的
+  frame 类型并产出另一个。
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+```
+
+:::note[Frames 是不可变的]
+Frame 一旦产出便不再改变。用 `frame.summary()` 或 `frame.preview(limit=n)` 廉价读取；
+只有需要可变副本时才调用 `frame.to_pandas()`。每个 frame 都携带 lineage，并持久化在
+project 本地的 `.marivo/` 下，因此后续步骤（和人类审阅者）可以追溯每个结果由哪些输入产生。
+:::
+
+## 打开 session
+
+```python
+session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("sales.revenue")           # a metric object
+region = catalog.get("sales.orders.region")      # a dimension object
+```
+
+`get_or_create` 是幂等的：它附着到同名的已有 session，或创建一个，并设为当前 session。
+session 的精简 API 为 `get_or_create`、`current()`、`list()` 和 `delete(name)`。
+
+:::caution[先通过 readiness]
+session 只能在通过 `ms.readiness()` 的 catalog 上进行推理。在 observe 之前，先在
+[semantic layer](/zh-cn/v0.1/concepts/semantic-layer/) 解决 readiness blockers。
+:::
+
+## 一个 intent 如何被指定
+
+Operators 接受 catalog 对象和若干共享的值对象。几乎每个 intent 都会复用它们：
+
+| 值 | 形态 | 含义 |
+| --- | --- | --- |
+| metric 输入 | `catalog.get("sales.revenue")` | 一个 catalog metric 对象或其 `SemanticRef` 子类（如 `MetricRef`）。来自 `ms.aggregate(...)` 的 authoring ref 也可用。裸字符串会被拒绝。 |
+| dimension 输入 | `catalog.get("sales.orders.region")` | 一个 catalog dimension 对象，或其 `DimensionRef` / `TimeDimensionRef`（见 [Semantic refs](/zh-cn/v0.1/concepts/semantic-layer/#semantic-refs)）。用于 `dimensions`、`where` 的 key 和 `axis`。 |
+| `timescope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | 半开时间区间 —— `start` 含、`end` 不含。 |
+| `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | 时间桶大小。存在 ⇒ time series 或 panel。 |
+| `dimensions` | `[region, country]` | 分段轴。v1 中全部必须解析到 metric 所属 entity。 |
+| `where` | `{region: "US"}` 或 `{amount: {"op": ">", "value": 100}}` | 聚合前的行过滤（见下方运算符）。 |
+| `AlignmentPolicy` | `mv.window_bucket()` | `compare` / `correlate` 时两个窗口如何配对。 |
+
+结果的 **semantic kind** 由 `grain` 和 `dimensions` 决定：`scalar`（都没有）、
+`time_series`（仅 grain）、`segmented`（仅 dimensions）或 `panel`（两者皆有）。
+
+### `where` 谓词运算符
+
+key 是 catalog dimension；value 为标量（`==`）、列表（`in`），或结构化的
+`{"op": ..., "value": ...}` 形式：
+
+| 形式 | 含义 |
+| --- | --- |
+| `"US"` | `==`（相等） |
+| `["US", "CA"]` | `in`（成员） |
+| `{"op": "!=", "value": "US"}` | 不等 |
+| `{"op": ">", "value": 100}`（`>=`、`<`、`<=` 同理） | 数值比较 |
+| `{"op": "between", "value": ["2026-07-01", "2026-09-30"]}` | 闭区间（恰好两个值） |
+
+## 核心 operators
+
+### `observe` → `MetricFrame`
+
+任何分析的起点：在某个时间范围和/或分段上物化一个 metric。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `metric` | metric 对象 / ref | 是 | — | 要物化的 metric。 |
+| `timescope` | dict | 否 | `None` | 半开 `{"start", "end"}` 窗口。 |
+| `grain` | grain | 否 | `None` | 时间桶；存在 ⇒ time series 或 panel。 |
+| `dimensions` | `list[ref]` | 否 | `None` | 分段轴。 |
+| `where` | dict | 否 | `None` | 聚合前的行过滤。 |
+| `time_dimension` | ref | 否 | entity 默认 | 当 entity 声明多个时间轴时选择其一。 |
+| `expect_shape` | shape | 否 | `None` | 守卫；若预测形状不符，在访问 backend 前抛错。 |
+
+```python
+current = session.observe(
+    revenue,
+    timescope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+```
+
+### `compare` → `DeltaFrame`
+
+量化两个 `observe` 结果之间的变化（current 减 baseline）。两个 frame 必须共享 metric 与
+semantic kind。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `current` | `MetricFrame` | 是 | — | 当前期 frame。 |
+| `baseline` | `MetricFrame` | 是 | — | 基线期 frame。 |
+| `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 桶/分段如何配对。 |
+
+```python
+baseline = session.observe(
+    revenue,
+    timescope={"start": "2025-10-01", "end": "2026-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+delta = session.compare(current, baseline)
+```
+
+`compare` 默认用 `window_bucket` 配对桶。传入 `alignment=` 可覆盖 ——
+`mv.dow_aligned()`、`mv.holiday_aligned()` 或 `mv.holiday_and_dow_aligned()`；calendar
+支持的几种还接受 `calendar=mv.CalendarRef(...)`。
+
+### `decompose` → `AttributionFrame`
+
+把一个 delta 的变动归因到某一个分段轴上 —— 它*为什么*变了？
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `frame` | `DeltaFrame` | 是 | — | 要解释的 delta。 |
+| `axis` | dimension | 是 | — | 进行归因的分段轴。 |
+
+```python
+attribution = session.decompose(delta, axis=region)
+attribution.show()
+```
+
+### `correlate` → `AssociationResult`
+
+在对齐的桶上度量两个 metric 之间的关联。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `a`、`b` | `MetricFrame` | 是 | — | 要关联的两个 frame。 |
+| `measure_a`、`measure_b` | `str` | 否 | frame measure | 各 frame 上的数值列。 |
+| `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 桶配对。 |
+| `method` | `"pearson"` | 否 | `"pearson"` | 关联方法（v1：Pearson，零滞后）。 |
+
+### `forecast` → `ForecastFrame`
+
+将一个 time series 或 panel 向前投影。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `history` | `MetricFrame`（time_series/panel） | 是 | — | 连续历史，无 NaN。 |
+| `horizon` | `int` | 是 | — | 要投影的桶数（≥ 1）。 |
+| `model` | `"naive" \| "seasonal_naive" \| "drift"` | 否 | `"seasonal_naive"` | 预测策略。 |
+| `seasonality_period` | `int` | 否 | 按 grain | 覆盖季节周期（day=7、week=52、month=12、quarter=4）。 |
+| `interval_level` | `float` | 否 | `0.95` | 预测区间的置信水平。 |
+| `measure_column` | `str` | 否 | frame measure | 要预测的列。 |
+
+```python
+history = session.observe(revenue, timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+projection = session.forecast(history, horizon=30)
+```
+
+### `assess_quality` → `QualityReport`
+
+对一个 `MetricFrame` 运行质量检查（行数、空值比率、时间覆盖、重复 key）。返回逐项检查、
+阻塞性问题和推荐的后续 intent。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `frame` | `MetricFrame` | 是 | — | 要检查的 frame。 |
+
+### `hypothesis_test` → `HypothesisTestResult`
+
+对一个 metric 在两期之间均值是否变化做配对检验。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `a`、`b` | `MetricFrame` | 是 | — | 当前期与基线期 frame。 |
+| `hypothesis` | `"mean_changed"` | 否 | `"mean_changed"` | 检验类型（v1）。 |
+| `value_a`、`value_b` | `str` | 否 | frame measure | 各 frame 上的数值列。 |
+| `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 检验的配对方式。 |
+| `sampling` | `SamplingPolicy` | 否 | 推断 | 配对/最小样本规则。 |
+| `alpha` | `float` | 否 | `0.05` | 显著性水平。 |
+
+## Discovery —— `session.discover.*` → `CandidateSet`
+
+Discovery operators 在一个 frame 中搜索值得注意的项，并返回排序后的 `CandidateSet`。当
+frame 有多个数值列时传 `value="<column>"` 消歧；`threshold` 是阈值（越低 ⇒ 候选越多）。
+
+| Helper | 源形状 | 必填 | 关键选项 |
+| --- | --- | --- | --- |
+| `point_anomalies` | `MetricFrame` time_series/panel | — | `value`、`threshold=3.0` |
+| `period_shifts` | `DeltaFrame` time_series/panel | ≥ 4 个桶 | `value`、`threshold=2.0` |
+| `driver_axes` | `DeltaFrame` | `search_space` | `value`、`limit` |
+| `interesting_slices` | `MetricFrame` 或 `DeltaFrame` | — | `search_space`、`value`、`threshold=2.0`、`limit` |
+| `interesting_windows` | time_series/panel frame | — | `value`、`threshold=2.0` |
+| `cross_sectional_outliers` | `MetricFrame` segmented/panel | — | `peer_scope`、`value`、`threshold=3.0` |
+
+```python
+series = session.observe(revenue, timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+candidates = session.discover.point_anomalies(series, threshold=2.0)
+candidates.show()
+```
+
+## Transforms —— `session.transform.*`
+
+Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFrame` →
+`DeltaFrame`）的前提下重塑 frame。
+
+| Transform | 关键参数 | 效果 |
+| --- | --- | --- |
+| `filter` | `predicate`（callable） | 保留谓词为真的行。 |
+| `slice` | `where`（轴 → 值/列表/区间） | 保留匹配精确轴值的行。 |
+| `rollup` | `drop_axes` | 删除轴并对 measures 重新聚合。 |
+| `topk` | `by`、`limit`、`order` | 按某个 measure 取前 N 行（默认 `order="decrease"`）。 |
+| `bottomk` | `by`、`limit` | 取后 N 行。 |
+| `rank` | `by`、`method`、`rank_column` | 按某个 measure 排序并加一列 rank。 |
+| `normalize` | `mode`、`baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score`（仅 MetricFrame）。 |
+| `window` | `window` | 限制到一个时间窗口。 |
+
+## Escape hatch 与 promotion
+
+当某一步需要内置 intents 未建模的东西时，降级到 scratch frame —— 再在继续之前 promote
+回 typed 流程。
+
+- `session.explore_ibis(builder, datasource=...)` —— 运行自定义 ibis 查询 →
+  `ExplorationResult`。
+- `session.from_pandas(df)` —— 导入外部数据 → `ExplorationResult`。
+- `session.promote_metric_frame(...)` / `promote_delta_frame(...)` /
+  `promote_attribution_frame(...)` —— 把 scratch frame 升级为 typed frame。Promotion
+  从不推断元数据；你需提供 `metric`、`semantic_kind`、`measure_column` 等（或带
+  `semantic_anchors` 的 `PromotionPolicy`），任何必填项缺失时它会 fail closed。
+
+## Evidence 与 knowledge
+
+每个 operator 都会把 evidence 记录到 session，使结论保持可审计。
+
+- `session.knowledge()` —— 整个 session 的既定事实、driver 事实、未决异常和建议的后续。
+- `session.evidence.findings(...)`、`.propositions(...)`、`.assessments(...)`、
+  `.proposition(id)`、`.latest_assessment(id)`、`.trace(id)` —— 查找 evidence 对象，
+  并把一个 proposition 追溯回支持它的 findings。
+
+完整模型见 [Evidence](/zh-cn/v0.1/concepts/evidence/)。
+
+## 端到端
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("sales.revenue")
+region = catalog.get("sales.orders.region")
+
+current = session.observe(
+    revenue,
+    timescope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+baseline = session.observe(
+    revenue,
+    timescope={"start": "2025-10-01", "end": "2026-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+delta = session.compare(current, baseline)
+attribution = session.decompose(delta, axis=region)
+attribution.show()
+```
+
+从 `delta` 你可以分支：用 `session.discover.period_shifts(delta)` 找出它何时移动，或用
+`session.forecast(current, horizon=3)` 向前投影。
+
+## Frame 类型
+
+| Frame | 由谁产出 |
+| --- | --- |
+| `MetricFrame` | `observe`（以及 `promote_metric_frame`） |
+| `DeltaFrame` | `compare` |
+| `AttributionFrame` | `decompose` |
+| `AssociationResult` | `correlate` |
+| `ForecastFrame` | `forecast` |
+| `QualityReport` | `assess_quality` |
+| `HypothesisTestResult` | `hypothesis_test` |
+| `CandidateSet` | `discover.*` |
+| `ExplorationResult` | `from_pandas`、`explore_ibis` |
