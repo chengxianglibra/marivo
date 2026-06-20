@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import fields
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from marivo.datasource.errors import (
     DatasourceSecretInPlaintextError,
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from tests.test_agent_result_protocol import assert_conforms
 
 
 def _ir(
@@ -149,26 +151,66 @@ def test_extra_rejects_non_json_values() -> None:
     assert exc_info.value.details["field"] == "custom_option"
 
 
+def test_datasource_specs_do_not_accept_description() -> None:
+    with pytest.raises(TypeError, match="description"):
+        _DuckDBSpec(name="local", description="Local warehouse")  # type: ignore[call-arg]
+
+
+def test_datasource_helpers_do_not_accept_description() -> None:
+    for helper in (md.duckdb, md.trino, md.mysql, md.postgres, md.clickhouse):
+        assert "description" not in inspect.signature(helper).parameters
+
+    with pytest.raises(TypeError, match="description"):
+        md.duckdb(name="warehouse", description="Local warehouse")  # type: ignore[call-arg]
+
+
+def test_spec_ai_context_maps_to_ir() -> None:
+    spec = _DuckDBSpec(
+        name="warehouse",
+        ai_context={
+            "business_definition": "Local analytical warehouse.",
+            "guardrails": ["Do not use for production freshness checks."],
+            "synonyms": ["local wh"],
+            "examples": ["Inspect local fixture tables."],
+            "instructions": "Prefer bounded previews.",
+            "owner_notes": "Analytics platform owns this datasource.",
+        },
+    )
+
+    ir = _ir(spec)
+
+    assert ir.ai_context.business_definition == "Local analytical warehouse."
+    assert ir.ai_context.guardrails == ("Do not use for production freshness checks.",)
+    assert ir.ai_context.synonyms == ("local wh",)
+    assert ir.ai_context.examples == ("Inspect local fixture tables.",)
+    assert ir.ai_context.instructions == "Prefer bounded previews."
+    assert ir.ai_context.owner_notes == "Analytics platform owns this datasource."
+
+
 # -- Help surface tests (public convenience functions) --
 
 
-def test_trino_help_has_signature_and_description() -> None:
+def test_trino_help_has_signature_without_description() -> None:
     result = md.help("trino", format="json", print=False)
 
     assert result["kind"] == "callable"
     assert result["symbol"] == "trino"
     assert "host" in result["signature"]
     assert "catalog" in result["signature"]
+    assert "description" not in result["signature"]
+    assert "ai_context" in result["signature"]
     assert result["summary"]
 
 
-def test_duckdb_help_has_signature_and_description() -> None:
+def test_duckdb_help_has_signature_without_description() -> None:
     result = md.help("duckdb", format="json", print=False)
 
     assert result["kind"] == "callable"
     assert result["symbol"] == "duckdb"
     assert "name" in result["signature"]
     assert "path" in result["signature"]
+    assert "description" not in result["signature"]
+    assert "ai_context" in result["signature"]
     assert result["summary"]
 
 
@@ -188,8 +230,105 @@ def test_store_writes_convenience_function_call(
     text = datasource_file.read_text(encoding="utf-8")
     assert "md.trino(" in text
     assert "backend_type" not in text
+    assert "description" not in text
     assert "auth_env='TRINO_AUTH'" in text or 'auth_env="TRINO_AUTH"' in text
     assert md.describe("warehouse").env_refs == {"auth": "TRINO_AUTH"}
+
+
+def test_store_persists_ai_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    md.register(
+        _DuckDBSpec(
+            name="warehouse",
+            path=":memory:",
+            ai_context={
+                "business_definition": "Local analytical warehouse.",
+                "guardrails": ["Use for tests only."],
+            },
+        )
+    )
+
+    datasource_file = tmp_path / "models" / "datasources" / "warehouse.py"
+    text = datasource_file.read_text(encoding="utf-8")
+    assert "ai_context=" in text
+    assert "business_definition" in text
+    assert "description" not in text
+    assert md.describe("warehouse").literal_fields == {"path": ":memory:", "read_only": False}
+
+
+def test_md_list_returns_displayable_datasource_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    md.register(_DuckDBSpec(name="warehouse", path=":memory:"))
+
+    result = md.list()
+
+    assert_conforms(result)
+    assert len(result) == 1
+    assert result.ids() == ["warehouse"]
+    assert result.items[0].name == "warehouse"
+    assert result[0].backend_type == "duckdb"
+    assert [item.name for item in result] == ["warehouse"]
+    assert result.show() is None
+    assert "warehouse" in capsys.readouterr().out
+
+
+def test_catalog_list_returns_same_displayable_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    md.register(_DuckDBSpec(name="warehouse", path=":memory:"))
+
+    result = md.load().list()
+
+    assert isinstance(result, type(md.list()))
+    assert result.ids() == ["warehouse"]
+
+
+def test_catalog_show_renders_full_datasource_model_without_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TRINO_AUTH", "super-secret-token")
+    md.register(
+        _TrinoSpec(
+            name="warehouse",
+            host="trino.example",
+            catalog="hive",
+            auth_env="TRINO_AUTH",
+            ai_context={
+                "business_definition": "Curated warehouse tables.",
+                "guardrails": ["Use partition filters."],
+                "synonyms": ["wh"],
+                "examples": ["Preview orders before analysis."],
+                "instructions": "Prefer latest dt partitions.",
+                "owner_notes": "Data platform.",
+            },
+        )
+    )
+
+    catalog = md.load()
+    rendered = catalog.render()
+
+    assert "DatasourceCatalog datasources=1" in rendered
+    assert "warehouse" in rendered
+    assert "backend_type: trino" in rendered
+    assert "fields: catalog: hive, host: trino.example" in rendered
+    assert "env_refs: auth_env=TRINO_AUTH" in rendered
+    assert "business_definition: Curated warehouse tables." in rendered
+    assert "guardrails: Use partition filters." in rendered
+    assert "synonyms: wh" in rendered
+    assert "examples: Preview orders before analysis." in rendered
+    assert "instructions: Prefer latest dt partitions." in rendered
+    assert "owner_notes: Data platform." in rendered
+    assert "super-secret-token" not in rendered
+
+    assert catalog.show() is None
+    out = capsys.readouterr().out
+    assert "warehouse" in out
+    assert "super-secret-token" not in out
 
 
 # -- Internal spec field visibility --
@@ -199,4 +338,5 @@ def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:
     trino_field_names = {field.name for field in fields(_TrinoSpec)}
 
     assert {"name", "host", "catalog", "port", "user_env", "auth_env", "extra"} <= trino_field_names
+    assert "description" not in trino_field_names
     assert "backend_type" not in trino_field_names

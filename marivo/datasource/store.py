@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from dataclasses import fields as dataclass_fields
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from marivo.config import DATASOURCES_DIR
 from marivo.datasource.authoring import DatasourceSpec
 from marivo.datasource.errors import DatasourceMissingError
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.ir import AiContextIR, DatasourceIR
 from marivo.datasource.loader import load_datasources
 from marivo.datasource.secrets import conventional_env_var
 from marivo.project import resolve_project_root
@@ -26,6 +26,23 @@ def datasource_path(name: str, project_root: Path | None = None) -> Path:
 
 def _literal(value: Any) -> str:
     return repr(value)
+
+
+def _ai_context_literal(context: AiContextIR) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    if context.business_definition is not None:
+        data["business_definition"] = context.business_definition
+    if context.guardrails:
+        data["guardrails"] = list(context.guardrails)
+    if context.synonyms:
+        data["synonyms"] = list(context.synonyms)
+    if context.examples:
+        data["examples"] = list(context.examples)
+    if context.instructions is not None:
+        data["instructions"] = context.instructions
+    if context.owner_notes is not None:
+        data["owner_notes"] = context.owner_notes
+    return data
 
 
 _SPEC_CLASS_BY_BACKEND: dict[str, str] = {
@@ -70,8 +87,9 @@ def _write_datasource_file(
         if env_var == conventional_env_var(spec.name, stem):
             continue
         kwargs[f"{stem}_env"] = env_var
-    if spec.description is not None:
-        kwargs["description"] = spec.description
+    ai_context = _ai_context_literal(cast("AiContextIR", spec.ai_context))
+    if ai_context:
+        kwargs["ai_context"] = ai_context
     if extra_kwargs:
         kwargs["extra"] = extra_kwargs
     lines = ["import marivo.datasource as md", "", f"md.{func_name}("]

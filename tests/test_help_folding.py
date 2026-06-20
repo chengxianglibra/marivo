@@ -142,6 +142,7 @@ def test_datasource_fold_partition() -> None:
         "DatasourceCatalog",
         "DatasourceConnectionService",
         "DatasourceDescription",
+        "DatasourceList",
         "DatasourceSourceLocation",
         "DatasourceSummary",
         "DatasourceTestResult",

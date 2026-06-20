@@ -15,7 +15,12 @@ from marivo.analysis.help import _FRAME_SYMBOLS as ANALYSIS_FRAME_SYMBOLS
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
 from marivo.datasource.ir import TableSourceIR
-from marivo.datasource.manage import DatasourceDescription, DatasourceSummary, DatasourceTestResult
+from marivo.datasource.manage import (
+    DatasourceDescription,
+    DatasourceList,
+    DatasourceSummary,
+    DatasourceTestResult,
+)
 from marivo.datasource.scan import ColumnInspection, ScanReport
 from marivo.preview import PreviewResult
 from marivo.render import AgentResult, result_repr
@@ -92,6 +97,10 @@ def _datasource_description() -> DatasourceDescription:
 
 def _datasource_summary() -> DatasourceSummary:
     return DatasourceSummary(name="wh", backend_type="duckdb")
+
+
+def _datasource_list() -> DatasourceList:
+    return DatasourceList((DatasourceSummary(name="wh", backend_type="duckdb"),))
 
 
 def _datasource_test_result() -> DatasourceTestResult:
@@ -249,6 +258,7 @@ def _derived_metric_brief() -> DerivedMetricBrief:
 TERMINAL_BUILDERS: list = [
     pytest.param(_preview_result, id="PreviewResult"),
     pytest.param(_datasource_description, id="DatasourceDescription"),
+    pytest.param(_datasource_list, id="DatasourceList"),
     pytest.param(_datasource_summary, id="DatasourceSummary"),
     pytest.param(_datasource_test_result, id="DatasourceTestResult"),
     pytest.param(_scan_report, id="ScanReport"),

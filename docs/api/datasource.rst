@@ -83,6 +83,7 @@ Catalog & refs
 
    DatasourceCatalog
    DatasourceRef
+   DatasourceList
    DatasourceSummary
    DatasourceDescription
    DatasourceSourceLocation

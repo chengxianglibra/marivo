@@ -198,6 +198,7 @@ DATASOURCE_PUBLIC = {
     "DatasourceConnectionService",
     "DatasourceDescription",
     "DatasourceIR",
+    "DatasourceList",
     "DatasourceRef",
     "DatasourceSourceLocation",
     "DatasourceSummary",

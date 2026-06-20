@@ -8,8 +8,10 @@ from typing import Any
 
 from marivo.datasource import store as _store
 from marivo.datasource.errors import DatasourceMissingError
+from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
     DatasourceDescription,
+    DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
     connect,
@@ -19,13 +21,48 @@ from marivo.datasource.manage import (
     preview,
     test,
 )
-from marivo.datasource.manage import (
-    list as list_datasources,
-)
 from marivo.datasource.metadata import TableMetadata
 from marivo.datasource.scan import ColumnInspection, ScanScope
 from marivo.preview import PreviewResult
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import result_repr
+
+
+def _summary_list(project_root: Path) -> DatasourceList:
+    return DatasourceList(
+        tuple(
+            DatasourceSummary(name=p.name, backend_type=p.backend_type)
+            for p in sorted(_store.load_all(project_root).values(), key=lambda item: item.name)
+        )
+    )
+
+
+def _format_mapping(mapping: dict[str, object]) -> str:
+    if not mapping:
+        return "(none)"
+    return ", ".join(f"{key}: {value}" for key, value in sorted(mapping.items()))
+
+
+def _format_env_refs(mapping: dict[str, str]) -> str:
+    if not mapping:
+        return "(none)"
+    return ", ".join(f"{key}_env={value}" for key, value in sorted(mapping.items()))
+
+
+def _format_tuple(values: tuple[str, ...]) -> str:
+    if not values:
+        return "(none)"
+    return ", ".join(values)
+
+
+def _ai_context_lines(context: AiContextIR) -> tuple[str, ...]:
+    return (
+        f"business_definition: {context.business_definition or '(none)'}",
+        f"guardrails: {_format_tuple(context.guardrails)}",
+        f"synonyms: {_format_tuple(context.synonyms)}",
+        f"examples: {_format_tuple(context.examples)}",
+        f"instructions: {context.instructions or '(none)'}",
+        f"owner_notes: {context.owner_notes or '(none)'}",
+    )
 
 
 @dataclass(frozen=True, repr=False)
@@ -55,18 +92,17 @@ class DatasourceCatalog:
 
     workspace_dir: Path
 
-    def list(self) -> tuple[DatasourceSummary, ...]:
-        """List configured project datasources as DatasourceSummary rows.
+    def list(self) -> DatasourceList:
+        """List configured project datasources as a displayable DatasourceList.
 
         Returns:
-            Tuple of ``DatasourceSummary`` objects sorted by name.
+            ``DatasourceList`` containing sorted ``DatasourceSummary`` rows.
 
         Example:
             >>> catalog = md.load()
-            >>> catalog.list()
-            (DatasourceSummary(name='wh', ...),)
+            >>> catalog.list().show()
         """
-        return tuple(list_datasources())
+        return _summary_list(self.workspace_dir)
 
     def get(self, name: str) -> DatasourceSummary:
         """Retrieve a single datasource summary by name.
@@ -85,7 +121,7 @@ class DatasourceCatalog:
             >>> catalog.get("wh")
             DatasourceSummary(name='wh', ...)
         """
-        datasource = _store.load_one(name)
+        datasource = _store.load_one(name, self.workspace_dir)
         if datasource is None:
             raise DatasourceMissingError(
                 message=f"datasource {name!r} is not configured",
@@ -248,16 +284,31 @@ class DatasourceCatalog:
         )
 
     def _repr_identity(self) -> str:
-        count = len(_store.load_all())
+        count = len(_store.load_all(self.workspace_dir))
         return f"DatasourceCatalog datasources={count}"
 
     def render(self) -> str:
-        names = sorted(ds.name for ds in _store.load_all().values())
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            columns=names[:8],
-            available=(".render()", ".show()"),
+        datasources = sorted(
+            _store.load_all(self.workspace_dir).values(),
+            key=lambda item: item.name,
         )
+        lines = [self._repr_identity()]
+        if not datasources:
+            lines.append("datasources: (none)")
+        for datasource in datasources[:5]:
+            lines.append(f"- name: {datasource.name}")
+            lines.append(f"  backend_type: {datasource.backend_type}")
+            lines.append(f"  fields: {_format_mapping(datasource.fields)}")
+            lines.append(f"  env_refs: {_format_env_refs(datasource.env_refs)}")
+            for line in _ai_context_lines(datasource.ai_context):
+                lines.append(f"  {line}")
+        if len(datasources) > 5:
+            lines.append(f"... {len(datasources) - 5} more datasources; inspect md.list().items")
+        lines.append("available:")
+        lines.append("- .list()")
+        lines.append("- .render()")
+        lines.append("- .show()")
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         return result_repr(self._repr_identity())
