@@ -125,6 +125,9 @@ When working on a task, read the right docs first:
 
 - After behavior changes, update affected user, spec, or skill files in the
   same change.
+- When changing the public API, also update the example code in the `site/`
+  documentation (versioned under `site/src/content/docs/*/latest/`). Keep
+  both English and Chinese editions in sync.
 - Update this guide only for stable repository-wide coding and testing rules.
 - Put task-specific procedures in project-local skills, README files, or the
   relevant domain documentation.
