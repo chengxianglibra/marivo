@@ -32,6 +32,10 @@ export default defineConfig({
   // clobber the Sphinx index. Hosts (and `astro preview`) resolve the bare
   // directory /api/ to /api/index.html on their own.
   redirects: {
+    // The default locale is served under /en/, so Astro emits no page at the
+    // bare site root and hosts return 404 for /. Redirect / to the latest
+    // English splash page so the site has a working entry point.
+    '/': '/en/latest/',
     '/en/api': '/api/index.html',
     '/zh-cn/api': '/api/index.html',
   },
@@ -76,7 +80,7 @@ export default defineConfig({
         {
           icon: 'github',
           label: 'GitHub',
-          href: 'https://github.com/lumendata/marivo',
+          href: 'https://github.com/chengxianglibra/marivo',
         },
       ],
       sidebar: [
