@@ -151,9 +151,10 @@ Use `md` from the installed project environment:
 
 ```python
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 
-print(md.list())
+md.list().show()
 print(md.describe("warehouse"))
 print(md.test("warehouse"))
 

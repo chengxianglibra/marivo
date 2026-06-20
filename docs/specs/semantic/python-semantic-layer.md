@@ -95,7 +95,7 @@ def revenue(order_rows):
 - `name=` 给出时是唯一 semantic identity。
 - `name=` 省略时，Python 变量名或函数名作为 fallback identity。
 - Python 符号名只是 local alias，不参与 semantic id。
-- `description=` 是短标签或一行说明；`ai_context.business_definition` 是完整业务定义，可多行，agent 用它判断对象是否匹配用户意图。
+- `description=` 是语义对象的短标签或一行说明；project datasource 不接受 `description=`，datasource 文本信息写入 `ai_context.business_definition`。`ai_context.business_definition` 是完整业务定义，可多行，agent 用它判断对象是否匹配用户意图。
 - `ai_context` schema 适用于 domain、project datasource、entity、dimension、time_dimension、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
 - `ai_context` 固定字段是 `business_definition: str | None`、`guardrails: list[str]`、`synonyms: list[str]`、`examples: list[str]`、`instructions: str | None`、`owner_notes: str | None`。
 - `business_definition` 和 `guardrails` 对 entity 与 metric 最重要；跨 domain 引用前，agent 应优先读取这两个字段判断是否可复用。

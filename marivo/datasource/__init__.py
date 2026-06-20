@@ -23,6 +23,7 @@ from marivo.datasource.ir import (
 )
 from marivo.datasource.manage import (
     DatasourceDescription,
+    DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
     connect,
@@ -68,6 +69,7 @@ __all__ = [
     "DatasourceConnectionService",
     "DatasourceDescription",
     "DatasourceIR",
+    "DatasourceList",
     "DatasourceRef",
     "DatasourceSourceLocation",
     "DatasourceSummary",

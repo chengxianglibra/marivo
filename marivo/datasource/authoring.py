@@ -47,7 +47,7 @@ _DATASOURCE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]  # noqa: UP040
 
-_META_FIELDS = frozenset({"name", "description", "ai_context", "extra", "fields", "env_refs"})
+_META_FIELDS = frozenset({"name", "ai_context", "extra", "fields", "env_refs"})
 
 
 def _description(text: str) -> dict[str, str]:
@@ -128,11 +128,12 @@ class _SpecBase:
             "Global datasource name; letters, digits, underscores, and hyphens only."
         )
     )
-    description: str | None = field(
-        default=None, metadata=_description("Optional human-readable datasource description.")
-    )
     ai_context: AiContext | dict[str, Any] | None = field(
-        default=None, metadata=_description("Optional AI-facing context hints for this datasource.")
+        default=None,
+        metadata=_description(
+            "Optional AI-facing datasource context. Put text descriptions in "
+            "ai_context.business_definition."
+        ),
     )
     extra: dict[str, JsonValue] | None = field(
         default=None,
@@ -436,7 +437,6 @@ def duckdb(
     *,
     path: str = ":memory:",
     read_only: bool = False,
-    description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
@@ -446,8 +446,8 @@ def duckdb(
         name: Global datasource name; letters, digits, underscores, and hyphens only.
         path: DuckDB database path; defaults to in-memory.
         read_only: Open the DuckDB database in read-only mode.
-        description: Optional human-readable datasource description.
-        ai_context: Optional AI-facing context hints for this datasource.
+        ai_context: Optional AI-facing context hints for this datasource. Put
+            text descriptions in ``ai_context.business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -464,7 +464,6 @@ def duckdb(
         name=name,
         path=path,
         read_only=read_only,
-        description=description,
         ai_context=ai_context,
         extra=extra,
     )
@@ -485,7 +484,6 @@ def trino(
     session_properties: dict[str, JsonValue] | None = None,
     user_env: str | None = None,
     auth_env: str | None = None,
-    description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
@@ -504,8 +502,8 @@ def trino(
         session_properties: Optional Trino session properties.
         user_env: Environment variable for Trino user.
         auth_env: Environment variable for Trino auth token or password.
-        description: Optional human-readable datasource description.
-        ai_context: Optional AI-facing context hints for this datasource.
+        ai_context: Optional AI-facing context hints for this datasource. Put
+            text descriptions in ``ai_context.business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -532,7 +530,6 @@ def trino(
         session_properties=session_properties,
         user_env=user_env,
         auth_env=auth_env,
-        description=description,
         ai_context=ai_context,
         extra=extra,
     )
@@ -548,7 +545,6 @@ def mysql(
     autocommit: bool | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
-    description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
@@ -562,8 +558,8 @@ def mysql(
         autocommit: Optional autocommit override.
         user_env: Environment variable for MySQL user.
         password_env: Environment variable for MySQL password.
-        description: Optional human-readable datasource description.
-        ai_context: Optional AI-facing context hints for this datasource.
+        ai_context: Optional AI-facing context hints for this datasource. Put
+            text descriptions in ``ai_context.business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -585,7 +581,6 @@ def mysql(
         autocommit=autocommit,
         user_env=user_env,
         password_env=password_env,
-        description=description,
         ai_context=ai_context,
         extra=extra,
     )
@@ -602,7 +597,6 @@ def postgres(
     autocommit: bool | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
-    description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
@@ -617,8 +611,8 @@ def postgres(
         autocommit: Optional autocommit override.
         user_env: Environment variable for Postgres user.
         password_env: Environment variable for Postgres password.
-        description: Optional human-readable datasource description.
-        ai_context: Optional AI-facing context hints for this datasource.
+        ai_context: Optional AI-facing context hints for this datasource. Put
+            text descriptions in ``ai_context.business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -641,7 +635,6 @@ def postgres(
         autocommit=autocommit,
         user_env=user_env,
         password_env=password_env,
-        description=description,
         ai_context=ai_context,
         extra=extra,
     )
@@ -658,7 +651,6 @@ def clickhouse(
     settings: dict[str, JsonValue] | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
-    description: str | None = None,
     ai_context: AiContext | dict[str, Any] | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
@@ -673,8 +665,8 @@ def clickhouse(
         settings: Optional ClickHouse settings map.
         user_env: Environment variable for ClickHouse user.
         password_env: Environment variable for ClickHouse password.
-        description: Optional human-readable datasource description.
-        ai_context: Optional AI-facing context hints for this datasource.
+        ai_context: Optional AI-facing context hints for this datasource. Put
+            text descriptions in ``ai_context.business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -697,7 +689,6 @@ def clickhouse(
         settings=settings,
         user_env=user_env,
         password_env=password_env,
-        description=description,
         ai_context=ai_context,
         extra=extra,
     )

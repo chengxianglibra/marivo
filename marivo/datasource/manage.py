@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import builtins
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +60,51 @@ class DatasourceSummary:
             identity=self._repr_identity(),
             status=None,
             available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
+class DatasourceList:
+    """Displayable collection of configured project datasource summaries."""
+
+    _items: tuple[DatasourceSummary, ...]
+
+    @property
+    def items(self) -> tuple[DatasourceSummary, ...]:
+        """Return all datasource summary rows."""
+        return self._items
+
+    def ids(self) -> builtins.list[str]:
+        """Return datasource names in display order."""
+        return [item.name for item in self._items]
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __iter__(self) -> Iterator[DatasourceSummary]:
+        return iter(self._items)
+
+    def __getitem__(self, index: int) -> DatasourceSummary:
+        return self._items[index]
+
+    def _repr_identity(self) -> str:
+        return f"DatasourceList count={len(self._items)}"
+
+    def render(self) -> str:
+        rows = [[item.name, item.backend_type] for item in self._items]
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            columns=["name", "backend"],
+            rows=rows,
+            row_count=len(self._items),
+            preview_truncation_hint="inspect .items for all datasources",
+            available=(".items", ".ids()", ".render()", ".show()"),
         )
 
     def __repr__(self) -> str:
@@ -176,24 +221,26 @@ def remove(name: str) -> bool:
     return _store.delete_one(name)
 
 
-def list() -> builtins.list[DatasourceSummary]:
-    """List configured project datasources as DatasourceSummary rows.
+def list() -> DatasourceList:
+    """List configured project datasources as a displayable DatasourceList.
 
     Returns:
-        Sorted list of ``DatasourceSummary`` objects (by name).
+        ``DatasourceList`` containing sorted ``DatasourceSummary`` rows.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.list()
-        [DatasourceSummary(name='wh', ...)]
+        >>> md.list().show()
+        >>> md.list().items
 
     Constraints:
         Only datasources with a persisted project file are included.
     """
-    return [
-        DatasourceSummary(name=p.name, backend_type=p.backend_type)
-        for p in sorted(_store.load_all().values(), key=lambda item: item.name)
-    ]
+    return DatasourceList(
+        tuple(
+            DatasourceSummary(name=p.name, backend_type=p.backend_type)
+            for p in sorted(_store.load_all().values(), key=lambda item: item.name)
+        )
+    )
 
 
 def describe(name: str) -> DatasourceDescription:
