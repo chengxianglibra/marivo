@@ -34,6 +34,8 @@ Install the backend extra that matches your datasource:
 | --- | --- |
 | DuckDB | `pip install "marivo[duckdb]"` |
 | MySQL | `pip install "marivo[mysql]"` |
+| Postgres | `pip install "marivo[postgres]"` |
+| ClickHouse | `pip install "marivo[clickhouse]"` |
 | Trino | `pip install "marivo[trino]"` |
 | All packaged backends | `pip install "marivo[all]"` |
 
