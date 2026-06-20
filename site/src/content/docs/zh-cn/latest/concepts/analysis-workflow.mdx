@@ -30,8 +30,8 @@ project 本地的 `.marivo/` 下，因此后续步骤（和人类审阅者）可
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("sales.revenue")          # a metric object
-region = catalog.get("sales.orders.region").ref  # a dimension ref
+revenue = catalog.get("sales.revenue")           # a metric object
+region = catalog.get("sales.orders.region")      # a dimension object
 ```
 
 `get_or_create` 是幂等的：它附着到同名的已有 session，或创建一个，并设为当前 session。
@@ -49,7 +49,7 @@ Operators 接受 catalog 对象和若干共享的值对象。几乎每个 intent
 | 值 | 形态 | 含义 |
 | --- | --- | --- |
 | metric 输入 | `catalog.get("sales.revenue")` | 一个 catalog metric 对象或其 `SemanticRef` 子类（如 `MetricRef`）。来自 `ms.aggregate(...)` 的 authoring ref 也可用。裸字符串会被拒绝。 |
-| dimension 输入 | `catalog.get("sales.orders.region").ref` | 一个 `DimensionRef` 或 `TimeDimensionRef`（见 [Semantic refs](/zh-cn/latest/concepts/semantic-layer/#semantic-refs)）。用于 `dimensions`、`where` 的 key 和 `axis`。 |
+| dimension 输入 | `catalog.get("sales.orders.region")` | 一个 catalog dimension 对象，或其 `DimensionRef` / `TimeDimensionRef`（见 [Semantic refs](/zh-cn/latest/concepts/semantic-layer/#semantic-refs)）。用于 `dimensions`、`where` 的 key 和 `axis`。 |
 | `timescope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | 半开时间区间 —— `start` 含、`end` 不含。 |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | 时间桶大小。存在 ⇒ time series 或 panel。 |
 | `dimensions` | `[region, country]` | 分段轴。v1 中全部必须解析到 metric 所属 entity。 |
@@ -61,7 +61,7 @@ Operators 接受 catalog 对象和若干共享的值对象。几乎每个 intent
 
 ### `where` 谓词运算符
 
-key 是 catalog dimension ref；value 为标量（`==`）、列表（`in`），或结构化的
+key 是 catalog dimension；value 为标量（`==`）、列表（`in`），或结构化的
 `{"op": ..., "value": ...}` 形式：
 
 | 形式 | 含义 |
@@ -115,11 +115,12 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.window_bucket())
+delta = session.compare(current, baseline)
 ```
 
-`AlignmentPolicy.kind` 取 `window_bucket`（默认）、`dow_aligned`、`holiday_aligned` 或
-`holiday_and_dow_aligned`；calendar 支持的几种还接受 `calendar=mv.CalendarRef(...)`。
+`compare` 默认用 `window_bucket` 配对桶。传入 `alignment=` 可覆盖 ——
+`mv.dow_aligned()`、`mv.holiday_aligned()` 或 `mv.holiday_and_dow_aligned()`；calendar
+支持的几种还接受 `calendar=mv.CalendarRef(...)`。
 
 ### `decompose` → `AttributionFrame`
 
@@ -128,7 +129,7 @@ delta = session.compare(current, baseline, alignment=mv.window_bucket())
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | 是 | — | 要解释的 delta。 |
-| `axis` | dimension ref | 是 | — | 进行归因的分段轴。 |
+| `axis` | dimension | 是 | — | 进行归因的分段轴。 |
 
 ```python
 attribution = session.decompose(delta, axis=region)
@@ -254,7 +255,7 @@ import marivo.analysis as mv
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
 revenue = catalog.get("sales.revenue")
-region = catalog.get("sales.orders.region").ref
+region = catalog.get("sales.orders.region")
 
 current = session.observe(
     revenue,
@@ -268,7 +269,7 @@ baseline = session.observe(
     grain="month",
     dimensions=[region],
 )
-delta = session.compare(current, baseline, alignment=mv.window_bucket())
+delta = session.compare(current, baseline)
 attribution = session.decompose(delta, axis=region)
 attribution.show()
 ```

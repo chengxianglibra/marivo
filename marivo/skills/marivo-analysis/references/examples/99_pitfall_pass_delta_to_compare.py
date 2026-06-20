@@ -21,7 +21,7 @@ session = mv.session.current()
 cur = session.observe(
     session.catalog.get(METRIC_ID),
     where={
-        session.catalog.get("sales.orders.created_at").ref: {
+        session.catalog.get("sales.orders.created_at"): {
             "op": "between",
             "value": ["2026-07-01", "2026-09-30"],
         }
@@ -30,7 +30,7 @@ cur = session.observe(
 base = session.observe(
     session.catalog.get(METRIC_ID),
     where={
-        session.catalog.get("sales.orders.created_at").ref: {
+        session.catalog.get("sales.orders.created_at"): {
             "op": "between",
             "value": ["2025-07-01", "2025-09-30"],
         }

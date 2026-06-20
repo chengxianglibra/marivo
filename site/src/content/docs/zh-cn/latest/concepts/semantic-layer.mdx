@@ -456,15 +456,15 @@ import marivo.semantic as ms
 catalog = ms.load()                       # SemanticCatalog
 catalog.list().show()                     # everything, grouped
 catalog.list(kind="metric").show()        # just metrics
-revenue = catalog.get("sales.revenue")    # one object
-region = catalog.get("sales.orders.region").ref
+revenue = catalog.get("sales.revenue")           # one object
+region = catalog.get("sales.orders.region")      # also an object
 ```
 
 在任何分析之前，检查 **readiness** —— 把未完整声明的对象挡在分析之外的结构性闸门：
 
 ```python
 report = ms.readiness()
-if report.blocked:
+if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
 

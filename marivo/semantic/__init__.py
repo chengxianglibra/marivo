@@ -401,7 +401,7 @@ def readiness(
     Example:
         >>> import marivo.semantic as ms
         >>> report = ms.readiness()
-        >>> if report.blocked:
+        >>> if report.status == "blocked":
         ...     report.show()
 
     Constraints:

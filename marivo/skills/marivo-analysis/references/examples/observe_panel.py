@@ -19,7 +19,7 @@ panel = session.observe(
     session.catalog.get(METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="day",
-    dimensions=[session.catalog.get("sales.orders.region").ref],
+    dimensions=[session.catalog.get("sales.orders.region")],
 )
 print(panel.summary())
 

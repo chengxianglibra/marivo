@@ -21,7 +21,7 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
-region = session.catalog.get("sales.orders.region").ref
+region = session.catalog.get("sales.orders.region")
 revenue_by_country = session.promote_metric_frame(
     pd.DataFrame(
         {

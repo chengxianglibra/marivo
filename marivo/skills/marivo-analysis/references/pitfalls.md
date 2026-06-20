@@ -4,8 +4,8 @@ Use this file when a Marivo Python analysis script fails with a structured
 exception. Fix the smallest script and re-run it with the active Python
 environment where `marivo` is installed.
 
-Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension refs from
-`session.catalog.get("<dimension_id>").ref`, `mv.CalendarRef(...)`, and
+Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension objects from
+`session.catalog.get("<dimension_id>")`, `mv.CalendarRef(...)`, and
 `mv.window_bucket()` / calendar alignment helpers at public operator boundaries. Do not pass bare
 strings directly to `observe`, `decompose`, `transform`, or calendar-backed
 `compare`.
@@ -50,7 +50,7 @@ Docs: marivo/skills/marivo-analysis/references/pitfalls.md
 cur = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
 base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-created_at = session.catalog.get("sales.orders.created_at").ref
+created_at = session.catalog.get("sales.orders.created_at")
 attribution = session.decompose(delta, axis=created_at)
 ```
 
@@ -82,7 +82,7 @@ become a canonical frame.
 
 **Action:** Pass explicit typed refs and column names. For a metric frame, include
 `metric=session.catalog.get("sales.revenue")`, `semantic_kind="segmented"`,
-`measure_column="value"`, `axes={"country": session.catalog.get("sales.orders.country").ref}`, and
+`measure_column="value"`, `axes={"country": session.catalog.get("sales.orders.country")}`, and
 `semantic_model="sales"`. For delta and attribution promotion, include source
 artifact refs such as `mv.ArtifactRef("frame_delta")`.
 
@@ -257,7 +257,7 @@ session.observe(
 
 session.observe(
     session.catalog.get("sales.revenue"),
-    where={session.catalog.get("sales.orders.created_at").ref: {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    where={session.catalog.get("sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 ```
 
@@ -327,12 +327,12 @@ inspection, and `.to_pandas()` for downstream pandas work.
 TypeError: decompose() missing 1 required keyword-only argument: 'axis'
 ```
 
-**Action:** pass a catalog dimension or time-dimension ref for the axis represented
+**Action:** pass a catalog dimension or time-dimension for the axis represented
 in the `DeltaFrame`.
 
 ```python
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-created_at = session.catalog.get("sales.orders.created_at").ref
+created_at = session.catalog.get("sales.orders.created_at")
 attribution = session.decompose(delta, axis=created_at)
 ```
 
@@ -353,8 +353,8 @@ or call `candidates.as_<shape>()` to assert.
 
 ## `discover.driver_axes(...)` requires `search_space`
 
-`driver_axes` is the only objective that needs catalog-backed refs such as
-`search_space=[session.catalog.get("sales.orders.region").ref, ...]`. Without it, `session.discover.driver_axes`
+`driver_axes` is the only objective that needs catalog-backed dimensions such as
+`search_space=[session.catalog.get("sales.orders.region"), ...]`. Without it, `session.discover.driver_axes`
 raises
 `SemanticKindMismatchError` with `details["missing"] = "search_space"`.
 

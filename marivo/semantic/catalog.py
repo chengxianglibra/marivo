@@ -1697,7 +1697,7 @@ class SemanticCatalog:
 
         Example:
             >>> report = catalog.readiness(refs=[revenue.ref, region.ref])
-            >>> if report.blocked:
+            >>> if report.status == "blocked":
             ...     report.show()
             ...     raise SystemExit
 

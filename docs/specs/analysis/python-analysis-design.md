@@ -204,8 +204,8 @@ PromotionPolicy 的 `semantic_anchors` 也应携带这些 typed refs。若 agent
 
 ```python
 delta = analysis.compare(current, baseline)          # delta_frame
-drivers = analysis.decompose(delta, axis=session.catalog.get("sales.orders.country").ref) # attribution_frame
-candidates = analysis.discover.driver_axes(delta, search_space=[session.catalog.get("sales.orders.country").ref]) # candidate_set
+drivers = analysis.decompose(delta, axis=session.catalog.get("sales.orders.country")) # attribution_frame
+candidates = analysis.discover.driver_axes(delta, search_space=[session.catalog.get("sales.orders.country")]) # candidate_set
 ```
 
 ### Shape-aware 签名
@@ -240,7 +240,7 @@ analysis.decompose(delta, axis="auto")
 如果 `axis="auto"` 有时返回候选维度、有时返回 attribution，它就混合了两个语义。核心层应拆成：
 
 ```python
-axis_candidates = analysis.discover.driver_axes(delta, search_space=[session.catalog.get("sales.orders.country").ref])
+axis_candidates = analysis.discover.driver_axes(delta, search_space=[session.catalog.get("sales.orders.country")])
 selected_axis = analysis.select(axis_candidates, rank=1, attribute="axis")
 drivers = analysis.decompose(delta, axis=selected_axis)
 ```
@@ -251,7 +251,7 @@ drivers = analysis.decompose(delta, axis=selected_axis)
 drivers = analysis.composites.auto_decompose(
     delta,
     objective="largest_explainable_delta",
-    search_space=[session.catalog.get("sales.orders.country").ref, session.catalog.get("sales.orders.platform").ref, session.catalog.get("sales.orders.channel").ref],
+    search_space=[session.catalog.get("sales.orders.country"), session.catalog.get("sales.orders.platform"), session.catalog.get("sales.orders.channel")],
 )
 ```
 
@@ -487,7 +487,7 @@ Sampled folded MetricFrames set `reaggregatable=False`. `transform.rollup(...)` 
 ```python
 mobile_dau = analysis.transform.slice(
     dau,
-    where={session.catalog.get("sales.orders.platform").ref: "mobile"},
+    where={session.catalog.get("sales.orders.platform"): "mobile"},
 )
 
 top_declines = analysis.transform.topk(
@@ -539,7 +539,7 @@ attribution_frame
 示例：
 
 ```python
-country_drivers = analysis.decompose(delta, axis=session.catalog.get("sales.orders.country").ref)
+country_drivers = analysis.decompose(delta, axis=session.catalog.get("sales.orders.country"))
 ```
 
 ### `discover`
@@ -562,7 +562,7 @@ anomalies = analysis.discover.point_anomalies(
 
 axis_candidates = analysis.discover.driver_axes(
     delta,
-    search_space=[session.catalog.get("sales.orders.country").ref, session.catalog.get("sales.orders.platform").ref, session.catalog.get("sales.orders.channel").ref],
+    search_space=[session.catalog.get("sales.orders.country"), session.catalog.get("sales.orders.platform"), session.catalog.get("sales.orders.channel")],
 )
 ```
 
@@ -867,7 +867,7 @@ delta = session.compare(current, baseline, alignment=analysis.window_bucket())
 
 axis_candidates = session.discover.driver_axes(
     delta,
-    search_space=[session.catalog.get("sales.orders.country").ref, session.catalog.get("sales.orders.platform").ref, session.catalog.get("sales.orders.channel").ref],
+    search_space=[session.catalog.get("sales.orders.country"), session.catalog.get("sales.orders.platform"), session.catalog.get("sales.orders.channel")],
 )
 
 selected_axis = axis_candidates.select(rank=1, attribute="axis")
@@ -924,7 +924,7 @@ current = session.observe(metric=session.catalog.get("analytics.dau"), time="thi
 baseline = session.observe(metric=session.catalog.get("analytics.dau"), time="previous_week", grain="day")
 
 delta = session.compare(current, baseline)
-drivers = session.decompose(delta, axis=session.catalog.get("sales.orders.channel").ref)
+drivers = session.decompose(delta, axis=session.catalog.get("sales.orders.channel"))
 quality = session.assess_quality(drivers)
 ```
 
@@ -942,10 +942,10 @@ delta = session.compare(current, baseline)
 axis_candidates = session.discover.driver_axes(
     delta,
     search_space=[
-        session.catalog.get("sales.orders.country").ref,
-        session.catalog.get("sales.orders.platform").ref,
-        session.catalog.get("sales.orders.channel").ref,
-        session.catalog.get("sales.orders.app_version").ref,
+        session.catalog.get("sales.orders.country"),
+        session.catalog.get("sales.orders.platform"),
+        session.catalog.get("sales.orders.channel"),
+        session.catalog.get("sales.orders.app_version"),
     ],
 )
 
@@ -966,10 +966,10 @@ drivers = session.composites.auto_decompose(
     delta,
     objective="largest_explainable_delta",
     search_space=[
-        session.catalog.get("sales.orders.country").ref,
-        session.catalog.get("sales.orders.platform").ref,
-        session.catalog.get("sales.orders.channel").ref,
-        session.catalog.get("sales.orders.app_version").ref,
+        session.catalog.get("sales.orders.country"),
+        session.catalog.get("sales.orders.platform"),
+        session.catalog.get("sales.orders.channel"),
+        session.catalog.get("sales.orders.app_version"),
     ],
 )
 ```
@@ -999,15 +999,15 @@ local_series = session.transform.window(series, window=window)
 ```python
 delta = session.compare(current, baseline)
 
-country_attr = session.decompose(delta, axis=session.catalog.get("sales.orders.country").ref)
+country_attr = session.decompose(delta, axis=session.catalog.get("sales.orders.country"))
 top_country = country_attr.projection().select(rank=1, attribute="keys.country")
 
 country_delta = session.transform.slice(
     delta,
-    where={session.catalog.get("sales.orders.country").ref: top_country},
+    where={session.catalog.get("sales.orders.country"): top_country},
 )
 
-city_attr = session.decompose(country_delta, axis=session.catalog.get("sales.orders.city").ref)
+city_attr = session.decompose(country_delta, axis=session.catalog.get("sales.orders.city"))
 ```
 
 用途：
@@ -1195,7 +1195,7 @@ metric = analysis.promote_metric_frame(
     policy=PromotionPolicy(
         semantic_anchors={
             "metric": session.catalog.get("sales.revenue"),
-            "time_axis": session.catalog.get("sales.orders.event_date").ref,
+            "time_axis": session.catalog.get("sales.orders.event_date"),
         },
         on_missing="fail_closed",
     ),
@@ -1374,7 +1374,7 @@ funnel = session.composites.funnel(
         StageRef("activate"),
         StageRef("purchase"),
     ],
-    dimensions=[session.catalog.get("sales.orders.channel").ref, session.catalog.get("sales.orders.country").ref],
+    dimensions=[session.catalog.get("sales.orders.channel"), session.catalog.get("sales.orders.country")],
 )
 
 dropoff_metric = session.materialize_metric_frame(

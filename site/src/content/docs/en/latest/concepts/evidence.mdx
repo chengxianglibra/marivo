@@ -3,8 +3,94 @@ title: Evidence
 description: Findings, propositions, and assessments that make analytical conclusions auditable.
 ---
 
-Every analysis operator records evidence into the session. Evidence lets an agent explain not only what changed, but how it reached that conclusion.
+Every analysis operator records evidence into the session. Evidence lets an agent
+explain not only *what* changed, but *how* it reached that conclusion — and lets a
+human reviewer trace any result back to the inputs that produced it.
 
-The evidence store tracks findings, propositions, and assessments. `session.knowledge()` summarizes established facts, driver facts, open anomalies, and suggested follow-ups.
+Evidence is append-only and persisted in the session's judgment store under
+project-local `.marivo/`, so conclusions stay auditable and replayable after the
+session ends.
 
-Human reviewers can inspect traces from a proposition back to the findings and assessments that support it.
+## Three layers
+
+Evidence is recorded in three layers, from raw observation to versioned judgment:
+
+| Layer | What it is | Key fields |
+| --- | --- | --- |
+| **Finding** | An atomic, typed observation extracted from one artifact (e.g. "revenue fell 12% MoM in the West region"). | `finding_type`, `artifact_id`, `subject`, `observed_window`, `quality_status` |
+| **Proposition** | A system-seeded claim about a subject, derived from findings (e.g. "revenue changed in Q4"). | `proposition_type`, `subject_key`, `seed_finding_refs` |
+| **Assessment** | A versioned judgment of a proposition: its status and confidence. | `status`, `confidence`, `confidence_basis`, `supersedes_id`, `is_latest` |
+
+Findings and propositions are immutable. Re-running an operator does not edit a
+judgment in place — it writes a **new** assessment that supersedes the previous one
+(`supersedes_id`), and the latest is flagged `is_latest`. The full judgment history
+is preserved.
+
+## Reading what the session knows
+
+`session.knowledge()` returns an immutable `SessionKnowledge` snapshot — the
+read-optimized projection an agent consults to decide its next step. It separates
+**settled facts** from **open items**:
+
+```python
+knowledge = session.knowledge()
+
+# Settled facts: propositions with a current assessment.
+for fact in knowledge.facts(kind="driver"):
+    print(fact.dimension, fact.contribution_share, fact.status)
+
+# Open items: unresolved anomalies and questions awaiting follow-up.
+for item in knowledge.open_items(kind="anomaly"):
+    print(item.subject, item.confidence)
+
+# Suggested next operators, ranked.
+for action in knowledge.next_steps(top=3):
+    print(action)
+```
+
+Facts come in five kinds, each produced by an operator:
+
+| Fact kind | Produced by | Carries |
+| --- | --- | --- |
+| `change` | `compare` | direction, magnitude, comparison window |
+| `driver` | `decompose` | dimension, contribution share, contribution role |
+| `tested_hypothesis` | `hypothesis_test` | method, alpha, p-value, reject-null |
+| `forecast` | `forecast` | forecast window, horizon, prediction interval |
+| `association` | `correlate` | coefficient, lag, join basis |
+
+`SessionKnowledge` also exposes `open_items(kind="question")`, `blocked_followups()`
+(follow-ups that cannot run until an issue is resolved), and `for_subject(subject)`
+to filter the whole snapshot to one subject. `evidence_completeness` reports
+whether the underlying evidence is `complete`, `partial`, or `unavailable`.
+
+## Auditing a conclusion
+
+For the raw records and full audit trail, use the `session.evidence` namespace:
+
+| Method | Returns |
+| --- | --- |
+| `session.evidence.findings(...)` | Findings, filterable by `artifact_id`, `finding_type`, `subject`. |
+| `session.evidence.propositions(...)` | Propositions, filterable by `proposition_type`, `subject`, `status`. |
+| `session.evidence.assessments(...)` | Assessments, latest-only by default. |
+| `session.evidence.proposition(id)` | One proposition by id. |
+| `session.evidence.latest_assessment(id)` | The current assessment, or `None` if never assessed. |
+| `session.evidence.trace(id)` | The full `EvidenceTrace` for a proposition. |
+
+`trace(id)` is the audit entry point: an `EvidenceTrace` links a proposition to its
+`latest_assessment`, its `seed_findings`, the `support_findings` and `oppose_findings`
+behind the judgment, and the `source_artifacts` and `source_steps` that produced it.
+
+```python
+props = list(session.evidence.propositions(proposition_type="change"))
+trace = session.evidence.trace(props[0].proposition_id)
+
+print(trace.proposition.subject_key, "→", trace.latest_assessment.status)
+for finding in trace.seed_findings:
+    print(finding.finding_type, "from", finding.artifact_id)
+```
+
+A reviewer can follow this chain from a conclusion back to the exact observations
+and analysis steps that support it — which is what makes a Marivo conclusion
+auditable rather than merely plausible. See the
+[Analysis Workflow](/en/latest/concepts/analysis-workflow/) for the operators that
+emit this evidence.

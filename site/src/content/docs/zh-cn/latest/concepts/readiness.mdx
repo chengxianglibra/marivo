@@ -1,10 +1,99 @@
 ---
 title: Readiness
-description: 阻止未完成 semantic objects 进入 analysis 的 gate。
+description: 阻止未完成 semantic objects 进入 analysis 的结构性 gate。
 ---
 
-`catalog.readiness()` 检查 semantic objects 是否足够完整，可以进入 analysis。它会报告 blockers、warnings、backend access status、parity status 和 enrichment issues。
+Readiness 是 authoring 与 analysis 之间的必经 gate。`ms.readiness()` 检查 agent 即将
+使用的 semantic objects 是否足够完整、规范，可以交接给分析，并返回一个 `ReadinessReport`。
 
-一个新 project 可以成功 load，但 readiness 仍然是 blocked。Agents 应该检查 `report.show()`，并先解决缺失定义、source access、preview、parity 或 enrichment 问题，再运行 metric analysis。
+一个新 project 可以成功 `ms.load()`，而 readiness 仍然是 **blocked** —— load 只是解析
+declarations。Readiness 阻止 agents 基于半成品 semantics 进行推理：把任何 ref 交给分析
+session 之前，先解决每一个 blocker。
 
-Readiness 可以避免 agents 基于半成品 semantics 进行推理。
+```python
+import marivo.semantic as ms
+
+ms.load()
+report = ms.readiness()                  # 检查每一个已加载对象
+if report.status == "blocked":
+    report.show()                        # 有界卡片：每个 blocker 及其下一步
+    raise SystemExit("resolve readiness blockers before analysis")
+```
+
+## 结构性检查，而非运行时检查
+
+`ms.readiness()` 是一次**纯内存检查**。它从不打开 datasource 连接 —— 它只针对 declarations
+本身进行推理：缺失定义、未知 refs、跨 datasource 的 fan-out、脆弱的 string references，以及
+未经审计的危险决策。
+
+触及 backend 的校验是独立的，并按需运行：
+
+| 检查 | 作用 | 是否触及 backend？ |
+| --- | --- | --- |
+| `ms.readiness()` | 结构性完整性 gate | 否 |
+| `catalog.preview(ref)` | 执行一个小查询，采样真实数据行 | 是 |
+| `ms.parity_check(ref)` | 用 metric 对其 `provenance` SQL 跑一遍并比对结果 | 是 |
+| `ms.richness()` | 关于覆盖度/深度的建议性报告；从不 block | 否 |
+
+:::caution[Readiness 不证明查询能跑通]
+`ready` 报告意味着 semantics 在结构上是健全的，并不代表仓库可达或数字正确。请用
+`catalog.preview(...)` 与 `ms.parity_check(...)` 来验证这些。
+:::
+
+## 报告
+
+`ms.readiness()` 返回一个 frozen 的 `ReadinessReport`：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | 总体结论（见下）。 |
+| `blockers` | `tuple[ReadinessIssue, ...]` | 交接前必须修复的问题。 |
+| `warnings` | `tuple[ReadinessIssue, ...]` | 不会 block 的建议性问题。 |
+| `analysis_ready_refs` | `tuple[str, ...]` | 通过检查的 refs —— 可安全交给分析。 |
+| `input_summary` | `ReadinessInputSummary` | 检查了什么：datasources、refs、tables、decision records。 |
+| `abandoned` | `tuple[...]` | 被标记为 abandoned 的候选对象。 |
+| `checked_at` | `str` | 检查的 ISO-8601 时间戳。 |
+
+`status` 由严重程度推导：只要有 blocker ⇒ `blocked`；只有 warnings ⇒ `ready_with_warnings`；
+其余 ⇒ `ready`。
+
+每个 `ReadinessIssue` 都带有相同的“教学式”形状：
+
+| 属性 | 含义 |
+| --- | --- |
+| `kind` | 问题种类（见下表）。 |
+| `severity` | `"blocker"` 或 `"warning"`。 |
+| `refs` | 问题涉及的 semantic refs。 |
+| `message` | 期望是什么、实际是什么。 |
+| `suggested_action` | 具体的下一步。 |
+
+`report.show()` 打印一张有界卡片；`report.to_dict()` 返回完整的机器可读列表，便于程序化处理。
+
+## 问题种类
+
+| Kind | 严重程度 | 触发条件 | 下一步 |
+| --- | --- | --- | --- |
+| `load_error` | blocker | 某个 declaration 加载失败。 | 修复 semantic load 错误并重新加载。 |
+| `unknown_ref` | blocker | 请求的 ref 不在 registry 中。 | 修正该 ref，或将其从 readiness 范围中移除。 |
+| `missing_business_definition` | blocker | 被检查的对象没有 `ai_context.business_definition`。 | 补充 `business_definition`。 |
+| `cross_datasource_unfederated` | blocker | 某个 metric 在没有 federation 的情况下跨越多个 datasource。 | 把集成移到上游、启用 federated backend，或拆分 metric。 |
+| `unresolved_clarification` | blocker | 某个危险决策（time-dimension identity、metric composition）没有记录的决策。 | 在 declaration 之后重新加载，或记录对象级的 `DecisionRecord`。 |
+| `missing_guardrails` | warning | 被检查的对象没有 `ai_context.guardrails`。 | 补充 `guardrails`。 |
+| `sql_parity_unverified` | warning | 某个 metric 有 `provenance` SQL 但 parity 未确认。 | 运行 `ms.parity_check(ref)`。 |
+| `fragile_string_ref` | warning | 某个对象使用了脆弱的 string reference。 | 用稳定的 object ref 替换它。 |
+| `time_dimension_pushdown_advisory` | warning | 某个 time dimension 可能无法下推到 partition。 | 当业务时间轴与 partition 一致时，保留原始 partition 列并声明其 parse。 |
+
+## 限定检查范围
+
+默认情况下 `ms.readiness()` 检查每一个已加载对象。传入 `refs=` 可将其限定到一次分析所需的
+范围 —— Marivo 会为你解析完整的依赖闭包（metric、它的 measures、dimensions、entities 与
+datasources）：
+
+```python
+report = ms.readiness(refs=["sales.revenue"])
+for issue in report.blockers:
+    print(issue.kind, issue.refs, "→", issue.suggested_action)
+```
+
+这是分析之前必经的 semantic gate。关于分析如何记录它得出的结论，参见
+[Evidence](/zh-cn/latest/concepts/evidence/)。
