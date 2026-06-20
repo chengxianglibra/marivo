@@ -109,3 +109,6 @@ docs/superpowers/plans/
 .worktrees/
 .codegraph/
 .mimocode/
+
+# Sphinx autosummary-generated stub pages (build artifact)
+docs/api/api/

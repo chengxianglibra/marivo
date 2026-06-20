@@ -238,11 +238,15 @@ class SampleIntervalIR:
 
 @dataclass(frozen=True)
 class DateParse:
+    """Parse a time-dimension column as a calendar date."""
+
     kind: Literal["date"] = "date"
 
 
 @dataclass(frozen=True)
 class DatetimeParse:
+    """Parse a time-dimension column as a datetime, optionally timezone-aware."""
+
     timezone: str | None = None
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["datetime"] = "datetime"
@@ -250,6 +254,8 @@ class DatetimeParse:
 
 @dataclass(frozen=True)
 class TimestampParse:
+    """Parse a time-dimension column as a timestamp, optionally timezone-aware."""
+
     timezone: str | None = None
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["timestamp"] = "timestamp"
@@ -257,6 +263,8 @@ class TimestampParse:
 
 @dataclass(frozen=True)
 class StrptimeParse:
+    """Parse a time-dimension column using an explicit ``strptime`` format."""
+
     format: str
     timezone: str | None = None
     sample_interval: SampleIntervalIR | None = None
@@ -265,6 +273,8 @@ class StrptimeParse:
 
 @dataclass(frozen=True)
 class HourPrefixParse:
+    """Parse a time-dimension column from an hour-prefixed string."""
+
     prefix: str
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["hour_prefix"] = "hour_prefix"
