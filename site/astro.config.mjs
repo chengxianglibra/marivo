@@ -6,6 +6,7 @@ function docsItems(version) {
     { slug: version },
     { slug: `${version}/installation` },
     { slug: `${version}/quick-start` },
+    { slug: `${version}/release-notes/0.1.0` },
     {
       label: 'Concepts',
       translations: {

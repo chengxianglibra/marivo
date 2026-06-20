@@ -1,0 +1,61 @@
+---
+slug: en/v0.1/release-notes/0.1.0
+title: Marivo 0.1.0
+description: Release notes for Marivo 0.1.0.
+---
+
+Marivo 0.1.0 is the first public release of Marivo: a Python-native semantic
+modeling and analysis library for agentic analytics.
+
+## Highlights
+
+- Python-native semantic declarations for datasources, domains, entities,
+  dimensions, metrics, and relationships.
+- Catalog loading and readiness checks that block incomplete semantic objects
+  before analysis.
+- Metric-centered analysis sessions with typed operators such as observe,
+  compare, decompose, correlate, forecast, and quality checks.
+- Typed frames as the boundary between analysis steps, with bounded display and
+  reproducible handoff between operators.
+- Evidence recording for findings, propositions, and assessments so analysis
+  results can be traced back to their inputs.
+- Agent-facing skills for semantic authoring and analysis workflows.
+- Static documentation with isolated `latest` and `v0.1` snapshots.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[all]"
+```
+
+Marivo 0.1.0 requires Python 3.12 or newer.
+
+## Included Backends
+
+Marivo ships optional extras for DuckDB, MySQL, and Trino. Datasource
+credentials are referenced through environment variables in project state rather
+than stored directly in semantic declarations.
+
+## Known Scope
+
+- Marivo 0.1.0 is an alpha release intended for early adopters.
+- The public surface is centered on the Python library: `marivo.datasource`,
+  `marivo.semantic`, and `marivo.analysis`.
+- Marivo is not a hosted service, chat UI, or text-to-SQL wrapper.
+- API details may change before a stable 1.0 release.
+
+## Documentation
+
+- [Install Marivo](/en/v0.1/installation/)
+- [Quick Start](/en/v0.1/quick-start/)
+- [Semantic Layer](/en/v0.1/concepts/semantic-layer/)
+- [Analysis Workflow](/en/v0.1/concepts/analysis-workflow/)

@@ -1,0 +1,57 @@
+---
+slug: zh-cn/v0.1/release-notes/0.1.0
+title: Marivo 0.1.0
+description: Marivo 0.1.0 release notes。
+---
+
+Marivo 0.1.0 是 Marivo 的第一个公开版本：一个面向 agentic analytics 的
+Python-native semantic modeling 与 analysis library。
+
+## 重点
+
+- 用 Python 声明 datasources、domains、entities、dimensions、metrics 和
+  relationships。
+- Catalog loading 与 readiness checks 会在分析前阻止未完成的 semantic objects。
+- 以 metric 为中心的 analysis sessions，提供 observe、compare、decompose、
+  correlate、forecast 和 quality checks 等 typed operators。
+- Typed frames 作为分析步骤之间的边界，提供有界展示和可复现的 operator handoff。
+- 记录 findings、propositions 和 assessments，让分析结果可以追溯回输入。
+- 随包提供面向 agent 的 semantic authoring 与 analysis workflow skills。
+- 静态文档站点提供隔离的 `latest` 和 `v0.1` 快照。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[all]"
+```
+
+Marivo 0.1.0 需要 Python 3.12 或更高版本。
+
+## 包含的 Backends
+
+Marivo 为 DuckDB、MySQL 和 Trino 提供 optional extras。Datasource credentials
+通过 project state 中的环境变量引用，而不是直接写入 semantic declarations。
+
+## 当前范围
+
+- Marivo 0.1.0 是面向 early adopters 的 alpha release。
+- Public surface 以 Python library 为中心：`marivo.datasource`、`marivo.semantic`
+  和 `marivo.analysis`。
+- Marivo 不是 hosted service、chat UI 或 text-to-SQL wrapper。
+- 在稳定的 1.0 release 之前，API 细节仍可能变化。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.1/installation/)
+- [快速开始](/zh-cn/v0.1/quick-start/)
+- [Semantic Layer](/zh-cn/v0.1/concepts/semantic-layer/)
+- [Analysis Workflow](/zh-cn/v0.1/concepts/analysis-workflow/)

@@ -10,6 +10,7 @@ const docs = [
   'index.mdx',
   'installation.mdx',
   'quick-start.mdx',
+  'release-notes/0.1.0.mdx',
   'concepts/index.mdx',
   'concepts/semantic-layer.mdx',
   'concepts/analysis-workflow.mdx',
