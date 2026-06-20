@@ -510,26 +510,26 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         name="orders",
         datasource="warehouse",
         source=ms.table("orders"),
-        ai_context={
-            "business_definition": "One row per completed order.",
-            "guardrails": ["Exclude test orders."],
-            "synonyms": ["transactions"],
-            "examples": ["completed order count"],
-            "instructions": "Use created_at for reporting windows.",
-            "owner_notes": "Finance analytics owns this entity.",
-        },
+        ai_context=ms.ai_context(
+            business_definition="One row per completed order.",
+            guardrails=["Exclude test orders."],
+            synonyms=["transactions"],
+            examples=["completed order count"],
+            instructions="Use created_at for reporting windows.",
+            owner_notes="Finance analytics owns this entity.",
+        ),
     )
 
     @ms.dimension(
         entity=orders,
-        ai_context={
-            "business_definition": "Region assigned to the completed order.",
-            "guardrails": ["Do not infer sales ownership from region alone."],
-            "synonyms": ["market"],
-            "examples": ["APAC"],
-            "instructions": "Use for geographic slicing.",
-            "owner_notes": "Maintained by sales ops.",
-        },
+        ai_context=ms.ai_context(
+            business_definition="Region assigned to the completed order.",
+            guardrails=["Do not infer sales ownership from region alone."],
+            synonyms=["market"],
+            examples=["APAC"],
+            instructions="Use for geographic slicing.",
+            owner_notes="Maintained by sales ops.",
+        ),
     )
     def region(table):
         return table.region
@@ -538,14 +538,14 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         entity=orders,
         additivity="additive",
         unit="USD",
-        ai_context={
-            "business_definition": "Gross order amount before refunds.",
-            "guardrails": ["Does not net out refunds."],
-            "synonyms": ["gross sales"],
-            "examples": ["order amount"],
-            "instructions": "Aggregate with sum for revenue.",
-            "owner_notes": "Finance validates monthly.",
-        },
+        ai_context=ms.ai_context(
+            business_definition="Gross order amount before refunds.",
+            guardrails=["Does not net out refunds."],
+            synonyms=["gross sales"],
+            examples=["order amount"],
+            instructions="Aggregate with sum for revenue.",
+            owner_notes="Finance validates monthly.",
+        ),
     )
     def amount(table):
         return table.amount
@@ -554,14 +554,14 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         entity=orders,
         granularity="day",
         parse=ms.timestamp(timezone="UTC"),
-        ai_context={
-            "business_definition": "Order creation timestamp.",
-            "guardrails": ["Do not use as payment settlement time."],
-            "synonyms": ["created time"],
-            "examples": ["2026-01-01T00:00:00Z"],
-            "instructions": "Use as the default time window.",
-            "owner_notes": "UTC normalized upstream.",
-        },
+        ai_context=ms.ai_context(
+            business_definition="Order creation timestamp.",
+            guardrails=["Do not use as payment settlement time."],
+            synonyms=["created time"],
+            examples=["2026-01-01T00:00:00Z"],
+            instructions="Use as the default time window.",
+            owner_notes="UTC normalized upstream.",
+        ),
     )
     def created_at(table):
         return table.created_at
@@ -570,14 +570,14 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         name="revenue",
         measure=amount,
         agg="sum",
-        ai_context={
-            "business_definition": "Total gross order amount before refunds.",
-            "guardrails": ["Do not use as net revenue."],
-            "synonyms": ["gross revenue"],
-            "examples": ["Q1 gross revenue"],
-            "instructions": "Use created_at for reporting windows.",
-            "owner_notes": "Owned by finance analytics.",
-        },
+        ai_context=ms.ai_context(
+            business_definition="Total gross order amount before refunds.",
+            guardrails=["Do not use as net revenue."],
+            synonyms=["gross revenue"],
+            examples=["Q1 gross revenue"],
+            instructions="Use created_at for reporting windows.",
+            owner_notes="Owned by finance analytics.",
+        ),
     )
 """)
 
@@ -906,7 +906,7 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
                 @ms.metric(
                     entities=[orders],
                     additivity="additive",
-                    ai_context={"business_definition": "All completed order amounts."},
+                    ai_context=ms.ai_context(business_definition="All completed order amounts."),
                 )
                 def revenue(table):
                     return table.amount.sum()

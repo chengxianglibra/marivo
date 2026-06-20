@@ -12,6 +12,7 @@ import hashlib
 import inspect
 import textwrap
 from collections.abc import Callable
+from collections.abc import Sequence as _Sequence
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -19,7 +20,6 @@ from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.scan import csv as _datasource_csv
 from marivo.datasource.scan import parquet as _datasource_parquet
 from marivo.datasource.scan import table as _datasource_table
-from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
@@ -69,12 +69,13 @@ from marivo.semantic.refs import (
     TimeDimensionRef,
 )
 from marivo.semantic.time_format import normalize_strptime
-from marivo.semantic.typing import AiContext
+from marivo.semantic.typing import AiContextValue
 from marivo.semantic.validator import validate_metric_body_ast
 
 __all__ = [
     "DomainRef",
     "aggregate",
+    "ai_context",
     "csv",
     "datetime",
     "dimension",
@@ -189,17 +190,116 @@ def _check_duplicate(
             )
 
 
-def _semantic_ai_context_error(message: str, details: dict[str, Any]) -> None:
-    _raise(ErrorKind.INVALID_AI_CONTEXT, message, cls=SemanticDecoratorError)
+def ai_context(
+    *,
+    business_definition: str | None = None,
+    guardrails: _Sequence[str] | None = None,
+    synonyms: _Sequence[str] | None = None,
+    examples: _Sequence[str] | None = None,
+    instructions: str | None = None,
+    owner_notes: str | None = None,
+) -> AiContextValue:
+    """Construct a validated AiContext for semantic objects.
 
+    Provides typed, IDE-friendly construction of AI context with eager
+    validation.  Invalid key names are caught at call time by Python's
+    keyword argument checking; value-type mismatches raise
+    ``SemanticDecoratorError`` with ``[invalid_ai_context]`` including
+    the caller's file and line.
 
-def _build_ai_context(ai_context: AiContext | None) -> AiContextIR:
-    """Convert a user-provided ai_context dict/TypedDict into an AiContextIR.
+    Args:
+        business_definition: Plain-language description of what the object represents.
+        guardrails: Constraints on how the object should be used.
+        synonyms: Alternative names for the object.
+        examples: Example questions or use cases.
+        instructions: Usage guidance for AI agents.
+        owner_notes: Team or ownership notes.
 
-    Validates keys and types; raises SemanticDecoratorError with
-    INVALID_AI_CONTEXT on invalid keys or wrong types.
+    Returns:
+        A validated ``AiContextValue`` for use with ``ai_context=`` parameters.
+
+    Example:
+        >>> ctx = ms.ai_context(
+        ...     business_definition="Total revenue from all orders",
+        ...     guardrails=["Do not use for margin calculations"],
+        ...     synonyms=["total_sales"],
+        ... )
+        >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", ai_context=ctx)
+
+    Raises:
+        SemanticDecoratorError: If any value has the wrong type.
     """
-    return _shared_build_ai_context(ai_context, on_error=_semantic_ai_context_error)
+    location = _user_caller_location()
+
+    # Validate list-type fields
+    for label, value in (
+        ("guardrails", guardrails),
+        ("synonyms", synonyms),
+        ("examples", examples),
+    ):
+        if value is None:
+            continue
+        if not isinstance(value, list | tuple) or not all(isinstance(item, str) for item in value):
+            _raise(
+                ErrorKind.INVALID_AI_CONTEXT,
+                f"ms.ai_context({label}=...) requires list[str] or tuple[str, ...], "
+                f"got {type(value).__name__}.",
+                cls=SemanticDecoratorError,
+                location=location,
+            )
+
+    # Validate string-type fields
+    for label, value in (
+        ("business_definition", business_definition),
+        ("instructions", instructions),
+        ("owner_notes", owner_notes),
+    ):
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            _raise(
+                ErrorKind.INVALID_AI_CONTEXT,
+                f"ms.ai_context({label}=...) requires str, got {type(value).__name__}.",
+                cls=SemanticDecoratorError,
+                location=location,
+            )
+
+    return AiContextValue(
+        business_definition=business_definition,
+        guardrails=tuple(guardrails) if guardrails is not None else (),
+        synonyms=tuple(synonyms) if synonyms is not None else (),
+        examples=tuple(examples) if examples is not None else (),
+        instructions=instructions,
+        owner_notes=owner_notes,
+    )
+
+
+def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
+    """Convert a validated AiContextValue into an AiContextIR.
+
+    Rejects raw dicts with a teachable error directing the user to
+    ``ms.ai_context(...)``.  Since ``AiContextValue`` is validated at
+    construction time by ``ms.ai_context()`` or ``__post_init__``, no
+    further validation is needed for genuine ``AiContextValue`` instances.
+    """
+    if ai_context is None:
+        return AiContextIR()
+    if not isinstance(ai_context, AiContextValue):
+        _raise(
+            ErrorKind.INVALID_AI_CONTEXT,
+            "ai_context no longer accepts raw dicts. "
+            "Use ms.ai_context(business_definition=..., guardrails=[...]) "
+            "to construct an AiContextValue.",
+            cls=SemanticDecoratorError,
+        )
+    return AiContextIR(
+        business_definition=ai_context.business_definition,
+        guardrails=ai_context.guardrails,
+        synonyms=ai_context.synonyms,
+        examples=ai_context.examples,
+        instructions=ai_context.instructions,
+        owner_notes=ai_context.owner_notes,
+    )
 
 
 def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
@@ -376,7 +476,11 @@ def _normalize_additivity(additivity: Additivity, *, semantic_id: str) -> Additi
 
 
 def _caller_location() -> SourceLocation:
-    """Best-effort source location from the caller's frame."""
+    """Best-effort source location from the caller's frame.
+
+    Walks up 1 frame: ``_caller_location`` -> caller (decorator).
+    Reports the file/line of the decorator call site.
+    """
     frame = inspect.currentframe()
     # Walk up: _caller_location -> decorator
     try:
@@ -386,6 +490,31 @@ def _caller_location() -> SourceLocation:
                 filename = caller_frame.f_code.co_filename
                 lineno = caller_frame.f_lineno
                 return SourceLocation(file=filename, line=lineno)
+    except AttributeError:
+        pass
+    return SourceLocation(file="<unknown>", line=0)
+
+
+def _user_caller_location() -> SourceLocation:
+    """Best-effort source location of the user's call site.
+
+    Walks up 2 frames: ``_user_caller_location`` -> internal wrapper
+    (e.g. ``ai_context``) -> user code.  Reports the file/line where
+    the user called the public function.
+    """
+    frame = inspect.currentframe()
+    try:
+        if frame is not None and frame.f_back is not None:
+            wrapper_frame = frame.f_back
+            if wrapper_frame.f_back is not None:
+                user_frame = wrapper_frame.f_back
+                filename = user_frame.f_code.co_filename
+                lineno = user_frame.f_lineno
+                return SourceLocation(file=filename, line=lineno)
+            # Fallback: report the wrapper itself
+            filename = wrapper_frame.f_code.co_filename
+            lineno = wrapper_frame.f_lineno
+            return SourceLocation(file=filename, line=lineno)
     except AttributeError:
         pass
     return SourceLocation(file="<unknown>", line=0)
@@ -447,7 +576,7 @@ def domain(
     *,
     name: str,
     default: bool = True,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> DomainRef:
     """Declare a semantic domain namespace inside a project file.
 
@@ -459,7 +588,7 @@ def domain(
         name: Domain namespace, e.g. ``"sales"``.
         default: If True, subsequent decorators in this file resolve to this
             domain when no explicit ``domain=`` kwarg is passed.
-        ai_context: Optional ``AiContext`` (or compatible dict) with extra
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra
             agent-facing hints.
 
     Returns:
@@ -500,7 +629,7 @@ def aggregate(
     fold: str | tuple[Literal["quantile"], float] | None = None,
     unit: str | None = None,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> MetricRef:
     """Declare a tier-1 simple metric: an aggregation over a measure.
 
@@ -515,7 +644,7 @@ def aggregate(
         unit: Override the unit derived from ``measure`` at load. Leave None to
             inherit the measure's unit (count/count_distinct derive nothing).
         domain: Override the active domain.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Example:
         >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
@@ -566,7 +695,7 @@ def metric(
     unit: str | None = None,
     provenance: SqlProvenance | None = None,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[..., Any]], MetricRef]:
     """Declare a metric from an ibis body. Declares ``additivity`` directly.
 
@@ -579,7 +708,7 @@ def metric(
         unit: UCUM unit token.
         provenance: Optional ``SqlProvenance`` from ``ms.from_sql(sql=..., dialect=...)``.
         domain: Override the active domain namespace.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
         A decorator that returns a ``MetricRef``.
@@ -686,7 +815,7 @@ def entity(
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> EntityRef:
     """Declare an entity over a structured physical source.
 
@@ -699,7 +828,7 @@ def entity(
         primary_key: Optional list of column names forming the primary key.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
         An ``EntityRef`` usable by ``@ms.dimension`` and ``@ms.metric``.
@@ -755,7 +884,7 @@ def dimension(
     name: str | None = None,
     entity: EntityRef | str,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[..., Any]], DimensionRef]:
     """Declare a categorical dimension whose body returns an ibis expression over its entity.
 
@@ -772,7 +901,7 @@ def dimension(
             ``"<domain>.<entity>"`` string.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
         A decorator that returns a ``DimensionRef``.
@@ -836,7 +965,7 @@ def measure(
     additivity: Additivity,
     unit: str | None = None,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[..., Any]], MeasureRef]:
     """Declare a row-level quantitative measure whose expression can be aggregated.
 
@@ -853,7 +982,7 @@ def measure(
         unit: UCUM unit token (e.g. ``"USD"``, ``"CNY"``, ``"%"``).
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
         A decorator that returns a ``MeasureRef``.
@@ -1027,7 +1156,7 @@ def time_dimension(
     parse: SemanticParse | None = None,
     is_default: bool = False,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[..., Any]], TimeDimensionRef]:
     """Declare a time-aware dimension that carries grain and parsing metadata.
 
@@ -1053,7 +1182,7 @@ def time_dimension(
             dimension is used automatically.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
         A decorator that returns a ``TimeDimensionRef``.
@@ -1128,7 +1257,7 @@ def relationship(
     to_entity: EntityRef | str,
     keys: list[JoinKey],
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> RelationshipRef:
     """Declare a join relationship between two entities.
 
@@ -1142,7 +1271,7 @@ def relationship(
         keys: List of ``ms.join_on(from_key, to_key)`` pairs.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
-        ai_context: Optional ``AiContext`` with extra agent-facing hints.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
         A ``RelationshipRef``.
@@ -1346,7 +1475,7 @@ def _derived(
     composition: Composition,
     unit: str | None,
     domain: DomainRef | None,
-    ai_context: AiContext | None,
+    ai_context: AiContextValue | None,
 ) -> MetricRef:
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -1383,7 +1512,7 @@ def ratio(
     denominator: MetricRef | str,
     unit: str | None = None,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> MetricRef:
     """Declare a derived ratio metric (no body). Override the unit derived from the components at load.
 
@@ -1410,7 +1539,7 @@ def weighted_average(
     weight: MetricRef | str,
     unit: str | None = None,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> MetricRef:
     """Declare a derived weighted-average metric (no body). Override the unit derived from the components at load.
 
@@ -1434,7 +1563,7 @@ def linear(
     subtract: list[MetricRef | str] | tuple[MetricRef | str, ...] = (),
     unit: str | None = None,
     domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
+    ai_context: AiContextValue | None = None,
 ) -> MetricRef:
     """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``. Override the unit derived from the components at load.
 

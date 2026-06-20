@@ -22,14 +22,15 @@ your-project/
 
 ```python
 import marivo.datasource as md
+import marivo.semantic as ms
 
 md.duckdb(
     name="warehouse",
     path="warehouse.duckdb",
-    ai_context={
-        "business_definition": "Local DuckDB warehouse for sales analysis.",
-        "guardrails": ["Use only for development or approved local analysis."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
 )
 ```
 
@@ -41,10 +42,10 @@ import marivo.semantic as ms
 
 ms.domain(
     name="sales",
-    ai_context={
-        "business_definition": "Sales order analysis domain.",
-        "guardrails": ["Revenue metrics should only use completed orders."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Sales order analysis domain.",
+        guardrails=["Revenue metrics should only use completed orders."],
+    ),
 )
 
 orders = ms.entity(
@@ -52,20 +53,20 @@ orders = ms.entity(
     datasource=md.ref("warehouse"),
     source=ms.table("orders"),
     primary_key=["order_id"],
-    ai_context={
-        "business_definition": "One row per sales order.",
-        "guardrails": ["Exclude cancelled test data in metric definitions."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="One row per sales order.",
+        guardrails=["Exclude cancelled test data in metric definitions."],
+    ),
 )
 
 
 @ms.dimension(
     entity=orders,
     name="region",
-    ai_context={
-        "business_definition": "Sales region assigned to the order.",
-        "guardrails": ["Do not treat missing region as a real region."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Sales region assigned to the order.",
+        guardrails=["Do not treat missing region as a real region."],
+    ),
 )
 def region(orders):
     return orders.region
@@ -76,10 +77,10 @@ def region(orders):
     name="order_date",
     granularity="day",
     is_default=True,
-    ai_context={
-        "business_definition": "Calendar date when the order was placed.",
-        "guardrails": ["Use this as the default time axis for order metrics."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Calendar date when the order was placed.",
+        guardrails=["Use this as the default time axis for order metrics."],
+    ),
 )
 def order_date(orders):
     return orders.order_date
@@ -89,10 +90,10 @@ def order_date(orders):
     entities=[orders],
     additivity="additive",
     name="revenue",
-    ai_context={
-        "business_definition": "Total completed order amount.",
-        "guardrails": ["Use only where order amount is already net of cancellations."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Total completed order amount.",
+        guardrails=["Use only where order amount is already net of cancellations."],
+    ),
 )
 def revenue(orders):
     return orders.amount.sum()
@@ -165,14 +166,14 @@ attribution.show()
 ### 把 semantic layer 当作共享的知识库来建设
 
 Semantic layer 不只是触达表的管道 —— 它是 agent 在分析*之前*所读取的知识库。在每个对象上
-投入 `ai_context`：
+投入 `ms.ai_context(...)`：
 
 - `business_definition` —— 这个 metric 或 dimension 在业务上*意味着什么*。
 - `guardrails` —— agent 必须遵守的规则：必需的过滤、排除项、范围限制。
 - `synonyms` 与 `examples` —— 让 agent 把自然语言问题解析到正确的对象，而不是靠猜。
 
 一个充分丰富的对象，无需人类介入就能回答 agent 的“我能用它吗，怎么用？”。Readiness 守住底线：
-缺失 `business_definition` 会 block 分析，缺失 `guardrails` 会发出 warning。完整的 `ai_context`
+缺失 `business_definition` 会 block 分析，缺失 `guardrails` 会发出 warning。完整的 `ms.ai_context(...)`
 契约参见 [Semantic Layer](/zh-cn/latest/concepts/semantic-layer/)。
 
 ### 用 git 管理 project

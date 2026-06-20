@@ -11,7 +11,8 @@ from marivo.introspection.surface import Surface, render, top_level_families
 from marivo.semantic.constraints import iter_constraints
 
 _SUMMARIES: dict[str, str] = {
-    "AiContext": "agent-facing semantic metadata schema",
+    "AiContextValue": "validated AI-facing context value — construct via ms.ai_context(...) only",
+    "ai_context": "typed constructor for AiContextValue with eager validation",
     "AiContextView": "read-only view of ai_context fields: business_definition, guardrails, synonyms",
     "AssessmentIssue": "a single rule-based authoring assessment issue",
     "AuthoringAssessment": "issues, questions, and status for authoring readiness",
@@ -100,7 +101,7 @@ _SUMMARIES: dict[str, str] = {
     "sum": "sum aggregation marker",
     "table": "table source for ms.entity(source=...)",
     "time_dimension": "declare a time-aware dimension used as the calendar axis",
-    "typing": "IbisBackend Protocol and AiContext TypedDict",
+    "typing": "IbisBackend Protocol and AiContextValue dataclass",
     "validity": "declare validity-window versioning for an entity",
     "verify_object": "verify a single authored semantic object is reachable and valid",
     "weighted_average": "weighted-average aggregation marker",

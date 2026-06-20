@@ -24,12 +24,12 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
         datasource="warehouse",
         source=ms.table("orders"),
         primary_key=["order_id"],
-        ai_context={"business_definition": "One row per paid order."},
+        ai_context=ms.ai_context(business_definition="One row per paid order."),
     )
 
     @ms.dimension(
         entity=orders,
-        ai_context={"business_definition": "Gross order amount in USD."},
+        ai_context=ms.ai_context(business_definition="Gross order amount in USD."),
     )
     def amount(table):
         return table.amount
@@ -38,7 +38,7 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
         entity=orders,
         granularity="day",
         parse=ms.timestamp(timezone="UTC"),
-        ai_context={"business_definition": "Timestamp when the order was created."},
+        ai_context=ms.ai_context(business_definition="Timestamp when the order was created."),
     )
     def created_at(table):
         return table.created_at
@@ -46,7 +46,7 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
     @ms.metric(
         entities=[orders],
         additivity="additive",
-        ai_context={"business_definition": "Sum of order amount."},
+        ai_context=ms.ai_context(business_definition="Sum of order amount."),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -286,13 +286,13 @@ def test_readiness_sql_parity_unverified_warning(semantic_project_factory) -> No
     domain_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"), ai_context={"business_definition": "One row per order."})
+        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"), ai_context=ms.ai_context(business_definition="One row per order."))
 
         @ms.metric(
             entities=[orders],
             additivity="additive",
             provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
-            ai_context={"business_definition": "Sum of amount."},
+            ai_context=ms.ai_context(business_definition="Sum of amount."),
         )
         def total_amount(table):
             return table.amount.sum()
@@ -313,14 +313,14 @@ def test_readiness_cross_datasource_unfederated(semantic_project_factory) -> Non
     domain_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource="warehouse_a", source=ms.table("orders"), ai_context={"business_definition": "Orders A."})
-        items = ms.entity(name="items", datasource="warehouse_b", source=ms.table("items"), ai_context={"business_definition": "Items B."})
+        orders = ms.entity(name="orders", datasource="warehouse_a", source=ms.table("orders"), ai_context=ms.ai_context(business_definition="Orders A."))
+        items = ms.entity(name="items", datasource="warehouse_b", source=ms.table("items"), ai_context=ms.ai_context(business_definition="Items B."))
 
         @ms.metric(
             entities=[orders, items],
             root_entity=orders,
             additivity="additive",
-            ai_context={"business_definition": "Cross-datasource metric."},
+            ai_context=ms.ai_context(business_definition="Cross-datasource metric."),
         )
         def cross_metric(table):
             return table.amount.sum()
@@ -425,9 +425,9 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
-                "    ai_context={'business_definition': 'One row per order.'})\n"
+                "    ai_context=ms.ai_context(business_definition='One row per order.'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', \n"
-                "    ai_context={'business_definition': 'Sum of amount.'})\n"
+                "    ai_context=ms.ai_context(business_definition='Sum of amount.'))\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -560,11 +560,11 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
             "sales/objects.py": (
                 "import marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
-                "    ai_context={'business_definition': 'One row per order.',\n"
-                "               'guardrails': ['Exclude test orders.']})\n"
+                "    ai_context=ms.ai_context(business_definition='One row per order.',\n"
+                "               guardrails=['Exclude test orders.']))\n"
                 "@ms.dimension(entity=orders, name='amount',\n"
-                "    ai_context={'business_definition': 'Gross amount.',\n"
-                "               'guardrails': ['USD only.']})\n"
+                "    ai_context=ms.ai_context(business_definition='Gross amount.',\n"
+                "               guardrails=['USD only.']))\n"
                 "def amount(table):\n    return table.amount\n"
                 "@ms.dimension(entity=orders, name='region')\n"
                 "def region(table):\n    return table.region\n"
@@ -670,7 +670,7 @@ def _naive_tz_report(semantic_project_factory, time_dim_kwargs: str) -> object:
             name="orders",
             datasource="warehouse",
             source=ms.table("orders"),
-            ai_context={{"business_definition": "One row per order."}},
+            ai_context=ms.ai_context(business_definition="One row per order."),
         )
 
         @ms.time_dimension(
@@ -693,7 +693,7 @@ def test_missing_datetime_timezone_does_not_block_readiness(semantic_project_fac
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.datetime(), '
-        'ai_context={"business_definition": "When the order was created."}',
+        'ai_context=ms.ai_context(business_definition="When the order was created.")',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
@@ -702,7 +702,7 @@ def test_missing_timestamp_timezone_does_not_block_readiness(semantic_project_fa
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.timestamp(), '
-        'ai_context={"business_definition": "When the order was updated."}',
+        'ai_context=ms.ai_context(business_definition="When the order was updated.")',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
@@ -712,7 +712,7 @@ def test_declared_timezone_clears_blocker(semantic_project_factory) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="day", parse=ms.datetime(timezone="UTC"), '
-        'ai_context={"business_definition": "When the order was created."}',
+        'ai_context=ms.ai_context(business_definition="When the order was created.")',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
@@ -721,7 +721,7 @@ def test_date_data_type_does_not_block(semantic_project_factory) -> None:
     """ms.date() has no timezone ambiguity; should not trigger blocker."""
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="day", ai_context={"business_definition": "Date of the order."}',
+        'granularity="day", ai_context=ms.ai_context(business_definition="Date of the order.")',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
@@ -731,7 +731,7 @@ def test_day_only_string_format_does_not_block(semantic_project_factory) -> None
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="day", parse=ms.strptime("%Y%m%d"), '
-        'ai_context={"business_definition": "Day partition key."}',
+        'ai_context=ms.ai_context(business_definition="Day partition key.")',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
@@ -742,7 +742,7 @@ def test_time_bearing_string_format_without_timezone_does_not_block(
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.strptime("%Y-%m-%d %H:%M:%S"), '
-        'ai_context={"business_definition": "Timestamp as string."}',
+        'ai_context=ms.ai_context(business_definition="Timestamp as string.")',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
@@ -753,7 +753,7 @@ def test_time_bearing_integer_format_without_timezone_does_not_block(
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.strptime("%Y%m%d%H%M%S"), '
-        'ai_context={"business_definition": "Timestamp as integer."}',
+        'ai_context=ms.ai_context(business_definition="Timestamp as integer.")',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 
@@ -763,7 +763,7 @@ def test_required_prefix_does_not_block(semantic_project_factory) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.hour_prefix("20260101"), '
-        'ai_context={"business_definition": "Hour partition key."}',
+        'ai_context=ms.ai_context(business_definition="Hour partition key.")',
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 

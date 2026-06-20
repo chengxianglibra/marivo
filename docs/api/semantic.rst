@@ -249,7 +249,8 @@ AI context
    :toctree: api/
    :nosignatures:
 
-   AiContext
+   ai_context
+   AiContextValue
    AiContextView
 
 Errors

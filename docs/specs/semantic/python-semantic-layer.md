@@ -59,10 +59,10 @@ orders = ms.entity(
     source=ms.table("orders"),
     primary_key=["order_id"],
     description="Order facts.",
-    ai_context={
-        "business_definition": "One row per order before metric-level filters.",
-        "guardrails": ["Do not treat this as paid orders only."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="One row per order before metric-level filters.",
+        guardrails=["Do not treat this as paid orders only."],
+    ),
 )
 
 @ms.dimension(entity=orders, description="Paid order flag.")
@@ -77,12 +77,12 @@ def is_paid(orders):
         sql="select sum(amount) as value from orders where pay_status = 1",
         dialect="duckdb",
     ),
-    ai_context={
-        "business_definition": "Total order amount for paid orders only.",
-        "guardrails": ["Excludes unpaid orders.", "Does not net out refunds."],
-        "synonyms": ["gmv", "paid sales"],
-        "examples": ["What was paid revenue last week?"],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Total order amount for paid orders only.",
+        guardrails=["Excludes unpaid orders.", "Does not net out refunds."],
+        synonyms=["gmv", "paid sales"],
+        examples=["What was paid revenue last week?"],
+    ),
 )
 def revenue(order_rows):
     return order_rows.filter(is_paid(order_rows)).amount.sum()
@@ -96,11 +96,11 @@ def revenue(order_rows):
 - `name=` 省略时，Python 变量名或函数名作为 fallback identity。
 - Python 符号名只是 local alias，不参与 semantic id。
 - `description=` 是语义对象的短标签或一行说明；project datasource 不接受 `description=`，datasource 文本信息写入 `ai_context.business_definition`。`ai_context.business_definition` 是完整业务定义，可多行，agent 用它判断对象是否匹配用户意图。
-- `ai_context` schema 适用于 domain、project datasource、entity、dimension、time_dimension、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
-- `ai_context` 固定字段是 `business_definition: str | None`、`guardrails: list[str]`、`synonyms: list[str]`、`examples: list[str]`、`instructions: str | None`、`owner_notes: str | None`。
+- `ai_context` 通过 `ms.ai_context(...)` 构造，不接受原始 dict。schema 适用于 domain、project datasource、entity、dimension、time_dimension、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
+- `ms.ai_context(...)` 固定参数是 `business_definition: str | None`、`guardrails: Sequence[str]`、`synonyms: Sequence[str]`、`examples: Sequence[str]`、`instructions: str | None`、`owner_notes: str | None`。非法参数名由 Python TypeError 捕获，值类型错误由 `SemanticDecoratorError` 捕获并包含调用位置信息。
 - `business_definition` 和 `guardrails` 对 entity 与 metric 最重要；跨 domain 引用前，agent 应优先读取这两个字段判断是否可复用。
 - `examples` 只放自然语言示例问法，不放 SQL、Ibis snippet 或 expected values。
-- 未知 `ai_context` 字段 fail closed，避免 agent 把不可消费内容塞进语义契约。
+- 未知 `ai_context` 字段 fail closed（由 `ms.ai_context()` 的关键字参数机制保证），避免 agent 把不可消费内容塞进语义契约。
 
 ## Registry / Loader
 
@@ -485,10 +485,10 @@ avg_execution_time = ms.ratio(
     numerator=total_execution_time,
     denominator=query_count,
     unit="s",
-    ai_context={
-        "business_definition": "Average execution time per query in seconds.",
-        "guardrails": ["Unit is seconds."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Average execution time per query in seconds.",
+        guardrails=["Unit is seconds."],
+    ),
 )
 ```
 

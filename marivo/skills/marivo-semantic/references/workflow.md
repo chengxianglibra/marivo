@@ -84,10 +84,10 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders", database="sales_mart"),
     primary_key=["order_id"],
-    ai_context={
-        "business_definition": "One row per order.",
-        "guardrails": ["Exclude test orders when the table exposes a test flag."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="One row per order.",
+        guardrails=["Exclude test orders when the table exposes a test flag."],
+    ),
 )
 ```
 
@@ -116,9 +116,9 @@ Author each dimension individually, then verify:
 @ms.dimension(
     entity=orders,
     name="region",
-    ai_context={
-        "business_definition": "Sales reporting region.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Sales reporting region.",
+    ),
 )
 def region(table):
     return table.region
@@ -153,9 +153,9 @@ its physical encoding with a `parse` variant:
     granularity="day",
     parse=ms.strptime("%Y%m%d"),
     is_default=True,
-    ai_context={
-        "business_definition": "Partition date used for default order reporting windows.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Partition date used for default order reporting windows.",
+    ),
 )
 def log_date(table):
     return table.dt
@@ -192,9 +192,9 @@ Author and verify:
     entity=orders,
     additivity="additive",
     unit="USD",
-    ai_context={
-        "business_definition": "Gross order amount before refunds.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds.",
+    ),
 )
 def amount(table):
     return table.amount
@@ -228,10 +228,10 @@ revenue = ms.aggregate(
     name="revenue",
     measure=amount,
     agg="sum",
-    ai_context={
-        "business_definition": "Gross order amount before refunds.",
-        "guardrails": ["Validate refund exclusions before using as net revenue."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds.",
+        guardrails=["Validate refund exclusions before using as net revenue."],
+    ),
 )
 ```
 

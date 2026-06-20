@@ -68,7 +68,7 @@ def test_all_symbols_importable() -> None:
 
 def test_all_list_matches_expected() -> None:
     expected = {
-        "AiContext",
+        "AiContextValue",
         "AiContextView",
         "AssessmentIssue",
         "AuthoringAssessment",
@@ -150,6 +150,7 @@ def test_all_list_matches_expected() -> None:
         "dimension",
         "time_dimension",
         "aggregate",
+        "ai_context",
         "from_sql",
         "hour_prefix",
         "join_on",
@@ -774,20 +775,22 @@ def test_component_expr_protocol_removed() -> None:
     assert not hasattr(typing_mod, "ComponentExpr")
 
 
-def test_ai_context_typed_dict() -> None:
-    assert hasattr(typing_mod, "AiContext")
-    annotations = typing_mod.AiContext.__annotations__
-    assert "business_definition" in annotations
-    assert "guardrails" in annotations
-    assert "synonyms" in annotations
-    assert "examples" in annotations
-    assert "instructions" in annotations
-    assert "owner_notes" in annotations
+def test_ai_context_value_fields() -> None:
+    assert hasattr(typing_mod, "AiContextValue")
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(typing_mod.AiContextValue)}
+    assert "business_definition" in field_names
+    assert "guardrails" in field_names
+    assert "synonyms" in field_names
+    assert "examples" in field_names
+    assert "instructions" in field_names
+    assert "owner_notes" in field_names
 
 
-def test_ai_context_accessible_from_ms() -> None:
-    assert hasattr(ms, "AiContext")
-    assert ms.AiContext is typing_mod.AiContext
+def test_ai_context_value_accessible_from_ms() -> None:
+    assert hasattr(ms, "AiContextValue")
+    assert ms.AiContextValue is typing_mod.AiContextValue
 
 
 # ---------------------------------------------------------------------------

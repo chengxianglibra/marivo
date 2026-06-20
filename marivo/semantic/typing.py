@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from marivo.datasource.typing import AiContext
+from marivo.datasource.typing import AiContextValue as AiContextValue
 
 if TYPE_CHECKING:
     import ibis
 
-
 __all__ = [
-    "AiContext",
+    "AiContextValue",
     "IbisBackend",
 ]
 
