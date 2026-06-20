@@ -49,5 +49,5 @@ intersphinx_mapping = {
 html_theme = "pydata_sphinx_theme"
 html_title = f"Marivo {release} API"
 html_theme_options = {
-    "github_url": "https://github.com/lumendata/marivo",
+    "github_url": "https://github.com/chengxianglibra/marivo",
 }
