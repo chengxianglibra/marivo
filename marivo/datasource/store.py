@@ -28,21 +28,27 @@ def _literal(value: Any) -> str:
     return repr(value)
 
 
-def _ai_context_literal(context: AiContextIR) -> dict[str, Any]:
-    data: dict[str, Any] = {}
+def _ai_context_literal(context: AiContextIR) -> str | None:
+    """Generate a ms.ai_context(...) call string from an AiContextIR.
+
+    Returns None if all fields are empty/None.
+    """
+    parts: list[str] = []
     if context.business_definition is not None:
-        data["business_definition"] = context.business_definition
+        parts.append(f"business_definition={context.business_definition!r}")
     if context.guardrails:
-        data["guardrails"] = list(context.guardrails)
+        parts.append(f"guardrails={list(context.guardrails)!r}")
     if context.synonyms:
-        data["synonyms"] = list(context.synonyms)
+        parts.append(f"synonyms={list(context.synonyms)!r}")
     if context.examples:
-        data["examples"] = list(context.examples)
+        parts.append(f"examples={list(context.examples)!r}")
     if context.instructions is not None:
-        data["instructions"] = context.instructions
+        parts.append(f"instructions={context.instructions!r}")
     if context.owner_notes is not None:
-        data["owner_notes"] = context.owner_notes
-    return data
+        parts.append(f"owner_notes={context.owner_notes!r}")
+    if not parts:
+        return None
+    return f"ms.ai_context({', '.join(parts)})"
 
 
 _SPEC_CLASS_BY_BACKEND: dict[str, str] = {
@@ -87,14 +93,19 @@ def _write_datasource_file(
         if env_var == conventional_env_var(spec.name, stem):
             continue
         kwargs[f"{stem}_env"] = env_var
-    ai_context = _ai_context_literal(cast("AiContextIR", spec.ai_context))
-    if ai_context:
-        kwargs["ai_context"] = ai_context
+    ai_context_call = _ai_context_literal(cast("AiContextIR", spec.ai_context))
     if extra_kwargs:
         kwargs["extra"] = extra_kwargs
-    lines = ["import marivo.datasource as md", "", f"md.{func_name}("]
+    lines = [
+        "import marivo.datasource as md",
+        "import marivo.semantic as ms",
+        "",
+        f"md.{func_name}(",
+    ]
     for key, value in kwargs.items():
         lines.append(f"    {key}={_literal(value)},")
+    if ai_context_call is not None:
+        lines.append(f"    ai_context={ai_context_call},")
     lines.append(")")
     path.write_text("\n".join(lines) + "\n")
     return path

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.datasource.authoring import (
     _ClickHouseSpec,
     _DuckDBSpec,
@@ -167,14 +168,14 @@ def test_datasource_helpers_do_not_accept_description() -> None:
 def test_spec_ai_context_maps_to_ir() -> None:
     spec = _DuckDBSpec(
         name="warehouse",
-        ai_context={
-            "business_definition": "Local analytical warehouse.",
-            "guardrails": ["Do not use for production freshness checks."],
-            "synonyms": ["local wh"],
-            "examples": ["Inspect local fixture tables."],
-            "instructions": "Prefer bounded previews.",
-            "owner_notes": "Analytics platform owns this datasource.",
-        },
+        ai_context=ms.ai_context(
+            business_definition="Local analytical warehouse.",
+            guardrails=["Do not use for production freshness checks."],
+            synonyms=["local wh"],
+            examples=["Inspect local fixture tables."],
+            instructions="Prefer bounded previews.",
+            owner_notes="Analytics platform owns this datasource.",
+        ),
     )
 
     ir = _ir(spec)
@@ -242,10 +243,10 @@ def test_store_persists_ai_context(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         _DuckDBSpec(
             name="warehouse",
             path=":memory:",
-            ai_context={
-                "business_definition": "Local analytical warehouse.",
-                "guardrails": ["Use for tests only."],
-            },
+            ai_context=ms.ai_context(
+                business_definition="Local analytical warehouse.",
+                guardrails=["Use for tests only."],
+            ),
         )
     )
 
@@ -298,14 +299,14 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
             host="trino.example",
             catalog="hive",
             auth_env="TRINO_AUTH",
-            ai_context={
-                "business_definition": "Curated warehouse tables.",
-                "guardrails": ["Use partition filters."],
-                "synonyms": ["wh"],
-                "examples": ["Preview orders before analysis."],
-                "instructions": "Prefer latest dt partitions.",
-                "owner_notes": "Data platform.",
-            },
+            ai_context=ms.ai_context(
+                business_definition="Curated warehouse tables.",
+                guardrails=["Use partition filters."],
+                synonyms=["wh"],
+                examples=["Preview orders before analysis."],
+                instructions="Prefer latest dt partitions.",
+                owner_notes="Data platform.",
+            ),
         )
     )
 

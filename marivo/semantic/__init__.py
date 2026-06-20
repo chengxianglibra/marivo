@@ -31,6 +31,7 @@ from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
     DomainRef,
     aggregate,
+    ai_context,
     csv,
     datetime,
     dimension,
@@ -135,7 +136,7 @@ from marivo.semantic.refs import (
     make_ref,
 )
 from marivo.semantic.richness import DemandSignal, RichnessReport
-from marivo.semantic.typing import AiContext
+from marivo.semantic.typing import AiContextValue
 
 if TYPE_CHECKING:
     from marivo.datasource.ir import EntitySourceIR
@@ -574,7 +575,7 @@ def record_decision(
 
 
 __all__ = [
-    "AiContext",
+    "AiContextValue",
     "AiContextView",
     "AssessmentIssue",
     "AuthoringAssessment",
@@ -646,6 +647,7 @@ __all__ = [
     "VerifyResult",
     "VersioningHints",
     "aggregate",
+    "ai_context",
     "csv",
     "datetime",
     "dimension",

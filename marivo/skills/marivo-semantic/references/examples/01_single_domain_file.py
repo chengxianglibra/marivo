@@ -19,10 +19,10 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders"),
     primary_key=["order_id"],
-    ai_context={
-        "business_definition": "One row per order.",
-        "guardrails": ["Exclude test orders when a test flag is present."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="One row per order.",
+        guardrails=["Exclude test orders when a test flag is present."],
+    ),
 )
 
 @ms.time_dimension(
@@ -31,10 +31,10 @@ orders = ms.entity(
     granularity="day",
     parse=ms.strptime("%Y%m%d", ),
     is_default=True,
-    ai_context={
-        "business_definition": "Partition time dimension for order reporting windows.",
-        "guardrails": ["Use event time only when source evidence defines it."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Partition time dimension for order reporting windows.",
+        guardrails=["Use event time only when source evidence defines it."],
+    ),
 )
 def log_date(table):
     return table.dt
@@ -44,10 +44,10 @@ def log_date(table):
     name="log_hour",
     granularity="hour",
     parse=ms.hour_prefix("log_date", ),
-    ai_context={
-        "business_definition": "Hour partition used with log_date for hourly reporting windows.",
-        "guardrails": ["Use full event timestamp only when source evidence defines that axis."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Hour partition used with log_date for hourly reporting windows.",
+        guardrails=["Use full event timestamp only when source evidence defines that axis."],
+    ),
 )
 def log_hour(table):
     return table.hh
@@ -57,10 +57,10 @@ def log_hour(table):
     name="event_ts",
     granularity="minute",
     parse=ms.timestamp(timezone="UTC"),
-    ai_context={
-        "business_definition": "Minute-grain event timestamp for sub-day time-series analysis.",
-        "guardrails": ["Use only when the analysis requires sub-day granularity (e.g. 5-minute buckets)."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Minute-grain event timestamp for sub-day time-series analysis.",
+        guardrails=["Use only when the analysis requires sub-day granularity (e.g. 5-minute buckets)."],
+    ),
 )
 def event_ts(table):
     return table.event_ts
@@ -68,10 +68,10 @@ def event_ts(table):
 @ms.dimension(
     entity=orders,
     name="region",
-    ai_context={
-        "business_definition": "Sales reporting region.",
-        "guardrails": ["Do not infer market ownership from this dimension alone."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Sales reporting region.",
+        guardrails=["Do not infer market ownership from this dimension alone."],
+    ),
 )
 def region(table):
     return table.region
@@ -80,12 +80,12 @@ def region(table):
     entities=[orders],
     additivity="additive",
     name="revenue",
-    ai_context={
-        "business_definition": "Gross order amount before refunds.",
-        "guardrails": ["Validate refund exclusions before using as net revenue."],
-        "synonyms": ["sales", "gmv"],
-        "examples": ["What was revenue by region last week?"],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds.",
+        guardrails=["Validate refund exclusions before using as net revenue."],
+        synonyms=["sales", "gmv"],
+        examples=["What was revenue by region last week?"],
+    ),
 )
 def revenue(table):
     return table.amount.sum()

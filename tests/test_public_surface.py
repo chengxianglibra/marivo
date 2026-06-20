@@ -11,7 +11,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 SEMANTIC_PUBLIC = {
-    "AiContext",
+    "AiContextValue",
     "AiContextView",
     "AssessmentIssue",
     "AuthoringAssessment",
@@ -84,6 +84,7 @@ SEMANTIC_PUBLIC = {
     "VerifyResult",
     "VersioningHints",
     "aggregate",
+    "ai_context",
     "csv",
     "datetime",
     "dimension",

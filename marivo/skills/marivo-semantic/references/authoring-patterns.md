@@ -20,10 +20,10 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders"),
     primary_key=["order_id"],
-    ai_context={
-        "business_definition": "One row per order.",
-        "guardrails": ["Exclude test orders when the table exposes a test flag."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="One row per order.",
+        guardrails=["Exclude test orders when the table exposes a test flag."],
+    ),
 )
 
 @ms.time_dimension(
@@ -31,10 +31,10 @@ orders = ms.entity(
     name="log_date",
     granularity="day",
     parse=ms.strptime("%Y%m%d"),
-    ai_context={
-        "business_definition": "Partition date used for default order reporting windows.",
-        "guardrails": ["Use event time instead only when source SQL defines that axis."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Partition date used for default order reporting windows.",
+        guardrails=["Use event time instead only when source SQL defines that axis."],
+    ),
 )
 def log_date(table):
     return table.dt
@@ -44,10 +44,10 @@ def log_date(table):
     name="log_hour",
     granularity="hour",
     parse=ms.hour_prefix("log_date"),
-    ai_context={
-        "business_definition": "Hour partition used with log_date for hourly reporting windows.",
-        "guardrails": ["Use full event timestamp only when source SQL defines that axis."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Hour partition used with log_date for hourly reporting windows.",
+        guardrails=["Use full event timestamp only when source SQL defines that axis."],
+    ),
 )
 def log_hour(table):
     return table.hh
@@ -55,10 +55,10 @@ def log_hour(table):
 @ms.dimension(
     entity=orders,
     name="region",
-    ai_context={
-        "business_definition": "Sales reporting region.",
-        "guardrails": ["Do not treat missing region as a separate market."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Sales reporting region.",
+        guardrails=["Do not treat missing region as a separate market."],
+    ),
 )
 def region(table):
     return table.region
@@ -71,12 +71,12 @@ def region(table):
         sql="SELECT SUM(amount) AS revenue FROM orders",
         dialect="duckdb",
     ),
-    ai_context={
-        "business_definition": "Gross order amount before refunds.",
-        "guardrails": ["Validate refund exclusions before using this as net revenue."],
-        "synonyms": ["sales", "gmv"],
-        "examples": ["What was revenue by region last week?"],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds.",
+        guardrails=["Validate refund exclusions before using this as net revenue."],
+        synonyms=["sales", "gmv"],
+        examples=["What was revenue by region last week?"],
+    ),
 )
 def revenue(table):
     return table.amount.sum()
@@ -94,11 +94,11 @@ Business meaning, usage constraints, and agent guidance belong in `ai_context`:
     entities=[orders],
     additivity="additive",
     description="Gross revenue.",       # short summary for display
-    ai_context={
-        "business_definition": "Sum of order amounts for completed orders.",
-        "guardrails": ["Exclude refunded orders.", "Use status='complete' filter."],
-        "synonyms": ["revenue", "net sales"],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Sum of order amounts for completed orders.",
+        guardrails=["Exclude refunded orders.", "Use status='complete' filter."],
+        synonyms=["revenue", "net sales"],
+    ),
 )
 def revenue(table):
     return table.amount.sum()
@@ -286,9 +286,9 @@ gross_revenue_per_order = ms.ratio(
     name="gross_revenue_per_order",
     numerator=gross_revenue,
     denominator=orders_count,
-    ai_context={
-        "business_definition": "Gross revenue divided by order count.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Gross revenue divided by order count.",
+    ),
 )
 ```
 

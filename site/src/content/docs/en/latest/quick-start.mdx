@@ -22,14 +22,15 @@ Declare a datasource:
 
 ```python
 import marivo.datasource as md
+import marivo.semantic as ms
 
 md.duckdb(
     name="warehouse",
     path="warehouse.duckdb",
-    ai_context={
-        "business_definition": "Local DuckDB warehouse for sales analysis.",
-        "guardrails": ["Use only for development or approved local analysis."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
 )
 ```
 
@@ -41,10 +42,10 @@ import marivo.semantic as ms
 
 ms.domain(
     name="sales",
-    ai_context={
-        "business_definition": "Sales order analysis domain.",
-        "guardrails": ["Revenue metrics should only use completed orders."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Sales order analysis domain.",
+        guardrails=["Revenue metrics should only use completed orders."],
+    ),
 )
 
 orders = ms.entity(
@@ -52,20 +53,20 @@ orders = ms.entity(
     datasource=md.ref("warehouse"),
     source=ms.table("orders"),
     primary_key=["order_id"],
-    ai_context={
-        "business_definition": "One row per sales order.",
-        "guardrails": ["Exclude cancelled test data in metric definitions."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="One row per sales order.",
+        guardrails=["Exclude cancelled test data in metric definitions."],
+    ),
 )
 
 
 @ms.dimension(
     entity=orders,
     name="region",
-    ai_context={
-        "business_definition": "Sales region assigned to the order.",
-        "guardrails": ["Do not treat missing region as a real region."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Sales region assigned to the order.",
+        guardrails=["Do not treat missing region as a real region."],
+    ),
 )
 def region(orders):
     return orders.region
@@ -76,10 +77,10 @@ def region(orders):
     name="order_date",
     granularity="day",
     is_default=True,
-    ai_context={
-        "business_definition": "Calendar date when the order was placed.",
-        "guardrails": ["Use this as the default time axis for order metrics."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Calendar date when the order was placed.",
+        guardrails=["Use this as the default time axis for order metrics."],
+    ),
 )
 def order_date(orders):
     return orders.order_date
@@ -89,10 +90,10 @@ def order_date(orders):
     entities=[orders],
     additivity="additive",
     name="revenue",
-    ai_context={
-        "business_definition": "Total completed order amount.",
-        "guardrails": ["Use only where order amount is already net of cancellations."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Total completed order amount.",
+        guardrails=["Use only where order amount is already net of cancellations."],
+    ),
 )
 def revenue(orders):
     return orders.amount.sum()
@@ -169,7 +170,7 @@ analysis project. Three habits make the difference.
 ### Build the semantic layer as a shared knowledge base
 
 The semantic layer is not just plumbing to reach tables — it is the knowledge base
-an agent reads *before* it analyzes. Invest in `ai_context` on every object:
+an agent reads *before* it analyzes. Invest in `ms.ai_context(...)` on every object:
 
 - `business_definition` — what the metric or dimension means, in business terms.
 - `guardrails` — rules an agent must respect: required filters, exclusions, scope
@@ -180,7 +181,7 @@ an agent reads *before* it analyzes. Invest in `ai_context` on every object:
 A well-enriched object answers an agent's "can I use this, and how?" without a human
 in the loop. Readiness enforces the floor: a missing `business_definition` blocks
 analysis, and missing `guardrails` raises a warning. See the
-[Semantic Layer](/en/latest/concepts/semantic-layer/) for the full `ai_context`
+[Semantic Layer](/en/latest/concepts/semantic-layer/) for the full `ms.ai_context(...)`
 contract.
 
 ### Manage the project with git

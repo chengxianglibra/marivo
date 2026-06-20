@@ -112,9 +112,11 @@ analysis.
 
 ## `ai_context`: the human-to-agent contract
 
-Every semantic object accepts an optional `ai_context` dict. This is where business
-meaning and guardrails live — the context an agent reads before it uses the object.
-All keys are optional, but unknown keys are rejected.
+Every semantic object and datasource accepts an optional `ai_context` parameter,
+constructed with `ms.ai_context(...)`. This is where business meaning and
+guardrails live — the context an agent reads before it uses the object. All
+parameters are optional, but unknown keyword arguments are rejected by Python
+at call time.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -126,12 +128,12 @@ All keys are optional, but unknown keys are rejected.
 | `owner_notes` | `str` | No | `None` | Notes from the human owner: provenance, caveats, known issues. |
 
 ```python
-ai_context={
-    "business_definition": "Gross order amount before refunds.",
-    "guardrails": ["Validate refund exclusions before using as net revenue."],
-    "synonyms": ["sales", "gmv"],
-    "examples": ["What was revenue by region last week?"],
-}
+ai_context=ms.ai_context(
+    business_definition="Gross order amount before refunds.",
+    guardrails=["Validate refund exclusions before using as net revenue."],
+    synonyms=["sales", "gmv"],
+    examples=["What was revenue by region last week?"],
+)
 ```
 
 ## Datasources
@@ -143,14 +145,15 @@ files refer to a datasource by name through `md.ref("warehouse")`.
 ```python
 # models/datasources/warehouse.py
 import marivo.datasource as md
+import marivo.semantic as ms
 
 md.duckdb(
     name="warehouse",
     path="warehouse.duckdb",
-    ai_context={
-        "business_definition": "Local DuckDB warehouse for sales analysis.",
-        "guardrails": ["Use only for development or approved local analysis."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
 )
 ```
 
@@ -161,7 +164,7 @@ shares these parameters:
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Global datasource name (letters, digits, `_`, `-`). Used by `md.ref(name)`. |
 | `description` | `str` | No | `None` | Short human-readable summary. |
-| `ai_context` | `AiContext` | No | `None` | Agent-facing context (see above). |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 | `extra` | `dict` | No | `None` | Rare JSON-safe ibis keyword arguments the typed helper does not model. |
 
 Backend-specific parameters:
@@ -205,7 +208,7 @@ declared in a sibling file.
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Domain namespace, e.g. `"sales"`. Objects become `<name>.<object>`. |
 | `default` | `bool` | No | `True` | When `True`, decorators in this file resolve to this domain unless `domain=` is passed. |
-| `ai_context` | `AiContext` | No | `None` | Agent-facing context for the domain. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ```python
 import marivo.semantic as ms
@@ -226,7 +229,7 @@ anchor that dimensions, measures, and metrics attach to.
 | `primary_key` | `list[str]` | No | `None` | Column names forming the primary key. |
 | `versioning` | `ms.snapshot \| ms.validity` | No | `None` | Snapshot or SCD2 validity versioning (see below). |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
-| `ai_context` | `AiContext` | No | `None` | Agent-facing context. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ```python
 warehouse = md.ref("warehouse")
@@ -236,7 +239,7 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders"),
     primary_key=["order_id"],
-    ai_context={"business_definition": "One row per order."},
+    ai_context=ms.ai_context(business_definition="One row per order."),
 )
 ```
 
@@ -269,13 +272,13 @@ whose body returns a single ibis expression over the entity table.
 | `name` | `str` | No | function name | Dimension name. Becomes `<domain>.<entity>.<name>`. |
 | `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
-| `ai_context` | `AiContext` | No | `None` | Agent-facing context. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ```python
 @ms.dimension(
     entity=orders,
     name="region",
-    ai_context={"business_definition": "Sales reporting region."},
+    ai_context=ms.ai_context(business_definition="Sales reporting region."),
 )
 def region(table):
     return table.region
@@ -294,7 +297,7 @@ A time dimension is a special dimension that carries grain and parsing metadata.
 | `parse` | parse variant | No | `None` | How the source column becomes a time value (see below). Omit for native temporal columns — the parse variant is inferred at analysis time. |
 | `is_default` | `bool` | No | `False` | Marks the default time axis when the entity has several. `observe` uses it when `time_dimension=` is omitted. |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
-| `ai_context` | `AiContext` | No | `None` | Agent-facing context. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ### Parse variants
 
@@ -353,7 +356,7 @@ expression — but it carries additivity and an optional unit.
 | `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
 | `unit` | `str` | No | `None` | UCUM unit token: `"USD"`, `"CNY"`, `"%"`, `"ms"`, `"{order}"`. |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
-| `ai_context` | `AiContext` | No | `None` | Agent-facing context. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ```python
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -408,7 +411,7 @@ aggregation; you declare `additivity` directly.
         sql="SELECT SUM(amount) AS revenue FROM orders",
         dialect="duckdb",
     ),
-    ai_context={"business_definition": "Gross order amount before refunds."},
+    ai_context=ms.ai_context(business_definition="Gross order amount before refunds."),
 )
 def revenue(table):
     return table.amount.sum()

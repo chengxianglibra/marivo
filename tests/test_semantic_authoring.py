@@ -1578,10 +1578,10 @@ def test_metric_with_ai_context() -> None:
         @ms.metric(
             entities=["sales.orders"],
             additivity="additive",
-            ai_context={
-                "business_definition": "Total revenue",
-                "guardrails": ["Must be positive"],
-            },
+            ai_context=ms.ai_context(
+                business_definition="Total revenue",
+                guardrails=["Must be positive"],
+            ),
         )
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -1606,14 +1606,14 @@ def test_ai_context_with_valid_keys_works() -> None:
         @ms.metric(
             entities=["sales.orders"],
             additivity="additive",
-            ai_context={
-                "business_definition": "Revenue",
-                "guardrails": ["Must be positive"],
-                "synonyms": ["rev", "sales"],
-                "examples": ["orders.amount.sum()"],
-                "instructions": "Use with care",
-                "owner_notes": "Team Data",
-            },
+            ai_context=ms.ai_context(
+                business_definition="Revenue",
+                guardrails=["Must be positive"],
+                synonyms=["rev", "sales"],
+                examples=["orders.amount.sum()"],
+                instructions="Use with care",
+                owner_notes="Team Data",
+            ),
         )
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -1629,61 +1629,26 @@ def test_ai_context_with_valid_keys_works() -> None:
         _exit_ctx()
 
 
-def test_ai_context_with_invalid_key_raises() -> None:
-    """ai_context with an invalid key should raise INVALID_AI_CONTEXT."""
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-
-            @ms.metric(
-                entities=["sales.orders"],
-                additivity="additive",
-                ai_context={"invalid_key": "oops"},
-            )
-            def revenue(table: object) -> object:
-                return None  # type: ignore[unreachable]
-
-        assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
-    finally:
-        _exit_ctx()
+def test_ai_context_invalid_key_raises_type_error() -> None:
+    """ms.ai_context() with an invalid keyword raises TypeError from Python."""
+    with pytest.raises(TypeError, match="ai_context"):
+        ms.ai_context(summary="oops")  # type: ignore[call-arg]
 
 
 def test_ai_context_with_wrong_type_for_guardrails_raises() -> None:
-    """ai_context with wrong type for guardrails should raise INVALID_AI_CONTEXT."""
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-
-            @ms.metric(
-                entities=["sales.orders"],
-                additivity="additive",
-                ai_context={"guardrails": "not a list"},
-            )
-            def revenue(table: object) -> object:
-                return None  # type: ignore[unreachable]
-
-        assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
-    finally:
-        _exit_ctx()
+    """ms.ai_context() with wrong type for guardrails raises INVALID_AI_CONTEXT."""
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.ai_context(guardrails="not a list")  # type: ignore[arg-type]
+    assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
+    assert "guardrails" in str(exc_info.value)
 
 
 def test_ai_context_with_wrong_type_for_business_definition_raises() -> None:
-    """ai_context with wrong type for business_definition should raise INVALID_AI_CONTEXT."""
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(SemanticDecoratorError) as exc_info:
-
-            @ms.metric(
-                entities=["sales.orders"],
-                additivity="additive",
-                ai_context={"business_definition": 42},
-            )
-            def revenue(table: object) -> object:
-                return None  # type: ignore[unreachable]
-
-        assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
-    finally:
-        _exit_ctx()
+    """ms.ai_context() with wrong type for business_definition raises INVALID_AI_CONTEXT."""
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.ai_context(business_definition=42)  # type: ignore[arg-type]
+    assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
+    assert "business_definition" in str(exc_info.value)
 
 
 def test_ambiguous_reference_error_kind_exists() -> None:
@@ -1699,7 +1664,26 @@ def test_ambiguous_reference_constraint_id_exists() -> None:
 
 
 def test_ai_context_with_non_string_in_list_raises() -> None:
-    """ai_context with non-string items in list field should raise INVALID_AI_CONTEXT."""
+    """ms.ai_context() with non-string items in list field raises INVALID_AI_CONTEXT."""
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.ai_context(guardrails=[1, 2, 3])  # type: ignore[list-item]
+    assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
+
+
+def test_ai_context_empty_returns_defaults() -> None:
+    """ms.ai_context() with no args returns an empty AiContextValue."""
+    val = ms.ai_context()
+    assert isinstance(val, ms.AiContextValue)
+    assert val.business_definition is None
+    assert val.guardrails == ()
+    assert val.synonyms == ()
+    assert val.examples == ()
+    assert val.instructions is None
+    assert val.owner_notes is None
+
+
+def test_ai_context_raw_dict_raises_teachable_error() -> None:
+    """Passing a raw dict to ai_context= raises INVALID_AI_CONTEXT with ms.ai_context() guidance."""
     _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
@@ -1707,14 +1691,33 @@ def test_ai_context_with_non_string_in_list_raises() -> None:
             @ms.metric(
                 entities=["sales.orders"],
                 additivity="additive",
-                ai_context={"guardrails": [1, 2, 3]},
+                ai_context={"business_definition": "I should use ms.ai_context()"},  # type: ignore[arg-type]
             )
             def revenue(table: object) -> object:
                 return None  # type: ignore[unreachable]
 
         assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
+        assert "ms.ai_context" in str(exc_info.value)
     finally:
         _exit_ctx()
+
+
+def test_ai_context_error_location_points_to_user_code() -> None:
+    """ms.ai_context() type errors report the user's call site, not internal code."""
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.ai_context(instructions=42)  # type: ignore[arg-type]
+    assert exc_info.value.location is not None
+    # The location should point to this test file, not to authoring.py
+    assert "test_semantic_authoring" in exc_info.value.location.file
+    assert exc_info.value.location.line > 0
+
+
+def test_ai_context_value_post_init_rejects_invalid_types() -> None:
+    """AiContextValue.__post_init__ rejects invalid field types even when bypassing ms.ai_context()."""
+    with pytest.raises(TypeError, match=r"ms\.ai_context"):
+        ms.AiContextValue(business_definition=42)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"ms\.ai_context"):
+        ms.AiContextValue(guardrails=("ok", 1))  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

@@ -28,10 +28,10 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders"),
     primary_key=["order_id"],
-    ai_context={
-        "business_definition": "One row per order.",
-        "guardrails": ["Preview raw orders before analysis handoff."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="One row per order.",
+        guardrails=["Preview raw orders before analysis handoff."],
+    ),
 )
 
 @ms.time_dimension(
@@ -39,10 +39,10 @@ orders = ms.entity(
     name="order_date",
     granularity="day",
 
-    ai_context={
-        "business_definition": "Daily order partition.",
-        "guardrails": ["Use as the default reporting window axis."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Daily order partition.",
+        guardrails=["Use as the default reporting window axis."],
+    ),
 )
 def order_date(table):
     return table.dt.cast("date")
@@ -51,10 +51,10 @@ def order_date(table):
     entities=[orders],
     additivity="additive",
     name="unverified_revenue",
-    ai_context={
-        "business_definition": "Gross order amount.",
-        "guardrails": ["Unverified until parity or source evidence is supplied."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount.",
+        guardrails=["Unverified until parity or source evidence is supplied."],
+    ),
 )
 def unverified_revenue(table):
     return table.amount.sum()
@@ -67,10 +67,10 @@ def unverified_revenue(table):
         sql="SELECT 999.0 AS drifted_revenue",
         dialect="duckdb",
     ),
-    ai_context={
-        "business_definition": "Gross order amount with intentionally drifted oracle.",
-        "guardrails": ["Parity drift warns in readiness."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount with intentionally drifted oracle.",
+        guardrails=["Parity drift warns in readiness."],
+    ),
 )
 def drifted_revenue(table):
     return table.amount.sum()

@@ -13,20 +13,34 @@ from marivo.datasource.errors import (
     DatasourceSecretInPlaintextError,
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.typing import AiContext
-from marivo.datasource.typing import _build_ai_context as _shared_build_ai_context
+from marivo.datasource.typing import AiContextValue
 from marivo.refs import SemanticRef, SymbolKind
 
 
-def _datasource_ai_context_error(message: str, details: dict[str, Any]) -> None:
-    raise DatasourceFieldInvalidError(
-        message=message,
-        details={"datasource": "<unknown>", **details},
+def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
+    if ai_context is None:
+        return AiContextIR()
+    if not isinstance(ai_context, AiContextValue):
+        raise DatasourceFieldInvalidError(
+            message=(
+                "ai_context no longer accepts raw dicts. "
+                "Use ms.ai_context(business_definition=..., guardrails=[...]) "
+                "to construct an AiContextValue."
+            ),
+            details={
+                "datasource": "<unknown>",
+                "field": "ai_context",
+                "reason": "raw dict rejected",
+            },
+        )
+    return AiContextIR(
+        business_definition=ai_context.business_definition,
+        guardrails=ai_context.guardrails,
+        synonyms=ai_context.synonyms,
+        examples=ai_context.examples,
+        instructions=ai_context.instructions,
+        owner_notes=ai_context.owner_notes,
     )
-
-
-def _build_ai_context(ai_context: AiContext | dict[str, Any] | None) -> AiContextIR:
-    return _shared_build_ai_context(ai_context, on_error=_datasource_ai_context_error)
 
 
 SENSITIVE_FIELD_STEMS = frozenset(
@@ -128,11 +142,11 @@ class _SpecBase:
             "Global datasource name; letters, digits, underscores, and hyphens only."
         )
     )
-    ai_context: AiContext | dict[str, Any] | None = field(
+    ai_context: AiContextValue | None = field(
         default=None,
         metadata=_description(
-            "Optional AI-facing datasource context. Put text descriptions in "
-            "ai_context.business_definition."
+            "Optional AI-facing datasource context, via ms.ai_context(...). "
+            "Put text descriptions in ai_context.business_definition."
         ),
     )
     extra: dict[str, JsonValue] | None = field(
@@ -437,7 +451,7 @@ def duckdb(
     *,
     path: str = ":memory:",
     read_only: bool = False,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
     """Declare a DuckDB datasource.
@@ -446,8 +460,8 @@ def duckdb(
         name: Global datasource name; letters, digits, underscores, and hyphens only.
         path: DuckDB database path; defaults to in-memory.
         read_only: Open the DuckDB database in read-only mode.
-        ai_context: Optional AI-facing context hints for this datasource. Put
-            text descriptions in ``ai_context.business_definition``.
+        ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
+            Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -484,7 +498,7 @@ def trino(
     session_properties: dict[str, JsonValue] | None = None,
     user_env: str | None = None,
     auth_env: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
     """Declare a Trino datasource.
@@ -502,8 +516,8 @@ def trino(
         session_properties: Optional Trino session properties.
         user_env: Environment variable for Trino user.
         auth_env: Environment variable for Trino auth token or password.
-        ai_context: Optional AI-facing context hints for this datasource. Put
-            text descriptions in ``ai_context.business_definition``.
+        ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
+            Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -545,7 +559,7 @@ def mysql(
     autocommit: bool | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
     """Declare a MySQL datasource.
@@ -558,8 +572,8 @@ def mysql(
         autocommit: Optional autocommit override.
         user_env: Environment variable for MySQL user.
         password_env: Environment variable for MySQL password.
-        ai_context: Optional AI-facing context hints for this datasource. Put
-            text descriptions in ``ai_context.business_definition``.
+        ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
+            Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -597,7 +611,7 @@ def postgres(
     autocommit: bool | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
     """Declare a Postgres datasource.
@@ -611,8 +625,8 @@ def postgres(
         autocommit: Optional autocommit override.
         user_env: Environment variable for Postgres user.
         password_env: Environment variable for Postgres password.
-        ai_context: Optional AI-facing context hints for this datasource. Put
-            text descriptions in ``ai_context.business_definition``.
+        ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
+            Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
@@ -651,7 +665,7 @@ def clickhouse(
     settings: dict[str, JsonValue] | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
-    ai_context: AiContext | dict[str, Any] | None = None,
+    ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> None:
     """Declare a ClickHouse datasource.
@@ -665,8 +679,8 @@ def clickhouse(
         settings: Optional ClickHouse settings map.
         user_env: Environment variable for ClickHouse user.
         password_env: Environment variable for ClickHouse password.
-        ai_context: Optional AI-facing context hints for this datasource. Put
-            text descriptions in ``ai_context.business_definition``.
+        ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
+            Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:

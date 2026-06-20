@@ -26,10 +26,10 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders"),
     primary_key=["order_id"],
-    ai_context={
-        "business_definition": "One row per order.",
-        "guardrails": ["Exclude test orders when a test flag is present."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="One row per order.",
+        guardrails=["Exclude test orders when a test flag is present."],
+    ),
 )
 
 @ms.time_dimension(
@@ -49,10 +49,10 @@ def log_date(table):
     additivity="additive",
     name="gross_revenue",
     unit="CNY",
-    ai_context={
-        "business_definition": "Total order amount before refunds.",
-        "guardrails": ["Validate refund exclusions before using as net revenue."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Total order amount before refunds.",
+        guardrails=["Validate refund exclusions before using as net revenue."],
+    ),
 )
 def gross_revenue(table):
     return table.amount.sum()
@@ -62,10 +62,10 @@ def gross_revenue(table):
     additivity="additive",
     name="refunds",
     unit="CNY",
-    ai_context={
-        "business_definition": "Total refund amount.",
-        "guardrails": ["Ensure refund amounts are positive values."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Total refund amount.",
+        guardrails=["Ensure refund amounts are positive values."],
+    ),
 )
 def refunds(table):
     return table.refund_amount.sum()
@@ -75,9 +75,9 @@ def refunds(table):
     additivity="additive",
     name="orders_count",
     unit="{order}",
-    ai_context={
-        "business_definition": "Number of orders.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Number of orders.",
+    ),
 )
 def orders_count(table):
     return table.order_id.count()
@@ -87,9 +87,9 @@ def orders_count(table):
     additivity="additive",
     name="total_amount",
     unit="CNY",
-    ai_context={
-        "business_definition": "Total amount across all orders.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Total amount across all orders.",
+    ),
 )
 def total_amount(table):
     return table.amount.sum()
@@ -102,9 +102,9 @@ aov = ms.ratio(
     numerator=total_amount,
     denominator=orders_count,
     unit="CNY/{order}",
-    ai_context={
-        "business_definition": "Average order value: total amount divided by order count.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Average order value: total amount divided by order count.",
+    ),
 )
 
 # ms.weighted_average: value / weight at the component level;
@@ -114,9 +114,9 @@ avg_revenue_per_order = ms.weighted_average(
     value=gross_revenue,
     weight=orders_count,
     unit="CNY",
-    ai_context={
-        "business_definition": "Revenue per order, weighted by order count for mix-effect decomposition.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Revenue per order, weighted by order count for mix-effect decomposition.",
+    ),
 )
 
 # ms.linear: add terms minus subtract terms (e.g. net revenue)
@@ -125,9 +125,9 @@ net_revenue = ms.linear(
     add=[gross_revenue],
     subtract=[refunds],
     unit="CNY",
-    ai_context={
-        "business_definition": "Revenue after refunds: gross revenue minus refunds.",
-    },
+    ai_context=ms.ai_context(
+        business_definition="Revenue after refunds: gross revenue minus refunds.",
+    ),
 )
 """
 

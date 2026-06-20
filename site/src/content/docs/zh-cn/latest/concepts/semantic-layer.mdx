@@ -104,8 +104,9 @@ Catalog 的 `catalog.get("sales.revenue").ref` 返回的是同一个 `MetricRef`
 
 ## `ai_context`：人与 agent 之间的契约
 
-每个 semantic object 都接受可选的 `ai_context` dict。业务含义和 guardrails 就放在这里
-—— 这是 agent 在使用对象前会读取的上下文。所有 key 都是可选的，但未知 key 会被拒绝。
+每个 semantic object 和 datasource 都接受可选的 `ai_context` 参数，通过 `ms.ai_context(...)`
+构造。业务含义和 guardrails 就放在这里——这是 agent 在使用对象前会读取的上下文。所有参数都是可选的，
+但未知的关键字参数会在调用时被 Python 拒绝。
 
 | 字段 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -117,12 +118,12 @@ Catalog 的 `catalog.get("sales.revenue").ref` 返回的是同一个 `MetricRef`
 | `owner_notes` | `str` | 否 | `None` | 来自人类 owner 的备注：来源、注意事项、已知问题。 |
 
 ```python
-ai_context={
-    "business_definition": "Gross order amount before refunds.",
-    "guardrails": ["Validate refund exclusions before using as net revenue."],
-    "synonyms": ["sales", "gmv"],
-    "examples": ["What was revenue by region last week?"],
-}
+ai_context=ms.ai_context(
+    business_definition="Gross order amount before refunds.",
+    guardrails=["Validate refund exclusions before using as net revenue."],
+    synonyms=["sales", "gmv"],
+    examples=["What was revenue by region last week?"],
+)
 ```
 
 ## Datasources
@@ -134,14 +135,15 @@ datasource。
 ```python
 # models/datasources/warehouse.py
 import marivo.datasource as md
+import marivo.semantic as ms
 
 md.duckdb(
     name="warehouse",
     path="warehouse.duckdb",
-    ai_context={
-        "business_definition": "Local DuckDB warehouse for sales analysis.",
-        "guardrails": ["Use only for development or approved local analysis."],
-    },
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
 )
 ```
 
@@ -152,7 +154,7 @@ md.duckdb(
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | 全局 datasource 名称（字母、数字、`_`、`-`）。供 `md.ref(name)` 使用。 |
 | `description` | `str` | 否 | `None` | 简短的人类可读摘要。 |
-| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文（见上）。 |
+| `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 | `extra` | `dict` | 否 | `None` | typed helper 未建模的、罕见的 JSON 安全 ibis 关键字参数。 |
 
 各 backend 特有的参数：
@@ -194,7 +196,7 @@ md.trino(
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Domain namespace，例如 `"sales"`。对象成为 `<name>.<object>`。 |
 | `default` | `bool` | 否 | `True` | 为 `True` 时，本文件中的 decorators 在未传 `domain=` 时解析到该 domain。 |
-| `ai_context` | `AiContext` | 否 | `None` | domain 的面向 agent 上下文。 |
+| `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
 import marivo.semantic as ms
@@ -215,7 +217,7 @@ measures 和 metrics 依附的锚点。
 | `primary_key` | `list[str]` | 否 | `None` | 构成 primary key 的列名。 |
 | `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | Snapshot 或 SCD2 validity 版本控制（见下）。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
-| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
+| `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
 warehouse = md.ref("warehouse")
@@ -225,7 +227,7 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders"),
     primary_key=["order_id"],
-    ai_context={"business_definition": "One row per order."},
+    ai_context=ms.ai_context(business_definition="One row per order."),
 )
 ```
 
@@ -258,13 +260,13 @@ Dimension 是用来分组或过滤的分类属性。它是一个 decorator，其
 | `name` | `str` | 否 | 函数名 | Dimension 名称。成为 `<domain>.<entity>.<name>`。 |
 | `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
-| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
+| `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
 @ms.dimension(
     entity=orders,
     name="region",
-    ai_context={"business_definition": "Sales reporting region."},
+    ai_context=ms.ai_context(business_definition="Sales reporting region."),
 )
 def region(table):
     return table.region
@@ -283,7 +285,7 @@ Time dimension 是携带 grain 和解析元数据的特殊 dimension。**只有 
 | `parse` | parse 变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断 parse 变体。 |
 | `is_default` | `bool` | 否 | `False` | 当 entity 有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
-| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
+| `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ### Parse 变体
 
@@ -339,7 +341,7 @@ Measure 是你打算聚合的行级数量表达式（例如金额或数量）。
 | `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
 | `unit` | `str` | 否 | `None` | UCUM unit token：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
-| `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
+| `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -393,7 +395,7 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
         sql="SELECT SUM(amount) AS revenue FROM orders",
         dialect="duckdb",
     ),
-    ai_context={"business_definition": "Gross order amount before refunds."},
+    ai_context=ms.ai_context(business_definition="Gross order amount before refunds."),
 )
 def revenue(table):
     return table.amount.sum()

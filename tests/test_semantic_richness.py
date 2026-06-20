@@ -39,13 +39,13 @@ _DEPTH_BARE = (
 _DEPTH_ENRICHED = (
     "import marivo.semantic as ms\n"
     "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
-    "    ai_context={'business_definition': 'One row per order.',\n"
-    "               'guardrails': ['Exclude test orders.'],\n"
-    "               'synonyms': ['sales'], 'examples': ['how many orders?']})\n"
+    "    ai_context=ms.ai_context(business_definition='One row per order.',\n"
+    "               guardrails=['Exclude test orders.'],\n"
+    "               synonyms=['sales'], examples=['how many orders?']))\n"
     "@ms.dimension(entity=orders, name='amount',\n"
-    "    ai_context={'business_definition': 'Gross amount.',\n"
-    "               'guardrails': ['USD only.'],\n"
-    "               'synonyms': ['revenue'], 'examples': ['total amount?']})\n"
+    "    ai_context=ms.ai_context(business_definition='Gross amount.',\n"
+    "               guardrails=['USD only.'],\n"
+    "               synonyms=['revenue'], examples=['total amount?']))\n"
     "def amount(table):\n    return table.amount\n"
 )
 

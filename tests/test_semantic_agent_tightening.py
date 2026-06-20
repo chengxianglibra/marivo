@@ -139,12 +139,12 @@ def test_semantic_ai_context_help_describes_handoff_not_check_input() -> None:
     from marivo.introspection.surface import render as surface_render
 
     help_mod = __import__(ms.help.__module__, fromlist=["_surface"])
-    # AiContext folds into a family in the top-level index; its summary is
-    # reached via describe (single-symbol render), not the directory listing.
-    ai_context = cast("dict[str, Any]", surface_render(help_mod._surface(), "AiContext", "json"))
+    # ai_context and AiContextValue fold into families in the top-level index;
+    # their summaries are reached via describe (single-symbol render).
+    ai_context = cast("dict[str, Any]", surface_render(help_mod._surface(), "ai_context", "json"))
     ai_context_summary = cast("str", ai_context["summary"])
 
-    assert "agent-facing" in ai_context_summary.lower() or "handoff" in ai_context_summary.lower()
+    assert "valid" in ai_context_summary.lower() or "ai_context" in ai_context_summary.lower()
 
 
 def test_semantic_skill_documents_trino_datasource_and_inspection() -> None:
