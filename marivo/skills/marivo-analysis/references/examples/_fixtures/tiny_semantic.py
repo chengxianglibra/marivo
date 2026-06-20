@@ -134,13 +134,13 @@ def _backends() -> dict[str, Any]:
     return {DATASOURCE_NAME: _connection}
 
 
-def ensure_loaded(*, default_calendar: str | None = None) -> Any:
+def ensure_loaded(*, session_name: str = SESSION_NAME, default_calendar: str | None = None) -> Any:
     """Register the tiny semantic domain and attach a writable examples session."""
     root = _session_root()
     _bootstrap_semantic_layer(root)
     with _temporary_cwd(root):
         return mv.session.get_or_create(
-            name=SESSION_NAME,
+            name=session_name,
             default_calendar=default_calendar,
             backends=_backends(),
         )

@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _fixtures.tiny_semantic import ensure_loaded
 
 os.environ["TZ"] = "Asia/Shanghai"
-ensure_loaded(default_calendar="cn_holidays")
+ensure_loaded(session_name="tz_demo", default_calendar="cn_holidays")
 
 import marivo.analysis as mv  # noqa: E402
 
