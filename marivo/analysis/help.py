@@ -96,7 +96,6 @@ _SUMMARIES: dict[str, str] = {
     "FrameSummaryEntry": "rich persisted frame metadata returned by Session.frame_summaries()",
     "Lineage": "ordered provenance for an analysis frame",
     "LineageStep": "single lineage step within a frame provenance chain",
-    "make_ref": "construct a per-kind SemanticRef subclass for a given kind",
     "MetricFrame": "observed metric values with scalar, time_series, segmented, or panel shape",
     "DeltaFrame": "comparison output with aligned current and baseline values",
     "AttributionFrame": "decomposition attribution output",

@@ -139,7 +139,7 @@ def test_base_none_literal() -> None:
 
 
 def test_base_multiple_statements_error() -> None:
-    """Multiple statements (not just a single return) are forbidden."""
+    """A statement before the return (here an assignment) is forbidden."""
 
     def bad_metric(table):  # type: ignore[no-untyped-def]
         x = 1
@@ -147,7 +147,7 @@ def test_base_multiple_statements_error() -> None:
 
     with pytest.raises(SemanticLoadError) as exc_info:
         validate_metric_body_ast(bad_metric, "base")
-    assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
+    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
 
 
 def test_base_docstring_without_return_error() -> None:
@@ -209,7 +209,8 @@ def test_base_import_error() -> None:
 
 
 def test_base_assignment_error() -> None:
-    """Assignment statements in metric body are forbidden."""
+    """Assignment statements in metric body are forbidden, and the error
+    routes the author to the body-free derived constructors."""
 
     def bad_metric(table):  # type: ignore[no-untyped-def]
         x = table.amount.sum()
@@ -217,7 +218,10 @@ def test_base_assignment_error() -> None:
 
     with pytest.raises(SemanticLoadError) as exc_info:
         validate_metric_body_ast(bad_metric, "base")
-    assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
+    assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
+    assert exc_info.value.constraint_id == "ast_forbidden_statement"
+    assert exc_info.value.hint is not None
+    assert "ms.ratio" in exc_info.value.hint
 
 
 def test_base_for_loop_error() -> None:
@@ -294,6 +298,29 @@ def test_base_try_statement_error() -> None:
     validator = _BaseMetricASTValidator("bad_metric")
     validator.visit(func_node)
     assert len(validator.errors) > 0
+
+
+def test_base_conditional_statement_error() -> None:
+    """`if` statements are forbidden; the hint teaches ibis conditionals."""
+
+    code = textwrap.dedent("""\
+        def bad_metric(table):
+            if table.is_active:
+                return table.amount.sum()
+    """)
+    tree = ast.parse(code)
+    func_node = tree.body[0]
+
+    from marivo.semantic.validator import _BaseMetricASTValidator
+
+    validator = _BaseMetricASTValidator("bad_metric")
+    validator.visit(func_node)
+    assert validator.errors
+    error = validator.errors[0]
+    assert error.kind == ErrorKind.INVALID_COMPONENT_BODY
+    assert error.constraint_id == "ast_forbidden_statement"
+    assert error.hint is not None
+    assert ".ifelse()" in error.hint
 
 
 def test_base_sql_escape_hatch() -> None:

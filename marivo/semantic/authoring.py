@@ -1724,7 +1724,7 @@ def linear(
 
 
 def ref(id: str) -> str:
-    """Reference a semantic object by qualified ``"<domain>.<object>"`` string.
+    """Return a qualified-name string for forward / cross-domain in-body references.
 
     Pass-through helper: it returns ``id`` unchanged but makes intent
     explicit at the call site (``datasets=[ms.ref("sales.orders")]``).

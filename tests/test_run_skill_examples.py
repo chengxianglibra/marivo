@@ -11,6 +11,7 @@ from types import ModuleType
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = REPO_ROOT / "scripts" / "run_skill_examples.py"
+SEMANTIC_EXAMPLES = REPO_ROOT / "marivo/skills/marivo-semantic/references/examples"
 
 
 def _load_runner_module() -> ModuleType:
@@ -288,3 +289,24 @@ def test_template_example_fails_when_using_fixture_shortcuts(tmp_path: Path) -> 
     assert result.returncode != 0
     assert "invalid template" in result.stderr
     assert "_fixtures" in result.stderr
+
+
+def test_semantic_examples_teach_current_metric_ladder() -> None:
+    """Default semantic examples must teach measure-first authoring."""
+    single_domain = (SEMANTIC_EXAMPLES / "01_single_domain_file.py").read_text()
+    derived_metrics = (SEMANTIC_EXAMPLES / "04_derived_metrics.py").read_text()
+    relationship = (SEMANTIC_EXAMPLES / "05_relationship_cross_entity.py").read_text()
+
+    assert "@ms.measure(" in single_domain
+    assert "ms.aggregate(" in single_domain
+    assert "@ms.metric(" not in single_domain
+
+    assert "@ms.measure(" in derived_metrics
+    assert "ms.aggregate(" in derived_metrics
+    assert "ms.count(" in derived_metrics
+    assert "@ms.metric(" not in derived_metrics
+
+    assert "ms.relationship(" in relationship
+    assert "ms.prepare_cross_entity_metric(" in relationship
+    assert "root_entity=orders" in relationship
+    assert "@ms.metric(" in relationship

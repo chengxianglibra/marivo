@@ -98,7 +98,7 @@ Catalog 的 `catalog.get("sales.revenue").ref` 返回的是同一个 `MetricRef`
 
 ### 工厂与归一化器
 
-- `mv.make_ref(id, kind)` —— 为给定 kind 构造对应的 per-kind 子类（catalog 内部使用）。
+- `mv.make_ref(id, kind)` —— 内部使用；已从公开接口中移除。
 - `as_ref_id(value)` —— 从 `SemanticRef`、`SemanticObject` 或纯 `str` 中提取 `.id` 字符串。
   对字符串容忍：原始 id 直接通过。
 

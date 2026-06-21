@@ -63,14 +63,21 @@ def log_hour(table):
 def region(table):
     return table.region
 
-@ms.metric(
-    entities=[orders],
+@ms.measure(
+    entity=orders,
     additivity="additive",
-    name="revenue",
-    provenance=ms.from_sql(
-        sql="SELECT SUM(amount) AS revenue FROM orders",
-        dialect="duckdb",
+    unit="USD",
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds.",
     ),
+)
+def amount(table):
+    return table.amount
+
+revenue = ms.aggregate(
+    name="revenue",
+    measure=amount,
+    agg="sum",
     ai_context=ms.ai_context(
         business_definition="Gross order amount before refunds.",
         guardrails=["Validate refund exclusions before using this as net revenue."],
@@ -78,34 +85,30 @@ def region(table):
         examples=["What was revenue by region last week?"],
     ),
 )
-def revenue(table):
-    return table.amount.sum()
 ```
 
 ## description vs ai_context
 
-`description` is a **short display summary** shown in listings and cards.
-It is not a substitute for business meaning.
-
-Business meaning, usage constraints, and agent guidance belong in `ai_context`:
+Short display summaries are not a substitute for business meaning. Business
+meaning, usage constraints, and agent guidance belong in `ai_context`:
 
 ```python
-@ms.metric(
-    entities=[orders],
+@ms.measure(
+    entity=orders,
     additivity="additive",
-    description="Gross revenue.",       # short summary for display
     ai_context=ms.ai_context(
         business_definition="Sum of order amounts for completed orders.",
         guardrails=["Exclude refunded orders.", "Use status='complete' filter."],
         synonyms=["revenue", "net sales"],
     ),
 )
-def revenue(table):
-    return table.amount.sum()
+def amount(table):
+    return table.amount
+
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
 
 When `catalog.get("sales.revenue")` is called:
-- `obj.description` -> `"Gross revenue."`
 - `obj.context.business_definition` -> `"Sum of order amounts for completed orders."`
 - `obj.context.guardrails` -> `["Exclude refunded orders.", ...]`
 
@@ -270,23 +273,26 @@ order_count = ms.count(name="order_count", entity=orders)
 ```python
 @ms.metric(
     entities=[orders],
-    additivity="additive",
-    name="orders_count",
+    additivity="non_additive",
+    name="discounted_margin",
 )
-def orders_count(table):
-    return table.order_id.count()
+def discounted_margin(table):
+    return ((table.amount - table.discount_amount) / table.amount).mean()
 ```
 
 Mean/average metrics are body-free derived metrics, not `ms.mean()`:
 
 ```python
-@ms.metric(
-    entities=[orders],
+@ms.measure(
+    entity=orders,
     additivity="additive",
-    name="gross_revenue",
+    unit="USD",
 )
-def gross_revenue(table):
-    return table.amount.sum()
+def amount(table):
+    return table.amount
+
+gross_revenue = ms.aggregate(name="gross_revenue", measure=amount, agg="sum")
+orders_count = ms.count(name="orders_count", entity=orders)
 
 gross_revenue_per_order = ms.ratio(
     name="gross_revenue_per_order",
@@ -334,13 +340,19 @@ device-reported rates. `over` must be the `TimeDimensionRef` returned by
 def sample_ts(bw_samples):
     return bw_samples.sample_ts
 
-@ms.metric(
-    entities=[bw_samples],
+@ms.measure(
+    entity=bw_samples,
     additivity=ms.semi_additive(over=sample_ts, fold="mean"),
     unit="kbit/s",
 )
 def upstream_bw(bw_samples):
-    return bw_samples.upstream_kbps.sum()
+    return bw_samples.upstream_kbps
+
+avg_upstream_bw = ms.aggregate(
+    name="avg_upstream_bw",
+    measure=upstream_bw,
+    agg="sum",
+)
 ```
 
 Rules:
@@ -365,12 +377,18 @@ For already-summarized snapshot/status facts such as daily inventory, use
 def snapshot_date(inventory_daily):
     return inventory_daily.snapshot_date
 
-@ms.metric(
-    entities=[inventory_daily],
+@ms.measure(
+    entity=inventory_daily,
     additivity=ms.semi_additive(over=snapshot_date, fold="last"),
 )
 def on_hand_units(inventory_daily):
-    return inventory_daily.on_hand_units.sum()
+    return inventory_daily.on_hand_units
+
+ending_on_hand_units = ms.aggregate(
+    name="ending_on_hand_units",
+    measure=on_hand_units,
+    agg="sum",
+)
 ```
 
 ## Constraint examples

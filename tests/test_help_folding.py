@@ -72,47 +72,21 @@ def test_semantic_fold_partition() -> None:
         "SemanticRef",
         "TimeDimensionRef",
     ]
-    assert fams["Type aliases"] == ["SemanticKindInput", "SemanticRefInput"]
-    assert fams["Internal IR types"] == [
-        "MeasureIR",
-    ]
+    assert "Type aliases" not in fams
+    assert "Internal IR types" not in fams
+    assert fams["Reports"] == ["ReadinessReport", "RichnessReport"]
+    assert fams["Results"] == ["ParityResult", "VerifyResult"]
     assert set(fams["Other types"]) == {
         "AiContextValue",
-        "AiContextView",
-        "AssessmentIssue",
-        "AuthoringAssessment",
         "AuthoringQuestion",
-        "ComponentFact",
-        "DatasetSource",
-        "DateParse",
-        "DatetimeParse",
         "DecisionRecord",
-        "DemandSignal",
-        "DimensionValueFact",
-        "DomainBriefSummary",
-        "EntityVersioning",
-        "FileSource",
-        "FormatCandidate",
-        "HourPrefixParse",
         "JoinKey",
-        "JoinPathFact",
         "LadderOrderError",
-        "ParityResult",
-        "PrimaryKeyCandidate",
         "ReadinessInputSummary",
         "ReadinessIssue",
-        "ReadinessReport",
         "RegisteredMatch",
-        "RichnessReport",
         "SemanticKind",
-        "SnapshotVersioning",
         "SqlProvenance",
-        "StrptimeParse",
-        "TableSource",
-        "TimestampParse",
-        "ValidityVersioning",
-        "VerifyResult",
-        "VersioningHints",
     }
     enumerated = _enumerated(surface)
     assert {"SemanticCatalog", "SemanticObject", "SemanticObjectList"} <= enumerated
@@ -128,31 +102,17 @@ def test_datasource_fold_partition() -> None:
     assert "Datasource specs" not in fams
     assert "DatasourceSpec" not in {name for members in fams.values() for name in members}
     assert fams["References"] == ["DatasourceRef"]
-    assert fams["Internal IR types"] == [
-        "AiContextIR",
-        "CsvSourceIR",
-        "DatasourceAiContextIR",
-        "DatasourceIR",
-        "ParquetSourceIR",
-    ]
-    assert fams["Metadata types"] == ["ColumnMetadata", "PartitionMetadata", "TableMetadata"]
+    assert "Internal IR types" not in fams
+    assert fams["Results"] == ["DatasourceTestResult", "PreviewResult"]
+    assert fams["Metadata types"] == ["TableMetadata"]
     assert set(fams["Other types"]) == {
         "ColumnInspection",
-        "ColumnProfile",
         "DatasourceCatalog",
-        "DatasourceConnectionService",
         "DatasourceDescription",
         "DatasourceList",
-        "DatasourceSourceLocation",
         "DatasourceSummary",
-        "DatasourceTestResult",
         "JoinKeyProbe",
         "JoinSide",
-        "MetadataWarning",
-        "PreviewResult",
-        "PreviewSamplePolicy",
-        "PreviewWarning",
-        "ScanReport",
         "ScanScope",
     }
     _assert_no_value_family_leaks(_enumerated(surface))

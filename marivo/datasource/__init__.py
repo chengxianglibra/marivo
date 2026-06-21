@@ -13,14 +13,6 @@ from marivo.datasource.authoring import (
 )
 from marivo.datasource.catalog import DatasourceCatalog, load
 from marivo.datasource.help import help, help_text
-from marivo.datasource.ir import (
-    AiContextIR,
-    CsvSourceIR,
-    DatasourceAiContextIR,
-    DatasourceIR,
-    DatasourceSourceLocation,
-    ParquetSourceIR,
-)
 from marivo.datasource.manage import (
     DatasourceDescription,
     DatasourceList,
@@ -38,51 +30,29 @@ from marivo.datasource.manage import (
     remove,
     test,
 )
-from marivo.datasource.metadata import (
-    ColumnMetadata,
-    MetadataWarning,
-    PartitionMetadata,
-    TableMetadata,
-)
-from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.metadata import TableMetadata
 from marivo.datasource.scan import (
     ColumnInspection,
-    ColumnProfile,
     JoinKeyProbe,
     JoinSide,
-    ScanReport,
     ScanScope,
     csv,
     parquet,
     table,
 )
-from marivo.preview import PreviewResult, PreviewSamplePolicy, PreviewWarning
+from marivo.preview import PreviewResult
 
 __all__ = [
-    "AiContextIR",
     "ColumnInspection",
-    "ColumnMetadata",
-    "ColumnProfile",
-    "CsvSourceIR",
-    "DatasourceAiContextIR",
     "DatasourceCatalog",
-    "DatasourceConnectionService",
     "DatasourceDescription",
-    "DatasourceIR",
     "DatasourceList",
     "DatasourceRef",
-    "DatasourceSourceLocation",
     "DatasourceSummary",
     "DatasourceTestResult",
     "JoinKeyProbe",
     "JoinSide",
-    "MetadataWarning",
-    "ParquetSourceIR",
-    "PartitionMetadata",
     "PreviewResult",
-    "PreviewSamplePolicy",
-    "PreviewWarning",
-    "ScanReport",
     "ScanScope",
     "TableMetadata",
     "clickhouse",

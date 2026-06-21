@@ -23,8 +23,8 @@ from marivo.semantic.refs import make_ref
 
 def test_refs_are_exported_and_preserve_ids():
     assert mv.AlignmentKind is AlignmentKind
-    assert mv.make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"
-    assert mv.make_ref("region", SemanticKind.DIMENSION).id == "region"
+    assert make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"
+    assert make_ref("region", SemanticKind.DIMENSION).id == "region"
     assert mv.SemanticRef is SemanticRef
     assert mv.CalendarRef("cn_holidays").id == "cn_holidays"
     assert make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"

@@ -10,56 +10,7 @@ from typing import Literal, cast
 from marivo.datasource.constraints import iter_constraints
 from marivo.introspection.render import format_family_block
 from marivo.introspection.schema import Descriptor
-from marivo.introspection.surface import Surface, render, top_level_families
-
-_SUMMARIES: dict[str, str] = {
-    "AiContextIR": "immutable AI-facing context stored on datasource objects",
-    "ColumnInspection": "profiled column facts from a bounded datasource scan",
-    "ColumnMetadata": "column-level metadata including type and nullability",
-    "ColumnProfile": "bounded-sample column profile with type, nulls, and cardinality",
-    "DatasourceAiContextIR": "datasource alias for AiContextIR",
-    "DatasourceCatalog": "read-only catalog over configured project datasources, obtained via md.load()",
-    "DatasourceConnectionService": "internal service for scoped datasource backend connections",
-    "DatasourceDescription": "literal fields and env refs for one datasource",
-    "DatasourceIR": "project-level datasource configuration IR",
-    "DatasourceList": "displayable collection returned by md.list() and md.load().list()",
-    "DatasourceRef": "global datasource reference used by semantic declarations",
-    "DatasourceSourceLocation": "absolute source location for datasource error reporting",
-    "DatasourceSummary": "summary row for one configured project datasource",
-    "DatasourceTestResult": "result of a datasource connectivity round-trip",
-    "JoinKeyProbe": "join compatibility result for one key column pair",
-    "JoinSide": "one side of a join-key probe identifying source and key columns",
-    "MetadataWarning": "warning emitted during table metadata inspection",
-    "PartitionMetadata": "partition metadata for a table column",
-    "PreviewResult": "bounded preview result with rows, columns, and types",
-    "PreviewSamplePolicy": "sampling policy used to produce a preview",
-    "PreviewWarning": "warning emitted during datasource preview",
-    "ScanReport": "report from a scoped datasource scan including column profiles",
-    "ScanScope": "scoped datasource scan input with source and sample bounds",
-    "TableMetadata": "schema, comments, nullability, and partition metadata for a table",
-    "clickhouse": "declare a ClickHouse datasource",
-    "connect": "open a live ibis backend for a datasource; caller disconnects",
-    "describe": "show literal fields and env refs for one datasource",
-    "duckdb": "declare a DuckDB datasource",
-    "help": "this introspection entry point",
-    "help_text": "return datasource help text without printing",
-    "inspect_columns": "profile selected columns from a datasource source with bounded scan",
-    "inspect_source": "table metadata for a semantic entity source (table or file)",
-    "inspect_table": "schema, comments, nullability, and partition metadata for a table",
-    "list": "list configured project datasources as a displayable DatasourceList",
-    "load": "load the project datasource catalog and return a DatasourceCatalog with full datasource rendering",
-    "mysql": "declare a MySQL datasource",
-    "parquet": "parquet file source for datasource inspection",
-    "postgres": "declare a Postgres datasource",
-    "preview": "bounded, filtered preview of one datasource table",
-    "probe_join_keys": "probe join compatibility between two sources on specified key columns",
-    "ref": "reference a global project datasource by short name",
-    "register": "create or replace a project datasource file from a DatasourceSpec",
-    "remove": "delete the named project datasource file",
-    "table": "table source for datasource inspection",
-    "test": "round-trip the backend and persist validated env secrets",
-    "trino": "declare a Trino datasource",
-}
+from marivo.introspection.surface import Surface, derive_summaries, render, top_level_families
 
 
 def _constraint_topic() -> Descriptor:
@@ -101,7 +52,10 @@ def _surface() -> Surface:
     import marivo.datasource as md
 
     all_names = tuple(md.__all__)
-    summaries = {name: _SUMMARIES.get(name, "") for name in all_names}
+    topics = {
+        "constraints": _constraint_topic(),
+    }
+    summaries = derive_summaries(all_names, _resolve, topics)
     catalog = {constraint.id: constraint for constraint in iter_constraints()}
     return Surface(
         name="marivo.datasource",
@@ -109,11 +63,9 @@ def _surface() -> Surface:
         summaries=summaries,
         resolve=_resolve,
         catalog=catalog,
-        topics={
-            "constraints": _constraint_topic(),
-        },
+        topics=topics,
         type_aliases=set(),
-        family_suffixes=(),
+        family_suffixes=(("Result", "Results"),),
         hidden_names=frozenset(),
     )
 

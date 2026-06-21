@@ -69,49 +69,31 @@ def test_all_symbols_importable() -> None:
 def test_all_list_matches_expected() -> None:
     expected = {
         "AiContextValue",
-        "AiContextView",
-        "AssessmentIssue",
-        "AuthoringAssessment",
         "AuthoringQuestion",
         "BriefStatus",
-        "ComponentFact",
         "CrossEntityMetricBrief",
-        "DatasetSource",
         "DatasourceDetails",
-        "DateParse",
         "DecisionRecord",
-        "DatetimeParse",
-        "DemandSignal",
         "DerivedMetricBrief",
         "DerivedMetricDetails",
         "DimensionBrief",
         "DimensionDetails",
         "DimensionRef",
-        "DimensionValueFact",
-        "EntityVersioning",
         "DomainBrief",
-        "DomainBriefSummary",
         "DomainDetails",
         "DomainRef",
         "EntityBrief",
         "EntityDetails",
         "EntityRef",
-        "FileSource",
-        "FormatCandidate",
-        "HourPrefixParse",
         "JoinKey",
-        "JoinPathFact",
         "LadderOrderError",
         "MeasureBrief",
         "MeasureDetails",
-        "MeasureIR",
         "MeasureRef",
-        "make_ref",
         "MetricBrief",
         "MetricDetails",
         "MetricRef",
         "ParityResult",
-        "PrimaryKeyCandidate",
         "ReadinessIssue",
         "ReadinessInputSummary",
         "ReadinessReport",
@@ -129,17 +111,11 @@ def test_all_list_matches_expected() -> None:
         "SemanticRef",
         "SemanticRefInput",
         "SimpleMetricDetails",
-        "SnapshotVersioning",
         "SqlProvenance",
-        "StrptimeParse",
-        "TableSource",
         "TimeDimensionBrief",
         "TimeDimensionDetails",
         "TimeDimensionRef",
-        "TimestampParse",
-        "ValidityVersioning",
         "VerifyResult",
-        "VersioningHints",
         "help_text",
         "load",
         "domain",
@@ -346,15 +322,18 @@ def test_help_json_top_level_returns_compact_directory() -> None:
     folded_names = {name for fam in families for name in fam["members"]}
     entry_names = {e["name"] for e in entries}
     assert entry_names.isdisjoint(folded_names)
-    assert entry_names | folded_names == set(ms.__all__) | {
-        "constraints",
-        "composition",
-        "additivity",
-    }
+    assert entry_names | folded_names == (
+        set(ms.__all__)
+        | {
+            "constraints",
+            "composition",
+            "additivity",
+        }
+    ) - {"SemanticKindInput", "SemanticRefInput"}
     assert "entity" in entry_names
     assert "metric" in entry_names
     count_entry = next(e for e in entries if e["name"] == "count")
-    assert count_entry["summary"] == "declare an entity row-count metric"
+    assert count_entry["summary"] == "Declare a row-count metric for an entity."
     assert "ratio" in entry_names
     assert "weighted_average" in entry_names
     assert "component" not in entry_names
@@ -990,7 +969,6 @@ def test_stepwise_authoring_dto_exports() -> None:
         "RegisteredMatch",
         "VerifyResult",
         "DomainBrief",
-        "DomainBriefSummary",
         "EntityBrief",
         "DimensionBrief",
         "TimeDimensionBrief",

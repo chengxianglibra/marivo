@@ -95,9 +95,7 @@ def test_datasource_public_exports() -> None:
 
     for name in (
         "ScanScope",
-        "ScanReport",
         "ColumnInspection",
-        "ColumnProfile",
         "DatasourceCatalog",
         "JoinSide",
         "JoinKeyProbe",

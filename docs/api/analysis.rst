@@ -16,8 +16,6 @@ References
    :toctree: api/
    :nosignatures:
 
-   make_ref
-
 Alignment & window helpers
 --------------------------
 

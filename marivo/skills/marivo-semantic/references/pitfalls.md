@@ -197,3 +197,24 @@ Use `md.ScanScope()` by default, which resolves to the latest partition. Passing
 `partition=None` produces an unpruned scan that may be slow and may sample stale
 data. Only pass `partition=None` when the answer explicitly accepts an unpruned
 scan and the reason is documented.
+
+## Assignment or intermediate variables in a metric body
+
+`@ms.metric` / `@ms.measure` bodies are captured as a single ibis expression, so
+local-variable assignment (`total = ...; failed = ...`) is rejected. Logic of the
+shape `return (failed / total) * 100` is a ratio of two metrics, not a tier-2
+body. Declare the parts as metrics, then compose them with a body-free
+constructor — do not force the math into one nested expression:
+
+```python
+# total and failed are already-declared metrics (e.g. ms.aggregate(...) counts)
+failure_rate = ms.ratio(
+    name="failure_rate", numerator=failed, denominator=total, unit="%"
+)
+```
+
+Use `ms.linear(add=[...], subtract=[...])` for sums/differences and
+`ms.weighted_average(value=..., weight=...)` for weighted means. When a metric
+genuinely needs one inline expression, keep it to a single `return` and write
+conditionals with ibis `.ifelse()` / `ibis.cases()` rather than `if` statements
+or intermediate assignments.

@@ -273,8 +273,12 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric"),
         "Decorator bodies cannot contain statements, imports, assignments, lambdas, or nested definitions.",
         "Only deterministic expression bodies can be stored and recompiled safely.",
-        "Move setup outside the decorator body and keep the body to one return expression.",
-        example=f"{_EXAMPLE_BASE}/01_single_domain_file.py",
+        "Keep the body to a single return expression. For a metric composed from "
+        "other metrics, use the body-free constructors instead: "
+        "ms.ratio(numerator=, denominator=), ms.linear(add=, subtract=), or "
+        "ms.weighted_average(value=, weight=). For conditionals, use ibis "
+        ".ifelse() / ibis.cases() inside the one return expression.",
+        example=f"{_EXAMPLE_BASE}/04_derived_metrics.py",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_SQL_ESCAPE_HATCH: _constraint(

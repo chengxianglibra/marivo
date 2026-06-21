@@ -259,12 +259,19 @@ rel_brief = ms.prepare_relationship(
 Author and verify:
 
 ```python
-ms.relationship(
+orders_to_customers = ms.relationship(
     name="orders_to_customers",
     from_entity=orders,
     to_entity=customers,
     keys=[ms.join_on(order_customer_id, customer_id)],
 )
+```
+
+```python
+verify = ms.verify_object("sales.orders_to_customers")
+if verify.status == "failed":
+    verify.show()
+    raise SystemExit("Fix the authored relationship before continuing.")
 ```
 
 ## Rung 8: Cross-Entity Base Metrics
@@ -278,6 +285,31 @@ cross_brief = ms.prepare_cross_entity_metric(
 )
 ```
 
+Cross-entity base metrics still use a tier-2 body because they bind multiple
+entities and must declare the root grain explicitly:
+
+```python
+@ms.metric(
+    entities=[orders, customers],
+    root_entity=orders,
+    additivity="additive",
+    fanout_policy="aggregate_then_join",
+    name="revenue_by_customer",
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount analyzed by customer attributes.",
+    ),
+)
+def revenue_by_customer(orders, customers):
+    return orders.amount.sum()
+```
+
+```python
+verify = ms.verify_object("sales.revenue_by_customer")
+if verify.status == "failed":
+    verify.show()
+    raise SystemExit("Fix the authored cross-entity metric before continuing.")
+```
+
 ## Rung 9: Derived Metrics
 
 Registry-only; no datasource access needed.
@@ -287,6 +319,34 @@ derived_brief = ms.prepare_derived_metric(
     numerator="sales.revenue",
     denominator="sales.orders_count",
 )
+```
+
+`prepare_derived_metric` previews ratio and weighted-average component facts.
+Author body-free derived metrics with the constructor that matches the intended
+composition:
+
+```python
+aov = ms.ratio(
+    name="aov",
+    numerator=revenue,
+    denominator=orders_count,
+    ai_context=ms.ai_context(
+        business_definition="Gross revenue divided by order count.",
+    ),
+)
+
+net_revenue = ms.linear(
+    name="net_revenue",
+    add=[gross_revenue],
+    subtract=[refunds],
+)
+```
+
+```python
+verify = ms.verify_object("sales.aov")
+if verify.status == "failed":
+    verify.show()
+    raise SystemExit("Fix the authored derived metric before continuing.")
 ```
 
 ## Closeout

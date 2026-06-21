@@ -491,7 +491,7 @@ def test_field_body_rejects_lambda() -> None:
                 fn = lambda value: value
                 return fn(table)
 
-        assert exc_info.value.kind == ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
+        assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
         assert "Dimension body of 'amount'" in str(exc_info.value)
     finally:
         _exit_ctx()

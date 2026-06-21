@@ -76,10 +76,21 @@ def event_ts(table):
 def region(table):
     return table.region
 
-@ms.metric(
-    entities=[orders],
+@ms.measure(
+    entity=orders,
     additivity="additive",
+    unit="USD",
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds.",
+    ),
+)
+def amount(table):
+    return table.amount
+
+revenue = ms.aggregate(
     name="revenue",
+    measure=amount,
+    agg="sum",
     ai_context=ms.ai_context(
         business_definition="Gross order amount before refunds.",
         guardrails=["Validate refund exclusions before using as net revenue."],
@@ -87,8 +98,6 @@ def region(table):
         examples=["What was revenue by region last week?"],
     ),
 )
-def revenue(table):
-    return table.amount.sum()
 """
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -106,4 +115,5 @@ with tempfile.TemporaryDirectory() as tmp:
     print("partition time dimension:", catalog.get("sales.orders.log_date").details().ref)
     print("hour partition time dimension:", catalog.get("sales.orders.log_hour").details().ref)
     print("minute time dimension:", catalog.get("sales.orders.event_ts").details().ref)
+    print("measure:", catalog.get("sales.orders.amount").details().ref)
     print("metric:", catalog.get("sales.revenue").details().ref)
