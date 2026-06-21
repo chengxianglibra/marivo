@@ -227,7 +227,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
 
     assert "partition time dimension" in single
     assert 'parse=ms.strptime("%Y%m%d"' in single
-    assert "return table.dt" in single
+    assert 'column="dt"' in single
     assert "return table.dt.cast" not in single
     assert 'parse=ms.hour_prefix("log_date"' in single
     assert "ms.prepare_entity(" in evidence
@@ -287,7 +287,7 @@ def test_semantic_skill_documents_partition_friendly_time_fields() -> None:
 
     assert 'ms.strptime("%Y%m%d"' in authoring
     assert 'ms.hour_prefix("log_date"' in authoring
-    assert "return table.dt" in authoring
+    assert 'column="dt"' in authoring
     assert "return table.dt.cast" not in authoring
     assert "predicate pushdown" in authoring
     assert "Complex event-time expressions are still valid" in authoring

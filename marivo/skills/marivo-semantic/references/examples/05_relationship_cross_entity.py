@@ -44,35 +44,32 @@ customers = ms.entity(
     ),
 )
 
-@ms.dimension(
-    entity=orders,
+order_customer_id = ms.dimension_column(
     name="customer_id",
+    entity=orders,
+    column="customer_id",
     ai_context=ms.ai_context(
         business_definition="Customer key recorded on the order.",
     ),
 )
-def order_customer_id(table):
-    return table.customer_id
 
-@ms.dimension(
-    entity=customers,
+customer_id = ms.dimension_column(
     name="customer_id",
+    entity=customers,
+    column="customer_id",
     ai_context=ms.ai_context(
         business_definition="Customer primary key.",
     ),
 )
-def customer_id(table):
-    return table.customer_id
 
-@ms.dimension(
-    entity=customers,
+country = ms.dimension_column(
     name="country",
+    entity=customers,
+    column="country",
     ai_context=ms.ai_context(
         business_definition="Customer country used for sales segmentation.",
     ),
 )
-def country(table):
-    return table.country
 
 orders_to_customers = ms.relationship(
     name="orders_to_customers",

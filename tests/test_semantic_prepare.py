@@ -299,6 +299,7 @@ def test_prepare_dimension_warns_on_shadowing_column(
     assert len(shadow_issues) == 1
     assert shadow_issues[0].severity == "warning"
     assert 'table["schema"]' in shadow_issues[0].message
+    assert "ms.dimension_column" in shadow_issues[0].message
 
     # region column should have no shadowing warning
     region_brief = project.prepare_dimension(
@@ -356,6 +357,7 @@ def test_prepare_time_dimension_warns_on_shadowing_column(
     assert len(shadow_issues) == 1
     assert shadow_issues[0].severity == "warning"
     assert 'table["count"]' in shadow_issues[0].message
+    assert "ms.time_dimension_column" in shadow_issues[0].message
 
 
 def test_prepare_metric_warns_on_shadowing_measure_column(
@@ -401,6 +403,54 @@ def test_prepare_metric_warns_on_shadowing_measure_column(
     assert len(shadow_issues) == 1
     assert shadow_issues[0].severity == "warning"
     assert 'table["info"]' in shadow_issues[0].message
+    assert "ms.measure_column" in shadow_issues[0].message
+
+
+def test_prepare_measure_warns_on_shadowing_column(
+    tmp_path: Path, semantic_project_factory
+) -> None:
+    import ibis
+
+    import marivo.datasource as md
+
+    db_path = tmp_path / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.create_table(
+        "orders",
+        {"order_id": [1, 2], "info": [100.0, 200.0]},
+    )
+    con.disconnect()
+
+    md.register(
+        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        project_root=tmp_path,
+    )
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales')\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+            )
+        },
+        workspace_dir=tmp_path,
+    )
+    project.load()
+    project.verify_object("sales.orders")
+
+    brief = project.prepare_measure(
+        entity="sales.orders",
+        column="info",
+        scope=md.ScanScope(partition=None),
+    )
+
+    assert brief.column == "info"
+    assert brief.status == "sufficient"
+    shadow_issues = [i for i in brief.issues if i.kind == "ibis_attribute_shadowing"]
+    assert len(shadow_issues) == 1
+    assert shadow_issues[0].severity == "warning"
+    assert 'table["info"]' in shadow_issues[0].message
+    assert "ms.measure_column" in shadow_issues[0].message
 
 
 # ---------------------------------------------------------------------------

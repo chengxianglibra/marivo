@@ -124,6 +124,32 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
         return table.amount.sum()
 """)
 
+_COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    amount = ms.measure_column(
+        name="amount",
+        entity=orders,
+        column="amount",
+        additivity="additive",
+        unit="USD",
+    )
+    region = ms.dimension_column(name="region", entity=orders, column="region")
+    created_at = ms.time_dimension_column(
+        name="created_at",
+        entity=orders,
+        column="created_at",
+        granularity="day",
+        parse=ms.timestamp(timezone="UTC"),
+        is_default=True,
+    )
+    total_amount = ms.aggregate(name="total_amount", measure=amount, agg="sum")
+
+    @ms.metric(entities=[orders], additivity="additive")
+    def amount_again(table):
+        return amount(table).sum()
+""")
+
 _SQL_VIEW_DATASET_PY = textwrap.dedent("""\
     import marivo.semantic as ms
     @ms.entity(name="orders_view", datasource="warehouse", source=ms.table("orders"))
@@ -285,6 +311,68 @@ def test_metric_materialize_sum(semantic_project_factory, backend_factory) -> No
     # Execute the metric to verify the value
     result = metric_expr.to_pandas()
     assert result == pytest.approx(300.0)
+
+
+# ---------------------------------------------------------------------------
+# Column helper parity
+# ---------------------------------------------------------------------------
+
+
+def test_column_helper_measure_materializes(semantic_project_factory, backend_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/columns.py": _COLUMN_HELPER_PROJECT_PY,
+        }
+    )
+    assert project.is_ready()
+
+    with _patch_connection_service(project, backend_factory):
+        metric = _materialize_metric(project, "sales.total_amount")
+
+    assert metric.to_pandas() == pytest.approx(300.0)
+
+
+def test_column_helper_refs_are_callable_in_metric_bodies(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/columns.py": _COLUMN_HELPER_PROJECT_PY,
+        }
+    )
+    assert project.is_ready()
+
+    with _patch_connection_service(project, backend_factory):
+        metric = _materialize_metric(project, "sales.amount_again")
+
+    assert metric.to_pandas() == pytest.approx(300.0)
+
+
+def test_column_helper_catalog_details_and_preview(
+    semantic_project_factory,
+    backend_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/columns.py": _COLUMN_HELPER_PROJECT_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    amount = catalog.get("sales.orders.amount")
+    details = amount.details()
+    assert amount.kind == SemanticKind.MEASURE
+    assert details.ref.id == "sales.orders.amount"
+    assert details.unit == "USD"
+
+    with _patch_connection_service(project, backend_factory):
+        preview = catalog.preview("sales.orders.amount", limit=2)
+
+    assert preview.returned_row_count == 2
 
 
 def test_materializer_dimension_on_uses_supplied_table(

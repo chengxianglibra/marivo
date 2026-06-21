@@ -12,9 +12,10 @@ Public surface::
 
     ms.domain(name="sales", default=True)
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
-    @ms.measure(entity=orders, additivity="additive", unit="USD")
-    def amount(orders):
-        return orders.amount
+    amount = ms.measure_column(
+        name="amount", entity=orders, column="amount",
+        additivity="additive", unit="USD",
+    )
 
     revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 """
@@ -36,6 +37,7 @@ from marivo.semantic.authoring import (
     csv,
     datetime,
     dimension,
+    dimension_column,
     domain,
     entity,
     from_sql,
@@ -43,6 +45,7 @@ from marivo.semantic.authoring import (
     join_on,
     linear,
     measure,
+    measure_column,
     metric,
     parquet,
     ratio,
@@ -53,6 +56,7 @@ from marivo.semantic.authoring import (
     strptime,
     table,
     time_dimension,
+    time_dimension_column,
     timestamp,
     validity,
     weighted_average,
@@ -608,6 +612,7 @@ __all__ = [
     "csv",
     "datetime",
     "dimension",
+    "dimension_column",
     "domain",
     "entity",
     "errors",
@@ -619,6 +624,7 @@ __all__ = [
     "linear",
     "load",
     "measure",
+    "measure_column",
     "metric",
     "parity_check",
     "parquet",
@@ -642,6 +648,7 @@ __all__ = [
     "strptime",
     "table",
     "time_dimension",
+    "time_dimension_column",
     "timestamp",
     "typing",
     "validity",

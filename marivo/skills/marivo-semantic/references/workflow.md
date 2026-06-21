@@ -113,15 +113,14 @@ dim_brief = ms.prepare_dimension(
 Author each dimension individually, then verify:
 
 ```python
-@ms.dimension(
-    entity=orders,
+region = ms.dimension_column(
     name="region",
+    entity=orders,
+    column="region",
     ai_context=ms.ai_context(
         business_definition="Sales reporting region.",
     ),
 )
-def region(table):
-    return table.region
 ```
 
 ```python
@@ -147,18 +146,17 @@ For day/hour partition columns, preserve the raw value and declare
 its physical encoding with a `parse` variant:
 
 ```python
-@ms.time_dimension(
-    entity=orders,
+log_date = ms.time_dimension_column(
     name="log_date",
+    entity=orders,
+    column="dt",
     granularity="day",
-    parse=ms.strptime("%Y%m%d"),
+    parse=ms.strftime("%Y%m%d"),
     is_default=True,
     ai_context=ms.ai_context(
         business_definition="Partition date used for default order reporting windows.",
     ),
 )
-def log_date(table):
-    return table.dt
 ```
 
 `verify_object` automatically reloads the project from disk to pick up the
@@ -188,16 +186,16 @@ if measure_brief.status == "blocked":
 Author and verify:
 
 ```python
-@ms.measure(
+amount = ms.measure_column(
+    name="amount",
     entity=orders,
+    column="amount",
     additivity="additive",
     unit="USD",
     ai_context=ms.ai_context(
         business_definition="Gross order amount before refunds.",
     ),
 )
-def amount(table):
-    return table.amount
 ```
 
 ```python
