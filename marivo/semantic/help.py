@@ -71,6 +71,7 @@ _SUMMARIES: dict[str, str] = {
     "additivity": "metric summability: additive / non_additive / semi_additive(over, fold)",
     "composition": "derived-metric composition kinds (ratio/weighted_average/linear); distinct from the decompose analysis op",
     "constraints": "authoring and validation constraints",
+    "count": "declare an entity row-count metric",
     "derived_metric": "declare a body-free canonical ratio or weighted-average metric",
     "dimension": "declare a non-aggregated dimension on an entity",
     "from_sql": "declare SQL parity provenance for a metric body",
@@ -205,6 +206,7 @@ def _metric_content() -> dict[str, object]:
     return {
         "summary": (
             "declare metrics from measures by default with ms.aggregate(name=..., measure=..., agg=...); "
+            "use ms.count(...) for entity row-count metrics; "
             "use @ms.metric(...) only for tier-2 expression-body metrics"
         ),
         "default_path": (
@@ -213,7 +215,8 @@ def _metric_content() -> dict[str, object]:
         ),
         "tier1": (
             "recommended default: ms.aggregate(name=..., measure=<verified_measure_ref>, "
-            "agg='sum'|'count'|'mean'|'min'|'max')"
+            "agg='sum'|'mean'|'min'|'max'); use ms.count(name=..., entity=<entity_ref>) "
+            "for entity row counts"
         ),
         "tier2": (
             "escape hatch: @ms.metric(entities=[...], "
@@ -347,7 +350,7 @@ def _measure_topic() -> Descriptor:
     content = {
         "summary": summary,
         "authoring": "@ms.measure(entity=<entity_ref>, additivity='additive'|'non_additive'|ms.semi_additive(...), unit=None)",
-        "aggregation": "Use ms.aggregate(name=..., measure=<measure_ref>, agg='sum'|'count'|'mean'|'min'|'max') to turn a measure into a metric.",
+        "aggregation": "Use ms.aggregate(name=..., measure=<measure_ref>, agg='sum'|'mean'|'min'|'max') to turn a measure into a metric; use ms.count(...) for entity row counts.",
         "boundary": "Measures are not group-by axes or filters. Slice by dimensions; aggregate measures into metrics.",
         "related_help": [
             "ms.help('metric')",

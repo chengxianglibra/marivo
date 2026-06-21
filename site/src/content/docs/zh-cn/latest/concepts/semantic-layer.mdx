@@ -75,7 +75,7 @@ your-project/
 | `dimension` | `DimensionRef` | `@ms.dimension` | 是——在 metric body 中 |
 | `time_dimension` | `TimeDimensionRef` | `@ms.time_dimension` | 是——在 metric body 中 |
 | `measure` | `MeasureRef` | `@ms.measure` | 是——在 metric body 中 |
-| `metric` | `MetricRef` | `ms.aggregate(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
+| `metric` | `MetricRef` | `ms.aggregate(...)`、`ms.count(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
 | `relationship` | `RelationshipRef` | `ms.relationship(...)` | 否 |
 
 可调用的 field ref（`DimensionRef`、`MeasureRef`、`TimeDimensionRef`）在 metric body
@@ -362,13 +362,22 @@ Metric 是 agent 出发所依赖的、可信的、可直接用于分析的数值
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Metric 名称。 |
 | `measure` | `MeasureRef \| str` | 是 | — | 要聚合的 measure。 |
-| `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"count"`、`"count_distinct"`、`"min"`、`"max"` 等。 |
+| `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"min"`、`"max"` 等。 |
 | `fold` | fold | 否 | `None` | semi-additive measure 的 time-fold 覆盖。 |
 | `unit` | `str` | 否 | 继承 | 覆盖从 measure 推导的 unit。 |
 | `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+```
+
+### Count metric —— `ms.count`
+
+需要计 entity 行数时使用 `ms.count`，不要为了计行数额外声明冗余 measure。这个 helper
+只接受 ref，并从 entity ref 推断 metric 所属 domain。
+
+```python
+order_count = ms.count(name="order_count", entity=orders)
 ```
 
 ### 来自 ibis body 的 metric —— `@ms.metric`

@@ -846,20 +846,56 @@ def assembly_validate(
         if m_ir.additivity is None:
             # Resolution failed: diagnose the tier-1 cause precisely.
             if m_ir.aggregation is not None:
-                measure: MeasureIR | DimensionIR | None = registry.measures.get(m_ir.measure or "")
+                target_kind = m_ir.aggregation_target_kind or (
+                    "measure" if m_ir.measure is not None else None
+                )
+                target_id = m_ir.aggregation_target or m_ir.measure or ""
+                agg = m_ir.aggregation
+                if target_kind == "entity":
+                    if target_id not in registry.entities:
+                        errors.append(
+                            SemanticLoadError(
+                                kind=ErrorKind.ENTITY_NOT_FOUND,
+                                message=(
+                                    f"Metric {m_id!r} references unknown entity {target_id!r}."
+                                ),
+                                refs=(m_id, target_id),
+                                details={
+                                    "metric": m_id,
+                                    "entity": target_id,
+                                    "did_you_mean": did_you_mean(
+                                        target_id, sorted(registry.entities.keys())
+                                    ),
+                                },
+                            )
+                        )
+                    else:
+                        errors.append(
+                            SemanticLoadError(
+                                kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
+                                message=(
+                                    f"Metric {m_id!r} applies {agg!r} to entity "
+                                    f"{target_id!r}; entity counts must use 'count'."
+                                ),
+                                refs=(m_id, target_id),
+                                details={"metric": m_id, "entity": target_id, "aggregation": agg},
+                            )
+                        )
+                    continue
+                measure: MeasureIR | DimensionIR | None = registry.measures.get(target_id)
                 if measure is None:
-                    measure = registry.dimensions.get(m_ir.measure or "")
+                    measure = registry.dimensions.get(target_id)
                 if measure is None:
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.UNKNOWN_MEASURE,
-                            message=f"Metric {m_id!r} references unknown measure {m_ir.measure!r}.",
-                            refs=(m_id, m_ir.measure or ""),
+                            message=f"Metric {m_id!r} references unknown measure {target_id!r}.",
+                            refs=(m_id, target_id),
                             details={
                                 "metric": m_id,
-                                "measure": m_ir.measure,
+                                "measure": target_id,
                                 "did_you_mean": did_you_mean(
-                                    m_ir.measure or "",
+                                    target_id,
                                     sorted(
                                         set(registry.dimensions.keys())
                                         | set(registry.measures.keys())
@@ -872,24 +908,23 @@ def assembly_validate(
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.MISSING_MEASURE_ADDITIVITY,
-                            message=f"Measure {m_ir.measure!r} used by {m_id!r} must declare additivity.",
-                            refs=(m_id, m_ir.measure or ""),
+                            message=f"Measure {target_id!r} used by {m_id!r} must declare additivity.",
+                            refs=(m_id, target_id),
                             constraint_id=ConstraintId.MEASURE_ADDITIVITY_REQUIRED,
-                            details={"metric": m_id, "measure": m_ir.measure},
+                            details={"metric": m_id, "measure": target_id},
                         )
                     )
                 else:
-                    agg = m_ir.aggregation
                     errors.append(
                         SemanticLoadError(
                             kind=ErrorKind.INVALID_MEASURE_AGGREGATION,
                             message=(
                                 f"Metric {m_id!r} applies {agg!r} to non-additive measure "
-                                f"{m_ir.measure!r}; use mean/min/max or a ratio."
+                                f"{target_id!r}; use mean/min/max or a ratio."
                             ),
-                            refs=(m_id, m_ir.measure or ""),
+                            refs=(m_id, target_id),
                             constraint_id=ConstraintId.MEASURE_AGGREGATION_VALID,
-                            details={"metric": m_id, "measure": m_ir.measure, "aggregation": agg},
+                            details={"metric": m_id, "measure": target_id, "aggregation": agg},
                         )
                     )
             else:

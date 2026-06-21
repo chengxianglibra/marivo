@@ -85,6 +85,7 @@ SEMANTIC_PUBLIC = {
     "VersioningHints",
     "aggregate",
     "ai_context",
+    "count",
     "csv",
     "datetime",
     "dimension",

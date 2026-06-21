@@ -29,6 +29,7 @@ Aggregation & measure helpers
    :nosignatures:
 
    aggregate
+   count
    linear
    ratio
    weighted_average

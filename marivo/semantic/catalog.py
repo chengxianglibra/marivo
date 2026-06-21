@@ -475,6 +475,8 @@ class SimpleMetricDetails(_DetailsBase):
     unit: str | None
     provenance: SqlProvenance | None
     parity_status: ParityStatus
+    aggregation_target: SemanticRef | None = None
+    aggregation_target_kind: Literal["measure", "entity"] | None = None
 
     @property
     def metric_type(self) -> Literal["simple"]:
@@ -507,6 +509,8 @@ class SimpleMetricDetails(_DetailsBase):
             extra.append(f"aggregation: {self.aggregation}")
         if self.measure is not None:
             extra.append(f"measure: {self.measure.id}")
+        if self.aggregation_target is not None and self.aggregation_target_kind != "measure":
+            extra.append(f"target: {self.aggregation_target_kind} {self.aggregation_target.id}")
         return _render_details_card(
             identity=self._repr_identity(),
             status=self.context.business_definition,
@@ -1161,6 +1165,18 @@ def _format_agg(agg: object) -> str | None:
     return str(agg)
 
 
+def _aggregation_target_ref(m_ir: MetricIR) -> SemanticRef | None:
+    target = m_ir.aggregation_target or m_ir.measure
+    target_kind = m_ir.aggregation_target_kind or ("measure" if m_ir.measure else None)
+    if target is None or target_kind is None:
+        return None
+    kind = {
+        "measure": SemanticKind.MEASURE,
+        "entity": SemanticKind.ENTITY,
+    }[target_kind]
+    return make_ref(target, kind)
+
+
 def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject) -> SemanticObject:
     ref = make_ref(m_ir.semantic_id, SemanticKind.METRIC)
     entity_refs = tuple(make_ref(ds, SemanticKind.ENTITY) for ds in m_ir.entities)
@@ -1170,6 +1186,7 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
         (role, make_ref(comp_ref, SemanticKind.METRIC)) for role, comp_ref in comp_map.items()
     )
     component_refs = tuple(r for _, r in components)
+    aggregation_target = _aggregation_target_ref(m_ir)
     linear_terms = (
         tuple((t.sign, t.metric) for t in m_ir.composition.terms)
         if isinstance(m_ir.composition, LinearComposition)
@@ -1245,6 +1262,9 @@ def _build_metric_object(m_ir: MetricIR, reg: Registry, project: SemanticProject
             unit=m_ir.unit,
             provenance=m_ir.provenance,
             parity_status=parity_status,
+            aggregation_target=aggregation_target,
+            aggregation_target_kind=m_ir.aggregation_target_kind
+            or ("measure" if m_ir.measure else None),
         )
     return SemanticObject(
         ref=ref,

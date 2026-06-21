@@ -30,6 +30,7 @@ from marivo.semantic.time_format import normalize_strptime
 __all__ = [
     "Additivity",
     "AggKind",
+    "AggregationTargetKind",
     "AiContextIR",
     "Composition",
     "CsvSourceIR",
@@ -418,6 +419,7 @@ AggKind = (
     Literal["sum", "count", "count_distinct", "min", "max", "mean", "median"]
     | tuple[Literal["percentile"], float]
 )
+AggregationTargetKind = Literal["measure", "entity"]
 
 
 @dataclass(frozen=True)
@@ -558,6 +560,8 @@ class MetricIR:
     root_entity: str | None = None
     fanout_policy: Literal["block", "aggregate_then_join"] = "block"
     unit: str | None = None
+    aggregation_target: str | None = None
+    aggregation_target_kind: AggregationTargetKind | None = None
     fold_override: TimeFoldIR | None = (
         None  # tier-1 only: overrides the measure's semi-additive fold at load
     )
@@ -575,10 +579,31 @@ class MetricIR:
                     f"MetricIR {self.semantic_id!r}: simple metric must not carry composition"
                 )
             tier1 = self.aggregation is not None
-            if tier1 != (self.measure is not None):
+            has_target = self.aggregation_target is not None
+            legacy_measure_target = self.measure is not None and not has_target
+            if tier1 and not (has_target or legacy_measure_target):
                 raise ValueError(
-                    f"MetricIR {self.semantic_id!r}: aggregation and measure must both be set "
-                    "(tier-1) or both be None (tier-2 body)"
+                    f"MetricIR {self.semantic_id!r}: tier-1 metric requires an aggregation target"
+                )
+            if not tier1 and (self.measure is not None or has_target):
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: tier-2 body metric must not carry "
+                    "measure or aggregation target"
+                )
+            if has_target and self.aggregation_target_kind is None:
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: aggregation target requires a target kind"
+                )
+            if (
+                self.aggregation_target_kind == "measure"
+                and self.measure != self.aggregation_target
+            ):
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: measure target must match measure"
+                )
+            if self.aggregation_target_kind == "entity" and self.measure is not None:
+                raise ValueError(
+                    f"MetricIR {self.semantic_id!r}: entity aggregate target must not carry measure"
                 )
             if not tier1 and self.additivity is None:
                 raise ValueError(

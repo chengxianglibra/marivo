@@ -151,6 +151,7 @@ def test_all_list_matches_expected() -> None:
         "time_dimension",
         "aggregate",
         "ai_context",
+        "count",
         "from_sql",
         "hour_prefix",
         "join_on",
@@ -187,6 +188,7 @@ def test_all_list_matches_expected() -> None:
     }
     assert set(ms.__all__) == expected
     assert not hasattr(ms, "component")
+    assert not hasattr(ms, "count_distinct")
     # Category 1 symbols removed from public API
     for name in (
         "SemanticProject",
@@ -351,6 +353,8 @@ def test_help_json_top_level_returns_compact_directory() -> None:
     }
     assert "entity" in entry_names
     assert "metric" in entry_names
+    count_entry = next(e for e in entries if e["name"] == "count")
+    assert count_entry["summary"] == "declare an entity row-count metric"
     assert "ratio" in entry_names
     assert "weighted_average" in entry_names
     assert "component" not in entry_names
@@ -375,6 +379,8 @@ def test_help_json_metric_includes_body_rule_and_related_help() -> None:
         "-> ms.aggregate -> verify_object(metric)."
     )
     assert "recommended default" in cast("str", content["tier1"])
+    assert "ms.count" in cast("str", content["tier1"])
+    assert "ms.count_distinct" not in cast("str", content["tier1"])
     assert "escape hatch" in cast("str", content["tier2"])
 
 

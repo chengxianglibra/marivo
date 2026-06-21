@@ -38,9 +38,10 @@ def revenue_via_measure(orders): return amount(orders).sum()
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
 order_count = ms.aggregate(measure=amount, agg="count", name="order_count")
+order_rows = ms.count(entity=orders, name="order_rows")
 gross_total = ms.aggregate(measure=gross, agg="sum", name="gross_total")
 refund_total = ms.aggregate(measure=refund, agg="sum", name="refund_total")
-aov = ms.ratio(name="aov", numerator=revenue, denominator=order_count)
+aov = ms.ratio(name="aov", numerator=revenue, denominator=order_rows)
 net = ms.linear(name="net", add=[gross_total], subtract=[refund_total])
 """
 
@@ -124,6 +125,11 @@ def test_tier1_sum_materializes_as_aggregation(materialized_project):
 def test_tier1_count_materializes_as_count(materialized_project):
     # order_count = ms.aggregate(measure=amount, agg="count")
     value = materialized_project.materializer.metric("sales.order_count")
+    assert materialized_project.execute_scalar(value) == materialized_project.row_count("orders")
+
+
+def test_count_materializes_as_entity_row_count(materialized_project):
+    value = materialized_project.materializer.metric("sales.order_rows")
     assert materialized_project.execute_scalar(value) == materialized_project.row_count("orders")
 
 

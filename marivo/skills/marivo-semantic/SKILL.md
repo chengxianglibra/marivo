@@ -25,7 +25,7 @@ the project structure before authoring semantic objects.
 - Follow the ladder: domain -> entity -> dimension -> time_dimension -> measure -> metric -> relationship -> cross-entity metric -> derived metric.
 - Before writing each object, call the matching `ms.prepare_*` API and branch on the returned Brief status.
 - Write exactly one semantic object per cycle in `models/semantic/<domain>/_domain.py`.
-- Default metric authoring is tier-1: verify a row-level `@ms.measure(...)`, then declare `ms.aggregate(name=..., measure=..., agg=...)`. Use `@ms.metric(...)` only for expression-body tier-2 metrics.
+- Default metric authoring is tier-1: verify a row-level `@ms.measure(...)`, then declare `ms.aggregate(name=..., measure=..., agg=...)` for measure aggregation. Use `ms.count(name=..., entity=<EntityRef>)` for entity row counts. Use `@ms.metric(...)` only for expression-body tier-2 metrics.
 - Use `ms.from_sql(sql=..., dialect=...)` for SQL provenance, not `source_sql`/`source_dialect` kwargs.
 - After writing one object, call `ms.verify_object(ref)` and do not advance while it fails.
 - **`verify_object` is enforced:** `ms.prepare_dimension`, `ms.prepare_time_dimension`, `ms.prepare_measure`, `ms.prepare_metric`, `ms.prepare_relationship`, and `ms.prepare_cross_entity_metric` raise `LadderOrderError` if their entity arguments have not passed `ms.verify_object`. You must verify the entity before these calls.
