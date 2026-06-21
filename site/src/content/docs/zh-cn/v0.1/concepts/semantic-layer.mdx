@@ -379,7 +379,7 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 只接受 ref，并从 entity ref 推断 metric 所属 domain。
 
 ```python
-order_count = ms.count(name="order_count", entity=orders)
+order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="订单总数。"))
 ```
 
 ### 来自 ibis body 的 metric —— `@ms.metric`

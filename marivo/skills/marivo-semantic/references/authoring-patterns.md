@@ -280,7 +280,7 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
 
 ```python
-order_count = ms.count(name="order_count", entity=orders)
+order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
 ```
 
 ```python
@@ -305,7 +305,7 @@ amount = ms.measure_column(
 )
 
 gross_revenue = ms.aggregate(name="gross_revenue", measure=amount, agg="sum")
-orders_count = ms.count(name="orders_count", entity=orders)
+orders_count = ms.count(name="orders_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
 
 gross_revenue_per_order = ms.ratio(
     name="gross_revenue_per_order",
