@@ -32,39 +32,38 @@ orders = ms.entity(
     ),
 )
 
-@ms.time_dimension(
-    entity=orders,
+log_date = ms.time_dimension_column(
     name="log_date",
+    entity=orders,
+    column="dt",
     granularity="day",
     parse=ms.strptime("%Y%m%d", ),
     is_default=True,
 )
-def log_date(table):
-    return table.dt
 
 # -- Measures and tier-1 base metrics ---
 
-@ms.measure(
+amount = ms.measure_column(
+    name="amount",
     entity=orders,
+    column="amount",
     additivity="additive",
     unit="CNY",
     ai_context=ms.ai_context(
         business_definition="Order amount before refunds.",
     ),
 )
-def amount(table):
-    return table.amount
 
-@ms.measure(
+refund_amount = ms.measure_column(
+    name="refund_amount",
     entity=orders,
+    column="refund_amount",
     additivity="additive",
     unit="CNY",
     ai_context=ms.ai_context(
         business_definition="Refund amount recorded on the order.",
     ),
 )
-def refund_amount(table):
-    return table.refund_amount
 
 gross_revenue = ms.aggregate(
     name="gross_revenue",

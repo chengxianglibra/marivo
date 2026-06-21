@@ -77,9 +77,9 @@ Each `SemanticKind` value has a concrete ref subclass:
 | `domain` | `DomainRef` | `ms.domain(...)` | No |
 | `datasource` | `DatasourceRef` | `md.ref(...)` | No |
 | `entity` | `EntityRef` | `ms.entity(...)` | No |
-| `dimension` | `DimensionRef` | `@ms.dimension` | Yes — in metric bodies |
-| `time_dimension` | `TimeDimensionRef` | `@ms.time_dimension` | Yes — in metric bodies |
-| `measure` | `MeasureRef` | `@ms.measure` | Yes — in metric bodies |
+| `dimension` | `DimensionRef` | `ms.dimension_column(...)` for direct columns, `@ms.dimension` for expressions | Yes — in metric bodies |
+| `time_dimension` | `TimeDimensionRef` | `ms.time_dimension_column(...)` for direct columns, `@ms.time_dimension` for expressions | Yes — in metric bodies |
+| `measure` | `MeasureRef` | `ms.measure_column(...)` for direct columns, `@ms.measure` for expressions | Yes — in metric bodies |
 | `metric` | `MetricRef` | `ms.aggregate(...)`, `ms.count(...)`, `@ms.metric`, `ms.ratio(...)`, … | No |
 | `relationship` | `RelationshipRef` | `ms.relationship(...)` | No |
 
@@ -264,24 +264,26 @@ For entities whose rows change over time, declare how to read the current state:
 
 ## Dimension
 
-A dimension is a categorical attribute you group or filter by. It is a decorator
-whose body returns a single ibis expression over the entity table.
+A dimension is a categorical attribute you group or filter by. For direct
+physical columns, use `ms.dimension_column(...)`; for expressions (e.g.
+`table.region.upper()`), use the `@ms.dimension` decorator whose body returns a
+single ibis expression over the entity table.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | No | function name | Dimension name. Becomes `<domain>.<entity>.<name>`. |
+| `name` | `str` | Yes | — | Dimension name. Becomes `<domain>.<entity>.<name>`. |
 | `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `column` | `str` | Yes | — | Physical column name on the entity table. |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
 | `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ```python
-@ms.dimension(
-    entity=orders,
+region = ms.dimension_column(
     name="region",
+    entity=orders,
+    column="region",
     ai_context=ms.ai_context(business_definition="Sales reporting region."),
 )
-def region(table):
-    return table.region
 ```
 
 ## Time dimension
@@ -322,25 +324,23 @@ marks a periodically-sampled axis used by semi-additive folds.
 
 ```python
 # Day partition stored as the string "20260131"
-@ms.time_dimension(
-    entity=orders,
+log_date = ms.time_dimension_column(
     name="log_date",
+    entity=orders,
+    column="dt",
     granularity="day",
     parse=ms.strptime("%Y%m%d"),
     is_default=True,
 )
-def log_date(table):
-    return table.dt
 
 # Native UTC timestamp, usable for sub-day buckets
-@ms.time_dimension(
-    entity=orders,
+event_ts = ms.time_dimension_column(
     name="event_ts",
+    entity=orders,
+    column="event_ts",
     granularity="minute",
     parse=ms.timestamp(timezone="UTC"),
 )
-def event_ts(table):
-    return table.event_ts
 ```
 
 ## Measure
@@ -359,9 +359,13 @@ expression — but it carries additivity and an optional unit.
 | `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ```python
-@ms.measure(entity=orders, additivity="additive", unit="CNY")
-def amount(table):
-    return table.amount
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
+)
 ```
 
 ## Metrics
@@ -455,16 +459,19 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
   `ms.parity_check(...)`. It is never executed as the metric body.
 
 ```python
-@ms.time_dimension(entity=inventory_daily, granularity="day")
-def snapshot_date(inventory_daily):
-    return inventory_daily.snapshot_date
-
-@ms.measure(
+snapshot_date = ms.time_dimension_column(
+    name="snapshot_date",
     entity=inventory_daily,
+    column="snapshot_date",
+    granularity="day",
+)
+
+on_hand_units = ms.measure_column(
+    name="on_hand_units",
+    entity=inventory_daily,
+    column="on_hand_units",
     additivity=ms.semi_additive(over=snapshot_date, fold="last"),
 )
-def on_hand_units(inventory_daily):
-    return inventory_daily.on_hand_units
 ```
 
 ## Relationship

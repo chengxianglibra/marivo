@@ -26,9 +26,10 @@ orders = ms.entity(
     ),
 )
 
-@ms.time_dimension(
-    entity=orders,
+log_date = ms.time_dimension_column(
     name="log_date",
+    entity=orders,
+    column="dt",
     granularity="day",
     parse=ms.strptime("%Y%m%d"),
     ai_context=ms.ai_context(
@@ -36,12 +37,11 @@ orders = ms.entity(
         guardrails=["Use event time instead only when source SQL defines that axis."],
     ),
 )
-def log_date(table):
-    return table.dt
 
-@ms.time_dimension(
-    entity=orders,
+log_hour = ms.time_dimension_column(
     name="log_hour",
+    entity=orders,
+    column="hh",
     granularity="hour",
     parse=ms.hour_prefix("log_date"),
     ai_context=ms.ai_context(
@@ -49,30 +49,27 @@ def log_date(table):
         guardrails=["Use full event timestamp only when source SQL defines that axis."],
     ),
 )
-def log_hour(table):
-    return table.hh
 
-@ms.dimension(
-    entity=orders,
+region = ms.dimension_column(
     name="region",
+    entity=orders,
+    column="region",
     ai_context=ms.ai_context(
         business_definition="Sales reporting region.",
         guardrails=["Do not treat missing region as a separate market."],
     ),
 )
-def region(table):
-    return table.region
 
-@ms.measure(
+amount = ms.measure_column(
+    name="amount",
     entity=orders,
+    column="amount",
     additivity="additive",
     unit="USD",
     ai_context=ms.ai_context(
         business_definition="Gross order amount before refunds.",
     ),
 )
-def amount(table):
-    return table.amount
 
 revenue = ms.aggregate(
     name="revenue",
@@ -93,8 +90,10 @@ Short display summaries are not a substitute for business meaning. Business
 meaning, usage constraints, and agent guidance belong in `ai_context`:
 
 ```python
-@ms.measure(
+amount = ms.measure_column(
+    name="amount",
     entity=orders,
+    column="amount",
     additivity="additive",
     ai_context=ms.ai_context(
         business_definition="Sum of order amounts for completed orders.",
@@ -102,8 +101,6 @@ meaning, usage constraints, and agent guidance belong in `ai_context`:
         synonyms=["revenue", "net sales"],
     ),
 )
-def amount(table):
-    return table.amount
 
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
@@ -135,9 +132,12 @@ sales_ref = ms.domain(name="sales", description="Sales analytics")
 # sales/shared_dimensions.py
 import marivo.semantic as ms
 
-@ms.dimension(domain=sales_ref, entity=orders, name="region")
-def region(table):
-    return table.region
+region = ms.dimension_column(
+    domain=sales_ref,
+    name="region",
+    entity=orders,
+    column="region",
+)
 ```
 
 When all objects in a file share the default domain, omit `domain=` -- the
@@ -157,18 +157,21 @@ compile to simple partition comparisons for predicate pushdown. Do not add
 filtered as physical partition keys, not interpreted instants.
 
 ```python
-@ms.time_dimension(entity=orders, name="log_date", granularity="day", parse=ms.strptime("%Y%m%d"))
-def log_date(table):
-    return table.dt
-
-@ms.time_dimension(
+log_date = ms.time_dimension_column(
+    name="log_date",
     entity=orders,
+    column="dt",
+    granularity="day",
+    parse=ms.strptime("%Y%m%d"),
+)
+
+log_hour = ms.time_dimension_column(
     name="log_hour",
+    entity=orders,
+    column="hh",
     granularity="hour",
     parse=ms.hour_prefix("log_date"),
 )
-def log_hour(table):
-    return table.hh
 ```
 
 Complex event-time expressions are still valid when they are the established
@@ -193,13 +196,13 @@ Omitted timezone means the datasource engine default timezone. Add
 meaning differs from the datasource default.
 
 ```python
-@ms.time_dimension(
+create_time = ms.time_dimension_column(
+    name="create_time",
     entity=orders,
+    column="create_time",
     granularity="minute",
     parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="UTC"),
 )
-def create_time(table):
-    return table.create_time
 ```
 
 When the body returns a date-typed expression (via `.cast("date")`), omit
@@ -223,13 +226,17 @@ Relationship keys must use dimension or time-dimension refs, not physical column
 strings:
 
 ```python
-@ms.dimension(entity=orders, name="customer_id")
-def order_customer_id(table):
-    return table.customer_id
+order_customer_id = ms.dimension_column(
+    name="customer_id",
+    entity=orders,
+    column="customer_id",
+)
 
-@ms.dimension(entity=customers, name="customer_id")
-def customer_id(table):
-    return table.id
+customer_id = ms.dimension_column(
+    name="customer_id",
+    entity=customers,
+    column="id",
+)
 
 ms.relationship(
     name="orders_to_customers",
@@ -252,16 +259,22 @@ Marivo has two metric tiers with distinct authoring shapes:
 | Derived weighted average | `ms.weighted_average(name=..., value=..., weight=...)` | No | weighted averages |
 | Derived linear | `ms.linear(name=..., add=[...], subtract=[...])` | No | net = gross - refunds |
 
-**Rule:** default to `ms.prepare_measure(...)`, `@ms.measure(...)`,
+Use `*_column(...)` helpers when the semantic object maps directly to one physical column. Use decorators when the semantic object is an Ibis expression over one or more columns.
+
+**Rule:** default to `ms.prepare_measure(...)`, `ms.measure_column(...)`,
 `ms.verify_object(measure_ref)`, then `ms.aggregate(...)` for measure
 aggregation. Use `ms.count(...)` for entity row counts. Use `@ms.metric`
 only when the metric needs an expression body; use `ms.ratio` /
 `ms.weighted_average` / `ms.linear` for body-free derived metrics.
 
 ```python
-@ms.measure(entity=orders, additivity="additive", unit="USD")
-def amount(orders):
-    return orders.amount
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="USD",
+)
 
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
@@ -283,13 +296,13 @@ def discounted_margin(table):
 Mean/average metrics are body-free derived metrics, not `ms.mean()`:
 
 ```python
-@ms.measure(
+amount = ms.measure_column(
+    name="amount",
     entity=orders,
+    column="amount",
     additivity="additive",
     unit="USD",
 )
-def amount(table):
-    return table.amount
 
 gross_revenue = ms.aggregate(name="gross_revenue", measure=amount, agg="sum")
 orders_count = ms.count(name="orders_count", entity=orders)
@@ -332,21 +345,21 @@ device-reported rates. `over` must be the `TimeDimensionRef` returned by
 `@ms.time_dimension(...)`, not a string id:
 
 ```python
-@ms.time_dimension(
+sample_ts = ms.time_dimension_column(
+    name="sample_ts",
     entity=bw_samples,
+    column="sample_ts",
     granularity="minute",
     parse=ms.timestamp(sample_interval=(1, "minute")),
 )
-def sample_ts(bw_samples):
-    return bw_samples.sample_ts
 
-@ms.measure(
+upstream_bw = ms.measure_column(
+    name="upstream_kbps",
     entity=bw_samples,
+    column="upstream_kbps",
     additivity=ms.semi_additive(over=sample_ts, fold="mean"),
     unit="kbit/s",
 )
-def upstream_bw(bw_samples):
-    return bw_samples.upstream_kbps
 
 avg_upstream_bw = ms.aggregate(
     name="avg_upstream_bw",
@@ -373,16 +386,19 @@ For already-summarized snapshot/status facts such as daily inventory, use
 `fold="last"` or `fold="first"` without `sample_interval`:
 
 ```python
-@ms.time_dimension(entity=inventory_daily, granularity="day")
-def snapshot_date(inventory_daily):
-    return inventory_daily.snapshot_date
-
-@ms.measure(
+snapshot_date = ms.time_dimension_column(
+    name="snapshot_date",
     entity=inventory_daily,
+    column="snapshot_date",
+    granularity="day",
+)
+
+on_hand_units = ms.measure_column(
+    name="on_hand_units",
+    entity=inventory_daily,
+    column="on_hand_units",
     additivity=ms.semi_additive(over=snapshot_date, fold="last"),
 )
-def on_hand_units(inventory_daily):
-    return inventory_daily.on_hand_units
 
 ending_on_hand_units = ms.aggregate(
     name="ending_on_hand_units",

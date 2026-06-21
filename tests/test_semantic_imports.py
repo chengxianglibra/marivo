@@ -124,7 +124,9 @@ def test_all_list_matches_expected() -> None:
         "parquet",
         "datetime",
         "dimension",
+        "dimension_column",
         "time_dimension",
+        "time_dimension_column",
         "aggregate",
         "ai_context",
         "count",
@@ -132,6 +134,7 @@ def test_all_list_matches_expected() -> None:
         "hour_prefix",
         "join_on",
         "measure",
+        "measure_column",
         "metric",
         "linear",
         "semi_additive",
@@ -354,9 +357,10 @@ def test_help_json_metric_includes_body_rule_and_related_help() -> None:
     assert "tier2" in content
     assert "body_rule" in content
     assert content["default_path"] == (
-        "Default to prepare_measure -> @ms.measure -> verify_object(measure) "
+        "Default to prepare_measure -> ms.measure_column -> verify_object(measure) "
         "-> ms.aggregate -> verify_object(metric)."
     )
+    assert "ms.aggregate" in cast("str", content["default_path"])
     assert "recommended default" in cast("str", content["tier1"])
     assert "ms.count" in cast("str", content["tier1"])
     assert "ms.count_distinct" not in cast("str", content["tier1"])
@@ -956,6 +960,20 @@ def test_help_metric_mentions_fold_is_definition_choice(capsys) -> None:
     ms.help("metric")
     out = capsys.readouterr().out
     assert "body" in out
+
+
+def test_help_text_documents_column_helpers() -> None:
+    text = ms.help_text()
+    assert "ms.dimension_column" in text
+    assert "ms.measure_column" in text
+    assert "ms.time_dimension_column" in text
+
+
+def test_help_text_measure_mentions_measure_column_default() -> None:
+    text = ms.help_text("measure")
+    assert "ms.measure_column" in text
+    assert "@ms.measure" in text
+    assert "escape hatch" in text
 
 
 # ---------------------------------------------------------------------------

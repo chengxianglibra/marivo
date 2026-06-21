@@ -106,7 +106,7 @@ def _metric_content() -> dict[str, object]:
     return {
         "summary": ("Declare metrics via ms.aggregate (tier-1) or @ms.metric decorator (tier-2)."),
         "default_path": (
-            "Default to prepare_measure -> @ms.measure -> verify_object(measure) "
+            "Default to prepare_measure -> ms.measure_column -> verify_object(measure) "
             "-> ms.aggregate -> verify_object(metric)."
         ),
         "tier1": (
@@ -244,8 +244,12 @@ def _measure_topic() -> Descriptor:
     summary = "Declare a row-level quantitative measure on an entity."
     content = {
         "summary": summary,
-        "authoring": "@ms.measure(entity=<entity_ref>, additivity='additive'|'non_additive'|ms.semi_additive(...), unit=None)",
-        "aggregation": "Use ms.aggregate(name=..., measure=<measure_ref>, agg='sum'|'mean'|'min'|'max') to turn a measure into a metric; use ms.count(...) for entity row counts.",
+        "authoring": (
+            'Use ms.measure_column(name="amount", entity=orders, '
+            'column="amount", additivity="additive", unit="CNY") for direct '
+            "physical columns; escape hatch: @ms.measure(...) for expression bodies."
+        ),
+        "aggregation": "Use ms.aggregate(name='total_amount', measure=amount, agg='sum') to turn a measure into a metric; use ms.count(...) for entity row counts.",
         "boundary": "Measures are not group-by axes or filters. Slice by dimensions; aggregate measures into metrics.",
         "related_help": [
             "ms.help('metric')",

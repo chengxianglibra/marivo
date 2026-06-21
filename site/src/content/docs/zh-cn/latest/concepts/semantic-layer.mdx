@@ -72,9 +72,9 @@ your-project/
 | `domain` | `DomainRef` | `ms.domain(...)` | 否 |
 | `datasource` | `DatasourceRef` | `md.ref(...)` | 否 |
 | `entity` | `EntityRef` | `ms.entity(...)` | 否 |
-| `dimension` | `DimensionRef` | `@ms.dimension` | 是——在 metric body 中 |
-| `time_dimension` | `TimeDimensionRef` | `@ms.time_dimension` | 是——在 metric body 中 |
-| `measure` | `MeasureRef` | `@ms.measure` | 是——在 metric body 中 |
+| `dimension` | `DimensionRef` | 直接列用 `ms.dimension_column(...)`，表达式用 `@ms.dimension` | 是——在 metric body 中 |
+| `time_dimension` | `TimeDimensionRef` | 直接列用 `ms.time_dimension_column(...)`，表达式用 `@ms.time_dimension` | 是——在 metric body 中 |
+| `measure` | `MeasureRef` | 直接列用 `ms.measure_column(...)`，表达式用 `@ms.measure` | 是——在 metric body 中 |
 | `metric` | `MetricRef` | `ms.aggregate(...)`、`ms.count(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
 | `relationship` | `RelationshipRef` | `ms.relationship(...)` | 否 |
 
@@ -252,24 +252,25 @@ orders = ms.entity(
 
 ## Dimension
 
-Dimension 是用来分组或过滤的分类属性。它是一个 decorator，其 body 返回一个针对 entity
-表的 ibis expression。
+Dimension 是用来分组或过滤的分类属性。直接物理列使用
+`ms.dimension_column(...)`；需要表达式（例如 `table.region.upper()`）时，
+使用 `@ms.dimension` decorator，其 body 返回一个针对 entity 表的 ibis expression。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 否 | 函数名 | Dimension 名称。成为 `<domain>.<entity>.<name>`。 |
+| `name` | `str` | 是 | — | Dimension 名称。成为 `<domain>.<entity>.<name>`。 |
 | `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `column` | `str` | 是 | — | Entity 表上的物理列名。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
-@ms.dimension(
-    entity=orders,
+region = ms.dimension_column(
     name="region",
+    entity=orders,
+    column="region",
     ai_context=ms.ai_context(business_definition="Sales reporting region."),
 )
-def region(table):
-    return table.region
 ```
 
 ## Time dimension
@@ -308,25 +309,23 @@ fold 使用。
 
 ```python
 # Day partition stored as the string "20260131"
-@ms.time_dimension(
-    entity=orders,
+log_date = ms.time_dimension_column(
     name="log_date",
+    entity=orders,
+    column="dt",
     granularity="day",
     parse=ms.strptime("%Y%m%d"),
     is_default=True,
 )
-def log_date(table):
-    return table.dt
 
 # Native UTC timestamp, usable for sub-day buckets
-@ms.time_dimension(
-    entity=orders,
+event_ts = ms.time_dimension_column(
     name="event_ts",
+    entity=orders,
+    column="event_ts",
     granularity="minute",
     parse=ms.timestamp(timezone="UTC"),
 )
-def event_ts(table):
-    return table.event_ts
 ```
 
 ## Measure
@@ -344,9 +343,13 @@ Measure 是你打算聚合的行级数量表达式（例如金额或数量）。
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
-@ms.measure(entity=orders, additivity="additive", unit="CNY")
-def amount(table):
-    return table.amount
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
+)
 ```
 
 ## Metrics
@@ -437,16 +440,19 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
   `ms.parity_check(...)`。它永远不会作为 metric body 执行。
 
 ```python
-@ms.time_dimension(entity=inventory_daily, granularity="day")
-def snapshot_date(inventory_daily):
-    return inventory_daily.snapshot_date
-
-@ms.measure(
+snapshot_date = ms.time_dimension_column(
+    name="snapshot_date",
     entity=inventory_daily,
+    column="snapshot_date",
+    granularity="day",
+)
+
+on_hand_units = ms.measure_column(
+    name="on_hand_units",
+    entity=inventory_daily,
+    column="on_hand_units",
     additivity=ms.semi_additive(over=snapshot_date, fold="last"),
 )
-def on_hand_units(inventory_daily):
-    return inventory_daily.on_hand_units
 ```
 
 ## Relationship

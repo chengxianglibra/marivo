@@ -25,6 +25,7 @@ from marivo.semantic.ir import (
     AiContextIR,
     DimensionIR,
     DimensionKind,
+    MeasureIR,
     MetricIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
@@ -52,6 +53,15 @@ def _enter_ctx(**kwargs: object) -> LoaderContext:
 def _exit_ctx() -> None:
     """Reset the loader context."""
     _LOADER_CTX.set(None)
+
+
+class _FakeTable:
+    def __init__(self) -> None:
+        self.columns_requested: list[str] = []
+
+    def __getitem__(self, column: str) -> str:
+        self.columns_requested.append(column)
+        return f"column:{column}"
 
 
 @pytest.fixture(autouse=True)
@@ -512,6 +522,71 @@ def test_field_kind_defaults_to_dimension() -> None:
         _exit_ctx()
 
 
+def test_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+
+        ref = ms.dimension_column(
+            name="region",
+            entity=orders,
+            column="region",
+            ai_context=ms.ai_context(
+                business_definition="Sales reporting region.",
+            ),
+        )
+
+        ir, sidecar = ctx.pending_objects[-1]
+        assert isinstance(ref, DimensionRef)
+        assert ref.id == "sales.orders.region"
+        assert isinstance(ir, DimensionIR)
+        assert ir.semantic_id == "sales.orders.region"
+        assert ir.domain == "sales"
+        assert ir.entity == "sales.orders"
+        assert ir.name == "region"
+        assert ir.python_symbol == "region"
+        assert ir.is_time_dimension is False
+        assert ir.kind is DimensionKind.CATEGORICAL
+        assert ir.ai_context.business_definition == "Sales reporting region."
+        assert sidecar is not None
+
+        fake = _FakeTable()
+        assert sidecar(fake) == "column:region"
+        assert fake.columns_requested == ["region"]
+        assert ctx.pending_refs[-1] is ref
+    finally:
+        _exit_ctx()
+
+
+def test_dimension_column_rejects_string_entity() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.dimension_column(  # type: ignore[arg-type]
+                name="region",
+                entity="sales.orders",
+                column="region",
+            )
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "entity must be an EntityRef" in str(exc_info.value)
+
+
+def test_dimension_column_rejects_empty_column() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.dimension_column(name="region", entity=orders, column="")
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "column must be a non-empty string" in str(exc_info.value)
+
+
 def test_field_kind_measure() -> None:
     from marivo.semantic.ir import MeasureIR, SymbolKind
 
@@ -558,6 +633,61 @@ def test_measure_body_error_uses_measure_label() -> None:
         assert "forbidden Expr statement" in str(exc_info.value)
     finally:
         _exit_ctx()
+
+
+def test_measure_column_pushes_ir_sidecar_and_pending_ref() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+
+        ref = ms.measure_column(
+            name="amount",
+            entity=orders,
+            column="amount",
+            additivity="additive",
+            unit="CNY",
+            ai_context=ms.ai_context(
+                business_definition="Order amount before refunds.",
+            ),
+        )
+
+        ir, sidecar = ctx.pending_objects[-1]
+        assert isinstance(ref, MeasureRef)
+        assert ref.id == "sales.orders.amount"
+        assert isinstance(ir, MeasureIR)
+        assert ir.semantic_id == "sales.orders.amount"
+        assert ir.domain == "sales"
+        assert ir.entity == "sales.orders"
+        assert ir.name == "amount"
+        assert ir.python_symbol == "amount"
+        assert ir.additivity == "additive"
+        assert ir.unit == "CNY"
+        assert ir.ai_context.business_definition == "Order amount before refunds."
+        assert sidecar is not None
+
+        fake = _FakeTable()
+        assert sidecar(fake) == "column:amount"
+        assert fake.columns_requested == ["amount"]
+        assert ctx.pending_refs[-1] is ref
+    finally:
+        _exit_ctx()
+
+
+def test_measure_column_rejects_string_entity() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.measure_column(  # type: ignore[arg-type]
+                name="amount",
+                entity="sales.orders",
+                column="amount",
+                additivity="additive",
+            )
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "entity must be an EntityRef" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -1101,6 +1231,84 @@ def test_hour_prefix_rejects_sample_interval_day_unit() -> None:
         assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
     finally:
         _exit_ctx()
+
+
+def test_time_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+
+        ref = ms.time_dimension_column(
+            name="log_date",
+            entity=orders,
+            column="dt",
+            granularity="day",
+            parse=ms.strptime("%Y%m%d"),
+            is_default=True,
+            ai_context=ms.ai_context(
+                business_definition="Default order reporting date.",
+            ),
+        )
+
+        ir, sidecar = ctx.pending_objects[-1]
+        assert isinstance(ref, TimeDimensionRef)
+        assert ref.id == "sales.orders.log_date"
+        assert isinstance(ir, DimensionIR)
+        assert ir.semantic_id == "sales.orders.log_date"
+        assert ir.domain == "sales"
+        assert ir.entity == "sales.orders"
+        assert ir.name == "log_date"
+        assert ir.python_symbol == "log_date"
+        assert ir.is_time_dimension is True
+        assert ir.kind is DimensionKind.TIME
+        assert ir.granularity == "day"
+        assert ir.parse is not None
+        assert ir.is_default is True
+        assert ir.ai_context.business_definition == "Default order reporting date."
+        assert sidecar is not None
+
+        fake = _FakeTable()
+        assert sidecar(fake) == "column:dt"
+        assert fake.columns_requested == ["dt"]
+        assert ctx.pending_refs[-1] is ref
+    finally:
+        _exit_ctx()
+
+
+def test_time_dimension_column_rejects_string_entity() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.time_dimension_column(  # type: ignore[arg-type]
+                name="log_date",
+                entity="sales.orders",
+                column="dt",
+                granularity="day",
+            )
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "entity must be an EntityRef" in str(exc_info.value)
+
+
+def test_time_dimension_column_reuses_parse_granularity_validation() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.time_dimension_column(
+                name="log_date",
+                entity=orders,
+                column="dt",
+                granularity="hour",
+                parse=ms.strptime("%Y%m%d"),
+            )
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "requires a time-bearing format" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

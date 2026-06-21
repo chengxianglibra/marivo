@@ -65,9 +65,14 @@ orders = ms.entity(
     ),
 )
 
-@ms.dimension(entity=orders, description="Paid order flag.")
-def is_paid(orders):
-    return orders.pay_status == 1
+is_paid = ms.dimension_column(
+    name="is_paid",
+    entity=orders,
+    column="pay_status",
+    ai_context=ms.ai_context(
+        business_definition="Whether the order is paid.",
+    ),
+)
 
 @ms.metric(
     entities=[orders],
@@ -365,7 +370,7 @@ table is collapsed to one row per `(key, anchor)`.
 dimension 是 row-level 属性，供过滤、分组、relationship 或 metric 表达式复用：
 
 ```python
-@ms.dimension(entity=orders, description="Normalized region.")
+@ms.dimension(entity=orders, ai_context=ms.ai_context(business_definition="Normalized region."))
 def region(orders):
     return orders.region.upper()
 ```
@@ -375,12 +380,16 @@ Tier-1 metric 默认聚合已验证 measure；derived metric 再通过 compositi
 传播 unit：
 
 ```python
-@ms.measure(
-    entity=orders, additivity="additive", unit="CNY",
-    description="Order amount in CNY.",
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
+    ai_context=ms.ai_context(
+        business_definition="Order amount in CNY.",
+    ),
 )
-def amount(orders):
-    return orders.amount
 
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 ```
@@ -388,21 +397,21 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 time dimension 是特殊 dimension，显式承载时间轴元数据：
 
 ```python
-@ms.time_dimension(
+dt = ms.time_dimension_column(
+    name="dt",
     entity=orders,
+    column="dt",
     granularity="day",
     parse=ms.strptime("%Y%m%d"),
 )
-def dt(orders):
-    return orders.dt
 
-@ms.time_dimension(
+hh = ms.time_dimension_column(
+    name="hh",
     entity=orders,
+    column="hh",
     granularity="hour",
     parse=ms.hour_prefix("dt"),
 )
-def hh(orders):
-    return orders.hh
 ```
 
 设计约束：
@@ -414,8 +423,8 @@ def hh(orders):
 - `granularity` 支持 `year` | `quarter` | `month` | `week` | `day` | `hour` | `minute` | `second`。`minute` 和 `second` 要求 `parse` 为 `ms.datetime(...)` 或 `ms.timestamp(...)`；`hour` 在非 `ms.datetime`/`ms.timestamp` 类型上必须使用 `ms.hour_prefix(...)`。省略 `parse` 时，若推断出的 data_type 为 `date`，则 `hour`/`minute`/`second` granularity 会报错。
 - body 返回的 ibis dtype 必须与 parse 变体兼容：`.cast("date")` 或原生 date 列 → 省略 `parse`；`.cast("timestamp")` 或原生 timestamp 列 → 省略 `parse` 或使用 `ms.datetime(...)`/`ms.timestamp(...)`。不匹配时执行器 TypeError。
 - hour-only 字段（列只存小时数值）必须使用 `ms.hour_prefix(prefix)`，其中 `prefix` 是同 entity 的 day 粒度 time-dimension ref。hour-only 字段支持可选的 `sample_interval`，使其可作为 sampled semi-additive metric 的时间轴。
-- 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `dimension` / `time_dimension`，再在 metric 中引用。
-- `@ms.dimension` / `@ms.time_dimension` 不要求 provenance status。它们的可信度来自所属 entity、row-level 表达式可读性和 materialization 校验。`provenance` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。
+- 若 metric body 内出现 `.filter(...)`、`.cast(...)` 或多步链式 row-level 中间表达式，且该表达式代表可命名业务概念，应先抽成 `dimension` / `time_dimension` / `measure`，再在 metric 中引用。直接物理列优先使用 `ms.dimension_column` / `ms.time_dimension_column` / `ms.measure_column`。
+- `@ms.dimension` / `@ms.time_dimension` / `@ms.measure` 不要求 provenance status。它们的可信度来自所属 entity、row-level 表达式可读性和 materialization 校验。`provenance` 是可选审计字段；缺失时 `describe` 显示 provenance 为 null。`ms.dimension_column` / `ms.time_dimension_column` / `ms.measure_column` 同理。
 - `is_default` (optional, default `False`): Mark this dimension as the default time axis
   when the entity has multiple time dimensions. When `observe()` is called without an
   explicit `time_dimension=` argument, the `is_default=True` dimension is used automatically.
@@ -465,7 +474,7 @@ statements remain invalid.
     entity=orders,
     additivity="additive",
     unit="CNY",
-    description="Paid order amount in CNY.",
+    ai_context=ms.ai_context(business_definition="Paid order amount in CNY."),
 )
 def paid_amount(order_rows):
     return order_rows.filter(is_paid(order_rows)).amount
@@ -603,13 +612,13 @@ def gmv_with_items(orders, order_items):
 Use sampled folds for periodic snapshot facts such as bandwidth, capacity, inventory, or device-reported rates. The time dimension declares physical precision with `granularity` and reporting cadence with `sample_interval`; the metric declares the business status axis and fold. `sample_interval` is supported on native `ms.datetime(...)` / `ms.timestamp(...)` parses, on string/integer `ms.strptime(...)` parses, and on `ms.hour_prefix(...)` parses.
 
 ```python
-@ms.time_dimension(
+sample_ts = ms.time_dimension_column(
+    name="sample_ts",
     entity=bw_samples,
+    column="sample_ts",
     granularity="second",
     parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),  # explicit source override
 )
-def sample_ts(bw_samples):
-    return bw_samples.sample_ts
 
 @ms.metric(
     entities=[bw_samples],
@@ -645,15 +654,14 @@ inventory_daily = ms.entity(
     ),
 )
 
-@ms.time_dimension(
-    entity=inventory_daily,
+snapshot_date = ms.time_dimension_column(
     name="snapshot_date",
+    entity=inventory_daily,
+    column="dt",
     granularity="day",
     parse=ms.strptime("%Y%m%d"),
     is_default=True,
 )
-def snapshot_date(inventory_daily):
-    return inventory_daily.dt
 
 @ms.metric(
     entities=[inventory_daily],
@@ -814,13 +822,13 @@ print(frame.summary())
 
 | 问题 | 选择 |
 | --- | --- |
-| 每一行都能计算出来，例如国家、平台、订单日期 | `@ms.dimension` 或 `@ms.time_dimension` |
-| 每一行都能计算出来的数值事实，例如 amount、quantity、bytes | `@ms.measure`，然后用 `ms.aggregate` 生成 metric |
-| 需要跨行聚合，例如 revenue、DAU、conversion rate | 默认 `@ms.measure` + `ms.aggregate`；必要时才用 tier-2 `@ms.metric` |
+| 每一行都能从一个物理列直接读取，例如国家、平台、订单日期 | `ms.dimension_column` 或 `ms.time_dimension_column` |
+| 每一行都能从一个物理列直接读取的数值事实，例如 amount、quantity、bytes | `ms.measure_column`，然后用 `ms.aggregate` 生成 metric |
+| 每一行都能计算出来但需要 Ibis 表达式，例如 normalize、case、cast、跨列相减 | `@ms.dimension`、`@ms.time_dimension` 或 `@ms.measure` 作为 expression escape hatch |
 | 只是 metric 内部的一段条件表达式，不需要下游引用 | 可直接写在 metric Ibis 表达式内 |
 | 会被多个 metric、filter、relationship 或分析 slice 复用 | 提升为 dimension/time_dimension |
 
-为了让 agent 能机械执行，目标态再加一条硬规则：metric body 内只允许聚合表达式和对已声明 dimension/time_dimension 的引用。凡是 row-level `.filter(...)`、`.cast(...)`、复杂 `case`、多步链式中间值，默认先抽成 `dimension` 或 `time_dimension`；只有一次性且无业务命名价值的简单列访问可以留在 metric body。
+为了让 agent 能机械执行，目标态再加一条硬规则：metric body 内只允许聚合表达式和对已声明 dimension/time_dimension/measure 的引用。凡是 row-level `.filter(...)`、`.cast(...)`、复杂 `case`、多步链式中间值，默认先抽成 `dimension`/`time_dimension`/`measure`；直接物理列访问优先使用 `ms.dimension_column`/`ms.time_dimension_column`/`ms.measure_column`。只有一次性且无业务命名价值的简单列访问可以留在 metric body。
 
 ### Sum vs Ratio vs Weighted Average
 

@@ -297,11 +297,12 @@ def test_semantic_examples_teach_current_metric_ladder() -> None:
     derived_metrics = (SEMANTIC_EXAMPLES / "04_derived_metrics.py").read_text()
     relationship = (SEMANTIC_EXAMPLES / "05_relationship_cross_entity.py").read_text()
 
-    assert "@ms.measure(" in single_domain
+    assert "ms.measure_column(" in single_domain
+    assert "@ms.measure(" not in single_domain
     assert "ms.aggregate(" in single_domain
     assert "@ms.metric(" not in single_domain
 
-    assert "@ms.measure(" in derived_metrics
+    assert "ms.measure_column(" in derived_metrics
     assert "ms.aggregate(" in derived_metrics
     assert "ms.count(" in derived_metrics
     assert "@ms.metric(" not in derived_metrics

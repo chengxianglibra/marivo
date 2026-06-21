@@ -72,16 +72,36 @@ _IBIS_TABLE_ATTR_NAMES: frozenset[str] = frozenset(
 def _ibis_shadowing_issue(
     entity: str,
     column: str,
+    *,
+    helper: str | None = None,
 ) -> AssessmentIssue | None:
     """Return an advisory issue if *column* shadows an ibis Table attribute."""
     if column not in _IBIS_TABLE_ATTR_NAMES:
         return None
+    helper_examples = {
+        "dimension_column": (
+            f"Use ms.dimension_column(name={column!r}, entity=orders, "
+            f"column={column!r}) for direct physical column authoring. "
+        ),
+        "time_dimension_column": (
+            f"Use ms.time_dimension_column(name={column!r}, entity=orders, "
+            f'column={column!r}, granularity="day") for direct physical '
+            "column authoring. "
+        ),
+        "measure_column": (
+            f"Use ms.measure_column(name={column!r}, entity=orders, "
+            f'column={column!r}, additivity="additive", unit="1") '
+            "for direct physical column authoring. "
+        ),
+    }
+    direct_column_hint = helper_examples.get(helper or "", "")
     return AssessmentIssue(
         kind="ibis_attribute_shadowing",
         severity="warning",
         refs=(f"{entity}.{column}",),
         message=(
             f"Column {column!r} shadows an ibis Table attribute. "
+            f"{direct_column_hint}"
             f'Use bracket notation: table["{column}"] instead of table.{column} '
             f"in decorator bodies."
         ),
@@ -339,7 +359,8 @@ def prepare_entity(
     issues = tuple(
         issue
         for col in inspection.profiles
-        if (issue := _ibis_shadowing_issue(entity_ref, col.name)) is not None
+        if (issue := _ibis_shadowing_issue(entity_ref, col.name, helper="dimension_column"))
+        is not None
     )
     questions: tuple[AuthoringQuestion, ...] = ()
     return EntityBrief(
@@ -398,7 +419,7 @@ def prepare_dimensions(
         profile = profile_by_name.get(column)
         is_missing = profile is None or profile.data_type == "UNKNOWN"
         issues = list(_missing_column_issue(entity, column) if is_missing else ())
-        shadow_issue = _ibis_shadowing_issue(entity, column)
+        shadow_issue = _ibis_shadowing_issue(entity, column, helper="dimension_column")
         if shadow_issue is not None:
             issues.append(shadow_issue)
         briefs.append(
@@ -488,7 +509,7 @@ def prepare_time_dimension(
     existing_time_dims = _existing_time_dimensions(project, entity)
     issues: list[AssessmentIssue] = []
     questions: tuple[AuthoringQuestion, ...] = ()
-    shadow_issue = _ibis_shadowing_issue(entity, column)
+    shadow_issue = _ibis_shadowing_issue(entity, column, helper="time_dimension_column")
     if shadow_issue is not None:
         issues.append(shadow_issue)
     return TimeDimensionBrief(
@@ -565,7 +586,7 @@ def prepare_metric(
     )
     issues: list[AssessmentIssue] = []
     for measure_col in measure_columns:
-        shadow_issue = _ibis_shadowing_issue(entity, measure_col)
+        shadow_issue = _ibis_shadowing_issue(entity, measure_col, helper="measure_column")
         if shadow_issue is not None:
             issues.append(shadow_issue)
     questions: tuple[AuthoringQuestion, ...] = ()
@@ -652,7 +673,7 @@ def prepare_measure(
     issues: list[AssessmentIssue] = list(
         _missing_column_issue(entity, column) if is_missing else ()
     )
-    shadow_issue = _ibis_shadowing_issue(entity, column)
+    shadow_issue = _ibis_shadowing_issue(entity, column, helper="measure_column")
     if shadow_issue is not None:
         issues.append(shadow_issue)
     questions: tuple[AuthoringQuestion, ...] = ()

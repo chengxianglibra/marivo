@@ -25,23 +25,23 @@ orders = ms.entity(
     ),
 )
 
-@ms.time_dimension(
-    entity=orders,
+log_date = ms.time_dimension_column(
     name="log_date",
+    entity=orders,
+    column="dt",
     granularity="day",
     parse=ms.strptime("%Y%m%d", ),
     is_default=True,
     ai_context=ms.ai_context(
-        business_definition="Partition time dimension for order reporting windows.",
-        guardrails=["Use event time only when source evidence defines it."],
+        business_definition="Partition date used for default order reporting windows.",
+        guardrails=["Use event time instead only when source SQL defines that axis."],
     ),
 )
-def log_date(table):
-    return table.dt
 
-@ms.time_dimension(
-    entity=orders,
+log_hour = ms.time_dimension_column(
     name="log_hour",
+    entity=orders,
+    column="hh",
     granularity="hour",
     parse=ms.hour_prefix("log_date", ),
     ai_context=ms.ai_context(
@@ -49,12 +49,11 @@ def log_date(table):
         guardrails=["Use full event timestamp only when source evidence defines that axis."],
     ),
 )
-def log_hour(table):
-    return table.hh
 
-@ms.time_dimension(
-    entity=orders,
+event_ts = ms.time_dimension_column(
     name="event_ts",
+    entity=orders,
+    column="event_ts",
     granularity="minute",
     parse=ms.timestamp(timezone="UTC"),
     ai_context=ms.ai_context(
@@ -62,30 +61,27 @@ def log_hour(table):
         guardrails=["Use only when the analysis requires sub-day granularity (e.g. 5-minute buckets)."],
     ),
 )
-def event_ts(table):
-    return table.event_ts
 
-@ms.dimension(
-    entity=orders,
+region = ms.dimension_column(
     name="region",
+    entity=orders,
+    column="region",
     ai_context=ms.ai_context(
         business_definition="Sales reporting region.",
-        guardrails=["Do not infer market ownership from this dimension alone."],
+        guardrails=["Do not treat missing region as a separate market."],
     ),
 )
-def region(table):
-    return table.region
 
-@ms.measure(
+amount = ms.measure_column(
+    name="amount",
     entity=orders,
+    column="amount",
     additivity="additive",
     unit="USD",
     ai_context=ms.ai_context(
         business_definition="Gross order amount before refunds.",
     ),
 )
-def amount(table):
-    return table.amount
 
 revenue = ms.aggregate(
     name="revenue",

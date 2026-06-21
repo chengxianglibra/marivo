@@ -60,21 +60,21 @@ orders = ms.entity(
 )
 
 
-@ms.dimension(
-    entity=orders,
+region = ms.dimension_column(
     name="region",
+    entity=orders,
+    column="region",
     ai_context=ms.ai_context(
         business_definition="Sales region assigned to the order.",
         guardrails=["Do not treat missing region as a real region."],
     ),
 )
-def region(orders):
-    return orders.region
 
 
-@ms.time_dimension(
-    entity=orders,
+order_date = ms.time_dimension_column(
     name="order_date",
+    entity=orders,
+    column="order_date",
     granularity="day",
     is_default=True,
     ai_context=ms.ai_context(
@@ -82,8 +82,6 @@ def region(orders):
         guardrails=["Use this as the default time axis for order metrics."],
     ),
 )
-def order_date(orders):
-    return orders.order_date
 
 
 @ms.metric(

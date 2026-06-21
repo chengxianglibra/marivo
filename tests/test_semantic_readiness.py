@@ -793,3 +793,44 @@ def test_is_time_bearing_format_time_bearing() -> None:
     assert is_time_bearing_format("%Y%m%d%H%M%S")
     assert is_time_bearing_format("%Y-%m-%d %H")
     assert is_time_bearing_format("%Y%m%d%H")
+
+
+# -- column helper readiness parity -------------------------------------------
+
+
+_COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    amount = ms.measure_column(
+        name="amount",
+        entity=orders,
+        column="amount",
+        additivity="additive",
+        unit="USD",
+    )
+    region = ms.dimension_column(name="region", entity=orders, column="region")
+    created_at = ms.time_dimension_column(
+        name="created_at",
+        entity=orders,
+        column="created_at",
+        granularity="day",
+        parse=ms.timestamp(timezone="UTC"),
+        is_default=True,
+    )
+    total_amount = ms.aggregate(name="total_amount", measure=amount, agg="sum")
+""")
+
+
+def test_column_helper_objects_participate_in_readiness(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/columns.py": _COLUMN_HELPER_PROJECT_PY,
+        }
+    )
+    report = project.readiness(refs=("sales.orders.amount", "sales.total_amount"))
+    # Column helper refs are recognized (no unknown_ref blockers).
+    # Evidence-ledger blockers (unresolved_clarification) are expected in a
+    # fresh test project without recorded decisions.
+    blocker_kinds = {b.kind for b in report.blockers}
+    assert "unknown_ref" not in blocker_kinds
