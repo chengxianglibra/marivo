@@ -23,6 +23,9 @@ SelectField = Literal[
     "baseline_window",
     "direction",
     "score",
+    "observed_value",
+    "baseline_value",
+    "delta",
     "item_id",
     "recommended_followups",
 ]
@@ -30,7 +33,8 @@ SelectField = Literal[
 _ALWAYS_AVAILABLE: set[str] = {"item_id", "score", "recommended_followups"}
 
 _FIELD_BY_SHAPE: dict[CandidateShape, set[str]] = {
-    "point_anomaly": _ALWAYS_AVAILABLE | {"window", "direction"},
+    "point_anomaly": _ALWAYS_AVAILABLE
+    | {"window", "direction", "observed_value", "baseline_value", "delta"},
     "period_shift": _ALWAYS_AVAILABLE | {"window", "baseline_window", "direction"},
     "driver_axis": _ALWAYS_AVAILABLE | {"axis"},
     "slice": _ALWAYS_AVAILABLE | {"selector", "window", "direction"},
@@ -137,6 +141,12 @@ def select(
         return None if pd.isna(row["direction"]) else str(row["direction"])
     if base_attr == "score":
         return float(row["score"])
+    if base_attr == "observed_value":
+        return None if pd.isna(row["observed_value"]) else float(row["observed_value"])
+    if base_attr == "baseline_value":
+        return None if pd.isna(row["baseline_value"]) else float(row["baseline_value"])
+    if base_attr == "delta":
+        return None if pd.isna(row["delta"]) else float(row["delta"])
     if base_attr == "item_id":
         return str(row["item_id"])
     if base_attr == "recommended_followups":

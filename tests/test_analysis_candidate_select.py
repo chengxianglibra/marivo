@@ -139,6 +139,9 @@ def test_select_window_returns_absolute_window():
             {
                 "item_id": "cand_0",
                 "score": 3.5,
+                "observed_value": 50.0,
+                "baseline_value": 3.5,
+                "delta": 46.5,
                 "direction": "high",
                 "window": {"start": "2026-01-15", "end": "2026-01-15"},
             }
@@ -252,6 +255,9 @@ def test_select_field_incompatible_with_shape_raises():
             {
                 "item_id": "cand_0",
                 "score": 3.5,
+                "observed_value": 50.0,
+                "baseline_value": 3.5,
+                "delta": 46.5,
                 "direction": "high",
                 "window": {"start": "2026-01-15", "end": "2026-01-15"},
             }
@@ -261,6 +267,28 @@ def test_select_field_incompatible_with_shape_raises():
         cs.select(rank=1, attribute="axis")
     assert exc.value.details.get("shape") == "point_anomaly"
     assert exc.value.details.get("attribute") == "axis"
+
+
+def test_select_observed_baseline_delta_returns_float():
+    session = session_attach.get_or_create(name="demo")
+    cs = _hand_built_candidate_set(
+        session,
+        shape="point_anomaly",
+        rows=[
+            {
+                "item_id": "cand_0",
+                "score": 3.5,
+                "observed_value": 50.0,
+                "baseline_value": 3.5,
+                "delta": 46.5,
+                "direction": "high",
+                "window": {"start": "2026-01-15", "end": "2026-01-15"},
+            }
+        ],
+    )
+    assert cs.select(rank=1, attribute="observed_value") == 50.0
+    assert cs.select(rank=1, attribute="baseline_value") == 3.5
+    assert cs.select(rank=1, attribute="delta") == 46.5
 
 
 def test_select_rank_out_of_range_raises():
@@ -411,6 +439,9 @@ def test_as_driver_axis_fails_when_shape_mismatches():
             {
                 "item_id": "cand_0",
                 "score": 3.5,
+                "observed_value": 50.0,
+                "baseline_value": 3.5,
+                "delta": 46.5,
                 "direction": "high",
                 "window": {"start": "2026-01-15", "end": "2026-01-15"},
             }
@@ -441,6 +472,9 @@ def test_all_six_as_methods_exposed(method, shape):
             {
                 "item_id": "cand_0",
                 "score": 3.5,
+                "observed_value": 50.0,
+                "baseline_value": 3.5,
+                "delta": 46.5,
                 "direction": "high",
                 "window": {"start": "2026-01-15", "end": "2026-01-15"},
             }

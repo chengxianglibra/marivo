@@ -51,6 +51,7 @@ def score_point_anomalies(
 ) -> list[dict[str, Any]]:
     series = source_df[value_column]
     non_null = series.dropna()
+    mean: float | None = None
     if len(non_null) < 2:
         scores = np.zeros(len(source_df))
     else:
@@ -81,10 +82,16 @@ def score_point_anomalies(
         score = float(scores[row_index])
         keys = {str(col): _scalar(row[col]) for col in key_columns if pd.notna(row[col])}
         window = _row_window(source_df, row_index, time_columns)
+        observed_value = float(row[value_column]) if pd.notna(row[value_column]) else None
         rows.append(
             {
                 "item_id": f"cand_{row_index}",
                 "score": score,
+                "observed_value": observed_value,
+                "baseline_value": mean,
+                "delta": (observed_value - mean)
+                if observed_value is not None and mean is not None
+                else None,
                 "direction": "high" if score > 0 else "low",
                 "reason_codes": [f"abs_z={abs(score):.2f}"],
                 "source_refs": [f"{source_ref}#row={row_index}"],

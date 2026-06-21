@@ -51,9 +51,9 @@ def extract_anomaly_candidate_findings(
             "candidate_ref": candidate_ref,
             "score": _to_float(row.get("score")),
             "flag_level": _json_value(row.get("flag_level")),
-            "current_value": _to_float(row.get("current_value")),
+            "current_value": _to_float(row.get("observed_value")),
             "baseline_value": _to_float(row.get("baseline_value")),
-            "deviation_absolute": _to_float(row.get("deviation_absolute")),
+            "deviation_absolute": _to_float(row.get("delta")),
             "deviation_relative": _to_float(row.get("deviation_relative")),
         }
         findings.append(
