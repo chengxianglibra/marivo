@@ -67,6 +67,28 @@ def test_typed_source_builders_have_no_options_bag() -> None:
     }
 
 
+def test_source_value_objects_reject_invalid_payloads() -> None:
+    with pytest.raises(TypeError, match=r"TableSourceIR\.table"):
+        TableSourceIR(table=42)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"TableSourceIR\.database"):
+        TableSourceIR(table="orders", database=("warehouse", 1))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"ParquetSourceIR\.columns"):
+        ParquetSourceIR(path="/tmp/orders.parquet", columns=("id", 1))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"CsvSourceIR\.header"):
+        CsvSourceIR(path="/tmp/orders.csv", header="yes")  # type: ignore[arg-type]
+
+
+def test_source_builders_reject_invalid_payloads() -> None:
+    with pytest.raises(TypeError, match=r"TableSourceIR\.table"):
+        ms.table(42)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"ParquetSourceIR\.hive_partitioning"):
+        ms.parquet("/tmp/orders.parquet", hive_partitioning="yes")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"ParquetSourceIR\.columns"):
+        md.parquet("/tmp/orders.parquet", columns="id")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"CsvSourceIR\.delimiter"):
+        md.csv("/tmp/orders.csv", delimiter=123)  # type: ignore[arg-type]
+
+
 def test_datasource_source_builders_match_semantic_builders() -> None:
     assert md.table("orders").to_dict() == ms.table("orders").to_dict()
     assert (
@@ -144,6 +166,25 @@ def test_time_parse_value_objects_are_closed_variants() -> None:
     assert HourPrefixParse(prefix="dt").kind == "hour_prefix"
 
 
+def test_time_parse_value_objects_reject_invalid_payloads() -> None:
+    with pytest.raises(ValueError, match=r"SampleIntervalIR\.count"):
+        SampleIntervalIR(0, "minute")
+    with pytest.raises(ValueError, match=r"SampleIntervalIR\.unit"):
+        SampleIntervalIR(1, "day")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"DatetimeParse\.timezone"):
+        DatetimeParse(timezone=42)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"DatetimeParse\.timezone"):
+        DatetimeParse(timezone="not/a-zone")
+    with pytest.raises(TypeError, match=r"TimestampParse\.sample_interval"):
+        TimestampParse(sample_interval=(1, "hour"))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"StrptimeParse\.format"):
+        StrptimeParse(format="yyyymmdd")
+    with pytest.raises(TypeError, match=r"HourPrefixParse\.prefix"):
+        HourPrefixParse(prefix=42)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"DateParse\.kind"):
+        DateParse(kind="datetime")  # type: ignore[arg-type]
+
+
 def test_metric_provenance_and_join_key_value_objects() -> None:
     assert (
         SqlProvenance(sql="select sum(amount) from orders", dialect="duckdb").verification_mode
@@ -153,6 +194,17 @@ def test_metric_provenance_and_join_key_value_objects() -> None:
         "sales.orders.customer_id",
         "sales.customers.id",
     )
+
+
+def test_metric_provenance_and_join_key_reject_invalid_payloads() -> None:
+    with pytest.raises(TypeError, match=r"SqlProvenance\.sql"):
+        SqlProvenance(sql=42, dialect="duckdb")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"SqlProvenance\.dialect"):
+        SqlProvenance(sql="select 1", dialect="")
+    with pytest.raises(TypeError, match=r"JoinKey\.from_key"):
+        JoinKey(from_key=42, to_key="sales.customers.id")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"JoinKey\.to_key"):
+        JoinKey(from_key="sales.orders.customer_id", to_key="")
 
 
 def test_validity_open_end_has_no_any_payload() -> None:

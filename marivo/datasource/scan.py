@@ -219,6 +219,20 @@ def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> Tab
     return TableSourceIR(table=name, database=database)
 
 
+def _normalize_columns_input(
+    columns: tuple[str, ...] | list[str] | None,
+    *,
+    field_name: str,
+) -> tuple[str, ...] | None:
+    if columns is None:
+        return None
+    if not isinstance(columns, list | tuple):
+        raise TypeError(
+            f"{field_name} must be list[str] or tuple[str, ...], got {type(columns).__name__}."
+        )
+    return tuple(columns)
+
+
 def parquet(
     path: str,
     /,
@@ -240,7 +254,7 @@ def parquet(
     return ParquetSourceIR(
         path=path,
         hive_partitioning=hive_partitioning,
-        columns=tuple(columns) if columns is not None else None,
+        columns=_normalize_columns_input(columns, field_name="ParquetSourceIR.columns"),
     )
 
 
@@ -268,5 +282,5 @@ def csv(
         path=path,
         header=header,
         delimiter=delimiter,
-        columns=tuple(columns) if columns is not None else None,
+        columns=_normalize_columns_input(columns, field_name="CsvSourceIR.columns"),
     )

@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.datasource.ir import (
     AiContextIR,
@@ -24,6 +25,7 @@ from marivo.datasource.ir import (
     source_to_dict,
 )
 from marivo.refs import SymbolKind
+from marivo.semantic.time_format import normalize_strptime
 
 __all__ = [
     "Additivity",
@@ -151,6 +153,38 @@ class ValidityVersioningIR:
 EntityVersioningIR = SnapshotVersioningIR | ValidityVersioningIR
 
 
+def _require_non_empty_str(value: object, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be str, got {type(value).__name__}.")
+    if not value:
+        raise ValueError(f"{field_name} must be non-empty.")
+    return value
+
+
+def _require_kind(value: object, *, field_name: str, expected: str) -> None:
+    if value != expected:
+        raise ValueError(f"{field_name} must be {expected!r}, got {value!r}.")
+
+
+def _validate_timezone_value(value: object, field_name: str) -> None:
+    if value is None:
+        return
+    timezone = _require_non_empty_str(value, field_name)
+    try:
+        ZoneInfo(timezone)
+    except ZoneInfoNotFoundError:
+        raise ValueError(f"{field_name} must be a valid IANA timezone, got {value!r}.") from None
+
+
+def _validate_sample_interval_value(value: object, field_name: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, SampleIntervalIR):
+        raise TypeError(
+            f"{field_name} must be SampleIntervalIR | None, got {type(value).__name__}."
+        )
+
+
 def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
     kind = data.get("kind")
     if kind == "table":
@@ -227,6 +261,16 @@ class SampleIntervalIR:
     count: int
     unit: Literal["minute", "hour"]
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.count, int) or isinstance(self.count, bool):
+            raise TypeError(f"SampleIntervalIR.count must be int, got {type(self.count).__name__}.")
+        if self.count < 1:
+            raise ValueError(f"SampleIntervalIR.count must be positive, got {self.count}.")
+        if self.unit not in ("minute", "hour"):
+            raise ValueError(
+                f"SampleIntervalIR.unit must be 'minute' or 'hour', got {self.unit!r}."
+            )
+
     def to_token(self) -> str:
         return f"{self.count}{self.unit}"
 
@@ -242,6 +286,9 @@ class DateParse:
 
     kind: Literal["date"] = "date"
 
+    def __post_init__(self) -> None:
+        _require_kind(self.kind, field_name="DateParse.kind", expected="date")
+
 
 @dataclass(frozen=True)
 class DatetimeParse:
@@ -251,6 +298,11 @@ class DatetimeParse:
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["datetime"] = "datetime"
 
+    def __post_init__(self) -> None:
+        _validate_timezone_value(self.timezone, "DatetimeParse.timezone")
+        _validate_sample_interval_value(self.sample_interval, "DatetimeParse.sample_interval")
+        _require_kind(self.kind, field_name="DatetimeParse.kind", expected="datetime")
+
 
 @dataclass(frozen=True)
 class TimestampParse:
@@ -259,6 +311,11 @@ class TimestampParse:
     timezone: str | None = None
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["timestamp"] = "timestamp"
+
+    def __post_init__(self) -> None:
+        _validate_timezone_value(self.timezone, "TimestampParse.timezone")
+        _validate_sample_interval_value(self.sample_interval, "TimestampParse.sample_interval")
+        _require_kind(self.kind, field_name="TimestampParse.kind", expected="timestamp")
 
 
 @dataclass(frozen=True)
@@ -270,6 +327,19 @@ class StrptimeParse:
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["strptime"] = "strptime"
 
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.format, "StrptimeParse.format")
+        try:
+            normalized = normalize_strptime(self.format)
+        except ValueError as exc:
+            raise ValueError(f"StrptimeParse.format is invalid: {exc}") from exc
+        object.__setattr__(self, "format", normalized)
+        _validate_timezone_value(self.timezone, "StrptimeParse.timezone")
+        if self.timezone is not None and not is_time_bearing_format(normalized):
+            raise ValueError("StrptimeParse.timezone is only supported for time-bearing formats.")
+        _validate_sample_interval_value(self.sample_interval, "StrptimeParse.sample_interval")
+        _require_kind(self.kind, field_name="StrptimeParse.kind", expected="strptime")
+
 
 @dataclass(frozen=True)
 class HourPrefixParse:
@@ -278,6 +348,11 @@ class HourPrefixParse:
     prefix: str
     sample_interval: SampleIntervalIR | None = None
     kind: Literal["hour_prefix"] = "hour_prefix"
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.prefix, "HourPrefixParse.prefix")
+        _validate_sample_interval_value(self.sample_interval, "HourPrefixParse.sample_interval")
+        _require_kind(self.kind, field_name="HourPrefixParse.kind", expected="hour_prefix")
 
 
 SemanticParse = DateParse | DatetimeParse | TimestampParse | StrptimeParse | HourPrefixParse
@@ -296,6 +371,11 @@ class SqlProvenance:
     dialect: str
     kind: Literal["from_sql"] = "from_sql"
 
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.sql, "SqlProvenance.sql")
+        _require_non_empty_str(self.dialect, "SqlProvenance.dialect")
+        _require_kind(self.kind, field_name="SqlProvenance.kind", expected="from_sql")
+
     @property
     def verification_mode(self) -> Literal["sql_parity"]:
         return "sql_parity"
@@ -307,6 +387,10 @@ class JoinKey:
 
     from_key: str
     to_key: str
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.from_key, "JoinKey.from_key")
+        _require_non_empty_str(self.to_key, "JoinKey.to_key")
 
     def to_tuple(self) -> tuple[str, str]:
         return (self.from_key, self.to_key)
