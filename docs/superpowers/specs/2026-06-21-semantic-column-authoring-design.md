@@ -52,7 +52,11 @@ but make the common path read like structured declarations.
 - Make the default examples easier for non-Python business reviewers to audit:
   object name, source column, business definition, guardrails, unit, and
   additivity should be visible in one call block.
-- Keep typed refs as the normal handoff between objects.
+- Require typed refs for new helper dependencies. The common path must pass
+  `EntityRef` values, not guessed semantic-id strings.
+- Keep the design aligned with `agent-guide.md` public API principles: concrete
+  public types, teachable errors, bounded discovery, pinned public surface, and
+  closed entry shapes instead of optional-field mega-classes.
 
 ## Non-Goals
 
@@ -124,7 +128,7 @@ access, so column names that shadow Ibis methods stay safe by default.
 def dimension_column(
     *,
     name: str,
-    entity: EntityRef | str,
+    entity: EntityRef,
     column: str,
     domain: DomainRef | None = None,
     ai_context: AiContextValue | None = None,
@@ -133,7 +137,7 @@ def dimension_column(
 def measure_column(
     *,
     name: str,
-    entity: EntityRef | str,
+    entity: EntityRef,
     column: str,
     additivity: Additivity,
     unit: str | None = None,
@@ -144,7 +148,7 @@ def measure_column(
 def time_dimension_column(
     *,
     name: str,
-    entity: EntityRef | str,
+    entity: EntityRef,
     column: str,
     granularity: Literal[
         "year", "quarter", "month", "week", "day", "hour", "minute", "second"
@@ -156,11 +160,38 @@ def time_dimension_column(
 ) -> TimeDimensionRef
 ```
 
-`entity` remains `EntityRef | str` for parity with the existing decorators,
-even though these helpers are top-level calls like `ms.count(...)`, which
-already rejects strings so agents do not guess raw ids. Examples and skills
-must prefer typed refs. Future tightening can make raw strings explicit through
-`ms.ref(...)`, but that is not part of this phase.
+`entity` is intentionally stricter than the existing decorators. The helpers
+are top-level declarations like `ms.count(...)`, and `ms.count(...)` already
+rejects strings so agents do not guess raw ids. Requiring `EntityRef` makes the
+new default path typed from the start. Existing decorators keep their current
+`EntityRef | str` compatibility shape as expression escape hatches; this phase
+does not broaden the new helpers to match that legacy tolerance.
+
+## Agent-Facing Public API Check
+
+This design conforms to the `agent-guide.md` public API rules as follows:
+
+- **Concrete public types:** all new helper parameters and return annotations
+  use concrete semantic value types. `entity` is `EntityRef`, not
+  `EntityRef | str`; `column` and `name` are explicit `str`; `ai_context` uses
+  the existing typed `AiContextValue`.
+- **Errors teach:** passing a raw string for `entity` must fail at helper call
+  time with a `SemanticDecoratorError` that states an `EntityRef` was expected
+  and points to `orders = ms.entity(...)` as the next step. Missing physical
+  columns still fail through existing preview/readiness materialization
+  evidence.
+- **One path per capability:** direct physical column declarations use
+  `*_column(...)`; expression-bearing row-level objects use decorators. These
+  are separate capabilities, not two public spellings for the same operation.
+- **Discovery stays bounded:** the helpers join the existing semantic authoring
+  family in `help()`, and `describe("dimension_column")`,
+  `describe("time_dimension_column")`, and `describe("measure_column")` must
+  include minimal runnable examples.
+- **Surface growth is gated:** the helpers are added to `marivo.semantic.__all__`
+  and the pinned public-surface tests in the same change.
+- **Closed variants over optional fields:** direct-column objects and expression
+  objects use different entry shapes. The helper signatures do not add optional
+  `expr` / `body` / `kind` parameters.
 
 ### Validation
 
@@ -168,7 +199,7 @@ The helpers reuse the existing validation rules from the decorator path:
 
 - default domain resolution;
 - duplicate object checks, including the shared dimension / measure namespace;
-- entity-domain consistency checks;
+- typed entity-ref validation and entity-domain consistency checks;
 - `ai_context` construction and validation;
 - measure `additivity` normalization and unit validation;
 - time-dimension parse / granularity / sample-interval compatibility checks.
@@ -187,6 +218,10 @@ does.
 The loader still catches missing physical columns through the existing
 materialization / preview / readiness flow. The helper should not require live
 datasource access at declaration time.
+
+Raw string entity inputs are invalid for all three helpers. They should raise
+the same structured error family as other invalid authoring refs, with a hint
+that the user should pass the `EntityRef` returned by `ms.entity(...)`.
 
 ### Source Location and Python Symbol
 
@@ -270,8 +305,8 @@ Implementation should touch the following surfaces as one contract slice:
   decorator bodies. Decorator bracket guidance still applies to expression
   escape hatches.
 - `tests/test_semantic_authoring.py` or focused semantic authoring tests —
-  helper IR construction, validation, duplicate handling, and call-site
-  location.
+  helper IR construction, typed entity-ref validation, raw-string rejection,
+  duplicate handling, and call-site location.
 - `tests/test_semantic_materializer.py` or focused materializer tests —
   direct-column sidecar materializes with bracket access.
 - `tests/test_public_surface.py` / import tests — new public names and help
@@ -315,6 +350,8 @@ commit because this changes the public semantic authoring surface.
 - `ms.verify_object(ref)` accepts and validates helper-authored dimensions,
   time dimensions, and measures with the same evidence semantics as
   decorator-authored objects.
+- Passing `entity="sales.orders"` to any `*_column(...)` helper is rejected
+  with a structured error that points callers to an `EntityRef`.
 - `catalog.readiness(...)` / `ms.readiness(...)` treat helper-authored objects
   the same as decorator-authored objects.
 - A helper-authored `DimensionRef`, `TimeDimensionRef`, or `MeasureRef` can be
