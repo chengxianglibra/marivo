@@ -336,7 +336,7 @@ class EntityBrief(_BriefResult):
         return format_bounded_card(
             identity=self._repr_identity(),
             status=" ".join(parts),
-            columns=["column", "type", "distinct", "nulls"],
+            columns=["name", "data_type", "distinct", "nulls"],
             rows=profile_rows,
             row_count=len(self.column_profiles),
             preview_truncation_hint="inspect .column_profiles for all columns",
