@@ -207,6 +207,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
         "02_source_evidence_to_check.py",
         "03_closeout_readiness_richness.py",
         "04_derived_metrics.py",
+        "05_relationship_cross_entity.py",
     }
     names = {path.name for path in examples_dir.glob("*.py")}
     assert expected == names
@@ -219,6 +220,9 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     preview_ref = _read("marivo/skills/marivo-semantic/references/preview.md")
     closeout = _read(
         "marivo/skills/marivo-semantic/references/examples/03_closeout_readiness_richness.py"
+    )
+    relationship = _read(
+        "marivo/skills/marivo-semantic/references/examples/05_relationship_cross_entity.py"
     )
 
     assert "partition time dimension" in single
@@ -243,6 +247,9 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "ms.readiness(" in closeout
     assert "project.collect_raw_preview(" not in closeout
     assert "ms.richness(" in closeout
+    assert "ms.relationship(" in relationship
+    assert "ms.prepare_cross_entity_metric(" in relationship
+    assert "root_entity=orders" in relationship
 
 
 def test_semantic_docs_and_skills_cover_parity_verification() -> None:

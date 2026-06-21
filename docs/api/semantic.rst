@@ -100,7 +100,6 @@ Refs & loading
    :nosignatures:
 
    ref
-   make_ref
    load
 
 Discovery
@@ -143,7 +142,6 @@ Brief types
    RelationshipBrief
    TimeDimensionBrief
    DomainBrief
-   DomainBriefSummary
    CrossEntityMetricBrief
    DerivedMetricBrief
    BriefStatus
@@ -179,37 +177,15 @@ Catalog & objects
    SemanticObjectList
    SemanticKind
    RegisteredMatch
-   MeasureIR
 
-Sources & versioning
+Sources & provenance
 --------------------
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
-   TableSource
-   FileSource
-   DatasetSource
    SqlProvenance
-   SnapshotVersioning
-   ValidityVersioning
-   EntityVersioning
-   VersioningHints
-
-Time-parse specs
-----------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   DateParse
-   DatetimeParse
-   TimestampParse
-   StrptimeParse
-   HourPrefixParse
-   FormatCandidate
 
 Readiness & assessment
 ----------------------
@@ -222,26 +198,19 @@ Readiness & assessment
    ReadinessIssue
    ReadinessInputSummary
    RichnessReport
-   AuthoringAssessment
-   AssessmentIssue
    AuthoringQuestion
    ParityResult
    VerifyResult
    DecisionRecord
 
-Facts & signals
----------------
+Keys & kinds
+------------
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
-   ComponentFact
-   DimensionValueFact
-   JoinPathFact
    JoinKey
-   PrimaryKeyCandidate
-   DemandSignal
 
 AI context
 ----------
@@ -252,7 +221,6 @@ AI context
 
    ai_context
    AiContextValue
-   AiContextView
 
 Errors
 ------

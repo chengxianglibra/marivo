@@ -55,7 +55,6 @@ from marivo.analysis.windows.spec import (
 )
 from marivo.refs import SemanticRef
 from marivo.semantic.catalog import SemanticObject
-from marivo.semantic.refs import make_ref
 
 
 def __getattr__(name: str) -> _Any:
@@ -131,7 +130,6 @@ __all__ = [
     "help_text",
     "holiday_aligned",
     "holiday_and_dow_aligned",
-    "make_ref",
     "publish",
     "session",
     "window_bucket",

@@ -324,9 +324,11 @@ def test_detect_depth_flags_missing_unit(semantic_project_factory):
 
 def test_richness_types_are_public():
     import marivo.semantic as ms
+    from marivo.semantic.richness import DemandSignal
 
-    for name in ("DemandSignal", "RichnessReport"):
-        assert name in ms.__all__
+    assert "RichnessReport" in ms.__all__
+    # DemandSignal is internal-only; importable from the submodule but not in __all__
+    assert DemandSignal is not None
     assert "RichnessGap" not in ms.__all__
 
 

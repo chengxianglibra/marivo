@@ -42,64 +42,64 @@ orders = ms.entity(
 def log_date(table):
     return table.dt
 
-# -- Base metrics: each has a body and declares entities ---
+# -- Measures and tier-1 base metrics ---
 
-@ms.metric(
-    entities=[orders],
+@ms.measure(
+    entity=orders,
     additivity="additive",
-    name="gross_revenue",
     unit="CNY",
+    ai_context=ms.ai_context(
+        business_definition="Order amount before refunds.",
+    ),
+)
+def amount(table):
+    return table.amount
+
+@ms.measure(
+    entity=orders,
+    additivity="additive",
+    unit="CNY",
+    ai_context=ms.ai_context(
+        business_definition="Refund amount recorded on the order.",
+    ),
+)
+def refund_amount(table):
+    return table.refund_amount
+
+gross_revenue = ms.aggregate(
+    name="gross_revenue",
+    measure=amount,
+    agg="sum",
     ai_context=ms.ai_context(
         business_definition="Total order amount before refunds.",
         guardrails=["Validate refund exclusions before using as net revenue."],
     ),
 )
-def gross_revenue(table):
-    return table.amount.sum()
 
-@ms.metric(
-    entities=[orders],
-    additivity="additive",
+refunds = ms.aggregate(
     name="refunds",
-    unit="CNY",
+    measure=refund_amount,
+    agg="sum",
     ai_context=ms.ai_context(
         business_definition="Total refund amount.",
         guardrails=["Ensure refund amounts are positive values."],
     ),
 )
-def refunds(table):
-    return table.refund_amount.sum()
 
-@ms.metric(
-    entities=[orders],
-    additivity="additive",
+orders_count = ms.count(
     name="orders_count",
-    unit="{order}",
+    entity=orders,
     ai_context=ms.ai_context(
         business_definition="Number of orders.",
     ),
 )
-def orders_count(table):
-    return table.order_id.count()
-
-@ms.metric(
-    entities=[orders],
-    additivity="additive",
-    name="total_amount",
-    unit="CNY",
-    ai_context=ms.ai_context(
-        business_definition="Total amount across all orders.",
-    ),
-)
-def total_amount(table):
-    return table.amount.sum()
 
 # -- Derived metrics: body-free, composed from base metrics ---
 
 # ms.ratio: numerator / denominator (e.g. average order value)
 aov = ms.ratio(
     name="aov",
-    numerator=total_amount,
+    numerator=gross_revenue,
     denominator=orders_count,
     unit="CNY/{order}",
     ai_context=ms.ai_context(
@@ -149,7 +149,6 @@ with tempfile.TemporaryDirectory() as tmp:
         "sales.gross_revenue",
         "sales.refunds",
         "sales.orders_count",
-        "sales.total_amount",
     ]:
         details = catalog.get(metric_id).details()
         assert isinstance(details, SimpleMetricDetails)

@@ -61,19 +61,6 @@ Discovery
    help_text
    describe
 
-Source IR
----------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   DatasourceIR
-   CsvSourceIR
-   ParquetSourceIR
-   AiContextIR
-   DatasourceAiContextIR
-
 Catalog & refs
 --------------
 
@@ -86,8 +73,6 @@ Catalog & refs
    DatasourceList
    DatasourceSummary
    DatasourceDescription
-   DatasourceSourceLocation
-   DatasourceConnectionService
 
 Metadata
 --------
@@ -97,13 +82,10 @@ Metadata
    :nosignatures:
 
    TableMetadata
-   ColumnMetadata
-   ColumnProfile
-   PartitionMetadata
    ScanScope
 
-Results & reports
------------------
+Results & inspection
+--------------------
 
 .. autosummary::
    :toctree: api/
@@ -111,18 +93,6 @@ Results & reports
 
    DatasourceTestResult
    PreviewResult
-   PreviewSamplePolicy
-   ScanReport
    ColumnInspection
    JoinKeyProbe
    JoinSide
-
-Warnings
---------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   MetadataWarning
-   PreviewWarning

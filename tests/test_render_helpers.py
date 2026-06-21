@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from marivo.analysis.frames.render import format_bounded_card
+from marivo.introspection.schema import Descriptor
+from marivo.introspection.surface import derive_summaries
 
 
 def test_identity_only_card():
@@ -112,3 +114,28 @@ def test_truncation_singular_row():
         available=(".render()",),
     )
     assert "1 more row; call .to_pandas()" in result
+
+
+def test_derive_summaries_uses_docstring_topic_and_override() -> None:
+    def resolve(name: str) -> object | None:
+        def fn() -> None:
+            """First line is the summary.
+
+            Second paragraph ignored.
+            """
+
+        return {"fn": fn, "novalue": None}.get(name)
+
+    topics = {
+        "topic_a": Descriptor(surface="x", kind="topic", symbol="topic_a", summary="topic summary"),
+    }
+    out = derive_summaries(
+        ("fn", "topic_a", "novalue", "aliased"),
+        resolve,
+        topics,
+        overrides={"aliased": "alias summary"},
+    )
+    assert out["fn"] == "First line is the summary."
+    assert out["topic_a"] == "topic summary"
+    assert out["aliased"] == "alias summary"
+    assert out["novalue"] == ""

@@ -7,106 +7,8 @@ from typing import Any, cast
 
 from marivo.introspection.render import format_family_block
 from marivo.introspection.schema import Descriptor
-from marivo.introspection.surface import Surface, render, top_level_families
+from marivo.introspection.surface import Surface, derive_summaries, render, top_level_families
 from marivo.semantic.constraints import iter_constraints
-
-_SUMMARIES: dict[str, str] = {
-    "AiContextValue": "validated AI-facing context value — construct via ms.ai_context(...) only",
-    "ai_context": "typed constructor for AiContextValue with eager validation",
-    "AiContextView": "read-only view of ai_context fields: business_definition, guardrails, synonyms",
-    "AssessmentIssue": "a single rule-based authoring assessment issue",
-    "AuthoringAssessment": "issues, questions, and status for authoring readiness",
-    "AuthoringQuestion": "an unresolved business decision raised by a check",
-    "BriefStatus": "stepwise brief preparation status enum",
-    "ComponentFact": "metric component fact used in derived-metric composition",
-    "CrossEntityMetricBrief": "brief for a cross-entity metric authoring step",
-    "DatasetSource": "type alias: TableSource | FileSource",
-    "DatasourceDetails": "kind-specific details for a datasource including backend type",
-    "DerivedMetricBrief": "brief for a derived metric authoring step",
-    "DimensionBrief": "brief for a dimension authoring step",
-    "DimensionDetails": "kind-specific details for a categorical dimension",
-    "DimensionRef": "stable reference to a declared dimension",
-    "DimensionValueFact": "dimension value fact from evidence sampling",
-    "DomainBrief": "brief for a domain authoring step",
-    "DomainDetails": "kind-specific details for a domain including child entities and metrics",
-    "DomainRef": "stable reference to a declared domain",
-    "EntityBrief": "brief for an entity authoring step",
-    "EntityDetails": "kind-specific details for an entity object",
-    "EntityRef": "stable reference to a declared entity",
-    "FileSource": "physical file source (ParquetSourceIR | CsvSourceIR)",
-    "FormatCandidate": "parse-variant format candidate from time-dimension inspection",
-    "JoinPathFact": "join path evidence fact from relationship probing",
-    "MeasureBrief": "brief for a single-column measure authoring step",
-    "MetricBrief": "brief for a single-entity metric authoring step",
-    "MeasureDetails": "kind-specific details for a row-level quantitative measure",
-    "MetricDetails": "kind-specific details for a metric object including aggregation, composition, provenance, and parity",
-    "MetricRef": "stable reference to a declared metric",
-    "ParitySummary": "semantic parity evidence summary",
-    "PreviewSummary": "raw preview evidence summary",
-    "PrimaryKeyCandidate": "candidate primary key from entity inspection",
-    "ReadinessInputSummary": "semantic readiness closeout input summary",
-    "ReadinessIssue": "semantic readiness issue",
-    "ReadinessReport": "semantic readiness report",
-    "RegisteredMatch": "explainable registered-object reuse fact",
-    "RelationshipBrief": "brief for a relationship authoring step",
-    "RelationshipDetails": "kind-specific details for a relationship between entities",
-    "RelationshipRef": "stable reference to a declared relationship",
-    "RichnessSummary": "semantic readiness richness gap summary",
-    "SemanticCatalog": "read-only object graph over a loaded semantic project — returned by ms.load()",
-    "SemanticKind": "semantic kind enum: domain, datasource, entity, dimension, measure, time_dimension, metric, relationship",
-    "SemanticKindInput": "input type accepted where a SemanticKind value is expected",
-    "SemanticObject": "unified read shape for all loaded semantic objects",
-    "SemanticObjectDetails": "union of kind-specific detail shapes for a SemanticObject",
-    "SemanticObjectList": "browsing result from catalog.list() — has .show(), .refs(), .objects",
-    "SemanticRef": "stable semantic identifier passable directly to analysis APIs",
-    "SemanticRefInput": "input type accepted where a SemanticRef value is expected",
-    "SnapshotVersioning": "snapshot versioning declaration for an entity",
-    "TableSource": "physical table source (table name, optional database)",
-    "TimeDimensionBrief": "brief for a time-dimension authoring step",
-    "TimeDimensionDetails": "kind-specific details for a time dimension including parse variant, granularity, timezone, and sampling",
-    "TimeDimensionRef": "stable reference to a declared time dimension",
-    "ValidityVersioning": "validity-window versioning declaration for an entity",
-    "VerifyResult": "per-object verification result",
-    "VersioningHints": "versioning strategy hints from entity inspection",
-    "additivity": "metric summability: additive / non_additive / semi_additive(over, fold)",
-    "composition": "derived-metric composition kinds (ratio/weighted_average/linear); distinct from the decompose analysis op",
-    "constraints": "authoring and validation constraints",
-    "count": "declare an entity row-count metric",
-    "derived_metric": "declare a body-free canonical ratio or weighted-average metric",
-    "dimension": "declare a non-aggregated dimension on an entity",
-    "from_sql": "declare SQL parity provenance for a metric body",
-    "join_on": "build a relationship key pair for ms.relationship(keys=[...])",
-    "measure": "declare a row-level quantitative measure on an entity for later aggregation",
-    "domain": "open a domain namespace for decorator registration",
-    "entity": "declare an entity over a structured source",
-    "errors": "SemanticError hierarchy and ErrorKind enum",
-    "help": "this introspection entry point",
-    "help_text": "return semantic help text without printing",
-    "load": "load a semantic project and return a SemanticCatalog — accepts models to filter domains",
-    "metric": "declare an aggregate metric from a measure or an ibis body",
-    "parquet": "parquet file source for ms.entity(source=ms.parquet(...))",
-    "csv": "csv file source for ms.entity(source=ms.csv(...))",
-    "prepare_cross_entity_metric": "prepare a cross-entity metric brief",
-    "prepare_derived_metric": "prepare a derived metric brief from component metrics",
-    "prepare_dimension": "prepare a dimension brief for one entity column",
-    "prepare_domain": "prepare a domain authoring brief",
-    "prepare_entity": "prepare an entity authoring brief from a datasource source",
-    "prepare_metric": "prepare a single-entity metric brief",
-    "prepare_relationship": "prepare a relationship brief with join-key evidence",
-    "prepare_time_dimension": "prepare a time-dimension brief",
-    "ratio": "derived metric helper (a/b)",
-    "readiness": "run structural readiness check for semantic refs",
-    "ref": "refer to another metric by qualified name",
-    "relationship": "declare a relationship between entities",
-    "snapshot": "declare snapshot versioning for an entity",
-    "sum": "sum aggregation marker",
-    "table": "table source for ms.entity(source=...)",
-    "time_dimension": "declare a time-aware dimension used as the calendar axis",
-    "typing": "IbisBackend Protocol and AiContextValue dataclass",
-    "validity": "declare validity-window versioning for an entity",
-    "verify_object": "verify a single authored semantic object is reachable and valid",
-    "weighted_average": "weighted-average aggregation marker",
-}
 
 
 def _constraint_topic() -> Descriptor:
@@ -138,9 +40,7 @@ def _constraint_topic() -> Descriptor:
 def _composition_content() -> dict[str, object]:
     return {
         "summary": (
-            "Derived-metric composition declares how a metric value is built from "
-            "other metrics. Distinct from the decompose analysis op that attributes "
-            "a delta."
+            "Declare how a derived metric value is built from other metrics (ratio, weighted_average, linear)."
         ),
         "examples": [
             {
@@ -204,11 +104,7 @@ def _composition_topic() -> Descriptor:
 
 def _metric_content() -> dict[str, object]:
     return {
-        "summary": (
-            "declare metrics from measures by default with ms.aggregate(name=..., measure=..., agg=...); "
-            "use ms.count(...) for entity row-count metrics; "
-            "use @ms.metric(...) only for tier-2 expression-body metrics"
-        ),
+        "summary": ("Declare metrics via ms.aggregate (tier-1) or @ms.metric decorator (tier-2)."),
         "default_path": (
             "Default to prepare_measure -> @ms.measure -> verify_object(measure) "
             "-> ms.aggregate -> verify_object(metric)."
@@ -276,9 +172,8 @@ def _metric_topic() -> Descriptor:
 def _additivity_content() -> dict[str, object]:
     return {
         "summary": (
-            "Metric summability: additive, non_additive, or semi_additive. "
-            "Semi-additive metrics fold along a time axis via "
-            "ms.semi_additive(over=<TimeDimensionRef>, fold=...)."
+            "Metric summability: additive, non_additive, or semi_additive "
+            "(folded along a time axis via ms.semi_additive)."
         ),
         "buckets": [
             {
@@ -346,7 +241,7 @@ def _additivity_topic() -> Descriptor:
 
 
 def _measure_topic() -> Descriptor:
-    summary = "declare a row-level quantitative measure on an entity"
+    summary = "Declare a row-level quantitative measure on an entity."
     content = {
         "summary": summary,
         "authoring": "@ms.measure(entity=<entity_ref>, additivity='additive'|'non_additive'|ms.semi_additive(...), unit=None)",
@@ -385,7 +280,7 @@ def _from_sql_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="from_sql",
-        summary="declare SQL parity provenance for a metric body",
+        summary="Declare SQL parity provenance for a metric body.",
         content={
             "form": "ms.from_sql(sql='SELECT ...', dialect='duckdb')",
             "usage": "Pass as provenance= kwarg to @ms.metric for SQL parity verification.",
@@ -412,7 +307,7 @@ def _join_on_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="join_on",
-        summary="build a relationship key pair for ms.relationship(keys=[...])",
+        summary="Build a relationship key pair for ms.relationship(keys=[...]).",
         content={
             "form": "ms.join_on(<from_dimension_ref>, <to_dimension_ref>)",
             "usage": "Each join_on call creates a (from_key, to_key) pair for relationship keys.",
@@ -439,7 +334,7 @@ def _parquet_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="parquet",
-        summary="parquet file source for ms.entity(source=ms.parquet(...))",
+        summary="Parquet file source for ms.entity(source=ms.parquet(...)).",
         content={
             "form": "ms.parquet(path, hive_partitioning=False, columns=None)",
             "usage": "Declares a Parquet file source for an entity.",
@@ -465,7 +360,7 @@ def _csv_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="csv",
-        summary="csv file source for ms.entity(source=ms.csv(...))",
+        summary="CSV file source for ms.entity(source=ms.csv(...)).",
         content={
             "form": "ms.csv(path, header=True, delimiter=',', columns=None)",
             "usage": "Declares a CSV file source for an entity.",
@@ -491,7 +386,7 @@ def _datetime_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="datetime",
-        summary="datetime parse variant with optional timezone for ms.time_dimension(parse=ms.datetime(...))",
+        summary="Datetime parse variant with optional timezone for ms.time_dimension(parse=ms.datetime(...)).",
         content={
             "form": "ms.datetime(timezone=None, sample_interval=None)",
             "usage": "For datetime columns. timezone is optional; omitted means datasource engine timezone.",
@@ -516,7 +411,7 @@ def _timestamp_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="timestamp",
-        summary="timestamp parse variant with optional timezone and sample interval",
+        summary="Timestamp parse variant with optional timezone and sample interval.",
         content={
             "form": "ms.timestamp(timezone=None, sample_interval=None)",
             "usage": "For timestamp columns. timezone is optional; omitted means datasource engine timezone.",
@@ -541,7 +436,7 @@ def _strptime_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="strptime",
-        summary="strptime parse variant with format and optional sample interval",
+        summary="Strptime parse variant with format and optional sample interval.",
         content={
             "form": "ms.strptime(format='%Y%m%d', sample_interval=None)",
             "usage": "For string/integer columns needing explicit format parsing. The physical column type (string or integer) is inferred at analysis time. sample_interval is optional for sampled time dimensions.",
@@ -566,7 +461,7 @@ def _hour_prefix_topic() -> Descriptor:
         surface="marivo.semantic",
         kind="topic",
         symbol="hour_prefix",
-        summary="hour-prefix parse variant for partitioned hourly time dimensions",
+        summary="Hour-prefix parse variant for partitioned hourly time dimensions.",
         content={
             "form": "ms.hour_prefix(prefix='dt')",
             "usage": "For hour-granularity partitioned columns. The physical column type (string or integer) is inferred at analysis time. Requires hour granularity on the time dimension. Optional sample_interval=(count, unit) enables sampled-fold axis.",
@@ -625,7 +520,27 @@ def _surface() -> Surface:
             )
         )
     )
-    summaries = {name: _SUMMARIES.get(name, "") for name in all_names}
+    topics = {
+        "constraints": _constraint_topic(),
+        "composition": _composition_topic(),
+        "metric": _metric_topic(),
+        "measure": _measure_topic(),
+        "from_sql": _from_sql_topic(),
+        "join_on": _join_on_topic(),
+        "parquet": _parquet_topic(),
+        "csv": _csv_topic(),
+        "datetime": _datetime_topic(),
+        "timestamp": _timestamp_topic(),
+        "strptime": _strptime_topic(),
+        "hour_prefix": _hour_prefix_topic(),
+        "additivity": _additivity_topic(),
+    }
+    summaries = derive_summaries(
+        all_names,
+        _resolve,
+        topics,
+        overrides={"BriefStatus": "brief status: sufficient | needs_input | blocked"},
+    )
     catalog = {constraint.id: constraint for constraint in iter_constraints()}
     return Surface(
         name="marivo.semantic",
@@ -633,22 +548,10 @@ def _surface() -> Surface:
         summaries=summaries,
         resolve=_resolve,
         catalog=catalog,
-        topics={
-            "constraints": _constraint_topic(),
-            "composition": _composition_topic(),
-            "metric": _metric_topic(),
-            "measure": _measure_topic(),
-            "from_sql": _from_sql_topic(),
-            "join_on": _join_on_topic(),
-            "parquet": _parquet_topic(),
-            "csv": _csv_topic(),
-            "datetime": _datetime_topic(),
-            "timestamp": _timestamp_topic(),
-            "strptime": _strptime_topic(),
-            "hour_prefix": _hour_prefix_topic(),
-            "additivity": _additivity_topic(),
-        },
+        topics=topics,
         pinned_entries=("SemanticCatalog", "SemanticObject", "SemanticObjectList"),
+        hidden_names=frozenset({"SemanticKindInput", "SemanticRefInput"}),
+        family_suffixes=(("Report", "Reports"), ("Result", "Results")),
     )
 
 

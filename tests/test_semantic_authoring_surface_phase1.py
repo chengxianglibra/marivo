@@ -423,5 +423,7 @@ def test_error_kinds_use_entity_vocabulary() -> None:
 
 
 def test_resolver_accepts_measure_for_internal_resolution() -> None:
-    measure_ref = ms.make_ref("sales.orders.amount", ms.SemanticKind.MEASURE)
+    from marivo.semantic.refs import make_ref
+
+    measure_ref = make_ref("sales.orders.amount", ms.SemanticKind.MEASURE)
     assert measure_ref.kind == ms.SemanticKind.MEASURE

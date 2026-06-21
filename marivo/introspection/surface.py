@@ -13,6 +13,7 @@ from marivo.introspection.constraints import Constraint
 from marivo.introspection.describe import (
     describe_object,
     method_summary,
+    own_doc,
     public_method,
     resolve_method_descriptor,
 )
@@ -45,6 +46,41 @@ def _family_label(surface: Surface, name: str) -> str:
         if name.endswith(suffix):
             return label
     return _OTHER_FAMILY
+
+
+def _summary_line(obj: object | None) -> str:
+    doc = own_doc(obj) if obj is not None else ""
+    return doc.splitlines()[0].strip() if doc else ""
+
+
+def derive_summaries(
+    all_names: tuple[str, ...],
+    resolve: Callable[[str], object | None],
+    topics: Mapping[str, Descriptor | Mapping[str, Any]],
+    overrides: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Build the top-level summary map from each entry's own definition.
+
+    Resolution order per name: explicit override, then the topic's own
+    summary, then the resolved object's first docstring line.
+    """
+
+    resolved_overrides = overrides or {}
+    summaries: dict[str, str] = {}
+    for name in all_names:
+        if name in resolved_overrides:
+            summaries[name] = resolved_overrides[name]
+            continue
+        topic = topics.get(name)
+        if topic is not None:
+            if isinstance(topic, Descriptor):
+                summaries[name] = topic.summary or ""
+            else:
+                value = topic.get("summary")
+                summaries[name] = value if isinstance(value, str) else ""
+            continue
+        summaries[name] = _summary_line(resolve(name))
+    return summaries
 
 
 @dataclass(frozen=True)

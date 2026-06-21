@@ -370,16 +370,16 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 continue
             for forbidden_type in (*_FORBIDDEN_STMT_TYPES, ast.Expr):
                 if isinstance(child, forbidden_type):
-                    kind = ErrorKind.METRIC_BODY_NOT_SINGLE_RETURN
-                    constraint_id = ConstraintId.AST_SINGLE_RETURN
-                    if isinstance(child, (ast.Import, ast.ImportFrom, ast.Expr)):
-                        kind = ErrorKind.INVALID_COMPONENT_BODY
-                        constraint_id = ConstraintId.AST_FORBIDDEN_STATEMENT
+                    # Every statement that reaches this loop is a forbidden
+                    # statement: returns are skipped above and wrong return
+                    # counts are handled separately (AST_SINGLE_RETURN). Classify
+                    # them uniformly so the hint can route the author to the
+                    # body-free constructors and ibis conditionals.
                     self._add_error(
-                        kind,
+                        ErrorKind.INVALID_COMPONENT_BODY,
                         f"{self.body_label} of {self.fn_name!r} contains a forbidden "
                         f"{type(child).__name__} statement.",
-                        constraint_id=constraint_id,
+                        constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
                     )
                     break
 

@@ -11,6 +11,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import _DuckDBSpec
 from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.scan import ScanReport
 
 
 def test_scan_scope_defaults_are_agent_safe() -> None:
@@ -38,7 +39,7 @@ def test_datasource_source_constructors_match_semantic_aliases() -> None:
 
 
 def test_scan_report_render_is_bounded() -> None:
-    report = md.ScanReport(
+    report = ScanReport(
         partition_used={"dt": "20260612"},
         partition_resolution="explicit",
         rows_scanned=20,
