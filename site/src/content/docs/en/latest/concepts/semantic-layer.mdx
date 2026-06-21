@@ -80,7 +80,7 @@ Each `SemanticKind` value has a concrete ref subclass:
 | `dimension` | `DimensionRef` | `@ms.dimension` | Yes — in metric bodies |
 | `time_dimension` | `TimeDimensionRef` | `@ms.time_dimension` | Yes — in metric bodies |
 | `measure` | `MeasureRef` | `@ms.measure` | Yes — in metric bodies |
-| `metric` | `MetricRef` | `ms.aggregate(...)`, `@ms.metric`, `ms.ratio(...)`, … | No |
+| `metric` | `MetricRef` | `ms.aggregate(...)`, `ms.count(...)`, `@ms.metric`, `ms.ratio(...)`, … | No |
 | `relationship` | `RelationshipRef` | `ms.relationship(...)` | No |
 
 Callable field refs (`DimensionRef`, `MeasureRef`, `TimeDimensionRef`) resolve
@@ -377,13 +377,23 @@ Aggregates a measure. No body; additivity is inherited from the measure.
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Metric name. |
 | `measure` | `MeasureRef \| str` | Yes | — | The measure to aggregate. |
-| `agg` | aggregation | Yes | — | `"sum"`, `"mean"`, `"count"`, `"count_distinct"`, `"min"`, `"max"`, … |
+| `agg` | aggregation | Yes | — | `"sum"`, `"mean"`, `"min"`, `"max"`, … |
 | `fold` | fold | No | `None` | Time-fold override for semi-additive measures. |
 | `unit` | `str` | No | inherited | Override the unit derived from the measure. |
 | `domain` / `ai_context` | — | No | — | As elsewhere. |
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+```
+
+### Count metrics — `ms.count`
+
+Use `ms.count` instead of declaring a redundant measure just to count entity
+rows. The helper accepts refs only and infers the metric domain from the entity
+ref.
+
+```python
+order_count = ms.count(name="order_count", entity=orders)
 ```
 
 ### Metric from an ibis body — `@ms.metric`

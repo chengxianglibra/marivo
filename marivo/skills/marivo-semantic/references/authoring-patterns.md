@@ -242,14 +242,16 @@ Marivo has two metric tiers with distinct authoring shapes:
 
 | Tier | Authoring form | Has body? | Examples |
 | --- | --- | --- | --- |
-| Tier-1 aggregate | `ms.aggregate(measure=..., agg=...)` | No | default path for sum/count/mean over a verified measure |
+| Tier-1 aggregate | `ms.aggregate(measure=..., agg=...)` | No | default path for sum/mean/min/max over a verified measure |
+| Tier-1 count | `ms.count(entity=...)` | No | entity row counts without redundant measures |
 | Tier-2 simple | `@ms.metric(entities=[...], additivity=...)` | Yes | escape hatch for ibis expression bodies |
 | Derived ratio | `ms.ratio(name=..., numerator=..., denominator=...)` | No | percentage, per-unit rate |
 | Derived weighted average | `ms.weighted_average(name=..., value=..., weight=...)` | No | weighted averages |
 | Derived linear | `ms.linear(name=..., add=[...], subtract=[...])` | No | net = gross - refunds |
 
 **Rule:** default to `ms.prepare_measure(...)`, `@ms.measure(...)`,
-`ms.verify_object(measure_ref)`, then `ms.aggregate(...)`. Use `@ms.metric`
+`ms.verify_object(measure_ref)`, then `ms.aggregate(...)` for measure
+aggregation. Use `ms.count(...)` for entity row counts. Use `@ms.metric`
 only when the metric needs an expression body; use `ms.ratio` /
 `ms.weighted_average` / `ms.linear` for body-free derived metrics.
 
@@ -259,6 +261,10 @@ def amount(orders):
     return orders.amount
 
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+```
+
+```python
+order_count = ms.count(name="order_count", entity=orders)
 ```
 
 ```python

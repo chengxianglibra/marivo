@@ -386,18 +386,30 @@ class Materializer:
         sidecar: Sidecar,
         registry: Registry,
     ) -> ir.Value:
-        """Materialize a tier-1 metric: agg(measure(entity_table))."""
-        measure_id = metric_ir.measure
-        if measure_id is None or not metric_ir.entities:
+        """Materialize a tier-1 metric over a measure, entity, or dimension."""
+        target_kind = metric_ir.aggregation_target_kind or (
+            "measure" if metric_ir.measure is not None else None
+        )
+        target_id = metric_ir.aggregation_target or metric_ir.measure
+        if target_id is None or not metric_ir.entities:
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
-                f"Tier-1 metric {semantic_id!r} is missing measure/entity.",
+                f"Tier-1 metric {semantic_id!r} is missing target/entity.",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
         self._check_single_datasource(metric_ir, registry)
-        column = self.measure(measure_id)
-        return self._apply_agg(semantic_id, column, metric_ir.aggregation)
+        if target_kind == "entity":
+            return self.entity(target_id).count()
+        if target_kind == "measure":
+            column = self.measure(target_id)
+            return self._apply_agg(semantic_id, column, metric_ir.aggregation)
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            f"Tier-1 metric {semantic_id!r} has unsupported target kind {target_kind!r}.",
+            cls=SemanticRuntimeError,
+            refs=(semantic_id,),
+        )
 
     def _apply_agg(self, semantic_id: str, column: ir.Value, agg: Any) -> ir.Value:
         agg_name = agg[0] if isinstance(agg, tuple) else agg
@@ -484,33 +496,37 @@ class Materializer:
                 },
             )
         if metric_ir.aggregation is not None:
-            # tier-1: apply agg over the measure body on the single caller table.
-            measure_id = metric_ir.measure
-            if measure_id is None:
+            target_kind = metric_ir.aggregation_target_kind or (
+                "measure" if metric_ir.measure is not None else None
+            )
+            target_id = metric_ir.aggregation_target or metric_ir.measure
+            if target_id is None:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
-                    f"Tier-1 metric {semantic_id!r} has no measure reference.",
+                    f"Tier-1 metric {semantic_id!r} has no aggregation target.",
                     cls=SemanticRuntimeError,
                     refs=(semantic_id,),
                 )
-            measure_ir = registry.measures.get(measure_id)
+            if target_kind == "entity":
+                return tables[0].count()
+            measure_ir = registry.measures.get(target_id)
             if measure_ir is None:
                 _raise(
                     ErrorKind.DIMENSION_NOT_FOUND,
-                    f"Measure {measure_id!r} not found in registry.",
+                    f"Measure {target_id!r} not found in registry.",
                     cls=SemanticRuntimeError,
-                    refs=(measure_id,),
+                    refs=(target_id,),
                 )
-            measure_callable = sidecar.get(measure_id)
+            measure_callable = sidecar.get(target_id)
             if measure_callable is None:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
-                    f"Tier-1 metric {semantic_id!r} measure {measure_id!r} has no sidecar callable.",
+                    f"Tier-1 metric {semantic_id!r} measure {target_id!r} has no sidecar callable.",
                     cls=SemanticRuntimeError,
-                    refs=(semantic_id, measure_id),
+                    refs=(semantic_id, target_id),
                 )
             column = self._call_field_callable(
-                measure_id, measure_ir.name, measure_callable, tables[0]
+                target_id, measure_ir.name, measure_callable, tables[0]
             )
             return self._apply_agg(semantic_id, column, metric_ir.aggregation)
         callable_ = sidecar.get(semantic_id)

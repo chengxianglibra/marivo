@@ -1322,6 +1322,44 @@ def test_aggregate_explicit_name() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ms.count() call
+# ---------------------------------------------------------------------------
+
+
+def test_count_requires_entity_ref() -> None:
+    _enter_ctx(default_domain="ignored")
+    try:
+        orders = EntityRef("sales.orders")
+        ref = ms.count(name="order_count", entity=orders)
+        ir, sidecar = _LOADER_CTX.get().pending_objects[-1]  # type: ignore[union-attr]
+        assert isinstance(ref, MetricRef)
+        assert ref.id == "sales.order_count"
+        assert sidecar is None
+        assert ir.metric_type == "simple"
+        assert ir.aggregation == "count"
+        assert ir.measure is None
+        assert ir.aggregation_target == "sales.orders"
+        assert ir.aggregation_target_kind == "entity"
+        assert ir.domain == "sales"
+        assert ir.entities == ("sales.orders",)
+        assert ir.root_entity == "sales.orders"
+    finally:
+        _exit_ctx()
+
+
+def test_count_rejects_string_entity() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.count(name="order_count", entity="sales.orders")  # type: ignore[arg-type]
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "entity must be an EntityRef" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
 # ms.ratio() derived registration
 # ---------------------------------------------------------------------------
 

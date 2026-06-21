@@ -55,6 +55,7 @@ def order_date(orders): return orders.order_date
 
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
 order_count = ms.aggregate(measure=amount, agg="count", name="order_count")
+order_rows = ms.count(entity=orders, name="order_rows")
 aov = ms.ratio(name="aov", numerator=revenue, denominator=order_count)
 """
 
@@ -81,6 +82,20 @@ def test_build_metric_object_metric(semantic_project_factory):
     assert rev.provenance is None
     assert rev.additivity == "additive"
     assert rev.fold is None
+
+
+def test_build_metric_object_count_target(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    order_rows = catalog.get("sales.order_rows").details()
+    assert isinstance(order_rows, SimpleMetricDetails)
+    assert order_rows.aggregation == "count"
+    assert order_rows.measure is None
+    assert order_rows.aggregation_target is not None
+    assert order_rows.aggregation_target.id == "sales.orders"
+    assert order_rows.aggregation_target.kind == "entity"
+    assert order_rows.aggregation_target_kind == "entity"
+    assert order_rows.additivity == "additive"
+    assert order_rows.unit is None
 
 
 def test_build_metric_object_derived_ratio(semantic_project_factory):

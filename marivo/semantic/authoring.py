@@ -76,6 +76,7 @@ __all__ = [
     "DomainRef",
     "aggregate",
     "ai_context",
+    "count",
     "csv",
     "datetime",
     "dimension",
@@ -581,6 +582,21 @@ def _resolve_ref_string(
     return ref.id
 
 
+def _domain_from_ref_id(ref_id: str) -> str:
+    return ref_id.split(".", 1)[0]
+
+
+def _require_entity_ref(ref: EntityRef, *, parameter: str) -> EntityRef:
+    if isinstance(ref, EntityRef):
+        return ref
+    _raise(
+        ErrorKind.INVALID_REF,
+        f"{parameter} must be an EntityRef; got {type(ref).__name__}.",
+        cls=SemanticDecoratorError,
+        constraint_id=ConstraintId.REF_SHAPE,
+    )
+
+
 def _resolve_datasource_ref(ref: DatasourceRef | str) -> str:
     """Extract global datasource short name from a datasource ref or string."""
     if isinstance(ref, str):
@@ -725,6 +741,65 @@ def aggregate(
         root_entity=entity_id,
         fold_override=fold_ir,
         unit=unit,
+        aggregation_target=measure_id,
+        aggregation_target_kind="measure",
+    )
+    _push_ir(ctx, metric_ir, None)
+    return MetricRef(semantic_id)
+
+
+def count(
+    *,
+    name: str,
+    entity: EntityRef,
+    ai_context: AiContextValue | None = None,
+) -> MetricRef:
+    """Declare a row-count metric for an entity.
+
+    Args:
+        name: Metric name inside the entity's domain.
+        entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
+            so agents do not guess raw semantic ids.
+        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra
+            agent-facing hints.
+
+    Returns:
+        A ``MetricRef`` for the count metric.
+
+    Example:
+        >>> orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        >>> order_count = ms.count(name="order_count", entity=orders)
+
+    Constraints:
+        Counts rows of the target entity. Use ``ms.aggregate(...)`` for measure
+        aggregation and ``@ms.metric(...)`` for custom expressions.
+    """
+    ctx = _require_ctx()
+    entity_ref = _require_entity_ref(entity, parameter="entity")
+    entity_id = entity_ref.id
+    resolved_domain = _domain_from_ref_id(entity_id)
+    semantic_id = f"{resolved_domain}.{name}"
+    _check_duplicate(ctx, semantic_id, MetricIR)
+    ai_ctx = _build_ai_context(ai_context)
+    location = _caller_location()
+    metric_ir = MetricIR(
+        semantic_id=semantic_id,
+        domain=resolved_domain,
+        name=name,
+        metric_type="simple",
+        entities=(entity_id,),
+        aggregation="count",
+        measure=None,
+        composition=None,
+        additivity=None,
+        provenance=None,
+        ai_context=ai_ctx,
+        body_ast_hash=_compute_agg_hash(entity_id, "count", None),
+        python_symbol=name,
+        location=location,
+        root_entity=entity_id,
+        aggregation_target=entity_id,
+        aggregation_target_kind="entity",
     )
     _push_ir(ctx, metric_ir, None)
     return MetricRef(semantic_id)

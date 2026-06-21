@@ -356,16 +356,22 @@ def _load_model_dir(
 def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
     from marivo.semantic.ir import SemiAdditive
 
-    measure = registry.dimensions.get(metric.measure or "")
-    measure_ir = (
-        registry.measures.get(metric.measure or "") if hasattr(registry, "measures") else None
+    target_kind = metric.aggregation_target_kind or (
+        "measure" if metric.measure is not None else None
     )
+    target_id = metric.aggregation_target or metric.measure or ""
+    agg = metric.aggregation
+    agg_name = agg[0] if isinstance(agg, tuple) else agg
+    if target_kind == "entity":
+        if target_id not in registry.entities:
+            return None
+        return "additive" if agg_name == "count" else None
+    measure = registry.dimensions.get(target_id)
+    measure_ir = registry.measures.get(target_id) if hasattr(registry, "measures") else None
     if measure is None and measure_ir is None:
         return None  # validator: UNKNOWN_MEASURE / MISSING_MEASURE_ADDITIVITY
     if measure_ir is None and getattr(measure, "additivity", None) is None:
         return None  # validator: MISSING_MEASURE_ADDITIVITY
-    agg = metric.aggregation
-    agg_name = agg[0] if isinstance(agg, tuple) else agg
     if agg_name == "count":
         return "additive"
     if agg_name == "sum":
@@ -431,9 +437,15 @@ def _resolve_metric_additivity(registry: Registry) -> None:
 def _resolve_tier1_unit(metric: MetricIR, registry: Registry) -> str | None:
     from marivo.semantic.unit_algebra import tier1_unit
 
-    measure_ir: MeasureIR | DimensionIR | None = registry.measures.get(metric.measure or "")
+    target_kind = metric.aggregation_target_kind or (
+        "measure" if metric.measure is not None else None
+    )
+    if target_kind == "entity":
+        return None
+    target_id = metric.aggregation_target or metric.measure or ""
+    measure_ir: MeasureIR | DimensionIR | None = registry.measures.get(target_id)
     if measure_ir is None:
-        measure_ir = registry.dimensions.get(metric.measure or "")
+        measure_ir = registry.dimensions.get(target_id)
     if measure_ir is None:
         return None  # validator: UNKNOWN_MEASURE (existing rule)
     agg = metric.aggregation

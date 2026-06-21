@@ -70,6 +70,7 @@ def unit_price(orders): return orders.unit_price
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
 avg_price = ms.aggregate(measure=unit_price, agg="mean", name="avg_price")
 order_count = ms.aggregate(measure=amount, agg="count", name="order_count")
+query_count = ms.count(entity=orders, name="query_count")
 aov = ms.ratio(name="aov", numerator=revenue, denominator=order_count)
 gross_plus = ms.linear(name="gross_plus", add=[revenue, revenue])
 """
@@ -81,6 +82,8 @@ def test_resolution_fills_additivity() -> None:
         assert reg.metrics["test.revenue"].additivity == "additive"
         assert reg.metrics["test.avg_price"].additivity == "non_additive"
         assert reg.metrics["test.order_count"].additivity == "additive"
+        assert reg.metrics["test.query_count"].additivity == "additive"
+        assert reg.metrics["test.query_count"].unit is None
         assert reg.metrics["test.aov"].additivity == "non_additive"
         assert reg.metrics["test.gross_plus"].additivity == "additive"
 
