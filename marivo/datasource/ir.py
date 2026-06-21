@@ -64,6 +64,46 @@ class DatasourceIR:
 # ---------------------------------------------------------------------------
 
 
+def _require_non_empty_str(value: object, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be str, got {type(value).__name__}.")
+    if not value:
+        raise ValueError(f"{field_name} must be non-empty.")
+    return value
+
+
+def _require_kind(value: object, *, field_name: str, expected: str) -> None:
+    if value != expected:
+        raise ValueError(f"{field_name} must be {expected!r}, got {value!r}.")
+
+
+def _validate_database(value: object) -> None:
+    if value is None:
+        return
+    if isinstance(value, str):
+        if not value:
+            raise ValueError("TableSourceIR.database must be non-empty when provided.")
+        return
+    if isinstance(value, tuple):
+        if not value:
+            raise ValueError("TableSourceIR.database tuple must be non-empty when provided.")
+        for part in value:
+            _require_non_empty_str(part, "TableSourceIR.database")
+        return
+    raise TypeError(
+        f"TableSourceIR.database must be str | tuple[str, ...] | None, got {type(value).__name__}."
+    )
+
+
+def _validate_columns(value: object, field_name: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, tuple):
+        raise TypeError(f"{field_name} must be tuple[str, ...] | None, got {type(value).__name__}.")
+    for column in value:
+        _require_non_empty_str(column, field_name)
+
+
 @dataclass(frozen=True)
 class TableSourceIR:
     """Physical table source for a dataset."""
@@ -71,6 +111,11 @@ class TableSourceIR:
     table: str
     database: str | tuple[str, ...] | None = None
     kind: Literal["table"] = "table"
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.table, "TableSourceIR.table")
+        _validate_database(self.database)
+        _require_kind(self.kind, field_name="TableSourceIR.kind", expected="table")
 
     def to_dict(self) -> dict[str, object]:
         database: str | list[str] | None = (
@@ -90,6 +135,16 @@ class ParquetSourceIR:
     hive_partitioning: bool = False
     columns: tuple[str, ...] | None = None
     kind: Literal["parquet"] = "parquet"
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.path, "ParquetSourceIR.path")
+        if type(self.hive_partitioning) is not bool:
+            raise TypeError(
+                f"ParquetSourceIR.hive_partitioning must be bool, "
+                f"got {type(self.hive_partitioning).__name__}."
+            )
+        _validate_columns(self.columns, "ParquetSourceIR.columns")
+        _require_kind(self.kind, field_name="ParquetSourceIR.kind", expected="parquet")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -112,6 +167,14 @@ class CsvSourceIR:
     delimiter: str = ","
     columns: tuple[str, ...] | None = None
     kind: Literal["csv"] = "csv"
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.path, "CsvSourceIR.path")
+        if type(self.header) is not bool:
+            raise TypeError(f"CsvSourceIR.header must be bool, got {type(self.header).__name__}.")
+        _require_non_empty_str(self.delimiter, "CsvSourceIR.delimiter")
+        _validate_columns(self.columns, "CsvSourceIR.columns")
+        _require_kind(self.kind, field_name="CsvSourceIR.kind", expected="csv")
 
     def to_dict(self) -> dict[str, object]:
         return {

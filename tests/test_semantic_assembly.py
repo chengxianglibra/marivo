@@ -520,33 +520,11 @@ def test_no_cycle_when_valid() -> None:
 
 
 def test_metric_provenance_without_dialect_errors() -> None:
-    registry = _make_registry()
-    registry.metrics["sales.unverified_metric"] = MetricIR(
-        semantic_id="sales.unverified_metric",
-        domain="sales",
-        name="unverified_metric",
-        entities=("sales.orders",),
-        metric_type="simple",
-        aggregation=None,
-        measure=None,
-        composition=None,
-        provenance=SqlProvenance(
+    with pytest.raises(ValueError, match=r"SqlProvenance\.dialect"):
+        SqlProvenance(
             sql="SELECT SUM(amount) FROM orders",
             dialect="",
-        ),
-        ai_context=AiContextIR(),
-        body_ast_hash="abc",
-        python_symbol="unverified_metric",
-        location=_LOC,
-        additivity="additive",
-    )
-    errors, warnings = assembly_validate(registry)
-    assert any(
-        e.kind == ErrorKind.PROVENANCE_DIALECT_MISSING
-        and "sales.unverified_metric" in e.semantic_refs
-        for e in errors
-    )
-    assert warnings == []
+        )
 
 
 def test_no_provenance_sql_no_error() -> None:

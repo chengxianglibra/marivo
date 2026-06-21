@@ -302,6 +302,51 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
     )
 
 
+def _validate_metric_provenance(provenance: SqlProvenance | None) -> None:
+    if provenance is None:
+        return
+    if not isinstance(provenance, SqlProvenance):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "metric provenance must be constructed with ms.from_sql(sql=..., dialect=...).",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+
+
+def _validate_time_parse(parse: SemanticParse | None) -> None:
+    if parse is None:
+        return
+    if not isinstance(
+        parse,
+        (DateParse, DatetimeParse, TimestampParse, StrptimeParse, HourPrefixParse),
+    ):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "time_dimension(parse=...) accepts ms.datetime(...), ms.timestamp(...), "
+            "ms.strptime(...), ms.hour_prefix(...), or None.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+
+
+def _validate_relationship_keys(
+    keys: tuple[object, ...], *, semantic_id: str
+) -> tuple[JoinKey, ...]:
+    resolved: list[JoinKey] = []
+    for key in keys:
+        if not isinstance(key, JoinKey):
+            _raise(
+                ErrorKind.INVALID_REF,
+                "ms.relationship(keys=...) accepts only ms.join_on(from_key, to_key) values.",
+                cls=SemanticDecoratorError,
+                refs=(semantic_id,),
+                constraint_id=ConstraintId.REF_SHAPE,
+            )
+        resolved.append(key)
+    return tuple(resolved)
+
+
 def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
     """Compute a SHA-256 hash of the function body AST."""
     try:
@@ -726,6 +771,7 @@ def metric(
         semantic_id = f"{resolved_domain}.{obj_name}"
         _check_duplicate(ctx, semantic_id, MetricIR)
         _validate_unit(unit, semantic_id)
+        _validate_metric_provenance(provenance)
         entity_refs = _resolve_entity_refs(entities)
         if len(entity_refs) == 0:
             _raise(
@@ -1216,6 +1262,7 @@ def time_dimension(
             )
         _check_duplicate(ctx, semantic_id, DimensionIR)
 
+        _validate_time_parse(parse)
         validate_metric_body_ast(fn, "base", body_kind="time_dimension")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
@@ -1298,7 +1345,7 @@ def relationship(
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
 
-    resolved_keys: tuple[JoinKey, ...] = tuple(keys)
+    resolved_keys = _validate_relationship_keys(tuple(keys), semantic_id=semantic_id)
 
     if not resolved_keys:
         _raise(

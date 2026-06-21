@@ -345,6 +345,17 @@ def test_dataset_source_records_csv_source() -> None:
         _exit_ctx()
 
 
+def test_entity_rejects_invalid_source_value() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.entity(name="orders", datasource="wh", source=object())  # type: ignore[arg-type]
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "source" in str(exc_info.value)
+    finally:
+        _exit_ctx()
+
+
 def test_table_source_constructor() -> None:
     """ms.table, ms.parquet, and ms.csv produce correct IR objects."""
     from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
@@ -619,6 +630,25 @@ def test_time_field_ir_has_time_metadata() -> None:
         assert ir.parse.prefix == "order_date"
         assert ir.granularity == "hour"
         assert ir.kind == DimensionKind.TIME
+    finally:
+        _exit_ctx()
+
+
+def test_time_dimension_rejects_invalid_parse_value() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+
+        def order_date(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.time_dimension(
+                entity="sales.orders",
+                granularity="day",
+                parse=object(),  # type: ignore[arg-type]
+            )(order_date)
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "parse" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -1160,6 +1190,25 @@ def test_metric_provenance_fields() -> None:
         _exit_ctx()
 
 
+def test_metric_rejects_invalid_provenance_value() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.metric(
+                entities=["sales.orders"],
+                additivity="additive",
+                provenance=object(),  # type: ignore[arg-type]
+            )
+            def revenue(table: object) -> object:
+                return None  # type: ignore[unreachable]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "provenance" in str(exc_info.value)
+    finally:
+        _exit_ctx()
+
+
 def test_metric_body_ast_hash() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -1418,6 +1467,22 @@ def test_relationship_pushes_ir() -> None:
         assert ir.keys[0].from_key == "sales.orders.id"
         assert ir.keys[0].to_key == "sales.items.order_id"
         assert callable_ is None
+    finally:
+        _exit_ctx()
+
+
+def test_relationship_rejects_non_join_key_entries() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.relationship(
+                name="orders_to_items",
+                from_entity="sales.orders",
+                to_entity="sales.items",
+                keys=[object()],  # type: ignore[list-item]
+            )
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "join_on" in str(exc_info.value)
     finally:
         _exit_ctx()
 
