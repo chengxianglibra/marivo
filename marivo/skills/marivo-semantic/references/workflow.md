@@ -53,7 +53,7 @@ if brief.status == "blocked":
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.domain(name="sales", description="Sales analytics")
+ms.domain(name="sales", ai_context=ms.ai_context(business_definition="Sales analytics"))
 warehouse = md.ref("warehouse")
 ```
 
@@ -151,7 +151,7 @@ log_date = ms.time_dimension_column(
     entity=orders,
     column="dt",
     granularity="day",
-    parse=ms.strftime("%Y%m%d"),
+    parse=ms.strptime("%Y%m%d"),
     is_default=True,
     ai_context=ms.ai_context(
         business_definition="Partition date used for default order reporting windows.",

@@ -397,7 +397,7 @@ rows. The helper accepts refs only and infers the metric domain from the entity
 ref.
 
 ```python
-order_count = ms.count(name="order_count", entity=orders)
+order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
 ```
 
 ### Metric from an ibis body — `@ms.metric`
