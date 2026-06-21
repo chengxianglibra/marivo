@@ -339,9 +339,100 @@ def test_verify_result_is_public_result_object() -> None:
         auto_recorded=(),
     )
 
-    assert repr(result) == "<VerifyResult status=passed ref=sales.orders kind=entity>"
-    assert "VerifyResult status=passed" in result.render()
+    assert (
+        repr(result)
+        == "<VerifyResult status=passed ref=sales.orders kind=entity; call .show() to inspect>"
+    )
+    rendered = result.render()
+    assert "VerifyResult status=passed" in rendered
+    assert "available:" in rendered
     assert ms.VerifyResult is VerifyResult
+
+
+def test_verify_result_render_shows_issue_details() -> None:
+    from marivo.semantic.dtos import AssessmentIssue, VerifyResult
+
+    issue = AssessmentIssue(
+        kind="project_load_failed",
+        severity="blocker",
+        refs=("trino_query",),
+        message="Cannot verify 'trino_query': project failed to load.",
+        rule_id="verify_object_project_load_failed",
+    )
+    result = VerifyResult(
+        status="failed",
+        ref="trino_query",
+        kind="entity",
+        issues=(issue,),
+        warnings=(),
+        scan=None,
+        auto_recorded=(),
+    )
+
+    rendered = result.render()
+    assert "status: failed, 1 issue" in rendered
+    assert "issues:" in rendered
+    assert "[blocker] project_load_failed" in rendered
+    assert "Cannot verify 'trino_query': project failed to load." in rendered
+    assert "available:" in rendered
+
+
+def test_verify_result_render_shows_warning_details() -> None:
+    from marivo.semantic.dtos import AssessmentIssue, VerifyResult
+
+    warning = AssessmentIssue(
+        kind="missing_evidence",
+        severity="warning",
+        refs=("sales.orders",),
+        message="No evidence recorded for this object.",
+        rule_id="verify_object_missing_evidence",
+    )
+    result = VerifyResult(
+        status="passed",
+        ref="sales.orders",
+        kind="entity",
+        issues=(),
+        warnings=(warning,),
+        scan=None,
+        auto_recorded=(),
+    )
+
+    rendered = result.render()
+    assert "1 warning" in rendered
+    assert "warnings:" in rendered
+    assert "[warning] missing_evidence" in rendered
+    assert "No evidence recorded for this object." in rendered
+
+
+def test_verify_result_render_truncates_many_issues() -> None:
+    from marivo.semantic.dtos import AssessmentIssue, VerifyResult
+
+    issues = tuple(
+        AssessmentIssue(
+            kind="static_check_failed",
+            severity="blocker",
+            refs=("x",),
+            message=f"Issue {i}",
+            rule_id=f"rule_{i}",
+        )
+        for i in range(7)
+    )
+    result = VerifyResult(
+        status="failed",
+        ref="x",
+        kind="entity",
+        issues=issues,
+        warnings=(),
+        scan=None,
+        auto_recorded=(),
+    )
+
+    rendered = result.render()
+    assert "7 issues" in rendered
+    assert "Issue 0" in rendered
+    assert "Issue 4" in rendered
+    assert "Issue 5" not in rendered
+    assert "2 more issues" in rendered
 
 
 # ---------------------------------------------------------------------------

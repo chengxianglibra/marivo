@@ -608,14 +608,50 @@ class VerifyResult:
     scan: ScanReport | None
     auto_recorded: tuple[str, ...]
 
+    _MAX_DETAIL_ITEMS = 5
+
     def __repr__(self) -> str:
-        return f"<VerifyResult status={self.status} ref={self.ref} kind={self.kind}>"
+        return result_repr(f"VerifyResult status={self.status} ref={self.ref} kind={self.kind}")
 
     def render(self) -> str:
-        return (
-            f"VerifyResult status={self.status} ref={self.ref} kind={self.kind} "
-            f"issues={len(self.issues)} warnings={len(self.warnings)}"
-        )
+        identity = f"VerifyResult status={self.status} ref={self.ref} kind={self.kind}"
+        if not self.issues and not self.warnings:
+            return format_bounded_card(
+                identity=identity,
+                status=self.status,
+                available=(".issues", ".warnings", ".scan"),
+            )
+        parts: list[str] = [identity]
+        issue_count = len(self.issues)
+        warning_count = len(self.warnings)
+        status_parts: list[str] = [self.status]
+        if issue_count:
+            status_parts.append(f"{issue_count} issue{'s' if issue_count != 1 else ''}")
+        if warning_count:
+            status_parts.append(f"{warning_count} warning{'s' if warning_count != 1 else ''}")
+        parts.append(f"status: {', '.join(status_parts)}")
+        if self.issues:
+            parts.append("issues:")
+            for issue in self.issues[: self._MAX_DETAIL_ITEMS]:
+                parts.append(f"  [{issue.severity}] {issue.kind}: {issue.message}")
+            if len(self.issues) > self._MAX_DETAIL_ITEMS:
+                parts.append(
+                    f"  ... {len(self.issues) - self._MAX_DETAIL_ITEMS} more issues; "
+                    "inspect .issues for all"
+                )
+        if self.warnings:
+            parts.append("warnings:")
+            for warning in self.warnings[: self._MAX_DETAIL_ITEMS]:
+                parts.append(f"  [{warning.severity}] {warning.kind}: {warning.message}")
+            if len(self.warnings) > self._MAX_DETAIL_ITEMS:
+                parts.append(
+                    f"  ... {len(self.warnings) - self._MAX_DETAIL_ITEMS} more warnings; "
+                    "inspect .warnings for all"
+                )
+        parts.append("available:")
+        for entry in (".issues", ".warnings", ".scan"):
+            parts.append(f"- {entry}")
+        return "\n".join(parts)
 
     def show(self) -> None:
         print(self.render())
