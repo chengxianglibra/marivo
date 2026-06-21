@@ -156,6 +156,42 @@ def test_verify_metric_auto_records_decomposition(tmp_path: Path, semantic_proje
     assert m_decision.evidence_fingerprint.startswith("sha256:")
 
 
+def test_verify_metric_auto_records_semi_additive_additivity(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales')\n"
+                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "source=ms.table('orders'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
+                "def dt(orders):\n"
+                "    return orders.dt\n"
+                "@ms.metric(entities=[orders], additivity=ms.semi_additive(over=dt, fold='mean'))\n"
+                "def inventory(orders):\n"
+                "    return orders.amount.mean()\n"
+            )
+        }
+    )
+
+    result = project.verify_object("sales.inventory")
+
+    assert result.status == "passed"
+    assert result.kind == "metric"
+    assert result.auto_recorded == ("sales.inventory:metric_composition",)
+
+    store = lg.LedgerStore(project.state_root)
+    obj = store.read_object("sales.inventory")
+    assert obj is not None
+    decision = next(d for d in obj.decisions if d.decision_kind == "metric_composition")
+    assert decision.cited_source is not None
+    assert decision.cited_source["additivity"] == {
+        "type": "semi_additive",
+        "over": "sales.orders.dt",
+        "fold": "mean",
+    }
+
+
 def test_verify_auto_record_idempotent(tmp_path: Path, semantic_project_factory) -> None:
     """Second verify_object call should not duplicate the auto-recorded decision."""
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)

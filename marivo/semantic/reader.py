@@ -42,9 +42,11 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.ir import (
+    Additivity,
     DimensionIR,
     EntityIR,
     MetricIR,
+    SemiAdditive,
     SymbolKind,
 )
 from marivo.semantic.loader import LoadResult, load_project
@@ -165,7 +167,7 @@ def _time_dimension_identity_fingerprint(field_ir: DimensionIR) -> str:
 
 def _metric_composition_fingerprint(metric_ir: MetricIR) -> str:
     """Fingerprint for metric_composition/additivity decisions over a MetricIR."""
-    from marivo.semantic.ir import SemiAdditive, additivity_bucket, composition_components
+    from marivo.semantic.ir import additivity_bucket, composition_components
 
     add = metric_ir.additivity
     fold = add.fold.label() if isinstance(add, SemiAdditive) else None
@@ -182,6 +184,17 @@ def _metric_composition_fingerprint(metric_ir: MetricIR) -> str:
             "fold": fold,
         }
     )
+
+
+def _metric_additivity_cited_source(additivity: Additivity | None) -> str | dict[str, str] | None:
+    """Return the JSON-safe additivity payload stored in metric ledger evidence."""
+    if isinstance(additivity, SemiAdditive):
+        return {
+            "type": "semi_additive",
+            "over": additivity.over,
+            "fold": additivity.fold.label(),
+        }
+    return additivity
 
 
 def _entity_verified_fingerprint(entity_ir: EntityIR) -> str:
@@ -1015,7 +1028,7 @@ class SemanticProject:
             "components": dict(composition_components(metric_ir.composition))
             if metric_ir.composition is not None
             else {},
-            "additivity": metric_ir.additivity,
+            "additivity": _metric_additivity_cited_source(metric_ir.additivity),
         }
         if kind == "derived_metric":
             cited_source["metric_type"] = "derived"
