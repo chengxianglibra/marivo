@@ -215,6 +215,12 @@ def _additivity_text(content: dict[str, object]) -> str:
     ]
     for bucket in buckets:
         lines.append(f"  - {bucket['kind']}: {bucket['use']}")
+    lines.extend(
+        (
+            "",
+            "Valid string values: 'additive', 'non_additive', 'semi_additive' (use underscores, not hyphens).",
+        )
+    )
     lines.extend(("", "Semi-additive form:"))
     lines.append(f"  {content['semi_additive_form']}")
     lines.extend(("", "Rules:"))
