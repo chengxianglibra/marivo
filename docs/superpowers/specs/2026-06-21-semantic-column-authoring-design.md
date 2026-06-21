@@ -156,9 +156,11 @@ def time_dimension_column(
 ) -> TimeDimensionRef
 ```
 
-`entity` remains `EntityRef | str` for parity with the existing decorators.
-Examples and skills must prefer typed refs. Future tightening can make raw
-strings explicit through `ms.ref(...)`, but that is not part of this phase.
+`entity` remains `EntityRef | str` for parity with the existing decorators,
+even though these helpers are top-level calls like `ms.count(...)`, which
+already rejects strings so agents do not guess raw ids. Examples and skills
+must prefer typed refs. Future tightening can make raw strings explicit through
+`ms.ref(...)`, but that is not part of this phase.
 
 ### Validation
 
@@ -174,8 +176,13 @@ The helpers reuse the existing validation rules from the decorator path:
 Additional direct-column validation:
 
 - `column` must be a non-empty string;
-- `name` remains required and must not be inferred from `column`;
-- the generated callable must return `table[column]`.
+- `name` remains required and must not be inferred from `column`.
+
+The generated sidecar callable is a generation guarantee, not user input to
+validate: it must return `table[column]`. Because there is no user-authored
+body, the helper skips body-AST validation. This is safe because
+`DimensionIR` and `MeasureIR` do not store `body_ast_hash`; only `MetricIR`
+does.
 
 The loader still catches missing physical columns through the existing
 materialization / preview / readiness flow. The helper should not require live
@@ -198,17 +205,24 @@ No new IR is introduced.
 
 - `dimension_column(...)` pushes a `DimensionIR` with
   `is_time_dimension=False`, `kind=DimensionKind.CATEGORICAL`, and a generated
-  sidecar callable.
+  sidecar callable. It returns a `DimensionRef` and appends that ref to
+  `ctx.pending_refs`.
 - `time_dimension_column(...)` pushes a `DimensionIR` with
   `is_time_dimension=True`, `kind=DimensionKind.TIME`, parse metadata, and a
-  generated sidecar callable.
+  generated sidecar callable. It returns a `TimeDimensionRef` and appends that
+  ref to `ctx.pending_refs`.
 - `measure_column(...)` pushes a `MeasureIR` with the existing additivity and
-  unit fields plus a generated sidecar callable.
+  unit fields plus a generated sidecar callable. It returns a `MeasureRef` and
+  appends that ref to `ctx.pending_refs`.
 
 The materializer already executes sidecar callables for dimensions, time
 dimensions, and measures. Because these helpers produce the same IR and
 callable shape as the decorators, preview, readiness, observe planning,
 analysis execution, and catalog details should not branch on declaration style.
+The `pending_refs` registration is required for declaration-style parity:
+loader wiring attaches the field resolver only to refs captured in
+`ctx.pending_refs`, and metric bodies must be able to call helper-authored field
+refs just like decorator-authored refs.
 
 ## Authoring Guidance
 
@@ -246,8 +260,15 @@ Implementation should touch the following surfaces as one contract slice:
 
 - `marivo/semantic/authoring.py` — helper implementations and docstrings.
 - `marivo/semantic/__init__.py` — public exports.
-- `marivo/semantic/help.py` and help tests — summary / describe entries. The
-  file may already have unrelated in-progress changes; preserve them.
+- `marivo/semantic/help.py` and help tests — summary / describe entries with
+  minimal runnable examples. The file may already have unrelated in-progress
+  changes; preserve them.
+- `marivo/semantic/prepare.py` and prepare tests — Brief next-step hints and
+  `ibis_attribute_shadowing` remediation should point direct-column cases at
+  `ms.dimension_column(...)`, `ms.time_dimension_column(...)`, or
+  `ms.measure_column(...)` instead of only teaching bracket notation in
+  decorator bodies. Decorator bracket guidance still applies to expression
+  escape hatches.
 - `tests/test_semantic_authoring.py` or focused semantic authoring tests —
   helper IR construction, validation, duplicate handling, and call-site
   location.
@@ -256,7 +277,11 @@ Implementation should touch the following surfaces as one contract slice:
 - `tests/test_public_surface.py` / import tests — new public names and help
   coverage.
 - `marivo/skills/marivo-semantic/**` — default examples and guidance.
-- `docs/specs/semantic/python-semantic-layer.md` — target contract.
+- `docs/specs/semantic/python-semantic-layer.md` — target contract. The update
+  must also clean stale current examples such as `@ms.dimension(...,
+  description=...)` where the live API uses `ai_context=...`, and the
+  "Field vs Metric" decision table should prefer column helpers for direct
+  physical columns.
 - `site/src/content/docs/{en,zh-cn}/{latest,v0.1}/**` — public docs in both
   languages and versions.
 - README or quick-start docs if they show semantic authoring examples.
@@ -268,6 +293,7 @@ Recommended verification sequence:
 ```bash
 make test TESTS='tests/test_semantic_authoring.py'
 make test TESTS='tests/test_semantic_materializer.py'
+make test TESTS='tests/test_semantic_prepare.py'
 make test TESTS='tests/test_public_surface.py tests/test_semantic_imports.py'
 make examples-check
 make typecheck
@@ -286,6 +312,17 @@ commit because this changes the public semantic authoring surface.
   information for helper-authored objects as for decorator-authored objects.
 - `catalog.preview(...)` works for helper-authored dimensions, time dimensions,
   measures, and metrics.
+- `ms.verify_object(ref)` accepts and validates helper-authored dimensions,
+  time dimensions, and measures with the same evidence semantics as
+  decorator-authored objects.
+- `catalog.readiness(...)` / `ms.readiness(...)` treat helper-authored objects
+  the same as decorator-authored objects.
+- A helper-authored `DimensionRef`, `TimeDimensionRef`, or `MeasureRef` can be
+  called inside an expression-body decorator after load, proving its resolver
+  was wired through `ctx.pending_refs`.
+- `prepare_*` Briefs and shadowing advisories steer direct physical column
+  authoring to `*_column(...)`, while preserving bracket-notation advice for
+  decorator expression bodies.
 - A physical column named like an Ibis method, for example `count` or `info`,
   works through the helper because generated callables use `table[column]`.
 - Docs and skills present `*_column(...)` as the default path and decorators as
