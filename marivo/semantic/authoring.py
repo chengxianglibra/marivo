@@ -518,7 +518,8 @@ def _normalize_additivity(additivity: Additivity, *, semantic_id: str) -> Additi
     _raise(
         ErrorKind.INVALID_REF,
         f"Metric {semantic_id!r}: additivity must be 'additive', 'non_additive', "
-        "or ms.semi_additive(over=..., fold=...).",
+        "or ms.semi_additive(over=..., fold=...). "
+        "Note: use underscores, not hyphens (e.g. 'non_additive', not 'non-additive').",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )
