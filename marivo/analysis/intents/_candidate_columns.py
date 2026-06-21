@@ -20,6 +20,9 @@ from marivo.analysis.frames.candidate import CandidateShape
 CANDIDATE_COLUMNS: list[str] = [
     "item_id",
     "score",
+    "observed_value",
+    "baseline_value",
+    "delta",
     "direction",
     "reason_codes_json",
     "source_refs_json",
@@ -37,6 +40,9 @@ CANDIDATE_COLUMNS: list[str] = [
 CANDIDATE_DTYPES: dict[str, str] = {
     "item_id": "string",
     "score": "float64",
+    "observed_value": "float64",
+    "baseline_value": "float64",
+    "delta": "float64",
     "direction": "string",
     "reason_codes_json": "string",
     "source_refs_json": "string",
@@ -61,7 +67,8 @@ _COMMON_REQUIRED: set[str] = {
 }
 
 REQUIRED_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
-    "point_anomaly": _COMMON_REQUIRED | {"window_start", "window_end", "direction"},
+    "point_anomaly": _COMMON_REQUIRED
+    | {"window_start", "window_end", "direction", "observed_value", "baseline_value", "delta"},
     "period_shift": _COMMON_REQUIRED
     | {
         "window_start",
@@ -119,6 +126,12 @@ def _row_to_record(row: dict[str, Any]) -> dict[str, Any]:
         record["item_id"] = str(row["item_id"])
     if "score" in row:
         record["score"] = float(row["score"])
+    if "observed_value" in row and row["observed_value"] is not None:
+        record["observed_value"] = float(row["observed_value"])
+    if "baseline_value" in row and row["baseline_value"] is not None:
+        record["baseline_value"] = float(row["baseline_value"])
+    if "delta" in row and row["delta"] is not None:
+        record["delta"] = float(row["delta"])
     if "direction" in row and row["direction"] is not None:
         record["direction"] = str(row["direction"])
     if "axis" in row and row["axis"] is not None:

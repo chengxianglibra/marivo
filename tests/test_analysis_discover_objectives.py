@@ -327,6 +327,45 @@ def test_point_anomalies_baseline_window_populated():
     assert pd.notna(rows.loc[0, "baseline_window_end"])
 
 
+def test_point_anomalies_populates_observed_baseline_delta():
+    session = session_attach.get_or_create(name="demo")
+    values = [1.0] * 20 + [50.0]
+    df = pd.DataFrame(
+        {
+            "bucket": pd.date_range("2026-01-01", periods=21, freq="D", tz="UTC"),
+            "value": values,
+        }
+    )
+    src = _metric(session, df, semantic_kind="time_series")
+    out = session.discover.point_anomalies(src, threshold=2.0)
+    rows = out.to_pandas()
+    assert len(rows) >= 1
+    row = rows.iloc[0]
+    assert pd.notna(row["observed_value"])
+    assert pd.notna(row["baseline_value"])
+    assert pd.notna(row["delta"])
+    assert row["observed_value"] == 50.0
+    expected_mean = float(np.mean(values))
+    assert abs(row["baseline_value"] - expected_mean) < 0.01
+    assert abs(row["delta"] - (50.0 - expected_mean)) < 0.01
+
+
+def test_point_anomalies_select_observed_baseline_delta():
+    session = session_attach.get_or_create(name="demo")
+    values = [1.0] * 20 + [50.0]
+    df = pd.DataFrame(
+        {
+            "bucket": pd.date_range("2026-01-01", periods=21, freq="D", tz="UTC"),
+            "value": values,
+        }
+    )
+    src = _metric(session, df, semantic_kind="time_series")
+    out = session.discover.point_anomalies(src, threshold=2.0)
+    assert out.select(rank=1, attribute="observed_value") == 50.0
+    assert isinstance(out.select(rank=1, attribute="baseline_value"), float)
+    assert isinstance(out.select(rank=1, attribute="delta"), float)
+
+
 def test_period_shifts_panel_groups_independently():
     session = session_attach.get_or_create(name="demo")
     buckets = list(pd.date_range("2026-01-01", periods=15, freq="D", tz="UTC"))

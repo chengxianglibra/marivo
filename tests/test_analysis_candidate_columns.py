@@ -21,6 +21,9 @@ def test_candidate_columns_have_fixed_order() -> None:
     assert CANDIDATE_COLUMNS == [
         "item_id",
         "score",
+        "observed_value",
+        "baseline_value",
+        "delta",
         "direction",
         "reason_codes_json",
         "source_refs_json",
@@ -125,6 +128,9 @@ def test_validate_shape_columns_passes_for_well_formed_point_anomaly() -> None:
         {
             "item_id": "cand_0",
             "score": 3.5,
+            "observed_value": 50.0,
+            "baseline_value": 3.5,
+            "delta": 46.5,
             "direction": "high",
             "window": {"start": "2026-01-15", "end": "2026-01-15"},
         }
@@ -134,7 +140,7 @@ def test_validate_shape_columns_passes_for_well_formed_point_anomaly() -> None:
 
 
 def test_validate_shape_columns_rejects_missing_required_field() -> None:
-    rows = [{"item_id": "cand_0", "score": 3.5}]  # no direction, no window
+    rows = [{"item_id": "cand_0", "score": 3.5}]  # no direction, no window, no context
     df = build_union_columns("point_anomaly", rows)
     with pytest.raises(FrameMetaInvalidError) as exc:
         validate_shape_columns("point_anomaly", df)
@@ -146,6 +152,9 @@ def test_validate_shape_columns_rejects_unexpected_axis_for_point_anomaly() -> N
         {
             "item_id": "cand_0",
             "score": 3.5,
+            "observed_value": 50.0,
+            "baseline_value": 3.5,
+            "delta": 46.5,
             "direction": "high",
             "window": {"start": "2026-01-15", "end": "2026-01-15"},
             "axis": "country",
@@ -176,7 +185,14 @@ def test_validate_shape_columns_rejects_invalid_followup_payload() -> None:
     [
         (
             "point_anomaly",
-            {"window_start", "window_end", "direction"},
+            {
+                "window_start",
+                "window_end",
+                "direction",
+                "observed_value",
+                "baseline_value",
+                "delta",
+            },
             {"keys_json", "baseline_window_start", "baseline_window_end"},
         ),
         (
@@ -219,3 +235,22 @@ def test_required_and_allowed_columns_per_shape(
     }
     assert REQUIRED_COLUMNS_BY_SHAPE[shape] == common | required_extras
     assert ALLOWED_OPTIONAL_COLUMNS_BY_SHAPE[shape] == allowed_extras
+
+
+def test_build_union_columns_populates_observed_baseline_delta_for_point_anomaly() -> None:
+    rows = [
+        {
+            "item_id": "cand_0",
+            "score": 3.5,
+            "observed_value": 50.0,
+            "baseline_value": 3.5,
+            "delta": 46.5,
+            "direction": "high",
+            "window": {"start": "2026-01-15", "end": "2026-01-15"},
+        }
+    ]
+    df = build_union_columns("point_anomaly", rows)
+    validate_shape_columns("point_anomaly", df)  # must not raise
+    assert df.loc[0, "observed_value"] == 50.0
+    assert df.loc[0, "baseline_value"] == 3.5
+    assert df.loc[0, "delta"] == 46.5
