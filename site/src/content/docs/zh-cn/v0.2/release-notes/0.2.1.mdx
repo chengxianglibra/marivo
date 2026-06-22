@@ -1,0 +1,54 @@
+---
+slug: zh-cn/v0.2/release-notes/0.2.1
+title: Marivo 0.2.1
+description: Marivo 0.2.1 release notes。
+---
+
+Marivo 0.2.1 是 v0.2 系列的 patch release。这个版本修复了 report-local time bucket
+normalization，并让 semantic 文档继续对齐当前面向 agent 的契约。
+
+## 重点
+
+- 修复 report-local bucket timestamps，确保 windowed analysis results 保留预期的
+  report timezone semantics。
+- 清理 semantic object docs、help text 与 skills 中已经过时的 `description`
+  references。
+- 打磨中文 `latest` 文档文案，提升可读性和术语一致性。
+
+## 修复
+
+- Analysis executor 现在会一致地 normalize report-local bucket timestamps。
+- Sampled folded observe results 现在保留预期的 bucket encoding。
+- Query records 现在会保留 normalize 后的 report-local timestamp shape。
+
+## 文档
+
+- 让 semantic-layer 站点示例对齐当前 metadata contract。
+- 移除 semantic object guidance 中过时的 `description` references。
+- 为 v0.2 和 `latest` documentation snapshots 增加本次 patch release notes。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.1 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.2/installation/)
+- [快速开始](/zh-cn/v0.2/quick-start/)
+- [Semantic Layer](/zh-cn/v0.2/concepts/semantic-layer/)
+- [Analysis Workflow](/zh-cn/v0.2/concepts/analysis-workflow/)
