@@ -84,17 +84,28 @@ order_date = ms.time_dimension_column(
 )
 
 
-@ms.metric(
-    entities=[orders],
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
     additivity="additive",
+    unit="CNY",
+    ai_context=ms.ai_context(
+        business_definition="Completed order amount at row level.",
+        guardrails=["Use only where order amount is already net of cancellations."],
+    ),
+)
+
+
+revenue = ms.aggregate(
     name="revenue",
+    measure=amount,
+    agg="sum",
     ai_context=ms.ai_context(
         business_definition="Total completed order amount.",
         guardrails=["Use only where order amount is already net of cancellations."],
     ),
 )
-def revenue(orders):
-    return orders.amount.sum()
 ```
 
 这些对象不必全部手写。`marivo init` 会把 **`marivo-semantic` skill** 安装到 `.claude/skills/`
@@ -107,9 +118,11 @@ def revenue(orders):
 
 - **遵循 ladder** —— domain → entity → dimension → time dimension → measure →
   metric → relationship —— 让每个对象的依赖先于它存在。
-- **先规划，再编写。** 对每个对象，agent 先调用 `ms.prepare_*` API（例如
-  `ms.prepare_metric`），根据返回的 brief 分支判断，再把 declaration 写入
-  `models/semantic/<domain>/_domain.py`。
+- **先规划，再编写。** 对每个对象，agent 先调用匹配的 `ms.prepare_*` API，根据返回的
+  brief 分支判断，再把 declaration 写入 `models/semantic/<domain>/_domain.py`。默认的
+  metric 路径是先调用 `ms.prepare_measure(...)`，写入并验证 measure，再声明
+  `ms.aggregate(...)`；`ms.prepare_metric(...)` 只用于 measure-backed workflow 需要
+  metric-level context 的场景。
 - **验证后再前进。** 每写完一个对象就运行 `ms.verify_object(ref)`，在它失败时不会继续。
 - **收尾时做就绪检查。** 最后运行 `ms.readiness()`，在把 catalog 交给分析之前解决 blockers。
 

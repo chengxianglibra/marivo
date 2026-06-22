@@ -294,8 +294,9 @@ A time dimension is a special dimension that carries grain and parsing metadata.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | No | function name | Dimension name. |
+| `name` | `str` | Yes | — | Dimension name. |
 | `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `column` | `str` | Yes | — | Physical column name on the entity table. |
 | `granularity` | grain literal | Yes | — | `year`, `quarter`, `month`, `week`, `day`, `hour`, `minute`, or `second` — the finest grain at which queries are meaningful. |
 | `parse` | parse variant | No | `None` | How the source column becomes a time value (see below). Omit for native temporal columns — the parse variant is inferred at analysis time. |
 | `is_default` | `bool` | No | `False` | Marks the default time axis when the entity has several. `observe` uses it when `time_dimension=` is omitted. |
@@ -346,14 +347,16 @@ event_ts = ms.time_dimension_column(
 
 ## Measure
 
-A measure is a row-level quantitative expression you intend to aggregate (e.g. an
-amount or quantity). Like a dimension, it is a decorator returning one ibis
-expression — but it carries additivity and an optional unit.
+A measure is a row-level quantitative fact you intend to aggregate (e.g. an
+amount or quantity). For direct physical columns, use `ms.measure_column(...)`;
+for expressions over one or more columns, use `@ms.measure`. Measures carry
+additivity and an optional unit.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | No | function name | Measure name. Becomes `<domain>.<entity>.<name>`. |
+| `name` | `str` | Yes | — | Measure name. Becomes `<domain>.<entity>.<name>`. |
 | `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `column` | `str` | Yes | — | Physical column name on the entity table. |
 | `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
 | `unit` | `str` | No | `None` | UCUM unit token: `"USD"`, `"CNY"`, `"%"`, `"ms"`, `"{order}"`. |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
@@ -401,10 +404,11 @@ ref.
 order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
 ```
 
-### Metric from an ibis body — `@ms.metric`
+### Tier-2 custom metric from an ibis body — `@ms.metric`
 
-Use the decorator when the number is an expression. The body returns one ibis
-aggregation; you declare `additivity` directly.
+Use this escape hatch when the metric cannot be expressed as `ms.aggregate(...)`,
+`ms.count(...)`, or a derived metric builder. The body returns one ibis
+aggregation, and you declare `additivity` directly.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
