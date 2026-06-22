@@ -50,7 +50,7 @@ md.duckdb(
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.domain(name="sales", description="Sales analytics")
+ms.domain(name="sales", ai_context=ms.ai_context(business_definition="Sales analytics"))
 warehouse = md.ref("warehouse")
 
 orders = ms.entity(
@@ -58,7 +58,6 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders"),
     primary_key=["order_id"],
-    description="Order facts.",
     ai_context=ms.ai_context(
         business_definition="One row per order before metric-level filters.",
         guardrails=["Do not treat this as paid orders only."],
@@ -77,7 +76,6 @@ is_paid = ms.dimension_column(
 @ms.metric(
     entities=[orders],
     additivity="additive",
-    description="Paid revenue.",
     provenance=ms.from_sql(
         sql="select sum(amount) as value from orders where pay_status = 1",
         dialect="duckdb",
@@ -100,7 +98,7 @@ def revenue(order_rows):
 - `name=` 给出时是唯一 semantic identity。
 - `name=` 省略时，Python 变量名或函数名作为 fallback identity。
 - Python 符号名只是 local alias，不参与 semantic id。
-- `description=` 是语义对象的短标签或一行说明；project datasource 不接受 `description=`，datasource 文本信息写入 `ai_context.business_definition`。`ai_context.business_definition` 是完整业务定义，可多行，agent 用它判断对象是否匹配用户意图。
+- 语义对象的人类可读文本统一通过 `ai_context.business_definition` 表达，不接受独立的 `description=` 参数。`ai_context.business_definition` 是完整业务定义，可多行，agent 用它判断对象是否匹配用户意图。
 - `ai_context` 通过 `ms.ai_context(...)` 构造，不接受原始 dict。schema 适用于 domain、project datasource、entity、dimension、time_dimension、metric 和 relationship 所有对象。所有字段可选，缺失时 `describe` 返回 `null` 或空列表。
 - `ms.ai_context(...)` 固定参数是 `business_definition: str | None`、`guardrails: Sequence[str]`、`synonyms: Sequence[str]`、`examples: Sequence[str]`、`instructions: str | None`、`owner_notes: str | None`。非法参数名由 Python TypeError 捕获，值类型错误由 `SemanticDecoratorError` 捕获并包含调用位置信息。
 - `business_definition` 和 `guardrails` 对 entity 与 metric 最重要；跨 domain 引用前，agent 应优先读取这两个字段判断是否可复用。
@@ -198,7 +196,7 @@ Use `catalog.list(...)` to browse by domain and kind, then `catalog.get(ref).det
 
 `catalog.list(...)` 和 `catalog.get(...)` 不写 stdout。需要人类可读输出时显式调用 `.show()`；程序化消费使用 `SemanticObject.ref`、`.details()`、`.children` 和 `SemanticObjectList.objects`。`details()` 返回的结构化 dataclass 也支持 `.render()` / `.show()`，用于 agent-facing bounded card 输出。
 
-`catalog.get(ref).details()` 返回结构化 dataclass，而不是只打印文本。所有 details 对象直接暴露 `ref`、`kind`、`name`、`domain`、`description`、`context`、`business_definition`、`guardrails`、`synonyms`、`examples`、`instructions`、`owner_notes`、`python_symbol`、`source_location`、`parents`、`children` 和 `dependents`。各类型还暴露自己的公共语义事实：datasource 的 `backend_type`、literal `fields` 和 env var 名称 `env_refs`；domain 的 `default`；entity 的 `datasource`、`source`、`primary_key` 和 `versioning`；measure 的 `additivity` 和 `unit`；time dimension 的 parse/granularity/timezone/sample interval；metric 的 entity/composition/additivity/provenance/parity/unit；relationship 的 join keys。`details().show()` 输出同一信息的有界可读卡片；secret 只允许以 env var 名称出现，不能输出解析后的 secret value。
+`catalog.get(ref).details()` 返回结构化 dataclass，而不是只打印文本。所有 details 对象直接暴露 `ref`、`kind`、`name`、`domain`、`context`、`business_definition`、`guardrails`、`synonyms`、`examples`、`instructions`、`owner_notes`、`python_symbol`、`source_location`、`parents`、`children` 和 `dependents`。各类型还暴露自己的公共语义事实：datasource 的 `backend_type`、literal `fields` 和 env var 名称 `env_refs`；domain 的 `default`；entity 的 `datasource`、`source`、`primary_key` 和 `versioning`；measure 的 `additivity` 和 `unit`；time dimension 的 parse/granularity/timezone/sample interval；metric 的 entity/composition/additivity/provenance/parity/unit；relationship 的 join keys。`details().show()` 输出同一信息的有界可读卡片；secret 只允许以 env var 名称出现，不能输出解析后的 secret value。
 
 free function 形态只允许作为 REPL 糖保留；如果没有显式 active project，必须 fail closed，不能 silent fallback 到 CWD 推断。
 
@@ -296,7 +294,7 @@ orders = ms.entity(
     datasource=warehouse,
     source=ms.table("orders"),
     primary_key=["order_id"],
-    description="Order facts.",
+    ai_context=ms.ai_context(business_definition="Order facts."),
 )
 ```
 

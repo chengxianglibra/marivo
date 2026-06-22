@@ -653,7 +653,6 @@ class SemanticObject:
         kind: Semantic kind of this object.
         name: Short leaf name (no domain prefix).
         domain: Owning domain name, or None for datasources.
-        description: Short display summary (not business meaning).
         context: Business meaning, guardrails, and usage guidance from ai_context.
         source_location: Location in the user-authored semantic file.
 
@@ -663,15 +662,14 @@ class SemanticObject:
     Example:
         >>> revenue = catalog.get("sales.revenue")
         >>> revenue.ref           # make_ref("sales.revenue", "metric")
-        >>> revenue.description   # "Gross revenue."
         >>> revenue.context.business_definition
         >>> revenue.details().additivity
         >>> revenue.children      # tuple[SemanticRef, ...]
 
     Constraints:
-        ``description`` is a short display summary only. Business meaning and
-        guardrails live under ``context``. Use ``catalog.list(parent=...)``
-        for hierarchy browsing — SemanticObject does not expose navigation methods.
+        Business meaning and guardrails live under ``context``. Use
+        ``catalog.list(parent=...)`` for hierarchy browsing — SemanticObject
+        does not expose navigation methods.
     """
 
     ref: SemanticRef

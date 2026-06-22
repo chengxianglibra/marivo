@@ -19,7 +19,6 @@ from .constraints import constraints_for_symbol, iter_constraints
 
 class _SemanticHelpIR(Protocol):
     semantic_id: str
-    description: str | None
 
 
 _HELP_ONLY_ENTRIES: tuple[str, ...] = (
