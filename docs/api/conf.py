@@ -45,6 +45,7 @@ intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "pandas": ("https://pandas.pydata.org/docs", None),
 }
+suppress_warnings = ["intersphinx.inventory"]
 
 html_theme = "pydata_sphinx_theme"
 html_title = f"Marivo {release} API"

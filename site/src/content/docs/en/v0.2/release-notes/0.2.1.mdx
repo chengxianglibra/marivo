@@ -1,0 +1,57 @@
+---
+slug: en/v0.2/release-notes/0.2.1
+title: Marivo 0.2.1
+description: Release notes for Marivo 0.2.1.
+---
+
+Marivo 0.2.1 is a patch release for the v0.2 line. It fixes report-local time
+bucket normalization and aligns the semantic documentation with the current
+agent-facing contract.
+
+## Highlights
+
+- Fixed report-local bucket timestamps so windowed analysis results preserve the
+  intended report timezone semantics.
+- Cleaned stale `description` references from semantic object docs, help text,
+  and skills.
+- Polished the Chinese `latest` documentation copy for readability and
+  terminology consistency.
+
+## Fixed
+
+- Report-local bucket timestamps are now normalized consistently in the analysis
+  executor.
+- Sampled folded observe results now keep the expected bucket encoding.
+- Query records now preserve the normalized report-local timestamp shape.
+
+## Documentation
+
+- Aligned semantic-layer site examples with the current metadata contract.
+- Removed obsolete `description` references from semantic object guidance.
+- Updated the v0.2 and `latest` documentation snapshots with the patch notes.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.1 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/v0.2/installation/)
+- [Quick Start](/en/v0.2/quick-start/)
+- [Semantic Layer](/en/v0.2/concepts/semantic-layer/)
+- [Analysis Workflow](/en/v0.2/concepts/analysis-workflow/)

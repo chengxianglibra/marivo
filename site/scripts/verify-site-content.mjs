@@ -17,8 +17,18 @@ const commonDocs = [
   'contributing.mdx',
 ];
 const docsByVersion = {
-  latest: [...commonDocs, 'release-notes/0.2.0.mdx', 'release-notes/0.1.0.mdx'],
-  'v0.2': [...commonDocs, 'release-notes/0.2.0.mdx', 'release-notes/0.1.0.mdx'],
+  latest: [
+    ...commonDocs,
+    'release-notes/0.2.1.mdx',
+    'release-notes/0.2.0.mdx',
+    'release-notes/0.1.0.mdx',
+  ],
+  'v0.2': [
+    ...commonDocs,
+    'release-notes/0.2.1.mdx',
+    'release-notes/0.2.0.mdx',
+    'release-notes/0.1.0.mdx',
+  ],
   'v0.1': [...commonDocs, 'release-notes/0.1.0.mdx'],
 };
 
