@@ -1,0 +1,28 @@
+---
+slug: en/v0.2/contributing
+title: Contributing
+description: Set up Marivo locally and run the repository checks before opening a pull request.
+---
+
+Read `agent-guide.md` before contributing code in this repository. It is the source of stable coding, testing, and documentation rules.
+
+Set up a local editable install:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev,duckdb,trino]"
+```
+
+Use repository entrypoints instead of bare Python tooling:
+
+```bash
+make format
+make lint
+make typecheck
+make test
+make examples-check
+```
+
+For Python-related commands in this repository, do not use bare `python`, `pytest`, `mypy`, or `ruff`. Use the `make` entrypoints or explicit `.venv/bin/...` paths.
+
+Keep changes narrow, update affected user or API documentation with behavior changes, and avoid publishing internal planning material as user documentation.

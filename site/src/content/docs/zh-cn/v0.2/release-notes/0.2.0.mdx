@@ -1,0 +1,71 @@
+---
+slug: zh-cn/v0.2/release-notes/0.2.0
+title: Marivo 0.2.0
+description: Marivo 0.2.0 release notes。
+---
+
+Marivo 0.2.0 收紧了 0.1.0 中引入的面向 agent 的 semantic 与 analysis
+契约。这个版本增加了更明确的 semantic authoring helpers，缩小 public
+surfaces，并修复 agent 在 write-run-read workflow 中依赖的 evidence 与 analysis
+result 细节。
+
+## 重点
+
+- 新增 semantic column authoring helpers，让 agent 可以用更小、更 typed 的
+  surface 声明 column meaning。
+- 新增 `ms.count(entity=...)` helper，作为 entity count metrics 的唯一 public
+  route。
+- 用经过验证的 `ms.ai_context(...)` constructor 替换 `AiContext` typed
+  dictionary。
+- 收紧 datasource 与 semantic public surfaces，减少 helper discovery 中的歧义或
+  internal paths。
+- 新增由 GitHub Release 驱动的 PyPI Trusted Publishing，方便后续版本发布。
+
+## 变更
+
+- Semantic value objects 在进入 declarations 前会通过 public constructors 验证。
+- Semi-additive metrics 的 `over=...` 现在必须提供明确的 time dimension ref。
+- Additivity help 与 validation messages 现在统一使用 underscore enum values。
+- 移除了 runtime startup 中的 startup garbage collection。
+
+## 修复
+
+- Semi-additive metric ledger evidence 现在可以 JSON serialize。
+- Point anomaly candidates 现在会补齐 `observed_value`、`baseline_value` 和
+  `delta`。
+- `VerifyResult.render()` 现在会显示 issue 与 warning 的 detail rows，不再隐藏
+  可执行内容。
+- Entity brief display headers 现在与底层 column profile field names 对齐。
+- Semantic decorator docstrings 现在可以被接受。
+
+## 文档
+
+- 新增 semantic column authoring design notes，并与 public API principles 对齐。
+- 修复不再匹配当前 API 的 semantic-layer documentation examples。
+- 新增 v0.2 documentation snapshot，与 `latest` 和 `v0.1` 并列。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.0 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.2/installation/)
+- [快速开始](/zh-cn/v0.2/quick-start/)
+- [Semantic Layer](/zh-cn/v0.2/concepts/semantic-layer/)
+- [Analysis Workflow](/zh-cn/v0.2/concepts/analysis-workflow/)

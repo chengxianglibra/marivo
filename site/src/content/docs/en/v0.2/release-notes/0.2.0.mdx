@@ -1,0 +1,77 @@
+---
+slug: en/v0.2/release-notes/0.2.0
+title: Marivo 0.2.0
+description: Release notes for Marivo 0.2.0.
+---
+
+Marivo 0.2.0 tightens the agent-facing semantic and analysis contracts introduced
+in 0.1.0. It adds more explicit semantic authoring helpers, narrows public
+surfaces, and fixes evidence and analysis result details that agents rely on
+during write-run-read workflows.
+
+## Highlights
+
+- Added semantic column authoring helpers so agents can declare column meaning
+  with a smaller, typed surface.
+- Added the `ms.count(entity=...)` helper as the single public route for entity
+  count metrics.
+- Replaced the `AiContext` typed dictionary with the validated
+  `ms.ai_context(...)` constructor.
+- Tightened datasource and semantic public surfaces so helper discovery exposes
+  fewer ambiguous or internal paths.
+- Added GitHub Release driven PyPI Trusted Publishing for future releases.
+
+## Changed
+
+- Semantic value objects now validate through public constructors before they
+  are accepted into declarations.
+- Semi-additive metrics now require an explicit time dimension reference for
+  `over=...`.
+- Additivity help and validation messages now consistently use underscore enum
+  values.
+- Startup garbage collection was removed from runtime startup.
+
+## Fixed
+
+- Semi-additive metric ledger evidence is now JSON serializable.
+- Point anomaly candidates now include `observed_value`, `baseline_value`, and
+  `delta`.
+- `VerifyResult.render()` now shows issue and warning detail rows instead of
+  hiding the actionable content.
+- Entity brief display headers now match the underlying column profile field
+  names.
+- Semantic decorator docstrings are accepted.
+
+## Documentation
+
+- Added the semantic column authoring design notes and aligned them with the
+  public API principles.
+- Fixed semantic-layer documentation examples that no longer matched the current
+  API.
+- Added the v0.2 documentation snapshot alongside `latest` and `v0.1`.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.0 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/v0.2/installation/)
+- [Quick Start](/en/v0.2/quick-start/)
+- [Semantic Layer](/en/v0.2/concepts/semantic-layer/)
+- [Analysis Workflow](/en/v0.2/concepts/analysis-workflow/)

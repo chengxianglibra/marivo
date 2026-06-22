@@ -1,0 +1,77 @@
+---
+slug: zh-cn/v0.2/installation
+title: 安装
+description: 安装 Marivo，并为你的 datasource 选择对应 backend extra。
+---
+
+Marivo 需要 Python 3.12 或更高版本。
+
+从 PyPI 安装基础库：
+
+```bash
+pip install marivo
+```
+
+根据要查询的 datasource 安装 backend extra：
+
+| Backend | 安装命令 |
+| --- | --- |
+| DuckDB | `pip install "marivo[duckdb]"` |
+| MySQL | `pip install "marivo[mysql]"` |
+| Postgres | `pip install "marivo[postgres]"` |
+| ClickHouse | `pip install "marivo[clickhouse]"` |
+| Trino | `pip install "marivo[trino]"` |
+| 所有已打包 backends | `pip install "marivo[all]"` |
+
+## 初始化一个 project
+
+用 CLI 在当前目录中初始化一个新 project：
+
+```bash
+marivo init
+```
+
+`marivo init` 会创建 project 骨架，并安装 Marivo 的 agent skills：
+
+| 路径 | 用途 |
+| --- | --- |
+| `marivo.toml` | Project manifest。project 名默认取目录名。 |
+| `models/` | 编写 datasource 与 semantic declarations 的位置。 |
+| `.marivo/` | Project 本地状态：sessions、evidence 以及缓存的 metadata。 |
+| `.claude/skills/marivo-semantic`、`.claude/skills/marivo-analysis` | 面向 Claude Code 的 Marivo skills（以符号链接接入 project）。 |
+| `.codex/skills/marivo-semantic`、`.codex/skills/marivo-analysis` | 面向 Codex 的同一批 skills。 |
+
+`init` 是幂等的：已存在的文件不会被改动，并会报告为已跳过，因此可以安全地重复运行 —— 例如在
+升级到附带更新 skills 的版本之后。重复运行只补齐缺失的部分。使用 `marivo init --force` 可删除
+上述工件并从头重建。
+
+:::note
+当 `marivo.toml` 含有非法 TOML 时，`init` 拒绝静默跳过 —— 请修复或删除它，或传入 `--force`。
+Skill 链接是尽力而为的：如果你的平台无法创建符号链接，`init` 会打印警告并继续。
+:::
+
+最终得到一个可以直接开始编写的 project：
+
+```text
+your-project/
+  marivo.toml
+  models/
+  .marivo/
+  .claude/skills/   # marivo-semantic, marivo-analysis
+  .codex/skills/    # marivo-semantic, marivo-analysis
+```
+
+把 `.marivo/` 加入 `.gitignore`；对 `marivo.toml` 和 `models/` 做版本控制（参见
+[快速开始](/zh-cn/v0.2/quick-start/#用-git-管理-project)）。
+
+## 部署与开发
+
+Marivo 是 Python library，不是托管服务。部署 Marivo project 的方式是在 agent 运行环境安装 library，提交 datasource 和 semantic declarations，并通过 `*_env` 字段引用的环境变量提供 datasource secrets。
+
+从当前仓库进行本地开发：
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev,duckdb,trino]"
+.venv/bin/python -c "import marivo; print(marivo.__name__)"
+```

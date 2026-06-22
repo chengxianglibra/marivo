@@ -1,0 +1,105 @@
+---
+slug: en/v0.2/concepts/readiness
+title: Readiness
+description: The structural gate that keeps incomplete semantic objects out of analysis.
+---
+
+Readiness is the required gate between authoring and analysis. `ms.readiness()`
+checks whether the semantic objects an agent is about to use are complete and
+well-formed enough to hand off, and returns a `ReadinessReport`.
+
+A new project can `ms.load()` successfully while readiness is still **blocked** —
+loading only parses declarations. Readiness keeps agents from reasoning over
+half-specified semantics: resolve every blocker before passing a ref to an analysis
+session.
+
+```python
+import marivo.semantic as ms
+
+ms.load()
+report = ms.readiness()                  # checks every loaded object
+if report.status == "blocked":
+    report.show()                        # bounded card: each blocker + its next step
+    raise SystemExit("resolve readiness blockers before analysis")
+```
+
+## Structural, not runtime
+
+`ms.readiness()` is a **pure in-memory check**. It never opens a datasource
+connection — it reasons about the declarations themselves: missing definitions,
+unknown refs, fan-out across datasources, fragile string references, and unaudited
+dangerous decisions.
+
+Backend-touching validation is separate and runs on demand:
+
+| Check | What it does | Touches backend? |
+| --- | --- | --- |
+| `ms.readiness()` | Structural completeness gate | No |
+| `catalog.preview(ref)` | Executes a small query to sample real rows | Yes |
+| `ms.parity_check(ref)` | Runs a metric against its `provenance` SQL and compares | Yes |
+| `ms.richness()` | Advisory coverage/depth report; never blocks | No |
+
+:::caution[Readiness does not prove the query runs]
+A `ready` report means the semantics are structurally sound, not that the warehouse
+is reachable or the numbers are correct. Use `catalog.preview(...)` and
+`ms.parity_check(...)` for that.
+:::
+
+## The report
+
+`ms.readiness()` returns a frozen `ReadinessReport`:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | Overall verdict (see below). |
+| `blockers` | `tuple[ReadinessIssue, ...]` | Issues that must be fixed before handoff. |
+| `warnings` | `tuple[ReadinessIssue, ...]` | Advisory issues that do not block. |
+| `analysis_ready_refs` | `tuple[str, ...]` | Refs that passed — safe to hand to analysis. |
+| `input_summary` | `ReadinessInputSummary` | What was checked: datasources, refs, tables, decision records. |
+| `abandoned` | `tuple[...]` | Candidate objects marked abandoned. |
+| `checked_at` | `str` | ISO-8601 timestamp of the check. |
+
+`status` is derived from severity: any blocker ⇒ `blocked`; warnings only ⇒
+`ready_with_warnings`; otherwise `ready`.
+
+Each `ReadinessIssue` carries the same teaching shape:
+
+| Attribute | Meaning |
+| --- | --- |
+| `kind` | The issue kind (see table below). |
+| `severity` | `"blocker"` or `"warning"`. |
+| `refs` | The semantic refs the issue applies to. |
+| `message` | What was expected and what was found. |
+| `suggested_action` | The concrete next step. |
+
+`report.show()` prints a bounded card; `report.to_dict()` returns the full machine
+list for programmatic handling.
+
+## Issue kinds
+
+| Kind | Severity | Trigger | Next step |
+| --- | --- | --- | --- |
+| `load_error` | blocker | A declaration failed to load. | Fix the semantic load errors and reload. |
+| `unknown_ref` | blocker | A requested ref is not in the registry. | Fix the ref or remove it from the readiness scope. |
+| `missing_business_definition` | blocker | A checked object has no `ai_context.business_definition`. | Add a `business_definition`. |
+| `cross_datasource_unfederated` | blocker | A metric spans more than one datasource without federation. | Move integration upstream, enable a federated backend, or split the metric. |
+| `unresolved_clarification` | blocker | A dangerous decision (time-dimension identity, metric composition) has no recorded decision. | Reload after the declaration, or record the object-level `DecisionRecord`. |
+| `missing_guardrails` | warning | A checked object has no `ai_context.guardrails`. | Add `guardrails`. |
+| `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
+| `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
+| `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
+
+## Scope the check
+
+By default `ms.readiness()` checks every loaded object. Pass `refs=` to scope it to
+just what an analysis needs — Marivo resolves the full dependency closure (the
+metric, its measures, dimensions, entities, and datasources) for you:
+
+```python
+report = ms.readiness(refs=["sales.revenue"])
+for issue in report.blockers:
+    print(issue.kind, issue.refs, "→", issue.suggested_action)
+```
+
+This is the required semantic gate before analysis. For how analysis records what it
+concludes, see [Evidence](/en/v0.2/concepts/evidence/).

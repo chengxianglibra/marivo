@@ -1,0 +1,536 @@
+---
+slug: en/v0.2/concepts/semantic-layer
+title: Semantic Layer
+description: Python declarations that give agents trusted names, definitions, fields, and guardrails.
+---
+
+The semantic layer is how you teach Marivo what your data *means*. You declare
+datasources, entities, dimensions, and metrics in Python, and agents address them
+by **semantic ref** (a qualified name like `sales.revenue`) instead of raw table
+and column names.
+
+Three rules hold across every object:
+
+- **Python declarations are the contract.** Decorated functions and builder calls
+  are the source of truth for names, definitions, and shapes.
+- **Ibis expressions are the execution language.** Decorator bodies return ibis
+  expressions, never raw SQL strings.
+- **SQL text is metadata only.** When you need SQL (for parity checking), it lives
+  in `provenance=ms.from_sql(sql=..., dialect=...)`, never in an executable body.
+
+You work through two namespaces:
+
+```python
+import marivo.datasource as md   # connections (md.duckdb, md.ref, ...)
+import marivo.semantic as ms     # meaning (ms.entity, ms.metric, ...)
+```
+
+## How names work
+
+Every object lives under a **domain** and is addressed by a qualified ref:
+
+- Domain-level objects: `<domain>.<object>` — e.g. `sales.revenue`, `sales.orders`.
+- Entity-scoped objects (dimensions and measures): `<domain>.<entity>.<field>` —
+  e.g. `sales.orders.region`.
+
+A project is a folder of declaration files. Datasources are declared once under
+`models/datasources/`; semantics live under `models/semantic/<domain>/`, with a
+`_domain.py` per domain:
+
+```text
+your-project/
+  marivo.toml
+  models/
+    datasources/
+      warehouse.py          # md.duckdb(name="warehouse", ...)
+    semantic/
+      sales/
+        _domain.py          # ms.domain(name="sales") + entities, metrics, ...
+```
+
+## Semantic refs
+
+Every semantic object is identified by a **semantic ref** — a typed, immutable
+handle that carries both the qualified name and the kind of object it refers to.
+Refs are the same type at authoring time and in the analysis loop: an
+`ms.entity(...)` call, a `catalog.get(...).ref` lookup, and an analysis intent
+parameter all use the same `SemanticRef` family.
+
+### The `SemanticRef` base
+
+All refs share two read-only attributes:
+
+| Attribute | Type | Meaning |
+| --- | --- | --- |
+| `.id` | `str` | Qualified semantic id (e.g. `"sales.revenue"`). |
+| `.kind` | `SemanticKind` | Object kind — one of the eight values below. |
+
+`str(ref)` returns `.id`, so refs can be used wherever a string id is expected.
+Equality and hashing are by `(type, id)`, so two refs of the same subclass and
+id are interchangeable.
+
+### Per-kind subclasses
+
+Each `SemanticKind` value has a concrete ref subclass:
+
+| Kind | Subclass | Returned by | Callable? |
+| --- | --- | --- | --- |
+| `domain` | `DomainRef` | `ms.domain(...)` | No |
+| `datasource` | `DatasourceRef` | `md.ref(...)` | No |
+| `entity` | `EntityRef` | `ms.entity(...)` | No |
+| `dimension` | `DimensionRef` | `ms.dimension_column(...)` for direct columns, `@ms.dimension` for expressions | Yes — in metric bodies |
+| `time_dimension` | `TimeDimensionRef` | `ms.time_dimension_column(...)` for direct columns, `@ms.time_dimension` for expressions | Yes — in metric bodies |
+| `measure` | `MeasureRef` | `ms.measure_column(...)` for direct columns, `@ms.measure` for expressions | Yes — in metric bodies |
+| `metric` | `MetricRef` | `ms.aggregate(...)`, `ms.count(...)`, `@ms.metric`, `ms.ratio(...)`, … | No |
+| `relationship` | `RelationshipRef` | `ms.relationship(...)` | No |
+
+Callable field refs (`DimensionRef`, `MeasureRef`, `TimeDimensionRef`) resolve
+to an ibis expression when called inside a metric body. All other refs raise a
+teaching error if accidentally called — they are identity tokens, not
+decorators.
+
+### One family, one accessor
+
+Because authoring refs and catalog refs are the same type family, you can pass
+an authoring ref directly to an analysis intent without wrapping it:
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+# revenue is a MetricRef — pass it directly to observe:
+frame = session.observe(revenue, timescope={...})
+```
+
+The catalog's `catalog.get("sales.revenue").ref` returns the same `MetricRef`
+subclass. There is no `.ref.ref` chain or type mismatch between authoring and
+analysis.
+
+### Factory and normalizers
+
+- `mv.make_ref(id, kind)` — internal; removed from the public surface
+  (used internally by the catalog).
+- `as_ref_id(value)` — extract the `.id` string from a `SemanticRef`,
+  `SemanticObject`, or plain `str`. String-tolerant: raw ids pass through.
+
+## `ai_context`: the human-to-agent contract
+
+Every semantic object and datasource accepts an optional `ai_context` parameter,
+constructed with `ms.ai_context(...)`. This is where business meaning and
+guardrails live — the context an agent reads before it uses the object. All
+parameters are optional, but unknown keyword arguments are rejected by Python
+at call time.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `business_definition` | `str` | No | `None` | What the object means in business terms, in a sentence or two. |
+| `guardrails` | `list[str]` | No | `[]` | Rules an agent must respect: required filters, exclusions, scope limits. |
+| `synonyms` | `list[str]` | No | `[]` | Alternate names so agents can resolve natural-language references. |
+| `examples` | `list[str]` | No | `[]` | Example questions or phrasings this object answers. |
+| `instructions` | `str` | No | `None` | Direct guidance on how (and how not) to use the object. |
+| `owner_notes` | `str` | No | `None` | Notes from the human owner: provenance, caveats, known issues. |
+
+```python
+ai_context=ms.ai_context(
+    business_definition="Gross order amount before refunds.",
+    guardrails=["Validate refund exclusions before using as net revenue."],
+    synonyms=["sales", "gmv"],
+    examples=["What was revenue by region last week?"],
+)
+```
+
+## Datasources
+
+Datasources are declared in `models/datasources/*.py` with a typed helper per
+backend. The helper registers the connection; it does not return a value. Semantic
+files refer to a datasource by name through `md.ref("warehouse")`.
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+import marivo.semantic as ms
+
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
+)
+```
+
+Every helper (`md.duckdb`, `md.mysql`, `md.postgres`, `md.trino`, `md.clickhouse`)
+shares these parameters:
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | Yes | — | Global datasource name (letters, digits, `_`, `-`). Used by `md.ref(name)`. |
+| `description` | `str` | No | `None` | Short human-readable summary. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+| `extra` | `dict` | No | `None` | Rare JSON-safe ibis keyword arguments the typed helper does not model. |
+
+Backend-specific parameters:
+
+| Helper | Required | Optional |
+| --- | --- | --- |
+| `md.duckdb` | — | `path` (default `":memory:"`), `read_only` (default `False`) |
+| `md.mysql` | `host`, `database` | `port` (3306), `autocommit`, `user_env`, `password_env` |
+| `md.postgres` | `host`, `database` | `port` (5432), `schema`, `autocommit`, `user_env`, `password_env` |
+| `md.trino` | `host`, `catalog` | `port` (8080), `schema`, `source`, `timezone`, `http_scheme`, `client_tags`, `session_properties`, `user_env`, `auth_env` |
+| `md.clickhouse` | `host` | `port` (9000 / 9440 secure), `database`, `secure`, `settings`, `user_env`, `password_env` |
+
+:::caution[Credentials are references, never literals]
+Sensitive fields are authored as `*_env` references that name an environment
+variable — `user_env="TRINO_USER"`, `password_env="MYSQL_PASSWORD"`. Putting a
+secret literal in a datasource field raises an error. Marivo resolves `*_env`
+values through `os.environ` → `~/.marivo/secrets.toml` and caches resolved secrets
+there after a validated `md.test(...)` round-trip.
+:::
+
+```python
+# models/datasources/lake.py
+import marivo.datasource as md
+
+md.trino(
+    name="lake",
+    host="trino.example.internal",
+    catalog="hive",
+    user_env="TRINO_USER",
+    auth_env="TRINO_AUTH",
+)
+```
+
+## Domain
+
+`ms.domain(...)` opens a namespace. Call it once per `_domain.py`. It returns a
+`DomainRef` you can pass as `domain=` to override the active domain for an object
+declared in a sibling file.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | Yes | — | Domain namespace, e.g. `"sales"`. Objects become `<name>.<object>`. |
+| `default` | `bool` | No | `True` | When `True`, decorators in this file resolve to this domain unless `domain=` is passed. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+
+```python
+import marivo.semantic as ms
+
+ms.domain(name="sales")
+```
+
+## Entity
+
+An entity is one physical source (a table or file) plus its primary key. It is the
+anchor that dimensions, measures, and metrics attach to.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | Yes | — | Entity name. Becomes `<domain>.<name>`. |
+| `datasource` | `DatasourceRef \| str` | Yes | — | `md.ref("warehouse")` or the global datasource name. |
+| `source` | source builder | Yes | — | `ms.table(...)`, `ms.parquet(...)`, or `ms.csv(...)`. |
+| `primary_key` | `list[str]` | No | `None` | Column names forming the primary key. |
+| `versioning` | `ms.snapshot \| ms.validity` | No | `None` | Snapshot or SCD2 validity versioning (see below). |
+| `domain` | `DomainRef` | No | file default | Override the active domain. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+
+```python
+warehouse = md.ref("warehouse")
+
+orders = ms.entity(
+    name="orders",
+    datasource=warehouse,
+    source=ms.table("orders"),
+    primary_key=["order_id"],
+    ai_context=ms.ai_context(business_definition="One row per order."),
+)
+```
+
+### Source builders
+
+| Builder | Required | Optional | Use for |
+| --- | --- | --- | --- |
+| `ms.table(name)` | `name` | `database` | A table in the datasource (use `database="schema"` for Trino/MySQL). |
+| `ms.parquet(path)` | `path` | `hive_partitioning`, `columns` | Parquet files (typically through DuckDB). |
+| `ms.csv(path)` | `path` | `header`, `delimiter`, `columns` | CSV files (typically through DuckDB). |
+
+### Versioning (optional)
+
+For entities whose rows change over time, declare how to read the current state:
+
+- `ms.snapshot(partition_field, grain="day", timezone=None, format=None)` — daily
+  partitioned snapshots; reads the latest partition.
+- `ms.validity(valid_from, valid_to, interval, open_end, timezone=None)` — SCD2
+  validity intervals. `interval` is `"closed_open"` (`[from, to)`) or
+  `"closed_closed"`; `open_end` lists the sentinel values that mean "still current"
+  (e.g. `(None,)` for SQL `NULL`, or `("9999-12-31",)`).
+
+## Dimension
+
+A dimension is a categorical attribute you group or filter by. For direct
+physical columns, use `ms.dimension_column(...)`; for expressions (e.g.
+`table.region.upper()`), use the `@ms.dimension` decorator whose body returns a
+single ibis expression over the entity table.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | Yes | — | Dimension name. Becomes `<domain>.<entity>.<name>`. |
+| `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `column` | `str` | Yes | — | Physical column name on the entity table. |
+| `domain` | `DomainRef` | No | file default | Override the active domain. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+
+```python
+region = ms.dimension_column(
+    name="region",
+    entity=orders,
+    column="region",
+    ai_context=ms.ai_context(business_definition="Sales reporting region."),
+)
+```
+
+## Time dimension
+
+A time dimension is a special dimension that carries grain and parsing metadata.
+**Only time dimensions can serve as the time axis for `session.observe`.**
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | No | function name | Dimension name. |
+| `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `granularity` | grain literal | Yes | — | `year`, `quarter`, `month`, `week`, `day`, `hour`, `minute`, or `second` — the finest grain at which queries are meaningful. |
+| `parse` | parse variant | No | `None` | How the source column becomes a time value (see below). Omit for native temporal columns — the parse variant is inferred at analysis time. |
+| `is_default` | `bool` | No | `False` | Marks the default time axis when the entity has several. `observe` uses it when `time_dimension=` is omitted. |
+| `domain` | `DomainRef` | No | file default | Override the active domain. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+
+### Parse variants
+
+The `parse=` value declares the physical encoding of the column. When omitted,
+the parse variant is inferred from the column's ibis dtype at analysis time
+(native `date`, `datetime`, and `timestamp` columns do not need an explicit parse).
+For string or integer columns, provide `ms.strptime(format)` or
+`ms.hour_prefix(prefix)`. The variant must be compatible with `granularity`
+(e.g. an hour grain needs a time-bearing format).
+
+| Builder | Source column is… | Key parameters |
+| --- | --- | --- |
+| *(omit `parse`)* | a native temporal column | — |
+| `ms.datetime()` | a native `datetime` | `timezone` (IANA), `sample_interval` |
+| `ms.timestamp()` | a native `timestamp` | `timezone` (IANA), `sample_interval` |
+| `ms.strptime(format)` | a string/integer to parse | `timezone`, `sample_interval` |
+| `ms.hour_prefix(prefix)` | an hour-only partition | `sample_interval` — `prefix` is the day-grain time-dimension id that supplies the date |
+
+`timezone` defaults to the datasource engine timezone; set it (e.g. `"UTC"`) only
+when the column's wall-clock meaning differs. `sample_interval` like `(5, "minute")`
+marks a periodically-sampled axis used by semi-additive folds.
+
+```python
+# Day partition stored as the string "20260131"
+log_date = ms.time_dimension_column(
+    name="log_date",
+    entity=orders,
+    column="dt",
+    granularity="day",
+    parse=ms.strptime("%Y%m%d"),
+    is_default=True,
+)
+
+# Native UTC timestamp, usable for sub-day buckets
+event_ts = ms.time_dimension_column(
+    name="event_ts",
+    entity=orders,
+    column="event_ts",
+    granularity="minute",
+    parse=ms.timestamp(timezone="UTC"),
+)
+```
+
+## Measure
+
+A measure is a row-level quantitative expression you intend to aggregate (e.g. an
+amount or quantity). Like a dimension, it is a decorator returning one ibis
+expression — but it carries additivity and an optional unit.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | No | function name | Measure name. Becomes `<domain>.<entity>.<name>`. |
+| `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
+| `unit` | `str` | No | `None` | UCUM unit token: `"USD"`, `"CNY"`, `"%"`, `"ms"`, `"{order}"`. |
+| `domain` | `DomainRef` | No | file default | Override the active domain. |
+| `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
+
+```python
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
+)
+```
+
+## Metrics
+
+A metric is the trusted, analysis-ready number an agent starts from. Marivo has
+several authoring shapes — pick by how the number is computed.
+
+### Simple metric from a measure — `ms.aggregate`
+
+Aggregates a measure. No body; additivity is inherited from the measure.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | Yes | — | Metric name. |
+| `measure` | `MeasureRef \| str` | Yes | — | The measure to aggregate. |
+| `agg` | aggregation | Yes | — | `"sum"`, `"mean"`, `"min"`, `"max"`, … |
+| `fold` | fold | No | `None` | Time-fold override for semi-additive measures. |
+| `unit` | `str` | No | inherited | Override the unit derived from the measure. |
+| `domain` / `ai_context` | — | No | — | As elsewhere. |
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+```
+
+### Count metrics — `ms.count`
+
+Use `ms.count` instead of declaring a redundant measure just to count entity
+rows. The helper accepts refs only and infers the metric domain from the entity
+ref.
+
+```python
+order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
+```
+
+### Metric from an ibis body — `@ms.metric`
+
+Use the decorator when the number is an expression. The body returns one ibis
+aggregation; you declare `additivity` directly.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | No | function name | Metric name. |
+| `entities` | `list[EntityRef \| str]` | Yes | — | Entities the body reads. |
+| `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
+| `root_entity` | `EntityRef \| str` | No | the single entity | Required when `entities` has more than one. |
+| `fanout_policy` | `"block" \| "aggregate_then_join"` | No | `"block"` | How to handle join fan-out across entities. |
+| `unit` | `str` | No | `None` | UCUM unit token. |
+| `provenance` | `SqlProvenance` | No | `None` | `ms.from_sql(sql=..., dialect=...)` for parity checking. |
+| `domain` / `ai_context` | — | No | — | As elsewhere. |
+
+```python
+@ms.metric(
+    entities=[orders],
+    additivity="additive",
+    name="revenue",
+    provenance=ms.from_sql(
+        sql="SELECT SUM(amount) AS revenue FROM orders",
+        dialect="duckdb",
+    ),
+    ai_context=ms.ai_context(business_definition="Gross order amount before refunds."),
+)
+def revenue(table):
+    return table.amount.sum()
+```
+
+### Derived metrics — `ms.ratio` / `ms.weighted_average` / `ms.linear`
+
+Body-free metrics composed from other metrics. The computation comes entirely from
+the components.
+
+| Builder | Required | Computes |
+| --- | --- | --- |
+| `ms.ratio(name, numerator, denominator)` | both refs | `numerator / denominator` (e.g. average order value, rates) |
+| `ms.weighted_average(name, value, weight)` | both refs | weighted average; `decompose` later splits mix vs rate |
+| `ms.linear(name, add, subtract)` | `add` (≥2 terms total) | sum of `add` minus `subtract` (e.g. `net = gross - refunds`) |
+
+Each also accepts `unit`, `domain`, and `ai_context`.
+
+```python
+net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
+aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
+```
+
+### Additivity and provenance helpers
+
+- `ms.semi_additive(over, fold)` — for snapshot/status facts that are additive
+  across most axes but folded over a time axis. `over` is the status time
+  dimension ref returned by `@ms.time_dimension(...)`; `fold` is `"last"`,
+  `"first"`, `"mean"`, `"max"`, or `("quantile", 0.95)`.
+- `ms.from_sql(sql, dialect)` — attaches SQL as **provenance only**, enabling
+  `ms.parity_check(...)`. It is never executed as the metric body.
+
+```python
+snapshot_date = ms.time_dimension_column(
+    name="snapshot_date",
+    entity=inventory_daily,
+    column="snapshot_date",
+    granularity="day",
+)
+
+on_hand_units = ms.measure_column(
+    name="on_hand_units",
+    entity=inventory_daily,
+    column="on_hand_units",
+    additivity=ms.semi_additive(over=snapshot_date, fold="last"),
+)
+```
+
+## Relationship
+
+Declares how two entities join, so metrics and dimensions can reach across them.
+Keys are dimension refs, not raw column names.
+
+| Parameter | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | Yes | — | Relationship name. |
+| `from_entity` | `EntityRef \| str` | Yes | — | Source entity. |
+| `to_entity` | `EntityRef \| str` | Yes | — | Target entity. |
+| `keys` | `list[JoinKey]` | Yes | — | One or more `ms.join_on(from_key, to_key)` pairs. |
+| `domain` / `ai_context` | — | No | — | As elsewhere. |
+
+```python
+ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
+)
+```
+
+## Loading and the readiness gate
+
+Once declarations are in place, load the catalog and inspect it:
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()                       # SemanticCatalog
+catalog.list().show()                     # everything, grouped
+catalog.list(kind="metric").show()        # just metrics
+revenue = catalog.get("sales.revenue")           # one object
+region = catalog.get("sales.orders.region")      # also an object
+```
+
+Before any analysis, check **readiness** — the structural gate that keeps
+half-specified objects out of analysis:
+
+```python
+report = ms.readiness()
+if report.status == "blocked":
+    report.show()                         # blockers, with the next step for each
+```
+
+:::caution[Readiness is required before analysis]
+A project can `load()` successfully while readiness is still blocked. Resolve the
+blockers `report.show()` lists before passing any ref to an analysis session.
+:::
+
+Two more checks support authoring:
+
+- `ms.richness()` — advisory coverage/depth report; never blocks.
+- `ms.parity_check("sales.revenue")` — runs the metric against its
+  `provenance` SQL and compares results. Requires `provenance=ms.from_sql(...)`.
+
+For how readiness decides what is "ready," see [Readiness](/en/v0.2/concepts/readiness/).
+For how analysis records what it concludes, see [Evidence](/en/v0.2/concepts/evidence/).
+Then continue to the [Analysis Workflow](/en/v0.2/concepts/analysis-workflow/).
