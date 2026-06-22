@@ -22,14 +22,20 @@ from marivo.analysis.windows.spec import AbsoluteWindow, normalize_timescope_inp
 
 class FakeMeta:
     def __init__(
-        self, data_type, format=None, required_prefix=None, granularity=None, parse_kind=None
+        self,
+        data_type,
+        format=None,
+        required_prefix=None,
+        granularity=None,
+        parse_kind=None,
+        timezone=None,
     ):
         self.data_type = data_type
         self.format = format
         self.required_prefix = required_prefix
         self.granularity = granularity
         self.parse_kind = parse_kind
-        self.timezone = None
+        self.timezone = timezone
 
 
 class FakeField:
@@ -382,7 +388,7 @@ def test_strptime_minute_uses_timestamp_comparison():
         report_tz=UTC_ZONE,
     )
     assert "STRPTIME" in sql
-    assert "MAKE_TIMESTAMPTZ" in sql
+    assert "MAKE_TIMESTAMP" in sql
 
 
 def test_strptime_day_bucket():
@@ -754,6 +760,40 @@ def test_ensure_bucket_start_timestamp_tz_naive_unchanged():
         dataset_ir=FakeDataset([]),
         grain=Grain(count=1, unit="week"),
         report_tz=shanghai,
+    )
+    assert result is series
+
+
+def test_ensure_bucket_start_timestamp_clickhouse_utc_naive_instant_to_report_tz():
+    """ClickHouse-style UTC-naive instants are decoded to report-local bucket labels."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    # 2026-06-19 16:00 UTC is the 2026-06-20 00:00 Shanghai bucket label.
+    series = pd.Series([pd.Timestamp("2026-06-19 16:00:00")], dtype="datetime64[ms]")
+    time_meta = FakeMeta("datetime", None)
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=FakeDataset([]),
+        grain=Grain(count=1, unit="hour"),
+        report_tz=shanghai,
+        backend_datetime_decode_policy="utc_naive_instant",
+    )
+    assert result.dtype == "datetime64[ms]"
+    assert result.iloc[0] == pd.Timestamp("2026-06-20 00:00:00")
+
+
+def test_ensure_bucket_start_timestamp_clickhouse_date_label_does_not_shift():
+    """Date-only bucket labels stay date labels even under ClickHouse decode policy."""
+    shanghai = ZoneInfo("Asia/Shanghai")
+    series = pd.Series([pd.Timestamp("2026-06-20 00:00:00")], dtype="datetime64[ns]")
+    time_meta = FakeMeta("date", None)
+    result = ensure_bucket_start_timestamp(
+        series,
+        time_meta=time_meta,
+        dataset_ir=FakeDataset([]),
+        grain=Grain(count=1, unit="day"),
+        report_tz=shanghai,
+        backend_datetime_decode_policy="utc_naive_instant",
     )
     assert result is series
 

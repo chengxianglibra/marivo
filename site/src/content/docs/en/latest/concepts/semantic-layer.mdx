@@ -323,6 +323,11 @@ For string or integer columns, provide `ms.strptime(format)` or
 when the column's wall-clock meaning differs. `sample_interval` like `(5, "minute")`
 marks a periodically-sampled axis used by semi-additive folds.
 
+For time-series and panel frames, `bucket_start` is always a report-timezone
+bucket label emitted as a timezone-naive timestamp or date. For example, with
+`report_timezone="Asia/Shanghai"`, the first hourly bucket for a Shanghai
+business day is shown as `2026-06-20 00:00:00`, not the equivalent UTC instant.
+
 ```python
 # Day partition stored as the string "20260131"
 log_date = ms.time_dimension_column(

@@ -307,6 +307,10 @@ hour 粒度需要带时间的格式）。
 形如 `(5, "minute")` 的 `sample_interval` 标记一个被周期采样的时间轴，供 semi-additive
 fold 使用。
 
+对于 time-series 和 panel frame，`bucket_start` 始终是 report timezone 下的 bucket
+标签，并以 timezone-naive timestamp 或 date 输出。例如 `report_timezone="Asia/Shanghai"`
+时，上海业务日的第一个小时桶显示为 `2026-06-20 00:00:00`，而不是等价的 UTC instant。
+
 ```python
 # Day partition stored as the string "20260131"
 log_date = ms.time_dimension_column(

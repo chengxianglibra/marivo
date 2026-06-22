@@ -364,6 +364,11 @@ metric_frame
 
 `observe` 只负责“当前观测是什么”。它不负责比较、不负责 profile、不负责异常检测，也不做跨 frame calendar pairing。
 
+当 `observe` 产出 `time_series` 或 `panel` 时，公开 frame 的 `bucket_start`
+是 report timezone 下的 bucket label，并以 timezone-naive timestamp/date
+输出。后端返回的 datetime 解码差异必须在 executor 后处理阶段归一化；下游
+`compare`、`decompose` 等 operator 不应重新猜测 `bucket_start` 的时区语义。
+
 Phase 1 cross-dataset observe supports base metrics whose non-root datasets are
 reachable through key-derived many-to-one or one-to-one relationships. Joins are
 root-preserving left joins. Cross-dataset `dimensions=` and `where=` are allowed

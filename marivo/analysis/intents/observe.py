@@ -751,6 +751,7 @@ def _execute_sampled_base(
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
                 report_tz=cast("ZoneInfo", session.report_tz),
+                backend_datetime_decode_policy=coverage_result.backend_datetime_decode_policy,
             )
         # Compute expected_samples from bucket duration and sample interval
         bucket_seconds = _fixed_grain_seconds_for_coverage(
@@ -773,6 +774,7 @@ def _execute_sampled_base(
             dataset_ir=root_adapter,
             grain=resolved_window.grain,
             report_tz=cast("ZoneInfo", session.report_tz),
+            backend_datetime_decode_policy=result.backend_datetime_decode_policy,
         )
     axes = dict(plan.axes_metadata)
     if is_time_series and resolved_window is not None:
@@ -889,6 +891,7 @@ def _execute_base(
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
                 report_tz=cast("ZoneInfo", session.report_tz),
+                backend_datetime_decode_policy=result.backend_datetime_decode_policy,
             )
         axes = {
             "time": {
@@ -948,6 +951,7 @@ def _execute_base(
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
                 report_tz=cast("ZoneInfo", session.report_tz),
+                backend_datetime_decode_policy=result.backend_datetime_decode_policy,
             )
         axes = {
             "time": {
@@ -1103,6 +1107,7 @@ def _execute_folded_component(
             dataset_ir=root_adapter,
             grain=resolved_window.grain,
             report_tz=cast("ZoneInfo", session.report_tz),
+            backend_datetime_decode_policy=result.backend_datetime_decode_policy,
         )
     # Coverage sidecar
     coverage_df: Any | None = None
@@ -1125,6 +1130,7 @@ def _execute_folded_component(
                 dataset_ir=root_adapter,
                 grain=resolved_window.grain,
                 report_tz=cast("ZoneInfo", session.report_tz),
+                backend_datetime_decode_policy=coverage_result.backend_datetime_decode_policy,
             )
         bucket_seconds = _fixed_grain_seconds_for_coverage(
             resolved_window.grain.count, resolved_window.grain.unit
@@ -1318,12 +1324,13 @@ def _execute_derived(
                 grouped_expr = table.aggregate(**{component_name: metric_expr}).select(
                     component_name
                 )
-            df = execute(
+            df_result = execute(
                 grouped_expr,
                 datasource_name=cp.base_plan.datasource_name,
                 cache=session._connection_runtime,
                 session_id=session.id,
-            ).df
+            )
+            df = df_result.df
             if has_time and "bucket_start" in df:
                 df["bucket_start"] = ensure_bucket_start_timestamp(
                     df["bucket_start"],
@@ -1331,6 +1338,7 @@ def _execute_derived(
                     dataset_ir=root_adapter,
                     grain=resolved_window.grain if resolved_window else None,
                     report_tz=cast("ZoneInfo", session.report_tz),
+                    backend_datetime_decode_policy=df_result.backend_datetime_decode_policy,
                 )
         component_frames.append(df)
 
