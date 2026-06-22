@@ -1,12 +1,20 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-function docsItems(version) {
+function docsItems(version, releaseNotes) {
   return [
     { slug: version },
     { slug: `${version}/installation` },
     { slug: `${version}/quick-start` },
-    { slug: `${version}/release-notes/0.1.0` },
+    {
+      label: 'Release Notes',
+      translations: {
+        'zh-CN': 'Release Notes',
+      },
+      items: releaseNotes.map((releaseNote) => ({
+        slug: `${version}/release-notes/${releaseNote}`,
+      })),
+    },
     {
       label: 'Concepts',
       translations: {
@@ -90,11 +98,16 @@ export default defineConfig({
           translations: {
             'zh-CN': '最新版',
           },
-          items: docsItems('latest'),
+          items: docsItems('latest', ['0.2.0', '0.1.0']),
+        },
+        {
+          label: 'v0.2',
+          items: docsItems('v0.2', ['0.2.0', '0.1.0']),
+          collapsed: true,
         },
         {
           label: 'v0.1',
-          items: docsItems('v0.1'),
+          items: docsItems('v0.1', ['0.1.0']),
           collapsed: true,
         },
         {

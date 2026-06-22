@@ -5,12 +5,10 @@ import { fileURLToPath } from 'node:url';
 const siteRoot = fileURLToPath(new URL('..', import.meta.url));
 
 const locales = ['en', 'zh-cn'];
-const versions = ['latest', 'v0.1'];
-const docs = [
+const commonDocs = [
   'index.mdx',
   'installation.mdx',
   'quick-start.mdx',
-  'release-notes/0.1.0.mdx',
   'concepts/index.mdx',
   'concepts/semantic-layer.mdx',
   'concepts/analysis-workflow.mdx',
@@ -18,6 +16,11 @@ const docs = [
   'concepts/evidence.mdx',
   'contributing.mdx',
 ];
+const docsByVersion = {
+  latest: [...commonDocs, 'release-notes/0.2.0.mdx', 'release-notes/0.1.0.mdx'],
+  'v0.2': [...commonDocs, 'release-notes/0.2.0.mdx', 'release-notes/0.1.0.mdx'],
+  'v0.1': [...commonDocs, 'release-notes/0.1.0.mdx'],
+};
 
 const requiredFiles = [
   'package.json',
@@ -34,7 +37,7 @@ const requiredFiles = [
 ];
 
 for (const locale of locales) {
-  for (const version of versions) {
+  for (const [version, docs] of Object.entries(docsByVersion)) {
     for (const doc of docs) {
       requiredFiles.push(`src/content/docs/${locale}/${version}/${doc}`);
     }
