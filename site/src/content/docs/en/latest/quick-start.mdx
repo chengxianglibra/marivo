@@ -84,17 +84,28 @@ order_date = ms.time_dimension_column(
 )
 
 
-@ms.metric(
-    entities=[orders],
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
     additivity="additive",
+    unit="CNY",
+    ai_context=ms.ai_context(
+        business_definition="Completed order amount at row level.",
+        guardrails=["Use only where order amount is already net of cancellations."],
+    ),
+)
+
+
+revenue = ms.aggregate(
     name="revenue",
+    measure=amount,
+    agg="sum",
     ai_context=ms.ai_context(
         business_definition="Total completed order amount.",
         guardrails=["Use only where order amount is already net of cancellations."],
     ),
 )
-def revenue(orders):
-    return orders.amount.sum()
 ```
 
 You don't have to write these by hand. `marivo init` installed the
@@ -108,9 +119,12 @@ The skill walks the agent through a disciplined authoring loop, one object at a 
 
 - **Follow the ladder** — domain → entity → dimension → time dimension → measure →
   metric → relationship — so each object's dependencies exist before it.
-- **Plan, then write.** For each object the agent calls a `ms.prepare_*` API (e.g.
-  `ms.prepare_metric`) and branches on the returned brief before writing the
-  declaration into `models/semantic/<domain>/_domain.py`.
+- **Plan, then write.** For each object the agent calls the matching
+  `ms.prepare_*` API and branches on the returned brief before writing the
+  declaration into `models/semantic/<domain>/_domain.py`. The default metric
+  path is `ms.prepare_measure(...)`, write and verify the measure, then declare
+  `ms.aggregate(...)`; `ms.prepare_metric(...)` is for metric-level context when
+  a measure-backed workflow needs it.
 - **Verify before advancing.** After each object it runs `ms.verify_object(ref)` and
   does not move on while that fails.
 - **Gate at closeout.** It finishes with `ms.readiness()` and resolves blockers before

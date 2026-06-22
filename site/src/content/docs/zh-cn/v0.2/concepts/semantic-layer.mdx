@@ -281,8 +281,9 @@ Time dimension 是携带 grain 和解析元数据的特殊 dimension。**只有 
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 否 | 函数名 | Dimension 名称。 |
+| `name` | `str` | 是 | — | Dimension 名称。 |
 | `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `column` | `str` | 是 | — | Entity 表上的物理列名。 |
 | `granularity` | grain 字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
 | `parse` | parse 变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断 parse 变体。 |
 | `is_default` | `bool` | 否 | `False` | 当 entity 有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
@@ -331,13 +332,15 @@ event_ts = ms.time_dimension_column(
 
 ## Measure
 
-Measure 是你打算聚合的行级数量表达式（例如金额或数量）。和 dimension 一样，它是一个返回
-单个 ibis expression 的 decorator —— 但它携带 additivity 和可选的 unit。
+Measure 是你打算聚合的行级数量事实（例如金额或数量）。直接物理列使用
+`ms.measure_column(...)`；需要基于一个或多个列的表达式时使用 `@ms.measure`。Measure
+携带 additivity 和可选的 unit。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 否 | 函数名 | Measure 名称。成为 `<domain>.<entity>.<name>`。 |
+| `name` | `str` | 是 | — | Measure 名称。成为 `<domain>.<entity>.<name>`。 |
 | `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `column` | `str` | 是 | — | Entity 表上的物理列名。 |
 | `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
 | `unit` | `str` | 否 | `None` | UCUM unit token：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
@@ -384,9 +387,10 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="订单总数。"))
 ```
 
-### 来自 ibis body 的 metric —— `@ms.metric`
+### 来自 ibis body 的 tier-2 自定义 metric —— `@ms.metric`
 
-当数值是一个表达式时使用 decorator。Body 返回一个 ibis 聚合；你直接声明 `additivity`。
+当 metric 无法用 `ms.aggregate(...)`、`ms.count(...)` 或派生 metric builder 表达时，
+才使用这个 escape hatch。Body 返回一个 ibis 聚合；你直接声明 `additivity`。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |

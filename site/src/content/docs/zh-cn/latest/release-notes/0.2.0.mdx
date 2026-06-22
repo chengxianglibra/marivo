@@ -14,8 +14,8 @@ workflow 中依赖的 evidence 与 analysis result 细节。
   meaning。
 - 新增 `ms.count(entity=...)` helper，作为 entity count metrics 的唯一 public
   route。
-- 用经过验证的 `ms.ai_context(...)` constructor 替换 `AiContext` typed
-  dictionary。
+- 用经过验证的 `ms.ai_context(...)` constructor 替换 raw typed-dict context
+  shape。
 - 收紧 datasource 与 semantic public surfaces，减少 helper discovery 中的歧义和 internal paths。
 - 新增由 GitHub Release 驱动的 PyPI Trusted Publishing，用于后续版本发布。
 
