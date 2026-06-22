@@ -84,10 +84,11 @@ revenue = ms.aggregate(
 )
 ```
 
-## description vs ai_context
+## Business meaning lives in ai_context
 
-Short display summaries are not a substitute for business meaning. Business
-meaning, usage constraints, and agent guidance belong in `ai_context`:
+All human-readable text about what a semantic object represents belongs in
+`ai_context.business_definition`. Usage constraints, synonyms, and agent
+guidance also go in `ai_context`:
 
 ```python
 amount = ms.measure_column(
@@ -125,7 +126,7 @@ declared in a sibling file that belongs to a different domain:
 
 ```python
 # sales/_domain.py
-sales_ref = ms.domain(name="sales", description="Sales analytics")
+sales_ref = ms.domain(name="sales", ai_context=ms.ai_context(business_definition="Sales analytics"))
 ```
 
 ```python
