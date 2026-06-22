@@ -319,6 +319,8 @@ def test_sampled_fold_persists_time_slot_coverage_sidecar(sampled_bandwidth_proj
     assert "actual_samples" not in frame.columns
     coverage = frame.coverage()
     coverage_df = coverage.to_pandas()
+    frame_df = frame.to_pandas()
+    assert coverage_df["bucket_start"].tolist() == frame_df["bucket_start"].tolist()
     assert coverage_df[
         ["actual_samples", "expected_samples", "coverage_ratio", "coverage_status"]
     ].to_dict("records") == [

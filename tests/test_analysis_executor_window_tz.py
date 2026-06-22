@@ -218,6 +218,39 @@ def test_time_bearing_string_timezone_compares_as_declared_instant():
     assert rows == ["2026-04-30 16:00:00", "2026-05-01 15:59:59"]
 
 
+def test_time_bearing_string_without_timezone_uses_datasource_read_timezone_window():
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE events (event_ts VARCHAR)")
+    con.raw_sql(
+        "INSERT INTO events VALUES "
+        "('2026-04-30 15:59:59'),"
+        "('2026-04-30 16:00:00'),"
+        "('2026-05-01 15:59:59'),"
+        "('2026-05-01 16:00:00')"
+    )
+    dataset_ir = _dataset_ir_for(
+        field_name="event_ts",
+        column="event_ts",
+        time_meta=FakeMeta("string", "%Y-%m-%d %H:%M:%S", parse_kind="strptime"),
+    )
+
+    filtered = apply_window_to_dataset(
+        con.table("events"),
+        AbsoluteWindow(
+            start="2026-05-01",
+            end="2026-05-02",
+            grain="day",
+            time_dimension="event_ts",
+        ),
+        dataset_ir=dataset_ir,
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("UTC"),
+    )
+
+    rows = filtered.order_by("event_ts").execute()["event_ts"].tolist()
+    assert rows == ["2026-04-30 16:00:00", "2026-05-01 15:59:59"]
+
+
 def test_naive_timestamp_defaults_to_system_timezone_window():
     con = ibis.duckdb.connect(":memory:")
     con.raw_sql("CREATE TABLE events (event_ts TIMESTAMP)")
@@ -405,6 +438,68 @@ def test_subday_bucket_for_same_timezone_string_does_not_shift():
     assert [str(item) for item in rows] == [
         "2026-04-30 16:00:00",
         "2026-05-01 00:00:00",
+    ]
+
+
+def test_exact_hour_strptime_without_timezone_buckets_from_datasource_read_timezone():
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE events (event_hour VARCHAR)")
+    con.raw_sql("INSERT INTO events VALUES ('2026-04-30 16'),('2026-04-30 17')")
+    table = con.table("events")
+    field = FakeField(
+        "event_hour",
+        "event_hour",
+        FakeMeta("string", "%Y-%m-%d %H", parse_kind="strptime"),
+    )
+
+    bucketed = apply_time_series_bucket(
+        table,
+        field_ir=field,
+        window=AbsoluteWindow(
+            start="2026-05-01",
+            end="2026-05-02",
+            grain="hour",
+            time_dimension="event_hour",
+        ),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("UTC"),
+    )
+
+    rows = bucketed.order_by("event_hour").execute()["bucket_start"].tolist()
+    assert [str(item) for item in rows] == [
+        "2026-05-01 00:00:00",
+        "2026-05-01 01:00:00",
+    ]
+
+
+def test_declared_utc_timestamp_hour_bucket_crosses_report_dst_boundary():
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE events (event_ts TIMESTAMP)")
+    con.raw_sql(
+        "INSERT INTO events VALUES "
+        "(TIMESTAMP '2026-03-08 06:30:00'),"
+        "(TIMESTAMP '2026-03-08 07:30:00')"
+    )
+    table = con.table("events")
+    field = FakeField("event_ts", "event_ts", FakeMeta("timestamp", timezone="UTC"))
+
+    bucketed = apply_time_series_bucket(
+        table,
+        field_ir=field,
+        window=AbsoluteWindow(
+            start="2026-03-08",
+            end="2026-03-09",
+            grain="hour",
+            time_dimension="event_ts",
+        ),
+        report_tz=ZoneInfo("America/New_York"),
+        datasource_read_tz=ZoneInfo("UTC"),
+    )
+
+    rows = bucketed.order_by("event_ts").execute()["bucket_start"].tolist()
+    assert [str(item) for item in rows] == [
+        "2026-03-08 01:00:00",
+        "2026-03-08 03:00:00",
     ]
 
 

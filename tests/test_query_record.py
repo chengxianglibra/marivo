@@ -194,6 +194,8 @@ def test_execute_returns_query_execution() -> None:
         assert result.query.duration_ms >= 0
         assert result.query.status == "succeeded"
         assert result.query.output_ref is None
+        assert result.backend_dialect == "duckdb"
+        assert result.backend_datetime_decode_policy == "local_naive_label"
     finally:
         cache.close_all()
 

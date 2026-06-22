@@ -11,9 +11,10 @@ from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from itertools import pairwise
 from time import monotonic
 from types import MethodType
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import ibis
@@ -40,6 +41,8 @@ from marivo.datasource import secrets as _secrets
 
 UTC_ZONE = ZoneInfo("UTC")
 _MISSING_ATTR = object()
+BackendDatetimeDecodePolicy = Literal["local_naive_label", "utc_naive_instant"]
+BucketOutputKind = Literal["report_local_timestamp", "date_label", "hour_prefix_label"]
 
 _DATE_DIRECTIVES = frozenset({"%Y", "%y", "%m", "%d", "%j", "%U", "%W"})
 _HOUR_DIRECTIVES = frozenset({"%H", "%I", "%k", "%l"})
@@ -47,6 +50,19 @@ _MINUTE_DIRECTIVES = frozenset({"%M"})
 _SECOND_DIRECTIVES = frozenset({"%S"})
 _SUBSECOND_DIRECTIVES = frozenset({"%f"})
 _AMPM_DIRECTIVES = frozenset({"%p", "%P"})
+
+
+@dataclass(frozen=True)
+class EffectiveTimeContext:
+    report_tz: ZoneInfo
+    datasource_read_tz: ZoneInfo
+    declared_tz: ZoneInfo | None
+    actual_field_tz: ZoneInfo | None
+    effective_column_tz: ZoneInfo | None
+    parse_kind: str | None
+    time_data_type: str | None
+    bucket_output_kind: BucketOutputKind
+    backend_datetime_decode_policy: BackendDatetimeDecodePolicy
 
 
 def _classify_strptime_format(fmt: str) -> str:
@@ -336,7 +352,7 @@ def _declared_timezone(time_meta: Any) -> str | None:
 def _is_time_bearing_string_integer_meta(time_meta: Any) -> bool:
     from marivo.semantic.ir import is_time_bearing_format
 
-    data_type = time_meta.data_type
+    data_type = getattr(time_meta, "data_type", None)
     if data_type not in {"string", "integer"}:
         return False
     return is_time_bearing_format(time_meta.format)
@@ -348,6 +364,75 @@ def _field_timezone(field_expr: Any) -> str | None:
         timezone = getattr(dtype, "timezone", None)
         return str(timezone) if timezone else None
     return None
+
+
+def backend_datetime_decode_policy(dialect: str) -> BackendDatetimeDecodePolicy:
+    return "utc_naive_instant" if dialect.lower() == "clickhouse" else "local_naive_label"
+
+
+def _bucket_output_kind(time_meta: Any) -> BucketOutputKind:
+    data_type = getattr(time_meta, "data_type", None)
+    if data_type == "date":
+        return "date_label"
+    if data_type is None:
+        return "report_local_timestamp"
+    if _is_day_partition_meta(time_meta):
+        return "date_label"
+    if _is_hour_only_partition_meta(time_meta):
+        return "hour_prefix_label"
+    if data_type in {"datetime", "timestamp"}:
+        return "report_local_timestamp"
+    if _is_time_bearing_string_integer_meta(time_meta):
+        return "report_local_timestamp"
+    return "date_label"
+
+
+def effective_time_context(
+    time_meta: Any,
+    *,
+    report_tz: ZoneInfo,
+    datasource_read_tz: ZoneInfo,
+    field_expr: Any | None = None,
+    backend_policy: BackendDatetimeDecodePolicy = "local_naive_label",
+) -> EffectiveTimeContext:
+    declared_name = _declared_timezone(time_meta)
+    declared_tz = zoneinfo_from_name(declared_name) if declared_name is not None else None
+    data_type = getattr(time_meta, "data_type", None)
+    parse_kind = getattr(time_meta, "parse_kind", None)
+    actual_name = _field_timezone(field_expr) if field_expr is not None else None
+    actual_tz = zoneinfo_from_name(actual_name) if actual_name is not None else None
+
+    if actual_name is not None and declared_name is not None and actual_name != declared_name:
+        raise TimezoneInvalidError(
+            message="timezone declaration conflicts with the time field expression timezone",
+            details={
+                "kind": "TimezoneDeclarationConflict",
+                "declared": declared_name,
+                "actual": actual_name,
+            },
+        )
+
+    effective_column_tz: ZoneInfo | None
+    if data_type is None:
+        effective_column_tz = declared_tz or datasource_read_tz
+    elif data_type in {"datetime", "timestamp"}:
+        effective_column_tz = actual_tz or declared_tz or datasource_read_tz
+    elif _is_time_bearing_string_integer_meta(time_meta):
+        effective_column_tz = declared_tz or datasource_read_tz
+    else:
+        effective_column_tz = None
+
+    return EffectiveTimeContext(
+        report_tz=report_tz,
+        datasource_read_tz=datasource_read_tz,
+        declared_tz=declared_tz,
+        actual_field_tz=actual_tz,
+        effective_column_tz=effective_column_tz,
+        parse_kind=parse_kind if isinstance(parse_kind, str) else None,
+        time_data_type=data_type if isinstance(data_type, str) else None,
+        bucket_output_kind=_bucket_output_kind(time_meta),
+        backend_datetime_decode_policy=backend_policy,
+    )
 
 
 _TEMPORAL_DECLARED_DATA_TYPES = {"date", "datetime", "timestamp"}
@@ -558,8 +643,12 @@ def _exclusive_end_for_column(
 
 
 def _column_timezone(time_meta: Any, *, datasource_read_tz: ZoneInfo) -> ZoneInfo:
-    declared = _declared_timezone(time_meta)
-    return zoneinfo_from_name(declared) if declared is not None else datasource_read_tz
+    context = effective_time_context(
+        time_meta,
+        report_tz=datasource_read_tz,
+        datasource_read_tz=datasource_read_tz,
+    )
+    return context.effective_column_tz or datasource_read_tz
 
 
 def _ensure_resolved_data_type(field_expr: Any, time_meta: Any) -> None:
@@ -638,14 +727,18 @@ def _window_bound_predicates(
     _validate_time_field_dtype(field_expr, time_meta)
     data_type = time_meta.data_type
     fmt = time_meta.format
+    context = effective_time_context(
+        time_meta,
+        report_tz=report_tz,
+        datasource_read_tz=datasource_read_tz,
+        field_expr=field_expr,
+    )
 
     # timestamp: compare as proper temporal values
     if data_type in {"datetime", "timestamp"}:
-        declared = _declared_timezone(time_meta)
-        actual = _field_timezone(field_expr)
-        if actual is None:
+        if context.actual_field_tz is None:
             # Naive timestamp column: determine effective column timezone
-            column_tz = zoneinfo_from_name(declared) if declared is not None else datasource_read_tz
+            column_tz = context.effective_column_tz or datasource_read_tz
             lower_dt = _timestamp_bounds_for_column(
                 window,
                 report_tz=report_tz,
@@ -681,41 +774,41 @@ def _window_bound_predicates(
 
     # Hour-precision partition formats: raw string/integer comparison
     if _is_hour_precision_partition_meta(time_meta):
-        declared = _declared_timezone(time_meta)
-        if declared is None:
+        column_tz = context.effective_column_tz or report_tz
+        if _parse_hour_precision_literal(str(window.start), fmt) is not None:
             lower_dt = _partition_start_datetime(
-                window.start, fmt=fmt, tz=report_tz, bound_name="start"
-            )
-            upper_dt = _partition_exclusive_end_datetime(
-                window.end, fmt=fmt, tz=report_tz, bound_name="end"
+                window.start, fmt=fmt, tz=column_tz, bound_name="start"
             )
         else:
-            bound_tz = zoneinfo_from_name(declared)
             lower_bound = _timestamp_bounds_for_column(
                 window,
                 report_tz=report_tz,
-                column_tz=bound_tz,
+                column_tz=column_tz,
                 bound_name="start",
                 value=window.start,
             )
             lower_dt = _partition_start_datetime(
-                lower_bound.isoformat(), fmt=fmt, tz=bound_tz, bound_name="start"
+                lower_bound.isoformat(), fmt=fmt, tz=column_tz, bound_name="start"
             )
-            if is_date_only(window.end):
-                upper_dt = _exclusive_end_for_column(
-                    window, report_tz=report_tz, column_tz=bound_tz
-                ).replace(minute=0, second=0, microsecond=0)
-            else:
-                upper_bound = _timestamp_bounds_for_column(
-                    window,
-                    report_tz=report_tz,
-                    column_tz=bound_tz,
-                    bound_name="end",
-                    value=window.end,
-                )
-                upper_dt = _partition_exclusive_end_datetime(
-                    upper_bound.isoformat(), fmt=fmt, tz=bound_tz, bound_name="end"
-                )
+        if _parse_hour_precision_literal(str(window.end), fmt) is not None:
+            upper_dt = _partition_exclusive_end_datetime(
+                window.end, fmt=fmt, tz=column_tz, bound_name="end"
+            )
+        elif is_date_only(window.end):
+            upper_dt = _exclusive_end_for_column(
+                window, report_tz=report_tz, column_tz=column_tz
+            ).replace(minute=0, second=0, microsecond=0)
+        else:
+            upper_bound = _timestamp_bounds_for_column(
+                window,
+                report_tz=report_tz,
+                column_tz=column_tz,
+                bound_name="end",
+                value=window.end,
+            )
+            upper_dt = _partition_exclusive_end_datetime(
+                upper_bound.isoformat(), fmt=fmt, tz=column_tz, bound_name="end"
+            )
         lower = _encode_hour_precision_bound(lower_dt, time_meta)
         upper = _encode_hour_precision_bound(upper_dt, time_meta)
         return (field_expr >= lower, field_expr < upper)
@@ -745,11 +838,10 @@ def _window_bound_predicates(
             )
         parsed_expr = _parse_string_column(field_expr, time_meta)
         classification = _classify_strptime_format(fmt)
-        declared = _declared_timezone(time_meta)
-        if declared is None:
+        column_tz = context.effective_column_tz or report_tz
+        if classification == "day":
             lower_dt = _coerce_bound_datetime(window.start, tz=report_tz, bound_name="start")
         else:
-            column_tz = zoneinfo_from_name(declared)
             lower_dt = _timestamp_bounds_for_column(
                 window,
                 report_tz=report_tz,
@@ -765,42 +857,26 @@ def _window_bound_predicates(
                     parsed_expr >= ibis.date(lower_dt.date().isoformat()),
                     parsed_expr < ibis.date(upper_dt.date().isoformat()),
                 )
-            if declared is None:
-                upper_dt = _coerce_bound_datetime(window.end, tz=report_tz, bound_name="end")
-            else:
-                upper_dt = _timestamp_bounds_for_column(
-                    window,
-                    report_tz=report_tz,
-                    column_tz=column_tz,
-                    bound_name="end",
-                    value=window.end,
-                )
+            upper_dt = _coerce_bound_datetime(window.end, tz=report_tz, bound_name="end")
             return (
                 parsed_expr >= ibis.date(lower_dt.date().isoformat()),
                 parsed_expr < ibis.date(upper_dt.date().isoformat()),
             )
         else:
             if is_date_only(window.end):
-                if declared is None:
-                    upper_dt = _local_midnight_of(window.end, tz=report_tz, bound_name="end")
-                else:
-                    upper_dt = _exclusive_end_for_column(
-                        window, report_tz=report_tz, column_tz=column_tz
-                    )
+                upper_dt = _exclusive_end_for_column(
+                    window, report_tz=report_tz, column_tz=column_tz
+                )
                 return (
                     parsed_expr >= ibis.timestamp(lower_dt.isoformat()),
                     parsed_expr < ibis.timestamp(upper_dt.isoformat()),
                 )
-            upper_dt = (
-                _timestamp_bounds_for_column(
-                    window,
-                    report_tz=report_tz,
-                    column_tz=column_tz,
-                    bound_name="end",
-                    value=window.end,
-                )
-                if declared is not None
-                else _coerce_bound_datetime(window.end, tz=report_tz, bound_name="end")
+            upper_dt = _timestamp_bounds_for_column(
+                window,
+                report_tz=report_tz,
+                column_tz=column_tz,
+                bound_name="end",
+                value=window.end,
             )
             return (
                 parsed_expr >= ibis.timestamp(lower_dt.isoformat()),
@@ -1050,15 +1126,132 @@ def _timestamp_expr_in_report_timezone(
     report_tz: ZoneInfo,
     window: AbsoluteWindow,
 ) -> Any:
-    anchor_utc = _coerce_bound_datetime(window.start, tz=report_tz, bound_name="start")
-    column_offset = anchor_utc.astimezone(column_tz).utcoffset()
-    report_offset = anchor_utc.astimezone(report_tz).utcoffset()
+    start_utc = _coerce_bound_datetime(window.start, tz=report_tz, bound_name="start")
+    end_utc = _coerce_bound_datetime(window.end, tz=report_tz, bound_name="end")
+    boundaries = _timezone_offset_boundaries(
+        start_utc,
+        end_utc,
+        column_tz=column_tz,
+        report_tz=report_tz,
+    )
+    if len(boundaries) <= 2:
+        return _shift_timestamp_expr(
+            ts_expr,
+            shift_seconds=_report_local_shift_seconds(
+                start_utc,
+                column_tz=column_tz,
+                report_tz=report_tz,
+            ),
+        )
+
+    branches: list[tuple[Any, Any]] = []
+    for segment_start, segment_end in pairwise(boundaries):
+        lower = _instant_as_naive_in_zone(segment_start, column_tz)
+        upper = _instant_as_naive_in_zone(segment_end, column_tz)
+        shifted = _shift_timestamp_expr(
+            ts_expr,
+            shift_seconds=_report_local_shift_seconds(
+                segment_start,
+                column_tz=column_tz,
+                report_tz=report_tz,
+            ),
+        )
+        branches.append(
+            (
+                (ts_expr >= ibis.timestamp(lower.isoformat()))
+                & (ts_expr < ibis.timestamp(upper.isoformat())),
+                shifted,
+            )
+        )
+
+    fallback = _shift_timestamp_expr(
+        ts_expr,
+        shift_seconds=_report_local_shift_seconds(
+            start_utc,
+            column_tz=column_tz,
+            report_tz=report_tz,
+        ),
+    )
+    first, *rest = branches
+    return ibis.cases(first, *rest, else_=fallback)
+
+
+def _report_local_shift_seconds(
+    instant_utc: datetime,
+    *,
+    column_tz: ZoneInfo,
+    report_tz: ZoneInfo,
+) -> int:
+    column_offset = instant_utc.astimezone(column_tz).utcoffset()
+    report_offset = instant_utc.astimezone(report_tz).utcoffset()
     column_seconds = int(column_offset.total_seconds()) if column_offset is not None else 0
     report_seconds = int(report_offset.total_seconds()) if report_offset is not None else 0
-    shift_seconds = report_seconds - column_seconds
+    return report_seconds - column_seconds
+
+
+def _shift_timestamp_expr(ts_expr: Any, *, shift_seconds: int) -> Any:
     if shift_seconds == 0:
         return ts_expr
     return ts_expr + ibis.interval(seconds=shift_seconds)
+
+
+def _instant_as_naive_in_zone(instant_utc: datetime, tz: ZoneInfo) -> datetime:
+    return instant_utc.astimezone(tz).replace(tzinfo=None)
+
+
+def _timezone_offset_boundaries(
+    start_utc: datetime,
+    end_utc: datetime,
+    *,
+    column_tz: ZoneInfo,
+    report_tz: ZoneInfo,
+) -> list[datetime]:
+    if end_utc <= start_utc:
+        return [start_utc, end_utc]
+
+    boundaries = {start_utc, end_utc}
+    for tz in {column_tz, report_tz}:
+        boundaries.update(_timezone_offset_transitions(start_utc, end_utc, tz))
+    return sorted(boundaries)
+
+
+def _timezone_offset_transitions(
+    start_utc: datetime,
+    end_utc: datetime,
+    tz: ZoneInfo,
+) -> list[datetime]:
+    transitions: list[datetime] = []
+    step = timedelta(hours=1)
+    left = start_utc
+    left_offset = left.astimezone(tz).utcoffset()
+    cursor = min(left + step, end_utc)
+    while cursor <= end_utc:
+        cursor_offset = cursor.astimezone(tz).utcoffset()
+        if cursor_offset != left_offset:
+            transition = _bisect_timezone_transition(left, cursor, tz, left_offset)
+            if start_utc < transition < end_utc:
+                transitions.append(transition)
+            left_offset = cursor_offset
+        left = cursor
+        if cursor == end_utc:
+            break
+        cursor = min(cursor + step, end_utc)
+    return transitions
+
+
+def _bisect_timezone_transition(
+    left: datetime,
+    right: datetime,
+    tz: ZoneInfo,
+    left_offset: timedelta | None,
+) -> datetime:
+    while right - left > timedelta(seconds=1):
+        midpoint = left + (right - left) / 2
+        if midpoint.astimezone(tz).utcoffset() == left_offset:
+            left = midpoint
+        else:
+            right = midpoint
+    return right.replace(microsecond=0)
 
 
 def bucket_time_expression(
@@ -1103,9 +1296,19 @@ def bucket_time_expression(
             or (grain.unit == "hour" and grain.count == 1 and classification == "hour")
             or (grain.unit == "minute" and grain.count == 1 and classification == "minute")
         )
-        if grain_matches_classification:
+        context = effective_time_context(
+            time_meta,
+            report_tz=report_tz,
+            datasource_read_tz=datasource_read_tz,
+            field_expr=raw,
+        )
+        if grain_matches_classification and (
+            classification == "day"
+            or context.effective_column_tz is None
+            or context.effective_column_tz == report_tz
+        ):
             return parsed
-        column_tz = _column_timezone(time_meta, datasource_read_tz=datasource_read_tz)
+        column_tz = context.effective_column_tz or datasource_read_tz
         local_parsed = _timestamp_expr_in_report_timezone(
             parsed,
             column_tz=column_tz,
@@ -1137,12 +1340,16 @@ def _local_bucket_expr(
     shift converts from read-local to report-local.
     """
     data_type = time_meta.data_type
-    declared = _declared_timezone(time_meta)
     if data_type in {"datetime", "timestamp"}:
         ts_expr = raw
-        if declared is not None:
-            column_tz = zoneinfo_from_name(declared)
-        else:
+        context = effective_time_context(
+            time_meta,
+            report_tz=report_tz,
+            datasource_read_tz=datasource_read_tz,
+            field_expr=raw,
+        )
+        column_tz = context.effective_column_tz or datasource_read_tz
+        if context.declared_tz is None and context.actual_field_tz is None:
             _logger.warning(
                 "Time dimension %r has no declared timezone for naive %r column; "
                 "assuming datasource read timezone %s. Add timezone= to @ms.time_dimension "
@@ -1151,7 +1358,6 @@ def _local_bucket_expr(
                 data_type,
                 getattr(datasource_read_tz, "key", str(datasource_read_tz)),
             )
-            column_tz = datasource_read_tz
     else:
         raise WindowInvalidError(
             message=f"_local_bucket_expr only supports datetime/timestamp, "
@@ -1270,6 +1476,8 @@ def ensure_bucket_start_timestamp(
     dataset_ir: Any,
     grain: Grain | None,
     report_tz: ZoneInfo | None = None,
+    time_context: EffectiveTimeContext | None = None,
+    backend_datetime_decode_policy: BackendDatetimeDecodePolicy = "local_naive_label",
 ) -> pd.Series:
     """Normalize bucket_start values after SQL execution.
 
@@ -1285,9 +1493,25 @@ def ensure_bucket_start_timestamp(
     if grain is None:
         return series
 
+    if time_context is not None:
+        report_tz = report_tz or time_context.report_tz
+        backend_datetime_decode_policy = time_context.backend_datetime_decode_policy
+        bucket_output_kind = time_context.bucket_output_kind
+    else:
+        bucket_output_kind = _bucket_output_kind(time_meta)
+
     # Timezone normalization: convert tz-aware timestamps to report-local naive.
     if report_tz is not None and isinstance(series.dtype, pd.DatetimeTZDtype):
         converted: pd.Series = series.dt.tz_convert(report_tz).dt.tz_localize(None)
+        return converted
+
+    if (
+        report_tz is not None
+        and backend_datetime_decode_policy == "utc_naive_instant"
+        and bucket_output_kind == "report_local_timestamp"
+        and pd.api.types.is_datetime64_any_dtype(series)
+    ):
+        converted = series.dt.tz_localize(UTC_ZONE).dt.tz_convert(report_tz).dt.tz_localize(None)
         return converted
 
     if not pd.api.types.is_string_dtype(series):
@@ -1382,9 +1606,35 @@ def apply_time_series_bucket(
             )
         )
         if grain_matches_classification:
-            bucket = parsed.name("bucket_start")
+            context = effective_time_context(
+                time_meta,
+                report_tz=report_tz,
+                datasource_read_tz=datasource_read_tz,
+                field_expr=raw,
+            )
+            if (
+                classification == "day"
+                or context.effective_column_tz is None
+                or context.effective_column_tz == report_tz
+            ):
+                bucket = parsed.name("bucket_start")
+            else:
+                column_tz = context.effective_column_tz or datasource_read_tz
+                local_parsed = _timestamp_expr_in_report_timezone(
+                    parsed,
+                    column_tz=column_tz,
+                    report_tz=report_tz,
+                    window=window,
+                )
+                bucket = bucket_start_expr(local_parsed, window.grain)
         else:
-            column_tz = _column_timezone(time_meta, datasource_read_tz=datasource_read_tz)
+            context = effective_time_context(
+                time_meta,
+                report_tz=report_tz,
+                datasource_read_tz=datasource_read_tz,
+                field_expr=raw,
+            )
+            column_tz = context.effective_column_tz or datasource_read_tz
             local_parsed = _timestamp_expr_in_report_timezone(
                 parsed,
                 column_tz=column_tz,
@@ -1570,6 +1820,8 @@ class ExecutionResult:
     duration_ms: int
     row_count: int
     query: QueryExecution | None = None
+    backend_dialect: str = "unknown"
+    backend_datetime_decode_policy: BackendDatetimeDecodePolicy = "local_naive_label"
 
 
 def _sql_execution_comment(session_id: str) -> str:
@@ -1634,6 +1886,8 @@ def execute(
     session_id: str | None = None,
 ) -> ExecutionResult:
     backend = cache.get_or_create(datasource_name)
+    dialect = _backend_dialect(backend)
+    decode_policy = backend_datetime_decode_policy(dialect)
     original_compile_attr = getattr(backend, "__dict__", {}).get("compile", _MISSING_ATTR)
     original_compile = getattr(backend, "compile", None)
     captured_sql: str | None = None
@@ -1646,7 +1900,6 @@ def execute(
                 nonlocal captured_sql
                 sql = original_compile(expr, *args, **kwargs)
 
-                dialect = _backend_dialect(backend)
                 if dialect == "clickhouse":
                     sql = _fix_clickhouse_datetrunc(sql)
 
@@ -1663,7 +1916,6 @@ def execute(
                 nonlocal captured_sql
                 sql: str = original_compile(expr, *args, **kwargs)
 
-                dialect = _backend_dialect(backend)
                 if dialect == "clickhouse":
                     sql = _fix_clickhouse_datetrunc(sql)
 
@@ -1684,7 +1936,6 @@ def execute(
         query_finished_at = datetime.now(UTC)
         failed_duration = int((monotonic() - started) * 1000)
         if captured_sql is not None:
-            dialect = _backend_dialect(backend)
             norm_sql, bind_params = normalize_sql(captured_sql, dialect=dialect)
             failed_qe = QueryExecution(
                 query_id=gen_query_ref(),
@@ -1735,7 +1986,6 @@ def execute(
 
     qe: QueryExecution | None = None
     if captured_sql is not None:
-        dialect = _backend_dialect(backend)
         norm_sql, bind_params = normalize_sql(captured_sql, dialect=dialect)
         qe = QueryExecution(
             query_id=gen_query_ref(),
@@ -1759,6 +2009,8 @@ def execute(
         duration_ms=duration_ms,
         row_count=len(df),
         query=qe,
+        backend_dialect=dialect,
+        backend_datetime_decode_policy=decode_policy,
     )
 
 
