@@ -1,14 +1,14 @@
 ---
-title: Readiness
-description: 阻止未完成 semantic objects 进入 analysis 的结构性 gate。
+title: 就绪检查
+description: 在 analysis 前阻止未完成 semantic objects 的结构性门禁。
 ---
 
-Readiness 是 authoring 与 analysis 之间的必经 gate。`ms.readiness()` 检查 agent 即将
-使用的 semantic objects 是否足够完整、规范，可以交接给分析，并返回一个 `ReadinessReport`。
+就绪检查是 authoring 与 analysis 之间的必经门禁。`ms.readiness()` 检查 agent 即将使用的
+semantic objects 是否完整、规范，是否可以交接给分析，并返回一个 `ReadinessReport`。
 
-一个新 project 可以成功 `ms.load()`，而 readiness 仍然是 **blocked** —— load 只是解析
-declarations。Readiness 阻止 agents 基于半成品 semantics 进行推理：把任何 ref 交给分析
-session 之前，先解决每一个 blocker。
+新 project 可以成功 `ms.load()`，但 readiness 仍然是 **blocked**。`load` 只负责解析
+declarations；就绪检查负责阻止 agents 基于半成品 semantics 进行推理。把任何 ref 交给分析
+session 之前，都应先解决每一个 blocker。
 
 ```python
 import marivo.semantic as ms
@@ -20,7 +20,7 @@ if report.status == "blocked":
     raise SystemExit("resolve readiness blockers before analysis")
 ```
 
-## 结构性检查，而非运行时检查
+## 结构性检查，不是运行时检查
 
 `ms.readiness()` 是一次**纯内存检查**。它从不打开 datasource 连接 —— 它只针对 declarations
 本身进行推理：缺失定义、未知 refs、跨 datasource 的 fan-out、脆弱的 string references，以及
@@ -30,12 +30,12 @@ if report.status == "blocked":
 
 | 检查 | 作用 | 是否触及 backend？ |
 | --- | --- | --- |
-| `ms.readiness()` | 结构性完整性 gate | 否 |
+| `ms.readiness()` | 结构性完整性门禁 | 否 |
 | `catalog.preview(ref)` | 执行一个小查询，采样真实数据行 | 是 |
 | `ms.parity_check(ref)` | 用 metric 对其 `provenance` SQL 跑一遍并比对结果 | 是 |
 | `ms.richness()` | 关于覆盖度/深度的建议性报告；从不 block | 否 |
 
-:::caution[Readiness 不证明查询能跑通]
+:::caution[就绪检查不证明查询能跑通]
 `ready` 报告意味着 semantics 在结构上是健全的，并不代表仓库可达或数字正确。请用
 `catalog.preview(...)` 与 `ms.parity_check(...)` 来验证这些。
 :::
@@ -57,7 +57,7 @@ if report.status == "blocked":
 `status` 由严重程度推导：只要有 blocker ⇒ `blocked`；只有 warnings ⇒ `ready_with_warnings`；
 其余 ⇒ `ready`。
 
-每个 `ReadinessIssue` 都带有相同的“教学式”形状：
+每个 `ReadinessIssue` 都采用相同的教学式结构：
 
 | 属性 | 含义 |
 | --- | --- |
@@ -85,8 +85,8 @@ if report.status == "blocked":
 
 ## 限定检查范围
 
-默认情况下 `ms.readiness()` 检查每一个已加载对象。传入 `refs=` 可将其限定到一次分析所需的
-范围 —— Marivo 会为你解析完整的依赖闭包（metric、它的 measures、dimensions、entities 与
+默认情况下，`ms.readiness()` 会检查每一个已加载对象。传入 `refs=` 可将范围限定到一次分析所需的
+对象；Marivo 会解析完整的依赖闭包（metric、它的 measures、dimensions、entities 与
 datasources）：
 
 ```python
@@ -95,5 +95,5 @@ for issue in report.blockers:
     print(issue.kind, issue.refs, "→", issue.suggested_action)
 ```
 
-这是分析之前必经的 semantic gate。关于分析如何记录它得出的结论，参见
-[Evidence](/zh-cn/latest/concepts/evidence/)。
+这是分析之前必经的语义门禁。关于分析如何记录结论，参见
+[证据链](/zh-cn/latest/concepts/evidence/)。
