@@ -1,5 +1,10 @@
 # Decision-Centric Analysis Algebra Redesign
 
+> **状态更新（评审后）**：本文（v1）是较激进的提案，已经过一轮 code-grounded
+> review。review 的核心反对意见成立（详见文末 §9 评审记录），收敛后的方向已另立
+> [`decision-centric-analysis-redesign-v2.md`](./decision-centric-analysis-redesign-v2.md)。
+> **本文保留作为讨论留痕，不作为推进基线；请以 v2 为准。**
+
 状态：proposal / RFC，供讨论，**不表示已被接受**。本文提出对 `marivo.analysis`
 分析算子代数的一次抽象层次调整：保留"分析意图算子 + agent 契约"这一核心，
 放松"代数纯粹性"带来的刚性，并把组织轴从"输出数据形状（family）"转为
@@ -262,3 +267,22 @@ result = session.run(why.followups[2])  # drill ios by app_version
   作为 deprecated alias 一个版本周期？
 - 多维 joint 归因在 semantic layer 数据模型上的前置要求（当前 spec 把 country×platform
   列为"待 semantic layer 支持后设计"）。
+
+## 9. 评审记录与裁决（discussion trail）
+
+本节保留第一轮 code-grounded review 的反对意见、对应的代码事实核对结果，以及逐条
+裁决。它是 v1→v2 收敛的决策依据，不删除以保留分歧轨迹。
+
+| # | review 反对意见 | 代码事实核对 | 裁决 |
+| --- | --- | --- | --- |
+| 1 | `AnalysisResult` 不是简化而是弱化已有 typed frame contract | `marivo/analysis/frames/base.py` 的 `BaseFrameMeta` 已统一承载 `kind/ref/lineage/evidence_status/quality/blocking_issues/recommended_followups`；治理元数据不是缺口 | **接受**。统一 result 要么是空包一层，要么让下游宽收而削弱类型保护。改为：给现有 frame 增量补 `schema_descriptor()`，不替换 family。 |
+| 2 | "agent retry 近乎免费"前提不成立；不应把 shape gate 推到 runtime | `marivo/analysis/intents/_shape.py` 已有纯本地、无 backend 的 shape 预测器（`observe_output_shape` / `compare_output_shape` / `attribution_output_shape`）；step 执行触发查询/持久化/cost | **接受**。保留 preflight/compile gate，只把错误消息升级成教学型。 |
+| 3 | `derive` 一等化混淆"有 lineage"与"语义锚点可靠" | `marivo/analysis/escape_hatch.py` 的 `promote_metric_frame` 显式要求 `metric/semantic_kind/measure_column/semantic_model` 并 fail-closed；RFC 未定义 anchor 推断边界/信任模型，也未说明 `expr=lambda` 如何进入 `semantic/validator.py` | **接受**。`derive` 升级为 governed exploration，但保留显式/半显式 anchor，不取消 promotion 语义确认关。 |
+| 4 | `explain` 合并 decompose+discover+auto_decompose 过大 | `marivo/analysis/intents/decompose.py` 的 `decompose` 是干净的 frame-local primitive（校验 axis 在已有列、gate fold） | **接受**。`explain` 先做 composite 实验，不替换 core taxonomy；primitive 保留。 |
+| 5 | 多维归因进核心前算法 contract 不足 | RFC §3.5 只列 capability，无数学不变量/失败条件 | **接受**。v2 新增"算法不变量与 test oracle"要求（贡献守恒、基准选择、高基数、Simpson、缺失 denominator、层级不完备、多重比较），作为进 core 的前置门槛。 |
+| 6 | 重命名（test/project/scan/audit）成本被低估且更模糊 | `marivo/analysis/__init__.py` 的 `__all__`、`tests/test_analysis_session_surface.py` 的 surface snapshot、`marivo-analysis` skill 锁定现算子名；现名语义更明确 | **接受**。取消动词重命名；`explain` 仅作为**新增**而非改名。补充：`__all__`/snapshot/skill 也是 agent 的先验，重命名作废这部分先验。 |
+
+裁决结论：v1 正确识别了压力点（多维/层级归因、长尾自由计算、followup 经济学），
+但药方（替换 family/shape 类型代数）证据不足、风险过大。收敛为"在现有代数上增量
+加固 + `explain` composite 实验 + 先补 test oracle"，core spec 是否调整降级为**待
+composite 用真实案例证明后再开的开放问题**。详见 v2。
