@@ -18,6 +18,12 @@ from marivo.render import format_bounded_card, result_repr
 ScanPartition = Mapping[str, str] | Literal["latest"] | None
 PartitionResolution = Literal["explicit", "latest", "none", "unpruned"]
 
+# Public datasource-side alias for physical source values returned by
+# md.table(...), md.parquet(...), and md.csv(...). Named TableSource to avoid
+# colliding with the semantic authoring DatasetSource alias. Exported in the
+# public md surface in a later plan; defined here so discovery types can use it.
+TableSource = EntitySourceIR
+
 
 @dataclass(frozen=True)
 class ScanScope:
@@ -283,4 +289,101 @@ def csv(
         header=header,
         delimiter=delimiter,
         columns=_normalize_columns_input(columns, field_name="CsvSourceIR.columns"),
+    )
+
+
+def latest_partition(
+    *,
+    max_rows: int = 1000,
+    max_columns: int = 100,
+    timeout_seconds: int | None = 30,
+) -> ScanScope:
+    """Build a ScanScope that uses the latest available partition.
+
+    Args:
+        max_rows: Maximum rows returned from the scan.
+        max_columns: Maximum columns returned from the scan.
+        timeout_seconds: Scan timeout in seconds; ``None`` means no limit.
+
+    Returns:
+        A ``ScanScope`` with ``partition="latest"``.
+
+    Example:
+        >>> from marivo.datasource.scan import latest_partition
+        >>> latest_partition()
+        ScanScope(...)
+
+    Constraints:
+        When a source has no partition metadata, discovery resolves this to an
+        unpruned scan and emits ``discovery_unpruned_scan``.
+    """
+    return ScanScope(
+        partition="latest",
+        max_rows=max_rows,
+        max_columns=max_columns,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def partition(
+    values: Mapping[str, str],
+    *,
+    max_rows: int = 1000,
+    max_columns: int = 100,
+    timeout_seconds: int | None = 30,
+) -> ScanScope:
+    """Build a ScanScope with an explicit concrete partition selection.
+
+    Args:
+        values: Partition column-to-value mapping (e.g. ``{"dt": "20260612"}``).
+        max_rows: Maximum rows returned from the scan.
+        max_columns: Maximum columns returned from the scan.
+        timeout_seconds: Scan timeout in seconds; ``None`` means no limit.
+
+    Returns:
+        A ``ScanScope`` with ``partition=values``.
+
+    Example:
+        >>> from marivo.datasource.scan import partition
+        >>> partition({"dt": "20260612"})
+        ScanScope(...)
+    """
+    return ScanScope(
+        partition=dict(values),
+        max_rows=max_rows,
+        max_columns=max_columns,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def unpruned(
+    *,
+    max_rows: int = 1000,
+    max_columns: int = 100,
+    timeout_seconds: int | None = 30,
+) -> ScanScope:
+    """Build a ScanScope that explicitly disables partition pruning.
+
+    Args:
+        max_rows: Maximum rows returned from the scan.
+        max_columns: Maximum columns returned from the scan.
+        timeout_seconds: Scan timeout in seconds; ``None`` means no limit.
+
+    Returns:
+        A ``ScanScope`` with ``partition=None``.
+
+    Example:
+        >>> from marivo.datasource.scan import unpruned
+        >>> unpruned()
+        ScanScope(...)
+
+    Constraints:
+        Discovery surfaces a ``discovery_unpruned_scan`` info issue so agents
+        can see that the scan was intentionally broader.
+    """
+    return ScanScope(
+        partition=None,
+        max_rows=max_rows,
+        max_columns=max_columns,
+        timeout_seconds=timeout_seconds,
     )
