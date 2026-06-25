@@ -28,15 +28,27 @@ ladder rung.
 Every rung iterates the same cycle, one semantic object per iteration:
 
 ```text
-prepare_<kind>(...) -> Brief
-  |-- status == "blocked"      -> fix the blocker or abandon the candidate
-  |-- blocking questions open  -> answer from documented knowledge, or ask
-  |     the user; unanswerable -> abandon: record authoring_abandoned, skip
-  +-- status == "sufficient" and no open blocking question
-        -> append exactly ONE object to _domain.py
+discover evidence
+  -> prepare_<kind>(...) -> Brief
+  |-- status == "blocked" -> fix the blocker or abandon the candidate
+  +-- candidate can proceed
+        -> draft one proposed object from evidence
+        -> grill one unresolved semantic decision at a time
+        -> author exactly one object only after agreement
         -> verify_object(ref)      (fix loop until passed)
         -> next object
 ```
+
+Discovery is datasource-first. Use Brief facts, existing `md` datasource refs,
+`md.inspect_table`, `md.inspect_columns`, bounded `md.preview`,
+`md.probe_join_keys`, existing semantic catalog objects, source SQL/provenance,
+project docs, and prior ledger decisions before asking the user.
+
+The grill step is for semantic intent and business policy, not for facts Marivo
+can inspect. Each question must state the evidence already checked, offer the
+recommended answer first, and use only evidence-derived options. If the next
+question is answerable by another bounded datasource query, run that query
+instead of asking. Do not invent plausible options.
 
 ## Rung 1: Domain
 

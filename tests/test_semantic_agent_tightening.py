@@ -374,3 +374,35 @@ def test_semantic_skill_uses_stepwise_ladder_contract() -> None:
         "authoring_abandoned",
     ):
         assert required in combined, f"skill references missing {required}"
+
+
+def test_semantic_skill_requires_evidence_derived_grill_me_agreement() -> None:
+    paths = [
+        "marivo/skills/marivo-semantic/SKILL.md",
+        "marivo/skills/marivo-semantic/references/workflow.md",
+        "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo/skills/marivo-semantic/references/pitfalls.md",
+    ]
+    combined = "\n".join(Path(path).read_text(encoding="utf-8") for path in paths)
+
+    for required in (
+        "datasource-first agreement gate",
+        "one unresolved semantic decision at a time",
+        "recommended answer",
+        "Do not invent plausible options",
+        "Every multiple-choice option must cite or summarize its basis",
+        "metadata comment",
+        "column profile",
+        "sample value distribution",
+        "existing semantic object",
+        "source SQL",
+        "project docs",
+        "prior ledger decision",
+        (
+            "Do not ask users for schema, column names, data types, partition hints, "
+            "sample values, join-key viability, or existing object state"
+        ),
+        "author exactly one object only after agreement",
+        "Invented grill options",
+    ):
+        assert required in combined, f"semantic skill grill guidance missing {required!r}"
