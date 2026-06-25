@@ -235,6 +235,9 @@ result-family** 进入 family registry（需走现有 registry 审批与 protoco
 
 ## 7. 迁移路径（每步可独立通过 make test / typecheck）
 
+0. **（P0，激活已有底座）** 填充 frame `content_hash` + `execution_status` + dispatch
+   前 cache_hit 短路（§9.5）；失败步返回 `FailedStep` 而非抛异常。这两项让
+   write-run-read 在多轮累积脚本下经济成立，是后续一切的前提。
 1. **`schema_descriptor()` + 统一教学错误**（最低风险，纯增量，不触 snapshot 语义）。
 2. **`explain` 作为 `exploratory` composite**，内部复用 `decompose`；先只支持
    `mode="single"`/`"nested"`，joint / mix-rate 随 §3.5 oracle 落地逐步开启。
@@ -256,3 +259,104 @@ result-family** 进入 family registry（需走现有 registry 审批与 protoco
   result metadata）。
 - mix/rate 分解在 derived metric（ratio / weighted_average）上的守恒定义与 v1 §3.5
   缺 denominator 失败条件如何对齐。
+
+## 9. Agent-Loop 驱动的 frame/result 与 agent-facing surface
+
+本节把 frame/result 设计放回 agent 的真实运行模式——**写分析脚本 → 执行 → 读结果**，
+且一个 analysis 跨**多个 loop 轮次**——据此重画 frame/result 的职责与暴露面。它细化
+§3.1–§3.2，并修正一处现有越界（`recommended_followups`）。
+
+### 9.1 multi-round write-run-read 的五条硬约束
+
+| # | 约束 | loop 真实情形 | 不满足的后果 |
+| --- | --- | --- | --- |
+| 1 | 重算安全 | 每轮重跑一个**累积脚本** | 执行非纯函数 → 每轮重查、成本爆炸、非确定 |
+| 2 | 冷启动重建 | 轮次 N+1 可能是被压缩/新开 context，内存对象丢失 | 只能重跑脚本才知道 frame 是什么 |
+| 3 | 读经济学 | 每次读 frame 耗 context token | 反复读大 frame → context 爆炸 |
+| 4 | 失败可续 | 多步脚本第 k 步失败，前 k-1 步已物化 | 抛异常 → 整脚本重跑、上游白算 |
+| 5 | 决策状态可读 | 一个 analysis = 跨多轮的多 frame，无对象"是"该 analysis | 每轮开头重读一堆 frame 才知道在哪 |
+
+重构判断：**当前 frame 被设计成"一次函数调用的返回值（配好元数据）"；loop 模式要求
+它是"持久、可重算、可冷启动重建、可渐进披露的分析 DAG 节点"。**
+
+现状底座（已具备）：`get_frame(ref)` 跨脚本恢复、`frame_summaries()`、`recent_jobs()`、
+不可变 frame、`BaseFrameMeta`、`next_intents()`。
+关键 gap：`session/_runtime.py` 持久化 frame 时 `content_hash=None`、ref 走 job 派生
+——**执行未按内容 memoize**（store 已有 `content_hash` 列但对 frame 闲置）。
+
+### 9.2 计算 vs 判断边界（marivo 只是计算库，无推理能力）
+
+frame/result 只能暴露**库能确定性产出**的东西；一切 salience / 排序 / 推荐 / 结论 /
+下一步叙事 / 何时停止都是 **agent 的判断**，库不得产出。
+
+| 库能做（确定性，可由类型/规则/固定算法导出） | 只有 agent 能做（判断） |
+| --- | --- |
+| 枚举类型合法的下一步算子（`next_intents`） | 决定走哪一步 |
+| 标注每个下一步的必填输入 + 前置条件（pass/fail） | 判断候选是否"真有意义" |
+| 固定算法算分数/候选（zscore/mad/贡献） | 选哪个 objective / 阈值 / 轴 |
+| 机械可解析的 param 预填（可选 axis = catalog refs） | 填判断 param（选哪个 axis） |
+| 报告算了什么（事实/统计） | 写结论 / headline / 下一步叙事 |
+
+直接后果：
+
+- **`recap()` 不新增。** 它的增量内容（headline / working_conclusion / "下一步")全是
+  判断；剥掉后退化为 `summary() + next_intents() + blocking_issues`，纯冗余。保留单一
+  事实摘要 `summary()`，按需补确定性字段（`execution_status` / `freshness` / coverage）。
+- **repr 行只放确定性描述符**（ref、kind、execution_status、固定规则取的 total/pct），
+  不叫 "headline"、不暗示"这是结论"。
+- **`recommended_followups` 越界，需降级**（见 9.3）。这同时修正现有
+  `BaseFrameMeta.recommended_followups` 与 spec candidate schema 的同类越界。
+
+### 9.3 `available_next`：affordance 取代 recommended_followups
+
+把"推荐下一步"替换为**非解释性的 affordance 枚举**：
+
+```text
+AvailableIntent:                       # 库枚举，无 rank、无 "recommended"
+  operator: 算子 id                    # 类型合法（计算）
+  required_inputs: typed ref[]          # 缺什么（计算）
+  preconditions: [(check, pass|fail)]   # 规则判定，如 ">=2 buckets": fail
+  param_template: { 机械槽: 已填, 判断槽: <blank, 待 agent> }
+```
+
+库说"这些是门、每扇要什么、哪扇现在打不开"；agent 决定开哪扇并填判断槽。
+`session.run(intent)` 消费的是 **agent 把判断槽填满后的** affordance，而非库递来的
+"已决定动作"——读→写机械化，但"决定"明确归 agent。
+
+### 9.4 agent-facing surface：recede 而非 delete
+
+目标是降 **agent 要学的面**，不是降**类型面**。二者对 agent 价值不同：精确 nominal
+result 类型主要服务静态类型检查器与库内部正确性，而 **agent 不在自己生成的脚本上跑
+mypy**，所以 nominal 类型对 agent 直接价值低。结论：让 nominal 类型**退居幕后**，不是
+合并删除。
+
+- **不**把 frame 合并成 kind+可选字段的 mega-class。agent-guide 明文："prefer
+  closed, kind-dispatched variants over optional-field mega-classes: precise types
+  fail loudly, optional-field unions fail silently."mega-class 赔掉 fail-loud。
+- **统一句柄靠子类型免费获得**：所有 frame 已 IS-A `BaseFrame`；agent 始终把结果当
+  `BaseFrame` + affordance 用，无需 import `AttributionFrame` 等。
+- **affordance 是建在类型之上的**：`available_next` 必须知道 kind 才能枚举合法算子；
+  弱化底层类型会反噬 affordance 引擎。
+- 落地三步（均不弱化类型）：
+  1. 定 `BaseFrame` + affordance 为 agent 唯一要学的协议（`kind` /
+     `schema_descriptor()` / `summary()` / `available_next()` / `run()`）。
+  2. `help()` / discovery 走 base + affordance 为主路径，per-family help 降为 on-demand。
+  3. 算子签名保持精确（`compare(MetricFrame, MetricFrame)`），库内部 / preflight /
+     evidence / snapshot 继续吃精确类型。
+
+净效果：算子动词不变（~8）、result 变体不变（fail-loud）、**agent 要学的面缩成
+1 个协议 + affordance**、串联由 affordance 引导。**统一 result 类型不会减少算子暴露面**
+（算子才是 agent 写的 API）。
+
+### 9.5 frame/result 的 loop 属性（增量加在 BaseFrame/session）
+
+| 属性 | 约束 | 内容 | 优先级 |
+| --- | --- | --- | --- |
+| 内容寻址 memoize | 1 | 填充闲置 `content_hash`：`fingerprint = hash(operator, 输入 fingerprints, 解析 params, semantic_version)`；dispatch 前查表命中即返回，不碰 backend；暴露 `execution_status ∈ {materialized, cache_hit, recomputed, stale_recompute, failed, partial}` | **P0** |
+| 失败作为 frame | 4 | 执行返回已完成步 frame + 失败步 `FailedStep`（teaching error 的 expected/received/repair + 已物化上游 refs + 待修 param）；下一轮上游 `cache_hit`，只重算失败步 | **P0** |
+| 自描述持久 frame | 2 | 持久化 frame 时一并存确定性决策上下文（question_answered、schema_descriptor、`available_next`、blocking、quality verdict）；`get_frame(ref)` 冷启动 rehydrate 无重查 | P1 |
+| 分层 read 协议 | 3 | `repr`(1 行描述符) → `summary()`(事实) → `preview()` → `to_pandas()`；确定性描述符物化时算好持久化，agent 靠 repr+summary 导航，按需下钻 | P1 |
+| `Analysis`(thread) 对象 | 5 | frame-like，**严格两分**：库算的事实（steps / refs / `execution_status` / 类型合法 frontier / blocking）vs **agent-authored 注释槽**（结论 / 排除理由，明确标注非库产出）。`recap(budget)` 只投影事实部分 + agent 注释，不产出新判断 | P1 |
+| staleness / superseded | 跨轮正确性 | `superseded_by` ref（同问题被后续不同 param 重算）、`freshness`（相对输入/数据/定义版本） | P2 |
+
+P0 两项本质是**激活已有底座**（填 `content_hash` + 失败不抛异常），非新建抽象，风险最低。
