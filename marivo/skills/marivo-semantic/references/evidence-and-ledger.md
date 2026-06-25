@@ -58,6 +58,26 @@ text, and list the default option first as recommended.
 Questions with `readiness_effect="blocks"` must be resolved before authoring.
 Advisory questions may proceed on defaults.
 
+## Evidence-Derived Grill Options
+
+Before asking, inspect what Marivo can discover: Brief facts, table metadata,
+column profiles, bounded previews, join-key probes, existing semantic objects,
+source SQL/provenance, project docs, and prior ledger decisions. Do not ask the
+user for facts available from those sources.
+
+Ask one unresolved semantic decision at a time. The question must name what was
+already inspected, include a recommended answer, and explain why the decision
+matters for the semantic object.
+
+Every multiple-choice option must cite or summarize its basis: metadata comment,
+column profile, sample value distribution, existing semantic object, source SQL,
+project docs, or prior ledger decision. The recommended answer must be the
+strongest evidence-backed option, not the easiest authoring shape.
+
+Do not invent plausible options. If evidence supports only one option, ask the
+user to confirm that option. If evidence is insufficient, run another bounded
+discovery query or ask an open clarification instead of fabricating choices.
+
 ## Confirmation Recording
 
 When the agent resolves a blocking `AuthoringQuestion` (from knowledge or user

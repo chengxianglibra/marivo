@@ -10,6 +10,14 @@ Never treat them as full-column cardinality, complete enums, or global ranges.
 For exhaustive value sets, request user confirmation or inspect the full table
 outside the authoring workflow.
 
+## Invented grill options
+
+Do not turn the grill loop into a list of plausible guesses. User-facing
+options must come from inspected evidence or known project context: metadata
+comments, column profiles, sample value distributions, existing semantic
+objects, source SQL, project docs, or prior ledger decisions. If evidence is
+insufficient, say so and run bounded discovery or ask an open clarification.
+
 ## Expecting a candidate worklist
 
 The project does not return a candidate worklist. Rank columns yourself from
