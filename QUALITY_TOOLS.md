@@ -42,10 +42,10 @@ open htmlcov/index.html
 ### Pre-commit
 ```bash
 # 手动运行所有pre-commit检查
-pre-commit run --all-files
+.venv/bin/pre-commit run --all-files
 
 # 只检查暂存的文件
-pre-commit run
+.venv/bin/pre-commit run
 ```
 
 ## 提交前检查清单
