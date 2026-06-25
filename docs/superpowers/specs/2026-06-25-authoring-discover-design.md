@@ -80,14 +80,14 @@ The agent-facing datasource evidence surface becomes:
 ```python
 md.discover_entity(
     datasource: md.DatasourceRef,
-    source: md.DatasetSource,
+    source: md.TableSource,
     *,
     scope: md.ScanScope | None = None,
 ) -> EntityDiscoveryResult
 
 md.discover_dimensions(
     datasource: md.DatasourceRef,
-    source: md.DatasetSource,
+    source: md.TableSource,
     *,
     columns: tuple[str, ...] | None = None,
     scope: md.ScanScope | None = None,
@@ -95,7 +95,7 @@ md.discover_dimensions(
 
 md.discover_time_dimensions(
     datasource: md.DatasourceRef,
-    source: md.DatasetSource,
+    source: md.TableSource,
     *,
     columns: tuple[str, ...] | None = None,
     scope: md.ScanScope | None = None,
@@ -103,7 +103,7 @@ md.discover_time_dimensions(
 
 md.discover_measures(
     datasource: md.DatasourceRef,
-    source: md.DatasetSource,
+    source: md.TableSource,
     *,
     columns: tuple[str, ...] | None = None,
     scope: md.ScanScope | None = None,
@@ -119,7 +119,7 @@ md.discover_relationship(
 
 md.discover_dimension_values(
     datasource: md.DatasourceRef,
-    source: md.DatasetSource,
+    source: md.TableSource,
     *,
     column: str,
     scope: md.ScanScope | None = None,
@@ -143,16 +143,29 @@ Internal modules may keep `_inspect_source`, `_inspect_columns`, and
 `_probe_join_keys` helpers. They must not be re-exported, listed in `md.help()`,
 or taught in skills/docs as agent-facing APIs.
 
-`md.DatasetSource` becomes the public datasource-side alias for supported
-physical sources returned by `md.table(...)`, `md.parquet(...)`, and
-`md.csv(...)`. It mirrors the semantic authoring `DatasetSource` alias so public
-discovery signatures do not expose a module-internal IR import path.
+`md.TableSource` is the public datasource-side alias for the physical source
+values returned by `md.table(...)`, `md.parquet(...)`, and `md.csv(...)`. It is
+a named union of the underlying `TableSourceIR`, `ParquetSourceIR`, and
+`CsvSourceIR` types so public discovery signatures do not expose a
+module-internal IR import path. It is intentionally named `TableSource` rather
+than `DatasetSource` to avoid colliding with the semantic authoring
+`DatasetSource` alias (`marivo.semantic.dtos.DatasetSource`), which is a
+distinct type for a different layer.
 
 `datasource` is intentionally typed as `md.DatasourceRef`, returned by
 `md.ref("warehouse")`, instead of a raw string. The datasource ref identifies
 the configured connection and execution environment; `source` identifies the
 physical table or file inside that datasource. They stay separate because they
 have different semantics and different validation errors.
+
+`md.discover_relationship(...)` is the one discovery entry point that does not
+take a positional `datasource`/`source` pair, because it spans two sources.
+Each side is described by a `md.JoinSide` carrying its own
+`datasource: md.DatasourceRef` and `source: md.TableSource`. Its
+`key_sample_size` parameter bounds the distinct-key sample used for match-rate
+and fanout evidence; `scope.max_rows` still bounds each per-side scan. The two
+knobs are orthogonal: `scope` bounds row fetches, `key_sample_size` bounds the
+join-key sample.
 
 ## Scope Helpers
 
@@ -187,10 +200,17 @@ md.unpruned(
 
 `md.latest_partition()` is the default helper for bounded discovery. It records
 that discovery should use the latest available partition when the source has
-partition metadata. `md.partition({...})` expresses a concrete partition
-selection. `md.unpruned(...)` is the explicit escape from partition pruning and
-must surface an informational issue in discovery results so agents can see that
-the scan was intentionally broader.
+partition metadata. When the source has no partition metadata at all,
+`latest_partition()` resolves to an unpruned scan (equivalent to
+`md.unpruned(...)`) and the resulting discovery emits the
+`discovery_unpruned_scan` info issue so agents can see that no partition
+pruning was applied. When the source has partition metadata but the latest
+value cannot be resolved to a concrete value within the available backend
+capability, the scan still runs unpruned and emits
+`discovery_latest_partition_unresolved` instead. `md.partition({...})`
+expresses a concrete partition selection. `md.unpruned(...)` is the explicit
+escape from partition pruning and surfaces the same `discovery_unpruned_scan`
+info issue.
 
 Low-level `md.ScanScope(...)` construction is reserved for advanced debugging
 and internal implementation. It should not appear in the `marivo-semantic`
@@ -203,13 +223,19 @@ does not use a single optional-field mega result.
 
 ```python
 DiscoverySeverity = Literal["blocker", "warning", "info"]
+EvidenceValue = str | int | float | bool | None
+
+@dataclass(frozen=True)
+class DiscoveryEvidenceEntry:
+    key: str
+    value: EvidenceValue
 
 @dataclass(frozen=True)
 class DiscoverySignal:
     rule_id: str
     kind: str
     subject: str
-    evidence: Mapping[str, object]
+    evidence: tuple[DiscoveryEvidenceEntry, ...]
 
 @dataclass(frozen=True)
 class DiscoveryIssue:
@@ -218,7 +244,7 @@ class DiscoveryIssue:
     severity: DiscoverySeverity
     subject: str
     message: str
-    evidence: Mapping[str, object]
+    evidence: tuple[DiscoveryEvidenceEntry, ...]
 
 @dataclass(frozen=True)
 class SemanticJudgmentTarget:
@@ -247,6 +273,21 @@ result includes:
 - `judgment_targets`
 - kind-specific `candidates` or relationship evidence
 
+`signals` and `issues` on a result are the result-scope rules: scan truncation,
+column-limit truncation, metadata warnings, unpruned-scan, and
+latest-partition-unresolved. Candidate-scope rules (per-column shape, per-key
+evidence) live on the candidate they apply to, in that candidate's own
+`signals`/`issues`. Result-level and candidate-level collections never overlap
+and never duplicate: a rule emits on exactly one scope. Agents reading
+`.signals`/`.issues` on a result see only result-scope findings; per-candidate
+findings are read from each candidate.
+
+`evidence` values are scalars only. Structured facts such as parse candidates,
+key-type evidence, and column profiles are carried in their own typed fields on
+candidates, never packed into `evidence`. `evidence` is a `tuple` of frozen
+`DiscoveryEvidenceEntry` records, not a `Mapping`, so frozen result objects
+remain deeply immutable.
+
 `judgment_targets` is a deterministic checklist derived from the discover API
 kind, not from a reasoning pass over the result data. It must stay separate
 from evidence: no per-target `evidence_refs`, no sufficiency flag, no
@@ -254,6 +295,15 @@ confidence score, and no recommended next action. Marivo can tell the agent
 which semantic authoring fields usually require judgment for this object kind;
 the agent decides whether the evidence is enough, whether more exploration is
 needed, or whether the user/project context must answer the question.
+
+`owner` is fixed per target path, not decided per call. Targets ending in
+`.column` or `.name` are owned by `agent` (selection from evidence or label
+choice). Targets ending in `.ai_context.business_definition`, `.unit`,
+`.additivity`, `.granularity`, `.parse`, `.is_default`, `.primary_key`,
+`.keys`, `.from_entity`, or `.to_entity` are owned by `user_or_project_context`
+because they encode business meaning or policy the agent cannot derive from
+evidence alone. The mapping is part of the deterministic checklist and is
+covered by the judgment-target snapshot tests.
 
 Judgment targets must use real semantic authoring field or parameter paths.
 Fields nested under `ai_context` must be written with the `ai_context.` prefix,
@@ -324,11 +374,16 @@ class ColumnDiscoveryCandidate:
     issues: tuple[DiscoveryIssue, ...]
 
 @dataclass(frozen=True)
+class TimeValueRange:
+    lower: str | int | datetime.datetime | None
+    upper: str | int | datetime.datetime | None
+
+@dataclass(frozen=True)
 class TimeColumnDiscoveryCandidate:
     column: str
     profile: ColumnProfile
     detected_formats: tuple[FormatCandidate, ...]
-    value_range: tuple[object | None, object | None]
+    value_range: TimeValueRange
     partition_aligned: bool
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
@@ -351,13 +406,13 @@ class RelationshipDiscoveryEvidence:
 
 @dataclass(frozen=True)
 class DimensionValueFact:
-    value: object
+    value: str | int | float | bool | None
     count: int
 
 @dataclass(frozen=True)
 class DimensionValueDiscoveryResult:
     datasource: DatasourceRef
-    source: DatasetSource
+    source: TableSource
     column: str
     values: tuple[DimensionValueFact, ...]
     complete: bool
@@ -370,8 +425,16 @@ class DimensionValueDiscoveryResult:
 `PrimaryKeyCandidate`, `FormatCandidate`, `ColumnProfile`, `ScanScope`,
 `ScanReport`, `JoinSide`, and `TableMetadata` remain usable public value types
 because they are exposed through discovery results or discovery inputs. They
-are not presented as independent agent actions. `md.JoinSide` should also carry
-a `DatasourceRef` instead of a raw datasource string.
+are not presented as independent agent actions. `md.JoinSide` is updated to
+carry `datasource: md.DatasourceRef` instead of a raw datasource string and
+`source: md.TableSource` instead of the module-internal IR type; this is a
+breaking change to a kept public type and is covered by the public-surface
+tests.
+
+`DimensionValueDiscoveryResult.complete` is the boolean view of the same fact
+the `dimension_values_truncated` issue reports. The invariant is
+`complete == not any(issue.rule_id == "dimension_values_truncated" for issue in issues)`
+and is asserted by the result-protocol tests.
 
 ## Judgment Target Templates
 
@@ -608,14 +671,24 @@ md.raw_sql(
 
 Constraints:
 
-- read-only single statement by default;
+- `reason` must be a non-empty string; it is echoed in `RawSqlResult.reason`
+  and in `.show()` so the diagnostic intent is preserved in provenance. An
+  empty `reason` raises a typed datasource error before any connection is
+  opened.
+- read-only single statement by default. Multi-statement input is rejected.
+  The connection is opened in the backend's read-only mode when available
+  (for example `BEGIN READ ONLY` for Postgres/Trino/MySQL, DuckDB's
+  `access_mode="read_only"`); on backends that cannot enforce read-only mode,
+  `raw_sql` refuses to run and returns a capability issue instead of
+  executing. Any write attempt surfaces as a typed `DatasourceError` subclass,
+  never as a silent side effect.
 - bounded fetch by `limit`;
 - backend connection is closed before return;
 - result includes SQL text, datasource, backend type, rows, columns, types,
-  sample policy, and warnings;
+  sample policy, `reason`, and warnings;
 - `.show()` labels it as `escape_hatch`;
-- using raw SQL as semantic evidence requires the agent to cite it in the
-  decision ledger or provenance notes;
+- using raw SQL as semantic evidence requires the agent to cite it (with
+  `reason`) in the decision ledger or provenance notes;
 - raw SQL never becomes an executable semantic expression body.
 
 This escape hatch exists for diagnostics that `discover_*` cannot express, not
@@ -633,10 +706,21 @@ its contract is different from discovery:
   `Brief` objects with registry matches, ladder prerequisites, semantic object
   status, `AssessmentIssue`, and `AuthoringQuestion`.
 
-The initial implementation can keep `ms.prepare_*` using internal helpers
-directly to avoid a large dependency cycle. The public behavior must align with
-the new surface: docs and skills should describe prepare as consuming the same
-evidence model, not as calling public `md.inspect_*` or `md.probe_join_keys`.
+The initial implementation can keep `ms.prepare_*` consuming the private
+`_inspect_*` / `_probe_join_keys` helpers directly rather than calling the new
+public `md.discover_*` functions. The cycle being avoided is
+`marivo.semantic.prepare` -> `marivo.datasource` (public discover) ->
+`marivo.datasource.help` -> `marivo.semantic` (help metadata cross-references),
+which would pull the semantic package into the datasource import graph. Keeping
+prepare on private helpers breaks that edge. The public behavior must align
+with the new surface regardless: docs and skills describe prepare as consuming
+the same evidence model, not as calling public `md.inspect_*` or
+`md.probe_join_keys`. A later refactor may route prepare through
+`md.discover_*` once the help-metadata dependency is inverted.
+
+`ms.prepare_dimensions(...)` (plural, batch) and `ms.prepare_domain(...)` are
+unchanged by this spec and remain available; the per-rung mapping below covers
+the singular authoring helpers that pair with `md.discover_*`.
 
 Suggested mapping:
 
@@ -702,6 +786,16 @@ Implementation must update the whole public surface slice in one change:
 
 - `marivo.datasource.__all__`;
 - `md.help()` metadata and public-surface snapshots;
+- docstrings for every new public function (`discover_*`, `raw_sql`, scope
+  helpers) and new public type (`TableSource`, result types, candidate types,
+  `DiscoverySignal`, `DiscoveryIssue`, `SemanticJudgmentTarget`,
+  `DiscoveryEvidenceEntry`, `TimeValueRange`, `DimensionValueFact`), each
+  covering purpose, parameters, return value, a runnable usage example, and
+  constraints, per `CLAUDE.md`;
+- `describe(symbol)` coverage for every new public symbol, including the
+  minimal runnable example;
+- `md.JoinSide` field-type update (`datasource: DatasourceRef`,
+  `source: TableSource`) reflected in its docstring and `describe` example;
 - `docs/api/datasource.rst`;
 - `docs/specs/semantic/stepwise-authoring-design.md`;
 - `docs/specs/semantic/python-semantic-layer.md` if it references datasource
@@ -725,6 +819,10 @@ Add or rewrite focused tests before implementation:
   `warehouse = md.ref("warehouse")`.
 - Scope helper tests verify `md.latest_partition()`, `md.partition({...})`, and
   `md.unpruned(...)` return the expected `ScanScope` values.
+- `md.latest_partition()` on a source with no partition metadata resolves to an
+  unpruned scan and the result emits `discovery_unpruned_scan`; on a source
+  whose latest partition cannot resolve, it emits
+  `discovery_latest_partition_unresolved`.
 - Every discovery result conforms to `AgentResult`.
 - Every discovery result exposes `.judgment_targets` separately from evidence;
   targets contain real semantic authoring field or parameter paths, include
@@ -735,6 +833,17 @@ Add or rewrite focused tests before implementation:
   `measure.additivity`, `measure.unit`, and
   `measure.ai_context.business_definition`, and do not include
   `metric.aggregation` or other metric-layer fields.
+- Judgment target `owner` is fixed per target path per the owner mapping
+  (`*.column`/`*.name` -> `agent`; business-meaning/policy targets ->
+  `user_or_project_context`).
+- Result-scope vs candidate-scope `signals`/`issues` do not overlap: a rule
+  emits on exactly one scope, and result-level `.signals`/`.issues` contain no
+  per-candidate findings.
+- `DiscoverySignal.evidence` and `DiscoveryIssue.evidence` are
+  `tuple[DiscoveryEvidenceEntry, ...]` with scalar `EvidenceValue` values, and
+  frozen result objects are deeply immutable.
+- `md.JoinSide` fields are typed `datasource: DatasourceRef` and
+  `source: TableSource`.
 - Internal inspection/profile tests cover declared key metadata when available,
   enriched column profile fields, parse ambiguity evidence, relationship key
   type evidence, and latest-partition resolver outcomes.
@@ -750,8 +859,14 @@ Add or rewrite focused tests before implementation:
 - `discover_measures` emits numeric/non-numeric, negative, zero, nullable, and
   optional unit-token evidence without choosing a unit or aggregation.
 - `discover_relationship` replaces `probe_join_keys` and reports key type
-  evidence, sampled match rate, and fanout evidence.
-- `md.raw_sql` is bounded, read-only by default, closes connections, and labels
+  evidence, sampled match rate, and fanout evidence. `scope.max_rows` bounds
+  per-side scans and `key_sample_size` bounds the distinct-key sample
+  independently.
+- `DimensionValueDiscoveryResult.complete` equals
+  `not dimension_values_truncated`.
+- `md.raw_sql` rejects empty `reason`, rejects multi-statement input, opens
+  read-only connections where supported, refuses with a capability issue on
+  backends that cannot enforce read-only mode, closes connections, and labels
   results as escape-hatch evidence.
 - `ms.prepare_*` tests still pass after switching to internal discovery
   helpers.
@@ -777,5 +892,11 @@ make examples-check
 - Dimension value exploration is on-demand runtime evidence; sampled values are
   not persisted into semantic objects.
 - Value normalization rules are outside Marivo discovery.
-- `md.raw_sql` is public but explicitly marked as an escape hatch.
+- `md.raw_sql` is public but explicitly marked as an escape hatch, with
+  read-only enforcement and a required non-empty `reason`.
+- The public datasource-side source type is named `md.TableSource`, not
+  `md.DatasetSource`, to avoid colliding with the semantic authoring
+  `DatasetSource`.
+- `md.JoinSide` is a breaking change: `datasource` becomes `DatasourceRef` and
+  `source` becomes `TableSource`.
 - No compatibility, alias, or migration layer is included.
