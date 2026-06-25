@@ -58,15 +58,14 @@ marivo/
 ```
 
 ### Pre-commit Hooks
-安装pre-commit hooks以在提交前自动检查代码：
+开发依赖已包含 pre-commit。安装 hooks 以在提交前自动检查代码：
 ```bash
-.venv/bin/pip install pre-commit
-pre-commit install
+.venv/bin/pre-commit install
 ```
 
 手动运行所有检查：
 ```bash
-pre-commit run --all-files
+.venv/bin/pre-commit run --all-files
 ```
 
 ### 代码格式化
