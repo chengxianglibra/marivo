@@ -75,6 +75,8 @@ marivo.yaml
 
 # Local runtime workspace
 .marivo/
+marivo.toml
+models/
 
 # Claude Code
 .mcp.json
