@@ -129,7 +129,30 @@ revenue = ms.aggregate(
 Agent 只会就那些无法从数据或 project 文档推断的决策征询你，例如某个金额是否已经扣除退款。
 它产出的就是上面展示的 Python declarations，可以像其他代码一样在 git 中评审。
 
-分析前先探索 catalog：
+分析前先探索 catalog。对 datasource-backed authoring，discovery-first 流程先收集有界证据，
+再每次准备一个对象：
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+warehouse = md.ref("warehouse")
+orders_source = md.table("orders")
+scope = md.latest_partition()
+
+md.discover_entity(warehouse, orders_source, scope=scope).show()
+project.prepare_entity(
+    datasource="warehouse",
+    source=orders_source,
+    domain="sales",
+    scope=scope,
+).show()
+```
+
+对应的 `ms.prepare_entity(...)` brief 会基于 discovery 证据分支判断；一次只 author 一个对象，
+然后运行 `ms.verify_object(ref)`，通过后再继续。
+
+加载 catalog 并检查就绪状态：
 
 ```python
 import marivo.semantic as ms

@@ -164,6 +164,25 @@ provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="duckdb")  
 provenance=ms.from_sql(sql="SELECT SUM(amount) FROM sales_mart.orders", dialect="duckdb")     # fully qualified; unchanged
 ```
 
+## Legacy inspect/probe habit
+
+Do not call legacy `md.inspect_*` or join-key probing helpers from agent
+workflows. Use the single-purpose `md.discover_*` entry point that matches the
+semantic object you are preparing.
+
+## Persisting sampled dimension values
+
+Values from `md.discover_dimension_values(...)` are current bounded runtime
+facts for filters and clarification. Do not copy them into `ai_context`, enum
+metadata, or authored semantic objects. These are bounded-sample evidence; you
+do not persist them into semantic metadata.
+
+## Raw SQL as authoring body
+
+`md.raw_sql(...)` is for diagnostics with a required `reason`. SQL text belongs
+in `provenance=ms.from_sql(...)` when it documents a source query; it never
+becomes an executable semantic decorator body.
+
 ## Federated backend chosen by habit
 
 Do not create a Trino datasource just because a Trino catalog could reach the

@@ -251,6 +251,21 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "ms.prepare_cross_entity_metric(" in relationship
     assert "root_entity=orders" in relationship
 
+    # Discovery-first evidence contract: the source-evidence and relationship
+    # examples must teach the public discovery API (Phase 3 removed
+    # md.inspect_columns / md.probe_join_keys) and never the superseded probes.
+    assert "md.discover_entity(" in evidence
+    assert "md.discover_dimensions(" in evidence
+    assert "md.discover_time_dimensions(" in evidence
+    assert "md.discover_measures(" in evidence
+    assert "md.latest_partition()" in evidence
+    assert "md.discover_relationship(" in relationship
+    assert "md.JoinSide(" in relationship
+    assert "md.discover_dimension_values(" in evidence
+    assert "md.raw_sql(" in evidence
+    assert "md.inspect_columns" not in evidence
+    assert "md.probe_join_keys" not in relationship
+
 
 def test_semantic_docs_and_skills_cover_parity_verification() -> None:
     paths = [
@@ -406,3 +421,121 @@ def test_semantic_skill_requires_evidence_derived_grill_me_agreement() -> None:
         "Invented grill options",
     ):
         assert required in combined, f"semantic skill grill guidance missing {required!r}"
+
+
+def test_semantic_skill_teaches_discovery_first_datasource_contract() -> None:
+    paths = [
+        "marivo/skills/marivo-semantic/SKILL.md",
+        "marivo/skills/marivo-semantic/references/datasource.md",
+        "marivo/skills/marivo-semantic/references/workflow.md",
+        "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo/skills/marivo-semantic/references/pitfalls.md",
+        "marivo/skills/marivo-semantic/references/preview.md",
+    ]
+    combined = "\n".join(_read(path) for path in paths)
+
+    for required in (
+        "md.discover_entity",
+        "md.discover_dimensions",
+        "md.discover_time_dimensions",
+        "md.discover_measures",
+        "md.discover_relationship",
+        "md.discover_dimension_values",
+        "md.raw_sql",
+        "md.latest_partition()",
+        "md.partition({",
+        "md.unpruned(",
+        "md.ref(",
+        "DatasourceRef",
+        "TableSource",
+        "bounded-sample evidence",
+        "does not infer business meaning",
+        "do not persist",
+        "diagnostic escape hatch",
+    ):
+        assert required in combined, f"semantic skill missing {required!r}"
+
+    for forbidden in (
+        "md.inspect_table",
+        "md.inspect_source",
+        "md.inspect_columns",
+        "md.probe_join_keys",
+        "ColumnInspection",
+        "JoinKeyProbe",
+        "purpose=",
+        "should_author",
+        "confidence score",
+        "observed_values",
+    ):
+        assert forbidden not in combined, f"semantic skill still teaches {forbidden!r}"
+
+
+def test_semantic_design_docs_teach_discovery_first_contract() -> None:
+    paths = [
+        "docs/api/datasource.rst",
+        "docs/specs/semantic/stepwise-authoring-design.md",
+        "docs/specs/semantic/python-semantic-layer.md",
+    ]
+    combined = "\n".join(_read(path) for path in paths)
+
+    for required in (
+        "discover_entity",
+        "discover_dimensions",
+        "discover_time_dimensions",
+        "discover_measures",
+        "discover_relationship",
+        "discover_dimension_values",
+        "raw_sql",
+        "latest_partition",
+        "partition",
+        "unpruned",
+        "DatasourceRef",
+        "TableSource",
+    ):
+        assert required in combined, f"semantic docs missing {required!r}"
+
+    forbidden = (
+        "md.inspect_table",
+        "md.inspect_source",
+        "md.inspect_columns",
+        "md.probe_join_keys",
+        "project.assess_authoring(",
+        "check_authoring_inputs",
+    )
+    for phrase in forbidden:
+        assert phrase not in combined, f"semantic docs still contain {phrase!r}"
+
+
+def test_site_docs_cover_discovery_first_semantic_authoring() -> None:
+    en_paths = [
+        "site/src/content/docs/en/latest/concepts/semantic-layer.mdx",
+        "site/src/content/docs/en/latest/quick-start.mdx",
+        "site/src/content/docs/en/latest/release-notes/0.2.1.mdx",
+    ]
+    zh_paths = [
+        "site/src/content/docs/zh-cn/latest/concepts/semantic-layer.mdx",
+        "site/src/content/docs/zh-cn/latest/quick-start.mdx",
+        "site/src/content/docs/zh-cn/latest/release-notes/0.2.1.mdx",
+    ]
+    en = "\n".join(_read(path) for path in en_paths)
+    zh = "\n".join(_read(path) for path in zh_paths)
+
+    for text, label in ((en, "English site docs"), (zh, "Chinese site docs")):
+        for required in (
+            "md.discover_entity",
+            "md.discover_dimensions",
+            "md.discover_measures",
+            "md.latest_partition",
+            "ms.prepare_entity",
+            "ms.verify_object",
+        ):
+            assert required in text, f"{label} missing {required}"
+        for forbidden in (
+            "md.inspect_table",
+            "md.inspect_source",
+            "md.inspect_columns",
+            "md.probe_join_keys",
+            "ColumnInspection",
+            "JoinKeyProbe",
+        ):
+            assert forbidden not in text, f"{label} still contains {forbidden}"

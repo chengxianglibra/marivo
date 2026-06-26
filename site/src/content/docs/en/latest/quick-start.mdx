@@ -134,7 +134,32 @@ The agent only asks you the decisions it cannot infer from the data or project d
 (for example, whether an amount is already net of refunds). Everything it produces is
 the same Python declarations shown above — reviewable in git like any other code.
 
-Discover the catalog before analysis:
+Discover the catalog before analysis. For datasource-backed authoring, the
+discovery-first sequence gathers bounded evidence, then prepares one object at
+a time:
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+warehouse = md.ref("warehouse")
+orders_source = md.table("orders")
+scope = md.latest_partition()
+
+md.discover_entity(warehouse, orders_source, scope=scope).show()
+project.prepare_entity(
+    datasource="warehouse",
+    source=orders_source,
+    domain="sales",
+    scope=scope,
+).show()
+```
+
+The matching `ms.prepare_entity(...)` brief branches on the discovered
+evidence; author exactly one object, then run `ms.verify_object(ref)` before
+advancing.
+
+Load the catalog and check readiness:
 
 ```python
 import marivo.semantic as ms

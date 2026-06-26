@@ -504,6 +504,34 @@ ms.relationship(
 )
 ```
 
+## Discover before prepare
+
+For datasource-backed authoring, start with bounded datasource discovery:
+
+```python
+warehouse = md.ref("warehouse")
+orders = md.table("orders")
+scope = md.latest_partition()
+
+entity_evidence = md.discover_entity(warehouse, orders, scope=scope)
+dimension_evidence = md.discover_dimensions(
+    warehouse,
+    orders,
+    scope=scope,
+)
+measure_evidence = md.discover_measures(
+    warehouse,
+    orders,
+    columns=("amount",),
+    scope=scope,
+)
+```
+
+Discovery returns evidence, signals, issues, and judgment targets. It does not
+choose business meaning, unit, additivity, or the object to author. Use the
+matching `ms.prepare_entity(...)` API next, author exactly one object, then run
+`ms.verify_object(...)`.
+
 ## Loading and the readiness gate
 
 Once declarations are in place, load the catalog and inspect it:

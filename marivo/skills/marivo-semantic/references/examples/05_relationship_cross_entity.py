@@ -112,6 +112,17 @@ with tempfile.TemporaryDirectory() as tmp:
         os.chdir(root)
         md.register(_DuckDBSpec(name="warehouse", path=str(db_path)))
 
+        # Discovery-first relationship evidence: gather bounded join-key
+        # evidence before authoring the semantic relationship.
+        warehouse = md.ref("warehouse")
+        relationship_evidence = md.discover_relationship(
+            from_side=md.JoinSide(warehouse, md.table("orders"), columns=("customer_id",)),
+            to_side=md.JoinSide(warehouse, md.table("customers"), columns=("customer_id",)),
+            scope=md.latest_partition(),
+            key_sample_size=500,
+        )
+        relationship_evidence.show()
+
         for ref in ("sales.orders", "sales.customers"):
             verify = ms.verify_object(ref)
             print(f"verify {ref}:", verify.status)

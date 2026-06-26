@@ -30,6 +30,12 @@ agent-facing contract.
 - Removed obsolete `description` references from semantic object guidance.
 - Updated the v0.2 and `latest` documentation snapshots with the patch notes.
 
+## Breaking changes
+
+- Datasource authoring evidence now uses the `md.discover_*` family plus
+  `md.raw_sql(...)` for diagnostics. Legacy public inspection and join-key
+  probe names are removed from the agent-facing surface.
+
 ## Installation
 
 ```bash
