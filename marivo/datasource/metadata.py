@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,6 +24,7 @@ MetadataWarningKind = Literal[
     "comments_unavailable",
     "nullable_unavailable",
     "partitions_unavailable",
+    "primary_keys_unavailable",
     "metadata_query_failed",
     "schema_only_fallback",
 ]
@@ -77,6 +78,29 @@ class PartitionMetadata:
         }
 
 
+@dataclass(frozen=True)
+class UniqueConstraintMetadata:
+    """A declared primary-key or unique constraint on a table.
+
+    Attributes:
+        name: Constraint name if the backend exposes one, else ``None``.
+        columns: Column names participating in the constraint, in declared order.
+        kind: ``"primary"`` for primary-key constraints, ``"unique"`` for unique
+            constraints or unique indexes.
+    """
+
+    name: str | None
+    columns: tuple[str, ...]
+    kind: Literal["primary", "unique"]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "columns": list(self.columns),
+            "kind": self.kind,
+        }
+
+
 @dataclass(frozen=True, repr=False)
 class TableMetadata:
     datasource: str
@@ -89,6 +113,9 @@ class TableMetadata:
     warnings: tuple[MetadataWarning, ...]
     is_view: bool = False
     view_definition: str | None = None
+    primary_keys: tuple[str, ...] = ()
+    unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
+    row_count: int | None = None
 
     @property
     def partition(self) -> PartitionMetadata | None:
@@ -159,6 +186,9 @@ class TableMetadata:
             "warnings": [warning.to_dict() for warning in self.warnings],
             "is_view": self.is_view,
             "view_definition": self.view_definition,
+            "primary_keys": list(self.primary_keys),
+            "unique_constraints": [uc.to_dict() for uc in self.unique_constraints],
+            "row_count": self.row_count,
             "ref": self.ref,
         }
 
@@ -427,6 +457,30 @@ def _schema_only(
     )
 
 
+def _with_primary_key_capability_warning(metadata: TableMetadata) -> TableMetadata:
+    """Append ``primary_keys_unavailable`` for backends that do not expose PK metadata.
+
+    DuckDB exposes primary keys via ``duckdb_constraints()`` and is left alone.
+    Other backends get a single capability warning so the absence is never silent.
+    """
+    if metadata.backend_type == "duckdb":
+        return metadata
+    if metadata.primary_keys:
+        return metadata
+    if any(warning.kind == "primary_keys_unavailable" for warning in metadata.warnings):
+        return metadata
+    return replace(
+        metadata,
+        warnings=(
+            *metadata.warnings,
+            MetadataWarning(
+                kind="primary_keys_unavailable",
+                message=f"{metadata.backend_type} primary key metadata is not exposed by this adapter",
+            ),
+        ),
+    )
+
+
 def _inspect_duckdb(
     *,
     datasource: str,
@@ -513,6 +567,41 @@ def _inspect_duckdb(
             )
         )
 
+    primary_keys: tuple[str, ...] = ()
+    unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
+    try:
+        constraint_rows = _query_rows(
+            backend,
+            "SELECT constraint_type, constraint_column_names "
+            "FROM duckdb_constraints() "
+            f"WHERE table_name = {_quote_literal(table)}",
+        )
+        pk_columns: list[str] = []
+        uq_rows: list[UniqueConstraintMetadata] = []
+        for row in constraint_rows:
+            ctype = str(row.get("constraint_type") or "").upper()
+            cols_value = row.get("constraint_column_names")
+            cols = (
+                tuple(str(col) for col in cols_value)
+                if isinstance(cols_value, (list, tuple))
+                else ()
+            )
+            if ctype == "PRIMARY KEY" and cols:
+                pk_columns.extend(cols)
+            elif ctype == "UNIQUE" and cols:
+                uq_rows.append(
+                    UniqueConstraintMetadata(name=None, columns=cols, kind="unique")
+                )
+        primary_keys = tuple(pk_columns)
+        unique_constraints = tuple(uq_rows)
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"duckdb constraint query failed: {exc}",
+            )
+        )
+
     if include_partitions:
         warnings.append(
             MetadataWarning(
@@ -541,6 +630,8 @@ def _inspect_duckdb(
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
+        primary_keys=primary_keys,
+        unique_constraints=unique_constraints,
     )
 
 
@@ -962,7 +1053,7 @@ def inspect_table(
 
     try:
         if datasource_ir.backend_type == "duckdb":
-            return _inspect_duckdb(
+            metadata = _inspect_duckdb(
                 datasource=datasource,
                 backend=backend,
                 table=table,
@@ -970,8 +1061,8 @@ def inspect_table(
                 table_expr=table_expr,
                 include_partitions=include_partitions,
             )
-        if datasource_ir.backend_type == "mysql":
-            return _inspect_mysql(
+        elif datasource_ir.backend_type == "mysql":
+            metadata = _inspect_mysql(
                 datasource=datasource,
                 backend=backend,
                 table=table,
@@ -984,8 +1075,8 @@ def inspect_table(
                     else None
                 ),
             )
-        if datasource_ir.backend_type == "trino":
-            return _inspect_trino(
+        elif datasource_ir.backend_type == "trino":
+            metadata = _inspect_trino(
                 datasource=datasource,
                 backend=backend,
                 table=table,
@@ -999,13 +1090,13 @@ def inspect_table(
                     else None
                 ),
             )
-        if datasource_ir.backend_type == "clickhouse":
+        elif datasource_ir.backend_type == "clickhouse":
             ch_database = (
                 database
                 if database is not None
                 else datasource_ir.fields.get("database", "default")
             )
-            return _inspect_clickhouse(
+            metadata = _inspect_clickhouse(
                 datasource=datasource,
                 backend=backend,
                 table=table,
@@ -1013,10 +1104,32 @@ def inspect_table(
                 table_expr=table_expr,
                 include_partitions=include_partitions,
             )
+        else:
+            metadata = _schema_only(
+                datasource=datasource,
+                table=table,
+                database=database,
+                backend_type=datasource_ir.backend_type,
+                table_expr=table_expr,
+                warnings=(
+                    MetadataWarning(
+                        kind="comments_unavailable",
+                        message=f"{datasource_ir.backend_type} comments are not supported by this adapter",
+                    ),
+                    MetadataWarning(
+                        kind="nullable_unavailable",
+                        message=f"{datasource_ir.backend_type} nullable flags are not supported by this adapter",
+                    ),
+                    MetadataWarning(
+                        kind="partitions_unavailable",
+                        message=f"{datasource_ir.backend_type} partition metadata is not supported by this adapter",
+                    ),
+                ),
+            )
     except DatasourceMetadataError:
         raise
     except Exception as exc:
-        return _schema_only(
+        metadata = _schema_only(
             datasource=datasource,
             table=table,
             database=database,
@@ -1029,28 +1142,7 @@ def inspect_table(
                 ),
             ),
         )
-
-    return _schema_only(
-        datasource=datasource,
-        table=table,
-        database=database,
-        backend_type=datasource_ir.backend_type,
-        table_expr=table_expr,
-        warnings=(
-            MetadataWarning(
-                kind="comments_unavailable",
-                message=f"{datasource_ir.backend_type} comments are not supported by this adapter",
-            ),
-            MetadataWarning(
-                kind="nullable_unavailable",
-                message=f"{datasource_ir.backend_type} nullable flags are not supported by this adapter",
-            ),
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message=f"{datasource_ir.backend_type} partition metadata is not supported by this adapter",
-            ),
-        ),
-    )
+    return _with_primary_key_capability_warning(metadata)
 
 
 def inspect_source(
@@ -1115,24 +1207,26 @@ def inspect_source(
             },
         ) from exc
 
-    return _schema_only(
-        datasource=datasource,
-        table=source_name(source),
-        database=None,
-        backend_type=datasource_ir.backend_type,
-        table_expr=table_expr,
-        warnings=(
-            MetadataWarning(
-                kind="comments_unavailable",
-                message="file source comments are not available",
+    return _with_primary_key_capability_warning(
+        _schema_only(
+            datasource=datasource,
+            table=source_name(source),
+            database=None,
+            backend_type=datasource_ir.backend_type,
+            table_expr=table_expr,
+            warnings=(
+                MetadataWarning(
+                    kind="comments_unavailable",
+                    message="file source comments are not available",
+                ),
+                MetadataWarning(
+                    kind="nullable_unavailable",
+                    message="file source nullable flags are not available",
+                ),
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message="file source partition metadata is not available",
+                ),
             ),
-            MetadataWarning(
-                kind="nullable_unavailable",
-                message="file source nullable flags are not available",
-            ),
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message="file source partition metadata is not available",
-            ),
-        ),
+        )
     )

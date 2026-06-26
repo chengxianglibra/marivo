@@ -228,3 +228,81 @@ def test_dimension_value_complete_invariant_when_no_truncated_issue() -> None:
         judgment_targets=(),
     )
     assert result.complete is True
+
+
+def test_primary_key_candidate_is_frozen_typed() -> None:
+    from marivo.datasource.discovery import PrimaryKeyCandidate
+
+    cand = PrimaryKeyCandidate(
+        column="order_id",
+        source="declared_primary",
+        evidence=(DiscoveryEvidenceEntry(key="source", value="declared_primary"),),
+    )
+    assert cand.column == "order_id"
+    assert cand.source == "declared_primary"
+    with pytest.raises(FrozenInstanceError):
+        setattr(cand, "column", "other")  # noqa: B010 - exercising frozen guard
+
+
+def test_format_candidate_carries_match_metadata() -> None:
+    from marivo.datasource.discovery import FormatCandidate
+
+    fmt = FormatCandidate(format="%Y-%m-%d", kind="string", matched_count=8, ambiguous=False)
+    assert fmt.format == "%Y-%m-%d"
+    assert fmt.kind == "string"
+    assert fmt.matched_count == 8
+    assert fmt.ambiguous is False
+
+
+def test_key_type_evidence_is_frozen_typed() -> None:
+    from marivo.datasource.discovery import KeyTypeEvidence
+
+    ev = KeyTypeEvidence(side="from", column="customer_id", type_family="integer", data_type="BIGINT")
+    assert ev.side == "from"
+    assert ev.type_family == "integer"
+    with pytest.raises(FrozenInstanceError):
+        setattr(ev, "side", "to")  # noqa: B010 - exercising frozen guard
+
+
+def test_entity_candidate_accepts_typed_primary_key_candidates() -> None:
+    from marivo.datasource.discovery import (
+        EntityDiscoveryCandidate,
+        PrimaryKeyCandidate,
+    )
+
+    cand = EntityDiscoveryCandidate(
+        table="orders",
+        primary_key_candidates=(
+            PrimaryKeyCandidate(
+                column="order_id",
+                source="sampled_unique",
+                evidence=(DiscoveryEvidenceEntry(key="distinct_count", value=4),),
+            ),
+        ),
+        time_like_columns=(),
+        partition_columns=(),
+        column_profiles=(),
+        signals=(),
+        issues=(),
+    )
+    assert cand.primary_key_candidates[0].source == "sampled_unique"
+
+
+def test_time_candidate_accepts_format_candidates() -> None:
+    from marivo.datasource.discovery import (
+        FormatCandidate,
+        TimeColumnDiscoveryCandidate,
+    )
+
+    cand = TimeColumnDiscoveryCandidate(
+        column="created_at",
+        profile=_profile("created_at", "VARCHAR"),
+        detected_formats=(
+            FormatCandidate(format="%Y-%m-%d", kind="string", matched_count=4, ambiguous=False),
+        ),
+        value_range=TimeValueRange(lower="2026-01-01", upper="2026-01-04"),
+        partition_aligned=False,
+        signals=(),
+        issues=(),
+    )
+    assert cand.detected_formats[0].format == "%Y-%m-%d"

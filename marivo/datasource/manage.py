@@ -28,6 +28,7 @@ from marivo.datasource.scan import (
     JoinSide,
     ScanReport,
     ScanScope,
+    _coarse_type_family,
 )
 from marivo.preview import (
     PREVIEW_DEFAULT_LIMIT,
@@ -695,6 +696,7 @@ def inspect_columns(
                     sample_values=(),
                     min_value=None,
                     max_value=None,
+                    type_family=_coarse_type_family("UNKNOWN"),
                 )
             )
             continue
@@ -715,6 +717,7 @@ def inspect_columns(
                     sample_values=(),
                     min_value=None,
                     max_value=None,
+                    type_family=_coarse_type_family(data_type),
                 )
             )
             continue
@@ -813,9 +816,11 @@ def _profile_column(
     series = frame[column_name]
     non_null = series.dropna()
     null_count = int(series.isna().sum())
+    non_null_count = len(non_null)
 
+    is_string_series = series.dtype.kind == "O"
     empty_count = 0
-    if series.dtype == object:
+    if is_string_series:
         empty_count = int((series.dropna() == "").sum())
 
     # Distinct count from non-null values.
@@ -841,6 +846,31 @@ def _profile_column(
             min_value = None
             max_value = None
 
+    distinct_ratio: float | None = None
+    if non_null_count > 0:
+        distinct_ratio = distinct_count / non_null_count
+
+    top_value_concentration: float | None = None
+    if non_null_count > 0 and top_values:
+        top_value_concentration = top_values[0][1] / non_null_count
+
+    negative_count = 0
+    zero_count = 0
+    if not non_null.empty and _is_numeric_series(non_null):
+        numeric = non_null.astype("float64")
+        negative_count = int((numeric < 0).sum())
+        zero_count = int((numeric == 0).sum())
+
+    min_length: int | None = None
+    max_length: int | None = None
+    avg_length: float | None = None
+    if is_string_series and not non_null.empty:
+        lengths = non_null.astype(str).str.len()
+        if not lengths.empty:
+            min_length = int(lengths.min())
+            max_length = int(lengths.max())
+            avg_length = float(lengths.mean())
+
     return ColumnProfile(
         name=column_name,
         data_type=data_type,
@@ -853,7 +883,28 @@ def _profile_column(
         sample_values=sample_values,
         min_value=min_value,
         max_value=max_value,
+        non_null_count=non_null_count,
+        distinct_ratio=distinct_ratio,
+        top_value_concentration=top_value_concentration,
+        negative_count=negative_count,
+        zero_count=zero_count,
+        min_length=min_length,
+        max_length=max_length,
+        avg_length=avg_length,
+        type_family=_coarse_type_family(data_type),
     )
+
+
+def _is_numeric_series(series: Any) -> bool:
+    """Return True when a pandas Series is numeric or numeric-coercible."""
+    dtype = str(series.dtype)
+    if any(token in dtype.upper() for token in ("INT", "FLOAT", "UINT", "COMPLEX")):
+        return True
+    try:
+        coerced = series.astype("float64")
+    except (ValueError, TypeError):
+        return False
+    return bool(coerced.notna().all())
 
 
 def _sample_distinct_keys(

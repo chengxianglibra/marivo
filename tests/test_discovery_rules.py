@@ -198,3 +198,187 @@ def test_build_measure_result_marks_non_numeric_blocker() -> None:
     blocker = [i for i in result.candidates[0].issues if i.severity == "blocker"]
     assert any(i.rule_id == "measure_non_numeric_type" for i in blocker)
     assert "measure.additivity" in {t.field_path for t in result.judgment_targets}
+
+
+def test_resolve_partition_explicit_unpruned_and_unresolved() -> None:
+    from marivo.datasource.discovery_rules import resolve_partition
+    from marivo.datasource.metadata import PartitionMetadata, TableMetadata
+
+    assert resolve_partition(None, ScanScope(partition=None)).resolution == "unpruned"
+    assert resolve_partition(None, ScanScope(partition=None)).unresolved is False
+    # latest with no partition metadata falls back to unpruned, not unresolved
+    assert resolve_partition(None, ScanScope()).resolution == "unpruned"
+    assert resolve_partition(None, ScanScope()).unresolved is False
+    explicit = resolve_partition(None, ScanScope(partition={"dt": "20260101"}))
+    assert explicit.resolution == "explicit"
+    assert explicit.partition_used == {"dt": "20260101"}
+    # latest with partition metadata that cannot be resolved is unresolved
+    metadata = TableMetadata(
+        datasource="wh",
+        table="events",
+        database=None,
+        backend_type="clickhouse",
+        comment=None,
+        columns=(),
+        partitions=(PartitionMetadata(name="dt"),),
+        warnings=(),
+    )
+    outcome = resolve_partition(metadata, ScanScope())
+    assert outcome.resolution == "latest"
+    assert outcome.unresolved is True
+
+
+def test_scan_rules_emit_latest_partition_unresolved() -> None:
+    from marivo.datasource.discovery_rules import resolve_partition
+    from marivo.datasource.metadata import PartitionMetadata, TableMetadata
+
+    metadata = TableMetadata(
+        datasource="wh",
+        table="events",
+        database=None,
+        backend_type="clickhouse",
+        comment=None,
+        columns=(),
+        partitions=(PartitionMetadata(name="dt"),),
+        warnings=(),
+    )
+    outcome = resolve_partition(metadata, ScanScope())
+    issues = scan_rules(_scan(), ScanScope(), outcome=outcome)
+    ids = [i.rule_id for i in issues]
+    assert "discovery_latest_partition_unresolved" in ids
+    unresolved = next(i for i in issues if i.rule_id == "discovery_latest_partition_unresolved")
+    assert unresolved.severity == "warning"
+
+
+def test_scan_rules_without_outcome_preserves_phase1_behavior() -> None:
+    # No outcome passed: only scan-truncated and unpruned-scan fire as in Plan 1.
+    truncated = scan_rules(_scan(truncated=True), ScanScope())
+    assert [i.rule_id for i in truncated] == ["discovery_scan_truncated"]
+    assert all(i.severity == "warning" for i in truncated)
+    unpruned = scan_rules(_scan(), ScanScope(partition=None))
+    assert "discovery_unpruned_scan" in [i.rule_id for i in unpruned]
+
+
+def test_metadata_rules_forward_warnings() -> None:
+    from marivo.datasource.discovery_rules import metadata_rules
+    from marivo.datasource.metadata import (
+        ColumnMetadata,
+        MetadataWarning,
+        TableMetadata,
+    )
+
+    metadata = TableMetadata(
+        datasource="wh",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(ColumnMetadata(name="a", type="INTEGER", nullable=False, comment=None, ordinal_position=1),),
+        partitions=(),
+        warnings=(
+            MetadataWarning(kind="partitions_unavailable", message="no partitions"),
+            MetadataWarning(kind="metadata_query_failed", message="boom"),
+        ),
+    )
+    issues = metadata_rules(metadata)
+    assert [i.rule_id for i in issues] == ["discovery_metadata_warning", "discovery_metadata_warning"]
+    severities = {i.message: i.severity for i in issues}
+    assert severities["no partitions"] == "info"
+    assert severities["boom"] == "warning"
+
+
+def test_column_limit_rules_emit_only_when_truncated() -> None:
+    from marivo.datasource.discovery_rules import column_limit_rules
+
+    truncated = column_limit_rules(ScanScope(max_columns=2), 5)
+    assert len(truncated) == 1
+    assert truncated[0].rule_id == "discovery_column_limit_truncated"
+    assert truncated[0].severity == "warning"
+    assert column_limit_rules(ScanScope(max_columns=10), 5) == ()
+
+
+def _enriched_profile(
+    name: str,
+    data_type: str = "VARCHAR",
+    *,
+    type_family: str = "unknown",
+    distinct: int = 5,
+    null_count: int = 0,
+    distinct_ratio: float | None = None,
+    min_length: int | None = None,
+    comment: str | None = None,
+    negative_count: int = 0,
+    zero_count: int = 0,
+    non_null_count: int = 5,
+) -> ColumnProfile:
+    return ColumnProfile(
+        name=name,
+        data_type=data_type,
+        nullable=True,
+        comment=comment,
+        null_count=null_count,
+        empty_count=0,
+        distinct_count=distinct,
+        top_values=(),
+        sample_values=(),
+        min_value=None,
+        max_value=None,
+        non_null_count=non_null_count,
+        distinct_ratio=distinct_ratio,
+        type_family=type_family,
+        min_length=min_length,
+        negative_count=negative_count,
+        zero_count=zero_count,
+    )
+
+
+def test_dimension_high_cardinality_signal() -> None:
+    out = dimension_column_rules(
+        _enriched_profile("user_id", "VARCHAR", type_family="string", distinct=100, distinct_ratio=0.95, min_length=8)
+    )
+    ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
+    assert "dimension_high_cardinality" in ids
+    assert "dimension_text_shape" in ids
+
+
+def test_dimension_boolean_like_for_two_valued_column() -> None:
+    out = dimension_column_rules(_enriched_profile("is_active", "VARCHAR", distinct=2))
+    ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
+    assert "dimension_boolean_like" in ids
+
+
+def test_dimension_identifier_shape_for_id_column() -> None:
+    out = dimension_column_rules(
+        _enriched_profile("customer_id", "BIGINT", type_family="integer", distinct=100, distinct_ratio=1.0)
+    )
+    ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
+    assert "dimension_identifier_shape" in ids
+
+
+def test_measure_negative_zero_and_unit_token_signals() -> None:
+    out = measure_column_rules(
+        _enriched_profile(
+            "amount",
+            "DOUBLE",
+            type_family="numeric",
+            negative_count=2,
+            zero_count=1,
+            null_count=1,
+            comment="Gross order amount in USD",
+        )
+    )
+    ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
+    assert "measure_numeric_type" in ids
+    assert "measure_negative_values_present" in ids
+    assert "measure_zero_values_present" in ids
+    assert "measure_unit_token_observed" in ids
+    issues = [i for i in out if isinstance(i, DiscoveryIssue)]
+    assert any(i.rule_id == "measure_nullable" and i.severity == "info" for i in issues)
+
+
+def test_measure_unit_token_absent_when_no_token() -> None:
+    out = measure_column_rules(
+        _enriched_profile("amount", "DOUBLE", type_family="numeric", comment="some value")
+    )
+    ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
+    assert "measure_unit_token_observed" not in ids

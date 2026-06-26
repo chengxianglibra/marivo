@@ -120,6 +120,15 @@ class ColumnProfile:
         sample_values: Representative sample of non-null values.
         min_value: Minimum value (for orderable types).
         max_value: Maximum value (for orderable types).
+        non_null_count: Number of non-null values observed.
+        distinct_ratio: distinct_count / non_null_count, or ``None`` when no non-null values.
+        top_value_concentration: top-value count / non_null_count, or ``None``.
+        negative_count: Number of non-null numeric values below zero.
+        zero_count: Number of non-null numeric values equal to zero.
+        min_length: Minimum string length over non-null string values, or ``None``.
+        max_length: Maximum string length over non-null string values, or ``None``.
+        avg_length: Average string length over non-null string values, or ``None``.
+        type_family: Coarse type family label from ``_coarse_type_family``.
     """
 
     name: str
@@ -133,6 +142,15 @@ class ColumnProfile:
     sample_values: tuple[object, ...]
     min_value: object | None
     max_value: object | None
+    non_null_count: int = 0
+    distinct_ratio: float | None = None
+    top_value_concentration: float | None = None
+    negative_count: int = 0
+    zero_count: int = 0
+    min_length: int | None = None
+    max_length: int | None = None
+    avg_length: float | None = None
+    type_family: str = "unknown"
 
 
 @dataclass(frozen=True, repr=False)
@@ -387,3 +405,32 @@ def unpruned(
         max_columns=max_columns,
         timeout_seconds=timeout_seconds,
     )
+
+
+def _coarse_type_family(data_type: str) -> str:
+    """Classify a backend data type label into a coarse type family.
+
+    Order matters: ``TIMESTAMP``/``DATETIME`` are checked before ``DATE``
+    because ``"DATETIME"`` contains the substring ``"DATE"``.
+
+    Args:
+        data_type: Backend data type label (e.g. ``"TIMESTAMP"``, ``"VARCHAR"``).
+
+    Returns:
+        One of ``"timestamp"``, ``"date"``, ``"boolean"``, ``"integer"``,
+        ``"numeric"``, ``"string"``, or ``"unknown"``.
+    """
+    upper = data_type.upper()
+    if "TIMESTAMP" in upper or "DATETIME" in upper:
+        return "timestamp"
+    if "DATE" in upper:
+        return "date"
+    if "BOOL" in upper:
+        return "boolean"
+    if "INT" in upper:
+        return "integer"
+    if any(token in upper for token in ("DECIMAL", "FLOAT", "DOUBLE", "NUMERIC", "REAL")):
+        return "numeric"
+    if any(token in upper for token in ("VARCHAR", "CHAR", "TEXT", "STRING")):
+        return "string"
+    return "unknown"

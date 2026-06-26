@@ -143,6 +143,58 @@ class DimensionValueFact:
 
 
 @dataclass(frozen=True)
+class PrimaryKeyCandidate:
+    """One primary-key candidate with its evidence source.
+
+    Attributes:
+        column: Candidate column name.
+        source: ``"declared_primary"`` for backend-declared primary keys,
+            ``"declared_unique"`` for declared unique constraints, or
+            ``"sampled_unique"`` for columns whose bounded sample is fully unique.
+        evidence: Scalar evidence entries supporting the candidate.
+    """
+
+    column: str
+    source: Literal["declared_primary", "declared_unique", "sampled_unique"]
+    evidence: tuple[DiscoveryEvidenceEntry, ...]
+
+
+@dataclass(frozen=True)
+class FormatCandidate:
+    """One supported time-parse format observed in a bounded sample.
+
+    Attributes:
+        format: strptime format string or integer-encoding label
+            (e.g. ``"%Y-%m-%d"`` or ``"epoch_millis"``).
+        kind: ``"string"`` for strptime formats, ``"integer"`` for integer encodings.
+        matched_count: Number of sampled non-null values that matched the format.
+        ambiguous: Whether the encoding matches multiple plausible time meanings.
+    """
+
+    format: str
+    kind: Literal["string", "integer"]
+    matched_count: int
+    ambiguous: bool
+
+
+@dataclass(frozen=True)
+class KeyTypeEvidence:
+    """One side of a relationship join key with its type family.
+
+    Attributes:
+        side: ``"from"`` for the left side, ``"to"`` for the right side.
+        column: Key column name.
+        type_family: Coarse type family of the key column.
+        data_type: Backend data type label of the key column.
+    """
+
+    side: Literal["from", "to"]
+    column: str
+    type_family: str
+    data_type: str
+
+
+@dataclass(frozen=True)
 class EntityDiscoveryCandidate:
     """Entity-level evidence for one source table.
 
@@ -157,7 +209,7 @@ class EntityDiscoveryCandidate:
     """
 
     table: str
-    primary_key_candidates: tuple[str, ...]
+    primary_key_candidates: tuple[PrimaryKeyCandidate, ...]
     time_like_columns: tuple[str, ...]
     partition_columns: tuple[str, ...]
     column_profiles: tuple[ColumnProfile, ...]
@@ -198,7 +250,7 @@ class TimeColumnDiscoveryCandidate:
 
     column: str
     profile: ColumnProfile
-    detected_formats: tuple[str, ...]
+    detected_formats: tuple[FormatCandidate, ...]
     value_range: TimeValueRange
     partition_aligned: bool
     signals: tuple[DiscoverySignal, ...]
@@ -227,7 +279,7 @@ class RelationshipDiscoveryEvidence:
 
     from_side: JoinSide
     to_side: JoinSide
-    key_type_evidence: tuple[str, ...]
+    key_type_evidence: tuple[KeyTypeEvidence, ...]
     sampled_key_count: int
     matched_key_count: int
     match_rate: float
