@@ -360,18 +360,37 @@ def test_help_json_metric_includes_body_rule_and_related_help() -> None:
     assert result["kind"] == "topic"
     assert result["symbol"] == "metric"
     content = cast("dict[str, Any]", result["content"])
-    assert "tier1" in content
-    assert "tier2" in content
-    assert "body_rule" in content
-    assert content["default_path"] == (
-        "Default to prepare_measure -> ms.measure_column -> verify_object(measure) "
-        "-> ms.aggregate -> verify_object(metric)."
-    )
-    assert "ms.aggregate" in cast("str", content["default_path"])
-    assert "recommended default" in cast("str", content["tier1"])
-    assert "ms.count" in cast("str", content["tier1"])
-    assert "ms.count_distinct" not in cast("str", content["tier1"])
-    assert "escape hatch" in cast("str", content["tier2"])
+    contract = cast("dict[str, Any]", content["authoring_contract"])
+    assert contract["constructor"] == "metric family"
+    assert contract["decision_order"] == [
+        "count",
+        "aggregate",
+        "ratio",
+        "weighted_average",
+        "linear",
+        "expression",
+    ]
+    variants = cast("dict[str, dict[str, Any]]", contract["variants"])
+    assert variants["aggregate"]["constructor"] == "ms.aggregate"
+    assert variants["count"]["constructor"] == "ms.count"
+    assert variants["expression"]["constructor"] == "@ms.metric"
+    assert variants["expression"]["required"] == ["entities", "additivity", "function_body"]
+    assert "ms.count_distinct" not in str(content)
+
+
+def test_help_json_parse_helpers_are_hidden_from_index_but_addressable() -> None:
+    index = _ms_json_data()
+    entries = cast("list[dict[str, Any]]", index["entries"])
+    entry_names = {entry["name"] for entry in entries}
+    assert {"datetime", "timestamp", "strptime", "hour_prefix"}.isdisjoint(entry_names)
+
+    for symbol in ("datetime", "timestamp", "strptime", "hour_prefix"):
+        result = _ms_json_data(symbol)
+        assert result["kind"] == "topic"
+        content = cast("dict[str, Any]", result["content"])
+        contract = cast("dict[str, Any]", content["authoring_contract"])
+        assert contract["constructor"] == f"ms.{symbol}"
+        assert contract["prepare"] == "ms.prepare_time_dimension"
 
 
 def test_help_json_time_dimension_includes_partition_pushdown_advisory() -> None:

@@ -347,8 +347,19 @@ def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
     assert result["symbol"] == "metric"
     assert result["doc"]
     content = cast("dict[str, Any]", result["content"])
-    assert "tier1" in content
-    assert "tier2" in content
+    contract = cast("dict[str, Any]", content["authoring_contract"])
+    assert contract["constructor"] == "metric family"
+    assert contract["decision_order"] == [
+        "count",
+        "aggregate",
+        "ratio",
+        "weighted_average",
+        "linear",
+        "expression",
+    ]
+    variants = cast("dict[str, dict[str, Any]]", contract["variants"])
+    assert variants["aggregate"]["constructor"] == "ms.aggregate"
+    assert variants["expression"]["constructor"] == "@ms.metric"
 
 
 def test_datasource_trino_descriptor_lists_secret_env_constraint() -> None:

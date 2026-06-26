@@ -426,9 +426,9 @@ Each rung starts from the matching help contract, then discovery, then prepare:
 - Dimension: `ms.help("dimension_column")` or `ms.help("dimension")`, then `md.discover_dimensions(...)`, then `ms.prepare_dimension(...)`.
 - Time dimension: `ms.help("time_dimension_column")` or `ms.help("time_dimension")`, then `md.discover_time_dimensions(...)`, then `ms.prepare_time_dimension(...)`.
 - Measure: `ms.help("measure_column")` or `ms.help("measure")`, then `md.discover_measures(...)`, then `ms.prepare_measure(...)`.
-- Metric: `ms.help("aggregate")`, `ms.help("count")`, or `ms.help("metric")`, then `ms.prepare_metric(...)`.
+- Metric: start with `ms.help("metric")` to choose `count`, `aggregate`, expression `@ms.metric`, `ratio`, `weighted_average`, or `linear`; then read the selected constructor help and call `ms.prepare_metric(...)` or `ms.prepare_derived_metric(...)`.
 - Relationship: `ms.help("relationship")`, then `md.discover_relationship(...)`, then `ms.prepare_relationship(...)`.
-- Derived metric: `ms.help("ratio")`, `ms.help("weighted_average")`, or `ms.help("linear")`, then `ms.prepare_derived_metric(...)`.
+- Derived metric: do not start from a derived helper in isolation; start from `ms.help("metric")`, then read `ms.help("ratio")`, `ms.help("weighted_average")`, or `ms.help("linear")` after the family router selects that path.
 
 ```python
 warehouse = md.ref("warehouse")

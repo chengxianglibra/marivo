@@ -181,7 +181,6 @@ def _additivity_topic() -> Descriptor:
     )
 
 
-_DELETED_PARSE_HELP_TOPICS = frozenset({"datetime", "timestamp", "strptime", "hour_prefix"})
 _GRANULARITY_VALUES = ["year", "quarter", "month", "week", "day", "hour", "minute", "second"]
 
 
@@ -249,6 +248,82 @@ def _additivity_contract() -> dict[str, object]:
         "semi_additive": {
             "form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max')",
             "when": "measure or metric is additive except along one time axis",
+        },
+    }
+
+
+def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
+    sample_interval = _param(
+        "tuple[int, str] | None",
+        "optional sampling cadence for sampled time axes",
+        default="None",
+    )
+    timezone = _param(
+        "str | None",
+        "optional IANA timezone string; omit when engine/project timezone policy applies",
+        default="None",
+    )
+    return {
+        "datetime": {
+            "summary": "Declare parse metadata for a native datetime time column.",
+            "constructor": "ms.datetime",
+            "required": [],
+            "optional": ["timezone", "sample_interval"],
+            "prepare": "ms.prepare_time_dimension",
+            "discover": "md.discover_time_dimensions",
+            "parameters": {"timezone": timezone, "sample_interval": sample_interval},
+            "static_constraints": [
+                "only use as the parse value of a time dimension",
+                "omit timezone when engine/project timezone policy applies",
+            ],
+        },
+        "timestamp": {
+            "summary": "Declare parse metadata for a native timestamp time column.",
+            "constructor": "ms.timestamp",
+            "required": [],
+            "optional": ["timezone", "sample_interval"],
+            "prepare": "ms.prepare_time_dimension",
+            "discover": "md.discover_time_dimensions",
+            "parameters": {"timezone": timezone, "sample_interval": sample_interval},
+            "static_constraints": [
+                "only use as the parse value of a time dimension",
+                "omit timezone when engine/project timezone policy applies",
+            ],
+        },
+        "strptime": {
+            "summary": "Declare parse metadata for string or integer encoded time columns.",
+            "constructor": "ms.strptime",
+            "required": ["format"],
+            "optional": ["timezone", "sample_interval"],
+            "prepare": "ms.prepare_time_dimension",
+            "discover": "md.discover_time_dimensions",
+            "parameters": {
+                "format": _param("str", "Python strptime-compatible physical encoding format"),
+                "timezone": timezone,
+                "sample_interval": sample_interval,
+            },
+            "static_constraints": [
+                "format is required",
+                "format must be accepted by ms.strptime(...) validation",
+                "date-only parsed values must omit timezone",
+                "only use as the parse value of a time dimension",
+            ],
+        },
+        "hour_prefix": {
+            "summary": "Declare parse metadata for hour-only buckets with a stable date prefix.",
+            "constructor": "ms.hour_prefix",
+            "required": ["prefix"],
+            "optional": ["sample_interval"],
+            "prepare": "ms.prepare_time_dimension",
+            "discover": "md.discover_time_dimensions",
+            "parameters": {
+                "prefix": _param("str", "date prefix that gives hour values date context"),
+                "sample_interval": sample_interval,
+            },
+            "static_constraints": [
+                "only valid with time_dimension granularity='hour'",
+                "only use as the parse value of a time dimension",
+            ],
         },
     }
 
@@ -502,45 +577,104 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "static_constraints": ["entity must be an EntityRef"],
         },
         "metric": {
-            "summary": "Declare a tier-2 metric with an expression body.",
-            "constructor": "@ms.metric",
-            "required": ["entities", "additivity", "function_body"],
-            "optional": ["name", "unit", "domain", "provenance", "ai_context"],
-            "prepare": "ms.prepare_metric",
+            "summary": "Choose the correct metric constructor before authoring a metric.",
+            "constructor": "metric family",
+            "required": [],
+            "optional": [],
+            "prepare": "ms.prepare_metric or ms.prepare_derived_metric",
             "discover": "md.discover_relationship for cross-entity viability when multiple entities are involved",
-            "parameters": {
-                "entities": _param("list[EntityRef | str]", "entities used by the metric body"),
-                "additivity": additivity,
-                "function_body": function_body,
-                "name": _param(
-                    "str | None", "defaults to the decorated function name", default="None"
-                ),
-                "unit": unit,
-                "domain": domain,
-                "provenance": _param(
-                    "MetricProvenance | None",
-                    "optional ms.from_sql(...) parity provenance",
-                    default="None",
-                ),
-                "ai_context": ai_context,
+            "parameters": {},
+            "decision_order": ["count", "aggregate", "ratio", "weighted_average", "linear", "expression"],
+            "variants": {
+                "count": {
+                    "when": "metric is row count over one entity",
+                    "constructor": "ms.count",
+                    "required": ["name", "entity"],
+                    "optional": ["domain", "ai_context"],
+                    "prepare": "ms.prepare_metric",
+                },
+                "aggregate": {
+                    "when": "metric is a simple aggregation over one verified measure",
+                    "constructor": "ms.aggregate",
+                    "required": ["name", "measure", "agg"],
+                    "optional": ["domain", "ai_context"],
+                    "prepare": "ms.prepare_metric",
+                },
+                "ratio": {
+                    "when": "metric divides one existing metric by another",
+                    "constructor": "ms.ratio",
+                    "required": ["name", "numerator", "denominator"],
+                    "optional": ["unit", "domain", "ai_context"],
+                    "prepare": "ms.prepare_derived_metric",
+                },
+                "weighted_average": {
+                    "when": "metric is weighted average from an existing value metric and weight metric",
+                    "constructor": "ms.weighted_average",
+                    "required": ["name", "value", "weight"],
+                    "optional": ["unit", "domain", "ai_context"],
+                    "prepare": "ms.prepare_derived_metric",
+                },
+                "linear": {
+                    "when": "metric adds and/or subtracts existing metrics",
+                    "constructor": "ms.linear",
+                    "required": ["name"],
+                    "optional": ["add", "subtract", "unit", "domain", "ai_context"],
+                    "prepare": "ms.prepare_derived_metric",
+                },
+                "expression": {
+                    "when": "metric needs an expression body over one or more entities, measures, or metrics",
+                    "constructor": "@ms.metric",
+                    "required": ["entities", "additivity", "function_body"],
+                    "optional": [
+                        "name",
+                        "root_entity",
+                        "fanout_policy",
+                        "unit",
+                        "domain",
+                        "provenance",
+                        "ai_context",
+                    ],
+                    "prepare": "ms.prepare_metric",
+                    "parameters": {
+                        "entities": _param("list[EntityRef | str]", "entities used by the metric body"),
+                        "additivity": additivity,
+                        "function_body": function_body,
+                        "name": _param(
+                            "str | None", "defaults to the decorated function name", default="None"
+                        ),
+                        "root_entity": _param(
+                            "EntityRef | str | None",
+                            "required when more than one entity is provided",
+                            default="None",
+                        ),
+                        "fanout_policy": _param(
+                            "Literal['block', 'aggregate_then_join']",
+                            "cross-entity fanout handling policy",
+                            default="block",
+                            allowed_values=["block", "aggregate_then_join"],
+                        ),
+                        "unit": unit,
+                        "domain": domain,
+                        "provenance": _param(
+                            "MetricProvenance | None",
+                            "optional ms.from_sql(...) parity provenance",
+                            default="None",
+                        ),
+                        "ai_context": ai_context,
+                    },
+                    "additivity": _additivity_contract(),
+                    "static_constraints": [
+                        "body must return one supported metric expression",
+                        "entities must be non-empty",
+                        "root_entity is required when more than one entity is provided",
+                    ],
+                },
             },
-            "additivity": _additivity_contract(),
-            "static_constraints": ["body must return one supported metric expression"],
-            "default_path": (
-                "Default to prepare_measure -> ms.measure_column -> verify_object(measure) "
-                "-> ms.aggregate -> verify_object(metric)."
-            ),
-            "tier1": (
-                "recommended default: ms.aggregate(name=..., measure=<verified_measure_ref>, "
-                "agg='sum'|'mean'|'min'|'max'); use ms.count(name=..., entity=<entity_ref>) "
-                "for entity row counts"
-            ),
-            "tier2": (
-                "escape hatch: @ms.metric(entities=[...], "
-                "additivity='additive'|'non_additive'|ms.semi_additive(over, fold), "
-                "provenance=ms.from_sql(...) optional)"
-            ),
-            "body_rule": "No body for tier-1 (call-form); body required for tier-2 (decorator-form).",
+            "static_constraints": [
+                "read ms.help('metric') before choosing any metric constructor",
+                "after selecting a variant, read the specific constructor help for full parameter details",
+                "use md.discover_relationship only to evaluate cross-entity viability when multiple entities are involved",
+            ],
         },
         "relationship": {
             "summary": "Declare a semantic relationship between two verified entities.",
@@ -650,6 +784,12 @@ def _contract_text(symbol: str, content: dict[str, object]) -> str:
         lines.append(
             f"  - semi_additive: {cast('dict[str, object]', additivity['semi_additive'])['form']}"
         )
+    if "variants" in contract:
+        lines.extend(("", "Metric constructor decision order:"))
+        variants = cast("dict[str, dict[str, object]]", contract["variants"])
+        for key in cast("list[str]", contract["decision_order"]):
+            variant = variants[key]
+            lines.append(f"  - {key}: {variant['constructor']} when {variant['when']}")
     if "default_path" in content:
         lines.extend(("", "Default path:"))
         lines.append(f"  {content['default_path']}")
@@ -711,6 +851,29 @@ def _contract_topic(
         constraints=constraints,
         doc=_contract_text(symbol, content),
         see_also=("ms.help('constraints')",),
+    )
+
+
+def _parse_contract_topic(symbol: str, contract: dict[str, object]) -> Descriptor:
+    summary = cast("str", contract["summary"])
+    content: dict[str, object] = {
+        "summary": summary,
+        "authoring_contract": contract,
+        "workflow": [
+            "Use this constructor only as a time dimension parse value.",
+            "Read ms.help('time_dimension_column') or ms.help('time_dimension') for the owning time dimension contract.",
+            "Use md.discover_time_dimensions(...) evidence and user/project context to decide whether this parse constructor is needed.",
+            "Call ms.prepare_time_dimension(...) before authoring the time dimension.",
+        ],
+    }
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol=symbol,
+        summary=summary,
+        content=content,
+        doc=_contract_text(symbol, content),
+        see_also=("ms.help('time_dimension_column')", "ms.help('time_dimension')"),
     )
 
 
@@ -825,8 +988,6 @@ def _resolve(symbol: str) -> Any | None:
     from marivo.semantic import errors as errors_mod
     from marivo.semantic import typing as typing_mod
 
-    if symbol in _DELETED_PARSE_HELP_TOPICS:
-        return None
     if hasattr(ms, symbol):
         return getattr(ms, symbol)
     if hasattr(errors_mod, symbol):
@@ -845,6 +1006,10 @@ def _surface() -> Surface:
         symbol: _contract_topic(symbol, contract, catalog)
         for symbol, contract in _authoring_contracts().items()
     }
+    parse_contract_topics = {
+        symbol: _parse_contract_topic(symbol, contract)
+        for symbol, contract in _parse_constructor_contracts().items()
+    }
     all_names = tuple(
         dict.fromkeys(
             (
@@ -852,6 +1017,7 @@ def _surface() -> Surface:
                 "constraints",
                 "composition",
                 *contract_topics,
+                *parse_contract_topics,
                 "from_sql",
                 "join_on",
                 "parquet",
@@ -862,6 +1028,7 @@ def _surface() -> Surface:
     )
     topics = {
         **contract_topics,
+        **parse_contract_topics,
         "constraints": _constraint_topic(),
         "composition": _composition_topic(),
         "from_sql": _from_sql_topic(),

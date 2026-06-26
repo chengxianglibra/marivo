@@ -86,10 +86,10 @@ EXPECTED_CONTRACTS: dict[str, dict[str, object]] = {
         "discover": None,
     },
     "metric": {
-        "constructor": "@ms.metric",
-        "required": ["entities", "additivity", "function_body"],
-        "optional": ["name", "unit", "domain", "provenance", "ai_context"],
-        "prepare": "ms.prepare_metric",
+        "constructor": "metric family",
+        "required": [],
+        "optional": [],
+        "prepare": "ms.prepare_metric or ms.prepare_derived_metric",
         "discover": "md.discover_relationship for cross-entity viability when multiple entities are involved",
     },
     "relationship": {
@@ -180,25 +180,68 @@ def test_measure_help_contract_inlines_additivity_shapes() -> None:
     )
 
 
-def test_metric_help_contract_separates_tier1_and_tier2_paths() -> None:
+def test_specific_metric_constructor_help_remains_available() -> None:
     aggregate = cast(
         "dict[str, Any]",
         cast("dict[str, Any]", _help_json("aggregate")["content"])["authoring_contract"],
     )
-    metric = cast(
+    ratio = cast(
         "dict[str, Any]",
-        cast("dict[str, Any]", _help_json("metric")["content"])["authoring_contract"],
+        cast("dict[str, Any]", _help_json("ratio")["content"])["authoring_contract"],
     )
 
     assert aggregate["constructor"] == "ms.aggregate"
-    assert metric["constructor"] == "@ms.metric"
+    assert ratio["constructor"] == "ms.ratio"
     assert "function_body" not in aggregate["required"]
-    assert "function_body" in metric["required"]
+    assert ratio["required"] == ["name", "numerator", "denominator"]
 
 
-def test_parse_constructor_help_topics_are_deleted() -> None:
+def test_metric_help_is_unified_family_entry() -> None:
+    data = _help_json("metric")
+    content = cast("dict[str, Any]", data["content"])
+    contract = cast("dict[str, Any]", content["authoring_contract"])
+
+    assert contract["constructor"] == "metric family"
+    assert contract["decision_order"] == [
+        "count",
+        "aggregate",
+        "ratio",
+        "weighted_average",
+        "linear",
+        "expression",
+    ]
+
+    variants = cast("dict[str, dict[str, Any]]", contract["variants"])
+    assert variants["count"]["constructor"] == "ms.count"
+    assert variants["aggregate"]["constructor"] == "ms.aggregate"
+    assert variants["expression"]["constructor"] == "@ms.metric"
+    assert variants["ratio"]["constructor"] == "ms.ratio"
+    assert variants["weighted_average"]["constructor"] == "ms.weighted_average"
+    assert variants["linear"]["constructor"] == "ms.linear"
+    assert variants["aggregate"]["when"] == "metric is a simple aggregation over one verified measure"
+    assert variants["expression"]["when"] == (
+        "metric needs an expression body over one or more entities, measures, or metrics"
+    )
+    assert variants["expression"]["required"] == ["entities", "additivity", "function_body"]
+    assert "parameters" in variants["expression"]
+
+
+def test_parse_constructor_help_topics_are_public_contracts() -> None:
     for symbol in ("datetime", "timestamp", "strptime", "hour_prefix"):
         data = _help_json(symbol)
-        assert data["kind"] == "unknown"
-        assert data["symbol"] == symbol
-        assert "signature" not in data
+        assert data["kind"] == "topic"
+        content = cast("dict[str, Any]", data["content"])
+        contract = cast("dict[str, Any]", content["authoring_contract"])
+        assert contract["constructor"] == f"ms.{symbol}"
+        assert contract["discover"] == "md.discover_time_dimensions"
+        assert contract["prepare"] == "ms.prepare_time_dimension"
+        assert "parameters" in contract
+        assert "static_constraints" in contract
+
+
+def test_parse_constructor_help_points_back_to_time_dimension_contract() -> None:
+    for symbol in ("datetime", "timestamp", "strptime", "hour_prefix"):
+        data = _help_json(symbol)
+        see_also = tuple(cast("tuple[str, ...]", data["see_also"]))
+        assert "ms.help('time_dimension_column')" in see_also
+        assert "ms.help('time_dimension')" in see_also
