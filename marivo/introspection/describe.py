@@ -127,9 +127,7 @@ def _format_annotation(annotation: object) -> str:
     if origin is typing.Union or origin is types.UnionType:
         return " | ".join(_format_annotation(arg) for arg in args)
     if origin is not None:
-        origin_name = getattr(origin, "__name__", None) or str(origin).replace(
-            "typing.", ""
-        )
+        origin_name = getattr(origin, "__name__", None) or str(origin).replace("typing.", "")
         if args:
             inner = ", ".join(_format_annotation(arg) for arg in args)
             return f"{origin_name}[{inner}]"

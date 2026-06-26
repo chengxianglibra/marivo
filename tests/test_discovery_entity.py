@@ -84,14 +84,22 @@ def _metadata(
 def test_entity_rules_declared_primary_key_and_sampled_unique() -> None:
     metadata = _metadata(
         primary_keys=("order_id",),
-        columns=(ColumnMetadata(name="order_id", type="INTEGER", nullable=False, comment=None, ordinal_position=1),),
+        columns=(
+            ColumnMetadata(
+                name="order_id", type="INTEGER", nullable=False, comment=None, ordinal_position=1
+            ),
+        ),
     )
-    profiles = (_profile("order_id", "INTEGER", type_family="integer", distinct=5, non_null_count=5),)
+    profiles = (
+        _profile("order_id", "INTEGER", type_family="integer", distinct=5, non_null_count=5),
+    )
     out = entity_rules(metadata, _scan(5), profiles, ScanScope())
     ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
     assert "entity_declared_primary_key" in ids
     assert "entity_sampled_unique_column" in ids
-    assert "entity_no_primary_key_evidence" not in [i.rule_id for i in out if isinstance(i, DiscoveryIssue)]
+    assert "entity_no_primary_key_evidence" not in [
+        i.rule_id for i in out if isinstance(i, DiscoveryIssue)
+    ]
 
 
 def test_entity_rules_no_pk_evidence_warning() -> None:
@@ -99,14 +107,18 @@ def test_entity_rules_no_pk_evidence_warning() -> None:
     profiles = (_profile("region", "VARCHAR", type_family="string", distinct=3, non_null_count=5),)
     out = entity_rules(metadata, _scan(5), profiles, ScanScope())
     issues = [i for i in out if isinstance(i, DiscoveryIssue)]
-    assert any(i.rule_id == "entity_no_primary_key_evidence" and i.severity == "warning" for i in issues)
+    assert any(
+        i.rule_id == "entity_no_primary_key_evidence" and i.severity == "warning" for i in issues
+    )
 
 
 def test_entity_rules_temporal_and_partition_signals() -> None:
     metadata = _metadata(
         partitions=(PartitionMetadata(name="dt", type="date"),),
         columns=(
-            ColumnMetadata(name="created_at", type="TIMESTAMP", nullable=True, comment=None, ordinal_position=1),
+            ColumnMetadata(
+                name="created_at", type="TIMESTAMP", nullable=True, comment=None, ordinal_position=1
+            ),
         ),
     )
     profiles = (_profile("created_at", "TIMESTAMP", type_family="timestamp"),)
@@ -118,7 +130,9 @@ def test_entity_rules_temporal_and_partition_signals() -> None:
 
 def test_entity_rules_many_columns_info() -> None:
     columns = tuple(
-        ColumnMetadata(name=f"c{i}", type="INTEGER", nullable=True, comment=None, ordinal_position=i)
+        ColumnMetadata(
+            name=f"c{i}", type="INTEGER", nullable=True, comment=None, ordinal_position=i
+        )
         for i in range(5)
     )
     out = entity_rules(_metadata(columns=columns), _scan(1), (), ScanScope(max_columns=2))
@@ -129,9 +143,15 @@ def test_entity_rules_many_columns_info() -> None:
 def test_build_entity_result_wires_rules_and_targets() -> None:
     metadata = _metadata(
         primary_keys=("order_id",),
-        columns=(ColumnMetadata(name="order_id", type="INTEGER", nullable=False, comment=None, ordinal_position=1),),
+        columns=(
+            ColumnMetadata(
+                name="order_id", type="INTEGER", nullable=False, comment=None, ordinal_position=1
+            ),
+        ),
     )
-    profiles = (_profile("order_id", "INTEGER", type_family="integer", distinct=5, non_null_count=5),)
+    profiles = (
+        _profile("order_id", "INTEGER", type_family="integer", distinct=5, non_null_count=5),
+    )
     result = build_entity_result(
         datasource=ref("warehouse"),
         source=table("orders"),

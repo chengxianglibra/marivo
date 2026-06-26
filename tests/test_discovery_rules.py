@@ -73,7 +73,9 @@ def test_relationship_targets_include_keys_and_entities() -> None:
     assert "relationship.to_entity" in paths
 
 
-def _profile(name: str, data_type: str, distinct: int = 5, null_count: int = 0, empty_count: int = 0) -> ColumnProfile:
+def _profile(
+    name: str, data_type: str, distinct: int = 5, null_count: int = 0, empty_count: int = 0
+) -> ColumnProfile:
     return ColumnProfile(
         name=name,
         data_type=data_type,
@@ -273,7 +275,11 @@ def test_metadata_rules_forward_warnings() -> None:
         database=None,
         backend_type="duckdb",
         comment=None,
-        columns=(ColumnMetadata(name="a", type="INTEGER", nullable=False, comment=None, ordinal_position=1),),
+        columns=(
+            ColumnMetadata(
+                name="a", type="INTEGER", nullable=False, comment=None, ordinal_position=1
+            ),
+        ),
         partitions=(),
         warnings=(
             MetadataWarning(kind="partitions_unavailable", message="no partitions"),
@@ -281,7 +287,10 @@ def test_metadata_rules_forward_warnings() -> None:
         ),
     )
     issues = metadata_rules(metadata)
-    assert [i.rule_id for i in issues] == ["discovery_metadata_warning", "discovery_metadata_warning"]
+    assert [i.rule_id for i in issues] == [
+        "discovery_metadata_warning",
+        "discovery_metadata_warning",
+    ]
     severities = {i.message: i.severity for i in issues}
     assert severities["no partitions"] == "info"
     assert severities["boom"] == "warning"
@@ -334,7 +343,14 @@ def _enriched_profile(
 
 def test_dimension_high_cardinality_signal() -> None:
     out = dimension_column_rules(
-        _enriched_profile("user_id", "VARCHAR", type_family="string", distinct=100, distinct_ratio=0.95, min_length=8)
+        _enriched_profile(
+            "user_id",
+            "VARCHAR",
+            type_family="string",
+            distinct=100,
+            distinct_ratio=0.95,
+            min_length=8,
+        )
     )
     ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
     assert "dimension_high_cardinality" in ids
@@ -349,7 +365,9 @@ def test_dimension_boolean_like_for_two_valued_column() -> None:
 
 def test_dimension_identifier_shape_for_id_column() -> None:
     out = dimension_column_rules(
-        _enriched_profile("customer_id", "BIGINT", type_family="integer", distinct=100, distinct_ratio=1.0)
+        _enriched_profile(
+            "customer_id", "BIGINT", type_family="integer", distinct=100, distinct_ratio=1.0
+        )
     )
     ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
     assert "dimension_identifier_shape" in ids

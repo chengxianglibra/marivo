@@ -257,7 +257,9 @@ def test_format_candidate_carries_match_metadata() -> None:
 def test_key_type_evidence_is_frozen_typed() -> None:
     from marivo.datasource.discovery import KeyTypeEvidence
 
-    ev = KeyTypeEvidence(side="from", column="customer_id", type_family="integer", data_type="BIGINT")
+    ev = KeyTypeEvidence(
+        side="from", column="customer_id", type_family="integer", data_type="BIGINT"
+    )
     assert ev.side == "from"
     assert ev.type_family == "integer"
     with pytest.raises(FrozenInstanceError):

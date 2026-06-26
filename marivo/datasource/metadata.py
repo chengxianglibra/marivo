@@ -589,9 +589,7 @@ def _inspect_duckdb(
             if ctype == "PRIMARY KEY" and cols:
                 pk_columns.extend(cols)
             elif ctype == "UNIQUE" and cols:
-                uq_rows.append(
-                    UniqueConstraintMetadata(name=None, columns=cols, kind="unique")
-                )
+                uq_rows.append(UniqueConstraintMetadata(name=None, columns=cols, kind="unique"))
         primary_keys = tuple(pk_columns)
         unique_constraints = tuple(uq_rows)
     except Exception as exc:
