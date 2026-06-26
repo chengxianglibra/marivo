@@ -124,3 +124,7 @@ Results
    DimensionValueDiscoveryResult
    RawSqlResult
    JoinSide
+   ColumnDiscovery
+   TimeColumnDiscovery
+   PrimaryKeyCandidate
+   FormatCandidate

@@ -58,7 +58,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=scope,
         project_root=tmp_path,
     )
-    assert entity_discovery.candidates[0].primary_key_candidates
+    assert entity_discovery.primary_key_evidence
 
     entity_brief = project.prepare_entity(
         datasource="warehouse",
@@ -87,7 +87,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=scope,
         project_root=tmp_path,
     )
-    assert dimension_discovery.candidates[0].column == "customer_id"
+    assert dimension_discovery.columns[0].column == "customer_id"
 
     dim_brief = project.prepare_dimension(
         entity="sales.orders",
@@ -114,7 +114,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=scope,
         project_root=tmp_path,
     )
-    assert time_discovery.candidates[0].detected_formats
+    assert time_discovery.columns[0].detected_formats
 
     time_brief = project.prepare_time_dimension(
         entity="sales.orders",
@@ -142,7 +142,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=scope,
         project_root=tmp_path,
     )
-    assert measure_discovery.candidates[0].column == "amount"
+    assert measure_discovery.columns[0].column == "amount"
 
     measure_brief = project.prepare_measure(
         entity="sales.orders",

@@ -332,11 +332,18 @@ def test_help_json_top_level_returns_compact_directory() -> None:
             "composition",
             "additivity",
         }
-    ) - {"SemanticKindInput", "SemanticRefInput"}
+    ) - {
+        "SemanticKindInput",
+        "SemanticRefInput",
+        "datetime",
+        "timestamp",
+        "strptime",
+        "hour_prefix",
+    }
     assert "entity" in entry_names
     assert "metric" in entry_names
     count_entry = next(e for e in entries if e["name"] == "count")
-    assert count_entry["summary"] == "Declare a row-count metric for an entity."
+    assert count_entry["summary"] == "Declare a tier-1 row-count metric over an entity."
     assert "ratio" in entry_names
     assert "weighted_average" in entry_names
     assert "component" not in entry_names

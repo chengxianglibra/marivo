@@ -21,6 +21,7 @@ from marivo.datasource.discover import (
     discover_time_dimensions,
 )
 from marivo.datasource.discovery import (
+    ColumnDiscovery,
     DimensionDiscoveryResult,
     DimensionValueDiscoveryResult,
     DimensionValueFact,
@@ -28,10 +29,12 @@ from marivo.datasource.discovery import (
     DiscoveryIssue,
     DiscoverySignal,
     EntityDiscoveryResult,
+    FormatCandidate,
     MeasureDiscoveryResult,
+    PrimaryKeyCandidate,
     RawSqlResult,
     RelationshipDiscoveryResult,
-    SemanticJudgmentTarget,
+    TimeColumnDiscovery,
     TimeDimensionDiscoveryResult,
     TimeValueRange,
 )
@@ -65,6 +68,7 @@ from marivo.datasource.scan import (
 from marivo.preview import PreviewResult
 
 __all__ = [
+    "ColumnDiscovery",
     "DatasourceCatalog",
     "DatasourceDescription",
     "DatasourceList",
@@ -78,15 +82,17 @@ __all__ = [
     "DiscoveryIssue",
     "DiscoverySignal",
     "EntityDiscoveryResult",
+    "FormatCandidate",
     "JoinSide",
     "MeasureDiscoveryResult",
     "PreviewResult",
+    "PrimaryKeyCandidate",
     "RawSqlResult",
     "RelationshipDiscoveryResult",
     "ScanScope",
-    "SemanticJudgmentTarget",
     "TableMetadata",
     "TableSource",
+    "TimeColumnDiscovery",
     "TimeDimensionDiscoveryResult",
     "TimeValueRange",
     "clickhouse",

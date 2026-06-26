@@ -24,8 +24,8 @@ evidence = md.discover_dimensions(
     columns=("status", "amount"),
     scope=md.partition({"dt": "20260611"}),
 )
-for candidate in evidence.candidates:
-    print(candidate.column, candidate.profile.distinct_count, candidate.profile.top_values)
+for column in evidence.columns:
+    print(column.name, column.profile.distinct_count, column.profile.top_values)
 ```
 
 For Trino without a default schema:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from marivo.datasource.authoring import ref
 from marivo.datasource.discovery import (
-    TimeColumnDiscoveryCandidate,
+    TimeColumnDiscovery,
     TimeDimensionDiscoveryResult,
 )
 from marivo.datasource.discovery_rules import (
@@ -123,7 +123,7 @@ def test_time_ambiguous_hour_only_blocker() -> None:
     assert any(getattr(i, "rule_id", None) == "time_ambiguous_hour_only" for i in blockers)
 
 
-def test_build_time_dimension_result_wires_candidates() -> None:
+def test_build_time_dimension_result_wires_columns() -> None:
     metadata = TableMetadata(
         datasource="wh",
         table="events",
@@ -141,14 +141,15 @@ def test_build_time_dimension_result_wires_candidates() -> None:
         table_metadata=metadata,
         scan=_scan(),
         scope=ScanScope(),
-        candidate_profiles=(profile,),
+        column_profiles=(profile,),
     )
     assert isinstance(result, TimeDimensionDiscoveryResult)
-    cand = result.candidates[0]
-    assert isinstance(cand, TimeColumnDiscoveryCandidate)
-    assert cand.partition_aligned is True
-    assert any(getattr(s, "rule_id", None) == "time_partition_aligned" for s in cand.signals)
-    assert "time_dimension.parse" in {t.field_path for t in result.judgment_targets}
+    column = result.columns[0]
+    assert isinstance(column, TimeColumnDiscovery)
+    assert column.partition_aligned is True
+    assert any(getattr(s, "rule_id", None) == "time_partition_aligned" for s in column.signals)
+    assert not hasattr(result, "judgment_targets")
+    assert not hasattr(result, "candidates")
 
 
 def test_build_time_dimension_result_value_range_typed() -> None:
@@ -173,8 +174,8 @@ def test_build_time_dimension_result_value_range_typed() -> None:
         table_metadata=None,
         scan=_scan(),
         scope=ScanScope(partition=None),
-        candidate_profiles=(profile,),
+        column_profiles=(profile,),
     )
-    cand = result.candidates[0]
-    assert cand.value_range.lower == "2026-01-01"
-    assert cand.value_range.upper == "2026-01-02"
+    column = result.columns[0]
+    assert column.value_range.lower == "2026-01-01"
+    assert column.value_range.upper == "2026-01-02"

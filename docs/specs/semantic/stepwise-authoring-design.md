@@ -301,9 +301,15 @@ passed an explicit `partition=None`, and is reported as such in the
 The public datasource evidence surface is the `md.discover_*` family. Each
 function takes a `DatasourceRef` (`md.ref("warehouse")`) and a `TableSource`
 (`md.table(...)` / `md.parquet(...)` / `md.csv(...)`), plus an optional
-`scope: ScanScope | None` built by a scope helper, and returns a frozen
-discovery result with bounded evidence, deterministic signals/issues, and
-judgment targets.
+`scope: ScanScope | None` built by a scope helper, and returns a frozen,
+evidence-only discovery result. Results carry bounded evidence
+(`.columns` for dimension/time/measure column evidence, `.evidence` for
+relationship evidence, `.values` for dimension value evidence, and flattened
+entity evidence fields such as `primary_key_evidence`, `time_like_columns`,
+`partition_columns`, and `column_profiles`), plus deterministic signals and
+issues. Discovery does not carry judgment targets or author business meaning;
+`ms.help(...)` owns the static authoring contract that tells the agent which
+parameters must be settled, while discovery supplies the runtime evidence.
 
 ```python
 warehouse = md.ref("warehouse")

@@ -89,6 +89,18 @@ bind a datasource, `md.table()`/`md.parquet()`/`md.csv()` to bind a source,
 and the `md.discover_*` family to collect bounded evidence before each
 `ms.prepare_*` call.
 
+Discovery result vocabulary:
+
+- `md.discover_entity(...).primary_key_evidence`, `.time_like_columns`, `.partition_columns`, and `.column_profiles`
+- `md.discover_dimensions(...).columns`
+- `md.discover_time_dimensions(...).columns`
+- `md.discover_measures(...).columns`
+- `md.discover_relationship(...).evidence`
+- `md.discover_dimension_values(...).values`
+
+Discovery does not return semantic candidates, recommended authored objects, or
+parameter checklists. Read `ms.help(...)` for the static authoring contract.
+
 ### DatasourceRef and TableSource
 
 Bind a datasource ref with `md.ref("name")`; bind a physical source with
@@ -121,7 +133,7 @@ helper matches your intent, prefer it over direct construction.
 ### md.discover_entity
 
 Entity-level discovery: table metadata, bounded column profiles, primary-key
-candidates, and deterministic signals/issues. Returns `EntityDiscoveryResult`.
+evidence, and deterministic signals/issues. Returns `EntityDiscoveryResult`.
 Run this before `ms.prepare_entity(...)`.
 
 ```python
@@ -135,9 +147,9 @@ discovery.show()
 
 ### md.discover_dimensions
 
-Dimension-shaped column evidence for one source. Returns one candidate per
-profiled column in `DimensionDiscoveryResult`. Pass `columns=` to profile a
-subset; `None` profiles all columns within `scope.max_columns`.
+Dimension-shaped column evidence for one source. Returns one column evidence
+subject per profiled column in `DimensionDiscoveryResult`. Pass `columns=` to
+profile a subset; `None` profiles all columns within `scope.max_columns`.
 
 ```python
 dimensions = md.discover_dimensions(
@@ -149,9 +161,8 @@ dimensions = md.discover_dimensions(
 
 ### md.discover_time_dimensions
 
-Time-dimension column evidence: parse candidates, value ranges, partition
-alignment, signals, issues, and judgment targets. Returns
-`TimeDimensionDiscoveryResult`.
+Time-dimension column evidence: parse subjects, value ranges, partition
+alignment, signals, and issues. Returns `TimeDimensionDiscoveryResult`.
 
 ```python
 time_dims = md.discover_time_dimensions(

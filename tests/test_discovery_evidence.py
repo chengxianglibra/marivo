@@ -8,7 +8,7 @@ import pytest
 
 from marivo.datasource.authoring import ref
 from marivo.datasource.discovery import (
-    ColumnDiscoveryCandidate,
+    ColumnDiscovery,
     DimensionValueDiscoveryResult,
     DimensionValueFact,
     DiscoveryEvidenceEntry,
@@ -16,7 +16,7 @@ from marivo.datasource.discovery import (
     DiscoverySignal,
     EntityDiscoveryResult,
     MeasureDiscoveryResult,
-    SemanticJudgmentTarget,
+    TimeColumnDiscovery,
     TimeValueRange,
 )
 from marivo.datasource.scan import (
@@ -100,14 +100,12 @@ def test_signal_and_issue_carry_evidence_tuples() -> None:
     assert issue.severity == "info"
 
 
-def test_judgment_target_fields() -> None:
-    target = SemanticJudgmentTarget(
-        object_kind="measure",
-        field_path="measure.additivity",
-        question="decide additive, semi-additive, or non-additive policy",
-        owner="user_or_project_context",
-    )
-    assert target.owner == "user_or_project_context"
+def test_discovery_module_no_longer_exports_judgment_targets() -> None:
+    import marivo.datasource as md
+    import marivo.datasource.discovery as discovery
+
+    assert not hasattr(discovery, "SemanticJudgmentTarget")
+    assert "SemanticJudgmentTarget" not in md.__all__
 
 
 def test_time_value_range_typed_bounds() -> None:
@@ -139,7 +137,7 @@ def _profile(name: str, data_type: str = "VARCHAR") -> ColumnProfile:
 
 
 def _measure_result() -> MeasureDiscoveryResult:
-    cand = ColumnDiscoveryCandidate(
+    column = ColumnDiscovery(
         column="amount",
         profile=_profile("amount", "DOUBLE"),
         signals=(),
@@ -152,15 +150,7 @@ def _measure_result() -> MeasureDiscoveryResult:
         scan=_scan_report(),
         signals=(),
         issues=(),
-        judgment_targets=(
-            SemanticJudgmentTarget(
-                object_kind="measure",
-                field_path="measure.additivity",
-                question="decide additive, semi-additive, or non-additive policy",
-                owner="user_or_project_context",
-            ),
-        ),
-        candidates=(cand,),
+        columns=(column,),
     )
 
 
@@ -172,10 +162,13 @@ def _measure_result() -> MeasureDiscoveryResult:
             source=table("orders"),
             table_metadata=None,
             scan=_scan_report(),
+            table="orders",
+            primary_key_evidence=(),
+            time_like_columns=(),
+            partition_columns=(),
+            column_profiles=(),
             signals=(),
             issues=(),
-            judgment_targets=(),
-            candidates=(),
         ),
         _measure_result,
         lambda: DimensionValueDiscoveryResult(
@@ -187,7 +180,6 @@ def _measure_result() -> MeasureDiscoveryResult:
             scan=_scan_report(),
             signals=(),
             issues=(),
-            judgment_targets=(),
         ),
     ],
 )
@@ -204,15 +196,17 @@ def test_result_conforms_to_agent_result(result_factory) -> None:
     assert result.show() is None
 
 
-def test_measure_render_lists_judgment_targets_and_columns() -> None:
+def test_measure_render_lists_columns_without_judgment_targets() -> None:
     result = _measure_result()
     rendered = result.render()
+
     assert "MeasureDiscoveryResult" in rendered
     assert "evidence_only" in rendered
-    assert "judgment targets:" in rendered
-    assert "measure.additivity" in rendered
     assert "amount" in rendered
-    assert "available:" in rendered
+    assert ".columns" in rendered
+    assert "judgment targets:" not in rendered
+    assert ".judgment_targets" not in rendered
+    assert ".candidates" not in rendered
 
 
 def test_dimension_value_complete_invariant_when_no_truncated_issue() -> None:
@@ -225,7 +219,6 @@ def test_dimension_value_complete_invariant_when_no_truncated_issue() -> None:
         scan=_scan_report(),
         signals=(),
         issues=(),
-        judgment_targets=(),
     )
     assert result.complete is True
 
@@ -266,15 +259,16 @@ def test_key_type_evidence_is_frozen_typed() -> None:
         setattr(ev, "side", "to")  # noqa: B010 - exercising frozen guard
 
 
-def test_entity_candidate_accepts_typed_primary_key_candidates() -> None:
-    from marivo.datasource.discovery import (
-        EntityDiscoveryCandidate,
-        PrimaryKeyCandidate,
-    )
+def test_entity_result_accepts_typed_primary_key_evidence() -> None:
+    from marivo.datasource.discovery import PrimaryKeyCandidate
 
-    cand = EntityDiscoveryCandidate(
+    result = EntityDiscoveryResult(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=None,
+        scan=_scan_report(),
         table="orders",
-        primary_key_candidates=(
+        primary_key_evidence=(
             PrimaryKeyCandidate(
                 column="order_id",
                 source="sampled_unique",
@@ -287,16 +281,13 @@ def test_entity_candidate_accepts_typed_primary_key_candidates() -> None:
         signals=(),
         issues=(),
     )
-    assert cand.primary_key_candidates[0].source == "sampled_unique"
+    assert result.primary_key_evidence[0].source == "sampled_unique"
 
 
-def test_time_candidate_accepts_format_candidates() -> None:
-    from marivo.datasource.discovery import (
-        FormatCandidate,
-        TimeColumnDiscoveryCandidate,
-    )
+def test_time_column_discovery_accepts_format_evidence() -> None:
+    from marivo.datasource.discovery import FormatCandidate
 
-    cand = TimeColumnDiscoveryCandidate(
+    column = TimeColumnDiscovery(
         column="created_at",
         profile=_profile("created_at", "VARCHAR"),
         detected_formats=(
@@ -307,4 +298,4 @@ def test_time_candidate_accepts_format_candidates() -> None:
         signals=(),
         issues=(),
     )
-    assert cand.detected_formats[0].format == "%Y-%m-%d"
+    assert column.detected_formats[0].format == "%Y-%m-%d"

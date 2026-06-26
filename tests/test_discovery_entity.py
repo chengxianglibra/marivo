@@ -140,7 +140,7 @@ def test_entity_rules_many_columns_info() -> None:
     assert any(i.rule_id == "entity_many_columns" and i.severity == "info" for i in issues)
 
 
-def test_build_entity_result_wires_rules_and_targets() -> None:
+def test_build_entity_result_wires_rules_and_evidence() -> None:
     metadata = _metadata(
         primary_keys=("order_id",),
         columns=(
@@ -158,22 +158,21 @@ def test_build_entity_result_wires_rules_and_targets() -> None:
         table_metadata=metadata,
         scan=_scan(5, truncated=True),
         scope=ScanScope(),
-        candidate_profiles=profiles,
+        column_profiles=profiles,
     )
     assert isinstance(result, EntityDiscoveryResult)
     # Result-scope truncated issue.
     assert any(i.rule_id == "discovery_scan_truncated" for i in result.issues)
-    # Candidate carries declared-primary-key and sampled-unique signals.
-    cand = result.candidates[0]
-    cand_signal_ids = {s.rule_id for s in cand.signals}
-    assert "entity_declared_primary_key" in cand_signal_ids
-    assert "entity_sampled_unique_column" in cand_signal_ids
-    # Typed primary-key candidates populated.
-    assert any(c.source == "declared_primary" for c in cand.primary_key_candidates)
-    assert any(c.source == "sampled_unique" for c in cand.primary_key_candidates)
-    # Judgment targets are the entity template.
-    paths = {t.field_path for t in result.judgment_targets}
-    assert "entity.primary_key" in paths
-    # Result-scope and candidate-scope do not overlap.
+    # Flattened evidence carries declared-primary-key and sampled-unique signals.
+    result_signal_ids = {s.rule_id for s in result.signals}
+    assert "entity_declared_primary_key" in result_signal_ids
+    assert "entity_sampled_unique_column" in result_signal_ids
+    # Typed primary-key evidence populated.
+    assert any(c.source == "declared_primary" for c in result.primary_key_evidence)
+    assert any(c.source == "sampled_unique" for c in result.primary_key_evidence)
+    # Flattened result has no candidate or judgment-target surface.
+    assert not hasattr(result, "candidates")
+    assert not hasattr(result, "judgment_targets")
+    # Result-scope signals and issues do not overlap.
     result_ids = {i.rule_id for i in result.issues}
-    assert result_ids.isdisjoint(cand_signal_ids)
+    assert result_ids.isdisjoint(result_signal_ids)

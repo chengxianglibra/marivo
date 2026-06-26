@@ -173,6 +173,7 @@ ANALYSIS_PUBLIC = {
 }
 
 DATASOURCE_PUBLIC = {
+    "ColumnDiscovery",
     "DatasourceCatalog",
     "DatasourceDescription",
     "DatasourceList",
@@ -186,15 +187,17 @@ DATASOURCE_PUBLIC = {
     "DiscoveryIssue",
     "DiscoverySignal",
     "EntityDiscoveryResult",
+    "FormatCandidate",
     "JoinSide",
     "MeasureDiscoveryResult",
+    "PrimaryKeyCandidate",
     "PreviewResult",
     "RawSqlResult",
     "RelationshipDiscoveryResult",
     "ScanScope",
-    "SemanticJudgmentTarget",
     "TableMetadata",
     "TableSource",
+    "TimeColumnDiscovery",
     "TimeDimensionDiscoveryResult",
     "TimeValueRange",
     "clickhouse",
