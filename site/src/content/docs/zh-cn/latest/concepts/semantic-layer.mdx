@@ -483,6 +483,33 @@ ms.relationship(
 )
 ```
 
+## 先发现，再准备
+
+对 datasource-backed 语义对象，先用有界 datasource discovery 收集证据：
+
+```python
+warehouse = md.ref("warehouse")
+orders = md.table("orders")
+scope = md.latest_partition()
+
+entity_evidence = md.discover_entity(warehouse, orders, scope=scope)
+dimension_evidence = md.discover_dimensions(
+    warehouse,
+    orders,
+    scope=scope,
+)
+measure_evidence = md.discover_measures(
+    warehouse,
+    orders,
+    columns=("amount",),
+    scope=scope,
+)
+```
+
+Discovery 返回证据、signals、issues 和 judgment targets；它不会替你决定业务含义、
+单位、additivity，或自动创建语义对象。下一步调用对应的 `ms.prepare_entity(...)` API，
+一次只 author 一个对象，然后运行 `ms.verify_object(...)`。
+
 ## 加载与就绪检查
 
 声明完成后，加载 catalog 并检查它：

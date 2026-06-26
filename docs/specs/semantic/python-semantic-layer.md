@@ -28,6 +28,13 @@ The stepwise authoring workflow for agents is defined in
 prepare/verify/readiness lifecycle and replaces the earlier three-phase
 authoring pipeline.
 
+Before authoring a datasource-backed semantic object, agents collect bounded
+datasource evidence with `md.discover_entity(...)`,
+`md.discover_dimensions(...)`, `md.discover_time_dimensions(...)`,
+`md.discover_measures(...)`, or `md.discover_relationship(...)`. The matching
+`ms.prepare_*` call then checks semantic readiness against the loaded project.
+Discovery does not author objects or infer business meaning.
+
 目标态标准 stepwise authoring workflow 使用每个 domain 一个
 `models/semantic/<model>/_domain.py` 文件。agent 应在
 `models/semantic/sales/_domain.py` 中完成从 entity 到 metric 的声明；项目

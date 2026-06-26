@@ -46,14 +46,25 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
+    # One bounded scope reused across the discovery-first authoring ladder.
+    scope = md.unpruned(max_rows=20)
+
     # -- Rung 1: Domain already authored above --------------------------------
 
-    # -- Rung 2: Entity - prepare, author, verify -----------------------------
+    # -- Rung 2: Entity - discover, prepare, author, verify -------------------
+    entity_discovery = md.discover_entity(
+        md.ref("warehouse"),
+        md.table("orders"),
+        scope=scope,
+        project_root=tmp_path,
+    )
+    assert entity_discovery.candidates[0].primary_key_candidates
+
     entity_brief = project.prepare_entity(
         datasource="warehouse",
         source=md.table("orders"),
         domain="sales",
-        scope=md.ScanScope(partition=None),
+        scope=scope,
     )
     assert entity_brief.status == "sufficient"
 
@@ -65,14 +76,23 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.orders", scope=md.ScanScope(partition=None))
+    verify = project.verify_object("sales.orders", scope=scope)
     assert verify.status == "passed", f"Entity verify failed: {verify.issues}"
 
-    # -- Rung 3: Dimension - prepare, author, verify --------------------------
+    # -- Rung 3: Dimension - discover, prepare, author, verify ----------------
+    dimension_discovery = md.discover_dimensions(
+        md.ref("warehouse"),
+        md.table("orders"),
+        columns=("customer_id",),
+        scope=scope,
+        project_root=tmp_path,
+    )
+    assert dimension_discovery.candidates[0].column == "customer_id"
+
     dim_brief = project.prepare_dimension(
         entity="sales.orders",
         column="customer_id",
-        scope=md.ScanScope(partition=None),
+        scope=scope,
     )
     assert dim_brief.status == "sufficient"
 
@@ -83,14 +103,23 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.orders.customer_id", scope=md.ScanScope(partition=None))
+    verify = project.verify_object("sales.orders.customer_id", scope=scope)
     assert verify.status == "passed", f"Dimension verify failed: {verify.issues}"
 
-    # -- Rung 4: Time dimension - prepare, author, verify ---------------------
+    # -- Rung 4: Time dimension - discover, prepare, author, verify -----------
+    time_discovery = md.discover_time_dimensions(
+        md.ref("warehouse"),
+        md.table("orders"),
+        columns=("dt",),
+        scope=scope,
+        project_root=tmp_path,
+    )
+    assert time_discovery.candidates[0].detected_formats
+
     time_brief = project.prepare_time_dimension(
         entity="sales.orders",
         column="dt",
-        scope=md.ScanScope(partition=None),
+        scope=scope,
     )
     assert time_brief.status == "sufficient"
 
@@ -102,14 +131,23 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.orders.dt", scope=md.ScanScope(partition=None))
+    verify = project.verify_object("sales.orders.dt", scope=scope)
     assert verify.status == "passed", f"Time dimension verify failed: {verify.issues}"
 
-    # -- Rung 5: Measure - prepare, author, verify ----------------------------
+    # -- Rung 5: Measure - discover, prepare, author, verify ------------------
+    measure_discovery = md.discover_measures(
+        md.ref("warehouse"),
+        md.table("orders"),
+        columns=("amount",),
+        scope=scope,
+        project_root=tmp_path,
+    )
+    assert measure_discovery.candidates[0].column == "amount"
+
     measure_brief = project.prepare_measure(
         entity="sales.orders",
         column="amount",
-        scope=md.ScanScope(partition=None),
+        scope=scope,
     )
     assert measure_brief.status == "sufficient"
 
@@ -121,14 +159,14 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.orders.amount", scope=md.ScanScope(partition=None))
+    verify = project.verify_object("sales.orders.amount", scope=scope)
     assert verify.status == "passed", f"Measure verify failed: {verify.issues}"
 
     # -- Rung 6: Metric - aggregate the verified measure, then verify ---------
     metric_brief = project.prepare_metric(
         entity="sales.orders",
         measure_columns=("amount",),
-        scope=md.ScanScope(partition=None),
+        scope=scope,
     )
     assert metric_brief.status == "sufficient"
 
@@ -138,7 +176,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.revenue", scope=md.ScanScope(partition=None))
+    verify = project.verify_object("sales.revenue", scope=scope)
     assert verify.status == "passed", f"Metric verify failed: {verify.issues}"
 
     # -- Closeout: Readiness --------------------------------------------------

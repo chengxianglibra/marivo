@@ -1,7 +1,8 @@
 # marivo-semantic preview reference
 
 Preview evidence validates physical shape. It does not establish business
-meaning by itself.
+meaning by itself. Bounded preview produces bounded-sample evidence; it
+does not infer business meaning for a column or metric.
 
 ## Source preview evidence
 

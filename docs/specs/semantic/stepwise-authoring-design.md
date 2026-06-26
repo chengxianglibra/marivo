@@ -29,8 +29,9 @@ closeout) has four structural gaps for agent-driven modeling:
    for enum values, time formats, and join keys.
 4. **Duplicated references.** `AuthoringSourceInput` re-declares
    `datasource` + table + columns even after the entity is registered, and
-   physical inspection exists twice (`md.inspect_table` returning
-   `TableMetadata`, `project.inspect_table` returning `TableContext`).
+   physical inspection exists twice (a datasource table inspection returning
+   `TableMetadata`, a project-level table inspection returning
+   `TableContext`).
 
 ## Design Requirements
 
@@ -204,10 +205,19 @@ not a public-API currency:
 
 Datasource evidence comes from the `md.discover_*` family. `ms.prepare_*`
 remains the semantic readiness surface. Internal inspection/probe helpers may
-feed prepare, but agents should not call `md.inspect_*` or `md.probe_join_keys`.
+feed prepare, but agents should not call the internal `inspect_*` or
+join-key probe helpers directly.
 
 All physical inspection lives in `marivo.datasource`. The semantic layer
 composes these primitives and never re-implements them.
+
+The public scan helpers build a `ScanScope` for discovery and verification:
+
+```python
+scope = md.latest_partition()
+scope = md.partition({"dt": "20260625"}, max_rows=1000)
+scope = md.unpruned(max_rows=1000)
+```
 
 ### Scan Controls
 
@@ -316,12 +326,12 @@ returning a `RawSqlResult` labeled `escape_hatch`.
 
 ### Internal inspection primitives
 
-`md.inspect_table` / `md.inspect_source` / `md.inspect_columns` /
-`md.probe_join_keys` are internal helpers that the discovery family and
-`prepare_*` compose. They are not re-exported through the public
-`marivo.datasource` surface and agents should not call them directly. The
-underlying DTOs (`TableMetadata`, `ColumnProfile`, `ScanReport`, `JoinSide`,
-`JoinKeyProbe`) document the shape of the evidence that discovery returns.
+The internal table/source/column inspection and join-key probe helpers are
+private to `marivo.datasource`. The discovery family and `prepare_*` compose
+them; they are not re-exported through the public `marivo.datasource` surface
+and agents should not call them directly. The underlying DTOs
+(`TableMetadata`, `ColumnProfile`, `ScanReport`, `JoinSide`, `JoinKeyProbe`)
+document the shape of the evidence that discovery returns.
 
 `TableMetadata` keeps its current fields (`backend_type`, `comment`,
 `columns: tuple[ColumnMetadata, ...]` with name/type/nullable/comment/ordinal,
@@ -845,12 +855,12 @@ Breaking, no compatibility shims.
 | Symbol | Disposition |
 | --- | --- |
 | `SemanticProject.assess_authoring` | replaced by per-kind `prepare_*` |
-| `SemanticProject.check_authoring_inputs` / `marivo.semantic.authoring_check` | internals rebuilt under `prepare_*` |
+| authoring input validation (`SemanticProject` authoring-input check / `authoring_check`) | internals rebuilt under `prepare_*` |
 | `AuthoringSourceInput` | physical inputs only exist at `prepare_entity`; elsewhere semantic refs |
 | `SemanticProject.inspect_authored_object` | merged into `verify_object` |
 | `SemanticProject.inspect_table` / `inspect_columns` | physical inspection lives in `marivo.datasource` |
-| `md.inspect_source` | merged into `md.inspect_table` |
-| `md.inspect_table`, `md.inspect_columns`, `md.probe_join_keys` (public) | replaced by the `md.discover_*` family; retained as internal helpers |
+| datasource source inspection (`inspect_source`) | merged into table inspection |
+| public table/source/column inspection and join-key probe helpers | replaced by the `md.discover_*` family; retained as internal helpers |
 | `ColumnInspection`, `JoinKeyProbe` (public) | replaced by discovery result types; retained as internal DTOs |
 | `TableContext`, `ColumnContext`, `ColumnEvidence`, `SourceEvidencePack` | replaced by `TableMetadata` / `ColumnInspection` |
 | `MetadataOnlyPolicy`, `BoundedProfilePolicy`, `SelectedColumnsPolicy` | replaced by `ScanScope` |
@@ -877,7 +887,7 @@ authoring surface, and the decision ledger.
 
 | Document | Superseded content | Replacement |
 | --- | --- | --- |
-| `authoring-pipeline-design.md` | three-phase flow, `assess_authoring`, `AuthoringSourceInput`, internal `check_authoring_inputs` contract | this document |
+| `authoring-pipeline-design.md` | three-phase flow, `assess_authoring`, `AuthoringSourceInput`, internal authoring-input validation contract | this document |
 | `authoring-pipeline-design.md` | persistence boundary, readiness closeout contract | carried forward here |
 | `python-semantic-layer.md` | none of the object model; reader/workflow references to `assess_authoring` and project-level inspection | updated to this document |
 

@@ -39,6 +39,55 @@ with tempfile.TemporaryDirectory() as tmp:
         os.chdir(root)
         md.register(_DuckDBSpec(name="warehouse", path=str(db_path)))
 
+        warehouse = md.ref("warehouse")
+        orders_source = md.table("orders")
+        scope = md.latest_partition()
+
+        # Discovery-first evidence: gather bounded datasource evidence before
+        # authoring. Each call below returns a result object with .show().
+        entity_evidence = md.discover_entity(warehouse, orders_source, scope=scope)
+        entity_evidence.show()
+
+        dimension_evidence = md.discover_dimensions(
+            warehouse,
+            orders_source,
+            columns=("paid",),
+            scope=scope,
+        )
+        dimension_evidence.show()
+
+        time_evidence = md.discover_time_dimensions(
+            warehouse,
+            orders_source,
+            columns=("dt",),
+            scope=scope,
+        )
+        time_evidence.show()
+
+        measure_evidence = md.discover_measures(
+            warehouse,
+            orders_source,
+            columns=("amount",),
+            scope=scope,
+        )
+        measure_evidence.show()
+
+        value_evidence = md.discover_dimension_values(
+            warehouse,
+            orders_source,
+            column="paid",
+            limit=10,
+            scope=scope,
+        )
+        value_evidence.show()
+
+        diagnostic = md.raw_sql(
+            warehouse,
+            "SELECT paid, COUNT(*) AS n FROM orders GROUP BY paid",
+            reason="confirm current paid flag distribution before asking for business meaning",
+        )
+        diagnostic.show()
+
         # prepare_entity resolves datasource backends internally
         brief = ms.prepare_entity(
             datasource="warehouse",
