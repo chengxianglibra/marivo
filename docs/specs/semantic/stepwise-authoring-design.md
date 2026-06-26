@@ -202,6 +202,10 @@ not a public-API currency:
 
 ## Datasource Inspection Surface (`marivo.datasource`)
 
+Datasource evidence comes from the `md.discover_*` family. `ms.prepare_*`
+remains the semantic readiness surface. Internal inspection/probe helpers may
+feed prepare, but agents should not call `md.inspect_*` or `md.probe_join_keys`.
+
 All physical inspection lives in `marivo.datasource`. The semantic layer
 composes these primitives and never re-implements them.
 
@@ -282,13 +286,42 @@ fall back to an unpruned LIMIT; an unpruned scan happens only when the caller
 passed an explicit `partition=None`, and is reported as such in the
 `ScanReport`.
 
-### `md.inspect_table(datasource, source) -> TableMetadata`
+### Discovery family (`md.discover_*`)
 
-Pure metadata, zero row reads.
+The public datasource evidence surface is the `md.discover_*` family. Each
+function takes a `DatasourceRef` (`md.ref("warehouse")`) and a `TableSource`
+(`md.table(...)` / `md.parquet(...)` / `md.csv(...)`), plus an optional
+`scope: ScanScope | None` built by a scope helper, and returns a frozen
+discovery result with bounded evidence, deterministic signals/issues, and
+judgment targets.
 
 ```python
-md.inspect_table("warehouse", md.table("orders", database="sales_mart"))
+warehouse = md.ref("warehouse")
+orders = md.table("orders", database="sales_mart")
+
+md.discover_entity(warehouse, orders, scope=md.latest_partition())
+md.discover_dimensions(warehouse, orders, columns=("status",))
+md.discover_time_dimensions(warehouse, orders, columns=("created_at",))
+md.discover_measures(warehouse, orders, columns=("amount",))
+md.discover_relationship(
+    from_side=md.JoinSide(warehouse, md.table("orders"), columns=("customer_id",)),
+    to_side=md.JoinSide(warehouse, md.table("customers"), columns=("customer_id",)),
+)
+md.discover_dimension_values(warehouse, orders, column="status", limit=10)
 ```
+
+`md.raw_sql(datasource, sql, *, reason, limit=100)` is the escape-hatch
+diagnostic: one bounded read-only statement with a required `reason`,
+returning a `RawSqlResult` labeled `escape_hatch`.
+
+### Internal inspection primitives
+
+`md.inspect_table` / `md.inspect_source` / `md.inspect_columns` /
+`md.probe_join_keys` are internal helpers that the discovery family and
+`prepare_*` compose. They are not re-exported through the public
+`marivo.datasource` surface and agents should not call them directly. The
+underlying DTOs (`TableMetadata`, `ColumnProfile`, `ScanReport`, `JoinSide`,
+`JoinKeyProbe`) document the shape of the evidence that discovery returns.
 
 `TableMetadata` keeps its current fields (`backend_type`, `comment`,
 `columns: tuple[ColumnMetadata, ...]` with name/type/nullable/comment/ordinal,
@@ -310,31 +343,7 @@ class PartitionValue:
     row_count: int | None                # when the backend exposes it
 ```
 
-`md.inspect_source` is merged into this API and removed.
-
-### `md.inspect_columns(datasource, source, *, columns=None, scope=ScanScope()) -> ColumnInspection`
-
-One bounded scan, multi-column profiling. `columns=None` means all columns,
-capped by `scope.max_columns` with an explicit truncation warning — this is
-the whole-table light profile used by `prepare_entity`.
-
 ```python
-md.inspect_columns(
-    "warehouse",
-    md.table("orders"),
-    columns=("status", "amount"),
-    scope=md.ScanScope(partition={"dt": "20260611"}),
-)
-```
-
-```python
-@dataclass(frozen=True)
-class ColumnInspection:
-    datasource: str
-    source: TableSource | FileSource
-    profiles: tuple[ColumnProfile, ...]
-    scan: ScanReport
-
 @dataclass(frozen=True)
 class ColumnProfile:        # moves here from marivo.semantic.dtos
     column: str
@@ -355,28 +364,11 @@ aggregate pushdown, so scan cost is bounded by `max_rows × columns`. Time
 format inference is not in this layer: the datasource returns raw values;
 temporal interpretation belongs to `marivo.semantic` (`time_format.py`).
 
-### `md.probe_join_keys(from_side, to_side, *, scope=ScanScope(), key_sample_size=500) -> JoinKeyProbe`
-
-New primitive backing `prepare_relationship`.
-
-```python
-md.probe_join_keys(
-    from_side=md.JoinSide("warehouse", md.table("orders"), columns=("customer_id",)),
-    to_side=md.JoinSide("warehouse", md.table("customers"), columns=("customer_id",)),
-)
-```
-
-Implementation strategy: sample up to `key_sample_size` distinct keys from the
-from-side within `scope`, then run a bounded `IN`-list membership query on the
-to-side and count per-key duplication. Two independent queries plus
-client-side comparison — works across datasources, never full-scans the
-to-side.
-
 ```python
 @dataclass(frozen=True)
 class JoinSide:
-    datasource: str
-    source: TableSource | FileSource
+    datasource: DatasourceRef
+    source: TableSource
     columns: tuple[str, ...]
 
 @dataclass(frozen=True)
@@ -396,7 +388,7 @@ class JoinKeyProbe:
 
 Unchanged contract (bounded row glimpse, LIMIT early termination), plus an
 optional `scope: ScanScope | None = None` parameter. Evidence-grade sampling
-always goes through `inspect_columns`.
+always goes through the `md.discover_*` family.
 
 ## Semantic Prepare Surface (`marivo.semantic`)
 
@@ -478,8 +470,9 @@ class DomainBriefSummary:
 
 ### `prepare_entity(*, datasource, source, domain, scope=ScanScope()) -> EntityBrief`
 
-The physical-to-semantic bridge. Means: `md.inspect_table` plus whole-table
-light `md.inspect_columns`, then semantic interpretation.
+The physical-to-semantic bridge. Means: table metadata plus whole-table
+light column profiles (collected internally through the datasource discovery
+primitives), then semantic interpretation.
 
 ```python
 @dataclass(frozen=True)
@@ -629,8 +622,9 @@ and whether the metric needs the tier-2 `@ms.metric(...)` escape hatch.
 
 ### `prepare_relationship(*, from_entity, to_entity, from_dimensions, to_dimensions, scope=ScanScope()) -> RelationshipBrief`
 
-Means: registry checks plus `md.probe_join_keys` with sources resolved from
-the two entities.
+Means: registry checks plus internal join-key probing (the same primitive
+`md.discover_relationship` exposes publicly) with sources resolved from the
+two entities.
 
 ```python
 @dataclass(frozen=True)
@@ -833,8 +827,8 @@ Questions with `readiness_effect="blocks"` must be resolved before authoring;
 - **references/object-briefs.md** (new) — Brief status actions and
   ladder/process guidance. Per-field Brief contracts live in
   `ms.help('<Brief>')`.
-- **references/datasource.md** — `md.inspect_table` / `md.inspect_columns` /
-  `md.probe_join_keys` / `ScanScope` usage.
+- **references/datasource.md** — `md.discover_*` / scope helpers / `ScanScope`
+  usage.
 - **references/evidence-and-ledger.md** — gains the abandon protocol,
   confirmation recording, and AuthoringQuestion/question-mapping handling.
 - **references/closeout.md**, **references/pitfalls.md**,
@@ -856,6 +850,8 @@ Breaking, no compatibility shims.
 | `SemanticProject.inspect_authored_object` | merged into `verify_object` |
 | `SemanticProject.inspect_table` / `inspect_columns` | physical inspection lives in `marivo.datasource` |
 | `md.inspect_source` | merged into `md.inspect_table` |
+| `md.inspect_table`, `md.inspect_columns`, `md.probe_join_keys` (public) | replaced by the `md.discover_*` family; retained as internal helpers |
+| `ColumnInspection`, `JoinKeyProbe` (public) | replaced by discovery result types; retained as internal DTOs |
 | `TableContext`, `ColumnContext`, `ColumnEvidence`, `SourceEvidencePack` | replaced by `TableMetadata` / `ColumnInspection` |
 | `MetadataOnlyPolicy`, `BoundedProfilePolicy`, `SelectedColumnsPolicy` | replaced by `ScanScope` |
 | `EvidenceFact` (generic facts) | replaced by typed Brief fields |
@@ -867,7 +863,7 @@ Breaking, no compatibility shims.
 
 | Module | Symbols |
 | --- | --- |
-| `marivo.datasource` | `ScanScope`, `ScanReport`, `PartitionInfo`, `PartitionValue`, `ColumnInspection`, `ColumnProfile` (moved), `JoinSide`, `JoinKeyProbe`, `probe_join_keys`, `table()` / `file()` constructors (with `ms.*` aliases retained) |
+| `marivo.datasource` | `DatasourceRef`, `TableSource`, `JoinSide`, `ScanScope`, `ScanReport`, `PartitionInfo`, `PartitionValue`, `ColumnProfile`, scope helpers (`latest_partition`, `partition`, `unpruned`), discovery family (`discover_entity`, `discover_dimensions`, `discover_time_dimensions`, `discover_measures`, `discover_relationship`, `discover_dimension_values`, `raw_sql`) and their result types, `table()` / `parquet()` / `csv()` constructors (with `ms.*` aliases retained) |
 | `marivo.semantic` | `prepare_domain`, `prepare_entity`, `prepare_dimension`, `prepare_time_dimension`, `prepare_metric`, `prepare_relationship`, `prepare_cross_entity_metric`, `prepare_derived_metric`; `DomainBrief`, `EntityBrief`, `DimensionBrief`, `TimeDimensionBrief`, `MetricBrief`, `RelationshipBrief`, `CrossEntityMetricBrief`, `DerivedMetricBrief` and their fact DTOs; `RegisteredMatch`; `BriefStatus`; `verify_object` / `VerifyResult`; `ReadinessReport.abandoned`; ledger decision kind `authoring_abandoned` |
 
 ### Kept

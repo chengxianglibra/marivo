@@ -14,14 +14,15 @@ from marivo.analysis.frames.quality import QualityReportSummary
 from marivo.analysis.help import _FRAME_SYMBOLS as ANALYSIS_FRAME_SYMBOLS
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
-from marivo.datasource.ir import TableSourceIR
+from marivo.datasource.authoring import ref as datasource_ref
+from marivo.datasource.discovery import RawSqlResult
 from marivo.datasource.manage import (
     DatasourceDescription,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
 )
-from marivo.datasource.scan import ColumnInspection, ScanReport
+from marivo.datasource.scan import ScanReport
 from marivo.preview import PreviewResult
 from marivo.render import AgentResult, result_repr
 from marivo.semantic.dtos import (
@@ -119,12 +120,19 @@ def _scan_report() -> ScanReport:
     )
 
 
-def _column_inspection() -> ColumnInspection:
-    return ColumnInspection(
-        datasource="wh",
-        source=TableSourceIR(table="orders"),
-        profiles=(),
-        scan=_scan_report(),
+def _raw_sql_result() -> RawSqlResult:
+    return RawSqlResult(
+        datasource=datasource_ref("wh"),
+        backend_type="duckdb",
+        sql="SELECT 1 AS ok",
+        reason="check query path",
+        columns=("ok",),
+        types={"ok": "int64"},
+        rows=({"ok": 1},),
+        requested_limit=10,
+        returned_row_count=1,
+        is_truncated=False,
+        warnings=(),
     )
 
 
@@ -262,7 +270,7 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_datasource_summary, id="DatasourceSummary"),
     pytest.param(_datasource_test_result, id="DatasourceTestResult"),
     pytest.param(_scan_report, id="ScanReport"),
-    pytest.param(_column_inspection, id="ColumnInspection"),
+    pytest.param(_raw_sql_result, id="RawSqlResult"),
     pytest.param(_job_summary, id="JobSummary"),
     pytest.param(_frame_summary_entry, id="FrameSummaryEntry"),
     pytest.param(_session_summary, id="SessionSummary"),

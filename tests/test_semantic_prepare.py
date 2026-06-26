@@ -724,3 +724,10 @@ def test_prepare_measure_blocks_unknown_column(tmp_path: Path, semantic_project_
 
     assert brief.status == "blocked"
     assert brief.issues[0].kind == "missing_column"
+
+
+def test_prepare_docs_do_not_require_public_datasource_inspection() -> None:
+    import marivo.datasource as md
+
+    assert not hasattr(md, "inspect_columns")
+    assert not hasattr(md, "probe_join_keys")

@@ -446,7 +446,7 @@ measure — declare an explicit counted-noun annotation like `{order}`.
 Fill `unit` only from explicit evidence:
 
 - Column name suffixes: `_cents`, `_usd`, `_ms`, `_pct`.
-- Column comments stating the unit (from `md.inspect_table` / `md.inspect_columns` results).
+- Column comments stating the unit (from `md.discover_entity` / `md.discover_dimensions` results).
 - `provenance` SQL conversion traces (e.g. `/100` on a cents column).
 - Count metrics: the counted entity noun, singular, in braces — `{order}`.
 - Ratio derived metrics: same-unit ratios cancel to `"1"` automatically; declare `%`

@@ -39,10 +39,11 @@ discover evidence
         -> next object
 ```
 
-Discovery is datasource-first. Use Brief facts, existing `md` datasource refs,
-`md.inspect_table`, `md.inspect_columns`, bounded `md.preview`,
-`md.probe_join_keys`, existing semantic catalog objects, source SQL/provenance,
-project docs, and prior ledger decisions before asking the user.
+Discovery is datasource-first. Use Brief facts, `md.discover_entity` /
+`md.discover_dimensions` / `md.discover_time_dimensions` / `md.discover_measures`
+/ `md.discover_relationship` / `md.discover_dimension_values`, bounded
+`md.preview`, existing semantic catalog objects, source SQL/provenance, project
+docs, and prior ledger decisions before asking the user.
 
 The grill step is for semantic intent and business policy, not for facts Marivo
 can inspect. Each question must state the evidence already checked, offer the
@@ -71,16 +72,22 @@ warehouse = md.ref("warehouse")
 
 ## Rung 2: Entity
 
-The physical-to-semantic bridge. `prepare_entity` calls `md.inspect_table` and
-`md.inspect_columns` internally, returning an `EntityBrief` with table metadata,
-column profiles, and primary-key candidates.
+The physical-to-semantic bridge. Run `md.discover_entity(...)` first to
+collect table metadata, column profiles, and primary-key candidates. Then call
+`ms.prepare_entity(...)`, which returns an `EntityBrief` with the same evidence
+plus semantic interpretation.
 
 ```python
+discovery = md.discover_entity(
+    md.ref("warehouse"),
+    md.table("orders", database="sales_mart"),
+    scope=md.latest_partition(),
+)
 entity_brief = ms.prepare_entity(
     datasource="warehouse",
     source=md.table("orders", database="sales_mart"),
     domain="sales",
-    scope=md.ScanScope(),
+    scope=md.latest_partition(),
 )
 if entity_brief.status == "blocked":
     entity_brief.show()
@@ -118,7 +125,7 @@ Prepare one dimension at a time, then author and verify.
 dim_brief = ms.prepare_dimension(
     entity="sales.orders",
     column="region",
-    scope=md.ScanScope(),
+    scope=md.latest_partition(),
 )
 ```
 
@@ -150,7 +157,7 @@ Single-column temporal probe with format inference and partition alignment.
 td_brief = ms.prepare_time_dimension(
     entity="sales.orders",
     column="dt",
-    scope=md.ScanScope(),
+    scope=md.latest_partition(),
 )
 ```
 
@@ -188,7 +195,7 @@ if verify.status == "failed":
 measure_brief = ms.prepare_measure(
     entity="sales.orders",
     column="amount",
-    scope=md.ScanScope(),
+    scope=md.latest_partition(),
 )
 if measure_brief.status == "blocked":
     measure_brief.show()
@@ -227,7 +234,7 @@ as `ms.aggregate(...)`.
 metric_brief = ms.prepare_metric(
     entity="sales.orders",
     measure_columns=("amount",),
-    scope=md.ScanScope(),
+    scope=md.latest_partition(),
 )
 ```
 
@@ -254,15 +261,22 @@ if verify.status == "failed":
 
 ## Rung 7: Relationships
 
-`prepare_relationship` runs `md.probe_join_keys` internally using sources
-resolved from the two entity refs.
+`prepare_relationship` resolves join-key evidence internally. Run
+`md.discover_relationship(...)` first to inspect sampled key overlap, match
+rate, fanout, and key type evidence between the two sides.
 
 ```python
+warehouse = md.ref("warehouse")
+discovery = md.discover_relationship(
+    from_side=md.JoinSide(warehouse, md.table("orders"), columns=("customer_id",)),
+    to_side=md.JoinSide(warehouse, md.table("customers"), columns=("customer_id",)),
+    scope=md.latest_partition(),
+)
 rel_brief = ms.prepare_relationship(
     from_entity="sales.orders",
     to_entity="sales.customers",
     keys=[ms.join_on("sales.orders.customer_id", "sales.customers.customer_id")],
-    scope=md.ScanScope(),
+    scope=md.latest_partition(),
 )
 ```
 
@@ -291,7 +305,7 @@ cross_brief = ms.prepare_cross_entity_metric(
     root_entity="sales.orders",
     entities=("sales.orders", "sales.customers"),
     measure_columns=("amount",),
-    scope=md.ScanScope(),
+    scope=md.latest_partition(),
 )
 ```
 
@@ -385,25 +399,39 @@ When a candidate cannot reach sufficiency:
 
 ## Source Discovery
 
-Before the ladder starts, inspect the physical source using `md` APIs:
+Before the ladder starts, discover the physical source using the `md.discover_*`
+family. Each discovery call returns bounded evidence with signals and issues;
+use it to choose candidate columns before the matching `ms.prepare_*` call.
 
 ```python
-metadata = md.inspect_table("warehouse", md.table("orders", database="sales_mart"))
-columns = md.inspect_columns("warehouse", md.table("orders"), columns=("status", "amount"))
+warehouse = md.ref("warehouse")
+orders = md.table("orders", database="sales_mart")
+
+entity = md.discover_entity(warehouse, orders, scope=md.latest_partition())
+dimensions = md.discover_dimensions(warehouse, orders, columns=("status",))
+time_dims = md.discover_time_dimensions(warehouse, orders, columns=("created_at",))
+measures = md.discover_measures(warehouse, orders, columns=("amount",))
 ```
 
-Column deep-dives for time/enum/amount/join-key columns:
+Column deep-dives for time/enum/amount columns use the matching discovery API
+with an explicit partition scope when you need recent values:
 
 ```python
-evidence = md.inspect_columns(
-    "warehouse",
+dimensions = md.discover_dimensions(
+    warehouse,
     md.table("orders"),
     columns=("status", "amount"),
-    scope=md.ScanScope(partition={"dt": "20260611"}),
+    scope=md.partition({"dt": "20260611"}),
 )
-for col in evidence.profiles:
-    print(col.column, col.distinct_count, col.top_values)
 ```
 
+For current value counts on one dimension column, use
+`md.discover_dimension_values(...)`. For relationship evidence, use
+`md.discover_relationship(...)` with two `md.JoinSide(...)` values. Use
+`md.raw_sql(...)` only as a diagnostic escape hatch with a required `reason`.
+
 Sample-derived values are facts about the bounded sample only. Never treat them
-as full-column cardinality, complete enums, or global ranges.
+as full-column cardinality, complete enums, or global ranges. Use the scope
+helpers (`md.latest_partition()`, `md.partition({...})`, `md.unpruned(...)`)
+for ordinary authoring; `md.ScanScope` remains a value type for advanced
+debugging only.

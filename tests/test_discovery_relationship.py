@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from marivo.datasource.authoring import ref as md_ref
 from marivo.datasource.discovery import (
     KeyTypeEvidence,
     RelationshipDiscoveryResult,
@@ -23,11 +24,11 @@ def _scan(truncated: bool = False) -> ScanReport:
 
 
 def _from_side() -> JoinSide:
-    return JoinSide(datasource="wh", source=table("orders"), columns=("customer_id",))
+    return JoinSide(datasource=md_ref("wh"), source=table("orders"), columns=("customer_id",))
 
 
 def _to_side() -> JoinSide:
-    return JoinSide(datasource="wh", source=table("customers"), columns=("customer_id",))
+    return JoinSide(datasource=md_ref("wh"), source=table("customers"), columns=("customer_id",))
 
 
 def test_relationship_key_type_evidence_signal_and_match_rate() -> None:

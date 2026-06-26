@@ -1,0 +1,139 @@
+"""Public datasource discovery entry point tests."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import ibis
+
+import marivo.datasource as md
+from marivo.datasource.authoring import _DuckDBSpec
+
+
+def _register_orders(project_root: Path) -> None:
+    db_path = project_root / "warehouse.duckdb"
+    con = ibis.duckdb.connect(db_path)
+    con.create_table(
+        "orders",
+        {
+            "order_id": [1, 2, 3, 4],
+            "customer_id": [10, 20, 20, 30],
+            "status": ["paid", "paid", "", "void"],
+            "amount": [10.0, -5.0, 0.0, None],
+            "created_at": ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"],
+        },
+    )
+    con.create_table("customers", {"customer_id": [10, 20, 20, 40]})
+    con.disconnect()
+    md.register(_DuckDBSpec(name="warehouse", path=str(db_path)), project_root=project_root)
+
+
+def test_public_discover_column_families_return_typed_results(tmp_path: Path) -> None:
+    _register_orders(tmp_path)
+    warehouse = md.ref("warehouse")
+    source = md.table("orders")
+    scope = md.unpruned(max_rows=10)
+
+    entity = md.discover_entity(warehouse, source, scope=scope, project_root=tmp_path)
+    assert isinstance(entity, md.EntityDiscoveryResult)
+    assert entity.candidates[0].primary_key_candidates
+
+    dimensions = md.discover_dimensions(
+        warehouse,
+        source,
+        columns=("status",),
+        scope=scope,
+        project_root=tmp_path,
+    )
+    assert isinstance(dimensions, md.DimensionDiscoveryResult)
+    assert dimensions.candidates[0].column == "status"
+    assert "dimension_empty_values_present" in {i.rule_id for i in dimensions.candidates[0].issues}
+
+    times = md.discover_time_dimensions(
+        warehouse,
+        source,
+        columns=("created_at",),
+        scope=scope,
+        project_root=tmp_path,
+    )
+    assert isinstance(times, md.TimeDimensionDiscoveryResult)
+    assert times.candidates[0].detected_formats
+
+    measures = md.discover_measures(
+        warehouse,
+        source,
+        columns=("amount",),
+        scope=scope,
+        project_root=tmp_path,
+    )
+    assert isinstance(measures, md.MeasureDiscoveryResult)
+    assert "measure_numeric_type" in {s.rule_id for s in measures.candidates[0].signals}
+
+
+def test_public_discover_relationship_replaces_probe_join_keys(tmp_path: Path) -> None:
+    _register_orders(tmp_path)
+    warehouse = md.ref("warehouse")
+
+    result = md.discover_relationship(
+        from_side=md.JoinSide(warehouse, md.table("orders"), columns=("customer_id",)),
+        to_side=md.JoinSide(warehouse, md.table("customers"), columns=("customer_id",)),
+        scope=md.unpruned(max_rows=100),
+        key_sample_size=10,
+        project_root=tmp_path,
+    )
+
+    assert isinstance(result, md.RelationshipDiscoveryResult)
+    assert result.evidence.sampled_key_count == 3
+    assert result.evidence.matched_key_count == 2
+    assert result.evidence.cardinality_evidence == "many_to_one"
+    assert result.evidence.key_type_evidence
+
+
+def test_public_discover_dimension_values_are_bounded_runtime_evidence(tmp_path: Path) -> None:
+    _register_orders(tmp_path)
+
+    result = md.discover_dimension_values(
+        md.ref("warehouse"),
+        md.table("orders"),
+        column="status",
+        scope=md.unpruned(max_rows=10),
+        limit=2,
+        project_root=tmp_path,
+    )
+
+    assert isinstance(result, md.DimensionValueDiscoveryResult)
+    assert [fact.value for fact in result.values] == ["paid", ""]
+    assert result.complete is False
+    assert any(issue.rule_id == "dimension_values_truncated" for issue in result.issues)
+
+
+def test_datasource_public_surface_exposes_discovery_not_inspection() -> None:
+    public_names = set(md.__all__)
+    assert {
+        "discover_entity",
+        "discover_dimensions",
+        "discover_time_dimensions",
+        "discover_measures",
+        "discover_relationship",
+        "discover_dimension_values",
+        "raw_sql",
+        "latest_partition",
+        "partition",
+        "unpruned",
+    }.issubset(public_names)
+    assert (
+        not {
+            "inspect_table",
+            "inspect_source",
+            "inspect_columns",
+            "probe_join_keys",
+            "ColumnInspection",
+            "JoinKeyProbe",
+        }
+        & public_names
+    )
+
+    text = md.help_text()
+    assert "md.discover_entity" in text
+    assert "md.raw_sql" in text
+    assert "md.inspect_columns" not in text

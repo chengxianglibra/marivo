@@ -103,19 +103,38 @@ def test_datasource_fold_partition() -> None:
     assert "DatasourceSpec" not in {name for members in fams.values() for name in members}
     assert fams["References"] == ["DatasourceRef"]
     assert "Internal IR types" not in fams
-    assert fams["Results"] == ["DatasourceTestResult", "PreviewResult"]
+    assert set(fams["Results"]) == {
+        "DatasourceTestResult",
+        "DimensionDiscoveryResult",
+        "DimensionValueDiscoveryResult",
+        "EntityDiscoveryResult",
+        "MeasureDiscoveryResult",
+        "PreviewResult",
+        "RawSqlResult",
+        "RelationshipDiscoveryResult",
+        "TimeDimensionDiscoveryResult",
+    }
     assert fams["Metadata types"] == ["TableMetadata"]
     assert set(fams["Other types"]) == {
-        "ColumnInspection",
-        "DatasourceCatalog",
         "DatasourceDescription",
         "DatasourceList",
         "DatasourceSummary",
-        "JoinKeyProbe",
+        "DimensionValueFact",
+        "DiscoveryEvidenceEntry",
+        "DiscoveryIssue",
+        "DiscoverySignal",
+        "SemanticJudgmentTarget",
+        "TimeValueRange",
+    }
+    enumerated = _enumerated(surface)
+    # Entry-point and input types are pinned as top-level entries, not folded.
+    assert {
+        "DatasourceCatalog",
         "JoinSide",
         "ScanScope",
-    }
-    _assert_no_value_family_leaks(_enumerated(surface))
+        "TableSource",
+    } <= enumerated
+    _assert_no_value_family_leaks(enumerated)
 
 
 def test_analysis_fold_partition() -> None:

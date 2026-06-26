@@ -120,7 +120,7 @@ with tempfile.TemporaryDirectory() as tmp:
             root_entity="sales.orders",
             entities=("sales.orders", "sales.customers"),
             measure_columns=("amount",),
-            scope=md.ScanScope(),
+            scope=md.latest_partition(),
         )
         print("cross brief:", brief.status)
         print("join paths:", len(brief.join_paths))

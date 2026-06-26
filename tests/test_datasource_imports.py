@@ -94,11 +94,28 @@ def test_datasource_public_exports() -> None:
     import marivo.datasource as md
 
     for name in (
-        "ScanScope",
-        "ColumnInspection",
         "DatasourceCatalog",
+        "DatasourceRef",
         "JoinSide",
-        "JoinKeyProbe",
+        "ScanScope",
+        "TableSource",
+        "EntityDiscoveryResult",
+        "DimensionDiscoveryResult",
+        "TimeDimensionDiscoveryResult",
+        "MeasureDiscoveryResult",
+        "RelationshipDiscoveryResult",
+        "DimensionValueDiscoveryResult",
+        "RawSqlResult",
+        "discover_entity",
+        "discover_dimensions",
+        "discover_time_dimensions",
+        "discover_measures",
+        "discover_relationship",
+        "discover_dimension_values",
+        "raw_sql",
+        "latest_partition",
+        "partition",
+        "unpruned",
         "load",
         "table",
         "parquet",
@@ -111,5 +128,15 @@ def test_datasource_public_exports() -> None:
     ):
         assert hasattr(md, name), f"marivo.datasource missing export: {name}"
 
-    # md.file has been removed from the public surface
-    assert not hasattr(md, "file")
+    for removed in (
+        "file",
+        "inspect_table",
+        "inspect_source",
+        "inspect_columns",
+        "probe_join_keys",
+        "ColumnInspection",
+        "JoinKeyProbe",
+    ):
+        assert not hasattr(md, removed), (
+            f"marivo.datasource still exposes removed public name: {removed}"
+        )

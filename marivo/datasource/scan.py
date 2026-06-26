@@ -12,7 +12,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.authoring import DatasourceRef
+from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.render import format_bounded_card, result_repr
 
 ScanPartition = Mapping[str, str] | Literal["latest"] | None
@@ -22,7 +23,7 @@ PartitionResolution = Literal["explicit", "latest", "none", "unpruned"]
 # md.table(...), md.parquet(...), and md.csv(...). Named TableSource to avoid
 # colliding with the semantic authoring DatasetSource alias. Exported in the
 # public md surface in a later plan; defined here so discovery types can use it.
-TableSource = EntitySourceIR
+TableSource = TableSourceIR | ParquetSourceIR | CsvSourceIR
 
 
 @dataclass(frozen=True)
@@ -165,7 +166,7 @@ class ColumnInspection:
     """
 
     datasource: str
-    source: EntitySourceIR
+    source: TableSource
     profiles: tuple[ColumnProfile, ...]
     scan: ScanReport
 
@@ -188,16 +189,24 @@ class ColumnInspection:
 
 @dataclass(frozen=True)
 class JoinSide:
-    """One side of a join-key probe.
+    """One side of a relationship discovery join.
 
     Attributes:
-        datasource: Datasource short name.
-        source: Physical source on this side of the join.
+        datasource: Datasource reference from ``md.ref("name")``.
+        source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
         columns: Column names participating in the join key.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.JoinSide(md.ref("warehouse"), md.table("orders"), columns=("customer_id",))
+
+    Constraints:
+        ``datasource`` identifies the configured connection. ``source`` identifies
+        the physical table or file inside that datasource.
     """
 
-    datasource: str
-    source: EntitySourceIR
+    datasource: DatasourceRef
+    source: TableSource
     columns: tuple[str, ...]
 
 

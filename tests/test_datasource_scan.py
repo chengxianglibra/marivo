@@ -11,6 +11,15 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import _DuckDBSpec
 from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.manage import (
+    inspect_columns as _inspect_columns,
+)
+from marivo.datasource.manage import (
+    inspect_table as _inspect_table,
+)
+from marivo.datasource.manage import (
+    probe_join_keys as _probe_join_keys,
+)
 from marivo.datasource.scan import ScanReport
 
 
@@ -68,7 +77,7 @@ def test_inspect_table_accepts_structured_source(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    metadata = md.inspect_table("warehouse", md.table("orders"), project_root=tmp_path)
+    metadata = _inspect_table("warehouse", md.table("orders"), project_root=tmp_path)
 
     assert metadata.table == "orders"
     assert [column.name for column in metadata.columns] == ["id", "status"]
@@ -90,7 +99,7 @@ def test_inspect_columns_profiles_selected_columns(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    inspection = md.inspect_columns(
+    inspection = _inspect_columns(
         "warehouse",
         md.table("orders"),
         columns=("status", "amount"),
@@ -120,9 +129,9 @@ def test_probe_join_keys_reports_match_and_cardinality(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    probe = md.probe_join_keys(
-        from_side=md.JoinSide("warehouse", md.table("orders"), columns=("customer_id",)),
-        to_side=md.JoinSide("warehouse", md.table("customers"), columns=("customer_id",)),
+    probe = _probe_join_keys(
+        from_side=md.JoinSide(md.ref("warehouse"), md.table("orders"), columns=("customer_id",)),
+        to_side=md.JoinSide(md.ref("warehouse"), md.table("customers"), columns=("customer_id",)),
         scope=md.ScanScope(partition=None, max_rows=100),
         project_root=tmp_path,
         key_sample_size=10,
@@ -149,7 +158,7 @@ def test_inspect_columns_warns_on_column_truncation(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    inspection = md.inspect_columns(
+    inspection = _inspect_columns(
         "warehouse",
         md.table("wide_table"),
         scope=md.ScanScope(partition=None, max_rows=2),
@@ -165,3 +174,11 @@ def test_inspect_columns_warns_on_column_truncation(tmp_path: Path) -> None:
     assert "5 columns not profiled" in warning
     assert "col_100" in warning  # first omitted column
     assert "ScanScope(max_columns=105)" in warning
+
+
+def test_join_side_uses_datasource_ref_and_table_source() -> None:
+    side = md.JoinSide(md.ref("warehouse"), md.table("orders"), columns=("customer_id",))
+
+    assert side.datasource == md.ref("warehouse")
+    assert side.source == md.table("orders")
+    assert side.columns == ("customer_id",)

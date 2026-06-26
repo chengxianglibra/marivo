@@ -16,13 +16,9 @@ from marivo.datasource.manage import (
     DatasourceTestResult,
     connect,
     describe,
-    inspect_columns,
-    inspect_table,
     preview,
     test,
 )
-from marivo.datasource.metadata import TableMetadata
-from marivo.datasource.scan import ColumnInspection, ScanScope
 from marivo.preview import PreviewResult
 from marivo.render import result_repr
 
@@ -69,22 +65,23 @@ def _ai_context_lines(context: AiContextIR) -> tuple[str, ...]:
 class DatasourceCatalog:
     """Read-only catalog over configured project datasources.
 
-    Provides browsing and inspection methods that delegate to the existing
-    ``md.*`` functions, giving a ``ms.load()``-like entry point for
-    datasource discovery.
+    Provides browsing methods that delegate to the existing ``md.*``
+    functions, giving a ``ms.load()``-like entry point for datasource
+    discovery.
 
     Args:
         workspace_dir: Project root directory. Defaults to cwd.
 
     Returns:
-        DatasourceCatalog with list(), get(), and inspection methods.
+        DatasourceCatalog with list(), get(), describe(), test(), and
+        preview() methods.
 
     Example:
         >>> import marivo.datasource as md
         >>> catalog = md.load()
         >>> catalog.list()
         >>> catalog.get("wh")
-        >>> catalog.inspect_table("wh", md.table("orders"))
+        >>> md.discover_entity(md.ref("wh"), md.table("orders"))
 
     Constraints:
         catalog is obtained via md.load(), not constructed directly.
@@ -174,69 +171,6 @@ class DatasourceCatalog:
         """
         return test(name)
 
-    def inspect_table(
-        self,
-        datasource: str,
-        table: str | Any | None = None,
-        *,
-        source: Any = None,
-        database: str | tuple[str, ...] | None = None,
-        include_partitions: bool = True,
-    ) -> TableMetadata:
-        """Schema, comments, nullability, and partition metadata for a table.
-
-        Args:
-            datasource: Name of the project datasource.
-            table: Table name within the datasource (alternative to source).
-            source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
-            database: Optional database/catalog path.
-            include_partitions: Whether to include partition hints.
-
-        Returns:
-            A ``TableMetadata`` with columns, warnings, and optional partitions.
-
-        Example:
-            >>> catalog.inspect_table("wh", "orders")
-        """
-        return inspect_table(
-            datasource,
-            source=source,
-            table=table,
-            database=database,
-            include_partitions=include_partitions,
-            project_root=self.workspace_dir,
-        )
-
-    def inspect_columns(
-        self,
-        datasource: str,
-        source: Any,
-        *,
-        columns: tuple[str, ...] | None = None,
-        scope: ScanScope | None = None,
-    ) -> ColumnInspection:
-        """Profile selected columns from a datasource source.
-
-        Args:
-            datasource: Name of the project datasource.
-            source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
-            columns: Column names to profile; None profiles all.
-            scope: Bounded scan configuration; defaults to ScanScope().
-
-        Returns:
-            A ``ColumnInspection`` with per-column profiles and a ScanReport.
-
-        Example:
-            >>> catalog.inspect_columns("wh", md.table("orders"))
-        """
-        return inspect_columns(
-            datasource,
-            source,
-            columns=columns,
-            scope=scope,
-            project_root=self.workspace_dir,
-        )
-
     def preview(
         self,
         datasource: str,
@@ -268,9 +202,8 @@ class DatasourceCatalog:
             >>> catalog.preview("wh", table="orders", limit=5)
 
         Note:
-            Unlike ``inspect_table`` and ``inspect_columns``, ``preview``
-            resolves the project root internally and does not forward
-            ``workspace_dir``.
+            ``preview`` resolves the project root internally and does not
+            forward ``workspace_dir``.
         """
         return preview(
             datasource,
@@ -306,6 +239,10 @@ class DatasourceCatalog:
             lines.append(f"... {len(datasources) - 5} more datasources; inspect md.list().items")
         lines.append("available:")
         lines.append("- .list()")
+        lines.append("- .get(name)")
+        lines.append("- .describe(name)")
+        lines.append("- .test(name)")
+        lines.append("- .preview(...)")
         lines.append("- .render()")
         lines.append("- .show()")
         return "\n".join(lines)
@@ -337,7 +274,7 @@ def load(
         >>> catalog = md.load()
         >>> catalog.list()
         >>> catalog.get("wh")
-        >>> catalog.inspect_table("wh", "orders")
+        >>> md.discover_entity(md.ref("wh"), md.table("orders"))
 
     Constraints:
         The catalog is read-only; use ``md.register()`` and ``md.remove()``

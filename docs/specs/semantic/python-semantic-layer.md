@@ -792,7 +792,7 @@ if result.errors:
 
 ### 2. 声明最小业务对象
 
-新增 metric 时的最小 happy path 是 datasource、entity、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `md.inspect_source(...)`；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
+新增 metric 时的最小 happy path 是 datasource、entity、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `md.discover_entity(md.ref("warehouse"), md.table(...))` 等 `md.discover_*` 系列；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
 
 新建 metric 可以省略 provenance 并自动进入 `unverified`，但 agent 不能把它当作完成状态。若同一 PR 新增多个 unverified metrics，应停下来确认业务来源；CI 可用 `--strict-provenance` 禁止 unverified metric 合入。
 

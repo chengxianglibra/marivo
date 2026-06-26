@@ -9,6 +9,7 @@ import pytest
 
 import marivo.datasource as md
 from marivo.datasource.authoring import _DuckDBSpec
+from marivo.datasource.manage import inspect_columns as _inspect_columns
 from marivo.datasource.scan import ColumnProfile, _coarse_type_family
 
 
@@ -56,15 +57,9 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def _create_orders_duckdb(path: Path) -> None:
     con = ibis.duckdb.connect(str(path))
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER NOT NULL, amount DOUBLE, region VARCHAR)")
     con.raw_sql(
-        "CREATE TABLE orders ("
-        "order_id INTEGER NOT NULL, "
-        "amount DOUBLE, "
-        "region VARCHAR)"
-    )
-    con.raw_sql(
-        "INSERT INTO orders VALUES "
-        "(1, 10.0, 'us'), (2, -5.0, 'us'), (3, 0.0, 'eu'), (4, 7.5, NULL)"
+        "INSERT INTO orders VALUES (1, 10.0, 'us'), (2, -5.0, 'us'), (3, 0.0, 'eu'), (4, 7.5, NULL)"
     )
     con.disconnect()
 
@@ -74,7 +69,7 @@ def test_inspect_columns_populates_enriched_fields(project_root: Path) -> None:
     _create_orders_duckdb(db_path)
     md.register(_DuckDBSpec(name="wh", path=str(db_path)))
 
-    inspection = md.inspect_columns(
+    inspection = _inspect_columns(
         "wh",
         md.table("orders"),
         scope=md.ScanScope(partition=None, max_rows=100),

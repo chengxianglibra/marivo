@@ -365,7 +365,15 @@ class EntityDiscoveryResult:
             identity=self._identity(),
             status=_scan_status(self.scan, _issue_count(self.issues)),
             judgment_targets=self.judgment_targets,
-            available=(".candidates", ".signals", ".issues", ".judgment_targets", ".scan", ".render()", ".show()"),
+            available=(
+                ".candidates",
+                ".signals",
+                ".issues",
+                ".judgment_targets",
+                ".scan",
+                ".render()",
+                ".show()",
+            ),
         )
 
     def __repr__(self) -> str:
@@ -413,7 +421,15 @@ class DimensionDiscoveryResult:
             judgment_targets=self.judgment_targets,
             table_header=header,
             table_rows=rows,
-            available=(".candidates", ".signals", ".issues", ".judgment_targets", ".scan", ".render()", ".show()"),
+            available=(
+                ".candidates",
+                ".signals",
+                ".issues",
+                ".judgment_targets",
+                ".scan",
+                ".render()",
+                ".show()",
+            ),
         )
 
     def __repr__(self) -> str:
@@ -445,7 +461,15 @@ class TimeDimensionDiscoveryResult:
             identity=self._identity(),
             status=_scan_status(self.scan, _issue_count(self.issues)),
             judgment_targets=self.judgment_targets,
-            available=(".candidates", ".signals", ".issues", ".judgment_targets", ".scan", ".render()", ".show()"),
+            available=(
+                ".candidates",
+                ".signals",
+                ".issues",
+                ".judgment_targets",
+                ".scan",
+                ".render()",
+                ".show()",
+            ),
         )
 
     def __repr__(self) -> str:
@@ -493,7 +517,15 @@ class MeasureDiscoveryResult:
             judgment_targets=self.judgment_targets,
             table_header=header,
             table_rows=rows,
-            available=(".candidates", ".signals", ".issues", ".judgment_targets", ".scan", ".render()", ".show()"),
+            available=(
+                ".candidates",
+                ".signals",
+                ".issues",
+                ".judgment_targets",
+                ".scan",
+                ".render()",
+                ".show()",
+            ),
         )
 
     def __repr__(self) -> str:
@@ -513,11 +545,7 @@ class RelationshipDiscoveryResult:
     def _identity(self) -> str:
         e = self.evidence
         from_name = getattr(e.from_side.datasource, "name", e.from_side.datasource)
-        return (
-            "RelationshipDiscoveryResult "
-            f"from={from_name} "
-            f"match_rate={e.match_rate:.2f}"
-        )
+        return f"RelationshipDiscoveryResult from={from_name} match_rate={e.match_rate:.2f}"
 
     def render(self) -> str:
         e = self.evidence
@@ -530,7 +558,14 @@ class RelationshipDiscoveryResult:
             identity=self._identity(),
             status=status,
             judgment_targets=self.judgment_targets,
-            available=(".evidence", ".signals", ".issues", ".judgment_targets", ".render()", ".show()"),
+            available=(
+                ".evidence",
+                ".signals",
+                ".issues",
+                ".judgment_targets",
+                ".render()",
+                ".show()",
+            ),
         )
 
     def __repr__(self) -> str:
@@ -573,7 +608,85 @@ class DimensionValueDiscoveryResult:
             judgment_targets=self.judgment_targets,
             table_header=header,
             table_rows=rows,
-            available=(".values", ".complete", ".signals", ".issues", ".judgment_targets", ".scan", ".render()", ".show()"),
+            available=(
+                ".values",
+                ".complete",
+                ".signals",
+                ".issues",
+                ".judgment_targets",
+                ".scan",
+                ".render()",
+                ".show()",
+            ),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._identity())
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
+class RawSqlResult:
+    """Bounded result from the explicit datasource raw-SQL escape hatch.
+
+    Attributes:
+        datasource: Datasource reference used for execution.
+        backend_type: Backend type label.
+        sql: Executed SQL text.
+        reason: Required diagnostic reason supplied by the caller.
+        columns: Returned column names.
+        types: Returned column type labels when available.
+        rows: Bounded row dictionaries.
+        requested_limit: Requested row limit.
+        returned_row_count: Number of rows returned.
+        is_truncated: Whether the result hit ``limit``.
+        warnings: Capability or execution warnings.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.raw_sql(md.ref("warehouse"), "SELECT 1", reason="check connectivity")
+
+    Constraints:
+        This is an escape hatch for diagnostics only. SQL text must not become
+        an executable semantic expression body.
+    """
+
+    datasource: DatasourceRef
+    backend_type: str
+    sql: str
+    reason: str
+    columns: tuple[str, ...]
+    types: dict[str, str]
+    rows: tuple[dict[str, object], ...]
+    requested_limit: int
+    returned_row_count: int
+    is_truncated: bool
+    warnings: tuple[str, ...]
+
+    def _identity(self) -> str:
+        return (
+            f"RawSqlResult datasource={self.datasource.id} "
+            f"rows={self.returned_row_count} escape_hatch"
+        )
+
+    def render(self) -> str:
+        from marivo.render import format_bounded_card
+
+        preview_rows = [[str(row.get(column)) for column in self.columns] for row in self.rows[:8]]
+        status = (
+            f"escape_hatch reason={self.reason} "
+            f"truncated={self.is_truncated} warnings={len(self.warnings)}"
+        )
+        return format_bounded_card(
+            identity=self._identity(),
+            status=status,
+            columns=list(self.columns),
+            rows=preview_rows,
+            row_count=self.returned_row_count,
+            preview_truncation_hint="increase limit for more diagnostic rows",
+            available=(".rows", ".columns", ".types", ".reason", ".render()", ".show()"),
         )
 
     def __repr__(self) -> str:

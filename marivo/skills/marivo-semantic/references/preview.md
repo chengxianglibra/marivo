@@ -6,34 +6,34 @@ meaning by itself.
 ## Source preview evidence
 
 `prepare_entity` and `prepare_dimension`/`prepare_time_dimension`/`prepare_metric`
-collect source evidence internally via `md.inspect_table` and `md.inspect_columns`.
+collect source evidence internally through the datasource discovery primitives.
 Readiness runs required raw and semantic previews live through the internal
 datasource connection service. Use bounded raw previews before declaring or
 revising datasets, time-like columns, amount columns, enum/status columns, and
 join keys.
 
-For debugging or targeted raw table inspection, use `md.inspect_columns`:
+For debugging or targeted raw table inspection, use the `md.discover_*` family:
 
 ```python
 import marivo.datasource as md
 
-evidence = md.inspect_columns(
-    "warehouse",
+evidence = md.discover_dimensions(
+    md.ref("warehouse"),
     md.table("orders"),
     columns=("status", "amount"),
-    scope=md.ScanScope(partition={"dt": "20260611"}),
+    scope=md.partition({"dt": "20260611"}),
 )
-for col in evidence.profiles:
-    print(col.column, col.distinct_count, col.top_values)
+for candidate in evidence.candidates:
+    print(candidate.column, candidate.profile.distinct_count, candidate.profile.top_values)
 ```
 
 For Trino without a default schema:
 
 ```python
-evidence = md.inspect_columns(
-    "warehouse",
+evidence = md.discover_dimensions(
+    md.ref("warehouse"),
     md.table("orders", database="sales_mart"),
-    scope=md.ScanScope(),
+    scope=md.latest_partition(),
 )
 ```
 

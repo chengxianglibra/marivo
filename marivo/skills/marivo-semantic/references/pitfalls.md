@@ -22,7 +22,7 @@ insufficient, say so and run bounded discovery or ask an open clarification.
 
 The project does not return a candidate worklist. Rank columns yourself from
 `EntityBrief` facts (type, comments, nullable, partition hints, sampled values).
-Deep-dive a small set with `md.inspect_columns(...)`, then author directly.
+Deep-dive a small set with `md.discover_dimensions(...)`, then author directly.
 
 ## Skipping prepare before authoring
 
@@ -201,10 +201,10 @@ first, then report advisory gaps as recommended follow-up work.
 
 ## Unpruned scan without justification
 
-Use `md.ScanScope()` by default, which resolves to the latest partition. Passing
-`partition=None` produces an unpruned scan that may be slow and may sample stale
-data. Only pass `partition=None` when the answer explicitly accepts an unpruned
-scan and the reason is documented.
+Use `md.latest_partition()` by default, which resolves to the latest partition.
+Calling `md.unpruned(...)` produces an unpruned scan that may be slow and may
+sample stale data. Only use `md.unpruned(...)` when the answer explicitly
+accepts an unpruned scan and the reason is documented.
 
 ## Assignment or intermediate variables in a metric body
 
