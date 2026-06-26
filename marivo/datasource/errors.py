@@ -269,13 +269,13 @@ class DatasourceMetadataError(DatasourceError):
         ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
         table_ref = table if isinstance(table, str) and table else "<table>"
         return {
-            "location": f"md.inspect_table({ds_ref!r}, table={table_ref!r})",
+            "location": f"md.discover_entity(md.ref({ds_ref!r}), md.table({table_ref!r}))",
             "cause": self.details.get("cause", "table metadata inspection failed"),
             "fix_snippet": (
                 "import marivo.datasource as md\n"
                 f"md.describe({ds_ref!r})\n"
                 f"md.test({ds_ref!r})\n"
-                f"md.inspect_table({ds_ref!r}, table={table_ref!r})"
+                f"md.discover_entity(md.ref({ds_ref!r}), md.table({table_ref!r}))"
             ),
             "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }

@@ -81,71 +81,147 @@ CSV files, still choose DuckDB as the execution backend, but use the typed
 constructors `ms.parquet(...)` and `ms.csv(...)`; do not invent unsupported
 file formats.
 
-## Datasource Inspection APIs
+## Datasource Discovery APIs
 
-All physical inspection lives in `marivo.datasource`. The semantic layer
-composes these primitives and never re-implements them.
+All physical discovery lives in `marivo.datasource`. The semantic layer
+composes these primitives and never re-implements them. Use `md.ref(...)` to
+bind a datasource, `md.table()`/`md.parquet()`/`md.csv()` to bind a source,
+and the `md.discover_*` family to collect bounded evidence before each
+`ms.prepare_*` call.
 
-### ScanScope
+### DatasourceRef and TableSource
 
-`ScanScope` controls partition pruning, row caps, and column caps for every
-data-touching operation. Use `md.ScanScope()` by default (latest partition,
-1000 rows, 50 columns). Pass an explicit `partition` mapping for targeted
-inspection. Pass `partition=None` only when the answer explicitly accepts an
-unpruned scan.
+Bind a datasource ref with `md.ref("name")`; bind a physical source with
+`md.table("orders", database="sales_mart")`, `md.parquet("/data/orders/*.parquet")`,
+or `md.csv("/data/orders.csv")`. `DatasourceRef` and `TableSource` are the
+typed values that every discovery function accepts.
 
 ```python
-scope = md.ScanScope()                                    # default: latest partition
-scope = md.ScanScope(partition={"dt": "20260611"})        # explicit partition
-scope = md.ScanScope(partition=None)                      # unpruned — only with justification
+import marivo.datasource as md
+
+warehouse = md.ref("warehouse")
+orders_source = md.table("orders", database="sales_mart")
 ```
 
-### md.inspect_table
+### Scope helpers
 
-Pure metadata, zero row reads. Returns `TableMetadata` with columns, types,
-nullable flags, comments, partition info, and warnings.
+Every data-touching discovery call accepts a `scope: ScanScope`. Use the scope
+helpers instead of constructing `md.ScanScope(...)` directly in recipes:
 
 ```python
-metadata = md.inspect_table("warehouse", md.table("orders", database="sales_mart"))
+scope = md.latest_partition()                       # default: latest partition, 1000 rows
+scope = md.partition({"dt": "20260625"}, max_rows=1000)  # explicit partition
+scope = md.unpruned(max_rows=1000)                  # unpruned — only with justification
 ```
 
-### md.inspect_columns
+`md.ScanScope` remains a value type for advanced debugging (for example, a
+non-default `timeout_seconds` combined with an explicit partition). When a
+helper matches your intent, prefer it over direct construction.
 
-One bounded scan, multi-column profiling. Returns `ColumnInspection` with
-`profiles`, `scan` report, and scope details. `columns=None` means all columns,
-capped by `scope.max_columns`.
+### md.discover_entity
+
+Entity-level discovery: table metadata, bounded column profiles, primary-key
+candidates, and deterministic signals/issues. Returns `EntityDiscoveryResult`.
+Run this before `ms.prepare_entity(...)`.
 
 ```python
-evidence = md.inspect_columns(
-    "warehouse",
+discovery = md.discover_entity(
+    warehouse,
+    md.table("orders", database="sales_mart"),
+    scope=md.latest_partition(),
+)
+discovery.show()
+```
+
+### md.discover_dimensions
+
+Dimension-shaped column evidence for one source. Returns one candidate per
+profiled column in `DimensionDiscoveryResult`. Pass `columns=` to profile a
+subset; `None` profiles all columns within `scope.max_columns`.
+
+```python
+dimensions = md.discover_dimensions(
+    warehouse,
     md.table("orders"),
-    columns=("status", "amount"),
-    scope=md.ScanScope(partition={"dt": "20260611"}),
+    columns=("status", "region"),
 )
-for col in evidence.profiles:
-    print(col.column, col.distinct_count, col.top_values)
 ```
 
-### md.probe_join_keys
+### md.discover_time_dimensions
 
-Sample join-key overlap between two sides. Used internally by
-`prepare_relationship`, also available directly for diagnostics.
+Time-dimension column evidence: parse candidates, value ranges, partition
+alignment, signals, issues, and judgment targets. Returns
+`TimeDimensionDiscoveryResult`.
 
 ```python
-probe = md.probe_join_keys(
-    from_side=md.JoinSide("warehouse", md.table("orders"), columns=("customer_id",)),
-    to_side=md.JoinSide("warehouse", md.table("customers"), columns=("customer_id",)),
+time_dims = md.discover_time_dimensions(
+    warehouse,
+    md.table("orders"),
+    columns=("created_at",),
 )
-print(probe.match_rate, probe.cardinality_estimate)
 ```
 
-### md.inspect_source
+### md.discover_measures
 
-`md.inspect_source` is a convenience alias that wraps `md.inspect_table` and
-`md.inspect_columns`. For structured metadata-only or profiled inspection,
-prefer `md.inspect_table` and `md.inspect_columns` directly.
+Measure-shaped column evidence with deterministic measure signals. Returns
+`MeasureDiscoveryResult`. Discovery does not choose units or additivity.
 
-## Inspect configured datasources
+```python
+measures = md.discover_measures(
+    warehouse,
+    md.table("orders"),
+    columns=("amount",),
+)
+```
+
+### md.discover_relationship
+
+Relationship discovery between two sides. Each side is a
+`md.JoinSide(datasource, source, columns=...)` with a `DatasourceRef`. Returns
+`RelationshipDiscoveryResult` with sampled key evidence, match rate, fanout,
+key type evidence, signals, and issues. Run this before
+`ms.prepare_relationship(...)`.
+
+```python
+relationship = md.discover_relationship(
+    from_side=md.JoinSide(warehouse, md.table("orders"), columns=("customer_id",)),
+    to_side=md.JoinSide(warehouse, md.table("customers"), columns=("customer_id",)),
+    scope=md.latest_partition(),
+)
+```
+
+### md.discover_dimension_values
+
+Bounded current value counts for one dimension column. Returns
+`DimensionValueDiscoveryResult`. Use this only for current filter/value
+evidence; Marivo does not persist these values into semantic `ai_context`,
+enum metadata, or authored objects.
+
+```python
+values = md.discover_dimension_values(
+    warehouse,
+    md.table("orders"),
+    column="status",
+    limit=10,
+)
+```
+
+### md.raw_sql
+
+Diagnostic escape hatch: one bounded read-only SQL statement against a
+datasource, with a required `reason`. Returns `RawSqlResult` labeled as
+`escape_hatch` evidence. Use only when the structured discovery APIs cannot
+answer the question.
+
+```python
+result = md.raw_sql(
+    warehouse,
+    "SELECT status, COUNT(*) AS n FROM orders GROUP BY status",
+    reason="confirm status enum before authoring dimension",
+)
+```
+
+## Discover configured datasources
 
 Use `md` from the installed project environment:
 
@@ -158,8 +234,8 @@ md.list().show()
 print(md.describe("warehouse"))
 print(md.test("warehouse"))
 
-metadata = md.inspect_table("warehouse", source=ms.table("orders"))
-print(metadata.columns)
+discovery = md.discover_entity(md.ref("warehouse"), source=ms.table("orders"))
+discovery.show()
 ```
 
 ## DuckDB datasource
@@ -213,15 +289,16 @@ warehouse = md.trino(
 )
 ```
 
-Inspect and author tables with `database="sales_mart"`:
+Discover and author tables with `database="sales_mart"`:
 
 ```python
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-metadata = md.inspect_table(
-    "warehouse",
-    source=ms.table("orders", database="sales_mart"),
+discovery = md.discover_entity(
+    md.ref("warehouse"),
+    md.table("orders", database="sales_mart"),
+    scope=md.latest_partition(),
 )
 orders = ms.entity(
     name="orders",

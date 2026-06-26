@@ -14,8 +14,10 @@ from marivo.datasource import backends as _backends
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
 from marivo.datasource.authoring import (
+    DatasourceRef,
     DatasourceSpec,
 )
+from marivo.datasource.discovery import RawSqlResult
 from marivo.datasource.errors import DatasourceMissingError, DatasourcePreviewError
 from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.metadata import TableMetadata
@@ -532,8 +534,8 @@ def inspect_table(
         A ``TableMetadata`` with columns, warnings, and optional partitions.
 
     Example:
-        >>> import marivo.datasource as md
-        >>> md.inspect_table("wh", md.table("orders"))
+        >>> from marivo.datasource.manage import inspect_table
+        >>> inspect_table("wh", table="orders")
 
     Constraints:
         Opens and closes a backend connection internally.
@@ -571,8 +573,8 @@ def inspect_source(
         A ``TableMetadata`` with columns, warnings, and optional partitions.
 
     Example:
-        >>> import marivo.datasource as md
-        >>> md.inspect_source("wh", source=source_ir)
+        >>> from marivo.datasource.manage import inspect_source
+        >>> inspect_source("wh", source=source_ir)
 
     Constraints:
         Opens and closes a backend connection internally.
@@ -608,7 +610,8 @@ def inspect_columns(
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.inspect_columns(
+        >>> from marivo.datasource.manage import inspect_columns
+        >>> inspect_columns(
         ...     "wh",
         ...     md.table("orders"),
         ...     columns=("status", "amount"),
@@ -907,6 +910,11 @@ def _is_numeric_series(series: Any) -> bool:
     return bool(coerced.notna().all())
 
 
+def _join_side_datasource_name(side: JoinSide) -> str:
+    datasource = side.datasource
+    return datasource.id if hasattr(datasource, "id") else str(datasource)
+
+
 def _sample_distinct_keys(
     side: JoinSide,
     scope: ScanScope,
@@ -920,7 +928,7 @@ def _sample_distinct_keys(
     """
     start = time.perf_counter()
     frame = _execute_scoped_sample(
-        side.datasource,
+        _join_side_datasource_name(side),
         side.source,
         selected_columns=tuple(side.columns),
         scope=scope,
@@ -979,7 +987,7 @@ def _count_matching_keys(
     """
     start = time.perf_counter()
     frame = _execute_scoped_sample(
-        side.datasource,
+        _join_side_datasource_name(side),
         side.source,
         selected_columns=tuple(side.columns),
         scope=scope,
@@ -1047,9 +1055,10 @@ def probe_join_keys(
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.probe_join_keys(
-        ...     from_side=md.JoinSide("wh", md.table("orders"), columns=("customer_id",)),
-        ...     to_side=md.JoinSide("wh", md.table("customers"), columns=("customer_id",)),
+        >>> from marivo.datasource.manage import probe_join_keys
+        >>> probe_join_keys(
+        ...     from_side=md.JoinSide(md.ref("wh"), md.table("orders"), columns=("customer_id",)),
+        ...     to_side=md.JoinSide(md.ref("wh"), md.table("customers"), columns=("customer_id",)),
         ...     scope=md.ScanScope(partition=None, max_rows=100),
         ...     project_root=project_root,
         ... )
@@ -1148,3 +1157,85 @@ def test(name: str) -> DatasourceTestResult:
             if callable(disconnect):
                 with suppress(Exception):
                     disconnect()
+
+
+def _require_raw_sql_reason(reason: str) -> str:
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("reason must be non-empty.")
+    return reason.strip()
+
+
+def _require_single_read_only_statement(sql: str) -> str:
+    text = sql.strip()
+    if not text:
+        raise ValueError("sql must be non-empty.")
+    stripped = text.rstrip(";")
+    if ";" in stripped:
+        raise ValueError("raw_sql accepts a single read-only statement.")
+    first = stripped.split(None, 1)[0].upper()
+    if first not in {"SELECT", "WITH"}:
+        raise ValueError("raw_sql accepts a single read-only statement.")
+    return stripped
+
+
+def raw_sql(
+    datasource: DatasourceRef,
+    sql: str,
+    *,
+    limit: int = 100,
+    reason: str,
+    include_types: bool = True,
+    project_root: Path | None = None,
+) -> RawSqlResult:
+    """Run a bounded read-only SQL diagnostic against a datasource.
+
+    Args:
+        datasource: Datasource reference returned by ``md.ref("warehouse")``.
+        sql: Single read-only SQL statement.
+        limit: Maximum rows to return.
+        reason: Required diagnostic reason; shown in the result.
+        include_types: Whether to include returned column type labels when available.
+        project_root: Optional project root for tests and embedded callers.
+
+    Returns:
+        ``RawSqlResult`` labeled as ``escape_hatch`` evidence.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> md.raw_sql(md.ref("warehouse"), "SELECT 1 AS ok", reason="check query path")
+
+    Constraints:
+        Rejects empty reasons, empty SQL, multi-statement SQL, and non-read
+        statements before execution. Always disconnects the backend.
+    """
+    if limit < 1:
+        raise ValueError("limit must be positive.")
+    reason_text = _require_raw_sql_reason(reason)
+    statement = _require_single_read_only_statement(sql)
+    datasource_id = datasource.id if isinstance(datasource, DatasourceRef) else str(datasource)
+    service = DatasourceConnectionService(project_root)
+    with service.use_backend(datasource_id) as backend:
+        limited_sql = f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {limit}"
+        cursor = backend.raw_sql(limited_sql)
+        frame = cursor.fetch_df()
+        columns = tuple(str(column) for column in frame.columns)
+        rows = tuple(
+            {str(column): frame.iloc[index][column] for column in frame.columns}
+            for index in range(len(frame))
+        )
+        types = (
+            {column: str(dtype) for column, dtype in frame.dtypes.items()} if include_types else {}
+        )
+        return RawSqlResult(
+            datasource=datasource,
+            backend_type=type(backend).__name__,
+            sql=statement,
+            reason=reason_text,
+            columns=columns,
+            types=types,
+            rows=rows,
+            requested_limit=limit,
+            returned_row_count=len(rows),
+            is_truncated=len(rows) >= limit,
+            warnings=(),
+        )

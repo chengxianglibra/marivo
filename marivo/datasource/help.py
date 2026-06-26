@@ -55,7 +55,17 @@ def _surface() -> Surface:
     topics = {
         "constraints": _constraint_topic(),
     }
-    summaries = derive_summaries(all_names, _resolve, topics)
+    summaries = derive_summaries(
+        all_names,
+        _resolve,
+        topics,
+        overrides={
+            "TableSource": (
+                "Union of table, parquet, and csv source IRs returned by "
+                "md.table(), md.parquet(), and md.csv()."
+            ),
+        },
+    )
     catalog = {constraint.id: constraint for constraint in iter_constraints()}
     return Surface(
         name="marivo.datasource",
@@ -64,7 +74,8 @@ def _surface() -> Surface:
         resolve=_resolve,
         catalog=catalog,
         topics=topics,
-        type_aliases=set(),
+        type_aliases={"TableSource"},
+        pinned_entries=("DatasourceCatalog", "JoinSide", "ScanScope", "TableSource"),
         family_suffixes=(("Result", "Results"),),
         hidden_names=frozenset(),
     )

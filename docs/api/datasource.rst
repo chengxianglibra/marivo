@@ -37,21 +37,43 @@ Source constructors
    trino
    table
 
-Inspection & preview
---------------------
+Preview
+-------
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
    preview
-   inspect_source
-   inspect_table
-   inspect_columns
-   probe_join_keys
 
 Discovery
 ---------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   discover_entity
+   discover_dimensions
+   discover_time_dimensions
+   discover_measures
+   discover_relationship
+   discover_dimension_values
+   raw_sql
+
+Scope helpers
+-------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   latest_partition
+   partition
+   unpruned
+
+Help & description
+------------------
 
 .. autosummary::
    :toctree: api/
@@ -74,8 +96,8 @@ Catalog & refs
    DatasourceSummary
    DatasourceDescription
 
-Metadata
---------
+Metadata & sources
+------------------
 
 .. autosummary::
    :toctree: api/
@@ -83,9 +105,10 @@ Metadata
 
    TableMetadata
    ScanScope
+   TableSource
 
-Results & inspection
---------------------
+Results
+-------
 
 .. autosummary::
    :toctree: api/
@@ -93,6 +116,11 @@ Results & inspection
 
    DatasourceTestResult
    PreviewResult
-   ColumnInspection
-   JoinKeyProbe
+   EntityDiscoveryResult
+   DimensionDiscoveryResult
+   TimeDimensionDiscoveryResult
+   MeasureDiscoveryResult
+   RelationshipDiscoveryResult
+   DimensionValueDiscoveryResult
+   RawSqlResult
    JoinSide

@@ -15,7 +15,17 @@ from typing import Any, Literal
 
 import ibis
 
+from marivo.datasource.authoring import ref as _datasource_ref
 from marivo.datasource.ir import EntitySourceIR, source_to_dict
+from marivo.datasource.manage import (
+    inspect_columns as _inspect_columns,
+)
+from marivo.datasource.manage import (
+    inspect_source as _inspect_source,
+)
+from marivo.datasource.manage import (
+    probe_join_keys as _probe_join_keys,
+)
 from marivo.datasource.scan import (
     ColumnInspection,
     JoinSide,
@@ -345,11 +355,9 @@ def prepare_entity(
     Returns:
         An ``EntityBrief`` with datasource evidence for entity authoring.
     """
-    from marivo import datasource as md
-
     project.load(domains=list(project._filtered_domains) if project._filtered_domains else None)
-    table = md.inspect_source(datasource, source=source, project_root=project.workspace_dir)
-    inspection = md.inspect_columns(
+    table = _inspect_source(datasource, source=source, project_root=project.workspace_dir)
+    inspection = _inspect_columns(
         datasource, source, scope=scope, project_root=project.workspace_dir
     )
     source_key = source_to_dict(source)
@@ -403,10 +411,8 @@ def prepare_dimensions(
     Returns:
         A tuple of ``DimensionBrief`` objects, one per column.
     """
-    from marivo import datasource as md
-
     entity_ir, source = _require_entity(project, entity)
-    inspection = md.inspect_columns(
+    inspection = _inspect_columns(
         entity_ir.datasource,
         source,
         columns=tuple(columns),
@@ -494,10 +500,8 @@ def prepare_time_dimension(
     Returns:
         A ``TimeDimensionBrief`` with detected formats and evidence.
     """
-    from marivo import datasource as md
-
     entity_ir, source = _require_entity(project, entity)
-    inspection = md.inspect_columns(
+    inspection = _inspect_columns(
         entity_ir.datasource,
         source,
         columns=(column,),
@@ -552,11 +556,9 @@ def prepare_metric(
     Returns:
         A ``MetricBrief`` with measure profiles and filter evidence.
     """
-    from marivo import datasource as md
-
     entity_ir, source = _require_entity(project, entity)
     if measure_columns:
-        inspection = md.inspect_columns(
+        inspection = _inspect_columns(
             entity_ir.datasource,
             source,
             columns=tuple(measure_columns),
@@ -658,10 +660,8 @@ def prepare_measure(
     Returns:
         A ``MeasureBrief`` with status, profile, additivity hint, and match evidence.
     """
-    from marivo import datasource as md
-
     entity_ir, source = _require_entity(project, entity)
-    inspection = md.inspect_columns(
+    inspection = _inspect_columns(
         entity_ir.datasource,
         source,
         columns=(column,),
@@ -714,18 +714,22 @@ def prepare_relationship(
     Returns:
         A ``RelationshipBrief`` with probe evidence and registry matches.
     """
-    from marivo import datasource as md
-
     from_ir, from_source = _require_entity(project, from_entity)
     to_ir, to_source = _require_entity(project, to_entity)
     from_keys = tuple(k[0] for k in keys)
     to_keys = tuple(k[1] for k in keys)
     _require_keys(project, from_keys + to_keys)
-    probe = md.probe_join_keys(
+    probe = _probe_join_keys(
         from_side=JoinSide(
-            from_ir.datasource, from_source, columns=_key_columns(project, from_keys)
+            datasource=_datasource_ref(from_ir.datasource),
+            source=from_source,
+            columns=_key_columns(project, from_keys),
         ),
-        to_side=JoinSide(to_ir.datasource, to_source, columns=_key_columns(project, to_keys)),
+        to_side=JoinSide(
+            datasource=_datasource_ref(to_ir.datasource),
+            source=to_source,
+            columns=_key_columns(project, to_keys),
+        ),
         scope=scope,
         project_root=project.workspace_dir,
     )
@@ -768,8 +772,6 @@ def prepare_cross_entity_metric(
     Returns:
         A ``CrossEntityMetricBrief`` with join paths and issue evidence.
     """
-    from marivo import datasource as md
-
     root_ir, root_source = _require_entity(project, root_entity)
     paths, unreachable = _relationship_paths(project, root_entity, tuple(entities))
     issues = tuple(
@@ -783,7 +785,7 @@ def prepare_cross_entity_metric(
         for entity in unreachable
     )
     if measure_columns:
-        inspection = md.inspect_columns(
+        inspection = _inspect_columns(
             root_ir.datasource,
             root_source,
             columns=tuple(measure_columns),

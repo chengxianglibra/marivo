@@ -19,6 +19,12 @@ from marivo.datasource.authoring import (
     _TrinoSpec,
 )
 from marivo.datasource.errors import DatasourceMetadataError
+from marivo.datasource.manage import (
+    inspect_source as _inspect_source,
+)
+from marivo.datasource.manage import (
+    inspect_table as _inspect_table,
+)
 from marivo.datasource.metadata import (
     ColumnMetadata,
     MetadataWarning,
@@ -166,7 +172,7 @@ def test_inspect_table_duckdb_returns_comments_and_nullable(project_root: Path) 
     _create_metadata_duckdb(db_path)
     md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    metadata = md.inspect_table("wh", table="orders")
+    metadata = _inspect_table("wh", table="orders")
 
     assert isinstance(metadata, TableMetadata)
     assert metadata.datasource == "wh"
@@ -186,12 +192,12 @@ def test_inspect_source_duckdb_detects_view(project_root: Path) -> None:
     _create_duckdb_with_view(db_path)
     md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    view_md = md.inspect_source("wh", source=ms.table("v_orders"))
+    view_md = _inspect_source("wh", source=ms.table("v_orders"))
     assert view_md.is_view is True
     assert view_md.view_definition is not None
     assert "SELECT" in view_md.view_definition.upper()
 
-    base_md = md.inspect_source("wh", source=ms.table("orders"))
+    base_md = _inspect_source("wh", source=ms.table("orders"))
     assert base_md.is_view is False
     assert base_md.view_definition is None
 
@@ -203,7 +209,7 @@ def test_inspect_source_duckdb_uses_database_for_view_detection(
     _create_duckdb_with_same_name_table_and_view(db_path)
     md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    table_md = md.inspect_table(
+    table_md = _inspect_table(
         "wh",
         table="orders",
         database="base_schema",
@@ -211,14 +217,14 @@ def test_inspect_source_duckdb_uses_database_for_view_detection(
     assert table_md.is_view is False
     assert table_md.view_definition is None
 
-    source_table_md = md.inspect_source(
+    source_table_md = _inspect_source(
         "wh",
         source=ms.table("orders", database="base_schema"),
     )
     assert source_table_md.is_view is False
     assert source_table_md.view_definition is None
 
-    view_md = md.inspect_source(
+    view_md = _inspect_source(
         "wh",
         source=ms.table("orders", database="view_schema"),
     )
@@ -234,11 +240,11 @@ def test_inspect_table_duckdb_unqualified_uses_default_schema_for_view_detection
     _create_duckdb_with_default_table_and_same_name_view(db_path)
     md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    table_md = md.inspect_table("wh", table="orders")
+    table_md = _inspect_table("wh", table="orders")
     assert table_md.is_view is False
     assert table_md.view_definition is None
 
-    view_md = md.inspect_source(
+    view_md = _inspect_source(
         "wh",
         source=ms.table("orders", database="view_schema"),
     )
@@ -249,7 +255,7 @@ def test_inspect_table_duckdb_unqualified_uses_default_schema_for_view_detection
 
 def test_inspect_table_missing_datasource_raises(project_root: Path) -> None:
     with pytest.raises(DatasourceMetadataError) as exc_info:
-        md.inspect_table("missing", table="orders")
+        _inspect_table("missing", table="orders")
 
     assert exc_info.value.details["datasource"] == "missing"
 
@@ -364,7 +370,7 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("mysql_wh", table="mart.orders")
+    metadata = _inspect_table("mysql_wh", table="mart.orders")
 
     assert metadata.backend_type == "mysql"
     assert metadata.comment == "One row per order"
@@ -407,7 +413,7 @@ def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("mysql_wh", table="v_orders")
+    metadata = _inspect_table("mysql_wh", table="v_orders")
 
     assert metadata.backend_type == "mysql"
     assert metadata.database is None
@@ -436,7 +442,7 @@ def test_inspect_source_file_derives_table_name_from_path(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_source(
+    metadata = _inspect_source(
         "duck_wh",
         source=ms.parquet("/data/orders/*.parquet", hive_partitioning=True),
     )
@@ -479,7 +485,7 @@ def test_inspect_table_trino_adapter_uses_information_schema(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table(
+    metadata = _inspect_table(
         "trino_wh",
         table="orders",
         database="analytics",
@@ -530,7 +536,7 @@ def test_inspect_table_trino_detects_view_definition(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("trino_wh", table="v_orders")
+    metadata = _inspect_table("trino_wh", table="v_orders")
 
     assert metadata.backend_type == "trino"
     assert metadata.is_view is True
@@ -575,7 +581,7 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("trino_wh", table="orders")
+    metadata = _inspect_table("trino_wh", table="orders")
 
     assert metadata.backend_type == "trino"
     assert metadata.database is None
@@ -597,7 +603,7 @@ def test_inspect_table_trino_without_schema_returns_schema_only(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("trino_wh", table="orders")
+    metadata = _inspect_table("trino_wh", table="orders")
 
     assert metadata.backend_type == "trino"
     assert metadata.columns[0].name == "order_id"
@@ -641,7 +647,7 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_wh", table="analytics.orders")
+    metadata = _inspect_table("ch_wh", table="analytics.orders")
 
     assert metadata.backend_type == "clickhouse"
     assert metadata.database == "analytics"
@@ -693,7 +699,7 @@ def test_inspect_table_clickhouse_detects_view_definition(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_view", table="v_orders")
+    metadata = _inspect_table("ch_view", table="v_orders")
 
     assert metadata.backend_type == "clickhouse"
     assert metadata.is_view is True
@@ -736,7 +742,7 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_old", table="default.orders")
+    metadata = _inspect_table("ch_old", table="default.orders")
 
     assert metadata.backend_type == "clickhouse"
     by_name = {column.name: column for column in metadata.columns}
@@ -779,7 +785,7 @@ def test_inspect_table_clickhouse_query_result(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_qr", table="analytics.orders")
+    metadata = _inspect_table("ch_qr", table="analytics.orders")
 
     assert metadata.backend_type == "clickhouse"
     assert metadata.comment == "One row per order"
@@ -825,7 +831,7 @@ def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_22_3", table="bilibili_web_monitor.ads_web_main_box_rt")
+    metadata = _inspect_table("ch_22_3", table="bilibili_web_monitor.ads_web_main_box_rt")
 
     assert metadata.backend_type == "clickhouse"
     assert metadata.comment is None
@@ -867,7 +873,7 @@ def test_inspect_table_clickhouse_partition_key_parsed(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_pk", table="analytics.events")
+    metadata = _inspect_table("ch_pk", table="analytics.events")
 
     assert metadata.partitions == (
         PartitionMetadata(name="time_iso", type="DateTime", transform="toYYYYMMDD", comment=None),
@@ -901,7 +907,7 @@ def test_inspect_table_clickhouse_partition_key_bare_column(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_bare", table="analytics.events")
+    metadata = _inspect_table("ch_bare", table="analytics.events")
 
     assert metadata.partitions == (
         PartitionMetadata(name="timestamp", type="DateTime", transform=None, comment=None),
@@ -938,7 +944,7 @@ def test_inspect_table_clickhouse_partition_key_composite(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_comp", table="analytics.events")
+    metadata = _inspect_table("ch_comp", table="analytics.events")
 
     assert len(metadata.partitions) == 2
     assert metadata.partitions[0] == PartitionMetadata(
@@ -978,7 +984,7 @@ def test_inspect_table_clickhouse_partition_key_empty_and_tuple(
             metadata_mod._backends, "build_backend", lambda _datasource, b=backend: b
         )
 
-        metadata = md.inspect_table(f"ch_{label}", table="analytics.events")
+        metadata = _inspect_table(f"ch_{label}", table="analytics.events")
         assert metadata.partitions == (), f"partition_key={pk!r} should yield empty partitions"
 
 
@@ -1006,7 +1012,7 @@ def test_inspect_table_clickhouse_partition_key_unparseable(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_unp", table="analytics.events")
+    metadata = _inspect_table("ch_unp", table="analytics.events")
 
     assert len(metadata.partitions) == 1
     assert metadata.partitions[0].name == "uid"
@@ -1059,7 +1065,7 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_dist", table="analytics.events")
+    metadata = _inspect_table("ch_dist", table="analytics.events")
 
     assert len(metadata.partitions) == 1
     assert metadata.partitions[0] == PartitionMetadata(
@@ -1093,7 +1099,7 @@ def test_inspect_table_clickhouse_distributed_dereference_failure(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_dist_fail", table="analytics.events")
+    metadata = _inspect_table("ch_dist_fail", table="analytics.events")
 
     assert metadata.partitions == ()
     assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
@@ -1125,7 +1131,7 @@ def test_inspect_table_clickhouse_system_tables_fallback(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("ch_fallback", table="analytics.orders")
+    metadata = _inspect_table("ch_fallback", table="analytics.orders")
 
     assert metadata.comment == "Orders table"
     assert metadata.partitions == ()
@@ -1142,7 +1148,7 @@ def test_inspect_table_trino_short_name_is_not_rejected(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = md.inspect_table("wh", table="orders")
+    metadata = _inspect_table("wh", table="orders")
 
     assert metadata.table == "orders"
     assert backend.table_calls == [("orders", None)]
@@ -1256,7 +1262,7 @@ def test_inspect_table_duckdb_populates_primary_keys_and_unique(
     _create_duckdb_with_constraints(db_path)
     md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    metadata = md.inspect_table("wh", table="orders")
+    metadata = _inspect_table("wh", table="orders")
 
     assert metadata.primary_keys == ("order_id",)
     assert len(metadata.unique_constraints) == 1
@@ -1329,6 +1335,6 @@ def test_duckdb_constraint_query_failure_is_warning(project_root: Path) -> None:
     con.disconnect()
     md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
 
-    metadata = md.inspect_table("wh", table="plain")
+    metadata = _inspect_table("wh", table="plain")
     assert metadata.primary_keys == ()
     assert metadata.unique_constraints == ()

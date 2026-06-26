@@ -86,8 +86,8 @@ def test_semantic_skill_points_to_standard_metadata_api() -> None:
     datasource = _read("marivo/skills/marivo-semantic/references/datasource.md")
     evidence = _read("marivo/skills/marivo-semantic/references/evidence-and-ledger.md")
 
-    assert "md.inspect_table" in datasource
-    assert "md.inspect_columns" in datasource
+    assert "md.discover_entity" in datasource
+    assert "md.discover_dimensions" in datasource
     assert "prepare_entity" in workflow
     assert "ScanScope" in workflow
     assert "bind_datasource_access" not in workflow
@@ -231,7 +231,7 @@ def test_semantic_skill_examples_cover_new_workflow_cases() -> None:
     assert "return table.dt.cast" not in single
     assert 'parse=ms.hour_prefix("log_date"' in single
     assert "ms.prepare_entity(" in evidence
-    assert "md.ScanScope()" in evidence
+    assert "md.latest_partition()" in evidence
     assert "bind_datasource_access" not in evidence
     assert "ms.AuthoringSourceInput(" not in evidence
     assert "project.assess_authoring(" not in evidence
@@ -329,7 +329,7 @@ def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
 
     for name in ("prepare_entity", "prepare_metric", "VerifyResult", "DomainBrief"):
         assert name in str(semantic_data), f"semantic help missing {name}"
-    for name in ("ScanScope", "inspect_columns", "probe_join_keys"):
+    for name in ("ScanScope", "discover_entity", "discover_measures", "raw_sql"):
         assert name in str(datasource_data), f"datasource help missing {name}"
 
 

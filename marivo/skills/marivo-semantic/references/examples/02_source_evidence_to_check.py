@@ -1,6 +1,6 @@
 """Source evidence collection and entity preparation.
 
-Shows: prepare an entity brief with datasource evidence and ScanScope,
+Shows: prepare an entity brief with datasource evidence and a scope helper,
 then verify the authored object.
 """
 
@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory() as tmp:
             datasource="warehouse",
             source=ms.table("orders"),
             domain="sales",
-            scope=md.ScanScope(),
+            scope=md.latest_partition(),
         )
         print("brief status:", brief.status)
         print("schema columns:", [col.name for col in brief.table.columns])

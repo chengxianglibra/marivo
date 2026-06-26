@@ -33,16 +33,16 @@ actions and ladder process.
 ## Collecting Evidence
 
 Evidence is collected automatically by `prepare_*` APIs. `prepare_entity`
-calls `md.inspect_table` and `md.inspect_columns` internally; `prepare_relationship`
-calls `md.probe_join_keys` internally. The agent does not need to call these
-datasource APIs manually before preparing an object.
+reads table metadata and column profiles internally; `prepare_relationship`
+probes join keys internally. The agent does not need to call the underlying
+datasource primitives manually before preparing an object.
 
-For exploratory source inspection outside the prepare cycle, use `md` APIs
-directly:
+For exploratory source discovery outside the prepare cycle, use the
+`md.discover_*` family directly:
 
 ```python
-metadata = md.inspect_table("warehouse", md.table("orders", database="sales_mart"))
-columns = md.inspect_columns("warehouse", md.table("orders"), columns=("status", "amount"))
+entity = md.discover_entity(md.ref("warehouse"), md.table("orders", database="sales_mart"))
+dimensions = md.discover_dimensions(md.ref("warehouse"), md.table("orders"), columns=("status", "amount"))
 ```
 
 ## AuthoringQuestion Mapping
@@ -61,9 +61,9 @@ Advisory questions may proceed on defaults.
 ## Evidence-Derived Grill Options
 
 Before asking, inspect what Marivo can discover: Brief facts, table metadata,
-column profiles, bounded previews, join-key probes, existing semantic objects,
-source SQL/provenance, project docs, and prior ledger decisions. Do not ask the
-user for facts available from those sources.
+column profiles, bounded previews, relationship discovery, existing semantic
+objects, source SQL/provenance, project docs, and prior ledger decisions. Do
+not ask the user for facts available from those sources.
 
 Ask one unresolved semantic decision at a time. The question must name what was
 already inspected, include a recommended answer, and explain why the decision
