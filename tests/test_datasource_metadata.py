@@ -1234,3 +1234,101 @@ def test_table_metadata_satisfies_agent_result_protocol() -> None:
 
     metadata = _make_table_metadata()
     assert isinstance(metadata, AgentResult)
+
+
+def _create_duckdb_with_constraints(path: Path) -> None:
+    con = ibis.duckdb.connect(str(path))
+    con.raw_sql(
+        "CREATE TABLE orders ("
+        "order_id INTEGER NOT NULL, "
+        "customer_id INTEGER NOT NULL, "
+        "amount DOUBLE, "
+        "PRIMARY KEY (order_id), "
+        "UNIQUE (customer_id))"
+    )
+    con.disconnect()
+
+
+def test_inspect_table_duckdb_populates_primary_keys_and_unique(
+    project_root: Path,
+) -> None:
+    db_path = project_root / "warehouse.duckdb"
+    _create_duckdb_with_constraints(db_path)
+    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+
+    metadata = md.inspect_table("wh", table="orders")
+
+    assert metadata.primary_keys == ("order_id",)
+    assert len(metadata.unique_constraints) == 1
+    uc = metadata.unique_constraints[0]
+    assert uc.columns == ("customer_id",)
+    assert uc.kind == "unique"
+    assert not any(w.kind == "primary_keys_unavailable" for w in metadata.warnings)
+
+
+def test_table_metadata_to_dict_includes_key_constraints() -> None:
+    from marivo.datasource.metadata import UniqueConstraintMetadata
+
+    metadata = TableMetadata(
+        datasource="wh",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+        primary_keys=("order_id",),
+        unique_constraints=(
+            UniqueConstraintMetadata(name=None, columns=("customer_id",), kind="unique"),
+        ),
+    )
+    payload = metadata.to_dict()
+    assert payload["primary_keys"] == ["order_id"]
+    assert payload["unique_constraints"][0]["columns"] == ["customer_id"]
+    assert payload["row_count"] is None
+    assert json.loads(json.dumps(payload))["primary_keys"] == ["order_id"]
+
+
+def test_non_duckdb_backend_emits_primary_keys_unavailable_warning(
+    project_root: Path,
+) -> None:
+    from marivo.datasource.metadata import _with_primary_key_capability_warning
+
+    metadata = TableMetadata(
+        datasource="wh",
+        table="orders",
+        database=None,
+        backend_type="clickhouse",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+    )
+    result = _with_primary_key_capability_warning(metadata)
+    assert any(w.kind == "primary_keys_unavailable" for w in result.warnings)
+    # DuckDB metadata is passed through unchanged.
+    duck = TableMetadata(
+        datasource="wh",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=None,
+        columns=(),
+        partitions=(),
+        warnings=(),
+    )
+    assert _with_primary_key_capability_warning(duck) is duck
+
+
+def test_duckdb_constraint_query_failure_is_warning(project_root: Path) -> None:
+    # A table without constraints still inspects cleanly with empty pk/uq.
+    db_path = project_root / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.raw_sql("CREATE TABLE plain (a INTEGER, b VARCHAR)")
+    con.disconnect()
+    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+
+    metadata = md.inspect_table("wh", table="plain")
+    assert metadata.primary_keys == ()
+    assert metadata.unique_constraints == ()
