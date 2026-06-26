@@ -25,6 +25,7 @@ from typing import Any, cast
 
 import pandas as pd
 
+from marivo.analysis.frames._content_hash import compute_frame_content_hash
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.refs import ArtifactRef
 
@@ -175,7 +176,8 @@ def write_frame_to_disk(layout: PersistenceLayout, frame: BaseFrame) -> BaseFram
         frame: The frame to persist.
 
     Returns:
-        Updated ``BaseFrameMeta`` with the on-disk ``byte_size`` populated.
+        Updated ``BaseFrameMeta`` with the on-disk ``byte_size`` and
+        ``content_hash`` populated.
     """
     frame_dir = layout.frames_dir / frame.meta.ref
     frame_dir.mkdir(parents=True, exist_ok=True)
@@ -185,7 +187,9 @@ def write_frame_to_disk(layout: PersistenceLayout, frame: BaseFrame) -> BaseFram
     frame._df.to_parquet(tmp_parquet, engine="pyarrow", compression="snappy", index=False)
     os.replace(tmp_parquet, data_path)
 
-    updated = frame.meta.model_copy(update={"byte_size": data_path.stat().st_size})
+    without_hash = frame.meta.model_copy(update={"byte_size": data_path.stat().st_size})
+    content_hash = compute_frame_content_hash(meta=without_hash, data_path=data_path)
+    updated = without_hash.model_copy(update={"content_hash": content_hash})
     _atomic_write_text(frame_dir / "meta.json", updated.model_dump_json(indent=2))
     return updated
 

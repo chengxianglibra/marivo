@@ -225,8 +225,6 @@ def test_commit_compare_seeds_change_proposition(tmp_session) -> None:
     payload = json.loads(payload_json)
     assert payload["change_kind"] == "scalar_change"
     assert payload["direction_of_interest"] == "increase"
-    operators = sorted(a.operator for a in result.meta.recommended_followups)
-    assert "assess_quality" in operators
 
 
 def test_pipeline_dispatches_decomposition_family(tmp_session) -> None:
@@ -352,7 +350,6 @@ def test_commit_unavailable_when_store_is_none(tmp_session) -> None:
     assert result.meta.artifact_id is not None
     issue_kinds = {issue.kind for issue in result.meta.blocking_issues}
     assert "evidence_store_unavailable" in issue_kinds
-    assert result.meta.recommended_followups == []
 
 
 def test_commit_artifact_id_is_replay_stable(tmp_session) -> None:

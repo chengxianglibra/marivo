@@ -7,11 +7,8 @@ from typing import Any, Literal
 
 from pydantic import ConfigDict, Field
 
-from marivo.analysis.followups import (
-    BlockingIssue,
-    FollowupAction,
-)
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis.followups import BlockingIssue
+from marivo.analysis.frames.base import ArtifactAffordance, BaseFrame, BaseFrameMeta
 
 CandidateShape = Literal[
     "point_anomaly",
@@ -57,7 +54,7 @@ class CandidateSetMeta(BaseFrameMeta):
     semantic_model: str
 
     source_refs: list[str]
-    recommended_followups: list[FollowupAction] = Field(default_factory=list)
+    affordances: list[ArtifactAffordance] = Field(default_factory=list)
     blocking_issues: list[BlockingIssue] = Field(default_factory=list)
 
     params: dict[str, Any]

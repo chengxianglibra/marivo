@@ -656,17 +656,17 @@ def commit_result(
             source_refs=[artifact_id],
             message="evidence store not available; evidence pipeline skipped",
         )
-        new_meta = frame.meta.model_copy(
-            update={
-                "ref": artifact_id,
-                "artifact_id": artifact_id,
-                "evidence_status": "unavailable",
-                "blocking_issues": [issue],
-                "recommended_followups": [],
-                "confidence_scope": confidence_scope,
-                "quality": quality_summary,
-            }
-        )
+        unavailable_update: dict[str, Any] = {
+            "ref": artifact_id,
+            "artifact_id": artifact_id,
+            "evidence_status": "unavailable",
+            "blocking_issues": [issue],
+            "confidence_scope": confidence_scope,
+            "quality_summary": quality_summary,
+        }
+        if hasattr(frame.meta, "affordances"):
+            unavailable_update["affordances"] = []
+        new_meta = frame.meta.model_copy(update=unavailable_update)
         frame.meta = new_meta
         _write_meta_json(
             artifact_dir / "meta.json",
@@ -810,17 +810,33 @@ def commit_result(
             )
 
     # 7. Update frame.meta with Surface 1 fields
-    new_meta = frame.meta.model_copy(
-        update={
-            "ref": artifact_id,
-            "artifact_id": artifact_id,
-            "evidence_status": evidence_status,
-            "blocking_issues": blocking_issues,
-            "recommended_followups": followups,
-            "confidence_scope": confidence_scope,
-            "quality": quality_summary,
-        }
-    )
+    meta_update: dict[str, Any] = {
+        "ref": artifact_id,
+        "artifact_id": artifact_id,
+        "evidence_status": evidence_status,
+        "blocking_issues": blocking_issues,
+        "confidence_scope": confidence_scope,
+        "quality_summary": quality_summary,
+    }
+    # CandidateSetMeta declares affordances; other metas do not have it.
+    if hasattr(frame.meta, "affordances"):
+        from marivo.analysis.frames.base import ArtifactAffordance, ArtifactParamTemplate
+
+        affordances = [
+            ArtifactAffordance(
+                operator=f.operator or "",
+                required_inputs=f.input_refs,
+                preconditions=[],
+                param_template=ArtifactParamTemplate(
+                    deterministic_slots=f.params,
+                    judgment_slots=[],
+                ),
+                expected_output_family=f.expected_output_family,
+            )
+            for f in followups
+        ]
+        meta_update["affordances"] = affordances
+    new_meta = frame.meta.model_copy(update=meta_update)
     frame.meta = new_meta
 
     # Write meta.json

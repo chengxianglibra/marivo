@@ -17,7 +17,7 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
 )
 from marivo.analysis.evidence.types import QualitySummary
-from marivo.analysis.followups import BlockingIssue, ConfidenceScope, FollowupAction
+from marivo.analysis.followups import BlockingIssue, ConfidenceScope
 from marivo.analysis.frames.render import format_bounded_card
 from marivo.analysis.lineage import Lineage
 from marivo.render import result_repr
@@ -174,6 +174,85 @@ class FramePreview(BaseModel):
         print(self.render())
 
 
+ArtifactColumnRole = Literal["time", "dimension", "value", "measure", "unknown"]
+ArtifactMaterialization = Literal["materialized", "recomputed", "partial"]
+ArtifactPreconditionStatus = Literal["pass", "fail"]
+
+
+class ArtifactColumn(BaseModel):
+    """Column-level schema fact for an analysis artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    dtype: str
+    nullable: bool
+    role: ArtifactColumnRole = "unknown"
+
+
+class ArtifactSchema(BaseModel):
+    """Bounded deterministic schema descriptor for an artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: str
+    ref: str
+    columns: list[ArtifactColumn]
+    semantic_shape: str | None = None
+
+
+class ArtifactPrecondition(BaseModel):
+    """Mechanical precondition attached to an affordance."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    check: str
+    status: ArtifactPreconditionStatus
+    reason: str | None = None
+
+
+class ArtifactParamTemplate(BaseModel):
+    """Separated deterministic and judgment-filled parameter slots."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    deterministic_slots: dict[str, Any] = Field(default_factory=dict)
+    judgment_slots: list[str] = Field(default_factory=list)
+
+
+class ArtifactAffordance(BaseModel):
+    """Mechanical compatibility entry, not a recommendation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operator: str
+    required_inputs: list[str] = Field(default_factory=list)
+    preconditions: list[ArtifactPrecondition] = Field(default_factory=list)
+    param_template: ArtifactParamTemplate = Field(default_factory=ArtifactParamTemplate)
+    expected_output_family: str | None = None
+
+
+class ArtifactContract(BaseModel):
+    """Mechanical consumption contract for an artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: str
+    ref: str
+    is_canonical: bool
+    blocking_issues: list[BlockingIssue] = Field(default_factory=list)
+    affordances: list[ArtifactAffordance] = Field(default_factory=list)
+
+
+class ArtifactState(BaseModel):
+    """Baseline runtime facts for a materialized artifact."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    materialization: ArtifactMaterialization
+    content_hash: str | None = None
+
+
 class BaseFrameMeta(BaseModel):
     """Shared ownership and provenance fields for every frame family."""
 
@@ -191,9 +270,38 @@ class BaseFrameMeta(BaseModel):
     artifact_id: str | None = None
     evidence_status: Literal["complete", "partial", "unavailable"] = "unavailable"
     confidence_scope: ConfidenceScope | None = None
-    quality: QualitySummary | None = None
+    quality_summary: QualitySummary | None = None
     blocking_issues: list[BlockingIssue] = Field(default_factory=list)
-    recommended_followups: list[FollowupAction] = Field(default_factory=list)
+    content_hash: str | None = None
+
+
+_OUTPUT_FAMILY_BY_OPERATOR: dict[str, str] = {
+    "compare": "delta_frame",
+    "decompose": "attribution_frame",
+    "discover": "candidate_set",
+    "select": "selection",
+    "correlate": "association_result",
+    "transform": "same_as_input",
+    "assess_quality": "quality_report",
+    "hypothesis_test": "hypothesis_test_result",
+    "forecast": "forecast_frame",
+}
+
+
+def _column_role(column_name: str) -> ArtifactColumnRole:
+    """Infer a column role from name heuristics, defaulting to ``dimension``.
+
+    The ``"unknown"`` role is only reachable via direct ``ArtifactColumn``
+    construction or the field default; this function never returns it.
+    """
+    normalized = column_name.lower()
+    if normalized in {"bucket_start", "bucket_end", "window_start", "window_end", "time"}:
+        return "time"
+    if normalized in {"value", "current_value", "baseline_value", "delta", "contribution"}:
+        return "value"
+    if normalized in {"measure", "metric"}:
+        return "measure"
+    return "dimension"
 
 
 @dataclass(repr=False)
@@ -216,6 +324,93 @@ class BaseFrame:
     @property
     def lineage(self) -> Lineage:
         return self.meta.lineage
+
+    @property
+    def kind(self) -> str:
+        return self.meta.kind
+
+    @property
+    def quality_summary(self) -> QualitySummary | None:
+        return self.meta.quality_summary
+
+    @property
+    def blocking_issues(self) -> list[BlockingIssue]:
+        return self.meta.blocking_issues
+
+    @property
+    def state(self) -> ArtifactState:
+        return ArtifactState(
+            materialization="materialized",
+            content_hash=self.meta.content_hash,
+        )
+
+    def schema(self) -> ArtifactSchema:
+        """Return a bounded deterministic schema descriptor for the artifact.
+
+        Returns:
+            ArtifactSchema with column roles inferred from column names.
+
+        Example:
+            >>> frame.schema()
+            ArtifactSchema(kind='metric_frame', ref=...)
+
+        Constraints:
+            Does not materialize a data copy.
+        """
+        columns = [
+            ArtifactColumn(
+                name=name,
+                dtype=str(dtype),
+                nullable=bool(self._df.iloc[:, idx].isna().any()) if len(self._df) else True,
+                role=_column_role(name),
+            )
+            for idx, (name, dtype) in enumerate(
+                zip(_display_column_names(self._df.columns), self._df.dtypes, strict=True)
+            )
+        ]
+        raw_shape = getattr(self.meta, "semantic_kind", None)
+        return ArtifactSchema(
+            kind=self.meta.kind,
+            ref=self.meta.ref,
+            columns=columns,
+            semantic_shape=raw_shape if isinstance(raw_shape, str) else None,
+        )
+
+    def contract(self) -> ArtifactContract:
+        """Return the mechanical consumption contract for the artifact.
+
+        Affordances are mechanical compatibility entries derived from
+        ``_NEXT_INTENTS``, not recommendations.
+
+        Returns:
+            ArtifactContract listing blocking issues and affordances.
+
+        Example:
+            >>> frame.contract()
+            ArtifactContract(kind='metric_frame', ref=...)
+
+        Constraints:
+            Does not materialize a data copy.
+        """
+        affordances = [
+            ArtifactAffordance(
+                operator=operator,
+                required_inputs=[self.meta.kind],
+                param_template=ArtifactParamTemplate(
+                    deterministic_slots={"source_ref": self.meta.ref},
+                    judgment_slots=[],
+                ),
+                expected_output_family=_OUTPUT_FAMILY_BY_OPERATOR.get(operator),
+            )
+            for operator in type(self)._NEXT_INTENTS
+        ]
+        return ArtifactContract(
+            kind=self.meta.kind,
+            ref=self.meta.ref,
+            is_canonical=self.meta.kind != "exploration_result",
+            blocking_issues=list(self.meta.blocking_issues),
+            affordances=affordances,
+        )
 
     def next_intents(self) -> tuple[str, ...]:
         """Return the intent names that accept this frame as input."""
@@ -329,8 +524,8 @@ class BaseFrame:
         parts: list[str] = []
         if self.meta.evidence_status != "unavailable":
             parts.append(f"evidence={self.meta.evidence_status}")
-        if self.meta.quality is not None:
-            compat = self.meta.quality.metric_definition_compatibility
+        if self.meta.quality_summary is not None:
+            compat = self.meta.quality_summary.metric_definition_compatibility
             if compat is not None:
                 parts.append(f"quality={compat}")
         return " ".join(parts) if parts else None

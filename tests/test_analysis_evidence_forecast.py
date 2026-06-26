@@ -30,7 +30,6 @@ def test_forecast_populates_surface1_and_forecast_findings() -> None:
     assert forecast.meta.artifact_id is not None
     assert forecast.meta.ref == forecast.meta.artifact_id
     assert forecast.meta.evidence_status == "complete"
-    assert isinstance(forecast.meta.recommended_followups, list)
 
     with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
         artifact_rows = conn.execute(

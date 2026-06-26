@@ -43,11 +43,6 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     # Surface 1
     assert delta.meta.evidence_status == "complete"
     assert delta.meta.artifact_id is not None
-    assert delta.meta.recommended_followups
-    assert all(
-        a.category in ("dag_continuation", "quality_remediation")
-        for a in delta.meta.recommended_followups
-    )
 
     # Surface 2
     knowledge = session.knowledge()
@@ -96,11 +91,11 @@ def test_e2e_observe_populates_quality_and_confidence_scope(tmp_path) -> None:
         session=session,
     )
 
-    # meta.quality is populated by pipeline step 4c
-    assert cur.meta.quality is not None
-    assert cur.meta.quality.sample_size == cur.meta.row_count
-    assert cur.meta.quality.null_rate is not None
-    assert cur.meta.quality.metric_definition_compatibility == "unknown"
+    # meta.quality_summary is populated by pipeline step 4c
+    assert cur.meta.quality_summary is not None
+    assert cur.meta.quality_summary.sample_size == cur.meta.row_count
+    assert cur.meta.quality_summary.null_rate is not None
+    assert cur.meta.quality_summary.metric_definition_compatibility == "unknown"
 
     # meta.confidence_scope is populated by pipeline step 4c
     assert cur.meta.confidence_scope is not None
@@ -127,8 +122,8 @@ def test_e2e_compare_populates_quality_and_confidence_scope(tmp_path) -> None:
     )
     delta = compare(cur, base, session=session)
 
-    assert delta.meta.quality is not None
-    assert delta.meta.quality.sample_size == delta.meta.row_count
+    assert delta.meta.quality_summary is not None
+    assert delta.meta.quality_summary.sample_size == delta.meta.row_count
     assert delta.meta.confidence_scope is not None
     assert "sales.revenue" in delta.meta.confidence_scope.metric_ids
 
@@ -147,7 +142,7 @@ def test_e2e_observe_time_series_coverage(tmp_path) -> None:
         session=session,
     )
 
-    assert series.meta.quality is not None
+    assert series.meta.quality_summary is not None
     # time_series shape should compute coverage
     if series.meta.semantic_kind == "time_series":
-        assert series.meta.quality.coverage is not None
+        assert series.meta.quality_summary.coverage is not None

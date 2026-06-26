@@ -280,7 +280,6 @@ def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:
     assert result["kind"] == "frame"
     methods = {entry["name"] for entry in cast("list[dict[str, Any]]", result["methods"])}
     assert {"to_pandas", "components", "as_time_series"} <= methods
-    assert result["next_intents"]
     assert result["constructed_by"]
 
 
@@ -484,3 +483,52 @@ def test_help_observe_mentions_sampled_fold_coverage(capsys) -> None:
     assert "sampled semi-additive" in out
     assert "coverage()" in out
     assert "re-run observe" in out
+
+
+# --- affordance language replaces recommendation language ---
+
+
+def test_help_no_longer_teaches_recommended_followups() -> None:
+    full = _capture()
+    session_help = _capture("Session")
+    candidate_help = _capture("CandidateSet")
+
+    combined = "\n".join([full, session_help, candidate_help]).lower()
+    assert "recommended_followups" not in combined
+    assert "recommended follow-up" not in combined
+    assert "recommend follow" not in combined
+    assert "contract().affordances" in combined
+
+
+def test_help_json_frame_contract_uses_affordance_language() -> None:
+    result = _json_data("MetricFrame")
+
+    assert "next_intents" not in result
+    rendered = str(result).lower()
+    assert "recommended" not in rendered
+    assert "affordance" in rendered
+
+
+def test_phase1_public_docs_do_not_expose_planner_or_recommendation_terms() -> None:
+    from pathlib import Path
+
+    checked = [
+        Path("docs/api/analysis.rst"),
+        Path("marivo/skills/marivo-analysis/SKILL.md"),
+        Path("marivo/skills/marivo-analysis/references/cheatsheet.md"),
+        Path("marivo/skills/marivo-analysis/references/final-report.md"),
+    ]
+    forbidden = [
+        "meta.recommended_followups",
+        "recommended_followups",
+        "recommended follow-up",
+        "recommend follow",
+        "next_actions",
+        "DecisionAction",
+        "decision_descriptor",
+    ]
+
+    for path in checked:
+        text = path.read_text().lower()
+        for phrase in forbidden:
+            assert phrase.lower() not in text, f"{phrase!r} leaked in {path}"

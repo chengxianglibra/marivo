@@ -76,7 +76,6 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
     )
     blocking_report = session.assess_quality(blocking)
     assert blocking_report.meta.overall_status == "blocking"
-    assert blocking_report.meta.recommended_followups == []
 
 
 def test_metric_segmented_duplicate_keys_blocking(tmp_path):
@@ -110,7 +109,6 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
     report = session.assess_quality(frame)
     ids = set(report.to_pandas()["check_id"])
     assert {"null_ratio:value", "null_ratio:value2"}.issubset(ids)
-    assert report.meta.recommended_followups == []
 
     empty = _metric(session, [], semantic_kind="scalar", axes={})
     empty_report = session.assess_quality(empty)
@@ -315,6 +313,20 @@ def test_panel_duplicate_keys_catches_real_duplicates(tmp_path):
     report = session.assess_quality(frame)
     duplicate = report.to_pandas().set_index("check_kind").loc["duplicate_keys"]
     assert duplicate["severity"] == "blocking"
+
+
+def test_assess_quality_returns_report_without_copying_report_into_source_artifact() -> None:
+    session = session_attach.get_or_create(name="demo")
+    frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
+
+    report = session.assess_quality(frame)
+
+    assert report.kind == "quality_report"
+    assert frame.quality_summary is not None
+    assert not hasattr(frame.meta, "quality")
+    assert not hasattr(frame.meta, "recommended_followups")
+    assert report.ref != frame.ref
+    assert report.summary().overall_status == "ok"
 
 
 def test_panel_time_coverage_with_timezone(tmp_path):

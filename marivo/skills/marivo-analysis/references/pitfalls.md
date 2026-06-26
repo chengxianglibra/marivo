@@ -135,7 +135,7 @@ Use one stable session name for the entire investigation:
 session = mv.session.get_or_create(name="my_investigation")
 ```
 
-When a script is split after reading `summary()` or `next_intents`, the next
+When a script is split after reading `summary()` or `contract().affordances`, the next
 script must use the same session. Recover previously produced frames from disk
 instead of re-running observe:
 

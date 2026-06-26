@@ -41,6 +41,11 @@ Discovery
 Frames
 ------
 
+Public analysis artifacts expose ``ref``, ``kind``, ``summary()``, ``schema()``,
+``contract()``, ``quality_summary``, ``blocking_issues``, ``lineage``, ``state``,
+and ``show()``. ``contract().affordances`` describes mechanical compatibility
+only; it is not ranked and is not a recommendation.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:
@@ -56,6 +61,13 @@ Frames
    FramePreview
    FrameSummary
    FrameSummaryEntry
+   ArtifactAffordance
+   ArtifactColumn
+   ArtifactContract
+   ArtifactParamTemplate
+   ArtifactPrecondition
+   ArtifactSchema
+   ArtifactState
 
 Analysis results
 ----------------
@@ -118,7 +130,6 @@ Session & jobs
    Session
    SessionSummary
    JobSummary
-   FollowupAction
    BlockingIssue
    CandidateObjective
    DiscoverSensitivity

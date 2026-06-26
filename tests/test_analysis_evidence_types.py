@@ -259,5 +259,5 @@ def test_evidence_namespace_reexports_typed_facts() -> None:
     assert hasattr(ap.evidence, "Assessment")
     assert hasattr(ap.evidence, "Subject")
     assert hasattr(ap.evidence, "TimeWindow")
-    assert hasattr(ap, "FollowupAction")
+    assert hasattr(ap, "ArtifactAffordance")
     assert hasattr(ap, "BlockingIssue")

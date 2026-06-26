@@ -94,6 +94,16 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
             ),
         )
     kind = meta["kind"]
+    if "quality" in meta:
+        raise FrameMetaInvalidError(
+            message=f"frame '{ref}' uses legacy quality metadata",
+            details={"ref": ref, "field": "quality", "expected": "quality_summary"},
+        )
+    if "recommended_followups" in meta:
+        raise FrameMetaInvalidError(
+            message=f"frame '{ref}' uses legacy recommended followup metadata",
+            details={"ref": ref, "field": "recommended_followups", "expected": "affordances"},
+        )
     if kind not in _FRAME_CLASSES:
         raise FrameRefNotFound(message=f"unknown frame kind '{kind}' for ref '{ref}'")
     _coerce_metric_window_meta(meta, frame_ref=ref)

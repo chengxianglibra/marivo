@@ -534,3 +534,24 @@ def test_update_report_published_url(store: SessionStore, project_root: Path) ->
     report = store.get_report(sid, "r1")
     assert report is not None
     assert report["published_url"] == "https://example.com/report"
+
+
+def test_record_artifact_preserves_content_hash(store: SessionStore, project_root: Path) -> None:
+    row = store.get_or_insert_session(
+        name="s", question="q", cwd=project_root, default_calendar=None
+    )
+    sid = row["id"]
+    store.record_artifact(
+        session_id=sid,
+        artifact_id="a_hash",
+        kind="metric_frame",
+        path="frames/a_hash/data.parquet",
+        meta_path="frames/a_hash/meta.json",
+        content_hash="sha256:" + "b" * 64,
+        produced_by_job=None,
+    )
+
+    artifact = store.get_artifact(sid, "a_hash")
+
+    assert artifact is not None
+    assert artifact["content_hash"] == "sha256:" + "b" * 64

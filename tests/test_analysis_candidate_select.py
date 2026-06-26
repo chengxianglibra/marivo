@@ -214,9 +214,9 @@ def test_select_keys_dot_path_returns_scalar():
     assert cs.select(rank=1, attribute="selector.country") == "US"
 
 
-def test_select_recommended_followups_returns_typed_list():
+def test_select_affordances_returns_typed_list():
     session = session_attach.get_or_create(name="demo")
-    followup = mv.FollowupAction(action_id="a1", kind="submit_step")
+    affordance = mv.ArtifactAffordance(operator="assess_quality", required_inputs=["metric_frame"])
     cs = _hand_built_candidate_set(
         session,
         shape="driver_axis",
@@ -225,25 +225,25 @@ def test_select_recommended_followups_returns_typed_list():
                 "item_id": "axis_0",
                 "score": 0.9,
                 "axis": "country",
-                "recommended_followups": [followup.model_dump(mode="json")],
+                "affordances": [affordance.model_dump(mode="json")],
             }
         ],
     )
-    actions = cs.select(rank=1, attribute="recommended_followups")
-    assert isinstance(actions, list)
-    assert len(actions) == 1
-    assert isinstance(actions[0], mv.FollowupAction)
-    assert actions[0].action_id == "a1"
+    result = cs.select(rank=1, attribute="affordances")
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], mv.ArtifactAffordance)
+    assert result[0].operator == "assess_quality"
 
 
-def test_select_empty_recommended_followups_returns_empty_list():
+def test_select_empty_affordances_returns_empty_list():
     session = session_attach.get_or_create(name="demo")
     cs = _hand_built_candidate_set(
         session,
         shape="driver_axis",
         rows=[{"item_id": "axis_0", "score": 0.9, "axis": "country"}],
     )
-    assert cs.select(rank=1, attribute="recommended_followups") == []
+    assert cs.select(rank=1, attribute="affordances") == []
 
 
 def test_select_field_incompatible_with_shape_raises():
@@ -519,3 +519,40 @@ def test_all_six_as_methods_exposed(method, shape):
         ]
     cs = _hand_built_candidate_set(session, shape=shape, rows=rows)
     assert getattr(cs, method)() is cs
+
+
+def test_candidate_select_exposes_affordances_not_recommended_followups() -> None:
+    session = session_attach.get_or_create(name="demo")
+    candidates = _hand_built_candidate_set(
+        session,
+        shape="point_anomaly",
+        rows=[
+            {
+                "item_id": "cand_1",
+                "score": 1.0,
+                "observed_value": 50.0,
+                "baseline_value": 3.5,
+                "delta": 46.5,
+                "direction": "high",
+                "window": {"start": "2026-06-18", "end": "2026-06-19"},
+                "affordances": [
+                    {
+                        "operator": "assess_quality",
+                        "required_inputs": ["metric_frame"],
+                        "preconditions": [],
+                        "param_template": {
+                            "deterministic_slots": {"source_ref": "frame_metric"},
+                            "judgment_slots": [],
+                        },
+                        "expected_output_family": "quality_report",
+                    }
+                ],
+            }
+        ],
+    )
+
+    affordances = candidates.select(rank=1, attribute="affordances")
+
+    assert affordances[0].operator == "assess_quality"
+    with pytest.raises(SemanticKindMismatchError):
+        candidates.select(rank=1, attribute="recommended_followups")

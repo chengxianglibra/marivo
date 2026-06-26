@@ -332,7 +332,7 @@ def test_sampled_fold_persists_time_slot_coverage_sidecar(sampled_bandwidth_proj
         }
     ]
     assert frame.meta.coverage_ref == coverage.ref
-    assert frame.meta.quality.sample_coverage_min == 1.0
+    assert frame.meta.quality_summary.sample_coverage_min == 1.0
 
 
 def test_sampled_quantile_fold_uses_space_aggregated_series(sampled_bandwidth_project) -> None:

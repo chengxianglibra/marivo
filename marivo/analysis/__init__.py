@@ -8,11 +8,22 @@ from marivo.analysis.calendar.model import CalendarPolicy
 from marivo.analysis.followups import (
     BlockingIssue,
     ConfidenceScope,
-    FollowupAction,
 )
 from marivo.analysis.frames.association import AssociationResult
 from marivo.analysis.frames.attribution import AttributionFrame
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, FramePreview, FrameSummary
+from marivo.analysis.frames.base import (
+    ArtifactAffordance,
+    ArtifactColumn,
+    ArtifactContract,
+    ArtifactParamTemplate,
+    ArtifactPrecondition,
+    ArtifactSchema,
+    ArtifactState,
+    BaseFrame,
+    BaseFrameMeta,
+    FramePreview,
+    FrameSummary,
+)
 from marivo.analysis.frames.candidate import (
     CandidateObjective,
     CandidateSet,
@@ -81,7 +92,14 @@ __all__ = [
     "AbsoluteWindow",
     "AlignmentKind",
     "AlignmentPolicy",
+    "ArtifactAffordance",
+    "ArtifactColumn",
+    "ArtifactContract",
+    "ArtifactParamTemplate",
+    "ArtifactPrecondition",
     "ArtifactRef",
+    "ArtifactSchema",
+    "ArtifactState",
     "AssociationResult",
     "AttributionFrame",
     "BaseFrame",
@@ -97,7 +115,6 @@ __all__ = [
     "DeltaFrame",
     "DiscoverSensitivity",
     "ExplorationResult",
-    "FollowupAction",
     "ForecastFrame",
     "FramePreview",
     "FrameSummary",

@@ -3,7 +3,7 @@
 When to use: you want z-score anomaly candidates for a known metric series.
 Output shape: a CandidateSet whose rows are item-shaped (item_id, score,
 direction, reason_codes_json, source_refs_json, keys_json, window_start /
-window_end, recommended_followups_json) in the union-of-columns layout.
+window_end, affordances_json) in the union-of-columns layout.
 """
 
 from __future__ import annotations
@@ -32,4 +32,4 @@ print(f"columns={summary.columns!r}")
 # kind='candidate_set'
 # objective='point_anomalies'
 # row_count=2
-# columns=['item_id', 'score', 'direction', 'reason_codes_json', 'source_refs_json', 'selector_json', 'keys_json', 'window_start', 'window_end', 'baseline_window_start', 'baseline_window_end', 'axis', 'peer_scope_json', 'recommended_followups_json']
+# columns=['item_id', 'score', 'direction', 'reason_codes_json', 'source_refs_json', 'selector_json', 'keys_json', 'window_start', 'window_end', 'baseline_window_start', 'baseline_window_end', 'axis', 'peer_scope_json', 'affordances_json']

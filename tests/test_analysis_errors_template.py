@@ -275,15 +275,15 @@ def test_select_attribute_mismatch_lists_valid_attributes_for_shape():
         details={
             "shape": "point_anomaly",
             "attribute": "axis",
-            "valid_fields": ["direction", "item_id", "recommended_followups", "score", "window"],
+            "valid_fields": ["affordances", "direction", "item_id", "score", "window"],
         },
     )
 
     rendered = str(err)
 
     assert "Valid attributes for shape 'point_anomaly':" in rendered
-    assert "direction, item_id, recommended_followups, score, window" in rendered
-    assert 'cands.select(rank=1, attribute="direction")' in rendered
+    assert "affordances, direction, item_id, score, window" in rendered
+    assert 'cands.select(rank=1, attribute="affordances")' in rendered
 
 
 def test_no_backend_factory_default_template_fields_populated() -> None:

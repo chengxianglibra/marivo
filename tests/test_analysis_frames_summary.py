@@ -365,3 +365,27 @@ def test_association_repr_empty_frame() -> None:
 
     assert r.startswith("<AssociationResult")
     assert "call .show() to inspect" in r
+
+
+def test_summary_schema_contract_and_state_do_not_emit_planner_fields() -> None:
+    df = pd.DataFrame({"bucket_start": ["2026-06-18"], "value": [1.0]})
+    frame = BaseFrame(_df=df, meta=_make_meta(row_count=1))
+
+    forbidden = {
+        "headline",
+        "conclusion",
+        "recommendation",
+        "recommended_followups",
+        "next_actions",
+        "decision_descriptor",
+    }
+    projections = [
+        frame.summary().model_dump(mode="json"),
+        frame.schema().model_dump(mode="json"),
+        frame.contract().model_dump(mode="json"),
+        frame.state.model_dump(mode="json"),
+    ]
+
+    for projection in projections:
+        assert forbidden.isdisjoint(projection.keys())
+        assert "recommend" not in str(projection).lower()

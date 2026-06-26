@@ -117,7 +117,7 @@ CREATE INDEX idx_followups_source ON followups(source_artifact_id);
 | --- | --- |
 | `artifact_id`, `subject`, `source_refs`, `lineage`, `confidence_scope`, `quality`, `evidence_status` | `artifacts` |
 | `blocking_issues` | `blocking_issues` |
-| `recommended_followups` | `followups` |
+| `affordances` | `followups` |
 | `knowledge.facts(...)` | `propositions` plus latest `assessment_snapshots` and seed `findings` |
 | `knowledge.open_items(...)` | pending or inconclusive propositions and assessments |
 

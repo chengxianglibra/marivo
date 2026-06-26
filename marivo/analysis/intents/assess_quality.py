@@ -18,9 +18,10 @@ from marivo.analysis.evidence.pipeline import (
     commit_result,
 )
 from marivo.analysis.evidence.types import Subject, TriggeredByFollowup
-from marivo.analysis.followups import BlockingIssue, FollowupAction
+from marivo.analysis.followups import BlockingIssue
+from marivo.analysis.frames._meta_defaults import compute_quality_summary
 from marivo.analysis.frames.base import BaseFrame
-from marivo.analysis.frames.metric import MetricFrame
+from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.intents._derived import (
     compose_lineage,
@@ -31,7 +32,11 @@ from marivo.analysis.intents._derived import (
 )
 from marivo.analysis.intents._quality_checks import run_metric_checks
 from marivo.analysis.lineage import LineageStep
-from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
+from marivo.analysis.session._runtime import (
+    persist_frame,
+    persist_job_record,
+    register_frame_artifact,
+)
 from marivo.analysis.session.core import Session, ensure_session_writable
 
 
@@ -56,7 +61,6 @@ def assess_quality(
     output = pd.DataFrame(rows)
     checks_run = output["check_id"].astype(str).tolist()
     blocking_issues = _blocking_issues(frame, output)
-    followups = _recommended_followups(frame, output)
     overall = _overall_status(output)
     params = {
         "source_ref": frame.ref,
@@ -95,7 +99,6 @@ def assess_quality(
         overall_status=overall,
         blocking_issue_count=int((output["severity"] == "blocking").sum()),
         warning_count=int((output["severity"] == "warning").sum()),
-        recommended_followups=followups,
         blocking_issues=blocking_issues,
     )
     result = QualityReport(_df=output, meta=meta)
@@ -119,6 +122,12 @@ def assess_quality(
         ),
     )
     register_frame_artifact(session, result)
+
+    # Attach a lightweight quality summary to the source frame and persist it;
+    # the full QualityReport is a separate artifact (cheap summary vs explicit report).
+    frame.meta = frame.meta.model_copy(update={"quality_summary": compute_quality_summary(frame)})
+    frame.meta = cast("MetricFrameMeta", persist_frame(session, frame))
+
     persist_job_record(
         session,
         {
@@ -147,38 +156,6 @@ def _overall_status(output: pd.DataFrame) -> Literal["ok", "warning", "blocking"
     if "warning" in severities:
         return "warning"
     return "ok"
-
-
-def _recommended_followups(frame: MetricFrame, output: pd.DataFrame) -> list[FollowupAction]:
-    followups: list[FollowupAction] = []
-    for row in output.to_dict("records"):
-        if row["severity"] != "blocking":
-            continue
-        if row["check_kind"] == "null_ratio":
-            followups.append(
-                FollowupAction(
-                    action_id=f"followup_{len(followups) + 1}",
-                    kind="adjust_policy",
-                    operator="transform",
-                    input_refs=[frame.ref],
-                    params={"op": "impute_nulls"},
-                    preconditions=[],
-                    expected_output_family="metric_frame",
-                )
-            )
-        if row["check_kind"] == "time_coverage":
-            followups.append(
-                FollowupAction(
-                    action_id=f"followup_{len(followups) + 1}",
-                    kind="adjust_policy",
-                    operator="observe",
-                    input_refs=[frame.ref],
-                    params={"narrow_window": True},
-                    preconditions=[],
-                    expected_output_family="metric_frame",
-                )
-            )
-    return followups
 
 
 def _blocking_issues(frame: MetricFrame, output: pd.DataFrame) -> list[BlockingIssue]:

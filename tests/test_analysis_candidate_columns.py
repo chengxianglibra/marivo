@@ -36,7 +36,7 @@ def test_candidate_columns_have_fixed_order() -> None:
         "axis",
         "axis_semantic_id",
         "peer_scope_json",
-        "recommended_followups_json",
+        "affordances_json",
     ]
 
 
@@ -68,7 +68,7 @@ def test_build_union_columns_fills_unused_fields_with_neutral_defaults() -> None
     assert df.loc[0, "keys_json"] == ""
     assert pd.isna(df.loc[0, "axis_semantic_id"])
     assert df.loc[0, "peer_scope_json"] == ""
-    assert df.loc[0, "recommended_followups_json"] == "[]"
+    assert df.loc[0, "affordances_json"] == "[]"
     assert pd.isna(df.loc[0, "window_start"])
     assert pd.isna(df.loc[0, "direction"])
 
@@ -175,7 +175,7 @@ def test_validate_shape_columns_rejects_invalid_followup_payload() -> None:
         }
     ]
     df = build_union_columns("driver_axis", rows)
-    df.loc[0, "recommended_followups_json"] = '{"bad": "shape"}'
+    df.loc[0, "affordances_json"] = '{"bad": "shape"}'
     with pytest.raises(FrameMetaInvalidError):
         validate_shape_columns("driver_axis", df)
 
@@ -231,7 +231,7 @@ def test_required_and_allowed_columns_per_shape(
         "score",
         "reason_codes_json",
         "source_refs_json",
-        "recommended_followups_json",
+        "affordances_json",
     }
     assert REQUIRED_COLUMNS_BY_SHAPE[shape] == common | required_extras
     assert ALLOWED_OPTIONAL_COLUMNS_BY_SHAPE[shape] == allowed_extras
