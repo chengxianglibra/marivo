@@ -63,8 +63,12 @@ def test_detect_string_date_format() -> None:
 def test_detect_integer_yyyymmdd_and_epoch_millis() -> None:
     yyyymmdd = _profile("dt", "BIGINT", type_family="integer", samples=(20260101, 20260102))
     assert any(f.format == "%Y%m%d" and not f.ambiguous for f in detect_time_formats(yyyymmdd))
-    epoch_ms = _profile("ts", "BIGINT", type_family="integer", samples=(1700000000000, 1700000001000))
-    assert any(f.format == "epoch_millis" and not f.ambiguous for f in detect_time_formats(epoch_ms))
+    epoch_ms = _profile(
+        "ts", "BIGINT", type_family="integer", samples=(1700000000000, 1700000001000)
+    )
+    assert any(
+        f.format == "epoch_millis" and not f.ambiguous for f in detect_time_formats(epoch_ms)
+    )
 
 
 def test_integer_10_digit_is_ambiguous() -> None:
@@ -113,7 +117,9 @@ def test_time_ambiguous_hour_only_blocker() -> None:
     profile = _profile("hh", "VARCHAR", type_family="string", samples=("12:00:00", "13:00:00"))
     formats = detect_time_formats(profile)
     out = time_column_rules(profile, formats, False)
-    blockers = [i for i in out if hasattr(i, "severity") and getattr(i, "severity", None) == "blocker"]
+    blockers = [
+        i for i in out if hasattr(i, "severity") and getattr(i, "severity", None) == "blocker"
+    ]
     assert any(getattr(i, "rule_id", None) == "time_ambiguous_hour_only" for i in blockers)
 
 
