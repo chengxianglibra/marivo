@@ -66,7 +66,7 @@ def test_prepare_entity_matches_discover_entity_core_scan_evidence(tmp_path: Pat
     assert brief.scan.rows_scanned == discovery.scan.rows_scanned
     assert brief.scan.partition_resolution == discovery.scan.partition_resolution
     assert [profile.name for profile in brief.column_profiles] == [
-        profile.name for profile in discovery.candidates[0].column_profiles
+        profile.name for profile in discovery.column_profiles
     ]
 
 
@@ -117,12 +117,12 @@ def test_prepare_field_briefs_match_discovery_profiles_after_entity_verify(
     time_brief = project.prepare_time_dimension(entity="sales.orders", column="dt", scope=scope)
     measure_brief = project.prepare_measure(entity="sales.orders", column="amount", scope=scope)
 
-    assert dim_brief.profile.name == dimensions.candidates[0].profile.name
-    assert dim_brief.profile.distinct_count == dimensions.candidates[0].profile.distinct_count
-    assert time_brief.profile.name == times.candidates[0].profile.name
-    assert bool(time_brief.detected_formats) == bool(times.candidates[0].detected_formats)
-    assert measure_brief.profile.name == measures.candidates[0].profile.name
-    assert measure_brief.profile.negative_count == measures.candidates[0].profile.negative_count
+    assert dim_brief.profile.name == dimensions.columns[0].profile.name
+    assert dim_brief.profile.distinct_count == dimensions.columns[0].profile.distinct_count
+    assert time_brief.profile.name == times.columns[0].profile.name
+    assert bool(time_brief.detected_formats) == bool(times.columns[0].detected_formats)
+    assert measure_brief.profile.name == measures.columns[0].profile.name
+    assert measure_brief.profile.negative_count == measures.columns[0].profile.negative_count
 
     domain_file.write_text(domain_file.read_text(encoding="utf-8"), encoding="utf-8")
 

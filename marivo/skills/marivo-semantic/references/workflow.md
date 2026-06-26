@@ -28,12 +28,14 @@ ladder rung.
 Every rung iterates the same cycle, one semantic object per iteration:
 
 ```text
-discover evidence
+read ms.help(...) static authoring contract
+  -> run md.discover_* runtime datasource evidence
+  -> combine evidence, registry facts, project docs, prior decisions, and user answers
   -> prepare_<kind>(...) -> Brief
-  |-- status == "blocked" -> fix the blocker or abandon the candidate
-  +-- candidate can proceed
-        -> draft one proposed object from evidence
-        -> grill one unresolved semantic decision at a time
+  |-- status == "blocked" -> fix the blocker or abandon the evidence subject
+  +-- object can proceed
+        -> draft one proposed object
+        -> ask one unresolved semantic decision at a time
         -> author exactly one object only after agreement
         -> verify_object(ref)      (fix loop until passed)
         -> next object
@@ -152,6 +154,21 @@ if verify.status == "failed":
 ## Rung 4: Time Dimension
 
 Single-column temporal probe with format inference and partition alignment.
+
+```python
+ms.help("time_dimension_column")
+discovery = md.discover_time_dimensions(
+    md.ref("warehouse"),
+    md.table("orders", database="sales_mart"),
+    columns=("dt",),
+    scope=md.latest_partition(),
+)
+```
+
+Use `discovery.columns` to inspect physical column evidence such as detected
+formats, value ranges, partition alignment, signals, and issues. Use
+`ms.help("time_dimension_column")` to know which constructor parameters must be
+settled.
 
 ```python
 td_brief = ms.prepare_time_dimension(
@@ -402,6 +419,16 @@ When a candidate cannot reach sufficiency:
 Before the ladder starts, discover the physical source using the `md.discover_*`
 family. Each discovery call returns bounded evidence with signals and issues;
 use it to choose candidate columns before the matching `ms.prepare_*` call.
+
+Each rung starts from the matching help contract, then discovery, then prepare:
+
+- Entity: `ms.help("entity")`, then `md.discover_entity(...)`, then `ms.prepare_entity(...)`.
+- Dimension: `ms.help("dimension_column")` or `ms.help("dimension")`, then `md.discover_dimensions(...)`, then `ms.prepare_dimension(...)`.
+- Time dimension: `ms.help("time_dimension_column")` or `ms.help("time_dimension")`, then `md.discover_time_dimensions(...)`, then `ms.prepare_time_dimension(...)`.
+- Measure: `ms.help("measure_column")` or `ms.help("measure")`, then `md.discover_measures(...)`, then `ms.prepare_measure(...)`.
+- Metric: `ms.help("aggregate")`, `ms.help("count")`, or `ms.help("metric")`, then `ms.prepare_metric(...)`.
+- Relationship: `ms.help("relationship")`, then `md.discover_relationship(...)`, then `ms.prepare_relationship(...)`.
+- Derived metric: `ms.help("ratio")`, `ms.help("weighted_average")`, or `ms.help("linear")`, then `ms.prepare_derived_metric(...)`.
 
 ```python
 warehouse = md.ref("warehouse")

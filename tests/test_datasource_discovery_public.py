@@ -36,7 +36,7 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
 
     entity = md.discover_entity(warehouse, source, scope=scope, project_root=tmp_path)
     assert isinstance(entity, md.EntityDiscoveryResult)
-    assert entity.candidates[0].primary_key_candidates
+    assert entity.primary_key_evidence
 
     dimensions = md.discover_dimensions(
         warehouse,
@@ -46,8 +46,8 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
         project_root=tmp_path,
     )
     assert isinstance(dimensions, md.DimensionDiscoveryResult)
-    assert dimensions.candidates[0].column == "status"
-    assert "dimension_empty_values_present" in {i.rule_id for i in dimensions.candidates[0].issues}
+    assert dimensions.columns[0].column == "status"
+    assert "dimension_empty_values_present" in {i.rule_id for i in dimensions.columns[0].issues}
 
     times = md.discover_time_dimensions(
         warehouse,
@@ -57,7 +57,7 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
         project_root=tmp_path,
     )
     assert isinstance(times, md.TimeDimensionDiscoveryResult)
-    assert times.candidates[0].detected_formats
+    assert times.columns[0].detected_formats
 
     measures = md.discover_measures(
         warehouse,
@@ -67,7 +67,7 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
         project_root=tmp_path,
     )
     assert isinstance(measures, md.MeasureDiscoveryResult)
-    assert "measure_numeric_type" in {s.rule_id for s in measures.candidates[0].signals}
+    assert "measure_numeric_type" in {s.rule_id for s in measures.columns[0].signals}
 
 
 def test_public_discover_relationship_replaces_probe_join_keys(tmp_path: Path) -> None:

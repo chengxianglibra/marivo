@@ -105,4 +105,4 @@ def test_build_relationship_result_wires_evidence_and_truncation() -> None:
     assert "relationship_fanout_observed" in evidence_issue_ids
     # Result-scope probe-truncated issue.
     assert any(i.rule_id == "relationship_probe_truncated" for i in result.issues)
-    assert "relationship.keys" in {t.field_path for t in result.judgment_targets}
+    assert not hasattr(result, "judgment_targets")

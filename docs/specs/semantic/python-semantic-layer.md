@@ -28,6 +28,21 @@ The stepwise authoring workflow for agents is defined in
 prepare/verify/readiness lifecycle and replaces the earlier three-phase
 authoring pipeline.
 
+Authoring guidance is split across three layers, each with one job:
+
+- **`ms.help("<constructor-or-object>")` — static authoring contract.** The
+  constructor, required and optional parameters, allowed values, defaults, omit
+  rules, nested parse shapes, and static constraints for every semantic-layer
+  object. Help tells the agent what parameters must be settled; it carries no
+  runtime data and no fixed parameter-value source labels.
+- **`md.discover_*` — runtime datasource evidence.** Bounded, evidence-only
+  results (`.columns`, `.evidence`, `.values`, and flattened entity evidence
+  fields) that supply the physical facts an agent needs to settle constructor
+  values. Discovery does not author objects, infer business meaning, or carry
+  judgment targets.
+- **`ms.prepare_*` — readiness.** Blockers, registry/project state, reuse
+  matches, and whether the exact object can be authored now.
+
 Before authoring a datasource-backed semantic object, agents collect bounded
 datasource evidence with `md.discover_entity(...)`,
 `md.discover_dimensions(...)`, `md.discover_time_dimensions(...)`,
@@ -192,10 +207,12 @@ revenue.children                               # child SemanticRef subclass valu
 `marivo.semantic` exports.
 
 `ms.help(symbol=None)` 是模块级帮助 helper，独立于
-`SemanticProject` 实例使用，不需要 active project；用于 REPL / agent 自我发现
-API 形态。`ms.help()` 打印帮助文本并返回 None。
+`SemanticProject` 实例使用，不需要 active project。它是 authoring guidance 三层
+模型中的静态契约层：对每个 semantic-layer 对象构造器/主题，输出构造器、必填/可选参数、
+允许值、默认值、省略规则、嵌套 parse 形态和静态约束。`ms.help()` 打印帮助文本并返回 None。
 `ms.help("constraints")` 是 authoring / validation
-约束目录的统一入口，不另设并行 helper。
+约束目录的统一入口，不另设并行 helper。Help 只描述参数必须满足什么，不携带运行时数据，
+也不固定参数取值来源标签——运行时证据由 `md.discover_*` 提供。
 
 `find_project()` 的 project 判定只要求 `models/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回，load 后 registry 为 `ready`，`catalog.list().objects` 返回空 tuple。如果 `models/semantic/` 存在但不是目录，必须 fail closed。
 

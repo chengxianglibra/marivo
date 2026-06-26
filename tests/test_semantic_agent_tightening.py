@@ -423,7 +423,7 @@ def test_semantic_skill_requires_evidence_derived_grill_me_agreement() -> None:
         assert required in combined, f"semantic skill grill guidance missing {required!r}"
 
 
-def test_semantic_skill_teaches_discovery_first_datasource_contract() -> None:
+def test_semantic_skill_teaches_datasource_evidence_contract() -> None:
     paths = [
         "marivo/skills/marivo-semantic/SKILL.md",
         "marivo/skills/marivo-semantic/references/datasource.md",
@@ -448,7 +448,7 @@ def test_semantic_skill_teaches_discovery_first_datasource_contract() -> None:
         "md.ref(",
         "DatasourceRef",
         "TableSource",
-        "bounded-sample evidence",
+        "runtime datasource evidence",
         "does not infer business meaning",
         "do not persist",
         "diagnostic escape hatch",
@@ -466,8 +466,66 @@ def test_semantic_skill_teaches_discovery_first_datasource_contract() -> None:
         "should_author",
         "confidence score",
         "observed_values",
+        "judgment_targets",
+        ".candidates",
     ):
         assert forbidden not in combined, f"semantic skill still teaches {forbidden!r}"
+
+
+def test_semantic_skill_teaches_help_discover_prepare_author_verify_layers() -> None:
+    paths = [
+        "marivo/skills/marivo-semantic/SKILL.md",
+        "marivo/skills/marivo-semantic/references/workflow.md",
+        "marivo/skills/marivo-semantic/references/datasource.md",
+        "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo/skills/marivo-semantic/references/pitfalls.md",
+    ]
+    combined = "\n".join(_read(path) for path in paths)
+
+    required = (
+        'ms.help("entity")',
+        'ms.help("dimension_column")',
+        'ms.help("time_dimension_column")',
+        'ms.help("measure_column")',
+        'ms.help("aggregate")',
+        'ms.help("relationship")',
+        "static authoring contract",
+        "runtime datasource evidence",
+        "help -> discover -> prepare -> author -> verify",
+        "md.discover_entity",
+        "md.discover_dimensions",
+        "md.discover_time_dimensions",
+        "md.discover_measures",
+        "md.discover_relationship",
+        "discovery.columns",
+        "ms.prepare_entity",
+        "ms.prepare_dimension",
+        "ms.prepare_time_dimension",
+        "ms.prepare_measure",
+        "ms.prepare_metric",
+        "ms.prepare_relationship",
+        "ms.verify_object",
+    )
+    for phrase in required:
+        assert phrase in combined, f"semantic skill missing layering phrase {phrase!r}"
+
+    forbidden = (
+        "judgment_targets",
+        ".judgment_targets",
+        ".candidates",
+        'ms.help("datetime")',
+        'ms.help("timestamp")',
+        'ms.help("strptime")',
+        'ms.help("hour_prefix")',
+        "parameter information source",
+        "from_discovery",
+        "from_project_context",
+        "from_user_policy",
+        "from_registry",
+        "usually_default",
+    )
+    for phrase in forbidden:
+        assert phrase not in combined, f"semantic skill still contains {phrase!r}"
 
 
 def test_semantic_design_docs_teach_discovery_first_contract() -> None:

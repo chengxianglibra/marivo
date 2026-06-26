@@ -1,9 +1,7 @@
-"""Deterministic discovery rules and judgment-target templates.
+"""Deterministic discovery rules.
 
 Rules describe datasource evidence shape only. They never infer business
 meaning, normalization policy, additivity, unit, or timezone policy.
-Judgment targets are deterministic templates per discover kind, not
-conclusions.
 """
 
 from __future__ import annotations
@@ -15,27 +13,23 @@ from typing import Literal
 
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.discovery import (
-    ColumnDiscoveryCandidate,
+    ColumnDiscovery,
     DimensionDiscoveryResult,
     DimensionValueFact,
     DiscoveryEvidenceEntry,
     DiscoveryIssue,
-    DiscoveryObjectKind,
     DiscoverySeverity,
     DiscoverySignal,
-    EntityDiscoveryCandidate,
     EntityDiscoveryResult,
     EvidenceValue,
     FormatCandidate,
-    JudgmentOwner,
     KeyTypeEvidence,
     MeasureDiscoveryResult,
     PrimaryKeyCandidate,
     RelationshipDiscoveryEvidence,
     RelationshipDiscoveryResult,
-    SemanticJudgmentTarget,
     TableSource,
-    TimeColumnDiscoveryCandidate,
+    TimeColumnDiscovery,
     TimeDimensionDiscoveryResult,
     TimeValueRange,
 )
@@ -48,161 +42,6 @@ from marivo.datasource.scan import (
     ScanReport,
     ScanScope,
 )
-
-
-def _target(
-    object_kind: DiscoveryObjectKind,
-    field_path: str,
-    question: str,
-    owner: JudgmentOwner,
-) -> SemanticJudgmentTarget:
-    return SemanticJudgmentTarget(
-        object_kind=object_kind,
-        field_path=field_path,
-        question=question,
-        owner=owner,
-    )
-
-
-def entity_judgment_targets() -> tuple[SemanticJudgmentTarget, ...]:
-    return (
-        _target("entity", "entity.name", "choose the semantic entity label", "agent"),
-        _target(
-            "entity",
-            "entity.primary_key",
-            "decide the authoritative primary key from declared or sampled evidence",
-            "user_or_project_context",
-        ),
-        _target(
-            "entity",
-            "entity.ai_context.business_definition",
-            "write the entity's business meaning",
-            "user_or_project_context",
-        ),
-    )
-
-
-def dimension_judgment_targets() -> tuple[SemanticJudgmentTarget, ...]:
-    return (
-        _target("dimension", "dimension.column", "select the candidate column", "agent"),
-        _target("dimension", "dimension.name", "choose the semantic dimension label", "agent"),
-        _target(
-            "dimension",
-            "dimension.ai_context.business_definition",
-            "write the dimension's business meaning",
-            "user_or_project_context",
-        ),
-    )
-
-
-def time_dimension_judgment_targets() -> tuple[SemanticJudgmentTarget, ...]:
-    return (
-        _target("time_dimension", "time_dimension.column", "select the candidate column", "agent"),
-        _target(
-            "time_dimension",
-            "time_dimension.name",
-            "choose the semantic time dimension label",
-            "agent",
-        ),
-        _target(
-            "time_dimension",
-            "time_dimension.granularity",
-            "decide the authoritative grain",
-            "user_or_project_context",
-        ),
-        _target(
-            "time_dimension",
-            "time_dimension.parse",
-            "decide the parse policy for string or integer encodings",
-            "user_or_project_context",
-        ),
-        _target(
-            "time_dimension",
-            "time_dimension.is_default",
-            "decide whether this is the default business time dimension",
-            "user_or_project_context",
-        ),
-        _target(
-            "time_dimension",
-            "time_dimension.ai_context.business_definition",
-            "write the time dimension's business meaning",
-            "user_or_project_context",
-        ),
-    )
-
-
-def measure_judgment_targets() -> tuple[SemanticJudgmentTarget, ...]:
-    return (
-        _target(
-            "measure",
-            "measure.column",
-            "decide whether the candidate column is a row-level quantitative fact",
-            "agent",
-        ),
-        _target("measure", "measure.name", "choose the semantic measure label", "agent"),
-        _target(
-            "measure",
-            "measure.unit",
-            "decide the authoritative unit, if any",
-            "user_or_project_context",
-        ),
-        _target(
-            "measure",
-            "measure.additivity",
-            "decide additive, semi-additive, or non-additive policy",
-            "user_or_project_context",
-        ),
-        _target(
-            "measure",
-            "measure.ai_context.business_definition",
-            "write the measure's business meaning",
-            "user_or_project_context",
-        ),
-    )
-
-
-def relationship_judgment_targets() -> tuple[SemanticJudgmentTarget, ...]:
-    return (
-        _target(
-            "relationship", "relationship.name", "choose the semantic relationship label", "agent"
-        ),
-        _target(
-            "relationship",
-            "relationship.from_entity",
-            "confirm the from-side entity",
-            "user_or_project_context",
-        ),
-        _target(
-            "relationship",
-            "relationship.to_entity",
-            "confirm the to-side entity",
-            "user_or_project_context",
-        ),
-        _target(
-            "relationship",
-            "relationship.keys",
-            "confirm the join key columns",
-            "user_or_project_context",
-        ),
-        _target(
-            "relationship",
-            "relationship.ai_context.business_definition",
-            "write the relationship's business meaning",
-            "user_or_project_context",
-        ),
-    )
-
-
-def dimension_value_judgment_targets() -> tuple[SemanticJudgmentTarget, ...]:
-    return (
-        _target(
-            "dimension",
-            "dimension_value.filter_selection",
-            "decide current filter values from runtime evidence",
-            "agent",
-        ),
-    )
-
 
 _NUMERIC_TYPE_TOKENS = ("INT", "DECIMAL", "FLOAT", "DOUBLE", "NUMERIC", "REAL")
 _LOW_CARDINALITY_THRESHOLD = 20
@@ -588,20 +427,20 @@ def build_dimension_result(
     table_metadata: TableMetadata | None,
     scan: ScanReport,
     scope: ScanScope,
-    candidate_profiles: tuple[ColumnProfile, ...],
+    column_profiles: tuple[ColumnProfile, ...],
 ) -> DimensionDiscoveryResult:
     """Build a DimensionDiscoveryResult from scan + column profiles.
 
-    Result-scope issues come from ``scan_rules``; each candidate carries its
+    Result-scope issues come from ``scan_rules``; each column carries its
     own ``dimension_column_rules`` signals/issues. The two scopes never
     overlap.
     """
     result_issues = scan_rules(scan, scope, resolve_partition(table_metadata, scope))
-    candidates: list[ColumnDiscoveryCandidate] = []
-    for profile in candidate_profiles:
+    columns: list[ColumnDiscovery] = []
+    for profile in column_profiles:
         sig, iss = _split(dimension_column_rules(profile))
-        candidates.append(
-            ColumnDiscoveryCandidate(
+        columns.append(
+            ColumnDiscovery(
                 column=profile.name,
                 profile=profile,
                 signals=sig,
@@ -615,8 +454,7 @@ def build_dimension_result(
         scan=scan,
         signals=(),
         issues=result_issues,
-        judgment_targets=dimension_judgment_targets(),
-        candidates=tuple(candidates),
+        columns=tuple(columns),
     )
 
 
@@ -627,15 +465,15 @@ def build_measure_result(
     table_metadata: TableMetadata | None,
     scan: ScanReport,
     scope: ScanScope,
-    candidate_profiles: tuple[ColumnProfile, ...],
+    column_profiles: tuple[ColumnProfile, ...],
 ) -> MeasureDiscoveryResult:
     """Build a MeasureDiscoveryResult from scan + column profiles."""
     result_issues = scan_rules(scan, scope, resolve_partition(table_metadata, scope))
-    candidates: list[ColumnDiscoveryCandidate] = []
-    for profile in candidate_profiles:
+    columns: list[ColumnDiscovery] = []
+    for profile in column_profiles:
         sig, iss = _split(measure_column_rules(profile))
-        candidates.append(
-            ColumnDiscoveryCandidate(
+        columns.append(
+            ColumnDiscovery(
                 column=profile.name,
                 profile=profile,
                 signals=sig,
@@ -649,8 +487,7 @@ def build_measure_result(
         scan=scan,
         signals=(),
         issues=result_issues,
-        judgment_targets=measure_judgment_targets(),
-        candidates=tuple(candidates),
+        columns=tuple(columns),
     )
 
 
@@ -812,27 +649,27 @@ def build_entity_result(
     table_metadata: TableMetadata | None,
     scan: ScanReport,
     scope: ScanScope,
-    candidate_profiles: tuple[ColumnProfile, ...],
+    column_profiles: tuple[ColumnProfile, ...],
 ) -> EntityDiscoveryResult:
     """Build an EntityDiscoveryResult from metadata, scan, and column profiles.
 
     Result-scope issues come from ``scan_rules`` (with the partition outcome),
-    ``metadata_rules``, and ``column_limit_rules``; the single entity candidate
-    carries ``entity_rules`` signals/issues plus typed primary-key candidates.
+    ``metadata_rules``, and ``column_limit_rules``; entity evidence is flattened
+    onto the result with ``entity_rules`` signals/issues.
     """
     outcome = resolve_partition(table_metadata, scope)
     result_issues: tuple[DiscoveryIssue, ...] = scan_rules(scan, scope, outcome)
     if table_metadata is not None:
         result_issues = result_issues + metadata_rules(table_metadata)
     requested = (
-        len(table_metadata.columns) if table_metadata is not None else len(candidate_profiles)
+        len(table_metadata.columns) if table_metadata is not None else len(column_profiles)
     )
     result_issues = result_issues + column_limit_rules(scope, requested)
 
-    pk_candidates = _entity_primary_key_candidates(table_metadata, scan, candidate_profiles)
+    pk_candidates = _entity_primary_key_candidates(table_metadata, scan, column_profiles)
     time_like_columns = tuple(
         profile.name
-        for profile in candidate_profiles
+        for profile in column_profiles
         if profile.type_family in ("date", "timestamp")
     )
     partition_columns = (
@@ -840,25 +677,19 @@ def build_entity_result(
         if table_metadata is not None
         else ()
     )
-    signals, issues = _split(entity_rules(table_metadata, scan, candidate_profiles, scope))
-    candidate = EntityDiscoveryCandidate(
-        table=source_name(source),
-        primary_key_candidates=pk_candidates,
-        time_like_columns=time_like_columns,
-        partition_columns=partition_columns,
-        column_profiles=candidate_profiles,
-        signals=signals,
-        issues=issues,
-    )
+    signals, issues = _split(entity_rules(table_metadata, scan, column_profiles, scope))
     return EntityDiscoveryResult(
         datasource=datasource,
         source=source,
         table_metadata=table_metadata,
         scan=scan,
-        signals=(),
-        issues=result_issues,
-        judgment_targets=entity_judgment_targets(),
-        candidates=(candidate,),
+        table=source_name(source),
+        primary_key_evidence=pk_candidates,
+        time_like_columns=time_like_columns,
+        partition_columns=partition_columns,
+        column_profiles=column_profiles,
+        signals=signals,
+        issues=result_issues + issues,
     )
 
 
@@ -1098,11 +929,11 @@ def build_time_dimension_result(
     table_metadata: TableMetadata | None,
     scan: ScanReport,
     scope: ScanScope,
-    candidate_profiles: tuple[ColumnProfile, ...],
+    column_profiles: tuple[ColumnProfile, ...],
 ) -> TimeDimensionDiscoveryResult:
     """Build a TimeDimensionDiscoveryResult from scan + column profiles.
 
-    Each candidate carries its detected formats, typed value range, partition
+    Each column carries its detected formats, typed value range, partition
     alignment, and ``time_column_rules`` signals/issues. Result-scope issues
     come from ``scan_rules`` (with outcome), ``metadata_rules``, and
     ``column_limit_rules``.
@@ -1111,20 +942,20 @@ def build_time_dimension_result(
     result_issues: tuple[DiscoveryIssue, ...] = scan_rules(scan, scope, outcome)
     if table_metadata is not None:
         result_issues = result_issues + metadata_rules(table_metadata)
-    result_issues = result_issues + column_limit_rules(scope, len(candidate_profiles))
+    result_issues = result_issues + column_limit_rules(scope, len(column_profiles))
 
     partition_names = (
         {partition.name for partition in table_metadata.partitions}
         if table_metadata is not None
         else set()
     )
-    candidates: list[TimeColumnDiscoveryCandidate] = []
-    for profile in candidate_profiles:
+    columns: list[TimeColumnDiscovery] = []
+    for profile in column_profiles:
         formats = detect_time_formats(profile)
         aligned = profile.name in partition_names
         signals, issues = _split(time_column_rules(profile, formats, aligned))
-        candidates.append(
-            TimeColumnDiscoveryCandidate(
+        columns.append(
+            TimeColumnDiscovery(
                 column=profile.name,
                 profile=profile,
                 detected_formats=formats,
@@ -1144,8 +975,7 @@ def build_time_dimension_result(
         scan=scan,
         signals=(),
         issues=result_issues,
-        judgment_targets=time_dimension_judgment_targets(),
-        candidates=tuple(candidates),
+        columns=tuple(columns),
     )
 
 
@@ -1285,7 +1115,6 @@ def build_relationship_result(
         )
     return RelationshipDiscoveryResult(
         evidence=evidence,
-        judgment_targets=relationship_judgment_targets(),
         signals=(),
         issues=tuple(result_issues),
     )

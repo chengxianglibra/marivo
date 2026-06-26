@@ -123,16 +123,19 @@ def test_datasource_fold_partition() -> None:
         "DiscoveryEvidenceEntry",
         "DiscoveryIssue",
         "DiscoverySignal",
-        "SemanticJudgmentTarget",
         "TimeValueRange",
     }
     enumerated = _enumerated(surface)
     # Entry-point and input types are pinned as top-level entries, not folded.
     assert {
+        "ColumnDiscovery",
         "DatasourceCatalog",
+        "FormatCandidate",
         "JoinSide",
+        "PrimaryKeyCandidate",
         "ScanScope",
         "TableSource",
+        "TimeColumnDiscovery",
     } <= enumerated
     _assert_no_value_family_leaks(enumerated)
 

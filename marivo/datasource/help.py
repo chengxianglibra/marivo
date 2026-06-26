@@ -75,7 +75,16 @@ def _surface() -> Surface:
         catalog=catalog,
         topics=topics,
         type_aliases={"TableSource"},
-        pinned_entries=("DatasourceCatalog", "JoinSide", "ScanScope", "TableSource"),
+        pinned_entries=(
+            "DatasourceCatalog",
+            "JoinSide",
+            "ScanScope",
+            "TableSource",
+            "ColumnDiscovery",
+            "TimeColumnDiscovery",
+            "PrimaryKeyCandidate",
+            "FormatCandidate",
+        ),
         family_suffixes=(("Result", "Results"),),
         hidden_names=frozenset(),
     )

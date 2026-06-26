@@ -25,7 +25,6 @@ from marivo.datasource.discovery_rules import (
     build_measure_result,
     build_relationship_result,
     build_time_dimension_result,
-    dimension_value_judgment_targets,
     dimension_value_rules,
 )
 from marivo.datasource.manage import inspect_columns as _inspect_columns
@@ -90,7 +89,8 @@ def discover_entity(
 
     Returns:
         ``EntityDiscoveryResult`` with table metadata, scan evidence, primary-key
-        candidates, deterministic signals/issues, and judgment targets.
+        evidence, time-like columns, partition columns, column profiles, signals,
+        and issues.
 
     Example:
         >>> import marivo.datasource as md
@@ -122,7 +122,7 @@ def discover_entity(
         table_metadata=metadata,
         scan=inspection.scan,
         scope=scan_scope,
-        candidate_profiles=inspection.profiles,
+        column_profiles=inspection.profiles,
     )
 
 
@@ -139,13 +139,13 @@ def discover_dimensions(
     Args:
         datasource: Datasource reference returned by ``md.ref("warehouse")``.
         source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
-        columns: Optional candidate column subset. ``None`` profiles all columns
+        columns: Optional physical column subset. ``None`` profiles all columns
             within ``scope.max_columns``.
         scope: Optional bounded scan scope helper result.
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DimensionDiscoveryResult`` with one candidate per profiled column.
+        ``DimensionDiscoveryResult`` with one ``.columns`` entry per profiled column.
 
     Example:
         >>> import marivo.datasource as md
@@ -176,7 +176,7 @@ def discover_dimensions(
         table_metadata=metadata,
         scan=inspection.scan,
         scope=scan_scope,
-        candidate_profiles=inspection.profiles,
+        column_profiles=inspection.profiles,
     )
 
 
@@ -198,8 +198,8 @@ def discover_time_dimensions(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``TimeDimensionDiscoveryResult`` with parse candidates, value ranges,
-        partition alignment evidence, signals, issues, and judgment targets.
+        ``TimeDimensionDiscoveryResult`` with ``.columns`` evidence, detected
+        formats, value ranges, partition alignment evidence, signals, and issues.
 
     Example:
         >>> import marivo.datasource as md
@@ -230,7 +230,7 @@ def discover_time_dimensions(
         table_metadata=metadata,
         scan=inspection.scan,
         scope=scan_scope,
-        candidate_profiles=inspection.profiles,
+        column_profiles=inspection.profiles,
     )
 
 
@@ -252,8 +252,8 @@ def discover_measures(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``MeasureDiscoveryResult`` with candidate column profiles and
-        deterministic measure evidence.
+        ``MeasureDiscoveryResult`` with ``.columns`` evidence and deterministic
+        measure evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -284,7 +284,7 @@ def discover_measures(
         table_metadata=metadata,
         scan=inspection.scan,
         scope=scan_scope,
-        candidate_profiles=inspection.profiles,
+        column_profiles=inspection.profiles,
     )
 
 
@@ -343,7 +343,7 @@ def discover_relationship(
 
     Returns:
         ``RelationshipDiscoveryResult`` with sampled key evidence, match rate,
-        fanout evidence, key type evidence, signals, issues, and judgment targets.
+        fanout evidence, key type evidence, signals, and issues.
 
     Example:
         >>> import marivo.datasource as md
@@ -444,5 +444,4 @@ def discover_dimension_values(
         scan=inspection.scan,
         signals=signals,
         issues=issues,
-        judgment_targets=dimension_value_judgment_targets(),
     )

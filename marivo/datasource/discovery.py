@@ -1,8 +1,8 @@
 """Discovery evidence vocabulary for the datasource discovery surface.
 
-Defines the frozen evidence, signal, issue, judgment-target, candidate, and
-result types used by ``md.discover_*`` (wired in a later plan). Nothing here
-infers business meaning; rules describe evidence shape only.
+Defines the frozen evidence, signal, issue, evidence-subject, and result types
+used by ``md.discover_*`` (wired in a later plan). Nothing here infers business
+meaning; rules describe evidence shape only.
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ DiscoveryObjectKind = Literal[
     "measure",
     "relationship",
 ]
-JudgmentOwner = Literal["agent", "user_or_project_context"]
 
 
 @dataclass(frozen=True)
@@ -91,29 +90,6 @@ class DiscoveryIssue:
 
 
 @dataclass(frozen=True)
-class SemanticJudgmentTarget:
-    """One semantic authoring field that still requires a judgment.
-
-    Targets are deterministic templates per discover kind, not conclusions.
-    They never carry evidence refs, sufficiency flags, confidence scores, or
-    recommended actions.
-
-    Attributes:
-        object_kind: Semantic object kind the target belongs to.
-        field_path: Real semantic authoring field path (e.g.
-            ``measure.ai_context.business_definition``).
-        question: The judgment the agent or user must resolve.
-        owner: ``agent`` for evidence-derived selections; ``user_or_project_context``
-            for business meaning or policy.
-    """
-
-    object_kind: DiscoveryObjectKind
-    field_path: str
-    question: str
-    owner: JudgmentOwner
-
-
-@dataclass(frozen=True)
 class TimeValueRange:
     """Typed inclusive value range for a time-like column.
 
@@ -139,7 +115,7 @@ class DimensionValueFact:
     count: int
 
 
-# ----- Candidate types (datasource evidence, not semantic objects) -----
+# ----- Evidence-subject types -----
 
 
 @dataclass(frozen=True)
@@ -195,37 +171,14 @@ class KeyTypeEvidence:
 
 
 @dataclass(frozen=True)
-class EntityDiscoveryCandidate:
-    """Entity-level evidence for one source table.
-
-    Attributes:
-        table: Table name.
-        primary_key_candidates: Sampled or declared primary-key candidates.
-        time_like_columns: Columns with temporal type or parseable date strings.
-        partition_columns: Metadata partition columns.
-        column_profiles: Bounded per-column profiles.
-        signals: Candidate-scope signals for this entity.
-        issues: Candidate-scope issues for this entity.
-    """
-
-    table: str
-    primary_key_candidates: tuple[PrimaryKeyCandidate, ...]
-    time_like_columns: tuple[str, ...]
-    partition_columns: tuple[str, ...]
-    column_profiles: tuple[ColumnProfile, ...]
-    signals: tuple[DiscoverySignal, ...]
-    issues: tuple[DiscoveryIssue, ...]
-
-
-@dataclass(frozen=True)
-class ColumnDiscoveryCandidate:
-    """Column-level evidence for a dimension or measure candidate.
+class ColumnDiscovery:
+    """Column-level evidence for a dimension or measure.
 
     Attributes:
         column: Column name.
         profile: Bounded column profile.
-        signals: Candidate-scope signals for this column.
-        issues: Candidate-scope issues for this column.
+        signals: Column-scope signals for this column.
+        issues: Column-scope issues for this column.
     """
 
     column: str
@@ -235,8 +188,8 @@ class ColumnDiscoveryCandidate:
 
 
 @dataclass(frozen=True)
-class TimeColumnDiscoveryCandidate:
-    """Column-level evidence for a time-dimension candidate.
+class TimeColumnDiscovery:
+    """Column-level evidence for a time-dimension column.
 
     Attributes:
         column: Column name.
@@ -244,8 +197,8 @@ class TimeColumnDiscoveryCandidate:
         detected_formats: Supported parse candidates (populated in Plan 2).
         value_range: Typed inclusive sampled value range.
         partition_aligned: Whether the column is a metadata partition column.
-        signals: Candidate-scope signals for this column.
-        issues: Candidate-scope issues for this column.
+        signals: Column-scope signals for this column.
+        issues: Column-scope issues for this column.
     """
 
     column: str
@@ -295,7 +248,6 @@ class RelationshipDiscoveryEvidence:
 # ----- Shared card formatter -----
 
 
-_MAX_TARGETS = 8
 _MAX_TABLE_ROWS = 8
 
 
@@ -303,17 +255,12 @@ def _format_discovery_card(
     *,
     identity: str,
     status: str,
-    judgment_targets: tuple[SemanticJudgmentTarget, ...],
     table_header: tuple[str, ...] | None = None,
     table_rows: tuple[tuple[str, ...], ...] | None = None,
     available: tuple[str, ...],
 ) -> str:
     """Render a bounded discovery result card without a trailing newline."""
     lines: list[str] = [identity, f"status: {status}"]
-    if judgment_targets:
-        lines.append("judgment targets:")
-        for target in judgment_targets[:_MAX_TARGETS]:
-            lines.append(f"- {target.field_path}: {target.question}")
     if table_header is not None and table_rows is not None:
         lines.append("columns: " + " | ".join(table_header))
         for row in table_rows[:_MAX_TABLE_ROWS]:
@@ -349,27 +296,28 @@ class EntityDiscoveryResult:
     source: TableSource
     table_metadata: TableMetadata | None
     scan: ScanReport
+    table: str
+    primary_key_evidence: tuple[PrimaryKeyCandidate, ...]
+    time_like_columns: tuple[str, ...]
+    partition_columns: tuple[str, ...]
+    column_profiles: tuple[ColumnProfile, ...]
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
-    judgment_targets: tuple[SemanticJudgmentTarget, ...]
-    candidates: tuple[EntityDiscoveryCandidate, ...]
 
     def _identity(self) -> str:
-        return (
-            f"EntityDiscoveryResult datasource={self.datasource.id} "
-            f"candidates={len(self.candidates)}"
-        )
+        return f"EntityDiscoveryResult datasource={self.datasource.id} table={self.table}"
 
     def render(self) -> str:
         return _format_discovery_card(
             identity=self._identity(),
             status=_scan_status(self.scan, _issue_count(self.issues)),
-            judgment_targets=self.judgment_targets,
             available=(
-                ".candidates",
+                ".primary_key_evidence",
+                ".time_like_columns",
+                ".partition_columns",
+                ".column_profiles",
                 ".signals",
                 ".issues",
-                ".judgment_targets",
                 ".scan",
                 ".render()",
                 ".show()",
@@ -391,13 +339,12 @@ class DimensionDiscoveryResult:
     scan: ScanReport
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
-    judgment_targets: tuple[SemanticJudgmentTarget, ...]
-    candidates: tuple[ColumnDiscoveryCandidate, ...]
+    columns: tuple[ColumnDiscovery, ...]
 
     def _identity(self) -> str:
         return (
             f"DimensionDiscoveryResult datasource={self.datasource.id} "
-            f"candidates={len(self.candidates)}"
+            f"columns={len(self.columns)}"
         )
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
@@ -409,7 +356,7 @@ class DimensionDiscoveryResult:
                 _signal_ids(c.signals),
                 str(_issue_count(c.issues)),
             )
-            for c in self.candidates
+            for c in self.columns
         )
         return header, rows
 
@@ -418,18 +365,9 @@ class DimensionDiscoveryResult:
         return _format_discovery_card(
             identity=self._identity(),
             status=_scan_status(self.scan, _issue_count(self.issues)),
-            judgment_targets=self.judgment_targets,
             table_header=header,
             table_rows=rows,
-            available=(
-                ".candidates",
-                ".signals",
-                ".issues",
-                ".judgment_targets",
-                ".scan",
-                ".render()",
-                ".show()",
-            ),
+            available=(".columns", ".signals", ".issues", ".scan", ".render()", ".show()"),
         )
 
     def __repr__(self) -> str:
@@ -447,29 +385,19 @@ class TimeDimensionDiscoveryResult:
     scan: ScanReport
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
-    judgment_targets: tuple[SemanticJudgmentTarget, ...]
-    candidates: tuple[TimeColumnDiscoveryCandidate, ...]
+    columns: tuple[TimeColumnDiscovery, ...]
 
     def _identity(self) -> str:
         return (
             f"TimeDimensionDiscoveryResult datasource={self.datasource.id} "
-            f"candidates={len(self.candidates)}"
+            f"columns={len(self.columns)}"
         )
 
     def render(self) -> str:
         return _format_discovery_card(
             identity=self._identity(),
             status=_scan_status(self.scan, _issue_count(self.issues)),
-            judgment_targets=self.judgment_targets,
-            available=(
-                ".candidates",
-                ".signals",
-                ".issues",
-                ".judgment_targets",
-                ".scan",
-                ".render()",
-                ".show()",
-            ),
+            available=(".columns", ".signals", ".issues", ".scan", ".render()", ".show()"),
         )
 
     def __repr__(self) -> str:
@@ -487,13 +415,12 @@ class MeasureDiscoveryResult:
     scan: ScanReport
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
-    judgment_targets: tuple[SemanticJudgmentTarget, ...]
-    candidates: tuple[ColumnDiscoveryCandidate, ...]
+    columns: tuple[ColumnDiscovery, ...]
 
     def _identity(self) -> str:
         return (
             f"MeasureDiscoveryResult datasource={self.datasource.id} "
-            f"candidates={len(self.candidates)}"
+            f"columns={len(self.columns)}"
         )
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
@@ -505,7 +432,7 @@ class MeasureDiscoveryResult:
                 _signal_ids(c.signals),
                 str(_issue_count(c.issues)),
             )
-            for c in self.candidates
+            for c in self.columns
         )
         return header, rows
 
@@ -514,18 +441,9 @@ class MeasureDiscoveryResult:
         return _format_discovery_card(
             identity=self._identity(),
             status=_scan_status(self.scan, _issue_count(self.issues)),
-            judgment_targets=self.judgment_targets,
             table_header=header,
             table_rows=rows,
-            available=(
-                ".candidates",
-                ".signals",
-                ".issues",
-                ".judgment_targets",
-                ".scan",
-                ".render()",
-                ".show()",
-            ),
+            available=(".columns", ".signals", ".issues", ".scan", ".render()", ".show()"),
         )
 
     def __repr__(self) -> str:
@@ -538,7 +456,6 @@ class MeasureDiscoveryResult:
 @dataclass(frozen=True, repr=False)
 class RelationshipDiscoveryResult:
     evidence: RelationshipDiscoveryEvidence
-    judgment_targets: tuple[SemanticJudgmentTarget, ...]
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
@@ -557,15 +474,7 @@ class RelationshipDiscoveryResult:
         return _format_discovery_card(
             identity=self._identity(),
             status=status,
-            judgment_targets=self.judgment_targets,
-            available=(
-                ".evidence",
-                ".signals",
-                ".issues",
-                ".judgment_targets",
-                ".render()",
-                ".show()",
-            ),
+            available=(".evidence", ".signals", ".issues", ".render()", ".show()"),
         )
 
     def __repr__(self) -> str:
@@ -585,7 +494,6 @@ class DimensionValueDiscoveryResult:
     scan: ScanReport
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
-    judgment_targets: tuple[SemanticJudgmentTarget, ...]
 
     def _identity(self) -> str:
         return (
@@ -605,7 +513,6 @@ class DimensionValueDiscoveryResult:
         return _format_discovery_card(
             identity=self._identity(),
             status=status,
-            judgment_targets=self.judgment_targets,
             table_header=header,
             table_rows=rows,
             available=(
@@ -613,7 +520,6 @@ class DimensionValueDiscoveryResult:
                 ".complete",
                 ".signals",
                 ".issues",
-                ".judgment_targets",
                 ".scan",
                 ".render()",
                 ".show()",

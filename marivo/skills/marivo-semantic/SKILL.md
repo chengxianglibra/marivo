@@ -20,20 +20,35 @@ explicit Python path such as `<venv>/bin/python`.
 The current project should contain `models/semantic/`. If it does not, create
 the project structure before authoring semantic objects.
 
-## Datasource-First Authoring Ladder
+## Authoring Layer Contract
 
-Follow this ladder for every datasource-backed object. Each rung produces
-exactly one semantic object per cycle, verified before advancing.
+Use the same sequence for every datasource-backed semantic object:
+
+```text
+help -> discover -> prepare -> author -> verify
+```
+
+Layer ownership:
+
+- `ms.help("<constructor-or-object>")` is the static authoring contract: constructor, required parameters, optional parameters, allowed values, defaults, omit rules, nested parse shapes, and static constraints.
+- `md.discover_*` is runtime datasource evidence: physical columns, profiles, detected formats, value ranges, primary-key evidence, relationship evidence, signals, and issues.
+- `ms.prepare_*` is readiness: blockers, registry/project state, matches, and whether the exact object can be authored now.
+- This skill is workflow only. Do not copy constructor parameter tables into skill docs.
+
+## Datasource-Backed Authoring Ladder
+
+Follow this ladder for every datasource-backed object. Each cycle produces
+exactly one semantic object, verified before advancing.
 
 1. Register or select datasource refs with `md.list()`, `md.describe()`, and `md.test()`.
 2. Bind refs explicitly: `warehouse = md.ref("warehouse")`.
-3. Use `md.discover_entity(warehouse, md.table("orders"), scope=md.latest_partition())` before authoring each entity.
-4. Use `ms.prepare_entity(...)`, author exactly one entity, then run `ms.verify_object(...)`.
-5. Use `md.discover_dimensions(...)`, `md.discover_time_dimensions(...)`, or `md.discover_measures(...)` to choose candidate columns.
-6. For exactly one candidate, call the matching `ms.prepare_*` API.
-7. Ask the user only for unresolved business semantics or policy.
-8. Author exactly one object, then run `ms.verify_object(...)`.
-9. Use `md.discover_relationship(...)` before `ms.prepare_relationship(...)`.
+3. Read the relevant help contract, such as `ms.help("entity")`, `ms.help("dimension_column")`, `ms.help("time_dimension_column")`, or `ms.help("measure_column")`.
+4. Run the matching bounded discovery call: `md.discover_entity(...)`, `md.discover_dimensions(...)`, `md.discover_time_dimensions(...)`, `md.discover_measures(...)`, or `md.discover_relationship(...)`.
+5. Use discovery evidence, registry facts, project docs, prior decisions, and user answers to settle constructor values.
+6. Ask the user only when the value cannot be discovered or inferred from project context.
+7. Call the matching `ms.prepare_*` API and branch on the Brief status.
+8. Author exactly one object in `models/semantic/<domain>/_domain.py`.
+9. Run `ms.verify_object(ref)` and fix failures before moving on.
 10. Use `md.discover_dimension_values(...)` only for current filter/value evidence. Do not persist those values into semantic metadata.
 11. Use `md.raw_sql(...)` only as a diagnostic escape hatch with a required `reason`.
 12. Run `ms.readiness(...)` before analysis handoff.
