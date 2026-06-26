@@ -60,14 +60,13 @@ constructor or object kind, help must answer:
 - which constructor to call;
 - which parameters are required;
 - which parameters are optional;
-- where each parameter value usually comes from:
-  `from_discovery`, `from_project_context`, `from_user_policy`,
-  `from_registry`, or `usually_default`;
-- which nested decisions exist.
+- parameter types, allowed values, defaults, and omit rules;
+- static cross-parameter constraints;
+- which nested parameter shapes exist.
 
 The JSON shape may change. The new descriptor may add a compact
 `authoring_contract` object under `content`; callers should treat that as the
-canonical machine-readable contract.
+canonical machine-readable contract for API facts and static constraints.
 
 For `ms.time_dimension_column`, help must inline the parse decision. Agents
 should not need separate parse-constructor help pages to know how to author a
@@ -88,9 +87,10 @@ parse:
 - hour-only column: parse=ms.hour_prefix(prefix, sample_interval=?)
 ```
 
-`format` comes from discovery evidence. `prefix`, `timezone`,
-`sample_interval`, `granularity`, `is_default`, and business definition are
-policy or project-context decisions unless project docs already settle them.
+The contract must describe what each parameter means and when each parse shape
+is syntactically valid. It must not declare a fixed source for parameter values.
+An agent can use discovery evidence, registry facts, project docs, prior
+decisions, or user answers to choose values in the current context.
 
 The standalone help topics below are deleted as agent-facing help entries:
 
@@ -144,9 +144,10 @@ semantic objects Marivo recommends authoring".
 
 1. Read `ms.help("<constructor-or-object>")` for the static authoring contract.
 2. Run the matching `md.discover_*` call for datasource evidence.
-3. Fill `from_discovery` parameters from discovery facts.
-4. Ask the user only for `from_user_policy` or unresolved
-   `from_project_context` values.
+3. Use discovery evidence, registry facts, project docs, prior decisions, and
+   user answers to settle the constructor parameters.
+4. Ask the user only when the needed parameter value cannot be discovered or
+   inferred from project context.
 5. Call the matching `ms.prepare_*` API for readiness.
 6. Author one object.
 7. Run `ms.verify_object(...)`.
@@ -194,8 +195,9 @@ The agent reads the help contract to know that `name`, `entity`, `column`, and
 `granularity` must be settled, and that `parse` may be omitted or set through a
 parse constructor. It reads discovery evidence to learn that `dt` is a profiled
 column and that sampled values match `"%Y%m%d"`. It can propose
-`parse=ms.strptime("%Y%m%d")`, then ask the user for any business policy that
-the contract marks as user or project context.
+`parse=ms.strptime("%Y%m%d")`, then ask the user only for values that remain
+unsettled after checking datasource evidence, registry facts, project docs, and
+prior decisions.
 
 ## Verification
 
