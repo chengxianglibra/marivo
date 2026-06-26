@@ -81,8 +81,6 @@ def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
     delta = compare(current, baseline, session=session)
 
     assert delta.meta.evidence_status == "complete"
-    operators = sorted(a.operator for a in delta.meta.recommended_followups)
-    assert "assess_quality" in operators
     db_path = session._layout.session_dir / "judgment.db"
     with sqlite3.connect(db_path) as conn:
         prop_count = conn.execute(

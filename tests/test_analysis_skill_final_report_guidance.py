@@ -28,7 +28,7 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "result.meta.evidence_status",
         "result.meta.blocking_issues",
         "result.meta.confidence_scope",
-        "result.meta.recommended_followups",
+        "artifact.contract().affordances",
         "session.assess_quality",
         "MarivoReportArtifact",
         "grounding.json",

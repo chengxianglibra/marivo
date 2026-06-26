@@ -170,7 +170,7 @@ def test_signature_for_falls_back_when_annotation_eval_fails() -> None:
     assert descriptor.signature == "broken(...)"
 
 
-def test_describe_frame_suppresses_dataclass_init_and_exposes_next_intents() -> None:
+def test_describe_frame_suppresses_dataclass_init_and_methods() -> None:
     descriptor = describe_object(
         surface="test.surface",
         symbol="_FrameLike",
@@ -187,7 +187,7 @@ def test_describe_frame_suppresses_dataclass_init_and_exposes_next_intents() -> 
     assert data["kind"] == "frame"
     assert "signature" not in data
     assert data["constructed_by"] == "session.observe(...)"
-    assert data["next_intents"] == ["compare", "discover"]
+    assert "next_intents" not in data
     assert data["methods"] == [{"name": "to_pandas", "summary": "Return a defensive copy."}]
 
 

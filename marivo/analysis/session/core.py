@@ -89,6 +89,7 @@ class FrameSummaryEntry:
     semantic_model: str | None
     created_at: str | None
     row_count: int | None = None
+    content_hash: str | None = None
 
     def _repr_identity(self) -> str:
         parts = f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
@@ -392,6 +393,7 @@ class Session:
                         semantic_model=meta.get("semantic_model"),
                         created_at=meta.get("created_at"),
                         row_count=meta.get("row_count"),
+                        content_hash=meta.get("content_hash"),
                     )
                 )
         entries.sort(key=lambda e: (e.created_at or "", e.ref))
@@ -901,7 +903,7 @@ class Session:
         v1 accepts only MetricFrames. Reports for DeltaFrame / CandidateSet /
         ForecastFrame / AttributionFrame are planned for later releases. The
         returned QualityReport carries per-check rows, blocking issues, and a list
-        of recommended follow-up intents.
+        of mechanical affordances for next intents.
 
         Args:
             frame: A MetricFrame to inspect.

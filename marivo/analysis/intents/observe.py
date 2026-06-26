@@ -483,7 +483,7 @@ def _persist_and_attach_coverage_sidecar(
     coverage.meta = cast("CoverageFrameMeta", persist_frame(session, coverage))
     # Update quality summary with coverage fields
     quality_update: dict[str, Any] = {}
-    existing_quality = parent.meta.quality
+    existing_quality = parent.meta.quality_summary
     if existing_quality is not None:
         quality_update = existing_quality.model_dump()
     if coverage_summary is not None:
@@ -498,7 +498,7 @@ def _persist_and_attach_coverage_sidecar(
         update={
             "coverage_ref": coverage.ref,
             "coverage_summary": coverage_summary,
-            "quality": updated_quality,
+            "quality_summary": updated_quality,
         }
     )
     parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))

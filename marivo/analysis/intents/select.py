@@ -9,7 +9,6 @@ from typing import Any, Literal
 import pandas as pd
 
 from marivo.analysis.errors import SemanticKindMismatchError
-from marivo.analysis.followups import _parse_item_followups
 from marivo.analysis.frames.candidate import CandidateSet, CandidateShape
 from marivo.analysis.windows import AbsoluteWindow
 from marivo.refs import SemanticRef
@@ -27,10 +26,10 @@ SelectField = Literal[
     "baseline_value",
     "delta",
     "item_id",
-    "recommended_followups",
+    "affordances",
 ]
 
-_ALWAYS_AVAILABLE: set[str] = {"item_id", "score", "recommended_followups"}
+_ALWAYS_AVAILABLE: set[str] = {"item_id", "score", "affordances"}
 
 _FIELD_BY_SHAPE: dict[CandidateShape, set[str]] = {
     "point_anomaly": _ALWAYS_AVAILABLE
@@ -63,7 +62,7 @@ def select(
             ``[1, candidate_set.meta.row_count]``.
         attribute: One of the canonical attributes (``axis``, ``selector``, ``window``,
             ``baseline_window``, ``direction``, ``score``, ``item_id``,
-            ``recommended_followups``) — or a dot-path under ``selector`` /
+            ``affordances``) — or a dot-path under ``selector`` /
             ``keys``. Only attributes valid for the candidate's shape are accepted.
 
     Returns:
@@ -149,12 +148,11 @@ def select(
         return None if pd.isna(row["delta"]) else float(row["delta"])
     if base_attr == "item_id":
         return str(row["item_id"])
-    if base_attr == "recommended_followups":
-        return _parse_item_followups(
-            row["recommended_followups_json"]
-            if isinstance(row["recommended_followups_json"], str)
-            else None
-        )
+    if base_attr == "affordances":
+        from marivo.analysis.frames.base import ArtifactAffordance
+
+        raw = row["affordances_json"] if isinstance(row["affordances_json"], str) else "[]"
+        return [ArtifactAffordance.model_validate(entry) for entry in json.loads(raw)]
     raise SemanticKindMismatchError(
         message=f"select attribute {attribute!r} is not recognized",
         details={"shape": shape, "attribute": attribute},

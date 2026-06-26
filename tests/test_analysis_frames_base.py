@@ -45,12 +45,16 @@ def test_base_frame_meta_evidence_fields_default() -> None:
         row_count=10,
         byte_size=100,
     )
+    frame = BaseFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
+
     assert meta.artifact_id is None
     assert meta.evidence_status == "unavailable"
     assert meta.blocking_issues == []
-    assert meta.recommended_followups == []
-    assert meta.quality is None
+    assert meta.quality_summary is None
+    assert frame.quality_summary is None
     assert meta.confidence_scope is None
+    assert "quality" not in meta.model_dump()
+    assert "recommended_followups" not in meta.model_dump()
 
 
 def test_meta_kind_required():
@@ -365,3 +369,133 @@ def test_render_truncation_line_actionable():
     rendered = f.render()
     assert "more rows" in rendered
     assert ".preview(limit=...)" in rendered or ".to_pandas()" in rendered
+
+
+def test_base_frame_exposes_phase1_artifact_protocol() -> None:
+    df = pd.DataFrame(
+        {
+            "bucket_start": ["2026-06-18", "2026-06-19"],
+            "country": ["US", "CA"],
+            "value": [10.0, 20.0],
+        }
+    )
+    frame = BaseFrame(
+        _df=df,
+        meta=_meta(
+            kind="metric_frame",
+            ref="frame_protocol",
+            content_hash="sha256:" + "1" * 64,
+        ),
+    )
+
+    assert frame.kind == "metric_frame"
+    assert frame.quality_summary is None
+    assert frame.blocking_issues == []
+    assert frame.state.materialization == "materialized"
+    assert frame.state.content_hash == "sha256:" + "1" * 64
+
+    schema = frame.schema()
+    assert schema.kind == "metric_frame"
+    assert schema.ref == "frame_protocol"
+    assert [(column.name, column.role) for column in schema.columns] == [
+        ("bucket_start", "time"),
+        ("country", "dimension"),
+        ("value", "value"),
+    ]
+
+    contract = frame.contract()
+    assert contract.kind == "metric_frame"
+    assert contract.ref == "frame_protocol"
+    assert contract.is_canonical is True
+    assert contract.blocking_issues == []
+    assert contract.affordances == []
+
+
+def test_phase1_protocol_objects_are_closed_models() -> None:
+    from pydantic import ValidationError
+
+    from marivo.analysis.frames.base import (
+        ArtifactAffordance,
+        ArtifactColumn,
+        ArtifactContract,
+        ArtifactParamTemplate,
+        ArtifactPrecondition,
+        ArtifactSchema,
+        ArtifactState,
+    )
+
+    for model_cls, kwargs in [
+        (
+            ArtifactColumn,
+            {"name": "value", "dtype": "float64", "nullable": False, "role": "value"},
+        ),
+        (
+            ArtifactSchema,
+            {
+                "kind": "metric_frame",
+                "ref": "frame_x",
+                "columns": [],
+                "semantic_shape": None,
+            },
+        ),
+        (
+            ArtifactPrecondition,
+            {"check": "has_rows", "status": "pass", "reason": None},
+        ),
+        (
+            ArtifactParamTemplate,
+            {"deterministic_slots": {"source": "frame_x"}, "judgment_slots": ["axis"]},
+        ),
+        (
+            ArtifactAffordance,
+            {
+                "operator": "compare",
+                "required_inputs": ["metric_frame"],
+                "preconditions": [],
+                "param_template": {
+                    "deterministic_slots": {"left": "frame_x"},
+                    "judgment_slots": ["right"],
+                },
+                "expected_output_family": "delta_frame",
+            },
+        ),
+        (
+            ArtifactContract,
+            {
+                "kind": "metric_frame",
+                "ref": "frame_x",
+                "is_canonical": True,
+                "blocking_issues": [],
+                "affordances": [],
+            },
+        ),
+        (
+            ArtifactState,
+            {"materialization": "materialized", "content_hash": None},
+        ),
+    ]:
+        with pytest.raises(ValidationError):
+            model_cls(**kwargs, unexpected=True)
+
+
+def test_base_frame_contract_emits_affordances_for_non_empty_next_intents() -> None:
+    class _ContractedFrame(BaseFrame):
+        _NEXT_INTENTS: tuple[str, ...] = ("compare", "assess_quality")
+
+    df = pd.DataFrame({"value": [1.0]})
+    frame = _ContractedFrame(
+        _df=df,
+        meta=_meta(kind="metric_frame", ref="frame_contracted"),
+    )
+
+    contract = frame.contract()
+
+    assert contract.is_canonical is True
+    assert [a.operator for a in contract.affordances] == ["compare", "assess_quality"]
+    assert contract.affordances[0].expected_output_family == "delta_frame"
+    assert contract.affordances[1].expected_output_family == "quality_report"
+    assert contract.affordances[0].required_inputs == ["metric_frame"]
+    assert contract.affordances[0].param_template.deterministic_slots == {
+        "source_ref": "frame_contracted"
+    }
+    assert contract.affordances[0].param_template.judgment_slots == []

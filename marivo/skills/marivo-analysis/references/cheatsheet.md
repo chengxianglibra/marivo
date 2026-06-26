@@ -12,7 +12,7 @@ topic details:
 ```python
 mv.help('discover')                      # objective compatibility and required kwargs
 mv.help('alignment')                     # AlignmentPolicy variants
-mv.help('MetricFrame')                   # methods and next_intents
+mv.help('MetricFrame')                   # methods and affordances
 mv.help('MetricFrame.components')        # method signature and doc
 ```
 
@@ -24,7 +24,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 | `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
 | `session.decompose` | `DeltaFrame`, catalog dimension | `AttributionFrame` | Always pass `axis=session.catalog.get("<dimension_id>")`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape` (from `marivo.analysis.frames.candidate`). |
-| `candidates.select(...)` | `CandidateSet` | typed value (`SemanticRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"recommended_followups"`, `"keys.<dim>"`). |
+| `candidates.select(...)` | `CandidateSet` | typed value (`SemanticRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"affordances"`, `"keys.<dim>"`). |
 | `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.window_bucket()`; default lag is zero. |
 | `session.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
 | `session.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
@@ -71,8 +71,7 @@ SQL-style ops like `"eq"`, `"ne"`, `"gte"` are **not** supported. Use Python ope
 | `QualityReport` | `session.assess_quality` |
 | `AttributionFrame` | `session.decompose` |
 
-For the valid next step from any frame, read `next_intents` via
-`mv.help('<Frame>')` (e.g. `mv.help('DeltaFrame')`). Inspect any frame with
+Use `artifact.contract().affordances` to inspect mechanical compatibility. Affordances are not ranked, not recommended next steps, and not business conclusions; the agent chooses whether to use one. Inspect any frame with
 `.summary()`, `.preview(limit=n)`, or `.to_pandas()`.
 
 Frames are immutable. Use `frame.summary()` for a cheap read,
@@ -174,9 +173,8 @@ scratch = session.from_pandas(df, description="share calculation")
 | `session.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
 
 Pass `value="<column>"` to disambiguate when the source has more than one
-numeric column. `select(attribute=...)` accepts `"item_id"`, `"score"`, `"axis"`,
-`"window"`, `"baseline_window"`, `"selector"`, `"direction"`,
-`"recommended_followups"`, plus dotted `"keys.<dim>"` / `"selector.<dim>"`.
+numeric column. Use `candidates.select(rank=1, attribute="affordances")` to inspect mechanical
+continuation affordances attached to a candidate row.
 
 ## Discovery Helpers
 

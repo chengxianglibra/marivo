@@ -260,7 +260,7 @@ def persist_frame(session: Session, frame: BaseFrame) -> BaseFrameMeta:
         meta_path=session._layout.relative_path(
             session._layout.frames_dir / updated.ref / "meta.json"
         ),
-        content_hash=None,
+        content_hash=updated.content_hash,
         produced_by_job=updated.produced_by_job,
     )
     return updated
@@ -287,7 +287,7 @@ def register_frame_artifact(session: Session, frame: BaseFrame | BaseFrameMeta) 
         meta_path=session._layout.relative_path(
             session._layout.frames_dir / meta.ref / "meta.json"
         ),
-        content_hash=None,
+        content_hash=meta.content_hash,
         produced_by_job=meta.produced_by_job,
     )
 

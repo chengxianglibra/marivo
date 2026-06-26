@@ -43,7 +43,7 @@ virtualenv yet, create or activate one before using this skill.
    `mv.help('alignment')`, and
    `mv.help('MetricFrame')`. The descriptor exposes `signature`,
    `doc`, bounded `constraints`, runnable `examples`, `methods`,
-   `next_intents`, and drill-down ids. Consult it per object when the contract
+   `affordances`, and drill-down ids. Consult it per object when the contract
    matters; do not turn help into a blanket ritual for each call.
 5. On errors, read the structured output — it includes a fix snippet and the
    available ids when applicable.
@@ -72,6 +72,12 @@ frame.show()             # bounded result card; repr hints to .show()
 
 Every intent returns a typed, immutable frame. Stay in frame world until you
 call `frame.to_pandas()`. Use `frame.show()` for bounded inspection.
+
+Read artifacts in this order: `repr(artifact)`, `artifact.summary()`,
+`artifact.schema()`, `artifact.contract()`, and only then `artifact.preview(...)`
+or `artifact.to_pandas()` for tabular data. Use
+`artifact.contract().affordances` for mechanical compatibility. The library does
+not rank, recommend, or choose next analysis steps.
 
 `mv.window_bucket()` compares time-series and panel windows
 by ordinal bucket position by default. Use
@@ -132,9 +138,8 @@ Every result exposes evidence fields on `frame.meta`:
 result.meta.artifact_id
 result.meta.evidence_status         # "complete" | "partial" | "unavailable"
 result.meta.blocking_issues
-result.meta.recommended_followups   # C1 dag continuation + C2 quality remediation
 result.meta.confidence_scope
-result.meta.quality                 # lightweight summary, not assess_quality output
+result.meta.quality_summary         # lightweight summary, not assess_quality output
 ```
 
 There is no `result.evidence.*` wrapper. Read `result.meta` after each step to
@@ -157,7 +162,7 @@ the evidence namespace: `session.evidence.findings(...)`,
 `session.evidence.propositions(...)`, `session.evidence.assessments(...)`, and
 `session.evidence.trace(...)`.
 
-`result.meta.quality` is a lightweight summary attached automatically.
+`result.meta.quality_summary` is a lightweight summary attached automatically.
 `session.assess_quality(result)` is an explicit auditable operator that creates a
 `QualityReport` and participates in lineage.
 
@@ -297,7 +302,7 @@ artifacts, knowledge, facts, followups, and job history remain available.
   - `discover` → which candidate to `select` and drill into.
   - `correlate` → which of several associations is worth follow-up.
   - `decompose` → which segment from the ranking to observe at finer grain.
-  - Any branch where `frame.show()` or `next_intents` is the input to your
+  - Any branch where `frame.show()` or `artifact.contract().affordances` is the input to your
     decision.
 
 Rule of thumb: if you cannot write the next `mv.*` call without first reading
@@ -341,8 +346,7 @@ delta.show()
 for issue in delta.meta.blocking_issues:
     print(issue.kind, issue.message)
 
-for followup in delta.meta.recommended_followups:
-    print(followup.category, followup.operator)
+delta.meta.quality_summary   # lightweight quality snapshot
 ```
 
 ## Further reading

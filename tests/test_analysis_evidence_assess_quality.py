@@ -26,7 +26,6 @@ def test_assess_quality_populates_surface1_without_findings_or_followups() -> No
     assert quality.meta.artifact_id is not None
     assert quality.meta.ref == quality.meta.artifact_id
     assert quality.meta.evidence_status == "complete"
-    assert quality.meta.recommended_followups == []
 
     with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
         artifact_rows = conn.execute(

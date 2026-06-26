@@ -118,7 +118,14 @@ ANALYSIS_PUBLIC = {
     "AbsoluteWindow",
     "AlignmentKind",
     "AlignmentPolicy",
+    "ArtifactAffordance",
+    "ArtifactColumn",
+    "ArtifactContract",
+    "ArtifactParamTemplate",
+    "ArtifactPrecondition",
     "ArtifactRef",
+    "ArtifactSchema",
+    "ArtifactState",
     "AssociationResult",
     "AttributionFrame",
     "BaseFrame",
@@ -134,7 +141,6 @@ ANALYSIS_PUBLIC = {
     "DeltaFrame",
     "DiscoverSensitivity",
     "ExplorationResult",
-    "FollowupAction",
     "ForecastFrame",
     "FramePreview",
     "FrameSummary",
@@ -283,3 +289,8 @@ def test_no_internal_ir_family_and_small_other_bucket() -> None:
         assert "Internal IR types" not in labels
         other = next((f for f in data["families"] if f["label"] == "Other types"), None)
         assert other is None or len(other["members"]) <= 10, other
+
+
+def test_followup_action_is_not_public_analysis_api() -> None:
+    assert "FollowupAction" not in ma.__all__
+    assert not hasattr(ma, "FollowupAction")

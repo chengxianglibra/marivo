@@ -84,7 +84,7 @@ def test_analysis_skill_docs_do_not_use_stale_api_patterns() -> None:
         "module_level_list_metrics": re.compile(r"\bms\.list_metrics\("),
         "top_level_evidence_field": re.compile(
             r"\b(?:result|delta|frame)\."
-            r"(?:artifact_id|evidence_status|blocking_issues|recommended_followups|"
+            r"(?:artifact_id|evidence_status|blocking_issues|affordances|"
             r"confidence_scope|quality)\b"
         ),
     }

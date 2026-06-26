@@ -69,7 +69,6 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
     assert attribution.meta.artifact_id is not None
     assert attribution.meta.ref == attribution.meta.artifact_id
     assert attribution.meta.evidence_status == "complete"
-    assert isinstance(attribution.meta.recommended_followups, list)
 
     with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
         artifact_rows = conn.execute(

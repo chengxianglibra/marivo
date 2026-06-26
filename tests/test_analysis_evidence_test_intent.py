@@ -48,7 +48,6 @@ def test_hypothesis_test_populates_surface1_and_test_finding() -> None:
     assert result.meta.artifact_id is not None
     assert result.meta.ref == result.meta.artifact_id
     assert result.meta.evidence_status == "complete"
-    assert isinstance(result.meta.recommended_followups, list)
 
     with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
         artifact_rows = conn.execute(
