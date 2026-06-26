@@ -72,7 +72,34 @@ class BuiltDatasourceBackend:
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
 
 
-def build_backend_with_secrets(datasource: DatasourceIR) -> BuiltDatasourceBackend:
+def _with_read_only_kwargs(
+    backend_type: str,
+    kwargs: Mapping[str, Any],
+    read_only: bool,
+) -> dict[str, Any]:
+    """Return kwargs forced into read-only mode for connection-level backends.
+
+    DuckDB and ClickHouse enforce read-only at connect time. Postgres, Trino, and
+    MySQL have no connect-level read-only flag; they are enforced by the caller via
+    a ``BEGIN/START TRANSACTION READ ONLY`` transaction, so their kwargs are unchanged.
+    """
+    if not read_only:
+        return dict(kwargs)
+    out = dict(kwargs)
+    if backend_type == "duckdb":
+        out["read_only"] = True
+    elif backend_type == "clickhouse":
+        settings = dict(out.get("settings") or {})
+        settings["access_mode"] = "read_only"
+        out["settings"] = settings
+    return out
+
+
+def build_backend_with_secrets(
+    datasource: DatasourceIR,
+    *,
+    read_only: bool = False,
+) -> BuiltDatasourceBackend:
     """Open an ibis backend and return any env-sourced secret provenance."""
     if datasource.backend_type not in SUPPORTED_BACKEND_TYPES:
         raise DatasourceBackendTypeUnsupportedError(
@@ -86,7 +113,7 @@ def build_backend_with_secrets(datasource: DatasourceIR) -> BuiltDatasourceBacke
             },
         )
     effective = _effective_kwargs(datasource)
-    kwargs = effective.kwargs
+    kwargs = _with_read_only_kwargs(datasource.backend_type, effective.kwargs, read_only)
     if datasource.backend_type == "duckdb":
         backend = _build_duckdb(datasource.name, kwargs)
     elif datasource.backend_type == "trino":
@@ -111,9 +138,9 @@ def build_backend_with_secrets(datasource: DatasourceIR) -> BuiltDatasourceBacke
     )
 
 
-def build_backend(datasource: DatasourceIR) -> Any:
+def build_backend(datasource: DatasourceIR, *, read_only: bool = False) -> Any:
     """Open and return a live ibis backend for the given datasource."""
-    return build_backend_with_secrets(datasource).backend
+    return build_backend_with_secrets(datasource, read_only=read_only).backend
 
 
 def _require(name: str, kwargs: Mapping[str, Any], key: str) -> Any:

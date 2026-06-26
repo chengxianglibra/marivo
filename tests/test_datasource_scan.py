@@ -12,13 +12,11 @@ import marivo.semantic as ms
 from marivo.datasource.authoring import _DuckDBSpec
 from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.manage import (
-    inspect_columns as _inspect_columns,
+    _inspect_columns,
+    _probe_join_keys,
 )
 from marivo.datasource.manage import (
     inspect_table as _inspect_table,
-)
-from marivo.datasource.manage import (
-    probe_join_keys as _probe_join_keys,
 )
 from marivo.datasource.scan import ScanReport
 

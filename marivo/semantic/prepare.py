@@ -18,14 +18,10 @@ import ibis
 from marivo.datasource.authoring import ref as _datasource_ref
 from marivo.datasource.ir import EntitySourceIR, source_to_dict
 from marivo.datasource.manage import (
-    inspect_columns as _inspect_columns,
+    _inspect_columns,
+    _probe_join_keys,
 )
-from marivo.datasource.manage import (
-    inspect_source as _inspect_source,
-)
-from marivo.datasource.manage import (
-    probe_join_keys as _probe_join_keys,
-)
+from marivo.datasource.metadata import _inspect_source
 from marivo.datasource.scan import (
     ColumnInspection,
     JoinSide,

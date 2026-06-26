@@ -18,7 +18,9 @@ def test_use_backend_disconnects_after_success(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     backend = FakeBackend()
-    monkeypatch.setattr(runtime, "_build_backend_from_store", lambda name, project_root: backend)
+    monkeypatch.setattr(
+        runtime, "_build_backend_from_store", lambda name, project_root, read_only=False: backend
+    )
 
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
     with service.use_backend("warehouse") as received:
@@ -32,7 +34,9 @@ def test_use_backend_disconnects_after_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     backend = FakeBackend()
-    monkeypatch.setattr(runtime, "_build_backend_from_store", lambda name, project_root: backend)
+    monkeypatch.setattr(
+        runtime, "_build_backend_from_store", lambda name, project_root, read_only=False: backend
+    )
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
 
     with pytest.raises(RuntimeError, match="boom"), service.use_backend("warehouse"):

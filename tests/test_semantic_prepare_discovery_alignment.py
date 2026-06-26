@@ -40,8 +40,7 @@ def test_prepare_entity_matches_discover_entity_core_scan_evidence(tmp_path: Pat
     _register_orders(tmp_path)
     _write_project(
         tmp_path,
-        "import marivo.semantic as ms\n"
-        "ms.domain(name='sales')\n",
+        "import marivo.semantic as ms\nms.domain(name='sales')\n",
     )
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
@@ -131,8 +130,7 @@ def test_public_removed_names_stay_absent_while_prepare_still_works(tmp_path: Pa
     _register_orders(tmp_path)
     _write_project(
         tmp_path,
-        "import marivo.semantic as ms\n"
-        "ms.domain(name='sales')\n",
+        "import marivo.semantic as ms\nms.domain(name='sales')\n",
     )
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()

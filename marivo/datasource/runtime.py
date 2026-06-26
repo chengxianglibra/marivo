@@ -20,7 +20,12 @@ def _disconnect(backend: Any) -> None:
             disconnect()
 
 
-def _build_backend_from_store(name: str, project_root: Path | None) -> Any:
+def _build_backend_from_store(
+    name: str,
+    project_root: Path | None,
+    *,
+    read_only: bool = False,
+) -> Any:
     """Load a datasource from the project store and open a live backend."""
     datasource_ir = store.load_one(name, project_root=project_root)
     if datasource_ir is None:
@@ -28,7 +33,7 @@ def _build_backend_from_store(name: str, project_root: Path | None) -> Any:
             message=f"datasource {name!r} is not configured",
             details={"datasource": name, "available": store.list_names(project_root)},
         )
-    return backends.build_backend(datasource_ir)
+    return backends.build_backend(datasource_ir, read_only=read_only)
 
 
 class DatasourceConnectionService:
@@ -67,9 +72,9 @@ class DatasourceConnectionService:
         return self._project_root
 
     @contextmanager
-    def use_backend(self, name: str) -> Iterator[Any]:
+    def use_backend(self, name: str, *, read_only: bool = False) -> Iterator[Any]:
         """Yield a live backend, disconnecting on exit (success or error)."""
-        backend = _build_backend_from_store(name, self._project_root)
+        backend = _build_backend_from_store(name, self._project_root, read_only=read_only)
         try:
             yield backend
         finally:

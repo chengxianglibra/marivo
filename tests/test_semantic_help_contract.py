@@ -141,7 +141,9 @@ def test_semantic_help_exposes_authoring_contract_for_each_object(
     assert contract["discover"] == expected["discover"]
 
     params = cast("dict[str, dict[str, Any]]", contract["parameters"])
-    for parameter in cast("list[str]", expected["required"]) + cast("list[str]", expected["optional"]):
+    for parameter in cast("list[str]", expected["required"]) + cast(
+        "list[str]", expected["optional"]
+    ):
         assert parameter in params
         assert "type" in params[parameter]
         assert "meaning" in params[parameter]
@@ -218,7 +220,9 @@ def test_metric_help_is_unified_family_entry() -> None:
     assert variants["ratio"]["constructor"] == "ms.ratio"
     assert variants["weighted_average"]["constructor"] == "ms.weighted_average"
     assert variants["linear"]["constructor"] == "ms.linear"
-    assert variants["aggregate"]["when"] == "metric is a simple aggregation over one verified measure"
+    assert (
+        variants["aggregate"]["when"] == "metric is a simple aggregation over one verified measure"
+    )
     assert variants["expression"]["when"] == (
         "metric needs an expression body over one or more entities, measures, or metrics"
     )

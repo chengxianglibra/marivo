@@ -27,9 +27,8 @@ from marivo.datasource.discovery_rules import (
     build_time_dimension_result,
     dimension_value_rules,
 )
-from marivo.datasource.manage import inspect_columns as _inspect_columns
-from marivo.datasource.manage import probe_join_keys as _probe_join_keys
-from marivo.datasource.metadata import inspect_source as _inspect_source
+from marivo.datasource.manage import _inspect_columns, _probe_join_keys
+from marivo.datasource.metadata import _inspect_source
 from marivo.datasource.scan import ColumnInspection, JoinSide, ScanScope
 
 
