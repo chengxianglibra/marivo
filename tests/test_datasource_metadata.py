@@ -807,7 +807,7 @@ def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
             "ch_22_3",
             backend_type="clickhouse",
             host="clickhouse-old.example",
-            database="bilibili_web_monitor",
+            database="sample_web_monitor",
         )
     )
     backend = _FakeBackend(
@@ -831,7 +831,7 @@ def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
 
     monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
 
-    metadata = _inspect_table("ch_22_3", table="bilibili_web_monitor.ads_web_main_box_rt")
+    metadata = _inspect_table("ch_22_3", table="sample_web_monitor.ads_web_main_box_rt")
 
     assert metadata.backend_type == "clickhouse"
     assert metadata.comment is None
