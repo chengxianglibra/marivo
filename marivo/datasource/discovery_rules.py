@@ -661,16 +661,12 @@ def build_entity_result(
     result_issues: tuple[DiscoveryIssue, ...] = scan_rules(scan, scope, outcome)
     if table_metadata is not None:
         result_issues = result_issues + metadata_rules(table_metadata)
-    requested = (
-        len(table_metadata.columns) if table_metadata is not None else len(column_profiles)
-    )
+    requested = len(table_metadata.columns) if table_metadata is not None else len(column_profiles)
     result_issues = result_issues + column_limit_rules(scope, requested)
 
     pk_candidates = _entity_primary_key_candidates(table_metadata, scan, column_profiles)
     time_like_columns = tuple(
-        profile.name
-        for profile in column_profiles
-        if profile.type_family in ("date", "timestamp")
+        profile.name for profile in column_profiles if profile.type_family in ("date", "timestamp")
     )
     partition_columns = (
         tuple(partition.name for partition in table_metadata.partitions)

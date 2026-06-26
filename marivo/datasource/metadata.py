@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -1033,76 +1034,104 @@ def inspect_table(
             details={"datasource": datasource, "table": table, "available": _store.list_names()},
         )
 
+    backend: Any = None
     try:
-        backend = _backends.build_backend(datasource_ir)
-        table_expr = (
-            backend.table(table) if database is None else backend.table(table, database=database)
-        )
-    except Exception as exc:
-        raise DatasourceMetadataError(
-            message=f"failed to inspect datasource table {datasource!r}.{table!r}: {exc}",
-            details={
-                "datasource": datasource,
-                "table": table,
-                "database": _database_label(database),
-                "cause": str(exc),
-            },
-        ) from exc
+        try:
+            backend = _backends.build_backend(datasource_ir)
+            table_expr = (
+                backend.table(table)
+                if database is None
+                else backend.table(table, database=database)
+            )
+        except Exception as exc:
+            raise DatasourceMetadataError(
+                message=f"failed to inspect datasource table {datasource!r}.{table!r}: {exc}",
+                details={
+                    "datasource": datasource,
+                    "table": table,
+                    "database": _database_label(database),
+                    "cause": str(exc),
+                },
+            ) from exc
 
-    try:
-        if datasource_ir.backend_type == "duckdb":
-            metadata = _inspect_duckdb(
-                datasource=datasource,
-                backend=backend,
-                table=table,
-                database=database,
-                table_expr=table_expr,
-                include_partitions=include_partitions,
-            )
-        elif datasource_ir.backend_type == "mysql":
-            metadata = _inspect_mysql(
-                datasource=datasource,
-                backend=backend,
-                table=table,
-                database=database,
-                table_expr=table_expr,
-                include_partitions=include_partitions,
-                default_database=(
-                    str(datasource_ir.fields["database"])
-                    if datasource_ir.fields.get("database") is not None
-                    else None
-                ),
-            )
-        elif datasource_ir.backend_type == "trino":
-            metadata = _inspect_trino(
-                datasource=datasource,
-                backend=backend,
-                table=table,
-                database=database,
-                table_expr=table_expr,
-                include_partitions=include_partitions,
-                catalog=str(datasource_ir.fields["catalog"]),
-                default_schema=(
-                    str(datasource_ir.fields["schema"])
-                    if datasource_ir.fields.get("schema") is not None
-                    else None
-                ),
-            )
-        elif datasource_ir.backend_type == "clickhouse":
-            ch_database = (
-                database
-                if database is not None
-                else datasource_ir.fields.get("database", "default")
-            )
-            metadata = _inspect_clickhouse(
-                datasource=datasource,
-                backend=backend,
-                table=table,
-                database=ch_database,
-                table_expr=table_expr,
-                include_partitions=include_partitions,
-            )
-        else:
+        try:
+            if datasource_ir.backend_type == "duckdb":
+                metadata = _inspect_duckdb(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                )
+            elif datasource_ir.backend_type == "mysql":
+                metadata = _inspect_mysql(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                    default_database=(
+                        str(datasource_ir.fields["database"])
+                        if datasource_ir.fields.get("database") is not None
+                        else None
+                    ),
+                )
+            elif datasource_ir.backend_type == "trino":
+                metadata = _inspect_trino(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                    catalog=str(datasource_ir.fields["catalog"]),
+                    default_schema=(
+                        str(datasource_ir.fields["schema"])
+                        if datasource_ir.fields.get("schema") is not None
+                        else None
+                    ),
+                )
+            elif datasource_ir.backend_type == "clickhouse":
+                ch_database = (
+                    database
+                    if database is not None
+                    else datasource_ir.fields.get("database", "default")
+                )
+                metadata = _inspect_clickhouse(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=ch_database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                )
+            else:
+                metadata = _schema_only(
+                    datasource=datasource,
+                    table=table,
+                    database=database,
+                    backend_type=datasource_ir.backend_type,
+                    table_expr=table_expr,
+                    warnings=(
+                        MetadataWarning(
+                            kind="comments_unavailable",
+                            message=f"{datasource_ir.backend_type} comments are not supported by this adapter",
+                        ),
+                        MetadataWarning(
+                            kind="nullable_unavailable",
+                            message=f"{datasource_ir.backend_type} nullable flags are not supported by this adapter",
+                        ),
+                        MetadataWarning(
+                            kind="partitions_unavailable",
+                            message=f"{datasource_ir.backend_type} partition metadata is not supported by this adapter",
+                        ),
+                    ),
+                )
+        except DatasourceMetadataError:
+            raise
+        except Exception as exc:
             metadata = _schema_only(
                 datasource=datasource,
                 table=table,
@@ -1111,39 +1140,24 @@ def inspect_table(
                 table_expr=table_expr,
                 warnings=(
                     MetadataWarning(
-                        kind="comments_unavailable",
-                        message=f"{datasource_ir.backend_type} comments are not supported by this adapter",
-                    ),
-                    MetadataWarning(
-                        kind="nullable_unavailable",
-                        message=f"{datasource_ir.backend_type} nullable flags are not supported by this adapter",
-                    ),
-                    MetadataWarning(
-                        kind="partitions_unavailable",
-                        message=f"{datasource_ir.backend_type} partition metadata is not supported by this adapter",
+                        kind="metadata_query_failed",
+                        message=f"{datasource_ir.backend_type} metadata query failed: {exc}",
                     ),
                 ),
             )
-    except DatasourceMetadataError:
-        raise
-    except Exception as exc:
-        metadata = _schema_only(
-            datasource=datasource,
-            table=table,
-            database=database,
-            backend_type=datasource_ir.backend_type,
-            table_expr=table_expr,
-            warnings=(
-                MetadataWarning(
-                    kind="metadata_query_failed",
-                    message=f"{datasource_ir.backend_type} metadata query failed: {exc}",
-                ),
-            ),
-        )
+    finally:
+        # The backend is an internal handle owned by this function; release it
+        # so it does not outlive the inspection. A lingering read-write handle
+        # would block read-only opens to the same DuckDB file from raw_sql in a
+        # later call.
+        disconnect = getattr(backend, "disconnect", None)
+        if callable(disconnect):
+            with suppress(Exception):
+                disconnect()
     return _with_primary_key_capability_warning(metadata)
 
 
-def inspect_source(
+def _inspect_source(
     datasource: str,
     *,
     source: EntitySourceIR,

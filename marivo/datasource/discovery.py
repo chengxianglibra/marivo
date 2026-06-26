@@ -343,8 +343,7 @@ class DimensionDiscoveryResult:
 
     def _identity(self) -> str:
         return (
-            f"DimensionDiscoveryResult datasource={self.datasource.id} "
-            f"columns={len(self.columns)}"
+            f"DimensionDiscoveryResult datasource={self.datasource.id} columns={len(self.columns)}"
         )
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
@@ -418,10 +417,7 @@ class MeasureDiscoveryResult:
     columns: tuple[ColumnDiscovery, ...]
 
     def _identity(self) -> str:
-        return (
-            f"MeasureDiscoveryResult datasource={self.datasource.id} "
-            f"columns={len(self.columns)}"
-        )
+        return f"MeasureDiscoveryResult datasource={self.datasource.id} columns={len(self.columns)}"
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
         header = ("column", "type", "signals", "issues")

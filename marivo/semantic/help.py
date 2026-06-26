@@ -584,7 +584,14 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "prepare": "ms.prepare_metric or ms.prepare_derived_metric",
             "discover": "md.discover_relationship for cross-entity viability when multiple entities are involved",
             "parameters": {},
-            "decision_order": ["count", "aggregate", "ratio", "weighted_average", "linear", "expression"],
+            "decision_order": [
+                "count",
+                "aggregate",
+                "ratio",
+                "weighted_average",
+                "linear",
+                "expression",
+            ],
             "variants": {
                 "count": {
                     "when": "metric is row count over one entity",
@@ -636,7 +643,9 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                     ],
                     "prepare": "ms.prepare_metric",
                     "parameters": {
-                        "entities": _param("list[EntityRef | str]", "entities used by the metric body"),
+                        "entities": _param(
+                            "list[EntityRef | str]", "entities used by the metric body"
+                        ),
                         "additivity": additivity,
                         "function_body": function_body,
                         "name": _param(

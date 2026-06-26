@@ -18,10 +18,14 @@ from marivo.datasource.authoring import (
     DatasourceSpec,
 )
 from marivo.datasource.discovery import RawSqlResult
-from marivo.datasource.errors import DatasourceMissingError, DatasourcePreviewError
+from marivo.datasource.errors import (
+    DatasourceError,
+    DatasourceMissingError,
+    DatasourcePreviewError,
+    DatasourceRawSqlError,
+)
 from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
-from marivo.datasource.metadata import TableMetadata
-from marivo.datasource.metadata import inspect_source as _inspect_source
+from marivo.datasource.metadata import TableMetadata, _inspect_source
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import (
     ColumnInspection,
@@ -533,12 +537,9 @@ def inspect_table(
     Returns:
         A ``TableMetadata`` with columns, warnings, and optional partitions.
 
-    Example:
-        >>> from marivo.datasource.manage import inspect_table
-        >>> inspect_table("wh", table="orders")
-
     Constraints:
-        Opens and closes a backend connection internally.
+        Internal helper backing ``md.discover_*``. Opens and closes a backend
+        connection internally; not an agent-facing API.
     """
     if source is not None and table is not None:
         raise TypeError("Pass either source or table, not both.")
@@ -554,40 +555,7 @@ def inspect_table(
     )
 
 
-def inspect_source(
-    datasource: str,
-    *,
-    source: EntitySourceIR,
-    include_partitions: bool = True,
-    project_root: Path | None = None,
-) -> TableMetadata:
-    """Table metadata for a semantic entity source (table or file).
-
-    Args:
-        datasource: Name of the project datasource.
-        source: An ``EntitySourceIR`` describing the table or file.
-        include_partitions: Whether to include partition hints.
-        project_root: Optional project root directory; defaults to cwd.
-
-    Returns:
-        A ``TableMetadata`` with columns, warnings, and optional partitions.
-
-    Example:
-        >>> from marivo.datasource.manage import inspect_source
-        >>> inspect_source("wh", source=source_ir)
-
-    Constraints:
-        Opens and closes a backend connection internally.
-    """
-    return _inspect_source(
-        datasource,
-        source=source,
-        include_partitions=include_partitions,
-        project_root=project_root,
-    )
-
-
-def inspect_columns(
+def _inspect_columns(
     datasource: str,
     source: EntitySourceIR,
     *,
@@ -608,19 +576,10 @@ def inspect_columns(
     Returns:
         A ``ColumnInspection`` with per-column profiles and a ``ScanReport``.
 
-    Example:
-        >>> import marivo.datasource as md
-        >>> from marivo.datasource.manage import inspect_columns
-        >>> inspect_columns(
-        ...     "wh",
-        ...     md.table("orders"),
-        ...     columns=("status", "amount"),
-        ...     scope=md.ScanScope(partition=None, max_rows=100),
-        ... )
-
     Constraints:
-        The backend is always disconnected before returning, even on error.
-        Scan scope limits (max_rows, max_columns) are always enforced.
+        Internal helper backing ``md.discover_*``. The backend is always
+        disconnected before returning, even on error. Scan scope limits
+        (max_rows, max_columns) are always enforced. Not an agent-facing API.
     """
     if scope is None:
         scope = ScanScope()
@@ -1030,7 +989,7 @@ def _count_matching_keys(
     return counts, scan_report
 
 
-def probe_join_keys(
+def _probe_join_keys(
     *,
     from_side: JoinSide,
     to_side: JoinSide,
@@ -1053,20 +1012,11 @@ def probe_join_keys(
     Returns:
         A ``JoinKeyProbe`` with match statistics and cardinality estimate.
 
-    Example:
-        >>> import marivo.datasource as md
-        >>> from marivo.datasource.manage import probe_join_keys
-        >>> probe_join_keys(
-        ...     from_side=md.JoinSide(md.ref("wh"), md.table("orders"), columns=("customer_id",)),
-        ...     to_side=md.JoinSide(md.ref("wh"), md.table("customers"), columns=("customer_id",)),
-        ...     scope=md.ScanScope(partition=None, max_rows=100),
-        ...     project_root=project_root,
-        ... )
-
     Constraints:
-        Both from-side and to-side may reference the same or different
-        datasources. Key comparison uses tuple equality. Matching is
-        performed client-side after a bounded sample.
+        Internal helper backing ``md.discover_relationship``. Both from-side
+        and to-side may reference the same or different datasources. Key
+        comparison uses tuple equality. Matching is performed client-side
+        after a bounded sample. Not an agent-facing API.
     """
     if scope is None:
         scope = ScanScope()
@@ -1165,17 +1115,78 @@ def _require_raw_sql_reason(reason: str) -> str:
     return reason.strip()
 
 
-def _require_single_read_only_statement(sql: str) -> str:
+def _require_single_statement(sql: str) -> str:
+    """Reject empty SQL and ``;``-separated multi-statement input.
+
+    Read-only is enforced at the connection level (and via a read-only transaction
+    for transaction-based backends), not by parsing the statement shape, so this
+    check only guards statement count.
+    """
     text = sql.strip()
     if not text:
         raise ValueError("sql must be non-empty.")
     stripped = text.rstrip(";")
     if ";" in stripped:
         raise ValueError("raw_sql accepts a single read-only statement.")
-    first = stripped.split(None, 1)[0].upper()
-    if first not in {"SELECT", "WITH"}:
-        raise ValueError("raw_sql accepts a single read-only statement.")
     return stripped
+
+
+# Transaction-based backends have no connect-level read-only mode; raw_sql wraps
+# their query in a read-only transaction. DuckDB and ClickHouse enforce read-only
+# at connect time (see backends._with_read_only_kwargs) and need no transaction.
+_READONLY_TX_START: dict[str, str] = {
+    "postgres": "BEGIN READ ONLY",
+    "trino": "START TRANSACTION READ ONLY",
+    "mysql": "START TRANSACTION READ ONLY",
+}
+
+
+def _execute_readonly(backend: Any, backend_type: str, sql: str) -> Any:
+    """Run ``sql`` against ``backend`` under read-only enforcement.
+
+    For DuckDB/ClickHouse the connection is already read-only, so the query runs
+    directly. For Postgres/Trino/MySQL the query runs inside a
+    ``BEGIN/START TRANSACTION READ ONLY`` transaction that is committed on success
+    or rolled back on failure.
+    """
+    start = _READONLY_TX_START.get(backend_type)
+    if start is None:
+        return backend.raw_sql(sql)
+    backend.raw_sql(start)
+    try:
+        cursor = backend.raw_sql(sql)
+    except BaseException:
+        with suppress(Exception):
+            backend.raw_sql("ROLLBACK")
+        raise
+    backend.raw_sql("COMMIT")
+    return cursor
+
+
+def _extract_raw_sql_frame(
+    cursor: Any,
+    include_types: bool,
+) -> tuple[tuple[str, ...], tuple[dict[str, object], ...], dict[str, str]]:
+    """Extract columns, rows, and best-effort types from a backend cursor.
+
+    Mirrors the portable cursor-row pattern in ``marivo.datasource.metadata``: the
+    DB-API ``description``+``fetchall`` path (DuckDB/Postgres/Trino/MySQL) and the
+    ``column_names``+``result_rows`` path (ClickHouse).
+    """
+    description = getattr(cursor, "description", None)
+    fetchall = getattr(cursor, "fetchall", None)
+    if description is not None and callable(fetchall):
+        columns = tuple(str(item[0]) for item in description)
+        types = {str(item[0]): str(item[1]) for item in description} if include_types else {}
+        rows = tuple(dict(zip(columns, row, strict=True)) for row in fetchall())
+        return columns, rows, types
+    column_names = getattr(cursor, "column_names", None)
+    result_rows = getattr(cursor, "result_rows", None)
+    if column_names and result_rows is not None:
+        columns = tuple(str(name) for name in column_names)
+        rows = tuple(dict(zip(columns, row, strict=True)) for row in result_rows)
+        return columns, rows, {}
+    return (), (), {}
 
 
 def raw_sql(
@@ -1205,30 +1216,49 @@ def raw_sql(
         >>> md.raw_sql(md.ref("warehouse"), "SELECT 1 AS ok", reason="check query path")
 
     Constraints:
-        Rejects empty reasons, empty SQL, multi-statement SQL, and non-read
-        statements before execution. Always disconnects the backend.
+        Rejects empty reasons, empty SQL, and multi-statement SQL before execution.
+        Read-only is enforced at the connection level: DuckDB and ClickHouse open in
+        read-only mode, Postgres/Trino/MySQL run inside a ``READ ONLY`` transaction,
+        and unsupported backends are refused with a typed datasource error. Any
+        execution failure (including a write attempt) surfaces as a
+        ``DatasourceRawSqlError``; the backend is always disconnected.
     """
     if limit < 1:
         raise ValueError("limit must be positive.")
     reason_text = _require_raw_sql_reason(reason)
-    statement = _require_single_read_only_statement(sql)
+    statement = _require_single_statement(sql)
     datasource_id = datasource.id if isinstance(datasource, DatasourceRef) else str(datasource)
+    datasource_ir = _store.load_one(datasource_id, project_root=project_root)
+    if datasource_ir is None:
+        raise DatasourceMissingError(
+            message=f"datasource {datasource_id!r} is not configured",
+            details={
+                "datasource": datasource_id,
+                "available": _store.list_names(project_root),
+            },
+        )
+    backend_type = datasource_ir.backend_type
     service = DatasourceConnectionService(project_root)
-    with service.use_backend(datasource_id) as backend:
+    with service.use_backend(datasource_id, read_only=True) as backend:
         limited_sql = f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {limit}"
-        cursor = backend.raw_sql(limited_sql)
-        frame = cursor.fetch_df()
-        columns = tuple(str(column) for column in frame.columns)
-        rows = tuple(
-            {str(column): frame.iloc[index][column] for column in frame.columns}
-            for index in range(len(frame))
-        )
-        types = (
-            {column: str(dtype) for column, dtype in frame.dtypes.items()} if include_types else {}
-        )
+        try:
+            cursor = _execute_readonly(backend, backend_type, limited_sql)
+            columns, rows, types = _extract_raw_sql_frame(cursor, include_types)
+        except DatasourceError:
+            raise
+        except Exception as exc:
+            raise DatasourceRawSqlError(
+                message="raw_sql execution failed; no side effects were applied.",
+                details={
+                    "datasource": datasource_id,
+                    "backend_type": backend_type,
+                    "reason": reason_text,
+                    "cause": str(exc),
+                },
+            ) from exc
         return RawSqlResult(
             datasource=datasource,
-            backend_type=type(backend).__name__,
+            backend_type=backend_type,
             sql=statement,
             reason=reason_text,
             columns=columns,

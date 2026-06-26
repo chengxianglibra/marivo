@@ -9,7 +9,7 @@ import pytest
 
 import marivo.datasource as md
 from marivo.datasource.authoring import _DuckDBSpec
-from marivo.datasource.manage import inspect_columns as _inspect_columns
+from marivo.datasource.manage import _inspect_columns
 from marivo.datasource.scan import ColumnProfile, _coarse_type_family
 
 

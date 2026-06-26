@@ -281,5 +281,25 @@ class DatasourceMetadataError(DatasourceError):
         }
 
 
+class DatasourceRawSqlError(DatasourceError):
+    def _template_fields(self) -> dict[str, str]:
+        datasource = self.details.get("datasource")
+        backend_type = self.details.get("backend_type")
+        cause = self.details.get("cause")
+        ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
+        bt_ref = (
+            backend_type if isinstance(backend_type, str) and backend_type else "<backend_type>"
+        )
+        cause_ref = cause if isinstance(cause, str) and cause else "raw_sql execution failed."
+        return {
+            "location": f"md.raw_sql(md.ref({ds_ref!r})) backend_type={bt_ref!r}",
+            "cause": (
+                f"the read-only diagnostic failed to execute; no side effects were applied. "
+                f"Underlying cause: {cause_ref}"
+            ),
+            "doc": "marivo/skills/marivo-semantic/references/datasource.md",
+        }
+
+
 # Backward-compatible alias for code that still references the old name.
 DatasourceConfigError = DatasourceError

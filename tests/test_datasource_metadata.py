@@ -20,7 +20,7 @@ from marivo.datasource.authoring import (
 )
 from marivo.datasource.errors import DatasourceMetadataError
 from marivo.datasource.manage import (
-    inspect_source as _inspect_source,
+    _inspect_source,
 )
 from marivo.datasource.manage import (
     inspect_table as _inspect_table,
