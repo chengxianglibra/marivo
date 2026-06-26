@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import types
+import typing
 from collections.abc import Mapping
 from types import ModuleType
 
@@ -108,6 +110,36 @@ def _method_names(cls: type[object], *, include_inherited: bool) -> tuple[str, .
     return tuple(names)
 
 
+def _format_annotation(annotation: object) -> str:
+    """Render a resolved type annotation as a readable string.
+
+    Handles plain types, generics (``list[str]``), and union forms
+    (``typing.Union[str, None]`` and PEP 604 ``str | None``), normalizing
+    unions to the ``a | b`` display form.
+    """
+
+    if annotation is None:
+        return "Any"
+    if annotation is type(None):
+        return "None"
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Union or origin is types.UnionType:
+        return " | ".join(_format_annotation(arg) for arg in args)
+    if origin is not None:
+        origin_name = getattr(origin, "__name__", None) or str(origin).replace(
+            "typing.", ""
+        )
+        if args:
+            inner = ", ".join(_format_annotation(arg) for arg in args)
+            return f"{origin_name}[{inner}]"
+        return origin_name
+    name = getattr(annotation, "__name__", None)
+    if isinstance(name, str):
+        return name
+    return str(annotation).replace("typing.", "")
+
+
 def pydantic_fields(cls: type) -> tuple[FieldInfo, ...]:
     """Extract field metadata from a Pydantic BaseModel subclass."""
     from pydantic_core import PydanticUndefined
@@ -117,13 +149,7 @@ def pydantic_fields(cls: type) -> tuple[FieldInfo, ...]:
 
     fields: list[FieldInfo] = []
     for name, fi in cls.model_fields.items():
-        ann = fi.annotation
-        if ann is None:
-            annotation = "Any"
-        elif hasattr(ann, "__name__"):
-            annotation = ann.__name__
-        else:
-            annotation = str(ann)
+        annotation = _format_annotation(fi.annotation)
 
         default: str | None = None
         if fi.default is not PydanticUndefined:
