@@ -214,7 +214,9 @@ def test_phase3_public_help_mentions_measure_details_and_current_metric_shape() 
     assert "aggregate" in measure_topic
 
     metric_topic = ms.help_text("metric")
-    assert "provenance=ms.from_sql" in metric_topic
+    assert "Metric constructor decision order" in metric_topic
+    assert "@ms.metric" in metric_topic
+    assert "ms.aggregate" in metric_topic
 
 
 def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_factory) -> None:
