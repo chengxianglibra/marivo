@@ -118,7 +118,7 @@ class DimensionValueFact:
 # ----- Evidence-subject types -----
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class PrimaryKeyCandidate:
     """One primary-key candidate with its evidence source.
 
@@ -134,8 +134,24 @@ class PrimaryKeyCandidate:
     source: Literal["declared_primary", "declared_unique", "sampled_unique"]
     evidence: tuple[DiscoveryEvidenceEntry, ...]
 
+    def _identity(self) -> str:
+        return f"PrimaryKeyCandidate column={self.column} source={self.source}"
 
-@dataclass(frozen=True)
+    def render(self) -> str:
+        return _format_discovery_card(
+            identity=self._identity(),
+            status=f"evidence={_format_evidence_entries(self.evidence)}",
+            available=(".evidence", ".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._identity())
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class FormatCandidate:
     """One supported time-parse format observed in a bounded sample.
 
@@ -151,6 +167,22 @@ class FormatCandidate:
     kind: Literal["string", "integer"]
     matched_count: int
     ambiguous: bool
+
+    def _identity(self) -> str:
+        return f"FormatCandidate format={self.format} kind={self.kind}"
+
+    def render(self) -> str:
+        return _format_discovery_card(
+            identity=self._identity(),
+            status=f"matched_count={self.matched_count} ambiguous={self.ambiguous}",
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 @dataclass(frozen=True)
@@ -170,7 +202,7 @@ class KeyTypeEvidence:
     data_type: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class ColumnDiscovery:
     """Column-level evidence for a dimension or measure.
 
@@ -186,8 +218,27 @@ class ColumnDiscovery:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
+    def _identity(self) -> str:
+        return f"ColumnDiscovery column={self.column}"
 
-@dataclass(frozen=True)
+    def render(self) -> str:
+        return _format_discovery_card(
+            identity=self._identity(),
+            status=(
+                f"{_format_profile_summary(self.profile)} "
+                f"signals={_signal_ids(self.signals)} issues={_issue_count(self.issues)}"
+            ),
+            available=(".profile", ".signals", ".issues", ".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._identity())
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class TimeColumnDiscovery:
     """Column-level evidence for a time-dimension column.
 
@@ -209,8 +260,38 @@ class TimeColumnDiscovery:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
+    def _identity(self) -> str:
+        return f"TimeColumnDiscovery column={self.column}"
 
-@dataclass(frozen=True)
+    def render(self) -> str:
+        return _format_discovery_card(
+            identity=self._identity(),
+            status=(
+                f"{_format_profile_summary(self.profile)} "
+                f"formats={_format_formats(self.detected_formats)} "
+                f"range={_format_time_range(self.value_range)} "
+                f"partition_aligned={self.partition_aligned} "
+                f"signals={_signal_ids(self.signals)} issues={_issue_count(self.issues)}"
+            ),
+            available=(
+                ".profile",
+                ".detected_formats",
+                ".value_range",
+                ".signals",
+                ".issues",
+                ".render()",
+                ".show()",
+            ),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._identity())
+
+    def show(self) -> None:
+        print(self.render())
+
+
+@dataclass(frozen=True, repr=False)
 class RelationshipDiscoveryEvidence:
     """Relationship-level evidence from a bounded join-key probe.
 
@@ -244,11 +325,124 @@ class RelationshipDiscoveryEvidence:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
+    def _identity(self) -> str:
+        from_cols = ",".join(self.from_side.columns)
+        to_cols = ",".join(self.to_side.columns)
+        return f"RelationshipDiscoveryEvidence from={from_cols} to={to_cols}"
+
+    def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+        header = ("side", "column", "type_family", "data_type")
+        rows = tuple(
+            (entry.side, entry.column, entry.type_family, entry.data_type)
+            for entry in self.key_type_evidence
+        )
+        return header, rows
+
+    def render(self) -> str:
+        header, rows = self._table()
+        return _format_discovery_card(
+            identity=self._identity(),
+            status=(
+                f"sampled_keys={self.sampled_key_count} matched={self.matched_key_count} "
+                f"match_rate={self.match_rate:.2f} max_rows_per_key={self.max_rows_per_key} "
+                f"avg_rows_per_key={self.avg_rows_per_key:.2f} "
+                f"cardinality={self.cardinality_evidence}"
+            ),
+            table_header=header,
+            table_rows=rows,
+            available=(
+                ".key_type_evidence",
+                ".from_scan",
+                ".to_scan",
+                ".signals",
+                ".issues",
+                ".render()",
+                ".show()",
+            ),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._identity())
+
+    def show(self) -> None:
+        print(self.render())
+
 
 # ----- Shared card formatter -----
 
 
 _MAX_TABLE_ROWS = 8
+_MAX_INLINE_ITEMS = 3
+
+
+def _format_scalar(value: object | None) -> str:
+    if value is None:
+        return "none"
+    text = str(value)
+    if len(text) > 40:
+        return text[:37] + "..."
+    return text
+
+
+def _format_evidence_entries(entries: tuple[DiscoveryEvidenceEntry, ...]) -> str:
+    if not entries:
+        return "none"
+    visible = ", ".join(f"{entry.key}={_format_scalar(entry.value)}" for entry in entries[:3])
+    if len(entries) > 3:
+        visible += f", +{len(entries) - 3} more"
+    return visible
+
+
+def _format_top_values(profile: ColumnProfile) -> str:
+    if not profile.top_values:
+        return "none"
+    visible = ", ".join(
+        f"{_format_scalar(value)}:{count}"
+        for value, count in profile.top_values[:_MAX_INLINE_ITEMS]
+    )
+    if len(profile.top_values) > _MAX_INLINE_ITEMS:
+        visible += f", +{len(profile.top_values) - _MAX_INLINE_ITEMS} more"
+    return visible
+
+
+def _format_sample_values(profile: ColumnProfile) -> str:
+    if not profile.sample_values:
+        return "none"
+    visible = ", ".join(
+        _format_scalar(value) for value in profile.sample_values[:_MAX_INLINE_ITEMS]
+    )
+    if len(profile.sample_values) > _MAX_INLINE_ITEMS:
+        visible += f", +{len(profile.sample_values) - _MAX_INLINE_ITEMS} more"
+    return visible
+
+
+def _format_profile_range(profile: ColumnProfile) -> str:
+    return f"{_format_scalar(profile.min_value)}..{_format_scalar(profile.max_value)}"
+
+
+def _format_profile_summary(profile: ColumnProfile) -> str:
+    return (
+        f"type={profile.data_type} family={profile.type_family} nullable={profile.nullable} "
+        f"distinct={profile.distinct_count} nulls={profile.null_count} "
+        f"non_null={profile.non_null_count} range={_format_profile_range(profile)}"
+    )
+
+
+def _format_formats(formats: tuple[FormatCandidate, ...]) -> str:
+    if not formats:
+        return "none"
+    visible = ", ".join(
+        f"{candidate.format}:{candidate.matched_count}"
+        + (" ambiguous" if candidate.ambiguous else "")
+        for candidate in formats[:_MAX_INLINE_ITEMS]
+    )
+    if len(formats) > _MAX_INLINE_ITEMS:
+        visible += f", +{len(formats) - _MAX_INLINE_ITEMS} more"
+    return visible
+
+
+def _format_time_range(value_range: TimeValueRange) -> str:
+    return f"{_format_scalar(value_range.lower)}..{_format_scalar(value_range.upper)}"
 
 
 def _format_discovery_card(
@@ -308,21 +502,61 @@ class EntityDiscoveryResult:
         return f"EntityDiscoveryResult datasource={self.datasource.id} table={self.table}"
 
     def render(self) -> str:
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=_scan_status(self.scan, _issue_count(self.issues)),
-            available=(
-                ".primary_key_evidence",
-                ".time_like_columns",
-                ".partition_columns",
-                ".column_profiles",
-                ".signals",
-                ".issues",
-                ".scan",
-                ".render()",
-                ".show()",
-            ),
+        lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
+        if self.primary_key_evidence:
+            lines.append("primary key evidence:")
+            for candidate in self.primary_key_evidence[:_MAX_TABLE_ROWS]:
+                lines.append(
+                    "  "
+                    f"{candidate.column} source={candidate.source} "
+                    f"evidence={_format_evidence_entries(candidate.evidence)}"
+                )
+            if len(self.primary_key_evidence) > _MAX_TABLE_ROWS:
+                lines.append(
+                    f"  ... {len(self.primary_key_evidence) - _MAX_TABLE_ROWS} more; "
+                    "inspect .primary_key_evidence"
+                )
+        else:
+            lines.append("primary key evidence: none")
+        lines.append(
+            "time-like columns: " + (", ".join(self.time_like_columns[:_MAX_TABLE_ROWS]) or "none")
         )
+        if len(self.time_like_columns) > _MAX_TABLE_ROWS:
+            lines.append(f"  ... {len(self.time_like_columns) - _MAX_TABLE_ROWS} more")
+        lines.append(
+            "partition columns: " + (", ".join(self.partition_columns[:_MAX_TABLE_ROWS]) or "none")
+        )
+        if len(self.partition_columns) > _MAX_TABLE_ROWS:
+            lines.append(f"  ... {len(self.partition_columns) - _MAX_TABLE_ROWS} more")
+        if self.column_profiles:
+            lines.append("column profiles:")
+            for profile in self.column_profiles[:_MAX_TABLE_ROWS]:
+                lines.append(
+                    "  "
+                    f"{profile.name} {_format_profile_summary(profile)} "
+                    f"top={_format_top_values(profile)} samples={_format_sample_values(profile)}"
+                )
+            if len(self.column_profiles) > _MAX_TABLE_ROWS:
+                lines.append(
+                    f"  ... {len(self.column_profiles) - _MAX_TABLE_ROWS} more; "
+                    "inspect .column_profiles"
+                )
+        else:
+            lines.append("column profiles: none")
+        lines.append("available:")
+        for entry in (
+            ".primary_key_evidence",
+            ".time_like_columns",
+            ".partition_columns",
+            ".column_profiles",
+            ".signals",
+            ".issues",
+            ".scan",
+            ".render()",
+            ".show()",
+        ):
+            lines.append(f"- {entry}")
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
@@ -347,11 +581,12 @@ class DimensionDiscoveryResult:
         )
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
-        header = ("column", "type", "signals", "issues")
+        header = ("column", "type", "profile", "signals", "issues")
         rows = tuple(
             (
                 c.column,
                 c.profile.data_type,
+                f"distinct={c.profile.distinct_count} nulls={c.profile.null_count}",
                 _signal_ids(c.signals),
                 str(_issue_count(c.issues)),
             )
@@ -393,11 +628,26 @@ class TimeDimensionDiscoveryResult:
         )
 
     def render(self) -> str:
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=_scan_status(self.scan, _issue_count(self.issues)),
-            available=(".columns", ".signals", ".issues", ".scan", ".render()", ".show()"),
-        )
+        lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
+        if self.columns:
+            lines.append("time column evidence:")
+            for column in self.columns[:_MAX_TABLE_ROWS]:
+                lines.append(
+                    "  "
+                    f"{column.column} {_format_profile_summary(column.profile)} "
+                    f"formats={_format_formats(column.detected_formats)} "
+                    f"range={_format_time_range(column.value_range)} "
+                    f"partition_aligned={column.partition_aligned} "
+                    f"issues={_issue_count(column.issues)}"
+                )
+            if len(self.columns) > _MAX_TABLE_ROWS:
+                lines.append(f"  ... {len(self.columns) - _MAX_TABLE_ROWS} more; inspect .columns")
+        else:
+            lines.append("time column evidence: none")
+        lines.append("available:")
+        for entry in (".columns", ".signals", ".issues", ".scan", ".render()", ".show()"):
+            lines.append(f"- {entry}")
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
@@ -420,11 +670,12 @@ class MeasureDiscoveryResult:
         return f"MeasureDiscoveryResult datasource={self.datasource.id} columns={len(self.columns)}"
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
-        header = ("column", "type", "signals", "issues")
+        header = ("column", "type", "profile", "signals", "issues")
         rows = tuple(
             (
                 c.column,
                 c.profile.data_type,
+                f"distinct={c.profile.distinct_count} nulls={c.profile.null_count}",
                 _signal_ids(c.signals),
                 str(_issue_count(c.issues)),
             )

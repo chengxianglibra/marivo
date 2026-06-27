@@ -15,12 +15,18 @@ from marivo.datasource.discovery import (
     DiscoveryIssue,
     DiscoverySignal,
     EntityDiscoveryResult,
+    FormatCandidate,
+    KeyTypeEvidence,
     MeasureDiscoveryResult,
+    PrimaryKeyCandidate,
+    RelationshipDiscoveryEvidence,
     TimeColumnDiscovery,
+    TimeDimensionDiscoveryResult,
     TimeValueRange,
 )
 from marivo.datasource.scan import (
     ColumnProfile,
+    JoinSide,
     ScanReport,
     ScanScope,
     TableSource,
@@ -136,6 +142,31 @@ def _profile(name: str, data_type: str = "VARCHAR") -> ColumnProfile:
     )
 
 
+def _rich_profile(name: str, data_type: str = "VARCHAR") -> ColumnProfile:
+    return ColumnProfile(
+        name=name,
+        data_type=data_type,
+        nullable=False,
+        comment="business key",
+        null_count=1,
+        empty_count=0,
+        distinct_count=4,
+        top_values=(("A", 2),),
+        sample_values=("A", "B"),
+        min_value="A",
+        max_value="Z",
+        non_null_count=4,
+        distinct_ratio=1.0,
+        top_value_concentration=0.5,
+        negative_count=0,
+        zero_count=0,
+        min_length=1,
+        max_length=4,
+        avg_length=2.5,
+        type_family="string",
+    )
+
+
 def _measure_result() -> MeasureDiscoveryResult:
     column = ColumnDiscovery(
         column="amount",
@@ -196,6 +227,130 @@ def test_result_conforms_to_agent_result(result_factory) -> None:
     assert result.show() is None
 
 
+def test_nested_discovery_evidence_conforms_to_agent_result() -> None:
+    profile = _rich_profile("order_id", "VARCHAR")
+    pk = PrimaryKeyCandidate(
+        column="order_id",
+        source="sampled_unique",
+        evidence=(DiscoveryEvidenceEntry(key="distinct_count", value=4),),
+    )
+    fmt = FormatCandidate(format="%Y-%m-%d", kind="string", matched_count=4, ambiguous=False)
+    column = ColumnDiscovery(column="order_id", profile=profile, signals=(), issues=())
+    time_column = TimeColumnDiscovery(
+        column="created_at",
+        profile=_rich_profile("created_at", "VARCHAR"),
+        detected_formats=(fmt,),
+        value_range=TimeValueRange(lower="2026-01-01", upper="2026-01-04"),
+        partition_aligned=True,
+        signals=(),
+        issues=(),
+    )
+    relationship = RelationshipDiscoveryEvidence(
+        from_side=JoinSide(ref("warehouse"), table("orders"), columns=("customer_id",)),
+        to_side=JoinSide(ref("warehouse"), table("customers"), columns=("customer_id",)),
+        key_type_evidence=(
+            KeyTypeEvidence(
+                side="from",
+                column="customer_id",
+                type_family="integer",
+                data_type="BIGINT",
+            ),
+        ),
+        sampled_key_count=4,
+        matched_key_count=3,
+        match_rate=0.75,
+        max_rows_per_key=2,
+        avg_rows_per_key=1.25,
+        cardinality_evidence="many_to_one",
+        from_scan=_scan_report(),
+        to_scan=_scan_report(),
+        signals=(),
+        issues=(),
+    )
+
+    for obj in (profile, pk, fmt, column, time_column, relationship):
+        assert isinstance(obj, AgentResult)
+        rendered = obj.render()
+        assert isinstance(rendered, str)
+        assert not rendered.endswith("\n")
+        assert obj.show() is None
+        assert "\n" not in repr(obj)
+
+
+def test_entity_render_includes_bounded_evidence_not_only_affordances() -> None:
+    result = EntityDiscoveryResult(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=None,
+        scan=_scan_report(),
+        table="orders",
+        primary_key_evidence=(
+            PrimaryKeyCandidate(
+                column="order_id",
+                source="sampled_unique",
+                evidence=(DiscoveryEvidenceEntry(key="distinct_count", value=4),),
+            ),
+        ),
+        time_like_columns=("created_at",),
+        partition_columns=("dt",),
+        column_profiles=(_rich_profile("order_id", "VARCHAR"), _rich_profile("created_at")),
+        signals=(),
+        issues=(),
+    )
+
+    rendered = result.render()
+
+    assert "primary key evidence:" in rendered
+    assert "order_id" in rendered
+    assert "sampled_unique" in rendered
+    assert "time-like columns: created_at" in rendered
+    assert "partition columns: dt" in rendered
+    assert "column profiles:" in rendered
+    assert "distinct=4" in rendered
+    assert "nulls=1" in rendered
+    assert "available:" in rendered
+    assert rendered.index("primary key evidence:") < rendered.index("available:")
+    assert "judgment targets:" not in rendered
+
+
+def test_time_dimension_render_includes_formats_range_and_partition_evidence() -> None:
+    result = TimeDimensionDiscoveryResult(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=None,
+        scan=_scan_report(),
+        signals=(),
+        issues=(),
+        columns=(
+            TimeColumnDiscovery(
+                column="created_at",
+                profile=_rich_profile("created_at", "VARCHAR"),
+                detected_formats=(
+                    FormatCandidate(
+                        format="%Y-%m-%d",
+                        kind="string",
+                        matched_count=4,
+                        ambiguous=False,
+                    ),
+                ),
+                value_range=TimeValueRange(lower="2026-01-01", upper="2026-01-04"),
+                partition_aligned=True,
+                signals=(),
+                issues=(),
+            ),
+        ),
+    )
+
+    rendered = result.render()
+
+    assert "time column evidence:" in rendered
+    assert "created_at" in rendered
+    assert "%Y-%m-%d" in rendered
+    assert "range=2026-01-01..2026-01-04" in rendered
+    assert "partition_aligned=True" in rendered
+    assert rendered.index("time column evidence:") < rendered.index("available:")
+
+
 def test_measure_render_lists_columns_without_judgment_targets() -> None:
     result = _measure_result()
     rendered = result.render()
@@ -203,6 +358,8 @@ def test_measure_render_lists_columns_without_judgment_targets() -> None:
     assert "MeasureDiscoveryResult" in rendered
     assert "evidence_only" in rendered
     assert "amount" in rendered
+    assert "distinct=" in rendered
+    assert "nulls=" in rendered
     assert ".columns" in rendered
     assert "judgment targets:" not in rendered
     assert ".judgment_targets" not in rendered

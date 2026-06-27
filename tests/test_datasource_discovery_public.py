@@ -37,6 +37,13 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
     entity = md.discover_entity(warehouse, source, scope=scope, project_root=tmp_path)
     assert isinstance(entity, md.EntityDiscoveryResult)
     assert entity.primary_key_evidence
+    entity_render = entity.render()
+    assert "primary key evidence:" in entity_render
+    assert "order_id" in entity_render
+    assert "sampled_unique" in entity_render
+    assert "created_at" in entity_render
+    assert "distinct=" in entity_render
+    assert "nulls=" in entity_render
 
     dimensions = md.discover_dimensions(
         warehouse,
@@ -58,6 +65,11 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
     )
     assert isinstance(times, md.TimeDimensionDiscoveryResult)
     assert times.columns[0].detected_formats
+    times_render = times.render()
+    assert "time column evidence:" in times_render
+    assert "created_at" in times_render
+    assert "%Y-%m-%d" in times_render
+    assert "range=" in times_render
 
     measures = md.discover_measures(
         warehouse,

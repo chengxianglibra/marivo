@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory() as tmp:
         scope = md.unpruned(max_rows=100)
 
         entity_evidence = md.discover_entity(warehouse, orders, scope=scope)
-        print("entity table:", entity_evidence.table)
+        entity_evidence.show()
 
         dimension_evidence = md.discover_dimensions(
             warehouse,
@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("region", "status"),
             scope=scope,
         )
-        print("dimension columns:", [column.column for column in dimension_evidence.columns])
+        dimension_evidence.show()
 
         time_evidence = md.discover_time_dimensions(
             warehouse,
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("order_date",),
             scope=scope,
         )
-        print("time columns:", [column.column for column in time_evidence.columns])
+        time_evidence.show()
 
         measure_evidence = md.discover_measures(
             warehouse,
@@ -70,7 +70,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("amount",),
             scope=scope,
         )
-        print("measure columns:", [column.column for column in measure_evidence.columns])
+        measure_evidence.show()
 
         values = md.discover_dimension_values(
             warehouse,
