@@ -11,6 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+import ibis
+
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.discovery import (
     ColumnDiscovery,
@@ -18,6 +20,7 @@ from marivo.datasource.discovery import (
     DimensionValueFact,
     DiscoveryEvidenceEntry,
     DiscoveryIssue,
+    DiscoveryObjectKind,
     DiscoverySeverity,
     DiscoverySignal,
     EntityDiscoveryResult,
@@ -57,10 +60,37 @@ _UNIT_TOKENS = (
     "meters",
     "kilograms",
 )
+_IBIS_TABLE_ATTR_NAMES: frozenset[str] = frozenset(
+    name
+    for name in dir(ibis.Table)
+    if not name.startswith("_")
+    if callable(getattr(ibis.Table, name, None))
+    or isinstance(getattr(ibis.Table, name, None), property)
+)
 
 
 def _ev(*pairs: tuple[str, EvidenceValue]) -> tuple[DiscoveryEvidenceEntry, ...]:
     return tuple(DiscoveryEvidenceEntry(key=k, value=v) for k, v in pairs)
+
+
+def _authoring_shadowing_issue(
+    profile: ColumnProfile,
+    *,
+    kind: DiscoveryObjectKind,
+) -> DiscoveryIssue | None:
+    if profile.name not in _IBIS_TABLE_ATTR_NAMES:
+        return None
+    return DiscoveryIssue(
+        rule_id="authoring_ibis_attribute_shadowing",
+        kind=kind,
+        severity="warning",
+        subject=profile.name,
+        message=(
+            f"column {profile.name!r} shadows an ibis Table attribute; "
+            f'use bracket notation table["{profile.name}"] in authoring expressions'
+        ),
+        evidence=_ev(("column", profile.name)),
+    )
 
 
 def _is_numeric(data_type: str) -> bool:
@@ -237,6 +267,9 @@ def dimension_column_rules(
 ) -> tuple[DiscoverySignal | DiscoveryIssue, ...]:
     """Candidate-scope dimension rules for one column profile."""
     out: list[DiscoverySignal | DiscoveryIssue] = []
+    shadowing_issue = _authoring_shadowing_issue(profile, kind="dimension")
+    if shadowing_issue is not None:
+        out.append(shadowing_issue)
     if 0 < profile.distinct_count <= _LOW_CARDINALITY_THRESHOLD:
         out.append(
             DiscoverySignal(
@@ -324,8 +357,9 @@ def measure_column_rules(
     profile: ColumnProfile,
 ) -> tuple[DiscoverySignal | DiscoveryIssue, ...]:
     """Candidate-scope measure rules for one column profile."""
+    shadowing_issue = _authoring_shadowing_issue(profile, kind="measure")
     if not _is_numeric(profile.data_type):
-        return (
+        issues: tuple[DiscoverySignal | DiscoveryIssue, ...] = (
             DiscoveryIssue(
                 rule_id="measure_non_numeric_type",
                 kind="measure",
@@ -335,6 +369,7 @@ def measure_column_rules(
                 evidence=_ev(("data_type", profile.data_type)),
             ),
         )
+        return (shadowing_issue, *issues) if shadowing_issue is not None else issues
     out: list[DiscoverySignal | DiscoveryIssue] = [
         DiscoverySignal(
             rule_id="measure_numeric_type",
@@ -343,6 +378,8 @@ def measure_column_rules(
             evidence=_ev(("data_type", profile.data_type)),
         )
     ]
+    if shadowing_issue is not None:
+        out.append(shadowing_issue)
     if profile.negative_count > 0:
         out.append(
             DiscoverySignal(
@@ -565,6 +602,9 @@ def entity_rules(
 
     rows = scan.rows_scanned
     for profile in profiles:
+        shadowing_issue = _authoring_shadowing_issue(profile, kind="entity")
+        if shadowing_issue is not None:
+            out.append(shadowing_issue)
         if rows > 0 and profile.null_count == 0 and profile.distinct_count == rows:
             out.append(
                 DiscoverySignal(
@@ -806,6 +846,9 @@ def time_column_rules(
 ) -> tuple[DiscoverySignal | DiscoveryIssue, ...]:
     """Candidate-scope time-dimension rules for one column profile."""
     out: list[DiscoverySignal | DiscoveryIssue] = []
+    shadowing_issue = _authoring_shadowing_issue(profile, kind="time_dimension")
+    if shadowing_issue is not None:
+        out.append(shadowing_issue)
     if profile.type_family == "date":
         out.append(
             DiscoverySignal(

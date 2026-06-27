@@ -270,139 +270,126 @@ with tempfile.TemporaryDirectory() as tmp:
         write_domain(DOMAIN)
         verify("sales")
 
-        entity_brief = ms.prepare_entity(
-            datasource="warehouse",
-            source=ms.table("orders"),
-            domain="sales",
+        orders_entity = md.discover_entity(
+            md.ref("warehouse"),
+            md.table("orders"),
             scope=md.unpruned(max_rows=100),
         )
-        print("orders entity brief:", entity_brief.status)
+        print("orders entity evidence:", len(orders_entity.column_profiles), "columns")
         write_domain(ORDERS_ENTITY)
         verify("sales.orders")
 
-        entity_brief = ms.prepare_entity(
-            datasource="warehouse",
-            source=ms.table("customers"),
-            domain="sales",
+        customers_entity = md.discover_entity(
+            md.ref("warehouse"),
+            md.table("customers"),
             scope=md.unpruned(max_rows=100),
         )
-        print("customers entity brief:", entity_brief.status)
+        print("customers entity evidence:", len(customers_entity.column_profiles), "columns")
         write_domain(CUSTOMERS_ENTITY)
         verify("sales.customers")
 
-        dimension_brief = ms.prepare_dimension(
-            entity="sales.orders",
-            column="region",
+        region_discovery = md.discover_dimensions(
+            md.ref("warehouse"),
+            md.table("orders"),
+            columns=("region",),
             scope=md.unpruned(max_rows=100),
         )
-        print("region dimension brief:", dimension_brief.status)
+        print("region dimension evidence:", region_discovery.columns[0].column)
         write_domain(ORDER_REGION_DIMENSION)
         verify("sales.orders.region")
 
-        dimension_brief = ms.prepare_dimension(
-            entity="sales.orders",
-            column="customer_id",
+        order_customer_discovery = md.discover_dimensions(
+            md.ref("warehouse"),
+            md.table("orders"),
+            columns=("customer_id",),
             scope=md.unpruned(max_rows=100),
         )
-        print("order customer key brief:", dimension_brief.status)
+        print("order customer key evidence:", order_customer_discovery.columns[0].column)
         write_domain(ORDER_CUSTOMER_ID_DIMENSION)
         verify("sales.orders.customer_id")
 
-        dimension_brief = ms.prepare_dimension(
-            entity="sales.customers",
-            column="customer_id",
+        customer_id_discovery = md.discover_dimensions(
+            md.ref("warehouse"),
+            md.table("customers"),
+            columns=("customer_id",),
             scope=md.unpruned(max_rows=100),
         )
-        print("customer key brief:", dimension_brief.status)
+        print("customer key evidence:", customer_id_discovery.columns[0].column)
         write_domain(CUSTOMER_ID_DIMENSION)
         verify("sales.customers.customer_id")
 
-        dimension_brief = ms.prepare_dimension(
-            entity="sales.customers",
-            column="country",
+        country_discovery = md.discover_dimensions(
+            md.ref("warehouse"),
+            md.table("customers"),
+            columns=("country",),
             scope=md.unpruned(max_rows=100),
         )
-        print("country dimension brief:", dimension_brief.status)
+        print("country dimension evidence:", country_discovery.columns[0].column)
         write_domain(CUSTOMER_COUNTRY_DIMENSION)
         verify("sales.customers.country")
 
-        time_brief = ms.prepare_time_dimension(
-            entity="sales.orders",
-            column="order_date",
+        order_date_discovery = md.discover_time_dimensions(
+            md.ref("warehouse"),
+            md.table("orders"),
+            columns=("order_date",),
             scope=md.unpruned(max_rows=100),
         )
-        print("order date brief:", time_brief.status)
+        print("order date evidence:", len(order_date_discovery.columns[0].detected_formats))
         write_domain(ORDER_DATE_TIME_DIMENSION)
         verify("sales.orders.order_date")
 
-        measure_brief = ms.prepare_measure(
-            entity="sales.orders",
-            column="amount",
+        amount_discovery = md.discover_measures(
+            md.ref("warehouse"),
+            md.table("orders"),
+            columns=("amount",),
             scope=md.unpruned(max_rows=100),
         )
-        print("amount measure brief:", measure_brief.status)
+        print("amount measure evidence:", amount_discovery.columns[0].column)
         write_domain(AMOUNT_MEASURE)
         verify("sales.orders.amount")
 
-        measure_brief = ms.prepare_measure(
-            entity="sales.orders",
-            column="refund_amount",
+        refund_discovery = md.discover_measures(
+            md.ref("warehouse"),
+            md.table("orders"),
+            columns=("refund_amount",),
             scope=md.unpruned(max_rows=100),
         )
-        print("refund measure brief:", measure_brief.status)
+        print("refund measure evidence:", refund_discovery.columns[0].column)
         write_domain(REFUND_MEASURE)
         verify("sales.orders.refund_amount")
 
-        metric_brief = ms.prepare_metric(
-            entity="sales.orders",
-            measure_columns=("amount",),
-            scope=md.unpruned(max_rows=100),
-        )
-        print("gross revenue metric brief:", metric_brief.status)
+        ms.help("aggregate")
         write_domain(GROSS_REVENUE_METRIC)
         verify("sales.gross_revenue")
 
-        metric_brief = ms.prepare_metric(
-            entity="sales.orders",
-            measure_columns=("refund_amount",),
-            scope=md.unpruned(max_rows=100),
-        )
-        print("refunds metric brief:", metric_brief.status)
+        ms.help("aggregate")
         write_domain(REFUNDS_METRIC)
         verify("sales.refunds")
 
-        metric_brief = ms.prepare_metric(
-            entity="sales.orders",
-            scope=md.unpruned(max_rows=100),
-        )
-        print("orders count metric brief:", metric_brief.status)
+        ms.help("count")
         write_domain(ORDERS_COUNT_METRIC)
         verify("sales.orders_count")
 
-        relationship_brief = ms.prepare_relationship(
-            from_entity="sales.orders",
-            to_entity="sales.customers",
-            keys=[("sales.orders.customer_id", "sales.customers.customer_id")],
+        relationship_discovery = md.discover_relationship(
+            from_side=md.JoinSide(
+                md.ref("warehouse"), md.table("orders"), columns=("customer_id",)
+            ),
+            to_side=md.JoinSide(
+                md.ref("warehouse"), md.table("customers"), columns=("customer_id",)
+            ),
             scope=md.unpruned(max_rows=100),
         )
-        print("relationship brief:", relationship_brief.status)
+        print("relationship evidence:", relationship_discovery.evidence.cardinality_evidence)
         write_domain(RELATIONSHIP)
         verify("sales.orders_to_customers")
 
-        cross_brief = ms.prepare_cross_entity_metric(
-            root_entity="sales.orders",
-            entities=("sales.orders", "sales.customers"),
-            measure_columns=("amount",),
-            scope=md.unpruned(max_rows=100),
-        )
-        print("cross brief:", cross_brief.status)
+        ms.help("metric")
         write_domain(CROSS_ENTITY_METRIC)
         verify("sales.revenue_by_customer_country")
 
-        ms.prepare_derived_metric(
-            numerator="sales.gross_revenue",
-            denominator="sales.orders_count",
-        )
+        ms.help("ratio")
+        ms.help("weighted_average")
+        ms.help("linear")
         write_domain(DERIVED_METRICS)
         for ref in ("sales.aov", "sales.avg_revenue_per_order", "sales.net_revenue"):
             verify(ref)

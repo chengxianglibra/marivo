@@ -269,7 +269,6 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.datetime",
             "required": [],
             "optional": ["timezone", "sample_interval"],
-            "prepare": "ms.prepare_time_dimension",
             "discover": "md.discover_time_dimensions",
             "parameters": {"timezone": timezone, "sample_interval": sample_interval},
             "static_constraints": [
@@ -282,7 +281,6 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.timestamp",
             "required": [],
             "optional": ["timezone", "sample_interval"],
-            "prepare": "ms.prepare_time_dimension",
             "discover": "md.discover_time_dimensions",
             "parameters": {"timezone": timezone, "sample_interval": sample_interval},
             "static_constraints": [
@@ -295,7 +293,6 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.strptime",
             "required": ["format"],
             "optional": ["timezone", "sample_interval"],
-            "prepare": "ms.prepare_time_dimension",
             "discover": "md.discover_time_dimensions",
             "parameters": {
                 "format": _param("str", "Python strptime-compatible physical encoding format"),
@@ -314,7 +311,6 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.hour_prefix",
             "required": ["prefix"],
             "optional": ["sample_interval"],
-            "prepare": "ms.prepare_time_dimension",
             "discover": "md.discover_time_dimensions",
             "parameters": {
                 "prefix": _param("str", "date prefix that gives hour values date context"),
@@ -351,7 +347,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.domain",
             "required": ["name"],
             "optional": ["ai_context"],
-            "prepare": "ms.prepare_domain",
             "discover": None,
             "parameters": {"name": name, "ai_context": ai_context},
             "static_constraints": ["name must be unique within the project"],
@@ -361,7 +356,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.entity",
             "required": ["name", "datasource", "source"],
             "optional": ["primary_key", "versioning", "domain", "ai_context"],
-            "prepare": "ms.prepare_entity",
             "discover": "md.discover_entity",
             "parameters": {
                 "name": name,
@@ -389,7 +383,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.dimension_column",
             "required": ["name", "entity", "column"],
             "optional": ["domain", "ai_context"],
-            "prepare": "ms.prepare_dimension",
             "discover": "md.discover_dimensions",
             "parameters": {
                 "name": name,
@@ -408,7 +401,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "@ms.dimension",
             "required": ["entity", "function_body"],
             "optional": ["name", "domain", "ai_context"],
-            "prepare": "ms.prepare_dimension",
             "discover": "md.discover_dimensions",
             "parameters": {
                 "entity": entity_ref_or_str,
@@ -426,7 +418,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.time_dimension_column",
             "required": ["name", "entity", "column", "granularity"],
             "optional": ["parse", "is_default", "domain", "ai_context"],
-            "prepare": "ms.prepare_time_dimension",
             "discover": "md.discover_time_dimensions",
             "parameters": {
                 "name": name,
@@ -460,7 +451,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "@ms.time_dimension",
             "required": ["entity", "granularity", "function_body"],
             "optional": ["name", "parse", "is_default", "domain", "ai_context"],
-            "prepare": "ms.prepare_time_dimension",
             "discover": "md.discover_time_dimensions",
             "parameters": {
                 "entity": entity_ref_or_str,
@@ -494,7 +484,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.measure_column",
             "required": ["name", "entity", "column", "additivity"],
             "optional": ["unit", "domain", "ai_context"],
-            "prepare": "ms.prepare_measure",
             "discover": "md.discover_measures",
             "parameters": {
                 "name": name,
@@ -517,7 +506,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "@ms.measure",
             "required": ["entity", "additivity", "function_body"],
             "optional": ["name", "unit", "domain", "ai_context"],
-            "prepare": "ms.prepare_measure",
             "discover": "md.discover_measures",
             "parameters": {
                 "entity": entity_ref_or_str,
@@ -548,7 +536,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.aggregate",
             "required": ["name", "measure", "agg"],
             "optional": ["domain", "ai_context"],
-            "prepare": "ms.prepare_metric",
             "discover": None,
             "parameters": {
                 "name": name,
@@ -566,7 +553,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.count",
             "required": ["name", "entity"],
             "optional": ["domain", "ai_context"],
-            "prepare": "ms.prepare_metric",
             "discover": None,
             "parameters": {
                 "name": name,
@@ -581,7 +567,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "metric family",
             "required": [],
             "optional": [],
-            "prepare": "ms.prepare_metric or ms.prepare_derived_metric",
             "discover": "md.discover_relationship for cross-entity viability when multiple entities are involved",
             "parameters": {},
             "decision_order": [
@@ -598,35 +583,30 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                     "constructor": "ms.count",
                     "required": ["name", "entity"],
                     "optional": ["domain", "ai_context"],
-                    "prepare": "ms.prepare_metric",
                 },
                 "aggregate": {
                     "when": "metric is a simple aggregation over one verified measure",
                     "constructor": "ms.aggregate",
                     "required": ["name", "measure", "agg"],
                     "optional": ["domain", "ai_context"],
-                    "prepare": "ms.prepare_metric",
                 },
                 "ratio": {
                     "when": "metric divides one existing metric by another",
                     "constructor": "ms.ratio",
                     "required": ["name", "numerator", "denominator"],
                     "optional": ["unit", "domain", "ai_context"],
-                    "prepare": "ms.prepare_derived_metric",
                 },
                 "weighted_average": {
                     "when": "metric is weighted average from an existing value metric and weight metric",
                     "constructor": "ms.weighted_average",
                     "required": ["name", "value", "weight"],
                     "optional": ["unit", "domain", "ai_context"],
-                    "prepare": "ms.prepare_derived_metric",
                 },
                 "linear": {
                     "when": "metric adds and/or subtracts existing metrics",
                     "constructor": "ms.linear",
                     "required": ["name"],
                     "optional": ["add", "subtract", "unit", "domain", "ai_context"],
-                    "prepare": "ms.prepare_derived_metric",
                 },
                 "expression": {
                     "when": "metric needs an expression body over one or more entities, measures, or metrics",
@@ -641,7 +621,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                         "provenance",
                         "ai_context",
                     ],
-                    "prepare": "ms.prepare_metric",
                     "parameters": {
                         "entities": _param(
                             "list[EntityRef | str]", "entities used by the metric body"
@@ -690,7 +669,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.relationship",
             "required": ["name", "from_entity", "to_entity", "keys"],
             "optional": ["domain", "ai_context"],
-            "prepare": "ms.prepare_relationship",
             "discover": "md.discover_relationship",
             "parameters": {
                 "name": name,
@@ -710,7 +688,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.ratio",
             "required": ["name", "numerator", "denominator"],
             "optional": ["unit", "domain", "ai_context"],
-            "prepare": "ms.prepare_derived_metric",
             "discover": None,
             "parameters": {
                 "name": name,
@@ -727,7 +704,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.weighted_average",
             "required": ["name", "value", "weight"],
             "optional": ["unit", "domain", "ai_context"],
-            "prepare": "ms.prepare_derived_metric",
             "discover": None,
             "parameters": {
                 "name": name,
@@ -744,7 +720,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.linear",
             "required": ["name"],
             "optional": ["add", "subtract", "unit", "domain", "ai_context"],
-            "prepare": "ms.prepare_derived_metric",
             "discover": None,
             "parameters": {
                 "name": name,
@@ -773,7 +748,6 @@ def _contract_text(symbol: str, content: dict[str, object]) -> str:
         f"Required: {', '.join(cast('list[str]', contract['required']))}",
         f"Optional: {', '.join(cast('list[str]', contract['optional']))}",
         f"Discover: {contract['discover']}",
-        f"Prepare: {contract['prepare']}",
     ]
     if "parse" in contract:
         lines.extend(("", "Parse decision:"))
@@ -839,7 +813,6 @@ def _contract_topic(
             "Read this contract to identify required and optional parameters.",
             "Run the matching md.discover_* call when the object depends on datasource evidence.",
             "Use discovery evidence, registry facts, project docs, prior decisions, and user answers to choose values.",
-            "Call the matching ms.prepare_* API before authoring.",
             "Author one object and run ms.verify_object(...).",
         ],
     }
@@ -872,7 +845,7 @@ def _parse_contract_topic(symbol: str, contract: dict[str, object]) -> Descripto
             "Use this constructor only as a time dimension parse value.",
             "Read ms.help('time_dimension_column') or ms.help('time_dimension') for the owning time dimension contract.",
             "Use md.discover_time_dimensions(...) evidence and user/project context to decide whether this parse constructor is needed.",
-            "Call ms.prepare_time_dimension(...) before authoring the time dimension.",
+            "Author the time dimension and run ms.verify_object(...).",
         ],
     }
     return Descriptor(
@@ -1050,7 +1023,7 @@ def _surface() -> Surface:
         all_names,
         _resolve,
         topics,
-        overrides={"BriefStatus": "brief status: sufficient | needs_input | blocked"},
+        overrides={},
     )
     return Surface(
         name="marivo.semantic",

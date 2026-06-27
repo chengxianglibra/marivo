@@ -23,7 +23,6 @@ from marivo.semantic.ir import SourceLocation
 __all__ = [
     "HINTS",
     "ErrorKind",
-    "LadderOrderError",
     "SemanticDecoratorError",
     "SemanticError",
     "SemanticLoadError",
@@ -107,7 +106,6 @@ class ErrorKind(StrEnum):
     BACKEND_FACTORY_REQUIRED = "backend_factory_required"
     INSPECT_SOURCE_REQUIRED = "inspect_source_required"
     PROJECT_NOT_LOADED = "project_not_loaded"
-    LADDER_ORDER = "ladder_order"
 
     # catalog
     UNSUPPORTED_KIND = "unsupported_kind"
@@ -215,10 +213,6 @@ class SemanticRuntimeError(SemanticError):
 
 class SemanticParityError(SemanticError):
     """Error raised during parity checking."""
-
-
-class LadderOrderError(SemanticRuntimeError):
-    """Raised when a prepare_* call requires a prerequisite verify_object that hasn't been completed."""
 
 
 class SemanticLoadFailed(Exception):  # noqa: N818

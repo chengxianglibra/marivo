@@ -62,23 +62,6 @@ Source builders & provenance
    table
    from_sql
 
-Authoring handoff
------------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   prepare_entity
-   prepare_dimension
-   prepare_measure
-   prepare_metric
-   prepare_relationship
-   prepare_time_dimension
-   prepare_domain
-   prepare_cross_entity_metric
-   prepare_derived_metric
-
 Readiness & verification
 ------------------------
 
@@ -128,24 +111,6 @@ Ref types
    DomainRef
    SemanticRef
 
-Brief types
------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   EntityBrief
-   DimensionBrief
-   MeasureBrief
-   MetricBrief
-   RelationshipBrief
-   TimeDimensionBrief
-   DomainBrief
-   CrossEntityMetricBrief
-   DerivedMetricBrief
-   BriefStatus
-
 Details types
 -------------
 
@@ -176,7 +141,6 @@ Catalog & objects
    SemanticObject
    SemanticObjectList
    SemanticKind
-   RegisteredMatch
 
 Sources & provenance
 --------------------
@@ -221,15 +185,6 @@ AI context
 
    ai_context
    AiContextValue
-
-Errors
-------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   LadderOrderError
 
 Submodules
 ----------

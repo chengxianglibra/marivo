@@ -119,12 +119,11 @@ The skill walks the agent through a disciplined authoring loop, one object at a 
 
 - **Follow the ladder** — domain → entity → dimension → time dimension → measure →
   metric → relationship — so each object's dependencies exist before it.
-- **Plan, then write.** For each object the agent calls the matching
-  `ms.prepare_*` API and branches on the returned brief before writing the
-  declaration into `models/semantic/<domain>/_domain.py`. The default metric
-  path is `ms.prepare_measure(...)`, write and verify the measure, then declare
-  `ms.aggregate(...)`; `ms.prepare_metric(...)` is for metric-level context when
-  a measure-backed workflow needs it.
+- **Discover, then write.** For datasource-backed objects the agent calls the
+  matching `md.discover_*` API, settles constructor values with `ms.help(...)`,
+  and writes one declaration into `models/semantic/<domain>/_domain.py`. The
+  default metric path is `md.discover_measures(...)`, author and verify the
+  measure, then declare `ms.aggregate(...)`.
 - **Verify before advancing.** After each object it runs `ms.verify_object(ref)` and
   does not move on while that fails.
 - **Gate at closeout.** It finishes with `ms.readiness()` and resolves blockers before
@@ -135,8 +134,8 @@ The agent only asks you the decisions it cannot infer from the data or project d
 the same Python declarations shown above — reviewable in git like any other code.
 
 Discover the catalog before analysis. For datasource-backed authoring, the
-discovery-first sequence gathers bounded evidence, then prepares one object at
-a time:
+discovery-first sequence gathers bounded evidence, then authors one object at a
+time:
 
 ```python
 import marivo.datasource as md
@@ -147,17 +146,11 @@ orders_source = md.table("orders")
 scope = md.latest_partition()
 
 md.discover_entity(warehouse, orders_source, scope=scope).show()
-project.prepare_entity(
-    datasource="warehouse",
-    source=orders_source,
-    domain="sales",
-    scope=scope,
-).show()
+ms.help("entity")
 ```
 
-The matching `ms.prepare_entity(...)` brief branches on the discovered
-evidence; author exactly one object, then run `ms.verify_object(ref)` before
-advancing.
+Use discovery evidence and the `ms.help("entity")` contract to author exactly
+one object, then run `ms.verify_object(ref)` before advancing.
 
 Load the catalog and check readiness:
 

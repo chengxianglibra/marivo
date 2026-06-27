@@ -19,105 +19,90 @@ EXPECTED_CONTRACTS: dict[str, dict[str, object]] = {
         "constructor": "ms.domain",
         "required": ["name"],
         "optional": ["ai_context"],
-        "prepare": "ms.prepare_domain",
         "discover": None,
     },
     "entity": {
         "constructor": "ms.entity",
         "required": ["name", "datasource", "source"],
         "optional": ["primary_key", "versioning", "domain", "ai_context"],
-        "prepare": "ms.prepare_entity",
         "discover": "md.discover_entity",
     },
     "dimension_column": {
         "constructor": "ms.dimension_column",
         "required": ["name", "entity", "column"],
         "optional": ["domain", "ai_context"],
-        "prepare": "ms.prepare_dimension",
         "discover": "md.discover_dimensions",
     },
     "dimension": {
         "constructor": "@ms.dimension",
         "required": ["entity", "function_body"],
         "optional": ["name", "domain", "ai_context"],
-        "prepare": "ms.prepare_dimension",
         "discover": "md.discover_dimensions",
     },
     "time_dimension_column": {
         "constructor": "ms.time_dimension_column",
         "required": ["name", "entity", "column", "granularity"],
         "optional": ["parse", "is_default", "domain", "ai_context"],
-        "prepare": "ms.prepare_time_dimension",
         "discover": "md.discover_time_dimensions",
     },
     "time_dimension": {
         "constructor": "@ms.time_dimension",
         "required": ["entity", "granularity", "function_body"],
         "optional": ["name", "parse", "is_default", "domain", "ai_context"],
-        "prepare": "ms.prepare_time_dimension",
         "discover": "md.discover_time_dimensions",
     },
     "measure_column": {
         "constructor": "ms.measure_column",
         "required": ["name", "entity", "column", "additivity"],
         "optional": ["unit", "domain", "ai_context"],
-        "prepare": "ms.prepare_measure",
         "discover": "md.discover_measures",
     },
     "measure": {
         "constructor": "@ms.measure",
         "required": ["entity", "additivity", "function_body"],
         "optional": ["name", "unit", "domain", "ai_context"],
-        "prepare": "ms.prepare_measure",
         "discover": "md.discover_measures",
     },
     "aggregate": {
         "constructor": "ms.aggregate",
         "required": ["name", "measure", "agg"],
         "optional": ["domain", "ai_context"],
-        "prepare": "ms.prepare_metric",
         "discover": None,
     },
     "count": {
         "constructor": "ms.count",
         "required": ["name", "entity"],
         "optional": ["domain", "ai_context"],
-        "prepare": "ms.prepare_metric",
         "discover": None,
     },
     "metric": {
         "constructor": "metric family",
         "required": [],
         "optional": [],
-        "prepare": "ms.prepare_metric or ms.prepare_derived_metric",
         "discover": "md.discover_relationship for cross-entity viability when multiple entities are involved",
     },
     "relationship": {
         "constructor": "ms.relationship",
         "required": ["name", "from_entity", "to_entity", "keys"],
         "optional": ["domain", "ai_context"],
-        "prepare": "ms.prepare_relationship",
         "discover": "md.discover_relationship",
     },
     "ratio": {
         "constructor": "ms.ratio",
         "required": ["name", "numerator", "denominator"],
         "optional": ["unit", "domain", "ai_context"],
-        "prepare": "ms.prepare_derived_metric",
         "discover": None,
     },
     "weighted_average": {
         "constructor": "ms.weighted_average",
         "required": ["name", "value", "weight"],
         "optional": ["unit", "domain", "ai_context"],
-        "prepare": "ms.prepare_derived_metric",
         "discover": None,
     },
     "linear": {
         "constructor": "ms.linear",
         "required": ["name"],
         "optional": ["add", "subtract", "unit", "domain", "ai_context"],
-        "prepare": "ms.prepare_derived_metric",
         "discover": None,
     },
 }
@@ -137,7 +122,6 @@ def test_semantic_help_exposes_authoring_contract_for_each_object(
     assert contract["constructor"] == expected["constructor"]
     assert contract["required"] == expected["required"]
     assert contract["optional"] == expected["optional"]
-    assert contract["prepare"] == expected["prepare"]
     assert contract["discover"] == expected["discover"]
 
     params = cast("dict[str, dict[str, Any]]", contract["parameters"])
@@ -238,7 +222,6 @@ def test_parse_constructor_help_topics_are_public_contracts() -> None:
         contract = cast("dict[str, Any]", content["authoring_contract"])
         assert contract["constructor"] == f"ms.{symbol}"
         assert contract["discover"] == "md.discover_time_dimensions"
-        assert contract["prepare"] == "ms.prepare_time_dimension"
         assert "parameters" in contract
         assert "static_constraints" in contract
 

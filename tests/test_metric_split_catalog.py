@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 
-from marivo.semantic import dtos
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SemanticCatalog,
@@ -124,18 +123,6 @@ def test_simple_metric_details_render_includes_additivity(semantic_project_facto
     rendered = rev.render()
     assert "additivity: additive" in rendered
     assert "type: simple" in rendered
-
-
-# ---------------------------------------------------------------------------
-# Task 3: ComponentFact / DerivedMetricBrief composition_kind
-# ---------------------------------------------------------------------------
-
-
-def test_component_and_brief_use_composition_kind():
-    cf_fields = {f.name for f in dataclasses.fields(dtos.ComponentFact)}
-    assert "composition_kind" in cf_fields and "decomposition_kind" not in cf_fields
-    brief_fields = {f.name for f in dataclasses.fields(dtos.DerivedMetricBrief)}
-    assert "composition_kind" in brief_fields and "decomposition_kind" not in brief_fields
 
 
 # ---------------------------------------------------------------------------

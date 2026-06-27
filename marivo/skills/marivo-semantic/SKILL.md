@@ -26,7 +26,7 @@ structure before authoring objects.
 The authoring sequence is:
 
 ```text
-help -> discover -> settle/grill -> prepare -> author -> verify
+help -> discover -> settle/grill -> author -> verify
 ```
 
 Layer ownership:
@@ -36,12 +36,12 @@ Layer ownership:
   shapes, and static constraints.
 - md.discover_* owns runtime datasource evidence: physical columns, profiles,
   detected formats, value ranges, primary-key evidence, relationship evidence,
-  signals, and issues.
-- `ms.prepare_*` and `ms.verify_object(...)` own readiness, blockers, matches,
-  registry state, and validation.
+  deterministic authoring warnings, signals, and issues.
+- `ms.verify_object(...)`, `ms.readiness(...)`, and load errors own blockers,
+  registry state, and validation after authoring.
 - This skill owns workflow and routing only. Do not copy constructor parameter
-  tables, Brief field tables, discovery result schemas, parse recipes, or
-  backend API catalogs into skill docs.
+  tables, discovery result schemas, parse recipes, or backend API catalogs into
+  skill docs.
 
 ## Authoring Ladder
 
@@ -62,10 +62,8 @@ Every semantic object uses the same cycle:
 3. Settle constructor values from discovery evidence, registry facts, project
    docs, source SQL/provenance, prior decisions, and user answers.
 4. Grill the user only when a semantic decision remains unresolved.
-5. After agreement, call the matching `ms.prepare_*` API as the
-   post-agreement readiness check before authoring.
-6. Author exactly one object.
-7. Run `ms.verify_object(ref)` and fix failures before advancing.
+5. Author exactly one object.
+6. Run `ms.verify_object(ref)` and fix failures before advancing.
 
 ## Grill-Me Gate
 
@@ -73,14 +71,9 @@ Before authoring each semantic object, inspect help, discovery evidence,
 current catalog state, project docs, source SQL/provenance when present, prior
 decisions, and user answers.
 
-If those sources clearly settle the object, proceed to the matching
-`ms.prepare_*` readiness check and state the evidence basis. Author only when
-readiness can proceed. If a semantic choice remains unresolved, ask one
-question at a time and wait for agreement before writing code.
-
-After agreement, `ms.prepare_*` is the post-agreement readiness check before
-authoring. Use it to catch blockers, matches, and registry state before writing
-the object.
+If those sources clearly settle the object, state the evidence basis and author
+exactly one object. If a semantic choice remains unresolved, ask one question
+at a time and wait for agreement before writing code.
 
 Rules:
 

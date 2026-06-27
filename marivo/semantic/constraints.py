@@ -90,7 +90,6 @@ class ConstraintId(StrEnum):
     STATUS_TIME_DIMENSION_REQUIRED = "status_time_dimension_required"
     STATUS_TIME_DIMENSION_INVALID = "invalid_status_time_dimension"
     TIME_GRANULARITY_PARSE_COMPATIBLE = "time_granularity_parse_compatible"
-    LADDER_ORDER_ENFORCED = "ladder_order_enforced"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -672,15 +671,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Parse variants make most time combinations unconstructable; the remaining rule is granularity compatibility.",
         "Use ms.datetime(...) or ms.timestamp(...) for minute/second grains, and use granularity='hour' with ms.hour_prefix(...).",
         docs_ref=_SEMANTIC_WORKFLOW_REF,
-    ),
-    ConstraintId.LADDER_ORDER_ENFORCED: _constraint(
-        ConstraintId.LADDER_ORDER_ENFORCED,
-        "ladder_order",
-        "runtime",
-        ("SemanticProject",),
-        "Entities must be verified before downstream prepare calls.",
-        "prepare_dimension, prepare_time_dimension, prepare_metric, prepare_relationship, and prepare_cross_entity_metric require their entity arguments to have passed verify_object first.",
-        "Call project.verify_object('domain.entity') before calling prepare methods that depend on that entity.",
     ),
     ConstraintId.CATALOG_KIND_VALID: _constraint(
         ConstraintId.CATALOG_KIND_VALID,

@@ -51,17 +51,7 @@ def test_semantic_fold_partition() -> None:
         "SimpleMetricDetails",
         "TimeDimensionDetails",
     ]
-    assert fams["Briefs"] == [
-        "CrossEntityMetricBrief",
-        "DerivedMetricBrief",
-        "DimensionBrief",
-        "DomainBrief",
-        "EntityBrief",
-        "MeasureBrief",
-        "MetricBrief",
-        "RelationshipBrief",
-        "TimeDimensionBrief",
-    ]
+    assert "Briefs" not in fams
     assert fams["References"] == [
         "DimensionRef",
         "DomainRef",
@@ -81,10 +71,8 @@ def test_semantic_fold_partition() -> None:
         "AuthoringQuestion",
         "DecisionRecord",
         "JoinKey",
-        "LadderOrderError",
         "ReadinessInputSummary",
         "ReadinessIssue",
-        "RegisteredMatch",
         "SemanticKind",
         "SqlProvenance",
     }

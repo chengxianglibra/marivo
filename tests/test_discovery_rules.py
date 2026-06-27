@@ -16,6 +16,7 @@ from marivo.datasource.discovery_rules import (
     dimension_value_rules,
     measure_column_rules,
     scan_rules,
+    time_column_rules,
 )
 from marivo.datasource.scan import ColumnProfile, ScanReport, ScanScope, table
 
@@ -314,6 +315,36 @@ def test_dimension_identifier_shape_for_id_column() -> None:
     )
     ids = [s.rule_id for s in out if isinstance(s, DiscoverySignal)]
     assert "dimension_identifier_shape" in ids
+
+
+def test_dimension_shadowing_column_emits_authoring_warning() -> None:
+    out = dimension_column_rules(_enriched_profile("schema", "VARCHAR", type_family="string"))
+    issues = [i for i in out if isinstance(i, DiscoveryIssue)]
+
+    warning = next(i for i in issues if i.rule_id == "authoring_ibis_attribute_shadowing")
+    assert warning.severity == "warning"
+    assert warning.subject == "schema"
+    assert 'table["schema"]' in warning.message
+
+
+def test_time_dimension_shadowing_column_emits_authoring_warning() -> None:
+    out = time_column_rules(_enriched_profile("count", "BIGINT", type_family="integer"), (), False)
+    issues = [i for i in out if isinstance(i, DiscoveryIssue)]
+
+    warning = next(i for i in issues if i.rule_id == "authoring_ibis_attribute_shadowing")
+    assert warning.severity == "warning"
+    assert warning.subject == "count"
+    assert 'table["count"]' in warning.message
+
+
+def test_measure_shadowing_column_emits_authoring_warning() -> None:
+    out = measure_column_rules(_enriched_profile("info", "DOUBLE", type_family="numeric"))
+    issues = [i for i in out if isinstance(i, DiscoveryIssue)]
+
+    warning = next(i for i in issues if i.rule_id == "authoring_ibis_attribute_shadowing")
+    assert warning.severity == "warning"
+    assert warning.subject == "info"
+    assert 'table["info"]' in warning.message
 
 
 def test_measure_negative_zero_and_unit_token_signals() -> None:
