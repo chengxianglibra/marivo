@@ -58,8 +58,8 @@ across almost every intent:
 
 | Value | Shape | Meaning |
 | --- | --- | --- |
-| metric input | `catalog.get("sales.revenue")` | A catalog metric object or its `SemanticRef` subclass (e.g. `MetricRef`). Authoring refs from `ms.aggregate(...)` also work. Bare strings are rejected. |
-| dimension input | `catalog.get("sales.orders.region")` | A catalog dimension object or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `where` keys, and `axis`. |
+| metric input | `catalog.get("sales.revenue")` | A semantic-id string, catalog metric object, or `MetricRef`. Authoring refs from `ms.aggregate(...)` also work; ref-only enforcement applies to semantic authoring parameters, not analysis consumption inputs. |
+| dimension input | `catalog.get("sales.orders.region")` | A semantic-id string, catalog dimension object, or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `where` keys, and `axis`. |
 | `timescope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |

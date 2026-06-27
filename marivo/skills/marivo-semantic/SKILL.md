@@ -65,6 +65,11 @@ Every semantic object uses the same cycle:
 5. Author exactly one object.
 6. Run `ms.verify_object(ref)` and fix failures before advancing.
 
+Object-to-object authoring parameters must use Ref objects, not bare semantic-id
+strings. Prefer refs returned by earlier authoring calls or imported from
+semantic modules. Use `ms.ref("<kind>.<semantic_id>")` only for explicit
+forward/cross-file references, import cycles, or generated code boundaries.
+
 ## Grill-Me Gate
 
 Before authoring each semantic object, inspect help, discovery evidence,

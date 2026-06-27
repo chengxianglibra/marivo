@@ -316,7 +316,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
                 "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def total_count(table):\n"
                 "    return table.count()\n"
-                "ms.ratio(name='failure_rate', numerator='sales.failed_count', denominator='sales.total_count')\n"
+                "ms.ratio(name='failure_rate', numerator=failed_count, denominator=total_count)\n"
             ),
         }
     )
@@ -822,14 +822,14 @@ def _bootstrap_failure_rate(tmp_path):
         "\n"
         "ms.ratio(\n"
         "    name='failure_rate',\n"
-        "    numerator='sales.failed_count',\n"
-        "    denominator='sales.total_count',\n"
+        "    numerator=failed_count,\n"
+        "    denominator=total_count,\n"
         ")\n"
         "\n"
         "ms.ratio(\n"
         "    name='failed_count_ratio',\n"
-        "    numerator='sales.failed_count',\n"
-        "    denominator='sales.failed_count',\n"
+        "    numerator=failed_count,\n"
+        "    denominator=failed_count,\n"
         ")\n"
     )
 

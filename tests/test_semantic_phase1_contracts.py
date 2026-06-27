@@ -151,12 +151,15 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
                 "    source=ms.table('user_profile_daily'),\n"
                 "    primary_key=['user_id', 'dt'],\n"
                 "    versioning=ms.snapshot(\n"
-                "        partition_field='dt',\n"
+                "        partition_field=ms.ref('dimension.sales.user_profile_daily.dt'),\n"
                 "        grain='day',\n"
                 "        timezone='Asia/Shanghai',\n"
                 "        format='%Y%m%d',\n"
                 "    ),\n"
                 ")\n"
+                "@ms.dimension(entity=user_profile_daily)\n"
+                "def dt(user_profile_daily):\n"
+                "    return user_profile_daily.dt\n"
             ),
         }
     )
@@ -165,7 +168,7 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
     assert isinstance(dataset, EntityDetails)
     assert dataset.versioning is not None
     assert dataset.versioning.kind == "snapshot"
-    assert dataset.versioning.partition_field == "dt"
+    assert dataset.versioning.partition_field == "sales.user_profile_daily.dt"
     assert dataset.versioning.grain == "day"
     assert dataset.versioning.timezone == "Asia/Shanghai"
     assert dataset.versioning.format == "%Y%m%d"

@@ -114,8 +114,8 @@ def _bootstrap_semantic_layer(root: Path) -> None:
         "\n"
         "failure_rate = ms.ratio(\n"
         '    name="failure_rate",\n'
-        "    numerator='sales.failed_count',\n"
-        "    denominator='sales.total_count',\n"
+        "    numerator=failed_count,\n"
+        "    denominator=total_count,\n"
         ")\n"
     )
 

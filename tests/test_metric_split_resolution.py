@@ -141,7 +141,7 @@ o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
 def amount(o): return o.amount
 
 rev = ms.aggregate(measure=amount, agg="sum", name="rev")
-bad_ratio = ms.ratio(name="bad_ratio", numerator=rev, denominator="test.missing")
+bad_ratio = ms.ratio(name="bad_ratio", numerator=rev, denominator=ms.ref("metric.test.missing"))
 """
 
 
@@ -161,8 +161,8 @@ o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
 def amount(o): return o.amount
 
 base = ms.aggregate(measure=amount, agg="sum", name="base")
-a = ms.linear(name="a", add=[base, "test.b"])
-b = ms.linear(name="b", add=[base, "test.a"])
+a = ms.linear(name="a", add=[base, ms.ref("metric.test.b")])
+b = ms.linear(name="b", add=[base, ms.ref("metric.test.a")])
 """
 
 

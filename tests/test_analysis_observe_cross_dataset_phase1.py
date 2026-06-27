@@ -246,7 +246,7 @@ def _bootstrap_snapshot(tmp_path):
         "    datasource='warehouse',\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
-        "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='Asia/Shanghai', format='%Y%m%d'),\n"
+        "    versioning=ms.snapshot(partition_field=ms.ref('dimension.sales.user_profile_daily.dt'), grain='day', timezone='Asia/Shanghai', format='%Y%m%d'),\n"
         ")\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"

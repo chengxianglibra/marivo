@@ -20,6 +20,7 @@ from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.scan import csv as _datasource_csv
 from marivo.datasource.scan import parquet as _datasource_parquet
 from marivo.datasource.scan import table as _datasource_table
+from marivo.refs import SemanticRef, SymbolKind
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
@@ -67,6 +68,7 @@ from marivo.semantic.refs import (
     MetricRef,
     RelationshipRef,
     TimeDimensionRef,
+    make_ref,
 )
 from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContextValue
@@ -570,20 +572,34 @@ def _user_caller_location() -> SourceLocation:
     return SourceLocation(file="<unknown>", line=0)
 
 
-def _resolve_ref_string(
-    ref: EntityRef
-    | DimensionRef
-    | TimeDimensionRef
-    | MetricRef
-    | MeasureRef
-    | RelationshipRef
-    | DatasourceRef
-    | str,
+def _format_expected_ref(expected: tuple[type[SemanticRef], ...]) -> str:
+    names = []
+    for cls in expected:
+        name = cls.__name__
+        article = "an" if name[0].lower() in {"a", "e", "i", "o", "u"} else "a"
+        names.append(f"{article} {name}")
+    return " or ".join(names)
+
+
+def _require_ref_id(
+    ref: object,
+    *,
+    parameter: str,
+    expected: tuple[type[SemanticRef], ...],
 ) -> str:
-    """Extract id string from a ref object or pass through a string."""
-    if isinstance(ref, str):
-        return ref
-    return ref.id
+    if isinstance(ref, expected):
+        return ref.id
+    expected_label = _format_expected_ref(expected)
+    received = getattr(ref, "id", ref)
+    _raise(
+        ErrorKind.INVALID_REF,
+        f"{parameter} must be {expected_label}; got {type(ref).__name__}: {received!r}. "
+        "Pass the Ref object returned by the semantic authoring call, import a declared "
+        "Ref from another model, or use ms.ref('<kind>.<semantic_id>') for explicit "
+        "forward/cross-file references.",
+        cls=SemanticDecoratorError,
+        constraint_id=ConstraintId.REF_SHAPE,
+    )
 
 
 def _domain_from_ref_id(ref_id: str) -> str:
@@ -593,12 +609,7 @@ def _domain_from_ref_id(ref_id: str) -> str:
 def _require_entity_ref(ref: EntityRef, *, parameter: str) -> EntityRef:
     if isinstance(ref, EntityRef):
         return ref
-    _raise(
-        ErrorKind.INVALID_REF,
-        f"{parameter} must be an EntityRef; got {type(ref).__name__}.",
-        cls=SemanticDecoratorError,
-        constraint_id=ConstraintId.REF_SHAPE,
-    )
+    _require_ref_id(ref, parameter=parameter, expected=(EntityRef,))
 
 
 def _require_non_empty_column(column: str, *, semantic_id: str) -> str:
@@ -635,16 +646,14 @@ def _resolve_datasource_ref(ref: DatasourceRef | str) -> str:
     )
 
 
-def _resolve_dimension_refs(refs: list[DimensionRef | str]) -> tuple[str, ...]:
-    """Convert a list of dimension refs/strings to tuple of semantic_ids."""
-    return tuple(_resolve_ref_string(r) for r in refs)
-
-
-def _resolve_entity_refs(refs: list[EntityRef | str] | None) -> tuple[str, ...]:
-    """Convert a list of entity refs/strings to tuple of semantic_ids."""
+def _resolve_entity_refs(refs: list[EntityRef] | None) -> tuple[str, ...]:
+    """Convert a list of entity refs to tuple of semantic_ids."""
     if refs is None:
         return ()
-    return tuple(_resolve_ref_string(r) for r in refs)
+    return tuple(
+        _require_ref_id(r, parameter=f"entities[{idx}]", expected=(EntityRef,))
+        for idx, r in enumerate(refs)
+    )
 
 
 def _push_ir(ctx: LoaderContext, ir: Any, callable_: Callable[..., Any] | None) -> None:
@@ -709,7 +718,7 @@ def domain(
 def aggregate(
     *,
     name: str,
-    measure: MeasureRef | str,
+    measure: MeasureRef,
     agg: AggKind,
     fold: str | tuple[Literal["quantile"], float] | None = None,
     unit: str | None = None,
@@ -723,7 +732,7 @@ def aggregate(
 
     Args:
         name: Metric name (required).
-        measure: Measure to aggregate (``MeasureRef`` or qualified string).
+        measure: Measure to aggregate (``MeasureRef``).
         agg: Aggregation kind (``"sum"``, ``"mean"``, ``"count"``, etc.).
         fold: Time-fold override for semi-additive measures.
         unit: Override the unit derived from ``measure`` at load. Leave None to
@@ -737,7 +746,7 @@ def aggregate(
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
-    measure_id = _resolve_ref_string(measure)
+    measure_id = _require_ref_id(measure, parameter="measure", expected=(MeasureRef,))
     # measure ids are entity-qualified: "<domain>.<entity>.<column>"
     entity_id = measure_id.rsplit(".", 1)[0]
     obj_name = name
@@ -832,9 +841,9 @@ def count(
 def metric(
     *,
     name: str | None = None,
-    entities: list[EntityRef | str],
+    entities: list[EntityRef],
     additivity: Additivity,
-    root_entity: EntityRef | str | None = None,
+    root_entity: EntityRef | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     unit: str | None = None,
     provenance: SqlProvenance | None = None,
@@ -845,7 +854,7 @@ def metric(
 
     Args:
         name: Metric name. Defaults to the function name.
-        entities: List of entity refs or qualified strings.
+        entities: List of entity refs.
         additivity: ``"additive"``, ``"non_additive"``, or ``ms.semi_additive(over, fold)``.
         root_entity: Required when more than one entity is provided.
         fanout_policy: ``"block"`` (default) or ``"aggregate_then_join"``.
@@ -883,7 +892,11 @@ def metric(
         body_hash = validate_metric_body_ast(fn, "base", body_kind="metric")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
-        root_ref = _resolve_ref_string(root_entity) if root_entity is not None else None
+        root_ref = (
+            _require_ref_id(root_entity, parameter="root_entity", expected=(EntityRef,))
+            if root_entity is not None
+            else None
+        )
         if root_ref is None and len(entity_refs) == 1:
             root_ref = entity_refs[0]
         if root_ref is None:
@@ -1095,7 +1108,7 @@ def dimension_column(
 def dimension(
     *,
     name: str | None = None,
-    entity: EntityRef | str,
+    entity: EntityRef,
     domain: DomainRef | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[..., Any]], DimensionRef]:
@@ -1110,8 +1123,7 @@ def dimension(
 
     Args:
         name: Dimension name. Defaults to the function name.
-        entity: Owning entity, either an ``EntityRef`` or a qualified
-            ``"<domain>.<entity>"`` string.
+        entity: Owning entity ref returned by ``ms.entity(...)``.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
@@ -1133,7 +1145,7 @@ def dimension(
 
     def decorator(fn: Callable[..., Any]) -> DimensionRef:
         obj_name = name or fn.__name__
-        entity_ref = _resolve_ref_string(entity)
+        entity_ref = _require_ref_id(entity, parameter="entity", expected=(EntityRef,))
         semantic_id = f"{entity_ref}.{obj_name}"
         entity_domain = entity_ref.split(".", 1)[0]
         if entity_domain != resolved_domain:
@@ -1251,7 +1263,7 @@ def measure_column(
 def measure(
     *,
     name: str | None = None,
-    entity: EntityRef | str,
+    entity: EntityRef,
     additivity: Additivity,
     unit: str | None = None,
     domain: DomainRef | None = None,
@@ -1265,8 +1277,7 @@ def measure(
 
     Args:
         name: Measure name. Defaults to the function name.
-        entity: Owning entity, either an ``EntityRef`` or a qualified
-            ``"<domain>.<entity>"`` string.
+        entity: Owning entity ref returned by ``ms.entity(...)``.
         additivity: Whether the measure is ``"additive"``, ``"non_additive"``,
             or ``ms.semi_additive(over=..., fold=...)``.
         unit: UCUM unit token (e.g. ``"USD"``, ``"CNY"``, ``"%"``).
@@ -1291,7 +1302,7 @@ def measure(
 
     def decorator(fn: Callable[..., Any]) -> MeasureRef:
         obj_name = name or fn.__name__
-        entity_ref = _resolve_ref_string(entity)
+        entity_ref = _require_ref_id(entity, parameter="entity", expected=(EntityRef,))
         semantic_id = f"{entity_ref}.{obj_name}"
         entity_domain = entity_ref.split(".", 1)[0]
         if entity_domain != resolved_domain:
@@ -1526,7 +1537,7 @@ def time_dimension_column(
 def time_dimension(
     *,
     name: str | None = None,
-    entity: EntityRef | str,
+    entity: EntityRef,
     granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
     parse: SemanticParse | None = None,
     is_default: bool = False,
@@ -1544,7 +1555,7 @@ def time_dimension(
 
     Args:
         name: Dimension name. Defaults to the function name.
-        entity: Owning entity (``EntityRef`` or qualified string).
+        entity: Owning entity ref returned by ``ms.entity(...)``.
         granularity: ``year | quarter | month | week | day | hour | minute | second`` — the
             finest grain at which queries are meaningful.
         parse: Optional parse variant. Omit for native temporal columns (the parse
@@ -1577,7 +1588,7 @@ def time_dimension(
 
     def decorator(fn: Callable[..., Any]) -> TimeDimensionRef:
         obj_name = name or fn.__name__
-        ds_ref = _resolve_ref_string(entity)
+        ds_ref = _require_ref_id(entity, parameter="entity", expected=(EntityRef,))
         semantic_id = f"{ds_ref}.{obj_name}"
         ds_domain = ds_ref.split(".", 1)[0]
         if ds_domain != resolved_domain:
@@ -1629,8 +1640,8 @@ def time_dimension(
 def relationship(
     *,
     name: str,
-    from_entity: EntityRef | str,
-    to_entity: EntityRef | str,
+    from_entity: EntityRef,
+    to_entity: EntityRef,
     keys: list[JoinKey],
     domain: DomainRef | None = None,
     ai_context: AiContextValue | None = None,
@@ -1642,8 +1653,8 @@ def relationship(
 
     Args:
         name: Required relationship name.
-        from_entity: Source entity (``EntityRef`` or qualified string).
-        to_entity: Target entity (``EntityRef`` or qualified string).
+        from_entity: Source entity ref.
+        to_entity: Target entity ref.
         keys: List of ``ms.join_on(from_key, to_key)`` pairs.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -1669,8 +1680,8 @@ def relationship(
     semantic_id = f"{resolved_domain}.{name}"
     _check_duplicate(ctx, semantic_id, RelationshipIR)
 
-    from_ds = _resolve_ref_string(from_entity)
-    to_ds = _resolve_ref_string(to_entity)
+    from_ds = _require_ref_id(from_entity, parameter="from_entity", expected=(EntityRef,))
+    to_ds = _require_ref_id(to_entity, parameter="to_entity", expected=(EntityRef,))
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
 
@@ -1707,16 +1718,17 @@ def relationship(
 
 def snapshot(
     *,
-    partition_field: DimensionRef | TimeDimensionRef | str,
+    partition_field: DimensionRef | TimeDimensionRef,
     grain: Literal["day"],
     timezone: str | None = None,
     format: str | None = None,
 ) -> SnapshotVersioningIR:
     """Declare daily snapshot partition versioning for an entity."""
-    if isinstance(partition_field, (DimensionRef, TimeDimensionRef)):
-        partition_ref = partition_field.id
-    else:
-        partition_ref = partition_field
+    partition_ref = _require_ref_id(
+        partition_field,
+        parameter="partition_field",
+        expected=(DimensionRef, TimeDimensionRef),
+    )
     if grain != "day":
         _raise(
             ErrorKind.INVALID_REF,
@@ -1743,8 +1755,8 @@ def snapshot(
 
 def validity(
     *,
-    valid_from: DimensionRef | str,
-    valid_to: DimensionRef | str,
+    valid_from: DimensionRef | TimeDimensionRef,
+    valid_to: DimensionRef | TimeDimensionRef,
     interval: Literal["closed_open", "closed_closed"],
     open_end: tuple[str | None, ...],
     timezone: str | None = None,
@@ -1752,8 +1764,8 @@ def validity(
     """Declare SCD2 validity interval versioning for an entity.
 
     Args:
-        valid_from: Dimension semantic id (or DimensionRef) for the interval start column.
-        valid_to: Dimension semantic id (or DimensionRef) for the interval end column.
+        valid_from: Dimension or time-dimension ref for the interval start column.
+        valid_to: Dimension or time-dimension ref for the interval end column.
         interval: ``"closed_open"`` (``[valid_from, valid_to)``) or
             ``"closed_closed"`` (``[valid_from, valid_to]``).
         open_end: Non-empty tuple of sentinel values that mean "still current"
@@ -1793,11 +1805,15 @@ def validity(
                 cls=SemanticDecoratorError,
                 details={"field": "timezone", "reason": f"unknown IANA timezone {timezone!r}"},
             )
-    valid_from_ref = (
-        valid_from.id if isinstance(valid_from, (DimensionRef, TimeDimensionRef)) else valid_from
+    valid_from_ref = _require_ref_id(
+        valid_from,
+        parameter="valid_from",
+        expected=(DimensionRef, TimeDimensionRef),
     )
-    valid_to_ref = (
-        valid_to.id if isinstance(valid_to, (DimensionRef, TimeDimensionRef)) else valid_to
+    valid_to_ref = _require_ref_id(
+        valid_to,
+        parameter="valid_to",
+        expected=(DimensionRef, TimeDimensionRef),
     )
     return ValidityVersioningIR(
         kind="validity",
@@ -1894,8 +1910,8 @@ def _derived(
 def ratio(
     *,
     name: str,
-    numerator: MetricRef | str,
-    denominator: MetricRef | str,
+    numerator: MetricRef,
+    denominator: MetricRef,
     unit: str | None = None,
     domain: DomainRef | None = None,
     ai_context: AiContextValue | None = None,
@@ -1909,8 +1925,10 @@ def ratio(
     return _derived(
         name=name,
         composition=RatioComposition(
-            numerator=_resolve_ref_string(numerator),
-            denominator=_resolve_ref_string(denominator),
+            numerator=_require_ref_id(numerator, parameter="numerator", expected=(MetricRef,)),
+            denominator=_require_ref_id(
+                denominator, parameter="denominator", expected=(MetricRef,)
+            ),
         ),
         unit=unit,
         domain=domain,
@@ -1921,8 +1939,8 @@ def ratio(
 def weighted_average(
     *,
     name: str,
-    value: MetricRef | str,
-    weight: MetricRef | str,
+    value: MetricRef,
+    weight: MetricRef,
     unit: str | None = None,
     domain: DomainRef | None = None,
     ai_context: AiContextValue | None = None,
@@ -1933,8 +1951,8 @@ def weighted_average(
     return _derived(
         name=name,
         composition=WeightedAverageComposition(
-            value=_resolve_ref_string(value),
-            weight=_resolve_ref_string(weight),
+            value=_require_ref_id(value, parameter="value", expected=(MetricRef,)),
+            weight=_require_ref_id(weight, parameter="weight", expected=(MetricRef,)),
         ),
         unit=unit,
         domain=domain,
@@ -1945,8 +1963,8 @@ def weighted_average(
 def linear(
     *,
     name: str,
-    add: list[MetricRef | str],
-    subtract: list[MetricRef | str] | tuple[MetricRef | str, ...] = (),
+    add: list[MetricRef],
+    subtract: list[MetricRef] | tuple[MetricRef, ...] = (),
     unit: str | None = None,
     domain: DomainRef | None = None,
     ai_context: AiContextValue | None = None,
@@ -1957,8 +1975,15 @@ def linear(
 
         net_revenue = ms.linear(name="net_revenue", add=[gross], subtract=[refunds])
     """
-    terms = tuple(LinearTerm("+", _resolve_ref_string(m)) for m in add) + tuple(
-        LinearTerm("-", _resolve_ref_string(m)) for m in subtract
+    terms = tuple(
+        LinearTerm("+", _require_ref_id(m, parameter=f"add[{idx}]", expected=(MetricRef,)))
+        for idx, m in enumerate(add)
+    ) + tuple(
+        LinearTerm(
+            "-",
+            _require_ref_id(m, parameter=f"subtract[{idx}]", expected=(MetricRef,)),
+        )
+        for idx, m in enumerate(subtract)
     )
     if len(terms) < 2:
         _raise(
@@ -1977,13 +2002,51 @@ def linear(
     )
 
 
-def ref(id: str) -> str:
-    """Return a qualified-name string for forward / cross-domain in-body references.
+def ref(id: str) -> SemanticRef:
+    """Return a typed semantic ref for forward / cross-domain references.
 
-    Pass-through helper: it returns ``id`` unchanged but makes intent
-    explicit at the call site (``datasets=[ms.ref("sales.orders")]``).
+    Prefer importing refs returned by authoring calls. Use this explicit
+    fallback only for generated definitions, forward references, import cycles,
+    or protected model boundaries.
     """
-    return id
+    if not isinstance(id, str):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.ref(...) requires a string in '<kind>.<semantic_id>' format.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    kind_raw, separator, semantic_id = id.partition(".")
+    if not separator or not kind_raw or not semantic_id or ".." in semantic_id:
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.ref(...) requires '<kind>.<semantic_id>', for example "
+            "'metric.sales.revenue' or 'dimension.sales.orders.region'.",
+            refs=(id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    try:
+        kind = SymbolKind(kind_raw)
+    except ValueError:
+        allowed = ", ".join(sorted(k.value for k in SymbolKind))
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"ms.ref(...) kind {kind_raw!r} is not supported; expected one of: {allowed}.",
+            refs=(id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    try:
+        return make_ref(semantic_id, kind)
+    except ValueError as exc:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"ms.ref(...) could not build {kind.value} ref from {semantic_id!r}: {exc}",
+            refs=(id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
 
 
 def from_sql(*, sql: str, dialect: str) -> SqlProvenance:
@@ -1999,7 +2062,11 @@ def from_sql(*, sql: str, dialect: str) -> SqlProvenance:
     return SqlProvenance(sql=sql, dialect=dialect)
 
 
-def join_on(from_key: DimensionRef | str, to_key: DimensionRef | str, /) -> JoinKey:
+def join_on(
+    from_key: DimensionRef | TimeDimensionRef,
+    to_key: DimensionRef | TimeDimensionRef,
+    /,
+) -> JoinKey:
     """Build one relationship key pair for ``ms.relationship(keys=[...])``.
 
     Each call creates one (from_key, to_key) pairing. Pass a list of
@@ -2013,7 +2080,18 @@ def join_on(from_key: DimensionRef | str, to_key: DimensionRef | str, /) -> Join
             keys=[ms.join_on(customer_id, id)],
         )
     """
-    return JoinKey(from_key=_resolve_ref_string(from_key), to_key=_resolve_ref_string(to_key))
+    return JoinKey(
+        from_key=_require_ref_id(
+            from_key,
+            parameter="from_key",
+            expected=(DimensionRef, TimeDimensionRef),
+        ),
+        to_key=_require_ref_id(
+            to_key,
+            parameter="to_key",
+            expected=(DimensionRef, TimeDimensionRef),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

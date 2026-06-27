@@ -45,7 +45,7 @@ def _bootstrap_snapshot_as_of(tmp_path):
         "    datasource='warehouse',\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
-        "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
+        "    versioning=ms.snapshot(partition_field=ms.ref('dimension.sales.user_profile_daily.dt'), grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -181,7 +181,7 @@ def _bootstrap_snapshot_latest_no_root_time(tmp_path):
         "    datasource='warehouse',\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
-        "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
+        "    versioning=ms.snapshot(partition_field=ms.ref('dimension.sales.user_profile_daily.dt'), grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
         "@ms.dimension(entity=orders)\n"
         "def order_user_id(orders):\n"
@@ -288,7 +288,7 @@ def _bootstrap_validity(tmp_path, *, root_with_time: bool):
         "    datasource='warehouse',\n"
         "    source=ms.table('user_history'),\n"
         "    primary_key=['user_id', 'valid_from'],\n"
-        "    versioning=ms.validity(valid_from='sales.user_history.valid_from', valid_to='sales.user_history.valid_to', interval='closed_open', open_end=(None,)),\n"
+        "    versioning=ms.validity(valid_from=ms.ref('dimension.sales.user_history.valid_from'), valid_to=ms.ref('dimension.sales.user_history.valid_to'), interval='closed_open', open_end=(None,)),\n"
         ")\n" + time_dimension + "@ms.dimension(entity=orders)\n"
         "def order_user_id(orders):\n"
         "    return orders.user_id\n"
@@ -408,7 +408,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
         "    datasource='warehouse',\n"
         "    source=ms.table('user_history'),\n"
         "    primary_key=['user_id', 'valid_from'],\n"
-        "    versioning=ms.validity(valid_from='sales.user_history.valid_from', valid_to='sales.user_history.valid_to', interval='closed_closed', open_end=(None,)),\n"
+        "    versioning=ms.validity(valid_from=ms.ref('dimension.sales.user_history.valid_from'), valid_to=ms.ref('dimension.sales.user_history.valid_to'), interval='closed_closed', open_end=(None,)),\n"
         ")\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -514,8 +514,8 @@ def _bootstrap_derived_ratio(tmp_path):
         "    return sessions.session_id.count()\n"
         "ms.ratio(\n"
         "    name='gmv_per_session',\n"
-        "    numerator='sales.gmv',\n"
-        "    denominator='sales.session_count',\n"
+        "    numerator=gmv,\n"
+        "    denominator=session_count,\n"
         ")\n"
     )
     (semantic_dir / "relationships.py").write_text(
@@ -584,8 +584,8 @@ def _bootstrap_axis_unreachable(tmp_path):
         "    return sessions.session_id.count()\n"
         "ms.ratio(\n"
         "    name='gmv_per_session',\n"
-        "    numerator='sales.gmv',\n"
-        "    denominator='sales.session_count',\n"
+        "    numerator=gmv,\n"
+        "    denominator=session_count,\n"
         ")\n"
     )
     (semantic_dir / "relationships.py").write_text(
@@ -658,7 +658,7 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
         "    datasource='warehouse',\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
-        "    versioning=ms.snapshot(partition_field='dt', grain='day', timezone='UTC', format='%Y%m%d'),\n"
+        "    versioning=ms.snapshot(partition_field=ms.ref('dimension.sales.user_profile_daily.dt'), grain='day', timezone='UTC', format='%Y%m%d'),\n"
         ")\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -686,8 +686,8 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
         "    return sessions.session_id.count()\n"
         "ms.ratio(\n"
         "    name='gmv_per_session',\n"
-        "    numerator='sales.gmv_by_tier',\n"
-        "    denominator='sales.sessions_by_tier',\n"
+        "    numerator=gmv_by_tier,\n"
+        "    denominator=sessions_by_tier,\n"
         ")\n"
     )
     (semantic_dir / "relationships.py").write_text(
@@ -761,8 +761,8 @@ def test_derived_components_can_span_datasources(tmp_path):
         "    return sessions.session_id.count()\n"
         "ms.ratio(\n"
         "    name='gmv_per_session',\n"
-        "    numerator='sales.gmv',\n"
-        "    denominator='sales.session_count',\n"
+        "    numerator=gmv,\n"
+        "    denominator=session_count,\n"
         ")\n"
     )
     warehouse = ibis.duckdb.connect(":memory:")

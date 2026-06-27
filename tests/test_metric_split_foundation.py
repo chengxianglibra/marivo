@@ -13,7 +13,7 @@ import marivo.semantic as ms
 from marivo.semantic import authoring, ir
 from marivo.semantic.errors import SemanticDecoratorError
 from marivo.semantic.ir import AiContextIR, SourceLocation
-from marivo.semantic.refs import MetricRef, TimeDimensionRef
+from marivo.semantic.refs import EntityRef, MetricRef, TimeDimensionRef
 from tests.shared_fixtures import authoring_session
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,9 @@ def test_semi_additive_builder_rejects_string_over():
 
 def test_aggregate_builds_tier1_metric():
     with authoring_session(domain="sales") as sess:
-        amount = sess.measure(entity="sales.orders", name="amount", additivity="additive")
+        amount = sess.measure(
+            entity=EntityRef("sales.orders"), name="amount", additivity="additive"
+        )
         rev = authoring.aggregate(measure=amount, agg="sum", name="revenue")
         m = sess.pending_metric("sales.revenue")
     assert m.metric_type == "simple"
@@ -224,7 +226,7 @@ def test_aggregate_builds_tier1_metric():
 def test_metric_body_form_declares_additivity():
     with authoring_session(domain="sales") as sess:
 
-        @authoring.metric(entities=["sales.orders"], additivity="additive")
+        @authoring.metric(entities=[EntityRef("sales.orders")], additivity="additive")
         def gmv(orders):
             return (orders.price * orders.qty).sum()
 
@@ -240,7 +242,7 @@ def test_metric_semi_additive_via_builder():
         t = TimeDimensionRef("ops.samples.t")
 
         @authoring.metric(
-            entities=["ops.samples"],
+            entities=[EntityRef("ops.samples")],
             additivity=authoring.semi_additive(over=t, fold="max"),
         )
         def peak_bw(samples):
@@ -258,7 +260,7 @@ def test_metric_semi_additive_via_builder():
 
 def _m(sess, entity, col):
     """Declare a measure dimension and return its ref."""
-    return sess.measure(entity=entity, name=col, additivity="additive")
+    return sess.measure(entity=EntityRef(entity), name=col, additivity="additive")
 
 
 def test_ratio_constructor_is_flat_and_derived():

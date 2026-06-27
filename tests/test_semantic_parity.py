@@ -191,8 +191,8 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 
     margin = ms.ratio(
         name="margin",
-        numerator="sales.revenue",
-        denominator="sales.cost",
+        numerator=revenue,
+        denominator=cost,
     )
 """)
 
@@ -391,8 +391,8 @@ def test_derived_metric_with_provenance_sql_fails_load(
 
         margin = ms.ratio(
             name="margin",
-            numerator="sales.revenue",
-            denominator="sales.revenue",
+            numerator=revenue,
+            denominator=revenue,
             provenance=ms.from_sql(sql="SELECT 1", dialect="duckdb"),
         )
     """)
@@ -573,8 +573,8 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
 
         margin = ms.ratio(
             name="margin",
-            numerator="sales.revenue",
-            denominator="sales.cost",
+            numerator=revenue,
+            denominator=cost,
         )
     """)
     project = semantic_project_factory(
@@ -642,8 +642,8 @@ def test_derived_propagation_verified_and_no_provenance_sql(
 
         margin = ms.ratio(
             name="margin",
-            numerator="sales.revenue",
-            denominator="sales.cost",
+            numerator=revenue,
+            denominator=cost,
         )
     """)
     project = semantic_project_factory(

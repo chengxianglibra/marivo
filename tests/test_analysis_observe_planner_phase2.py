@@ -21,10 +21,11 @@ def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
                 "import marivo.semantic as ms\n"
-                "@ms.dimension(entity='sales.user_history')\n"
+                "user_history_ref = ms.ref('entity.sales.user_history')\n"
+                "@ms.dimension(entity=user_history_ref)\n"
                 "def valid_from(t):\n"
                 "    return t.valid_from\n"
-                "@ms.dimension(entity='sales.user_history')\n"
+                "@ms.dimension(entity=user_history_ref)\n"
                 "def valid_to(t):\n"
                 "    return t.valid_to\n"
                 "user_history = ms.entity(\n"

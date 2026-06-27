@@ -80,6 +80,13 @@ join-key viability, or existing object state when Marivo can discover them.
 After the unresolved decisions are settled, author exactly one object in the
 relevant `models/semantic/<domain>/_domain.py` file.
 
+Use Ref objects for every semantic-object parameter. Pass refs returned by
+previous declarations, import refs from sibling semantic modules, or use
+`ms.ref("<kind>.<semantic_id>")` when a forward/cross-file reference cannot be
+imported cleanly. Do not pass bare strings such as `"sales.orders"` to
+`entity=`, `entities=`, `measure=`, relationship endpoints, `ms.join_on(...)`,
+or derived metric components.
+
 Immediately run:
 
 ```python

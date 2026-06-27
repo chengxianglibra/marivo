@@ -164,14 +164,14 @@ def _bootstrap_failure_metrics(tmp_path):
         "\n"
         "ms.ratio(\n"
         "    name='failure_rate',\n"
-        "    numerator='sales.failed_count',\n"
-        "    denominator='sales.total_count',\n"
+        "    numerator=failed_count,\n"
+        "    denominator=total_count,\n"
         ")\n"
         "\n"
         "ms.weighted_average(\n"
         "    name='weighted_failure_rate',\n"
-        "    value='sales.weighted_failed',\n"
-        "    weight='sales.total_weight',\n"
+        "    value=weighted_failed,\n"
+        "    weight=total_weight,\n"
         ")\n"
     )
 

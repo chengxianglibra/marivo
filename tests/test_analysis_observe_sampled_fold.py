@@ -175,8 +175,8 @@ def _bootstrap_bandwidth(
         "\n"
         "ms.ratio(\n"
         "    name='p95_utilization',\n"
-        "    numerator='sales.upstream_bw_p95',\n"
-        "    denominator='sales.reserved_bw',\n"
+        "    numerator=upstream_bw_p95,\n"
+        "    denominator=reserved_bw,\n"
         ")\n"
     )
 
