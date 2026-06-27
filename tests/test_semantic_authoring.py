@@ -750,10 +750,14 @@ def test_time_field_ir_has_time_metadata() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
+        @ms.time_dimension(entity=EntityRef("sales.orders"), granularity="day")
+        def order_date(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
         @ms.time_dimension(
             entity=EntityRef("sales.orders"),
             granularity="hour",
-            parse=ms.hour_prefix("order_date"),
+            parse=ms.hour_prefix(order_date),
         )
         def order_hour(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -761,11 +765,20 @@ def test_time_field_ir_has_time_metadata() -> None:
         ir, _ = ctx.pending_objects[-1]
         assert ir.is_time_dimension is True
         assert isinstance(ir.parse, HourPrefixParse)
-        assert ir.parse.prefix == "order_date"
+        assert ir.parse.prefix == "sales.orders.order_date"
         assert ir.granularity == "hour"
         assert ir.kind == DimensionKind.TIME
     finally:
         _exit_ctx()
+
+
+def test_hour_prefix_rejects_string_prefix() -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.hour_prefix("sales.orders.order_date")  # type: ignore[arg-type]
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "prefix must be a TimeDimensionRef" in str(exc_info.value)
+    assert "got str" in str(exc_info.value)
 
 
 def test_time_dimension_rejects_invalid_parse_value() -> None:
@@ -947,12 +960,14 @@ def test_time_field_rejects_date_format_on_hour_only_field() -> None:
     """date_format is no longer a parameter on time_dimension; this is enforced by signature."""
     _enter_ctx(default_domain="sales")
     try:
+        order_date = TimeDimensionRef("sales.orders.order_date")
+
         with pytest.raises(TypeError):
 
             @ms.time_dimension(
                 entity=EntityRef("sales.orders"),
                 granularity="hour",
-                parse=ms.hour_prefix("order_date"),
+                parse=ms.hour_prefix(order_date),
                 date_format="%H",  # type: ignore[call-arg]
             )
             def order_hour(table: object) -> object:
@@ -1201,10 +1216,14 @@ def test_hour_prefix_accepts_sample_interval() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
+        @ms.time_dimension(entity=EntityRef("sales.bandwidth_samples"), granularity="day")
+        def dt(table: object) -> object:
+            return None  # type: ignore[unreachable]
+
         @ms.time_dimension(
             entity=EntityRef("sales.bandwidth_samples"),
             granularity="hour",
-            parse=ms.hour_prefix("sales.bandwidth_samples.dt", sample_interval=(1, "hour")),
+            parse=ms.hour_prefix(dt, sample_interval=(1, "hour")),
         )
         def hh(table: object) -> object:
             return None  # type: ignore[unreachable]
@@ -1222,12 +1241,14 @@ def test_hour_prefix_accepts_sample_interval() -> None:
 def test_hour_prefix_rejects_sample_interval_day_unit() -> None:
     _enter_ctx(default_domain="sales")
     try:
+        dt = TimeDimensionRef("sales.bandwidth_samples.dt")
+
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
                 entity=EntityRef("sales.bandwidth_samples"),
                 granularity="hour",
-                parse=ms.hour_prefix("sales.bandwidth_samples.dt", sample_interval=(1, "day")),  # type: ignore[arg-type]
+                parse=ms.hour_prefix(dt, sample_interval=(1, "day")),  # type: ignore[arg-type]
             )
             def hh(table: object) -> object:
                 return None  # type: ignore[unreachable]

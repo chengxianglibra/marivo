@@ -659,7 +659,12 @@ def test_semantic_check_main_prints_json(
 # -- naive timezone blockers ---------------------------------------------------
 
 
-def _naive_tz_report(semantic_project_factory, time_dim_kwargs: str) -> object:
+def _naive_tz_report(
+    semantic_project_factory,
+    time_dim_kwargs: str,
+    *,
+    time_dim_prelude: str = "",
+) -> object:
     """Build a readiness report with a single time dimension using the given kwargs."""
     domain_py = textwrap.dedent(f"""\
         import marivo.semantic as ms
@@ -672,6 +677,8 @@ def _naive_tz_report(semantic_project_factory, time_dim_kwargs: str) -> object:
             source=ms.table("orders"),
             ai_context=ms.ai_context(business_definition="One row per order."),
         )
+
+        {time_dim_prelude}
 
         @ms.time_dimension(
             entity=orders,
@@ -762,8 +769,18 @@ def test_required_prefix_does_not_block(semantic_project_factory) -> None:
     """Hour-only dimensions (hour_prefix) are partition encodings, not TZ-relevant."""
     report = _naive_tz_report(
         semantic_project_factory,
-        'granularity="hour", parse=ms.hour_prefix("20260101"), '
+        'granularity="hour", parse=ms.hour_prefix(order_date), '
         'ai_context=ms.ai_context(business_definition="Hour partition key.")',
+        time_dim_prelude=textwrap.dedent("""\
+            @ms.time_dimension(
+                entity=orders,
+                granularity="day",
+                parse=ms.strptime("%Y%m%d"),
+                ai_context=ms.ai_context(business_definition="Day partition key."),
+            )
+            def order_date(table):
+                return table.dt
+        """),
     )
     assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
 

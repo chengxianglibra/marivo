@@ -300,7 +300,7 @@ hour 粒度需要带时间的格式）。
 | `ms.datetime()` | 原生 `datetime` | `timezone`（IANA）、`sample_interval` |
 | `ms.timestamp()` | 原生 `timestamp` | `timezone`（IANA）、`sample_interval` |
 | `ms.strptime(format)` | 需要解析的 string/integer | `timezone`、`sample_interval` |
-| `ms.hour_prefix(prefix)` | 仅含小时的分区 | `sample_interval` —— `prefix` 是提供日期的 day 粒度 time-dimension id |
+| `ms.hour_prefix(prefix)` | 仅含小时的分区 | `sample_interval` —— `prefix` 是提供日期的 day 粒度 `TimeDimensionRef` |
 
 `timezone` 默认为 datasource 引擎时区；只有当列的挂钟含义不同时才设置它（例如 `"UTC"`）。
 形如 `(5, "minute")` 的 `sample_interval` 标记一个被周期采样的时间轴，供 semi-additive

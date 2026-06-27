@@ -256,7 +256,7 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
         "def log_date(orders):\n"
         "    return orders.log_date\n"
         "\n"
-        "@ms.time_dimension(entity=orders, granularity='hour', parse=ms.hour_prefix('log_date'))\n"
+        "@ms.time_dimension(entity=orders, granularity='hour', parse=ms.hour_prefix(log_date))\n"
         "def log_hour(orders):\n"
         "    return orders.log_hour\n"
         "\n"

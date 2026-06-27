@@ -507,7 +507,7 @@ def _bootstrap_hour_prefix(tmp_path):
         "@ms.time_dimension(\n"
         "    entity=hourly_bandwidth,\n"
         "    granularity='hour',\n"
-        "    parse=ms.hour_prefix('sales.hourly_bandwidth.dt', sample_interval=(1, 'hour')),\n"
+        "    parse=ms.hour_prefix(dt, sample_interval=(1, 'hour')),\n"
         ")\n"
         "def hh(hourly_bandwidth):\n"
         "    return hourly_bandwidth.hh\n"

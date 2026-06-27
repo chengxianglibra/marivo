@@ -2234,7 +2234,7 @@ def strptime(
 
 
 def hour_prefix(
-    prefix: str,
+    prefix: TimeDimensionRef,
     /,
     *,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
@@ -2248,8 +2248,8 @@ def hour_prefix(
     analysis time.
 
     Args:
-        prefix: The semantic id of a day-level time dimension that supplies
-            the date context for this hour column.
+        prefix: The ``TimeDimensionRef`` of a day-level time dimension that
+            supplies the date context for this hour column.
         sample_interval: Optional ``(count, unit)`` declaring the periodic
             sampling cadence (e.g. ``(1, "hour")`` for hourly samples).
             When set, the time dimension can serve as a sampled-fold axis.
@@ -2258,18 +2258,30 @@ def hour_prefix(
         An ``HourPrefixParse`` value object.
 
     Example:
+        >>> @ms.time_dimension(entity=logs, granularity="day")
+        ... def dt(logs):
+        ...     return logs.dt
         >>> @ms.time_dimension(entity=logs, granularity="hour",
-        ...                    parse=ms.hour_prefix("ops.logs.dt"))
+        ...                    parse=ms.hour_prefix(dt))
         ... def hh(logs):
         ...     return logs.hh
         >>> @ms.time_dimension(entity=logs, granularity="hour",
-        ...                    parse=ms.hour_prefix("ops.logs.dt",
+        ...                    parse=ms.hour_prefix(dt,
         ...                                        sample_interval=(1, "hour")))
         ... def hh(logs):
         ...     return logs.hh
     """
+    if not isinstance(prefix, TimeDimensionRef):
+        received = getattr(prefix, "id", prefix)
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.hour_prefix(...) prefix must be a TimeDimensionRef returned by "
+            f"@ms.time_dimension(...); got {type(prefix).__name__}: {received!r}.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
     return HourPrefixParse(
-        prefix=prefix,
+        prefix=prefix.id,
         sample_interval=_normalize_sample_interval_value(
             sample_interval,
         ),
