@@ -27,6 +27,21 @@ import marivo.semantic.errors as semantic_errors
 
 _SKILLS_ROOT = Path(__file__).resolve().parent.parent / "marivo/skills"
 
+# Public analysis-surface patterns that Phase 2 removed from the default skill
+# teaching.  No ``.md`` or ``.py`` under marivo-analysis may contain these.
+PHASE2_BANNED_ANALYSIS_SURFACE = (
+    "session.from_pandas(",
+    "session.explore_ibis(",
+    "session.promote_metric_frame(",
+    "session.promote_delta_frame(",
+    "session.promote_attribution_frame(",
+    "session.decompose(",
+    'timescope="last_7d"',
+    "timescope='last_7d'",
+    'timescope="previous_7d"',
+    "timescope='previous_7d'",
+)
+
 # (relative_md_path, type_or_marker) pairs that are intentionally allowed.
 _ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
     {
@@ -228,6 +243,18 @@ def test_no_error_catalog_in_skills() -> None:
                     f"time; do not catalog them in a table"
                 )
     assert not violations, "Skill error-catalog transcription detected:\n" + "\n".join(violations)
+
+
+def test_analysis_skill_does_not_teach_phase2_removed_surface() -> None:
+    offenders: list[str] = []
+    for path in (_SKILLS_ROOT / "marivo-analysis").rglob("*"):
+        if path.is_dir() or path.suffix not in {".md", ".py"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pattern in PHASE2_BANNED_ANALYSIS_SURFACE:
+            if pattern in text:
+                offenders.append(f"{path.relative_to(_SKILLS_ROOT)} contains {pattern}")
+    assert offenders == []
 
 
 def test_brief_fields_carry_descriptions_for_help() -> None:

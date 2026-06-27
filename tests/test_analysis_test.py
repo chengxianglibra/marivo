@@ -335,4 +335,4 @@ def test_test_operator_errors_and_persistence(tmp_path):
     result = session.hypothesis_test(ts, ts)
     loaded = load_frame(result.ref, session=session)
     assert loaded.meta.kind == "hypothesis_test_result"
-    assert loaded.lineage.steps[-1].intent == "test"
+    assert loaded.lineage.steps[-1].intent == "hypothesis_test"

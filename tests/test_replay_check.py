@@ -205,7 +205,7 @@ def test_dimension_catalog_get_is_not_checked_as_metric_ref(tmp_path, semantic_p
         'timescope={"start": "2026-04-24", "end": "2026-05-01"})\n'
         "delta = session.compare(cur, base)\n"
         'axis = catalog.get("sales.orders.region").ref\n'
-        "drivers = session.decompose(delta, axis=axis)\n"
+        "drivers = session.attribute(delta, axes=[axis])\n"
     )
     result = static_check_replay(_write(tmp_path, src), workspace_dir=_workspace_dir(tmp_path))
     assert not any(i.check == "metric_ref" for i in result.issues)

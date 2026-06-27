@@ -537,7 +537,7 @@ class TestPolicyError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {
             "location": "session.hypothesis_test policy arguments",
-            "cause": "test v1 only supports mean_changed, window_bucket alignment, and shape-compatible SamplingPolicy.pairing.",
+            "cause": "hypothesis_test v1 only supports mean_changed, window_bucket alignment, and shape-compatible SamplingPolicy.pairing.",
             "fix_snippet": "session.hypothesis_test(cur, base, sampling=mv.SamplingPolicy(pairing='window_bucket'), alpha=0.05)",
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
@@ -848,16 +848,16 @@ class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
             available[0] if isinstance(available, list) and available else "<existing_dimension>"
         )
         return {
-            "location": "session.decompose axis argument",
+            "location": "session.attribute axes argument",
             "cause": (
                 f"axis={axis_ref!r} is not in the panel frame dimensions "
-                f"({available_list}); decompose requires axis to be one of the frame's "
+                f"({available_list}); attribute requires axis to be one of the frame's "
                 "segment dimensions."
             ),
             "fix_snippet": (
                 f"# Choose the full catalog ref for panel dimension column {first_available!r}.\n"
                 'axis = session.catalog.get("<domain.entity.dimension>").ref\n'
-                "session.decompose(delta, axis=axis)"
+                "session.attribute(delta, axes=[axis])"
             ),
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }

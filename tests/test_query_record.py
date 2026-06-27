@@ -7,6 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo.analysis import escape_hatch
 from marivo.analysis.executor.query_record import (
     QueryExecution,
     compute_sql_digest,
@@ -296,7 +297,7 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
         frame,
         alignment=mv.window_bucket(),
     )
-    attr = s.decompose(delta, axis=make_ref("region", SemanticKind.DIMENSION))
+    attr = s.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
     job_id = attr.meta.produced_by_job
     assert job_id is not None
     job = s.job(job_id)
@@ -320,9 +321,10 @@ def test_explore_ibis_source_query_includes_session_comment(tmp_path, monkeypatc
         question="explore audit",
         backends={"warehouse": lambda: con},
     )
-    result = s.explore_ibis(
+    result = escape_hatch.explore_ibis(
         lambda backend: backend.table("orders"),
         datasource="warehouse",
+        session=s,
     )
     assert result.meta.source_query is not None
     assert "from=marivo" in result.meta.source_query

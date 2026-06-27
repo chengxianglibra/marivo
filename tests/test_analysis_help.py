@@ -27,13 +27,14 @@ def _json_data(symbol: str | None = None) -> dict[str, Any]:
 _HELP_ONLY_ENTRIES = {
     "observe",
     "compare",
-    "decompose",
+    "attribute",
     "discover",
     "transform",
     "correlate",
     "forecast",
     "assess_quality",
     "hypothesis_test",
+    "derive_metric_frame",
     "alignment",
     "calendar",
     "select",
@@ -51,7 +52,8 @@ def test_top_level_help_lists_intents_and_helpers() -> None:
     out = _capture()
     assert "observe" in out
     assert "compare" in out
-    assert "decompose" in out
+    assert "attribute" in out
+    assert "decompose" not in out
     assert "discover" in out
     assert "detect" not in out
     assert "correlate" in out

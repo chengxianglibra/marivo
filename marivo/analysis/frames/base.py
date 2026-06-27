@@ -277,11 +277,10 @@ class BaseFrameMeta(BaseModel):
 
 _OUTPUT_FAMILY_BY_OPERATOR: dict[str, str] = {
     "compare": "delta_frame",
-    "decompose": "attribution_frame",
+    "attribute": "attribution_frame",
     "discover": "candidate_set",
     "select": "selection",
     "correlate": "association_result",
-    "transform": "same_as_input",
     "assess_quality": "quality_report",
     "hypothesis_test": "hypothesis_test_result",
     "forecast": "forecast_frame",

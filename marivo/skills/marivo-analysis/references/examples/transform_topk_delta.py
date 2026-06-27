@@ -7,7 +7,6 @@ Output shape: a DeltaFrame with at most ``limit`` rows.
 
 from __future__ import annotations
 
-import pandas as pd
 from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 
 # Setup: load the tiny semantic model and attach an examples session.
@@ -16,31 +15,15 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
-current = session.promote_metric_frame(
-    pd.DataFrame(
-        {
-            "country": ["US", "CA", "MX", "BR"],
-            "revenue": [90.0, 70.0, 35.0, 10.0],
-        }
-    ),
-    metric=session.catalog.get(METRIC_ID),
-    axes={"country": session.catalog.get("sales.orders.region")},
-    measure_column="revenue",
-    semantic_kind="segmented",
-    semantic_model="sales",
+current = session.observe(
+    session.catalog.get(METRIC_ID),
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    dimensions=[session.catalog.get("sales.orders.region")],
 )
-baseline = session.promote_metric_frame(
-    pd.DataFrame(
-        {
-            "country": ["US", "CA", "MX", "BR"],
-            "revenue": [120.0, 80.0, 55.0, 15.0],
-        }
-    ),
-    metric=session.catalog.get(METRIC_ID),
-    axes={"country": session.catalog.get("sales.orders.region")},
-    measure_column="revenue",
-    semantic_kind="segmented",
-    semantic_model="sales",
+baseline = session.observe(
+    session.catalog.get(METRIC_ID),
+    timescope={"start": "2025-07-01", "end": "2025-10-01"},
+    dimensions=[session.catalog.get("sales.orders.region")],
 )
 delta_frame = session.compare(
     current,
@@ -51,6 +34,6 @@ top_decreases = session.transform.topk(delta_frame, by="delta", limit=3, order="
 print(top_decreases.summary())
 
 # Expected output:
-# kind='delta_frame'
-# semantic_kind='segmented'
-# columns=['country', 'presence_status', 'current', 'baseline', 'delta', 'pct_change', 'pct_change_status']
+# kind='delta_frame' row_count=2
+# columns=['region', 'presence_status', 'current', 'baseline', 'delta', 'pct_change', 'pct_change_status']
+# semantic_shape='segmented' lineage_oneliner='observe -> observe -> compare -> transform'

@@ -4,15 +4,14 @@ When to use: you already have a by-dimension MetricFrame and need one segment.
 Output shape: slicing one dimension value demotes the frame to scalar.
 
 transform.slice where values use shorthand forms:
-  - scalar  → equality (==)
-  - list    → membership (in)
-  - tuple   → range (between, inclusive both ends)
+  - scalar  -> equality (==)
+  - list    -> membership (in)
+  - tuple   -> range (between, inclusive both ends)
 For structured predicates (op + value), use observe(where=...) instead.
 """
 
 from __future__ import annotations
 
-import pandas as pd
 from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 
 # Setup: load the tiny semantic model and attach an examples session.
@@ -22,35 +21,28 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 region = session.catalog.get("sales.orders.region")
-revenue_by_country = session.promote_metric_frame(
-    pd.DataFrame(
-        {
-            "country": ["US", "CA", "MX"],
-            "revenue": [120.0, 80.0, 40.0],
-        }
-    ),
-    metric=session.catalog.get(METRIC_ID),
-    axes={"country": region},
-    measure_column="revenue",
-    semantic_kind="segmented",
-    semantic_model="sales",
+revenue_by_region = session.observe(
+    session.catalog.get(METRIC_ID),
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    dimensions=[region],
 )
 
 # Scalar shorthand: filter to one exact value (equality).
 sliced = session.transform.slice(
-    revenue_by_country,
-    where={region: "US"},
+    revenue_by_region,
+    where={region: "north"},
 )
 print(sliced.summary())
 
 # List shorthand: keep multiple values (membership).
 sliced_multi = session.transform.slice(
-    revenue_by_country,
-    where={region: ["US", "CA"]},
+    revenue_by_region,
+    where={region: ["north", "south"]},
 )
 print(sliced_multi.summary())
 
-# Expected output:
-# kind='metric_frame'
-# semantic_kind='scalar'
-# columns=['revenue']
+# Expected output (two summaries printed):
+# [1] kind='metric_frame' row_count=1 columns=['value']
+#     semantic_shape='scalar' lineage_oneliner='observe -> transform'
+# [2] kind='metric_frame' row_count=2 columns=['region', 'value']
+#     semantic_shape='segmented' lineage_oneliner='observe -> transform'

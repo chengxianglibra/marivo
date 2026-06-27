@@ -29,7 +29,7 @@ prev = session.observe(
     dimensions=[region],
 )
 delta = session.compare(cur, prev, alignment=mv.window_bucket())
-attribution = session.decompose(delta, axis=region)
+attribution = session.attribute(delta, axes=[region])
 print(attribution.summary())
 
 # Expected output:

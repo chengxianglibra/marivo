@@ -62,9 +62,9 @@ def hypothesis_test(
     session = resolve_session(session)
     ensure_session_writable(session)
     if not isinstance(a, MetricFrame) or not isinstance(b, MetricFrame):
-        raise SemanticKindMismatchError(message="test requires MetricFrame inputs")
-    ensure_frame_in_session(a, session=session, label="test a")
-    ensure_frame_in_session(b, session=session, label="test b")
+        raise SemanticKindMismatchError(message="hypothesis_test requires MetricFrame inputs")
+    ensure_frame_in_session(a, session=session, label="hypothesis_test a")
+    ensure_frame_in_session(b, session=session, label="hypothesis_test b")
     if hypothesis != "mean_changed":
         raise TestPolicyError(message=f"unsupported hypothesis {hypothesis!r}")
     if not 0 < alpha <= 0.5:
@@ -73,22 +73,22 @@ def hypothesis_test(
     sampling = sampling or SamplingPolicy()
     if alignment.kind != "window_bucket":
         raise TestPolicyError(
-            message="test v1 only supports window_bucket alignment",
+            message="hypothesis_test v1 only supports window_bucket alignment",
             details={"alignment": alignment.model_dump(mode="json")},
         )
     if alignment.mode != "ordinal_bucket" or alignment.strict_lengths:
         raise TestPolicyError(
-            message="test v1 only supports default window_bucket alignment",
+            message="hypothesis_test v1 only supports default window_bucket alignment",
             details={"alignment": alignment.model_dump(mode="json")},
         )
     if a.meta.semantic_kind != b.meta.semantic_kind:
         raise SemanticKindMismatchError(
-            message="test requires matching semantic_kind",
+            message="hypothesis_test requires matching semantic_kind",
             details={"a": a.meta.semantic_kind, "b": b.meta.semantic_kind},
         )
     if a.meta.semantic_model != b.meta.semantic_model:
         raise SemanticKindMismatchError(
-            message="test requires matching semantic_model",
+            message="hypothesis_test requires matching semantic_model",
             details={"a": a.meta.semantic_model, "b": b.meta.semantic_model},
         )
     if a.meta.semantic_kind == "scalar":
@@ -111,8 +111,8 @@ def hypothesis_test(
     started = monotonic()
     a_df = a.to_pandas()
     b_df = b.to_pandas()
-    a_value = require_numeric_column(a_df, value_a, purpose="test a")
-    b_value = require_numeric_column(b_df, value_b, purpose="test b")
+    a_value = require_numeric_column(a_df, value_a, purpose="hypothesis_test a")
+    b_value = require_numeric_column(b_df, value_b, purpose="hypothesis_test b")
 
     if a.meta.semantic_kind == "panel":
         segment_dims = _segment_dimensions(a)
@@ -138,7 +138,7 @@ def hypothesis_test(
                 a_df, b_df, a_value=a_value, b_value=b_value, frame_a=a, frame_b=b
             )
         if paired.empty:
-            raise TestAlignmentError(message="test alignment produced no paired rows")
+            raise TestAlignmentError(message="hypothesis_test alignment produced no paired rows")
         row = _paired_t_row(paired, min_n=sampling.min_n, alpha=alpha)
         if row["reason_code"] == "insufficient_pairs":
             raise TestShapeNotTestableError(
@@ -179,7 +179,7 @@ def hypothesis_test(
         lineage=compose_lineage(
             [a, b],
             step=LineageStep(
-                intent="test",
+                intent="hypothesis_test",
                 job_ref=job_ref,
                 inputs=source_refs,
                 params_digest=params_digest(params),
@@ -210,7 +210,7 @@ def hypothesis_test(
             store=session._evidence_store(),
             frames_dir=session._layout.frames_dir,
             frame=frame,
-            step_type="test",
+            step_type="hypothesis_test",
             inputs=CommitInputs(
                 input_refs=[a.meta.artifact_id or a.ref, b.meta.artifact_id or b.ref]
             ),
@@ -231,7 +231,7 @@ def hypothesis_test(
         {
             "id": job_ref,
             "session_id": session.id,
-            "intent": "test",
+            "intent": "hypothesis_test",
             "params": params,
             "input_frame_refs": source_refs,
             "output_frame_ref": frame.meta.artifact_id or frame_ref,
@@ -294,7 +294,7 @@ def _ordinal_paired_values(
     grain = _panel_grain(frame_a)
     if not isinstance(grain, str) or not grain:
         raise AlignmentFailedError(
-            message="test alignment requires a time axis grain",
+            message="hypothesis_test alignment requires a time axis grain",
             details={"kind": "WindowBucketGrainMissing"},
         )
     time_column = _time_column(frame_a)
@@ -414,5 +414,5 @@ def _panel_tests(
         prefix = dict(zip(segment_dims, values, strict=True))
         rows.append(_paired_t_row(paired, min_n=min_n, alpha=alpha, prefix=prefix))
     if not any_paired:
-        raise TestAlignmentError(message="test alignment produced no paired rows")
+        raise TestAlignmentError(message="hypothesis_test alignment produced no paired rows")
     return rows

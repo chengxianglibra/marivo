@@ -420,8 +420,8 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_project) -> N
     delta = sampled_bandwidth_project.compare(cur, base)
 
     with pytest.raises(ComponentDecompositionError) as exc_info:
-        sampled_bandwidth_project.decompose(
-            delta, axis=make_ref("province", SemanticKind.DIMENSION)
+        sampled_bandwidth_project.attribute(
+            delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
         )
 
     assert exc_info.value.details["reason"] == "non_linear_time_fold"
@@ -440,8 +440,8 @@ def test_decompose_allows_mean_fold_delta(sampled_bandwidth_project) -> None:
     )
     delta = sampled_bandwidth_project.compare(cur, base)
 
-    result = sampled_bandwidth_project.decompose(
-        delta, axis=make_ref("province", SemanticKind.DIMENSION)
+    result = sampled_bandwidth_project.attribute(
+        delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
     )
     assert result.meta.attribution_kind == "decomposition"
 

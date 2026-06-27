@@ -346,7 +346,7 @@ def test_select_axis_returns_catalog_ref_for_discovered_driver_axis(tmp_path):
     selected_axis = axis_candidates.select(rank=1, attribute="axis")
     assert selected_axis == make_ref("sales.orders.region", SemanticKind.DIMENSION)
 
-    drivers = session.decompose(src, axis=selected_axis)
+    drivers = session.attribute(src, axes=[selected_axis])
     assert drivers.meta.kind == "attribution_frame"
     assert drivers.meta.driver_field == "region"
 

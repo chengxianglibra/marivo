@@ -61,9 +61,9 @@ def _delta(session) -> DeltaFrame:
 def test_decompose_populates_surface1_and_decomposition_findings() -> None:
     session = session_attach.get_or_create(name="decompose_evidence")
 
-    attribution = session.decompose(
+    attribution = session.attribute(
         _delta(session),
-        axis=make_ref("country", SemanticKind.DIMENSION),
+        axes=[make_ref("country", SemanticKind.DIMENSION)],
     )
 
     assert attribution.meta.artifact_id is not None
@@ -83,6 +83,6 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
             "SELECT proposition_type FROM propositions ORDER BY proposition_id"
         ).fetchall()
 
-    assert artifact_rows == [("decompose", "attribution_frame", "complete")]
+    assert artifact_rows == [("attribute", "attribution_frame", "complete")]
     assert finding_types == [("decomposition_item",), ("decomposition_item",)]
     assert proposition_types == [("driver",), ("driver",)]

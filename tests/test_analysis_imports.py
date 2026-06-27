@@ -50,19 +50,18 @@ def test_session_class_exposes_execution_surface():
 
     assert callable(mv.Session.observe)
     assert callable(mv.Session.compare)
-    assert callable(mv.Session.decompose)
+    assert callable(mv.Session.attribute)
     assert callable(mv.Session.correlate)
     assert callable(mv.Session.forecast)
     assert callable(mv.Session.assess_quality)
     assert callable(mv.Session.hypothesis_test)
     assert isinstance(mv.Session.discover, property)
     assert isinstance(mv.Session.transform, property)
-    assert callable(mv.Session.from_pandas)
-    assert callable(mv.Session.explore_ibis)
-    assert callable(mv.Session.promote_metric_frame)
-    assert callable(mv.Session.promote_delta_frame)
-    assert callable(mv.Session.promote_attribution_frame)
-    assert mv.ExplorationResult is not None
+    assert not hasattr(mv.Session, "from_pandas")
+    assert not hasattr(mv.Session, "explore_ibis")
+    assert not hasattr(mv.Session, "promote_metric_frame")
+    assert not hasattr(mv.Session, "promote_delta_frame")
+    assert not hasattr(mv.Session, "promote_attribution_frame")
     assert not hasattr(mv.MetricFrame, "from_dataframe")
 
 
@@ -70,7 +69,9 @@ def test_analysis_exports_non_execution_escape_hatch_types():
     import marivo.analysis as mv
 
     assert mv.ArtifactRef("frame_1").id == "frame_1"
-    assert mv.PromotionPolicy().on_missing == "fail_closed"
+    from marivo.analysis.policies import PromotionPolicy
+
+    assert PromotionPolicy().on_missing == "fail_closed"
     assert hasattr(mv.errors, "PromotionFailedError")
 
 
@@ -88,7 +89,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "dow_aligned",
         "holiday_aligned",
         "holiday_and_dow_aligned",
-        "PromotionPolicy",
         "SamplingPolicy",
     }
     core_runtime_result_types = {

@@ -306,7 +306,14 @@ def _walk_concrete_analysis_frame_classes() -> list[type[BaseFrame]]:
 
 def test_concrete_analysis_frames_are_public_and_descriptive() -> None:
     assert analysis_frames.__all__
+    # ExplorationResult is a scratch/promotion frame demoted off the default
+    # public surface in Phase 2; it remains an internal frame type.
+    demoted_frames = {"ExplorationResult"}
     for cls in _walk_concrete_analysis_frame_classes():
         assert cls._repr_identity is not BaseFrame._repr_identity, cls.__name__
+        if cls.__name__ in demoted_frames:
+            assert cls.__name__ not in ma.__all__, cls.__name__
+            assert cls.__name__ not in ANALYSIS_FRAME_SYMBOLS, cls.__name__
+            continue
         assert cls.__name__ in ma.__all__, cls.__name__
         assert cls.__name__ in ANALYSIS_FRAME_SYMBOLS, cls.__name__

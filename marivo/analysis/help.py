@@ -24,11 +24,12 @@ class _SemanticHelpIR(Protocol):
 _HELP_ONLY_ENTRIES: tuple[str, ...] = (
     "observe",
     "compare",
-    "decompose",
+    "attribute",
     "discover",
     "transform",
     "correlate",
     "forecast",
+    "derive_metric_frame",
     "assess_quality",
     "hypothesis_test",
     "alignment",
@@ -46,21 +47,19 @@ _FRAME_SYMBOLS: set[str] = {
     "AssociationResult",
     "ComponentFrame",
     "CoverageFrame",
-    "ExplorationResult",
     "HypothesisTestResult",
 }
 
 _CONSTRUCTED_BY: dict[str, str] = {
-    "MetricFrame": "session.observe(...), session.promote_metric_frame(...)",
+    "MetricFrame": "session.observe(...), session.derive_metric_frame(...)",
     "DeltaFrame": "session.compare(...)",
-    "AttributionFrame": "session.decompose(...)",
+    "AttributionFrame": "session.attribute(...)",
     "ForecastFrame": "session.forecast(...)",
     "QualityReport": "session.assess_quality(...)",
     "CandidateSet": "session.discover.<objective>(...)",
     "AssociationResult": "session.correlate(...)",
     "ComponentFrame": "MetricFrame.components(), DeltaFrame.components()",
     "CoverageFrame": "MetricFrame.coverage()",
-    "ExplorationResult": "analysis exploration intents",
     "HypothesisTestResult": "session.hypothesis_test(...)",
 }
 
@@ -74,13 +73,22 @@ _SUMMARIES: dict[str, str] = {
     "frames": "analysis frame and frame metadata types",
     "observe": "build a MetricFrame from a metric and window",
     "compare": "compare two MetricFrames into a DeltaFrame",
-    "decompose": "decompose a DeltaFrame into an AttributionFrame",
+    "attribute": "attribute a DeltaFrame into an AttributionFrame over explicit axes",
     "discover": "discover deterministic candidate sets from analysis artifacts",
     "transform": "family-preserving reshape of a MetricFrame or DeltaFrame",
     "correlate": "correlate compatible analysis frames",
     "forecast": "project a time_series or panel MetricFrame forward",
     "assess_quality": "inspect artifact quality and produce a QualityReport",
-    "hypothesis_test": "run a paired hypothesis test over compatible MetricFrames",
+    "hypothesis_test": "run a paired hypothesis_test over compatible MetricFrames",
+    "derive_metric_frame": "run a governed Ibis query and validate the output as a MetricFrame",
+    "IbisQuerySpec": "query builder returned by mv.ibis_query(...) for derive_metric_frame",
+    "MetricColumns": "column binding object returned by mv.metric_columns(...)",
+    "MetricColumnBinding": "one output-column to semantic-ref binding for derive_metric_frame",
+    "DeriveContext": "deterministic query-build context passed to mv.ibis_query builders",
+    "ibis_query": "construct a governed Ibis query spec for derive_metric_frame",
+    "metric_columns": "bind derive_metric_frame output columns to metric roles",
+    "time_column": "bind one query output column to a catalog time dimension",
+    "dimension_column": "bind one query output column to a catalog dimension",
     "alignment": "AlignmentPolicy variants and output columns",
     "calendar": "project-local calendar JSON file shape",
     "select": "read typed fields from a CandidateSet row",
@@ -104,7 +112,6 @@ _SUMMARIES: dict[str, str] = {
     "AssociationResult": "correlation result (summary shows r, method, sample size)",
     "ComponentFrame": "component values linked to component-aware derived metric frames",
     "CoverageFrame": "sampled metric time-slot coverage linked from a MetricFrame",
-    "ExplorationResult": "exploration result frame",
     "HypothesisTestResult": "statistical test result frame",
     "AbsoluteWindow": "half-open time interval [start, end) for observe timescope",
     "AlignmentKind": "literal values for AlignmentPolicy.kind",
@@ -129,8 +136,6 @@ _SUMMARIES: dict[str, str] = {
     "DiscoverSensitivity": "literal values for discover sensitivity parameter",
     "SemanticObject": "catalog object returned by session.catalog.get(...)",
     "SemanticRef": "catalog ref returned by SemanticObject.ref",
-    "PromotionPolicy": "promotion policy for promoted metric frames",
-    "PromotionSemanticAnchors": "semantic anchor refs for PromotionPolicy",
     "SamplingPolicy": "sampling policy for compare and correlate",
     "SlicePredicate": "typed dict for transform slice predicates",
     "SlicePredicateOp": "literal values for SlicePredicate.op field",
@@ -153,7 +158,7 @@ _TYPE_ALIASES: set[str] = {
 
 _SEE_ALSO: dict[str, tuple[str, ...]] = {
     "MetricFrame": ("mv.help('observe')", "mv.help('MetricFrame.components')"),
-    "DeltaFrame": ("mv.help('compare')", "mv.help('decompose')"),
+    "DeltaFrame": ("mv.help('compare')", "mv.help('attribute')"),
     "CandidateSet": ("mv.help('discover')", "mv.help('select')"),
     "AlignmentPolicy": ("mv.help('alignment')", "mv.help('calendar')"),
 }
@@ -307,9 +312,9 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
         "summary": "align two MetricFrames and produce a DeltaFrame",
     },
     {
-        "name": "decompose",
+        "name": "attribute",
         "group": "intents",
-        "summary": "attribute a DeltaFrame into component drivers",
+        "summary": "attribute a DeltaFrame over explicit deterministic axes",
     },
     {
         "name": "correlate",
@@ -329,7 +334,7 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
     {
         "name": "hypothesis_test",
         "group": "intents",
-        "summary": "run a paired hypothesis test over compatible MetricFrames",
+        "summary": "run a paired hypothesis_test over compatible MetricFrames",
     },
     {
         "name": "discover",
@@ -338,8 +343,8 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
     },
     {
         "name": "transform",
-        "group": "namespaces/evidence",
-        "summary": "operation helpers for family-preserving frame transforms",
+        "group": "expert",
+        "summary": "family-preserving frame transforms for exact-control workflows",
     },
     {
         "name": "evidence",
@@ -352,29 +357,9 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
         "summary": "project-local knowledge and evidence recall helpers",
     },
     {
-        "name": "from_pandas",
-        "group": "escape_hatch",
-        "summary": "promote local pandas results into persisted analysis frames",
-    },
-    {
-        "name": "explore_ibis",
-        "group": "escape_hatch",
-        "summary": "run bounded ad hoc ibis exploration through the session backend",
-    },
-    {
-        "name": "promote_metric_frame",
-        "group": "escape_hatch",
-        "summary": "persist a scratch dataframe as a MetricFrame",
-    },
-    {
-        "name": "promote_delta_frame",
-        "group": "escape_hatch",
-        "summary": "persist a scratch dataframe as a DeltaFrame",
-    },
-    {
-        "name": "promote_attribution_frame",
-        "group": "escape_hatch",
-        "summary": "persist a scratch dataframe as an AttributionFrame",
+        "name": "derive_metric_frame",
+        "group": "intents",
+        "summary": "governed Ibis escape hatch that returns a MetricFrame",
     },
     {
         "name": "jobs",
@@ -448,7 +433,7 @@ def _session_text(content: dict[str, object]) -> str:
     for method in lifecycle:
         lines.append(f"  {method['name']:<24}{method['summary']}")
     lines.extend(("", "Methods:"))
-    for group in ("intents", "namespaces/evidence", "escape_hatch"):
+    for group in ("intents", "namespaces/evidence", "expert"):
         lines.append(f"  {group}:")
         for method in methods:
             if method["group"] == group:
@@ -663,10 +648,10 @@ def _resolve(symbol: str) -> object | None:
         from marivo.analysis.session.core import Session
 
         return Session.compare
-    if symbol == "decompose":
+    if symbol == "attribute":
         from marivo.analysis.session.core import Session
 
-        return Session.decompose
+        return Session.attribute
     if symbol == "discover":
         from marivo.analysis.intents.discover import discover
 
@@ -695,6 +680,10 @@ def _resolve(symbol: str) -> object | None:
         from marivo.analysis.session.core import Session
 
         return Session.hypothesis_test
+    if symbol == "derive_metric_frame":
+        from marivo.analysis.session.core import Session
+
+        return Session.derive_metric_frame
     return None
 
 

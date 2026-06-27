@@ -49,7 +49,7 @@ def extract_test_result_findings(
     """Extract one finding per hypothesis-test artifact."""
     if df.empty:
         raise FindingExtractionFailedError(
-            message="test extraction requires at least one row",
+            message="hypothesis_test extraction requires at least one row",
             details={"artifact_id": artifact_id},
         )
 

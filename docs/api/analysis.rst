@@ -38,6 +38,26 @@ Discovery
    help
    help_text
 
+Governed Derivation
+-------------------
+
+``derive_metric_frame`` is a ``Session`` method. The helper constructors below
+define the governed Ibis query contract: semantic refs identify metric and axis
+bindings; query output columns are plain strings.
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   DeriveContext
+   IbisQuerySpec
+   MetricColumnBinding
+   MetricColumns
+   ibis_query
+   metric_columns
+   time_column
+   dimension_column
+
 Frames
 ------
 
@@ -78,7 +98,6 @@ Analysis results
 
    AssociationResult
    HypothesisTestResult
-   ExplorationResult
    QualityReport
    CandidateSet
 
@@ -104,8 +123,6 @@ Policies
    AlignmentKind
    CalendarPolicy
    SamplingPolicy
-   PromotionPolicy
-   PromotionSemanticAnchors
 
 Refs & lineage
 --------------

@@ -56,7 +56,7 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
     for advertised in (
         "observe",
         "compare",
-        "decompose",
+        "attribute",
         "discover",
         "transform",
         "correlate",
@@ -70,13 +70,16 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "close",
         "is_read_only",
         "catalog",
+    ):
+        assert advertised in names, f"missing advertised member: {advertised}"
+    for removed in (
         "from_pandas",
         "explore_ibis",
         "promote_metric_frame",
         "promote_delta_frame",
         "promote_attribution_frame",
     ):
-        assert advertised in names, f"missing advertised member: {advertised}"
+        assert removed not in names
     for hidden in (
         "layout",
         "semantic_project",
@@ -122,20 +125,16 @@ def test_help_session_lists_object_methods():
     expected_method_names = {
         "observe",
         "compare",
-        "decompose",
+        "attribute",
         "correlate",
         "forecast",
         "assess_quality",
         "hypothesis_test",
+        "derive_metric_frame",
         "discover",
         "transform",
         "evidence",
         "knowledge",
-        "from_pandas",
-        "explore_ibis",
-        "promote_metric_frame",
-        "promote_delta_frame",
-        "promote_attribution_frame",
         "jobs",
         "recent_jobs",
         "job",
