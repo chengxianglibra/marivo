@@ -124,7 +124,7 @@ def _additivity_content() -> dict[str, object]:
                 "use": "Summable except along a status time axis; requires fold and over.",
             },
         ],
-        "semi_additive_form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max')",
+        "semi_additive_form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('quantile', q))",
         "rules": [
             "semi_additive requires over to be a declared @ms.time_dimension(...) ref",
             "fold is a metric definition choice, not an observe parameter",
@@ -246,7 +246,7 @@ def _additivity_contract() -> dict[str, object]:
     return {
         "allowed_values": ["additive", "non_additive", "ms.semi_additive(...)"],
         "semi_additive": {
-            "form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max')",
+            "form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('quantile', q))",
             "when": "measure or metric is additive except along one time axis",
         },
     }
@@ -534,13 +534,48 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "summary": "Declare a tier-1 aggregate metric over a verified measure.",
             "constructor": "ms.aggregate",
             "required": ["name", "measure", "agg"],
-            "optional": ["domain", "ai_context"],
+            "optional": ["fold", "unit", "domain", "ai_context"],
             "discover": None,
             "parameters": {
                 "name": name,
                 "measure": _param("MeasureRef", "verified measure ref"),
                 "agg": _param(
-                    "str", "aggregation function", allowed_values=["sum", "mean", "min", "max"]
+                    "AggKind",
+                    "aggregation function; ('percentile', q) is the q-th percentile "
+                    "across rows in each query group",
+                    allowed_values=[
+                        "sum",
+                        "count",
+                        "count_distinct",
+                        "min",
+                        "max",
+                        "mean",
+                        "median",
+                        "('percentile', q)",
+                    ],
+                ),
+                "fold": _param(
+                    "str | ('quantile', float) | None",
+                    "time-axis fold override for semi-additive measures; ('quantile', q) "
+                    "collapses the over time axis to its q-th quantile (the same fold used "
+                    "by ms.semi_additive(over, fold)); distinct from agg=('percentile', q), "
+                    "which aggregates across rows in each query group rather than along the "
+                    "time axis",
+                    default="None",
+                    allowed_values=[
+                        "mean",
+                        "min",
+                        "max",
+                        "first",
+                        "last",
+                        "('quantile', q)",
+                    ],
+                ),
+                "unit": _param(
+                    "str | None",
+                    "override the unit derived from the measure at load; None inherits the "
+                    "measure's unit (count/count_distinct derive nothing)",
+                    default="None",
                 ),
                 "domain": domain,
                 "ai_context": ai_context,
@@ -746,6 +781,18 @@ def _contract_text(symbol: str, content: dict[str, object]) -> str:
         f"Optional: {', '.join(cast('list[str]', contract['optional']))}",
         f"Discover: {contract['discover']}",
     ]
+    if contract.get("parameters"):
+        lines.extend(("", "Parameters:"))
+        params = cast("dict[str, dict[str, object]]", contract["parameters"])
+        for param_name, param in params.items():
+            detail = cast("str", param["meaning"])
+            allowed = cast("list[str] | None", param.get("allowed_values"))
+            if allowed:
+                detail += f" (one of: {', '.join(allowed)})"
+            default = cast("str | None", param.get("default"))
+            if default is not None:
+                detail += f" (default: {default})"
+            lines.append(f"  - {param_name} ({param['type']}): {detail}")
     if "parse" in contract:
         lines.extend(("", "Parse decision:"))
         parse = cast("dict[str, dict[str, object]]", contract["parse"])

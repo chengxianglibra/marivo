@@ -733,8 +733,16 @@ def aggregate(
     Args:
         name: Metric name (required).
         measure: Measure to aggregate (``MeasureRef``).
-        agg: Aggregation kind (``"sum"``, ``"mean"``, ``"count"``, etc.).
-        fold: Time-fold override for semi-additive measures.
+        agg: Aggregation kind: ``"sum"``, ``"count"``, ``"count_distinct"``,
+            ``"min"``, ``"max"``, ``"mean"``, ``"median"``, or
+            ``("percentile", q)`` for the q-th percentile across rows in each
+            query group.
+        fold: Time-axis fold override for semi-additive measures:
+            ``"mean"``, ``"min"``, ``"max"``, ``"first"``, ``"last"``, or
+            ``("quantile", q)``. Same fold as ``ms.semi_additive(over, fold)``;
+            collapses the ``over`` time axis. Distinct from
+            ``agg=("percentile", q)``, which aggregates across rows in each
+            query group rather than along the time axis.
         unit: Override the unit derived from ``measure`` at load. Leave None to
             inherit the measure's unit (count/count_distinct derive nothing).
         domain: Override the active domain.
@@ -742,7 +750,8 @@ def aggregate(
 
     Example:
         >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-        >>> average_inventory = ms.aggregate(name="avg_inv", measure=quantity, agg="sum", fold="avg")
+        >>> inventory = ms.aggregate(name="inventory", measure=quantity, agg="sum", fold="last")
+        >>> p95_latency = ms.aggregate(name="p95_latency", measure=latency, agg=("percentile", 0.95))
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

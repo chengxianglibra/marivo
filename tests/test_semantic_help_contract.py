@@ -66,7 +66,7 @@ EXPECTED_CONTRACTS: dict[str, dict[str, object]] = {
     "aggregate": {
         "constructor": "ms.aggregate",
         "required": ["name", "measure", "agg"],
-        "optional": ["domain", "ai_context"],
+        "optional": ["fold", "unit", "domain", "ai_context"],
         "discover": None,
     },
     "count": {
@@ -162,7 +162,7 @@ def test_measure_help_contract_inlines_additivity_shapes() -> None:
 
     assert additivity["allowed_values"] == ["additive", "non_additive", "ms.semi_additive(...)"]
     assert additivity["semi_additive"]["form"] == (
-        "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max')"
+        "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('quantile', q))"
     )
 
 
