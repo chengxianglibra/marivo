@@ -233,9 +233,12 @@ def _time_parse_contract() -> dict[str, object]:
         },
         "hour_only": {
             "form": "ms.hour_prefix(prefix, sample_interval=None)",
-            "when": "physical column stores an hour bucket with a stable date prefix",
+            "when": "physical column stores an hour bucket and a companion day column supplies the date prefix",
             "parameters": {
-                "prefix": "required date prefix that gives hour values date context",
+                "prefix": (
+                    "TimeDimensionRef of the companion day-level time dimension "
+                    "that gives hour values date context"
+                ),
                 "sample_interval": "optional (count, unit) for sampled time axes",
             },
         },
@@ -307,19 +310,35 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             ],
         },
         "hour_prefix": {
-            "summary": "Declare parse metadata for hour-only buckets with a stable date prefix.",
+            "summary": (
+                "Bind an hour-only physical column to a companion day-level time "
+                "dimension to form a full hourly time axis."
+            ),
             "constructor": "ms.hour_prefix",
             "required": ["prefix"],
             "optional": ["sample_interval"],
             "discover": "md.discover_time_dimensions",
             "parameters": {
-                "prefix": _param("str", "date prefix that gives hour values date context"),
+                "prefix": _param(
+                    "TimeDimensionRef",
+                    (
+                        "ref returned by the companion day-level time dimension; "
+                        "usually defined on the same entity"
+                    ),
+                ),
                 "sample_interval": sample_interval,
             },
             "static_constraints": [
                 "only valid with time_dimension granularity='hour'",
                 "only use as the parse value of a time dimension",
+                "prefix must be a TimeDimensionRef, not a string semantic id",
+                "prefix should be the companion day-level time dimension on the same entity",
             ],
+            "authoring_guidance": (
+                "Use hour_prefix when a table keeps day and hour as separate physical "
+                "columns and you need an hour-grain semantic time axis while preserving "
+                "two-column partition pushdown."
+            ),
         },
     }
 
@@ -882,15 +901,35 @@ def _contract_topic(
 
 def _parse_contract_topic(symbol: str, contract: dict[str, object]) -> Descriptor:
     summary = cast("str", contract["summary"])
+    workflow = [
+        "Use this constructor only as a time dimension parse value.",
+        "Read ms.help('time_dimension_column') or ms.help('time_dimension') for the owning time dimension contract.",
+        "Use md.discover_time_dimensions(...) evidence and user/project context to decide whether this parse constructor is needed.",
+        "Author the time dimension and run ms.verify_object(...).",
+    ]
+    examples: tuple[str, ...] = ()
+    if symbol == "hour_prefix":
+        workflow.insert(
+            3,
+            (
+                "Keep the day and hour physical columns separate so backends can apply "
+                "two-column partition pushdown while Marivo exposes one hour-grain axis."
+            ),
+        )
+        examples = (
+            (
+                '@ms.time_dimension(entity=logs, name="dt", granularity="day")\n'
+                "def dt(logs):\n"
+                "    return logs.dt\n\n"
+                '@ms.time_dimension(entity=logs, name="log_hour", granularity="hour", parse=ms.hour_prefix(dt))\n'
+                "def log_hour(logs):\n"
+                "    return logs.log_hour"
+            ),
+        )
     content: dict[str, object] = {
         "summary": summary,
         "authoring_contract": contract,
-        "workflow": [
-            "Use this constructor only as a time dimension parse value.",
-            "Read ms.help('time_dimension_column') or ms.help('time_dimension') for the owning time dimension contract.",
-            "Use md.discover_time_dimensions(...) evidence and user/project context to decide whether this parse constructor is needed.",
-            "Author the time dimension and run ms.verify_object(...).",
-        ],
+        "workflow": workflow,
     }
     return Descriptor(
         surface="marivo.semantic",
@@ -899,6 +938,7 @@ def _parse_contract_topic(symbol: str, contract: dict[str, object]) -> Descripto
         summary=summary,
         content=content,
         doc=_contract_text(symbol, content),
+        examples=examples,
         see_also=("ms.help('time_dimension_column')", "ms.help('time_dimension')"),
     )
 

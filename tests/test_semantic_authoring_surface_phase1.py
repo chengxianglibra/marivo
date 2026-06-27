@@ -380,9 +380,14 @@ def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
         orders = ms.entity(
             name="orders", datasource="warehouse", source=ms.table("orders"), domain=sales
         )
+
+        @ms.time_dimension(entity=orders, granularity="day")
+        def dt(orders_table):
+            return orders_table.dt
+
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.time_dimension(entity=orders, granularity="day", parse=ms.hour_prefix("dt"))
+            @ms.time_dimension(entity=orders, granularity="day", parse=ms.hour_prefix(dt))
             def hh(orders_table):
                 return orders_table.hh
 

@@ -435,7 +435,7 @@ hh = ms.time_dimension_column(
     entity=orders,
     column="hh",
     granularity="hour",
-    parse=ms.hour_prefix("dt"),
+    parse=ms.hour_prefix(dt),
 )
 ```
 

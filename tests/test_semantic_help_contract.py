@@ -7,6 +7,7 @@ from typing import Any, cast
 import pytest
 
 from marivo.introspection.surface import render as surface_render
+from marivo.semantic import help_text as semantic_help_text
 from marivo.semantic.help import _surface
 
 
@@ -224,6 +225,16 @@ def test_parse_constructor_help_topics_are_public_contracts() -> None:
         assert contract["discover"] == "md.discover_time_dimensions"
         assert "parameters" in contract
         assert "static_constraints" in contract
+
+
+def test_hour_prefix_help_explains_prefix_semantics_and_pushdown_example() -> None:
+    text = semantic_help_text("hour_prefix")
+
+    assert "day-level time dimension" in text
+    assert "same entity" in text
+    assert "parse=ms.hour_prefix(dt)" in text
+    assert "log_hour" in text
+    assert "two-column partition pushdown" in text
 
 
 def test_parse_constructor_help_points_back_to_time_dimension_contract() -> None:

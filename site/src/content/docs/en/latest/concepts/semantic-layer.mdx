@@ -316,7 +316,7 @@ For string or integer columns, provide `ms.strptime(format)` or
 | `ms.datetime()` | a native `datetime` | `timezone` (IANA), `sample_interval` |
 | `ms.timestamp()` | a native `timestamp` | `timezone` (IANA), `sample_interval` |
 | `ms.strptime(format)` | a string/integer to parse | `timezone`, `sample_interval` |
-| `ms.hour_prefix(prefix)` | an hour-only partition | `sample_interval` — `prefix` is the day-grain time-dimension id that supplies the date |
+| `ms.hour_prefix(prefix)` | an hour-only partition | `sample_interval` — `prefix` is the day-grain `TimeDimensionRef` that supplies the date |
 
 `timezone` defaults to the datasource engine timezone; set it (e.g. `"UTC"`) only
 when the column's wall-clock meaning differs. `sample_interval` like `(5, "minute")`
