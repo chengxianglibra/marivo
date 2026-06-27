@@ -116,15 +116,6 @@ Results
 
    DatasourceTestResult
    PreviewResult
-   EntityDiscoveryResult
-   DimensionDiscoveryResult
-   TimeDimensionDiscoveryResult
-   MeasureDiscoveryResult
-   RelationshipDiscoveryResult
-   DimensionValueDiscoveryResult
+   DiscoveryResult
    RawSqlResult
    JoinSide
-   ColumnDiscovery
-   TimeColumnDiscovery
-   PrimaryKeyCandidate
-   FormatCandidate

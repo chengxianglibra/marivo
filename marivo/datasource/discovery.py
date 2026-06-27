@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.ir import EntitySourceIR
@@ -35,6 +35,20 @@ DiscoveryObjectKind = Literal[
     "measure",
     "relationship",
 ]
+
+
+@runtime_checkable
+class DiscoveryResult(Protocol):
+    """Opaque datasource discovery result shown to agents via render/show.
+
+    Public ``md.discover_*`` calls return this protocol. Concrete result
+    dataclasses and evidence DTOs are implementation details; agents should read
+    the bounded evidence text instead of traversing result fields.
+    """
+
+    def render(self) -> str: ...
+
+    def show(self) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -393,6 +407,25 @@ def _format_evidence_entries(entries: tuple[DiscoveryEvidenceEntry, ...]) -> str
     return visible
 
 
+def _append_issue_lines(
+    lines: list[str],
+    *,
+    title: str,
+    issues: tuple[DiscoveryIssue, ...],
+) -> None:
+    if not issues:
+        return
+    lines.append(f"{title}:")
+    for issue in issues[:_MAX_TABLE_ROWS]:
+        lines.append(
+            "  "
+            f"{issue.rule_id} severity={issue.severity} subject={issue.subject} "
+            f"message={issue.message} evidence={_format_evidence_entries(issue.evidence)}"
+        )
+    if len(issues) > _MAX_TABLE_ROWS:
+        lines.append(f"  ... {len(issues) - _MAX_TABLE_ROWS} more; rerun with narrower scope")
+
+
 def _format_top_values(profile: ColumnProfile) -> str:
     if not profile.top_values:
         return "none"
@@ -451,10 +484,12 @@ def _format_discovery_card(
     status: str,
     table_header: tuple[str, ...] | None = None,
     table_rows: tuple[tuple[str, ...], ...] | None = None,
-    available: tuple[str, ...],
+    result_issues: tuple[DiscoveryIssue, ...] = (),
+    available: tuple[str, ...] = (".render()", ".show()"),
 ) -> str:
     """Render a bounded discovery result card without a trailing newline."""
     lines: list[str] = [identity, f"status: {status}"]
+    _append_issue_lines(lines, title="result issues", issues=result_issues)
     if table_header is not None and table_rows is not None:
         lines.append("columns: " + " | ".join(table_header))
         for row in table_rows[:_MAX_TABLE_ROWS]:
@@ -467,6 +502,10 @@ def _format_discovery_card(
 
 def _signal_ids(signals: tuple[DiscoverySignal, ...]) -> str:
     return ", ".join(s.rule_id for s in signals) or "none"
+
+
+def _issue_ids(issues: tuple[DiscoveryIssue, ...]) -> str:
+    return ", ".join(i.rule_id for i in issues) or "none"
 
 
 def _issue_count(issues: tuple[DiscoveryIssue, ...]) -> int:
@@ -503,6 +542,7 @@ class EntityDiscoveryResult:
 
     def render(self) -> str:
         lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
+        _append_issue_lines(lines, title="result issues", issues=self.issues)
         if self.primary_key_evidence:
             lines.append("primary key evidence:")
             for candidate in self.primary_key_evidence[:_MAX_TABLE_ROWS]:
@@ -514,7 +554,7 @@ class EntityDiscoveryResult:
             if len(self.primary_key_evidence) > _MAX_TABLE_ROWS:
                 lines.append(
                     f"  ... {len(self.primary_key_evidence) - _MAX_TABLE_ROWS} more; "
-                    "inspect .primary_key_evidence"
+                    "rerun with a narrower source or explicit scope for less evidence"
                 )
         else:
             lines.append("primary key evidence: none")
@@ -539,22 +579,12 @@ class EntityDiscoveryResult:
             if len(self.column_profiles) > _MAX_TABLE_ROWS:
                 lines.append(
                     f"  ... {len(self.column_profiles) - _MAX_TABLE_ROWS} more; "
-                    "inspect .column_profiles"
+                    "rerun with a narrower source, explicit columns, or smaller scope"
                 )
         else:
             lines.append("column profiles: none")
         lines.append("available:")
-        for entry in (
-            ".primary_key_evidence",
-            ".time_like_columns",
-            ".partition_columns",
-            ".column_profiles",
-            ".signals",
-            ".issues",
-            ".scan",
-            ".render()",
-            ".show()",
-        ):
+        for entry in (".render()", ".show()"):
             lines.append(f"- {entry}")
         return "\n".join(lines)
 
@@ -588,7 +618,7 @@ class DimensionDiscoveryResult:
                 c.profile.data_type,
                 f"distinct={c.profile.distinct_count} nulls={c.profile.null_count}",
                 _signal_ids(c.signals),
-                str(_issue_count(c.issues)),
+                _issue_ids(c.issues),
             )
             for c in self.columns
         )
@@ -601,7 +631,7 @@ class DimensionDiscoveryResult:
             status=_scan_status(self.scan, _issue_count(self.issues)),
             table_header=header,
             table_rows=rows,
-            available=(".columns", ".signals", ".issues", ".scan", ".render()", ".show()"),
+            result_issues=self.issues,
         )
 
     def __repr__(self) -> str:
@@ -629,6 +659,7 @@ class TimeDimensionDiscoveryResult:
 
     def render(self) -> str:
         lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
+        _append_issue_lines(lines, title="result issues", issues=self.issues)
         if self.columns:
             lines.append("time column evidence:")
             for column in self.columns[:_MAX_TABLE_ROWS]:
@@ -638,14 +669,18 @@ class TimeDimensionDiscoveryResult:
                     f"formats={_format_formats(column.detected_formats)} "
                     f"range={_format_time_range(column.value_range)} "
                     f"partition_aligned={column.partition_aligned} "
-                    f"issues={_issue_count(column.issues)}"
+                    f"signals={_signal_ids(column.signals)} "
+                    f"issues={_issue_ids(column.issues)}"
                 )
             if len(self.columns) > _MAX_TABLE_ROWS:
-                lines.append(f"  ... {len(self.columns) - _MAX_TABLE_ROWS} more; inspect .columns")
+                lines.append(
+                    f"  ... {len(self.columns) - _MAX_TABLE_ROWS} more; "
+                    "rerun with columns=(...) to inspect a smaller candidate set"
+                )
         else:
             lines.append("time column evidence: none")
         lines.append("available:")
-        for entry in (".columns", ".signals", ".issues", ".scan", ".render()", ".show()"):
+        for entry in (".render()", ".show()"):
             lines.append(f"- {entry}")
         return "\n".join(lines)
 
@@ -677,7 +712,7 @@ class MeasureDiscoveryResult:
                 c.profile.data_type,
                 f"distinct={c.profile.distinct_count} nulls={c.profile.null_count}",
                 _signal_ids(c.signals),
-                str(_issue_count(c.issues)),
+                _issue_ids(c.issues),
             )
             for c in self.columns
         )
@@ -690,7 +725,7 @@ class MeasureDiscoveryResult:
             status=_scan_status(self.scan, _issue_count(self.issues)),
             table_header=header,
             table_rows=rows,
-            available=(".columns", ".signals", ".issues", ".scan", ".render()", ".show()"),
+            result_issues=self.issues,
         )
 
     def __repr__(self) -> str:
@@ -718,11 +753,31 @@ class RelationshipDiscoveryResult:
             f"matched={e.matched_key_count} match_rate={e.match_rate:.2f} "
             f"cardinality={e.cardinality_evidence} issues={_issue_count(self.issues)}"
         )
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=status,
-            available=(".evidence", ".signals", ".issues", ".render()", ".show()"),
-        )
+        lines = [self._identity(), f"status: {status}"]
+        _append_issue_lines(lines, title="result issues", issues=self.issues)
+        if e.key_type_evidence:
+            lines.append("key type evidence:")
+            for item in e.key_type_evidence[:_MAX_TABLE_ROWS]:
+                lines.append(
+                    f"  {item.side}.{item.column} type_family={item.type_family} "
+                    f"data_type={item.data_type}"
+                )
+            if len(e.key_type_evidence) > _MAX_TABLE_ROWS:
+                lines.append(
+                    f"  ... {len(e.key_type_evidence) - _MAX_TABLE_ROWS} more; "
+                    "rerun with fewer key columns"
+                )
+        else:
+            lines.append("key type evidence: none")
+        lines.append(f"relationship signals: {_signal_ids(e.signals)}")
+        if e.issues:
+            _append_issue_lines(lines, title="relationship issues", issues=e.issues)
+        else:
+            lines.append("relationship issues: none")
+        lines.append("available:")
+        for entry in (".render()", ".show()"):
+            lines.append(f"- {entry}")
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
@@ -757,21 +812,22 @@ class DimensionValueDiscoveryResult:
         header, rows = self._table()
         exhaustive = "exhaustive" if self.complete else "not_exhaustive"
         status = f"{exhaustive} rows={self.scan.rows_scanned} truncated={self.scan.truncated}"
-        return _format_discovery_card(
+        rendered = _format_discovery_card(
             identity=self._identity(),
             status=status,
             table_header=header,
             table_rows=rows,
-            available=(
-                ".values",
-                ".complete",
-                ".signals",
-                ".issues",
-                ".scan",
-                ".render()",
-                ".show()",
-            ),
+            result_issues=self.issues,
         )
+        lines = rendered.splitlines()
+        lines.insert(-3, f"signals: {_signal_ids(self.signals)}")
+        lines.insert(-3, f"issues: {_issue_ids(self.issues)}")
+        if not self.complete:
+            lines.insert(
+                -3,
+                "truncation hint: rerun with a larger limit or narrower scope for more values",
+            )
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         return result_repr(self._identity())

@@ -56,11 +56,12 @@ def test_semantic_skill_is_workflow_only_after_layering_simplification() -> None
         "author exactly one semantic object",
         "ms.verify_object(...)",
     ):
-        assert required in workflow
+        assert required in skill
 
     assert "ms.help(...) owns static authoring contracts" in skill
     assert "md.discover_* owns runtime datasource evidence" in skill
     assert "This skill owns workflow and routing only" in skill
+    assert "The canonical authoring flow lives in `SKILL.md`" in workflow
     assert "ms.readiness(" in closeout
     assert "md.help(" in datasource
     assert "md.test(" in datasource
@@ -93,6 +94,42 @@ def test_semantic_skill_deleted_reference_files_stay_deleted() -> None:
     }
     for path in deleted:
         assert not (REPO_ROOT / path).exists(), f"{path} should not be recreated"
+
+
+def test_semantic_skill_enforces_single_decision_grill_and_batch_scope() -> None:
+    skill = _read("marivo/skills/marivo-semantic/SKILL.md")
+    workflow = _read("marivo/skills/marivo-semantic/references/workflow.md")
+    maintainer = _read(".agents/skills/marivo-skill-maintainer/SKILL.md")
+
+    for required in (
+        "A grill turn MUST ask exactly one unresolved semantic decision",
+        "Do not ask numbered lists of questions",
+        "Do not write or modify semantic code after asking a grill question",
+        "active batch",
+        "one entity plus one semantic kind",
+        "Do not author a full domain in one pass",
+        "author one object",
+        "ms.verify_object(ref)",
+    ):
+        assert required in skill
+
+    for duplicated in (
+        "A grill turn MUST ask exactly one unresolved semantic decision",
+        "Do not ask numbered lists of questions",
+        "active batch = <domain> + <entity_ref> + <semantic_kind>",
+        "select active batch",
+        "author one object",
+        "repeat author/verify",
+    ):
+        assert duplicated not in workflow
+
+    for stale in (
+        "marivo-semantic/references/object-briefs.md",
+        "marivo-semantic/references/authoring-patterns.md",
+        "marivo-semantic/references/evidence-and-ledger.md",
+        "marivo-semantic/references/preview.md",
+    ):
+        assert stale not in maintainer
 
 
 def test_semantic_skill_examples_are_datasource_and_complete_model_only() -> None:

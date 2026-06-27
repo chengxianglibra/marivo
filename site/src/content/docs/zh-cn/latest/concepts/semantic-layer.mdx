@@ -504,11 +504,17 @@ measure_evidence = md.discover_measures(
     columns=("amount",),
     scope=scope,
 )
+
+entity_evidence.show()
+dimension_evidence.show()
+measure_evidence.show()
 ```
 
 Discovery 返回有界证据、signals 和 issues；它不会替你决定业务含义、单位、additivity，
-或自动创建语义对象。`ms.help(...)` 告诉 agent 哪些参数必须确定（静态 authoring 契约），
-discovery 提供运行时证据。一次只 author 一个对象，然后运行 `ms.verify_object(...)`。
+或自动创建语义对象。Agent 通过 `.show()` / `.render()` 阅读 discovery 证据；
+具体 result class 和内部 evidence 字段不是公开 authoring 输入。`ms.help(...)`
+告诉 agent 哪些参数必须确定（静态 authoring 契约），discovery 提供运行时证据。
+一次只 author 一个对象，然后运行 `ms.verify_object(...)`。
 
 ## 加载与就绪检查
 

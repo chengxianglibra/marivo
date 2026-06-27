@@ -171,7 +171,14 @@ def _measure_result() -> MeasureDiscoveryResult:
     column = ColumnDiscovery(
         column="amount",
         profile=_profile("amount", "DOUBLE"),
-        signals=(),
+        signals=(
+            DiscoverySignal(
+                rule_id="measure_numeric_type",
+                kind="measure",
+                subject="amount",
+                evidence=(DiscoveryEvidenceEntry(key="type_family", value="numeric"),),
+            ),
+        ),
         issues=(),
     )
     return MeasureDiscoveryResult(
@@ -360,10 +367,41 @@ def test_measure_render_lists_columns_without_judgment_targets() -> None:
     assert "amount" in rendered
     assert "distinct=" in rendered
     assert "nulls=" in rendered
-    assert ".columns" in rendered
+    assert "measure_numeric_type" in rendered
+    assert ".columns" not in rendered
+    assert ".profile" not in rendered
+    assert ".issues" not in rendered
     assert "judgment targets:" not in rendered
     assert ".judgment_targets" not in rendered
     assert ".candidates" not in rendered
+
+
+def test_measure_render_includes_result_scope_issue_details() -> None:
+    result = MeasureDiscoveryResult(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=None,
+        scan=_scan_report(),
+        signals=(),
+        issues=(
+            DiscoveryIssue(
+                rule_id="discovery_unpruned_scan",
+                kind="measure",
+                severity="warning",
+                subject="orders",
+                message="scan was explicitly unpruned",
+                evidence=(DiscoveryEvidenceEntry(key="partition", value="none"),),
+            ),
+        ),
+        columns=(),
+    )
+
+    rendered = result.render()
+
+    assert "result issues:" in rendered
+    assert "discovery_unpruned_scan" in rendered
+    assert "scan was explicitly unpruned" in rendered
+    assert "partition=none" in rendered
 
 
 def test_dimension_value_complete_invariant_when_no_truncated_issue() -> None:

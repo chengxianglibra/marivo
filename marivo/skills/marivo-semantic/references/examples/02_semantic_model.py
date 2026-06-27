@@ -294,7 +294,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("region",),
             scope=md.unpruned(max_rows=100),
         )
-        print("region dimension evidence:", region_discovery.columns[0].column)
+        region_discovery.show()
         write_domain(ORDER_REGION_DIMENSION)
         verify("sales.orders.region")
 
@@ -304,7 +304,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("customer_id",),
             scope=md.unpruned(max_rows=100),
         )
-        print("order customer key evidence:", order_customer_discovery.columns[0].column)
+        order_customer_discovery.show()
         write_domain(ORDER_CUSTOMER_ID_DIMENSION)
         verify("sales.orders.customer_id")
 
@@ -314,7 +314,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("customer_id",),
             scope=md.unpruned(max_rows=100),
         )
-        print("customer key evidence:", customer_id_discovery.columns[0].column)
+        customer_id_discovery.show()
         write_domain(CUSTOMER_ID_DIMENSION)
         verify("sales.customers.customer_id")
 
@@ -324,7 +324,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("country",),
             scope=md.unpruned(max_rows=100),
         )
-        print("country dimension evidence:", country_discovery.columns[0].column)
+        country_discovery.show()
         write_domain(CUSTOMER_COUNTRY_DIMENSION)
         verify("sales.customers.country")
 
@@ -344,7 +344,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("amount",),
             scope=md.unpruned(max_rows=100),
         )
-        print("amount measure evidence:", amount_discovery.columns[0].column)
+        amount_discovery.show()
         write_domain(AMOUNT_MEASURE)
         verify("sales.orders.amount")
 
@@ -354,7 +354,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("refund_amount",),
             scope=md.unpruned(max_rows=100),
         )
-        print("refund measure evidence:", refund_discovery.columns[0].column)
+        refund_discovery.show()
         write_domain(REFUND_MEASURE)
         verify("sales.orders.refund_amount")
 
@@ -379,7 +379,7 @@ with tempfile.TemporaryDirectory() as tmp:
             ),
             scope=md.unpruned(max_rows=100),
         )
-        print("relationship evidence:", relationship_discovery.evidence.cardinality_evidence)
+        relationship_discovery.show()
         write_domain(RELATIONSHIP)
         verify("sales.orders_to_customers")
 

@@ -28,15 +28,14 @@ def _register_orders(project_root: Path) -> None:
     md.register(_DuckDBSpec(name="warehouse", path=str(db_path)), project_root=project_root)
 
 
-def test_public_discover_column_families_return_typed_results(tmp_path: Path) -> None:
+def test_public_discover_column_families_return_display_results(tmp_path: Path) -> None:
     _register_orders(tmp_path)
     warehouse = md.ref("warehouse")
     source = md.table("orders")
     scope = md.unpruned(max_rows=10)
 
     entity = md.discover_entity(warehouse, source, scope=scope, project_root=tmp_path)
-    assert isinstance(entity, md.EntityDiscoveryResult)
-    assert entity.primary_key_evidence
+    assert isinstance(entity, md.DiscoveryResult)
     entity_render = entity.render()
     assert "primary key evidence:" in entity_render
     assert "order_id" in entity_render
@@ -52,9 +51,12 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
         scope=scope,
         project_root=tmp_path,
     )
-    assert isinstance(dimensions, md.DimensionDiscoveryResult)
-    assert dimensions.columns[0].column == "status"
-    assert "dimension_empty_values_present" in {i.rule_id for i in dimensions.columns[0].issues}
+    assert isinstance(dimensions, md.DiscoveryResult)
+    dimensions_render = dimensions.render()
+    assert "status" in dimensions_render
+    assert "dimension_empty_values_present" in dimensions_render
+    assert ".columns" not in dimensions_render
+    assert ".profile" not in dimensions_render
 
     times = md.discover_time_dimensions(
         warehouse,
@@ -63,13 +65,13 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
         scope=scope,
         project_root=tmp_path,
     )
-    assert isinstance(times, md.TimeDimensionDiscoveryResult)
-    assert times.columns[0].detected_formats
+    assert isinstance(times, md.DiscoveryResult)
     times_render = times.render()
     assert "time column evidence:" in times_render
     assert "created_at" in times_render
     assert "%Y-%m-%d" in times_render
     assert "range=" in times_render
+    assert ".columns" not in times_render
 
     measures = md.discover_measures(
         warehouse,
@@ -78,8 +80,11 @@ def test_public_discover_column_families_return_typed_results(tmp_path: Path) ->
         scope=scope,
         project_root=tmp_path,
     )
-    assert isinstance(measures, md.MeasureDiscoveryResult)
-    assert "measure_numeric_type" in {s.rule_id for s in measures.columns[0].signals}
+    assert isinstance(measures, md.DiscoveryResult)
+    measures_render = measures.render()
+    assert "amount" in measures_render
+    assert "measure_numeric_type" in measures_render
+    assert ".columns" not in measures_render
 
 
 def test_public_discover_relationship_replaces_probe_join_keys(tmp_path: Path) -> None:
@@ -94,11 +99,13 @@ def test_public_discover_relationship_replaces_probe_join_keys(tmp_path: Path) -
         project_root=tmp_path,
     )
 
-    assert isinstance(result, md.RelationshipDiscoveryResult)
-    assert result.evidence.sampled_key_count == 3
-    assert result.evidence.matched_key_count == 2
-    assert result.evidence.cardinality_evidence == "many_to_one"
-    assert result.evidence.key_type_evidence
+    assert isinstance(result, md.DiscoveryResult)
+    rendered = result.render()
+    assert "sampled_keys=3" in rendered
+    assert "matched=2" in rendered
+    assert "cardinality=many_to_one" in rendered
+    assert "key type evidence:" in rendered
+    assert ".evidence" not in rendered
 
 
 def test_public_discover_dimension_values_are_bounded_runtime_evidence(tmp_path: Path) -> None:
@@ -113,10 +120,13 @@ def test_public_discover_dimension_values_are_bounded_runtime_evidence(tmp_path:
         project_root=tmp_path,
     )
 
-    assert isinstance(result, md.DimensionValueDiscoveryResult)
-    assert [fact.value for fact in result.values] == ["paid", ""]
-    assert result.complete is False
-    assert any(issue.rule_id == "dimension_values_truncated" for issue in result.issues)
+    assert isinstance(result, md.DiscoveryResult)
+    rendered = result.render()
+    assert "paid" in rendered
+    assert "not_exhaustive" in rendered
+    assert "dimension_values_truncated" in rendered
+    assert ".values" not in rendered
+    assert ".issues" not in rendered
 
 
 def test_datasource_public_surface_exposes_discovery_not_inspection() -> None:
