@@ -195,9 +195,21 @@ baseline = session.observe(
     dimensions=[region],
 )
 delta = session.compare(current, baseline)
-attribution = session.decompose(delta, axis=region)
+attribution = session.attribute(delta, axes=[region])
 attribution.show()
+
+delta.contract().affordances      # mechanical compatibility, not recommendations
+delta.quality_summary             # cheap metadata projection
+quality = session.assess_quality(delta)
+quality.show()
 ```
+
+For custom Ibis work that must re-enter Marivo's typed metric flow, use
+`session.derive_metric_frame(...)`. Semantic refs identify metric and axis
+bindings, while query output columns are plain strings. Across follow-up
+scripts, recover previous artifacts with `session.frame_summaries()` and
+`session.get_frame(ref)` instead of re-running upstream queries. Use
+`artifact.contract().affordances` for mechanical compatibility facts.
 
 ## Best practices
 

@@ -22,6 +22,7 @@ class _SemanticHelpIR(Protocol):
 
 
 _HELP_ONLY_ENTRIES: tuple[str, ...] = (
+    "agent_surface",
     "observe",
     "compare",
     "attribute",
@@ -66,6 +67,7 @@ _CONSTRUCTED_BY: dict[str, str] = {
 _SUMMARIES: dict[str, str] = {
     "help": "this introspection entry point",
     "help_text": "return analysis help text without printing",
+    "agent_surface": "Phase 3 default agent-facing analysis surface and artifact read protocol",
     "session": "analysis session lifecycle and persistence helpers",
     "datasources": "DEPRECATED: use marivo.datasource (md.*) for datasource registration, validation, and runtime lookup",
     "evidence": "analysis evidence DTOs and session knowledge helpers",
@@ -471,6 +473,86 @@ def _observe_text(content: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def _agent_surface_content() -> dict[str, object]:
+    return {
+        "summary": "Phase 3 default agent-facing analysis surface.",
+        "core_operators": [
+            {"operator": "observe", "output": "MetricFrame"},
+            {"operator": "compare", "output": "DeltaFrame"},
+            {"operator": "attribute", "output": "AttributionFrame"},
+            {"operator": "discover.<objective>", "output": "CandidateSet"},
+            {"operator": "correlate", "output": "AssociationResult"},
+            {"operator": "hypothesis_test", "output": "HypothesisTestResult"},
+            {"operator": "forecast", "output": "ForecastFrame"},
+            {"operator": "derive_metric_frame", "output": "MetricFrame"},
+            {"operator": "assess_quality", "output": "QualityReport"},
+        ],
+        "artifact_protocol": [
+            "ref",
+            "kind",
+            "summary()",
+            "schema()",
+            "contract()",
+            "quality_summary",
+            "blocking_issues",
+            "lineage",
+            "state",
+            "show()",
+        ],
+        "tabular_reads": ["preview(limit=...)", "to_pandas()"],
+        "read_order": [
+            "repr(artifact)",
+            "artifact.summary()",
+            "artifact.preview(limit=...)",
+            "artifact.to_pandas()",
+        ],
+        "recovery": [
+            "session.frame_summaries()",
+            "session.recent_jobs(limit=5)",
+            "session.get_frame(ref)",
+        ],
+        "derive_boundary": (
+            "derive_metric_frame uses semantic refs for metric and axis bindings; "
+            "query output columns are plain strings."
+        ),
+        "quality_boundary": (
+            "quality_summary is a cheap persisted metadata projection; "
+            "session.assess_quality(artifact) runs an explicit auditable quality operator."
+        ),
+        "affordance_boundary": (
+            "artifact.contract().affordances are mechanical compatibility facts, "
+            "not advisory endorsements from Marivo."
+        ),
+        "expert_reference": ["transform", "select", "evidence", "knowledge"],
+    }
+
+
+def _agent_surface_text(content: dict[str, object]) -> str:
+    core = cast("list[dict[str, str]]", content["core_operators"])
+    lines = ["Default agent-facing operators:", ""]
+    for item in core:
+        lines.append(f"  session.{item['operator']:<24}-> {item['output']}")
+    lines.extend(("", "Base artifact protocol:"))
+    lines.append("  " + ", ".join(cast("list[str]", content["artifact_protocol"])))
+    lines.extend(("", "Bounded read order:"))
+    for step in cast("list[str]", content["read_order"]):
+        lines.append(f"  {step}")
+    lines.extend(("", "Tabular artifacts also support:"))
+    lines.append("  " + ", ".join(cast("list[str]", content["tabular_reads"])))
+    lines.extend(("", "Quality boundary:"))
+    lines.append(f"  {content['quality_boundary']}")
+    lines.extend(("", "Derive boundary:"))
+    lines.append(f"  {content['derive_boundary']}")
+    lines.extend(("", "Affordances:"))
+    lines.append(f"  {content['affordance_boundary']}")
+    lines.extend(("", "Cross-script recovery facts:"))
+    for fact in cast("list[str]", content["recovery"]):
+        lines.append(f"  {fact}")
+    lines.extend(("", "Advanced reference, not the default path:"))
+    lines.append("  " + ", ".join(cast("list[str]", content["expert_reference"])))
+    return "\n".join(lines)
+
+
 def _alignment_content() -> dict[str, object]:
     return {
         "summary": "mv.AlignmentPolicy variants and calendar-backed alignment columns.",
@@ -699,6 +781,7 @@ def _surface() -> Surface:
     transform_content = _transform_content()
     alignment_content = _alignment_content()
     calendar_content = _calendar_content()
+    agent_surface_content = _agent_surface_content()
     observe_content = _observe_content()
     session_constraints = constraints_for_symbol("session")
     session_content = _session_content(session_constraints)
@@ -709,6 +792,11 @@ def _surface() -> Surface:
         resolve=_resolve,
         catalog=catalog,
         topics={
+            "agent_surface": _topic(
+                "agent_surface",
+                agent_surface_content,
+                _agent_surface_text(agent_surface_content),
+            ),
             "observe": _topic("observe", observe_content, _observe_text(observe_content)),
             "discover": _topic("discover", discover_content, _discover_text(discover_content)),
             "select": _topic("select", select_content, _select_text(select_content)),

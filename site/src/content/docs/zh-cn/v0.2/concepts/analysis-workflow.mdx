@@ -10,20 +10,22 @@ intent（一次 operator 调用加上它的字段），运行它，读取一个 
 各组成部分：
 
 - **session** 持有 guiding question、semantic catalog，以及每一步的持久化结果。
-- **intent** 是一次 operator 调用 —— `observe`、`compare`、`decompose`…… —— 连同它的
-  参数。这些参数*就是*分析的规格说明。
-- **frame** 是 intent 的 typed result。Frames 是步骤之间的边界：每个 operator 消费特定的
-  frame 类型并产出另一个。
+- **operator 调用** 是一次确定性的分析步骤 —— `observe`、`compare`、`attribute`、
+  `discover.<objective>` 以及其他核心 operators —— 及其参数。这些参数*就是*分析规格。
+- **artifact** 是 operator 的 typed result。Artifacts 是步骤之间的边界：每个 operator 消费
+  特定 artifact family，并产出另一个。
 
 ```python
 import marivo.analysis as mv
 import marivo.semantic as ms
 ```
 
-:::note[Frames 是不可变的]
-Frame 一旦产出便不再改变。用 `frame.summary()` 或 `frame.preview(limit=n)` 廉价读取；
-只有需要可变副本时才调用 `frame.to_pandas()`。每个 frame 都携带 lineage，并持久化在
-project 本地的 `.marivo/` 下，因此后续步骤（和人类审阅者）可以追溯每个结果由哪些输入产生。
+:::note[Artifacts 是不可变的]
+Artifact 一旦产出便不再改变。按层读取它：
+`repr(artifact)` → `artifact.summary()` → `artifact.schema()` /
+`artifact.contract()` → tabular artifact 的 `artifact.preview(limit=n)`。只有需要
+可变本地副本时才调用 `artifact.to_pandas()`。每个 artifact 都携带 lineage，并持久化在
+project 本地 `.marivo/` 下，因此后续脚本可以用 ref 恢复它，而不必重新查询 datasource。
 :::
 
 ## 打开 session
@@ -123,17 +125,18 @@ delta = session.compare(current, baseline)
 `mv.dow_aligned()`、`mv.holiday_aligned()` 或 `mv.holiday_and_dow_aligned()`；calendar
 支持的几种还接受 `calendar=mv.CalendarRef(...)`。
 
-### `decompose` → `AttributionFrame`
+### `attribute` → `AttributionFrame`
 
-把一个 delta 的变动归因到某一个分段轴上 —— 它*为什么*变了？
+把 delta 的变动归因到显式 axes 上。这是“为什么变了？”分析的默认 public 入口。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `frame` | `DeltaFrame` | 是 | — | 要解释的 delta。 |
-| `axis` | dimension | 是 | — | 进行归因的分段轴。 |
+| `frame` | `DeltaFrame` | 是 | — | 要归因的 delta。 |
+| `axes` | `list[dimension]` | 是 | — | 进行归因的分段轴或时间轴。 |
+| `mode` | `"flat" \| "nested" \| "recursive"` | 否 | `"flat"` | 层级展开方式；输出仍然是 `AttributionFrame`。 |
 
 ```python
-attribution = session.decompose(delta, axis=region)
+attribution = session.attribute(delta, axes=[region], mode="flat")
 attribution.show()
 ```
 
@@ -168,8 +171,9 @@ projection = session.forecast(history, horizon=30)
 
 ### `assess_quality` → `QualityReport`
 
-对一个 `MetricFrame` 运行质量检查（行数、空值比率、时间覆盖、重复 key）。返回逐项检查、
-阻塞性问题和推荐的后续 intent。
+对一个 artifact 运行质量检查，返回一个独立的 `QualityReport`。
+`artifact.quality_summary` 只是 cheap、persisted 的 metadata projection；它不等同于执行
+`session.assess_quality(artifact)`。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -190,8 +194,8 @@ projection = session.forecast(history, horizon=30)
 
 ## Discovery —— `session.discover.*` → `CandidateSet`
 
-Discovery operators 在一个 frame 中搜索值得注意的项，并返回排序后的 `CandidateSet`。当
-frame 有多个数值列时传 `value="<column>"` 消歧；`threshold` 是阈值（越低 ⇒ 候选越多）。
+Discovery operators 在一个 artifact 中搜索确定性候选行，并返回 `CandidateSet`。候选行顺序
+是确定性 score order，不是 Marivo 的推荐。
 
 | Helper | 源形状 | 必填 | 关键选项 |
 | --- | --- | --- | --- |
@@ -208,7 +212,7 @@ candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 ```
 
-## Transforms —— `session.transform.*`
+## Advanced reference —— `session.transform.*`
 
 Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFrame` →
 `DeltaFrame`）的前提下重塑 frame。
@@ -224,18 +228,63 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
 | `normalize` | `mode`、`baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score`（仅 MetricFrame）。 |
 | `window` | `window` | 限制到一个时间窗口。 |
 
-## Escape hatch 与 promotion
+## Governed derive —— `session.derive_metric_frame(...)`
 
-当某一步需要内置 intents 未建模的东西时，降级到 scratch frame —— 再在继续之前 promote
-回 typed 流程。
+当自定义 Ibis 计算结果必须回到 typed metric flow 时，使用 `derive_metric_frame`。它总是返回
+`MetricFrame`。Semantic refs 标识 metric、time 和 dimension 绑定；query 输出列是普通字符串。
 
-- `session.explore_ibis(builder, datasource=...)` —— 运行自定义 ibis 查询 →
-  `ExplorationResult`。
-- `session.from_pandas(df)` —— 导入外部数据 → `ExplorationResult`。
-- `session.promote_metric_frame(...)` / `promote_delta_frame(...)` /
-  `promote_attribution_frame(...)` —— 把 scratch frame 升级为 typed frame。Promotion
-  从不推断元数据；你需提供 `metric`、`semantic_kind`、`measure_column` 等（或带
-  `semantic_anchors` 的 `PromotionPolicy`），任何必填项缺失时它会 fail closed。
+```python
+custom = session.derive_metric_frame(
+    metric=session.catalog.get("sales.revenue"),
+    query=mv.ibis_query(
+        datasource="warehouse",
+        build=lambda db, ctx: db.table("orders"),
+    ),
+    columns=mv.metric_columns(
+        value="value",
+        time=mv.time_column(
+            column="order_date",
+            ref=session.catalog.get("sales.orders.order_date"),
+        ),
+        dimensions=[
+            mv.dimension_column(
+                column="region",
+                ref=session.catalog.get("sales.orders.region"),
+            ),
+        ],
+    ),
+    timescope={"start": "2026-06-18", "end": "2026-06-25"},
+    grain="day",
+    label="custom_revenue_by_region",
+)
+custom.show()
+```
+
+需要做终端本地 pandas 工作、且不必回到 typed Marivo operator 时，使用
+`artifact.to_pandas()`。
+
+## 读取与恢复 artifacts
+
+Agent 读取 artifact 时按层下钻，以降低跨 loop 成本：
+
+```python
+repr(delta)
+delta.summary()
+delta.schema()
+delta.contract()
+delta.preview(limit=10)
+```
+
+用 `artifact.contract().affordances` 查看机械兼容性。它只说明哪些 public operator
+在机械上可以消费该 artifact、缺哪些输入；它不排序、不推荐，也不决定下一步。
+
+后续脚本需要前序结果时，读取持久化事实，而不是重跑上游查询：
+
+```python
+summaries = session.frame_summaries()
+jobs = session.recent_jobs(limit=5)
+previous = session.get_frame(ref)
+```
 
 ## Evidence 与 knowledge
 
@@ -271,7 +320,7 @@ baseline = session.observe(
     dimensions=[region],
 )
 delta = session.compare(current, baseline)
-attribution = session.decompose(delta, axis=region)
+attribution = session.attribute(delta, axes=[region])
 attribution.show()
 ```
 
@@ -282,12 +331,11 @@ attribution.show()
 
 | Frame | 由谁产出 |
 | --- | --- |
-| `MetricFrame` | `observe`（以及 `promote_metric_frame`） |
+| `MetricFrame` | `observe`、`derive_metric_frame` |
 | `DeltaFrame` | `compare` |
-| `AttributionFrame` | `decompose` |
+| `AttributionFrame` | `attribute` |
 | `AssociationResult` | `correlate` |
 | `ForecastFrame` | `forecast` |
 | `QualityReport` | `assess_quality` |
 | `HypothesisTestResult` | `hypothesis_test` |
 | `CandidateSet` | `discover.*` |
-| `ExplorationResult` | `from_pandas`、`explore_ibis` |

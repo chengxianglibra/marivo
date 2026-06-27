@@ -23,7 +23,7 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "Key Findings",
         "核心发现",
         "Caveats and Assumptions",
-        "Recommended Next Steps",
+        "Agent-authored Next Steps",
         "Source details",
         "result.meta.evidence_status",
         "result.meta.blocking_issues",

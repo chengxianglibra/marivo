@@ -1,7 +1,13 @@
 # marivo-analysis backend setup
 
-Use this reference before running `session.observe`, `session.compare`, `session.decompose`,
-`session.discover`, or `session.correlate` when the session needs live data.
+Use this reference before running the default operators that materialize live
+data: `session.observe`, `session.compare`, `session.attribute`,
+`session.discover.<objective>`, `session.correlate`, `session.hypothesis_test`,
+`session.forecast`, `session.derive_metric_frame`, or `session.assess_quality`.
+The default operator surface is `observe`, `compare`, `attribute`,
+`discover.<objective>`, `correlate`, `hypothesis_test`, `forecast`,
+`derive_metric_frame`, and `assess_quality`; each needs a resolvable backend
+when the session touches live data.
 
 Datasource definition and repair are owned by `marivo-semantic`; see
 `../marivo-semantic/references/datasource.md`. This analysis skill consumes

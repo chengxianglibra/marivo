@@ -447,7 +447,7 @@ the components.
 | Builder | Required | Computes |
 | --- | --- | --- |
 | `ms.ratio(name, numerator, denominator)` | both refs | `numerator / denominator` (e.g. average order value, rates) |
-| `ms.weighted_average(name, value, weight)` | both refs | weighted average; `decompose` later splits mix vs rate |
+| `ms.weighted_average(name, value, weight)` | both refs | weighted average; `attribute` later splits mix vs rate |
 | `ms.linear(name, add, subtract)` | `add` (≥2 terms total) | sum of `add` minus `subtract` (e.g. `net = gross - refunds`) |
 
 Each also accepts `unit`, `domain`, and `ai_context`.

@@ -35,5 +35,4 @@ frame = session.observe(
     grain=grain,
 )
 
-print(frame.summary())
-print(frame.preview(limit=20))
+frame.show()

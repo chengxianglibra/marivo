@@ -1,7 +1,7 @@
-"""Pattern: discover driver axes on a DeltaFrame and feed the top axis to decompose.
+"""Pattern: discover driver axes on a DeltaFrame and feed the top axis to attribute.
 
 When to use: you have a delta and want to know which dimension explains the most.
-Output shape: a CandidateSet[driver_axis], then decompose on the rank-1 axis.
+Output shape: a CandidateSet[driver_axis], then attribute on the rank-1 axis.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 ---
 name: marivo-analysis
-description: Use for any Marivo metric-centered analysis task: observe, compare, attribute, discover, correlate, test, forecast, quality assessment, evidence-aware investigation, or continuing an analysis session over semantic metrics.
+description: Use for any Marivo metric-centered analysis task: observe, compare, attribute, discover, correlate, hypothesis_test, forecast, quality assessment, governed derive_metric_frame, evidence-aware investigation, or continuing an analysis session over semantic metrics.
 ---
 
 # marivo-analysis
@@ -36,15 +36,15 @@ virtualenv yet, create or activate one before using this skill.
    `references/examples/NN_*.py`; those examples use a tiny fixture so they
    can run in CI.
 3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind="metric").show()`.
-4. Use runtime help as the authoritative per-object contract. For the intent,
-   frame, policy, or topic you are about to use, inspect
-   `mv.help('<name>')`; examples:
+4. Use runtime help as the authoritative per-object contract. Start with
+   `mv.help('agent_surface')`, then inspect the specific intent, frame, policy,
+   or topic you are about to use; examples:
    `mv.help('observe')`, `mv.help('discover')`,
    `mv.help('alignment')`, and
-   `mv.help('MetricFrame')`. The descriptor exposes `signature`,
-   `doc`, bounded `constraints`, runnable `examples`, `methods`,
-   `affordances`, and drill-down ids. Consult it per object when the contract
-   matters; do not turn help into a blanket ritual for each call.
+   `mv.help('MetricFrame')`. The descriptor exposes signatures, bounded
+   constraints, methods, affordances, and drill-down ids. Consult it per object
+   when the contract matters; do not turn help into a blanket ritual for each
+   call.
 5. On errors, read the structured output — it includes a fix snippet and the
    available ids when applicable.
 
@@ -68,28 +68,30 @@ import marivo.analysis as mv
 session = mv.session.get_or_create(name="investigation")
 axis = session.catalog.get("model.entity.time_dimension")
 
-session.observe(session.catalog.get("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame  (end is exclusive: [start, end))
-session.compare(cur, base, alignment=mv.window_bucket())      # -> DeltaFrame
-session.attribute(delta, axes=[axis], mode="flat")            # -> AttributionFrame
-session.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
-session.correlate(a, b, alignment=mv.window_bucket())         # -> AssociationResult
-session.hypothesis_test(cur, base)                                                    # -> HypothesisTestResult
-session.forecast(series, horizon=7)                                                   # -> ForecastFrame
-session.assess_quality(series)                                                        # -> QualityReport
-
-mv.session.current()     # safe probe — returns Session or None; check and continue work
-mv.help("discover")      # bounded typed objective helpers and compatibility dispatcher
-frame.show()             # bounded result card; repr hints to .show()
+series = session.observe(
+    session.catalog.get("model.metric"),
+    timescope={"start": "2026-06-18", "end": "2026-06-25"},
+    grain="day",
+)
+baseline = session.observe(
+    session.catalog.get("model.metric"),
+    timescope={"start": "2026-06-11", "end": "2026-06-18"},
+    grain="day",
+)
+delta = session.compare(series, baseline, alignment=mv.window_bucket())
+drivers = session.attribute(delta, axes=[axis], mode="flat")
+drivers.show()
 ```
 
-Every intent returns a typed, immutable frame. Stay in frame world until you
-call `frame.to_pandas()`. Use `frame.show()` for bounded inspection.
+Every default operator returns a typed, immutable artifact directly. Stay in
+artifact world until you intentionally call `artifact.to_pandas()`. Use
+`artifact.show()` for bounded inspection.
 
 Read artifacts in this order: `repr(artifact)`, `artifact.summary()`,
-`artifact.schema()`, `artifact.contract()`, and only then `artifact.preview(...)`
-or `artifact.to_pandas()` for tabular data. Use
-`artifact.contract().affordances` for mechanical compatibility. The library does
-not rank, recommend, or choose next analysis steps.
+`artifact.schema()`, `artifact.contract()`, and only then
+`artifact.preview(...)` or `artifact.to_pandas()` for tabular data. Use
+`artifact.contract().affordances` for mechanical compatibility. Affordances are
+not recommendations from Marivo; the agent chooses whether to continue.
 
 `mv.window_bucket()` compares time-series and panel windows
 by ordinal bucket position by default. Use
@@ -189,7 +191,9 @@ the evidence namespace: `session.evidence.findings(...)`,
 For any non-trivial close-out, read `references/final-report.md` before the
 final user response. Do not end with only `frame.show()`, `frame.head(n)`, or
 raw tables. Synthesize the answer, scope, evidence, caveats, source details, and
-recommended next steps into a clear Markdown report.
+agent-authored next steps into a clear Markdown report. Marivo can expose
+mechanical compatibility through `artifact.contract().affordances`, but it does
+not recommend what the agent should do next.
 
 ## Decision tree
 
@@ -199,18 +203,23 @@ Current vs baseline change?                -> observe x2 -> compare
 Why the change happened?                   -> compare -> attribute
 Spikes, drops, unusual buckets?            -> observe series -> discover.<objective>
 Two metrics move together?                 -> observe both -> correlate
+Mean changed between paired samples?       -> observe x2 -> hypothesis_test
+Need a future projection?                  -> observe series -> forecast
 Need auditable quality evidence?           -> assess_quality
-Reshape without changing frame family?     -> transform.<op> (topk, rollup, slice, ...)
 Custom Ibis calculation that must re-enter -> derive_metric_frame
-Raw pandas from a frame?                   -> frame.to_pandas()
+Raw pandas from a frame?                   -> artifact.to_pandas()
 ```
 
-Prefer built-in intents first. When Marivo does not directly support an
+Prefer default operators first. When Marivo does not directly support an
 analysis step but the result must re-enter the typed metric flow, use
 `session.derive_metric_frame(...)` — the governed escape hatch for custom Ibis
 queries whose output is validated and persisted as a `MetricFrame`. Use
-`frame.to_pandas()` for terminal pandas analysis that does not need to feed
+`artifact.to_pandas()` for terminal pandas analysis that does not need to feed
 typed intents.
+
+`session.transform.*`, `CandidateSet.select(...)`, `session.evidence.*`, and
+`session.knowledge()` are advanced troubleshooting or audit references. Do not
+teach them beside the nine default operators in a first-pass script.
 
 ## Session
 
@@ -218,7 +227,7 @@ Default to one session per analysis task. Start the first script with
 `mv.session.get_or_create(name="<stable_task_name>")`, then reuse the same
 stable name or probe `mv.session.current()` in every follow-up script. Do not
 create new sessions for script splits, retries, or branch exploration: artifacts,
-knowledge, facts, followups, and job history are session-scoped.
+artifacts, evidence facts, and job history are session-scoped.
 
 Create a new session only when the user explicitly starts an independent
 investigation, or when the existing session is polluted enough that restarting
@@ -326,7 +335,7 @@ list here — the error text is authoritative and current.
 Bundle a chain into one script when the path is fixed. Stop and run a new
 script when the next intent depends on values you have not seen yet. A split is
 only a script boundary; it is not a session boundary. Reuse the same session so
-artifacts, knowledge, facts, followups, and job history remain available.
+artifact refs, evidence facts, and job history remain available.
 
 - **Bundle** (one script, end with `frame.show()`):
   observe → compare → attribute with a pre-chosen axis; observe → forecast;
