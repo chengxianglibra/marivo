@@ -81,22 +81,7 @@ from marivo.semantic.catalog import (
     TimeDimensionDetails,
     load,
 )
-from marivo.semantic.dtos import (
-    AuthoringQuestion,
-    BriefStatus,
-    CrossEntityMetricBrief,
-    DerivedMetricBrief,
-    DimensionBrief,
-    DomainBrief,
-    EntityBrief,
-    MeasureBrief,
-    MetricBrief,
-    RegisteredMatch,
-    RelationshipBrief,
-    TimeDimensionBrief,
-    VerifyResult,
-)
-from marivo.semantic.errors import LadderOrderError
+from marivo.semantic.dtos import AuthoringQuestion, VerifyResult
 from marivo.semantic.help import help, help_text
 from marivo.semantic.ir import (
     JoinKey,
@@ -121,206 +106,9 @@ from marivo.semantic.richness import RichnessReport
 from marivo.semantic.typing import AiContextValue
 
 if TYPE_CHECKING:
-    from marivo.datasource.ir import EntitySourceIR
     from marivo.semantic.richness import DemandSignal
 
 _AGENT_FINGERPRINT = "agent_recorded"
-
-
-def prepare_domain(*, name: str) -> DomainBrief:
-    """Prepare a domain authoring brief from the current project."""
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    return project.prepare_domain(name=name)
-
-
-def prepare_derived_metric(
-    *,
-    numerator: str,
-    denominator: str | None = None,
-    weight: str | None = None,
-) -> DerivedMetricBrief:
-    """Prepare a derived metric brief from component metric refs."""
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    return project.prepare_derived_metric(
-        numerator=numerator, denominator=denominator, weight=weight
-    )
-
-
-def prepare_entity(
-    *,
-    datasource: str,
-    source: EntitySourceIR,
-    domain: str,
-    scope: ScanScope | None = None,
-) -> EntityBrief:
-    """Prepare an entity authoring brief with datasource evidence."""
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    if scope is None:
-        scope = ScanScope()
-    return project.prepare_entity(datasource=datasource, source=source, domain=domain, scope=scope)
-
-
-def prepare_dimension(
-    *,
-    entity: str,
-    column: str,
-    scope: ScanScope | None = None,
-) -> DimensionBrief:
-    """Prepare a dimension authoring brief for one entity column.
-
-    Profiles the column data from the datasource and checks for matches
-    against existing dimensions.
-
-    Args:
-        entity: Qualified entity reference (e.g. ``"sales.orders"``).
-        column: Column name to prepare a dimension brief for.
-        scope: Bounded scan configuration.
-
-    Returns:
-        A single ``DimensionBrief`` with status, profile, and match evidence.
-
-    Example:
-        >>> import marivo.semantic as ms
-        >>> brief = ms.prepare_dimension(entity="sales.orders", column="region")
-        >>> brief.status
-    """
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    if scope is None:
-        scope = ScanScope()
-    return project.prepare_dimension(entity=entity, column=column, scope=scope)
-
-
-def prepare_time_dimension(
-    *,
-    entity: str,
-    column: str,
-    scope: ScanScope | None = None,
-) -> TimeDimensionBrief:
-    """Prepare a time dimension authoring brief with format detection."""
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    if scope is None:
-        scope = ScanScope()
-    return project.prepare_time_dimension(entity=entity, column=column, scope=scope)
-
-
-def prepare_metric(
-    *,
-    entity: str,
-    measure_columns: tuple[str, ...] | list[str] = (),
-    filter_dimensions: tuple[str, ...] | list[str] = (),
-    scope: ScanScope | None = None,
-) -> MetricBrief:
-    """Prepare a metric authoring brief after row-level measures are verified.
-
-    The default metric authoring path is ``prepare_measure`` ->
-    ``@ms.measure`` -> ``ms.verify_object(measure_ref)`` ->
-    ``ms.aggregate(...)``. Use this brief for metric-level context such as
-    filter dimensions, time dimensions, and compatibility with existing
-    measure-column workflows.
-    """
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    if scope is None:
-        scope = ScanScope()
-    return project.prepare_metric(
-        entity=entity,
-        measure_columns=measure_columns,
-        filter_dimensions=filter_dimensions,
-        scope=scope,
-    )
-
-
-def prepare_measure(
-    *,
-    entity: str,
-    column: str,
-    scope: ScanScope | None = None,
-) -> MeasureBrief:
-    """Prepare a measure authoring brief for one entity column.
-
-    Profiles the column data from the datasource and provides an additivity
-    hint based on the column's data type. Checks for matches against existing
-    measures in the registry.
-
-    Args:
-        entity: Qualified entity reference (e.g. ``"sales.orders"``).
-        column: Column name to prepare a measure brief for.
-        scope: Scan scope controlling partition, max rows, and timeout.
-
-    Returns:
-        A ``MeasureBrief`` with status, profile, additivity hint, and match evidence.
-
-    Example:
-        >>> brief = ms.prepare_measure(entity="sales.orders", column="amount")
-    """
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    if scope is None:
-        scope = ScanScope()
-    return project.prepare_measure(entity=entity, column=column, scope=scope)
-
-
-def prepare_relationship(
-    *,
-    from_entity: str,
-    to_entity: str,
-    keys: list[tuple[str, str]],
-    scope: ScanScope | None = None,
-) -> RelationshipBrief:
-    """Prepare a relationship authoring brief with join-key probe evidence."""
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    if scope is None:
-        scope = ScanScope()
-    return project.prepare_relationship(
-        from_entity=from_entity,
-        to_entity=to_entity,
-        keys=keys,
-        scope=scope,
-    )
-
-
-def prepare_cross_entity_metric(
-    *,
-    root_entity: str,
-    entities: tuple[str, ...] | list[str],
-    measure_columns: tuple[str, ...] | list[str] = (),
-    scope: ScanScope | None = None,
-) -> CrossEntityMetricBrief:
-    """Prepare a cross-entity metric brief with relationship path evidence."""
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    if scope is None:
-        scope = ScanScope()
-    return project.prepare_cross_entity_metric(
-        root_entity=root_entity,
-        entities=entities,
-        measure_columns=measure_columns,
-        scope=scope,
-    )
 
 
 def verify_object(
@@ -350,10 +138,8 @@ def verify_object(
         >>> result.status
 
     Constraints:
-        ``verify_object`` is enforced by the authoring ladder: prepare APIs
-        for dimensions, time dimensions, metrics, relationships, and
-        cross-entity metrics raise ``LadderOrderError`` if the entity has
-        not passed verification.
+        Run after authoring each semantic object. Fix failed verification
+        before advancing to dependent objects.
     """
     from marivo.semantic.reader import SemanticProject
 
@@ -560,35 +346,24 @@ def record_decision(
 __all__ = [
     "AiContextValue",
     "AuthoringQuestion",
-    "BriefStatus",
-    "CrossEntityMetricBrief",
     "DatasourceDetails",
     "DecisionRecord",
-    "DerivedMetricBrief",
     "DerivedMetricDetails",
-    "DimensionBrief",
     "DimensionDetails",
     "DimensionRef",
-    "DomainBrief",
     "DomainDetails",
     "DomainRef",
-    "EntityBrief",
     "EntityDetails",
     "EntityRef",
     "JoinKey",
-    "LadderOrderError",
-    "MeasureBrief",
     "MeasureDetails",
     "MeasureRef",
-    "MetricBrief",
     "MetricDetails",
     "MetricRef",
     "ParityResult",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
-    "RegisteredMatch",
-    "RelationshipBrief",
     "RelationshipDetails",
     "RelationshipRef",
     "RichnessReport",
@@ -602,7 +377,6 @@ __all__ = [
     "SemanticRefInput",
     "SimpleMetricDetails",
     "SqlProvenance",
-    "TimeDimensionBrief",
     "TimeDimensionDetails",
     "TimeDimensionRef",
     "VerifyResult",
@@ -628,15 +402,6 @@ __all__ = [
     "metric",
     "parity_check",
     "parquet",
-    "prepare_cross_entity_metric",
-    "prepare_derived_metric",
-    "prepare_dimension",
-    "prepare_domain",
-    "prepare_entity",
-    "prepare_measure",
-    "prepare_metric",
-    "prepare_relationship",
-    "prepare_time_dimension",
     "ratio",
     "readiness",
     "record_decision",

@@ -28,8 +28,6 @@ from marivo.render import AgentResult, result_repr
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
-    DerivedMetricBrief,
-    DomainBrief,
 )
 
 REPR_MAX_LEN = 200
@@ -239,30 +237,6 @@ def _authoring_assessment() -> AuthoringAssessment:
     return AuthoringAssessment(status="needs_input", issues=(issue,), questions=())
 
 
-def _domain_brief() -> DomainBrief:
-    return DomainBrief(
-        status="sufficient",
-        proposed_name="sales",
-        existing_domains=(),
-        matches=(),
-        questions=(),
-        issues=(),
-    )
-
-
-def _derived_metric_brief() -> DerivedMetricBrief:
-    return DerivedMetricBrief(
-        status="needs_input",
-        composition_kind="ratio",
-        components=(),
-        propagated_verification="python_native",
-        unit_hint=None,
-        matches=(),
-        questions=(),
-        issues=(),
-    )
-
-
 TERMINAL_BUILDERS: list = [
     pytest.param(_preview_result, id="PreviewResult"),
     pytest.param(_datasource_description, id="DatasourceDescription"),
@@ -279,8 +253,6 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_quality_report_summary, id="QualityReportSummary"),
     pytest.param(_association_result_summary, id="AssociationResultSummary"),
     pytest.param(_authoring_assessment, id="AuthoringAssessment"),
-    pytest.param(_domain_brief, id="DomainBrief"),
-    pytest.param(_derived_metric_brief, id="DerivedMetricBrief"),
 ]
 
 

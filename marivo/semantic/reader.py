@@ -15,26 +15,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.config import SEMANTIC_DIR
-from marivo.datasource.ir import DatasourceIR, EntitySourceIR, source_to_dict
+from marivo.datasource.ir import DatasourceIR, source_to_dict
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import ScanReport, ScanScope
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringObjectKind,
-    CrossEntityMetricBrief,
-    DerivedMetricBrief,
-    DimensionBrief,
-    DomainBrief,
-    EntityBrief,
-    MeasureBrief,
-    MetricBrief,
-    RelationshipBrief,
-    TimeDimensionBrief,
     VerifyResult,
 )
 from marivo.semantic.errors import (
     ErrorKind,
-    LadderOrderError,
     SemanticError,
     SemanticLoadError,
     SemanticRuntimeError,
@@ -562,180 +552,6 @@ class SemanticProject:
         """
         return build_richness_report(self, demand=demand)
 
-    # -- prepare (registry-only) --------------------------------------------
-
-    def prepare_domain(self, *, name: str) -> DomainBrief:
-        """Prepare a domain authoring brief from the project registry."""
-        from marivo.semantic.prepare import prepare_domain
-
-        return prepare_domain(self, name=name)
-
-    def prepare_derived_metric(
-        self,
-        *,
-        numerator: str,
-        denominator: str | None = None,
-        weight: str | None = None,
-    ) -> DerivedMetricBrief:
-        """Prepare a derived metric brief from component metric refs."""
-        from marivo.semantic.prepare import prepare_derived_metric
-
-        return prepare_derived_metric(
-            self, numerator=numerator, denominator=denominator, weight=weight
-        )
-
-    def prepare_entity(
-        self,
-        *,
-        datasource: str,
-        source: EntitySourceIR,
-        domain: str,
-        scope: ScanScope | None = None,
-    ) -> EntityBrief:
-        """Prepare an entity authoring brief with datasource evidence."""
-        from marivo.semantic.prepare import prepare_entity
-
-        if scope is None:
-            scope = ScanScope()
-        return prepare_entity(
-            self, datasource=datasource, source=source, domain=domain, scope=scope
-        )
-
-    def prepare_dimensions(
-        self,
-        *,
-        entity: str,
-        columns: Sequence[str],
-        scope: ScanScope | None = None,
-    ) -> tuple[DimensionBrief, ...]:
-        """Prepare dimension authoring briefs for the given entity columns."""
-        self._require_entity_verified(entity, "prepare_dimensions")
-        from marivo.semantic.prepare import prepare_dimensions
-
-        if scope is None:
-            scope = ScanScope()
-        return prepare_dimensions(self, entity=entity, columns=columns, scope=scope)
-
-    def prepare_dimension(
-        self,
-        *,
-        entity: str,
-        column: str,
-        scope: ScanScope | None = None,
-    ) -> DimensionBrief:
-        """Prepare a dimension authoring brief for one entity column."""
-        self._require_entity_verified(entity, "prepare_dimension")
-        from marivo.semantic.prepare import prepare_dimension
-
-        if scope is None:
-            scope = ScanScope()
-        return prepare_dimension(self, entity=entity, column=column, scope=scope)
-
-    def prepare_time_dimension(
-        self,
-        *,
-        entity: str,
-        column: str,
-        scope: ScanScope | None = None,
-    ) -> TimeDimensionBrief:
-        """Prepare a time dimension authoring brief with format detection."""
-        self._require_entity_verified(entity, "prepare_time_dimension")
-        from marivo.semantic.prepare import prepare_time_dimension
-
-        if scope is None:
-            scope = ScanScope()
-        return prepare_time_dimension(self, entity=entity, column=column, scope=scope)
-
-    def prepare_metric(
-        self,
-        *,
-        entity: str,
-        measure_columns: Sequence[str] = (),
-        filter_dimensions: Sequence[str] = (),
-        scope: ScanScope | None = None,
-    ) -> MetricBrief:
-        """Prepare a metric authoring brief after row-level measures are verified.
-
-        The default metric authoring path is ``prepare_measure`` ->
-        ``@ms.measure`` -> ``ms.verify_object(measure_ref)`` ->
-        ``ms.aggregate(...)``. ``measure_columns`` remains available for
-        metric-level evidence and compatibility with existing workflows.
-        """
-        self._require_entity_verified(entity, "prepare_metric")
-        from marivo.semantic.prepare import prepare_metric
-
-        if scope is None:
-            scope = ScanScope()
-        return prepare_metric(
-            self,
-            entity=entity,
-            measure_columns=measure_columns,
-            filter_dimensions=filter_dimensions,
-            scope=scope,
-        )
-
-    def prepare_measure(
-        self,
-        *,
-        entity: str,
-        column: str,
-        scope: ScanScope | None = None,
-    ) -> MeasureBrief:
-        """Prepare a measure authoring brief for one entity column."""
-        self._require_entity_verified(entity, "prepare_measure")
-        from marivo.semantic.prepare import prepare_measure
-
-        if scope is None:
-            scope = ScanScope()
-        return prepare_measure(self, entity=entity, column=column, scope=scope)
-
-    def prepare_relationship(
-        self,
-        *,
-        from_entity: str,
-        to_entity: str,
-        keys: Sequence[tuple[str, str]],
-        scope: ScanScope | None = None,
-    ) -> RelationshipBrief:
-        """Prepare a relationship authoring brief with join-key probe evidence."""
-        self._require_entity_verified(from_entity, "prepare_relationship")
-        self._require_entity_verified(to_entity, "prepare_relationship")
-        from marivo.semantic.prepare import prepare_relationship
-
-        if scope is None:
-            scope = ScanScope()
-        return prepare_relationship(
-            self,
-            from_entity=from_entity,
-            to_entity=to_entity,
-            keys=keys,
-            scope=scope,
-        )
-
-    def prepare_cross_entity_metric(
-        self,
-        *,
-        root_entity: str,
-        entities: Sequence[str],
-        measure_columns: Sequence[str] = (),
-        scope: ScanScope | None = None,
-    ) -> CrossEntityMetricBrief:
-        """Prepare a cross-entity metric brief with relationship path evidence."""
-        self._require_entity_verified(root_entity, "prepare_cross_entity_metric")
-        for entity_ref in entities:
-            self._require_entity_verified(entity_ref, "prepare_cross_entity_metric")
-        from marivo.semantic.prepare import prepare_cross_entity_metric
-
-        if scope is None:
-            scope = ScanScope()
-        return prepare_cross_entity_metric(
-            self,
-            root_entity=root_entity,
-            entities=entities,
-            measure_columns=measure_columns,
-            scope=scope,
-        )
-
     # -- verify object -------------------------------------------------------
 
     _DEFAULT_SCOPE = ScanScope()  # module-level singleton for default parameter
@@ -1120,7 +936,7 @@ class SemanticProject:
 
         return decision_ref
 
-    # -- ladder guard rails --------------------------------------------------
+    # -- ledger helpers ------------------------------------------------------
 
     def _is_entity_verified(self, ref: str) -> bool:
         """Check whether ref has a current (non-stale) entity_verified decision in the ledger."""
@@ -1140,18 +956,3 @@ class SemanticProject:
             if d.decision_kind == "entity_verified":
                 return d.evidence_fingerprint == current_fp
         return False
-
-    def _require_entity_verified(self, ref: str, caller: str) -> None:
-        """Raise LadderOrderError if ref has not passed verify_object."""
-        if (
-            self._registry is not None
-            and ref in self._registry.entities
-            and not self._is_entity_verified(ref)
-        ):
-            _raise(
-                ErrorKind.LADDER_ORDER,
-                f"{caller} requires entity {ref!r} to pass verify_object first.",
-                cls=LadderOrderError,
-                refs=(ref,),
-                hint=f"Call ms.verify_object({ref!r}) before {caller}.",
-            )

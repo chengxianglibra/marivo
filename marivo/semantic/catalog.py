@@ -1758,10 +1758,8 @@ class SemanticCatalog:
             ...     result.show()
 
         Constraints:
-            ``verify_object`` is enforced by the authoring ladder: prepare APIs
-            for dimensions, time dimensions, metrics, relationships, and
-            cross-entity metrics raise ``LadderOrderError`` if the entity has
-            not passed verification.
+            ``verify_object`` validates the authored object against the loaded
+            project, static semantic rules, and available datasource evidence.
         """
         with contextlib.suppress(SemanticLoadFailed):
             # Project failed to load; let _project.verify_object handle it

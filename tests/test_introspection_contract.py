@@ -20,6 +20,7 @@ from marivo.semantic.constraints import CONSTRAINTS as SEMANTIC_CONSTRAINTS
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 ANALYSIS_HELP_ONLY_ENTRIES = {
+    "agent_surface",
     "observe",
     "compare",
     "attribute",

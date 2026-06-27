@@ -69,35 +69,24 @@ def test_all_list_matches_expected() -> None:
     expected = {
         "AiContextValue",
         "AuthoringQuestion",
-        "BriefStatus",
-        "CrossEntityMetricBrief",
         "DatasourceDetails",
         "DecisionRecord",
-        "DerivedMetricBrief",
         "DerivedMetricDetails",
-        "DimensionBrief",
         "DimensionDetails",
         "DimensionRef",
-        "DomainBrief",
         "DomainDetails",
         "DomainRef",
-        "EntityBrief",
         "EntityDetails",
         "EntityRef",
         "JoinKey",
-        "LadderOrderError",
-        "MeasureBrief",
         "MeasureDetails",
         "MeasureRef",
-        "MetricBrief",
         "MetricDetails",
         "MetricRef",
         "ParityResult",
         "ReadinessIssue",
         "ReadinessInputSummary",
         "ReadinessReport",
-        "RegisteredMatch",
-        "RelationshipBrief",
         "RelationshipDetails",
         "RelationshipRef",
         "RichnessReport",
@@ -111,7 +100,6 @@ def test_all_list_matches_expected() -> None:
         "SemanticRefInput",
         "SimpleMetricDetails",
         "SqlProvenance",
-        "TimeDimensionBrief",
         "TimeDimensionDetails",
         "TimeDimensionRef",
         "VerifyResult",
@@ -138,15 +126,6 @@ def test_all_list_matches_expected() -> None:
         "linear",
         "semi_additive",
         "parity_check",
-        "prepare_derived_metric",
-        "prepare_dimension",
-        "prepare_domain",
-        "prepare_entity",
-        "prepare_cross_entity_metric",
-        "prepare_metric",
-        "prepare_measure",
-        "prepare_relationship",
-        "prepare_time_dimension",
         "relationship",
         "richness",
         "record_decision",
@@ -389,7 +368,6 @@ def test_help_json_parse_helpers_are_hidden_from_index_but_addressable() -> None
         content = cast("dict[str, Any]", result["content"])
         contract = cast("dict[str, Any]", content["authoring_contract"])
         assert contract["constructor"] == f"ms.{symbol}"
-        assert contract["prepare"] == "ms.prepare_time_dimension"
 
 
 def test_help_json_time_dimension_includes_partition_pushdown_advisory() -> None:
@@ -498,7 +476,7 @@ def test_semantic_skill_constraint_table_matches_catalog() -> None:
     workflow = (skill_dir / "references/workflow.md").read_text()
 
     assert not deleted_reference.exists()
-    assert "help -> discover -> settle/grill -> prepare -> author -> verify" in skill
+    assert "help -> discover -> settle/grill -> author -> verify" in skill
     assert "This skill owns workflow and routing only" in skill
     assert "author exactly one semantic object" in workflow
     assert "ms.verify_object(...)" in workflow
@@ -553,7 +531,6 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "invalid_status_time_dimension",
     "unsupported_kind",
     "unsupported_list_parent",
-    "ladder_order",
     "unverified_provenance",
     "invalid_measure_aggregation",
     "incommensurable_linear_units",
@@ -574,7 +551,6 @@ _EXPECTED_RUNTIME_KINDS = {
     "backend_factory_required",
     "inspect_source_required",
     "project_not_loaded",
-    "ladder_order",
     "unsupported_kind",
     "unsupported_list_parent",
     "conflicting_parameters",
@@ -1004,22 +980,10 @@ def test_help_text_measure_mentions_measure_column_default() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stepwise authoring DTO exports
+# Authoring result DTO exports
 # ---------------------------------------------------------------------------
 
 
 def test_stepwise_authoring_dto_exports() -> None:
-    for name in (
-        "BriefStatus",
-        "RegisteredMatch",
-        "VerifyResult",
-        "DomainBrief",
-        "EntityBrief",
-        "DimensionBrief",
-        "TimeDimensionBrief",
-        "MetricBrief",
-        "RelationshipBrief",
-        "CrossEntityMetricBrief",
-        "DerivedMetricBrief",
-    ):
+    for name in ("VerifyResult", "AuthoringQuestion"):
         assert hasattr(ms, name), f"marivo.semantic missing export: {name}"

@@ -2,9 +2,8 @@
 
 This reference defines the workflow for agents building reusable Marivo
 semantic objects. It intentionally does not repeat constructor parameters,
-Brief fields, discovery result schemas, or parse recipes. Use `ms.help(...)`,
-`md.discover_*`, `ms.prepare_*`, and `ms.verify_object(...)` for those
-contracts.
+discovery result schemas, or parse recipes. Use `ms.help(...)`,
+`md.discover_*`, and `ms.verify_object(...)` for those contracts.
 
 ## Object Ladder
 
@@ -34,7 +33,6 @@ ms.help(...) static contract
   -> md.discover_* datasource evidence
   -> settle from evidence, registry, project docs, and prior decisions
   -> grill the user for unresolved semantic decisions
-  -> ms.prepare_* readiness as the post-agreement check
   -> author exactly one semantic object
   -> ms.verify_object(...)
 ```
@@ -77,13 +75,10 @@ query.
 Do not ask users for schema, column names, data types, sample values,
 join-key viability, or existing object state when Marivo can discover them.
 
-## Prepare, Author, Verify
+## Author, Verify
 
-After the unresolved decisions are settled, call the matching `ms.prepare_*`
-API as the post-agreement readiness check before authoring. If it reports
-blockers, fix the blocker or abandon the object. If it can proceed, author
-exactly one object in the relevant
-`models/semantic/<domain>/_domain.py` file.
+After the unresolved decisions are settled, author exactly one object in the
+relevant `models/semantic/<domain>/_domain.py` file.
 
 Immediately run:
 

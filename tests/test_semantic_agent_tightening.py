@@ -48,12 +48,11 @@ def test_semantic_skill_is_workflow_only_after_layering_simplification() -> None
     pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
     combined = "\n".join((skill, workflow, datasource, closeout, pitfalls))
 
-    assert "help -> discover -> settle/grill -> prepare -> author -> verify" in skill
+    assert "help -> discover -> settle/grill -> author -> verify" in skill
     for required in (
         "ms.help(...) static contract",
         "md.discover_* datasource evidence",
         "grill the user for unresolved semantic decisions",
-        "ms.prepare_* readiness",
         "author exactly one semantic object",
         "ms.verify_object(...)",
     ):
@@ -206,8 +205,10 @@ def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
     semantic_data = surface_render(semantic_surface(), None, "json")
     datasource_data = md.help(format="json", print=False)
 
-    for name in ("prepare_entity", "prepare_metric", "VerifyResult", "DomainBrief"):
+    for name in ("VerifyResult", "domain", "entity", "metric"):
         assert name in str(semantic_data), f"semantic help missing {name}"
+    for name in ("prepare_entity", "prepare_metric", "DomainBrief"):
+        assert name not in str(semantic_data), f"semantic help still exposes {name}"
     for name in ("ScanScope", "discover_entity", "discover_measures", "raw_sql"):
         assert name in str(datasource_data), f"datasource help missing {name}"
 
@@ -290,7 +291,7 @@ def test_site_docs_cover_discovery_first_semantic_authoring() -> None:
             "md.discover_dimensions",
             "md.discover_measures",
             "md.latest_partition",
-            "ms.prepare_entity",
+            "ms.help",
             "ms.verify_object",
         ):
             assert required in text, f"{label} missing {required}"

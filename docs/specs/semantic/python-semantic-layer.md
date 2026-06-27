@@ -40,15 +40,16 @@ Authoring guidance is split across three layers, each with one job:
   fields) that supply the physical facts an agent needs to settle constructor
   values. Discovery does not author objects, infer business meaning, or carry
   judgment targets.
-- **`ms.prepare_*` — readiness.** Blockers, registry/project state, reuse
-  matches, and whether the exact object can be authored now.
+- **`ms.verify_object(...)` / `ms.readiness(...)` / load errors — validation.**
+  Blockers, registry/project state, object validity, and readiness are exposed
+  after authoring through verification, readiness checks, and load failures.
 
 Before authoring a datasource-backed semantic object, agents collect bounded
 datasource evidence with `md.discover_entity(...)`,
 `md.discover_dimensions(...)`, `md.discover_time_dimensions(...)`,
-`md.discover_measures(...)`, or `md.discover_relationship(...)`. The matching
-`ms.prepare_*` call then checks semantic readiness against the loaded project.
-Discovery does not author objects or infer business meaning.
+`md.discover_measures(...)`, or `md.discover_relationship(...)`, then author
+one semantic object and run `ms.verify_object(...)`. Discovery does not author
+objects or infer business meaning.
 
 目标态标准 stepwise authoring workflow 使用每个 domain 一个
 `models/semantic/<model>/_domain.py` 文件。agent 应在

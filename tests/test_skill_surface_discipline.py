@@ -257,25 +257,12 @@ def test_analysis_skill_does_not_teach_phase2_removed_surface() -> None:
     assert offenders == []
 
 
-def test_brief_fields_carry_descriptions_for_help() -> None:
-    # The library must be able to emit the gloss the skills no longer carry.
-    brief_names = [
-        "DomainBrief",
-        "EntityBrief",
-        "DimensionBrief",
-        "TimeDimensionBrief",
-        "MetricBrief",
-        "RelationshipBrief",
-        "CrossEntityMetricBrief",
-        "DerivedMetricBrief",
-    ]
-    missing: list[str] = []
-    for name in brief_names:
-        cls = getattr(ms, name)
-        for f in dataclasses.fields(cls):
-            if not f.metadata.get("description"):
-                missing.append(f"{name}.{f.name}")
-    assert not missing, f"Brief fields without a help-visible description: {missing}"
+def test_brief_family_is_not_exposed_in_semantic_help() -> None:
+    from marivo.introspection.surface import render as surface_render
+    from marivo.semantic.help import _surface as semantic_surface
+
+    help_json = surface_render(semantic_surface(), None, "json")
+    assert "Brief" not in str(help_json)
 
 
 # --- Detector unit tests: prove the heuristics actually catch transcription ---
