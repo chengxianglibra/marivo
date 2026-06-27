@@ -28,8 +28,12 @@ Alignment & window helpers
    holiday_and_dow_aligned
    window_bucket
 
-Discovery
----------
+Help and agent surface
+----------------------
+
+Start with ``help_text("agent_surface")`` or ``help("agent_surface")`` to see
+the Phase 3 default operator surface, base artifact protocol, bounded read
+order, governed derive boundary, and mechanical affordance language.
 
 .. autosummary::
    :toctree: api/

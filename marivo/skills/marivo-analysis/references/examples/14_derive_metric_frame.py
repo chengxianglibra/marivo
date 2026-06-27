@@ -38,9 +38,9 @@ frame = session.derive_metric_frame(
 
 assert frame.kind == "metric_frame"
 assert frame.meta.metric_id == METRIC_ID
-print(frame.summary())
+frame.show()
 
 # Expected output:
-# kind='metric_frame' row_count=6
-# columns=['order_id', 'created_at', 'amount', 'region', 'user_id', 'state']
-# semantic_shape='panel' lineage_oneliner='derive_metric_frame'
+# MetricFrame ref=frame_... metric=sales.revenue shape=panel rows=6
+# columns: order_id | created_at | amount | region | user_id | state
+# preview: 5 bounded rows shown; call .preview(limit=...) or .to_pandas() for all

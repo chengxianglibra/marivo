@@ -12,21 +12,25 @@ The pieces:
 
 - A **session** holds the guiding question, the semantic catalog, and the
   persisted results of every step.
-- An **intent** is one operator call — `observe`, `compare`, `decompose`, … — with
-  its parameters. The parameters *are* the analysis specification.
-- A **frame** is the typed result of an intent. Frames are the boundary between
-  steps: each operator consumes specific frame types and produces another.
+- An **operator call** is one deterministic analysis step — `observe`, `compare`,
+  `attribute`, `discover.<objective>`, and the other core operators — with its
+  parameters. The parameters *are* the analysis specification.
+- An **artifact** is the typed result of an operator. Artifacts are the boundary
+  between steps: each operator consumes specific artifact families and produces
+  another.
 
 ```python
 import marivo.analysis as mv
 import marivo.semantic as ms
 ```
 
-:::note[Frames are immutable]
-A frame never changes after it is produced. Read it cheaply with `frame.summary()`
-or `frame.preview(limit=n)`; call `frame.to_pandas()` only when you need a mutable
-copy. Every frame carries lineage and is persisted under project-local `.marivo/`,
-so later steps (and human reviewers) can trace which inputs produced each result.
+:::note[Artifacts are immutable]
+An artifact never changes after it is produced. Read it in layers:
+`repr(artifact)` → `artifact.summary()` → `artifact.schema()` /
+`artifact.contract()` → `artifact.preview(limit=n)` when tabular. Call
+`artifact.to_pandas()` only when you need a mutable local copy. Every artifact
+carries lineage and is persisted under project-local `.marivo/`, so later steps
+can recover it by ref without re-querying the datasource.
 :::
 
 ## Open a session
@@ -132,17 +136,19 @@ override — `mv.dow_aligned()`, `mv.holiday_aligned()`, or
 `mv.holiday_and_dow_aligned()`; the calendar-backed kinds also take
 `calendar=mv.CalendarRef(...)`.
 
-### `decompose` → `AttributionFrame`
+### `attribute` → `AttributionFrame`
 
-Attribute a delta's movement across one segment axis — *why* did it change?
+Attribute a delta's movement across explicit axes. This is the default public
+entry point for "why did it change?" analysis.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `frame` | `DeltaFrame` | Yes | — | The delta to explain. |
-| `axis` | dimension | Yes | — | The segment axis to attribute over. |
+| `frame` | `DeltaFrame` | Yes | — | The delta to attribute. |
+| `axes` | `list[dimension]` | Yes | — | Segment or time axes to attribute over. |
+| `mode` | `"flat" \| "nested" \| "recursive"` | No | `"flat"` | Hierarchy expansion mode; output remains an `AttributionFrame`. |
 
 ```python
-attribution = session.decompose(delta, axis=region)
+attribution = session.attribute(delta, axes=[region], mode="flat")
 attribution.show()
 ```
 
@@ -177,8 +183,9 @@ projection = session.forecast(history, horizon=30)
 
 ### `assess_quality` → `QualityReport`
 
-Run quality checks (row counts, null ratios, time coverage, duplicate keys) over a
-`MetricFrame`. Returns per-check rows, blocking issues, and recommended follow-ups.
+Run quality checks over an artifact and return a separate `QualityReport`.
+`artifact.quality_summary` is only a cheap persisted metadata projection; it is
+not the same thing as running `session.assess_quality(artifact)`.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -199,9 +206,9 @@ Paired test of whether a metric's mean changed between two periods.
 
 ## Discovery — `session.discover.*` → `CandidateSet`
 
-Discovery operators search a frame for noteworthy items and return a ranked
-`CandidateSet`. Pass `value="<column>"` to disambiguate when a frame has several
-numeric columns; `threshold` is the cutoff (lower ⇒ more candidates).
+Discovery operators search an artifact for deterministic candidate rows and
+return a `CandidateSet`. Candidate row order is a deterministic score order, not
+a recommendation from Marivo.
 
 | Helper | Source shape | Required | Key options |
 | --- | --- | --- | --- |
@@ -218,7 +225,7 @@ candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 ```
 
-## Transforms — `session.transform.*`
+## Advanced reference — `session.transform.*`
 
 Transforms reshape a frame while preserving its family (`MetricFrame` →
 `MetricFrame`, `DeltaFrame` → `DeltaFrame`).
@@ -234,19 +241,66 @@ Transforms reshape a frame while preserving its family (`MetricFrame` →
 | `normalize` | `mode`, `baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score` (MetricFrame only). |
 | `window` | `window` | Restrict to a time window. |
 
-## Escape hatch and promotion
+## Governed derive — `session.derive_metric_frame(...)`
 
-When a step needs something the built-in intents do not model, drop to scratch
-frames — then promote back into the typed flow before continuing.
+Use `derive_metric_frame` when a custom Ibis calculation must re-enter the typed
+metric flow. It always returns a `MetricFrame`. Semantic refs identify metric,
+time, and dimension bindings; query output columns are plain strings.
 
-- `session.explore_ibis(builder, datasource=...)` — run a custom ibis query →
-  `ExplorationResult`.
-- `session.from_pandas(df)` — import external data → `ExplorationResult`.
-- `session.promote_metric_frame(...)` / `promote_delta_frame(...)` /
-  `promote_attribution_frame(...)` — upgrade a scratch frame into a typed frame.
-  Promotion never infers metadata; you supply `metric`, `semantic_kind`,
-  `measure_column`, etc. (or a `PromotionPolicy` with `semantic_anchors`), and it
-  fails closed when anything required is missing.
+```python
+custom = session.derive_metric_frame(
+    metric=session.catalog.get("sales.revenue"),
+    query=mv.ibis_query(
+        datasource="warehouse",
+        build=lambda db, ctx: db.table("orders"),
+    ),
+    columns=mv.metric_columns(
+        value="value",
+        time=mv.time_column(
+            column="order_date",
+            ref=session.catalog.get("sales.orders.order_date"),
+        ),
+        dimensions=[
+            mv.dimension_column(
+                column="region",
+                ref=session.catalog.get("sales.orders.region"),
+            ),
+        ],
+    ),
+    timescope={"start": "2026-06-18", "end": "2026-06-25"},
+    grain="day",
+    label="custom_revenue_by_region",
+)
+custom.show()
+```
+
+Use `artifact.to_pandas()` for terminal local pandas work that does not need to
+feed typed Marivo operators.
+
+## Read and recover artifacts
+
+The agent read path is layered to keep scripts cheap across loops:
+
+```python
+repr(delta)
+delta.summary()
+delta.schema()
+delta.contract()
+delta.preview(limit=10)
+```
+
+Use `artifact.contract().affordances` to inspect mechanical compatibility. It
+only describes which public operators can mechanically consume the artifact and
+which inputs are missing; it does not rank, recommend, or decide the next step.
+
+When a later script needs previous work, recover persisted facts instead of
+rerunning upstream queries:
+
+```python
+summaries = session.frame_summaries()
+jobs = session.recent_jobs(limit=5)
+previous = session.get_frame(ref)
+```
 
 ## Evidence and knowledge
 
@@ -283,7 +337,7 @@ baseline = session.observe(
     dimensions=[region],
 )
 delta = session.compare(current, baseline)
-attribution = session.decompose(delta, axis=region)
+attribution = session.attribute(delta, axes=[region])
 attribution.show()
 ```
 
@@ -294,12 +348,11 @@ when it moved, or `session.forecast(current, horizon=3)` to project it forward.
 
 | Frame | Produced by |
 | --- | --- |
-| `MetricFrame` | `observe` (and `promote_metric_frame`) |
+| `MetricFrame` | `observe`, `derive_metric_frame` |
 | `DeltaFrame` | `compare` |
-| `AttributionFrame` | `decompose` |
+| `AttributionFrame` | `attribute` |
 | `AssociationResult` | `correlate` |
 | `ForecastFrame` | `forecast` |
 | `QualityReport` | `assess_quality` |
 | `HypothesisTestResult` | `hypothesis_test` |
 | `CandidateSet` | `discover.*` |
-| `ExplorationResult` | `from_pandas`, `explore_ibis` |

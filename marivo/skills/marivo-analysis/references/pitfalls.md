@@ -312,10 +312,11 @@ where={region: "US"}
 
 ## Discover returns CandidateSet
 
-**Symptom:** code calls the removed `mv.detect(...)` helper or expects anomaly
+**Symptom:** code calls a removed standalone anomaly helper or expects anomaly
 results to be an `AttributionFrame`.
 
-**Action:** use `session.discover.point_anomalies(...)` and treat the
+**Action:** use `session.discover.<objective>(...)` (e.g.
+`session.discover.point_anomalies(...)`) and treat the
 result as a `CandidateSet`.
 
 ```python

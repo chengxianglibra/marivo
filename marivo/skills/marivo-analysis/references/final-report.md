@@ -43,10 +43,12 @@ Use the shape below unless the user's requested format is more specific.
      conclusion.
    - Do not claim root cause when only metric correlation or ranking evidence was
      checked.
-7. Recommended Next Steps / 建议动作
-   - Prioritize actions by expected value or urgency.
-   - Use `artifact.contract().affordances` to inspect mechanical compatibility, session knowledge, and analyst
-     judgment; distinguish data-quality remediation from business investigation.
+7. Agent-authored Next Steps / Agent 撰写的建议动作
+   - Prioritize actions by expected value or urgency when the evidence supports
+     that judgment.
+   - Marivo affordances are mechanical compatibility facts, not recommendations from Marivo.
+     Use `artifact.contract().affordances`, session evidence, and analyst judgment;
+     distinguish data-quality remediation from business investigation.
 8. Source details / 来源与可复现信息
    - List source tables, metric formulas, time windows, filters, frame/artifact
      ids, and scratch query summaries when safe.

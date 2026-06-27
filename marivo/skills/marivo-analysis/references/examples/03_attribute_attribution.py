@@ -1,4 +1,4 @@
-"""Pattern: decompose a time-series delta by bucket.
+"""Pattern: attribute a time-series delta by bucket.
 
 When to use: you need a runnable attribution frame that ranks which time
 buckets contributed most to a bucket-aligned metric delta.
@@ -54,7 +54,7 @@ ratio_components = ratio_delta.components()
 print(f"component_kind={ratio_components.meta.composition_kind!r}")
 print(f"component_columns={list(ratio_components.to_pandas().columns)!r}")
 
-# Component-aware time-series ratio metric: decompose change by bucket.
+# Component-aware time-series ratio metric: attribute change by bucket.
 ratio_cur_series = session.observe(
     session.catalog.get(DERIVED_RATIO_METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
@@ -76,7 +76,7 @@ ratio_bucket_attr = session.attribute(
 )
 print(ratio_bucket_attr.summary())
 
-# Component-aware panel ratio metric: decompose each bucket by segment.
+# Component-aware panel ratio metric: attribute each bucket by segment.
 ratio_cur_panel = session.observe(
     session.catalog.get(DERIVED_RATIO_METRIC_ID),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},

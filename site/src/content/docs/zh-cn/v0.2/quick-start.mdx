@@ -166,9 +166,20 @@ baseline = session.observe(
     dimensions=[region],
 )
 delta = session.compare(current, baseline)
-attribution = session.decompose(delta, axis=region)
+attribution = session.attribute(delta, axes=[region])
 attribution.show()
+
+delta.contract().affordances      # mechanical compatibility, not recommendations
+delta.quality_summary             # cheap metadata projection
+quality = session.assess_quality(delta)
+quality.show()
 ```
+
+如果自定义 Ibis 计算结果还要回到 Marivo typed metric flow，使用
+`session.derive_metric_frame(...)`。Semantic refs 只用于 metric 与 axis 绑定，
+query 输出列名仍是普通字符串。跨后续脚本时，用 `session.frame_summaries()` 和
+`session.get_frame(ref)` 恢复已有 artifacts，不要重跑上游查询。用
+`artifact.contract().affordances` 查看机械兼容性事实。
 
 ## 最佳实践
 

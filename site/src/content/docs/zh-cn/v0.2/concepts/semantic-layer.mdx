@@ -424,7 +424,7 @@ def revenue(table):
 | Builder | 必填 | 计算 |
 | --- | --- | --- |
 | `ms.ratio(name, numerator, denominator)` | 两个 ref | `numerator / denominator`（如客单价、各类比率） |
-| `ms.weighted_average(name, value, weight)` | 两个 ref | 加权平均；之后 `decompose` 拆分 mix 与 rate |
+| `ms.weighted_average(name, value, weight)` | 两个 ref | 加权平均；之后 `attribute` 拆分 mix 与 rate |
 | `ms.linear(name, add, subtract)` | `add`（共 ≥2 项） | `add` 之和减去 `subtract`（如 `net = gross - refunds`） |
 
 它们也都接受 `unit`、`domain` 和 `ai_context`。

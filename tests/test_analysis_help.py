@@ -25,6 +25,7 @@ def _json_data(symbol: str | None = None) -> dict[str, Any]:
 
 
 _HELP_ONLY_ENTRIES = {
+    "agent_surface",
     "observe",
     "compare",
     "attribute",
@@ -260,6 +261,7 @@ def test_help_resolves_core_runtime_and_result_types() -> None:
 
 def test_help_topics_json_have_structured_content() -> None:
     expected_keys = {
+        "agent_surface": "core_operators",
         "discover": "objectives",
         "select": "fields_by_shape",
         "transform": "ops",
@@ -273,6 +275,33 @@ def test_help_topics_json_have_structured_content() -> None:
         assert result["kind"] == "topic"
         content = cast("dict[str, Any]", result["content"])
         assert key in content
+
+
+def test_help_agent_surface_topic_teaches_phase3_boundaries() -> None:
+    result = _json_data("agent_surface")
+
+    assert result["kind"] == "topic"
+    content = cast("dict[str, Any]", result["content"])
+    operators = {
+        item["operator"] for item in cast("list[dict[str, str]]", content["core_operators"])
+    }
+    assert operators == {
+        "observe",
+        "compare",
+        "attribute",
+        "discover.<objective>",
+        "correlate",
+        "hypothesis_test",
+        "forecast",
+        "derive_metric_frame",
+        "assess_quality",
+    }
+
+    rendered = _capture("agent_surface")
+    assert "contract().affordances" in rendered
+    assert "mechanical compatibility" in rendered
+    assert "not advisory endorsements from Marivo" in rendered
+    assert "decompose" not in rendered
 
 
 def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:

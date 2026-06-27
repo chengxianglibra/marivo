@@ -24,4 +24,4 @@ result = session.hypothesis_test(cur, base)
 assert result.meta.kind == "hypothesis_test_result"
 assert result.meta.hypothesis == "mean_changed"
 assert {"p_value", "reason_code", "rejected"}.issubset(result.columns)
-print(result.summary())
+result.show()

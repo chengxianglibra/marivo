@@ -37,7 +37,7 @@ raw SQL and hoping it is correct.
   </Card>
   <Card title="Metric-centered analysis" icon="seti:python">
     Agents start from trusted metrics and chain typed intents: observe, compare,
-    decompose, correlate, forecast, and quality checks.
+    attribute, correlate, forecast, and quality checks.
   </Card>
   <Card title="Trustworthy evidence" icon="seti:config">
     Operators record findings, propositions, and assessments so any result can be
@@ -78,7 +78,7 @@ loop a human can review, approve, and replay.
    analysis until every object an agent needs is complete and reachable.
 3. **Open a session** from a guiding question and resolve a trusted metric from the
    catalog.
-4. **Chain typed intents** — `observe → compare → decompose`, and more — each
+4. **Chain typed intents** — `observe → compare → attribute`, and more — each
    returning a typed frame and leaving an evidence trail.
 
 ## A first analysis
@@ -95,7 +95,7 @@ current = session.observe(revenue, timescope={"start": "2026-10-01", "end": "202
 baseline = session.observe(revenue, timescope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
 
 delta = session.compare(current, baseline)
-attribution = session.decompose(delta, axis=region)
+attribution = session.attribute(delta, axes=[region])
 attribution.show()
 ```
 

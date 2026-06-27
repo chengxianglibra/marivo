@@ -10,6 +10,7 @@ Use the uniform runtime help contract for exact callable, frame, policy, and
 topic details:
 
 ```python
+mv.help('agent_surface')                 # default operator surface and artifact protocol
 mv.help('discover')                      # objective compatibility and required kwargs
 mv.help('alignment')                     # AlignmentPolicy variants
 mv.help('MetricFrame')                   # methods and affordances
@@ -101,7 +102,7 @@ base = session.observe(
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("sales.orders.created_at")
 attribution = session.attribute(delta, axes=[created_at])
-print(attribution.summary())
+attribution.show()
 ```
 
 ```python
@@ -110,7 +111,7 @@ series = session.observe(
     where={session.catalog.get("sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 candidates = session.discover.point_anomalies(series, threshold=1.0)
-print(candidates.meta.objective)  # "point_anomalies"
+candidates.show()
 ```
 
 ## Governed Derive
@@ -168,7 +169,8 @@ frame with `frame.to_pandas()` and work locally.
 
 Pass `value="<column>"` to disambiguate when the source has more than one
 numeric column. Use `candidates.select(rank=1, attribute="affordances")` to inspect mechanical
-continuation affordances attached to a candidate row.
+continuation affordances attached to a candidate row. Candidate ranks are
+deterministic row order, not recommendations from Marivo.
 
 ## Discovery Helpers
 

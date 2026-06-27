@@ -1,8 +1,7 @@
-"""Pattern: decompose a panel delta along one segment axis.
+"""Pattern: attribute a panel delta along one segment axis.
 
-When to use: you have a (bucket x segment) delta and want to know each
-segment's contribution within each bucket. Output has bucket-local rank
-and percent of bucket total.
+When to use: you need per-bucket driver rows for a panel comparison.
+Output shape: an AttributionFrame with flattened hierarchy rows.
 """
 
 from __future__ import annotations
