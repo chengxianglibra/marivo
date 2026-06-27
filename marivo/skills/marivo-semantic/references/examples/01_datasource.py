@@ -79,6 +79,6 @@ with tempfile.TemporaryDirectory() as tmp:
             limit=5,
             scope=scope,
         )
-        print("status values:", [fact.value for fact in values.values])
+        values.show()
     finally:
         os.chdir(previous)

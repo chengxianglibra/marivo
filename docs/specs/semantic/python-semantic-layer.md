@@ -36,10 +36,11 @@ Authoring guidance is split across three layers, each with one job:
   object. Help tells the agent what parameters must be settled; it carries no
   runtime data and no fixed parameter-value source labels.
 - **`md.discover_*` — runtime datasource evidence.** Bounded, evidence-only
-  results (`.columns`, `.evidence`, `.values`, and flattened entity evidence
-  fields) that supply the physical facts an agent needs to settle constructor
-  values. Discovery does not author objects, infer business meaning, or carry
-  judgment targets.
+  `DiscoveryResult` objects whose public contract is `.show()` / `.render()`.
+  Discovery supplies the physical facts an agent needs to settle constructor
+  values, but concrete result classes and internal evidence fields are not
+  public authoring inputs. Discovery does not author objects, infer business
+  meaning, or carry judgment targets.
 - **`ms.verify_object(...)` / `ms.readiness(...)` / load errors — validation.**
   Blockers, registry/project state, object validity, and readiness are exposed
   after authoring through verification, readiness checks, and load failures.
@@ -47,9 +48,10 @@ Authoring guidance is split across three layers, each with one job:
 Before authoring a datasource-backed semantic object, agents collect bounded
 datasource evidence with `md.discover_entity(...)`,
 `md.discover_dimensions(...)`, `md.discover_time_dimensions(...)`,
-`md.discover_measures(...)`, or `md.discover_relationship(...)`, then author
-one semantic object and run `ms.verify_object(...)`. Discovery does not author
-objects or infer business meaning.
+`md.discover_measures(...)`, or `md.discover_relationship(...)`, read the
+bounded `.show()` output, then author one semantic object and run
+`ms.verify_object(...)`. Discovery does not author objects or infer business
+meaning.
 
 目标态标准 stepwise authoring workflow 使用每个 domain 一个
 `models/semantic/<model>/_domain.py` 文件。agent 应在

@@ -7,17 +7,13 @@ from typing import Literal
 
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.discovery import (
-    DimensionDiscoveryResult,
     DimensionValueDiscoveryResult,
     DimensionValueFact,
     DiscoveryIssue,
+    DiscoveryResult,
     DiscoverySignal,
-    EntityDiscoveryResult,
     KeyTypeEvidence,
-    MeasureDiscoveryResult,
-    RelationshipDiscoveryResult,
     TableSource,
-    TimeDimensionDiscoveryResult,
 )
 from marivo.datasource.discovery_rules import (
     build_dimension_result,
@@ -76,7 +72,7 @@ def discover_entity(
     *,
     scope: ScanScope | None = None,
     project_root: Path | None = None,
-) -> EntityDiscoveryResult:
+) -> DiscoveryResult:
     """Discover entity-level datasource evidence for one physical source.
 
     Args:
@@ -87,9 +83,7 @@ def discover_entity(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``EntityDiscoveryResult`` with table metadata, scan evidence, primary-key
-        evidence, time-like columns, partition columns, column profiles, signals,
-        and issues.
+        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -132,7 +126,7 @@ def discover_dimensions(
     columns: tuple[str, ...] | None = None,
     scope: ScanScope | None = None,
     project_root: Path | None = None,
-) -> DimensionDiscoveryResult:
+) -> DiscoveryResult:
     """Discover dimension-shaped column evidence for one source.
 
     Args:
@@ -144,7 +138,7 @@ def discover_dimensions(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DimensionDiscoveryResult`` with one ``.columns`` entry per profiled column.
+        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -186,7 +180,7 @@ def discover_time_dimensions(
     columns: tuple[str, ...] | None = None,
     scope: ScanScope | None = None,
     project_root: Path | None = None,
-) -> TimeDimensionDiscoveryResult:
+) -> DiscoveryResult:
     """Discover time-dimension column evidence for one source.
 
     Args:
@@ -197,8 +191,7 @@ def discover_time_dimensions(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``TimeDimensionDiscoveryResult`` with ``.columns`` evidence, detected
-        formats, value ranges, partition alignment evidence, signals, and issues.
+        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -240,7 +233,7 @@ def discover_measures(
     columns: tuple[str, ...] | None = None,
     scope: ScanScope | None = None,
     project_root: Path | None = None,
-) -> MeasureDiscoveryResult:
+) -> DiscoveryResult:
     """Discover measure-shaped column evidence for one source.
 
     Args:
@@ -251,8 +244,7 @@ def discover_measures(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``MeasureDiscoveryResult`` with ``.columns`` evidence and deterministic
-        measure evidence.
+        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -330,7 +322,7 @@ def discover_relationship(
     scope: ScanScope | None = None,
     key_sample_size: int = 500,
     project_root: Path | None = None,
-) -> RelationshipDiscoveryResult:
+) -> DiscoveryResult:
     """Discover relationship evidence between two datasource sources.
 
     Args:
@@ -341,8 +333,7 @@ def discover_relationship(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``RelationshipDiscoveryResult`` with sampled key evidence, match rate,
-        fanout evidence, key type evidence, signals, and issues.
+        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -391,7 +382,7 @@ def discover_dimension_values(
     scope: ScanScope | None = None,
     limit: int = 50,
     project_root: Path | None = None,
-) -> DimensionValueDiscoveryResult:
+) -> DiscoveryResult:
     """Discover bounded current value counts for one dimension column.
 
     Args:
@@ -403,7 +394,7 @@ def discover_dimension_values(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DimensionValueDiscoveryResult`` with bounded runtime value evidence.
+        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md

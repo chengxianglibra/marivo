@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import marivo.datasource as md
 
 
@@ -35,18 +37,22 @@ def test_datasource_help_omits_removed_inspection_primitives() -> None:
 def test_datasource_help_detail_for_discover_measures_teaches_evidence_boundary() -> None:
     text = md.help_text("discover_measures")
     assert "DatasourceRef" in text
-    assert "MeasureDiscoveryResult" in text
+    assert "DiscoveryResult" in text
+    assert "call `.show()` to inspect bounded evidence" in text
     assert "does not choose authoritative units" in text
+    assert ".columns" not in text
+    assert ".profile" not in text
+    assert ".issues" not in text
 
 
 def test_datasource_describe_covers_discovery_symbols() -> None:
     for symbol, expected in (
-        ("discover_entity", "EntityDiscoveryResult"),
-        ("discover_dimensions", "DimensionDiscoveryResult"),
-        ("discover_time_dimensions", "TimeDimensionDiscoveryResult"),
-        ("discover_measures", "MeasureDiscoveryResult"),
-        ("discover_relationship", "RelationshipDiscoveryResult"),
-        ("discover_dimension_values", "DimensionValueDiscoveryResult"),
+        ("discover_entity", "DiscoveryResult"),
+        ("discover_dimensions", "DiscoveryResult"),
+        ("discover_time_dimensions", "DiscoveryResult"),
+        ("discover_measures", "DiscoveryResult"),
+        ("discover_relationship", "DiscoveryResult"),
+        ("discover_dimension_values", "DiscoveryResult"),
         ("raw_sql", "RawSqlResult"),
         ("latest_partition", "ScanScope"),
         ("partition", "ScanScope"),
@@ -69,3 +75,22 @@ def test_datasource_top_level_help_has_no_legacy_aliases() -> None:
         "JoinKeyProbe",
     ):
         assert forbidden not in text
+
+
+def test_datasource_api_docs_only_list_public_discovery_result() -> None:
+    text = Path("docs/api/datasource.rst").read_text(encoding="utf-8")
+
+    assert "DiscoveryResult" in text
+    for removed in (
+        "EntityDiscoveryResult",
+        "DimensionDiscoveryResult",
+        "TimeDimensionDiscoveryResult",
+        "MeasureDiscoveryResult",
+        "RelationshipDiscoveryResult",
+        "DimensionValueDiscoveryResult",
+        "ColumnDiscovery",
+        "TimeColumnDiscovery",
+        "PrimaryKeyCandidate",
+        "FormatCandidate",
+    ):
+        assert removed not in text

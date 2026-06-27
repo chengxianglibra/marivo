@@ -304,29 +304,27 @@ passed an explicit `partition=None`, and is reported as such in the
 The public datasource evidence surface is the `md.discover_*` family. Each
 function takes a `DatasourceRef` (`md.ref("warehouse")`) and a `TableSource`
 (`md.table(...)` / `md.parquet(...)` / `md.csv(...)`), plus an optional
-`scope: ScanScope | None` built by a scope helper, and returns a frozen,
-evidence-only discovery result. Results carry bounded evidence
-(`.columns` for dimension/time/measure column evidence, `.evidence` for
-relationship evidence, `.values` for dimension value evidence, and flattened
-entity evidence fields such as `primary_key_evidence`, `time_like_columns`,
-`partition_columns`, and `column_profiles`), plus deterministic signals and
-issues. Discovery does not carry judgment targets or author business meaning;
-`ms.help(...)` owns the static authoring contract that tells the agent which
-parameters must be settled, while discovery supplies the runtime evidence.
+`scope: ScanScope | None` built by a scope helper, and returns an opaque
+`DiscoveryResult`. Agents inspect discovery evidence through `.show()` or
+`.render()` only; concrete result classes, column evidence DTOs, signals, and
+issues are implementation details. Discovery does not carry judgment targets or
+author business meaning; `ms.help(...)` owns the static authoring contract that
+tells the agent which parameters must be settled, while discovery supplies the
+runtime evidence.
 
 ```python
 warehouse = md.ref("warehouse")
 orders = md.table("orders", database="sales_mart")
 
-md.discover_entity(warehouse, orders, scope=md.latest_partition())
-md.discover_dimensions(warehouse, orders, columns=("status",))
-md.discover_time_dimensions(warehouse, orders, columns=("created_at",))
-md.discover_measures(warehouse, orders, columns=("amount",))
+md.discover_entity(warehouse, orders, scope=md.latest_partition()).show()
+md.discover_dimensions(warehouse, orders, columns=("status",)).show()
+md.discover_time_dimensions(warehouse, orders, columns=("created_at",)).show()
+md.discover_measures(warehouse, orders, columns=("amount",)).show()
 md.discover_relationship(
     from_side=md.JoinSide(warehouse, md.table("orders"), columns=("customer_id",)),
     to_side=md.JoinSide(warehouse, md.table("customers"), columns=("customer_id",)),
-)
-md.discover_dimension_values(warehouse, orders, column="status", limit=10)
+).show()
+md.discover_dimension_values(warehouse, orders, column="status", limit=10).show()
 ```
 
 `md.raw_sql(datasource, sql, *, reason, limit=100)` is the escape-hatch

@@ -34,9 +34,10 @@ Layer ownership:
 - ms.help(...) owns static authoring contracts: constructors, required and
   optional parameters, allowed values, defaults, omit rules, nested parse
   shapes, and static constraints.
-- md.discover_* owns runtime datasource evidence: physical columns, profiles,
-  detected formats, value ranges, primary-key evidence, relationship evidence,
-  deterministic authoring warnings, signals, and issues.
+- md.discover_* owns runtime datasource evidence shown through `.show()` /
+  `.render()`: physical columns, profiles, detected formats, value ranges,
+  primary-key evidence, relationship evidence, deterministic authoring
+  warnings, signals, and issues.
 - `ms.verify_object(...)`, `ms.readiness(...)`, and load errors own blockers,
   registry state, and validation after authoring.
 - This skill owns workflow and routing only. Do not copy constructor parameter
@@ -55,10 +56,51 @@ domain -> entity -> dimension -> time_dimension -> measure -> metric
 Datasource registration is a prerequisite owned by `marivo.datasource`, not a
 semantic ladder rung.
 
-Every semantic object uses the same cycle:
+Do not author a full domain in one pass. A domain is a container, not the
+authoring unit. The default active batch is one entity plus one semantic kind,
+for example `entity.sales.orders + dimension`, then
+`entity.sales.orders + time_dimension`, then `entity.sales.orders + measure`.
+Relationship and cross-entity batches may span two or more entities only when
+the batch kind requires that scope.
+
+For each active batch, follow this sequence exactly:
+
+```text
+select active batch
+  -> inspect ms.help(...)
+  -> run matching md.discover_*
+  -> inspect current ms.load() catalog state
+  -> list candidate objects for this batch
+  -> settle candidates from evidence
+  -> grill one unresolved decision, if needed
+  -> author one object
+  -> ms.verify_object(ref)
+  -> repeat author/verify for remaining objects in the same batch
+  -> close batch
+  -> choose next batch
+```
+
+Do not skip to another batch while the current authored object has not passed
+`ms.verify_object(ref)`.
+
+Every semantic object uses this canonical loop:
+
+```text
+ms.help(...) static contract
+  -> md.discover_* datasource evidence
+  -> settle from evidence, registry, project docs, and prior decisions
+  -> grill the user for unresolved semantic decisions
+  -> author exactly one semantic object
+  -> ms.verify_object(...)
+```
+
+Do not write several semantic objects and verify later. The unit of work is
+one semantic object.
+
+Concrete per-object actions:
 
 1. Read `ms.help("<constructor-or-object>")`.
-2. Run the matching bounded `md.discover_*` call.
+2. Run the matching bounded `md.discover_*` call and read `.show()` output.
 3. Settle constructor values from discovery evidence, registry facts, project
    docs, source SQL/provenance, prior decisions, and user answers.
 4. Grill the user only when a semantic decision remains unresolved.
@@ -79,6 +121,17 @@ decisions, and user answers.
 If those sources clearly settle the object, state the evidence basis and author
 exactly one object. If a semantic choice remains unresolved, ask one question
 at a time and wait for agreement before writing code.
+
+<GRILL-TURN-GATE>
+A grill turn MUST ask exactly one unresolved semantic decision.
+
+Do not ask numbered lists of questions or combine multiple decisions in one
+message. Do not ask a follow-up decision in the same message.
+Do not write or modify semantic code after asking a grill question.
+
+If multiple decisions remain, ask only the highest-blocking decision for the
+current semantic object, then stop and wait for the user's answer.
+</GRILL-TURN-GATE>
 
 Rules:
 
@@ -118,7 +171,7 @@ implementation expressions, or debug authoring behavior.
 
 | Need | Read |
 | --- | --- |
-| End-to-end object workflow | `references/workflow.md` |
+| Evidence, Ref, and handoff notes | `references/workflow.md` |
 | Datasource prerequisite flow | `references/datasource.md` |
 | Analysis handoff gate | `references/closeout.md` |
 | Workflow-level failure modes | `references/pitfalls.md` |

@@ -476,8 +476,9 @@ def test_semantic_skill_constraint_table_matches_catalog() -> None:
     assert not deleted_reference.exists()
     assert "help -> discover -> settle/grill -> author -> verify" in skill
     assert "This skill owns workflow and routing only" in skill
-    assert "author exactly one semantic object" in workflow
-    assert "ms.verify_object(...)" in workflow
+    assert "author exactly one semantic object" in skill
+    assert "ms.verify_object(...)" in skill
+    assert "The canonical authoring flow lives in `SKILL.md`" in workflow
 
 
 # ---------------------------------------------------------------------------

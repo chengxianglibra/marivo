@@ -525,13 +525,19 @@ measure_evidence = md.discover_measures(
     columns=("amount",),
     scope=scope,
 )
+
+entity_evidence.show()
+dimension_evidence.show()
+measure_evidence.show()
 ```
 
 Discovery returns bounded evidence, signals, and issues — it does not choose
-business meaning, unit, additivity, or the object to author. `ms.help(...)`
-tells the agent which parameters must be settled (the static authoring
-contract); discovery supplies the runtime evidence. Author exactly one object,
-then run `ms.verify_object(...)`.
+business meaning, unit, additivity, or the object to author. Agents read
+discovery evidence through `.show()` / `.render()`; concrete result classes and
+internal evidence fields are not public authoring inputs. `ms.help(...)` tells
+the agent which parameters must be settled (the static authoring contract);
+discovery supplies the runtime evidence. Author exactly one object, then run
+`ms.verify_object(...)`.
 
 ## Loading and the readiness gate
 

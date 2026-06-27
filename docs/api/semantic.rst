@@ -197,13 +197,3 @@ Submodules
      - Typed semantic errors and warnings raised across the semantic layer.
    * - ``marivo.semantic.typing``
      - Shared type aliases for the semantic surface.
-
-Type aliases
-------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   SemanticKindInput
-   SemanticRefInput

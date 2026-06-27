@@ -58,7 +58,9 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=scope,
         project_root=tmp_path,
     )
-    assert entity_discovery.primary_key_evidence
+    entity_render = entity_discovery.render()
+    assert "primary key evidence:" in entity_render
+    assert "order_id" in entity_render
 
     domain_file.write_text(
         "import marivo.semantic as ms\n"
@@ -79,7 +81,8 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=scope,
         project_root=tmp_path,
     )
-    assert dimension_discovery.columns[0].column == "customer_id"
+    dimension_render = dimension_discovery.render()
+    assert "customer_id" in dimension_render
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8") + "@ms.dimension(entity=orders)\n"
@@ -99,7 +102,9 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=scope,
         project_root=tmp_path,
     )
-    assert time_discovery.columns[0].detected_formats
+    time_render = time_discovery.render()
+    assert "dt" in time_render
+    assert "%Y%m%d" in time_render
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")
@@ -120,7 +125,8 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         scope=scope,
         project_root=tmp_path,
     )
-    assert measure_discovery.columns[0].column == "amount"
+    measure_render = measure_discovery.render()
+    assert "amount" in measure_render
 
     domain_file.write_text(
         domain_file.read_text(encoding="utf-8")

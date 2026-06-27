@@ -35,14 +35,15 @@ warehouse = md.ref("warehouse")
 orders = md.table("orders")
 scope = md.latest_partition()
 
-md.discover_entity(warehouse, orders, scope=scope)
-md.discover_dimensions(warehouse, orders, columns=("status",), scope=scope)
-md.discover_time_dimensions(warehouse, orders, columns=("dt",), scope=scope)
-md.discover_measures(warehouse, orders, columns=("amount",), scope=scope)
+md.discover_entity(warehouse, orders, scope=scope).show()
+md.discover_dimensions(warehouse, orders, columns=("status",), scope=scope).show()
+md.discover_time_dimensions(warehouse, orders, columns=("dt",), scope=scope).show()
+md.discover_measures(warehouse, orders, columns=("amount",), scope=scope).show()
 ```
 
 Discovery evidence informs semantic decisions, but it does not author semantic
-objects and it does not replace `ms.help(...)` for constructor contracts.
+objects and it does not replace `ms.help(...)` for constructor contracts. Treat
+the discovery result as opaque evidence text, not a field-access object.
 
 Use `md.discover_dimension_values(...)` only for current filter/value evidence.
 Do not persist bounded sampled values into semantic metadata.
