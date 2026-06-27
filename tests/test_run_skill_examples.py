@@ -44,7 +44,7 @@ _VALID_DATASOURCE_EXAMPLE = textwrap.dedent(
         return SimpleNamespace(table="orders", columns=[], values=[], ok=True)
 
     md = SimpleNamespace(
-        help=result,
+        help_text=result,
         test=result,
         discover_entity=result,
         discover_dimensions=result,
@@ -53,7 +53,7 @@ _VALID_DATASOURCE_EXAMPLE = textwrap.dedent(
         discover_dimension_values=result,
     )
 
-    md.help("discover_entity")
+    md.help_text("discover_entity")
     md.test("warehouse")
     md.discover_entity()
     md.discover_dimensions()
@@ -112,7 +112,7 @@ _VALID_MODEL_EXAMPLE = textwrap.dedent(
 
 _COMMENT_ONLY_DATASOURCE_EXAMPLE = textwrap.dedent(
     """
-    # md.help(
+    # md.help_text(
     # md.test(
     # md.discover_entity(
     # md.discover_dimensions(

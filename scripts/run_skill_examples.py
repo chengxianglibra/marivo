@@ -41,7 +41,7 @@ _TEMPLATE_FORBIDDEN_SNIPPETS = (
 )
 _SEMANTIC_EXAMPLE_NAMES = ("01_datasource.py", "02_semantic_model.py")
 _SEMANTIC_DATASOURCE_REQUIRED_CALLS = (
-    "md.help",
+    "md.help_text",
     "md.test",
     "md.discover_entity",
     "md.discover_dimensions",

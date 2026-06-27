@@ -165,8 +165,8 @@ matches, registry/project state, and readiness status.
 
 ## Expected Surface Changes
 
-- `ms.help(..., format="json")` may break and should expose
-  `content.authoring_contract` for authoring constructors.
+- `ms.help(...)` prints text and should expose authoring-contract detail for
+  authoring constructors.
 - `ms.help("time_dimension_column")` becomes the canonical time-dimension
   authoring page.
 - `ms.help("datetime")`, `ms.help("timestamp")`, `ms.help("strptime")`, and
@@ -182,7 +182,7 @@ matches, registry/project state, and readiness status.
 For a physical date column:
 
 ```python
-contract = ms.help("time_dimension_column", format="json", print=False)
+contract_text = ms.help_text("time_dimension_column")
 evidence = md.discover_time_dimensions(
     warehouse,
     md.table("orders"),

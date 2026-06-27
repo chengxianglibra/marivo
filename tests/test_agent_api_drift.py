@@ -22,6 +22,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
@@ -145,6 +146,12 @@ def test_ms_help_no_format_parameter() -> None:
     assert "format" not in sig.parameters
 
 
+def test_md_help_no_format_or_print_parameter() -> None:
+    sig = inspect.signature(md.help)
+    assert "format" not in sig.parameters
+    assert "print" not in sig.parameters
+
+
 def test_mv_help_raises_on_format_kwarg() -> None:
     with pytest.raises(TypeError):
         mv.help("observe", format="json")  # type: ignore[call-arg]
@@ -153,6 +160,13 @@ def test_mv_help_raises_on_format_kwarg() -> None:
 def test_ms_help_raises_on_format_kwarg() -> None:
     with pytest.raises(TypeError):
         ms.help("metric", format="json")  # type: ignore[call-arg]
+
+
+def test_md_help_raises_on_format_or_print_kwarg() -> None:
+    with pytest.raises(TypeError):
+        md.help("trino", format="json")  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        md.help("trino", print=False)  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------

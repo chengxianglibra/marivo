@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import builtins
-import json
 from functools import lru_cache
-from typing import Literal, cast
+from typing import cast
 
 from marivo.datasource.constraints import iter_constraints
 from marivo.introspection.render import format_family_block
@@ -113,28 +111,24 @@ def help_text(symbol: str | None = None) -> str:
 
 def help(  # noqa: A001, RUF100
     symbol: str | None = None,
-    *,
-    format: Literal["text", "json"] = "text",
-    print: bool = True,
-) -> dict[str, object] | str | None:
-    """Print or return agent-facing help for the datasource surface.
+) -> None:
+    """Print bounded agent-facing help for the datasource surface and return None.
 
-    With ``format="text"``, prints a compact text descriptor by default and
-    returns None. Pass ``print=False`` to return the text without printing.
-    With ``format="json"``, prints the structured JSON descriptor by default
-    and returns the dict. Pass ``print=False`` to suppress printing.
+    Args:
+        symbol: Symbol name, constraint id, or topic. None prints the
+            top-level datasource surface listing.
+
+    Returns:
+        None
+
+    Raises:
+        TypeError: When called with ``format=``, ``print=``, or other
+            unsupported keyword arguments.
+
+    Example:
+        >>> md.help()
+        >>> md.help("trino")
     """
 
     normalized = None if symbol == "" else symbol
-    if format == "json":
-        data = cast("dict[str, object]", render(_surface(), normalized, "json"))
-        if print:
-            builtins.print(json.dumps(data, indent=2, sort_keys=True))
-        return data
-    if format == "text":
-        text = help_text(normalized)
-        if print:
-            builtins.print(text)
-            return None
-        return text
-    raise ValueError("format must be 'text' or 'json'")
+    print(help_text(normalized))

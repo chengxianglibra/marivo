@@ -105,7 +105,7 @@ def test_semantic_skill_examples_are_datasource_and_complete_model_only() -> Non
     model = _read("marivo/skills/marivo-semantic/references/examples/02_semantic_model.py")
 
     for required in (
-        "md.help(",
+        "md.help_text(",
         "md.test(",
         "md.discover_entity(",
         "md.discover_dimensions(",
@@ -198,12 +198,12 @@ def test_semantic_skill_example_executes(example: Path, monkeypatch: pytest.Monk
 
 
 def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
-    import marivo.datasource as md
+    from marivo.datasource.help import _surface as datasource_surface
     from marivo.introspection.surface import render as surface_render
     from marivo.semantic.help import _surface as semantic_surface
 
     semantic_data = surface_render(semantic_surface(), None, "json")
-    datasource_data = md.help(format="json", print=False)
+    datasource_data = surface_render(datasource_surface(), None, "json")
 
     for name in ("VerifyResult", "domain", "entity", "metric"):
         assert name in str(semantic_data), f"semantic help missing {name}"

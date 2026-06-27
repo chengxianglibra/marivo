@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import fields
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -22,8 +23,14 @@ from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
 )
+from marivo.datasource.help import _surface as datasource_surface
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
+from marivo.introspection.surface import render as surface_render
 from tests.test_agent_result_protocol import assert_conforms
+
+
+def _help_json(symbol: str) -> dict[str, object]:
+    return cast("dict[str, object]", surface_render(datasource_surface(), symbol, "json"))
 
 
 def _ir(
@@ -192,7 +199,7 @@ def test_spec_ai_context_maps_to_ir() -> None:
 
 
 def test_trino_help_has_signature_without_description() -> None:
-    result = md.help("trino", format="json", print=False)
+    result = _help_json("trino")
 
     assert result["kind"] == "callable"
     assert result["symbol"] == "trino"
@@ -204,7 +211,7 @@ def test_trino_help_has_signature_without_description() -> None:
 
 
 def test_duckdb_help_has_signature_without_description() -> None:
-    result = md.help("duckdb", format="json", print=False)
+    result = _help_json("duckdb")
 
     assert result["kind"] == "callable"
     assert result["symbol"] == "duckdb"
