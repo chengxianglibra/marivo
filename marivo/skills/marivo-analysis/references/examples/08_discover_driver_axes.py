@@ -41,7 +41,7 @@ top_axis = axis_candidates.select(rank=1, attribute="axis")
 assert top_axis == DimensionRef("sales.orders.region")
 print(f"top_axis={top_axis.id}")
 
-drivers = session.decompose(delta, axis=top_axis)
+drivers = session.attribute(delta, axes=[top_axis])
 print(f"drivers.kind={drivers.meta.kind!r}")
 
 # Expected output:

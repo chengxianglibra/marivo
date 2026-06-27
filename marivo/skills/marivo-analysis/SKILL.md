@@ -1,6 +1,6 @@
 ---
 name: marivo-analysis
-description: Use for any Marivo metric-centered analysis task: observe, compare, decompose, discover, correlate, test, forecast, quality assessment, evidence-aware investigation, or continuing an analysis session over semantic metrics.
+description: Use for any Marivo metric-centered analysis task: observe, compare, attribute, discover, correlate, test, forecast, quality assessment, evidence-aware investigation, or continuing an analysis session over semantic metrics.
 ---
 
 # marivo-analysis
@@ -50,6 +50,18 @@ virtualenv yet, create or activate one before using this skill.
 
 ## 30-second overview
 
+Default agent-facing operators:
+
+- `session.observe(...)` -> `MetricFrame`
+- `session.compare(current_frame, baseline_frame, ...)` -> `DeltaFrame`
+- `session.attribute(delta_frame, axes=[...], mode="flat")` -> `AttributionFrame`
+- `session.discover.<objective>(...)` -> `CandidateSet`
+- `session.correlate(a_frame, b_frame, ...)` -> `AssociationResult`
+- `session.hypothesis_test(a_frame, b_frame, ...)` -> `HypothesisTestResult`
+- `session.forecast(history_frame, ...)` -> `ForecastFrame`
+- `session.derive_metric_frame(...)` -> `MetricFrame`
+- `session.assess_quality(artifact)` -> `QualityReport`
+
 ```python
 import marivo.analysis as mv
 
@@ -58,7 +70,7 @@ axis = session.catalog.get("model.entity.time_dimension")
 
 session.observe(session.catalog.get("model.metric"), timescope={"start": "...", "end": "..."})  # -> MetricFrame  (end is exclusive: [start, end))
 session.compare(cur, base, alignment=mv.window_bucket())      # -> DeltaFrame
-session.decompose(delta, axis=axis)                                                # -> AttributionFrame
+session.attribute(delta, axes=[axis], mode="flat")            # -> AttributionFrame
 session.discover.point_anomalies(series, threshold=1.0)                               # -> CandidateSet
 session.correlate(a, b, alignment=mv.window_bucket())         # -> AssociationResult
 session.hypothesis_test(cur, base)                                                    # -> HypothesisTestResult
@@ -100,8 +112,14 @@ Multi-step scripts are quiet until you explicitly inspect:
 
 ```python
 session = mv.session.get_or_create(name="revenue_drop")
-cur = session.observe(session.catalog.get("sales.revenue"), timescope="last_7d")
-base = session.observe(session.catalog.get("sales.revenue"), timescope="previous_7d")
+cur = session.observe(
+    session.catalog.get("sales.revenue"),
+    timescope={"start": "2026-06-18", "end": "2026-06-25"},
+)
+base = session.observe(
+    session.catalog.get("sales.revenue"),
+    timescope={"start": "2026-06-11", "end": "2026-06-18"},
+)
 delta = session.compare(cur, base)
 delta.show()            # deliberate inspection point
 ```
@@ -124,9 +142,9 @@ components.show()
 
 When two compatible component-aware metric frames are compared, the returned
 DeltaFrame also supports `delta.components()`. For segmented, time-series, or
-panel ratio/weighted-average deltas, `session.decompose(delta, axis=...)` emits
+panel ratio/weighted-average deltas, `session.attribute(delta, axes=[...])` emits
 value and mix effects with method `ratio_mix` or `weighted_mix`. Time-series
-deltas decompose by `bucket_start`; panel deltas decompose by the requested
+deltas attribute by `bucket_start`; panel deltas attribute by the requested
 dimension within each bucket. Ordinal window-bucket deltas include
 `bucket_start_b` for the baseline bucket paired to each current bucket.
 
@@ -178,22 +196,21 @@ recommended next steps into a clear Markdown report.
 ```text
 Value of a metric in one window?           -> observe
 Current vs baseline change?                -> observe x2 -> compare
-Why the change happened?                   -> compare -> decompose
+Why the change happened?                   -> compare -> attribute
 Spikes, drops, unusual buckets?            -> observe series -> discover.<objective>
 Two metrics move together?                 -> observe both -> correlate
 Need auditable quality evidence?           -> assess_quality
 Reshape without changing frame family?     -> transform.<op> (topk, rollup, slice, ...)
-Custom joins, feature engineering, or raw table exploration?
-                                           -> session.explore_ibis(...) or pandas scratch
+Custom Ibis calculation that must re-enter -> derive_metric_frame
 Raw pandas from a frame?                   -> frame.to_pandas()
 ```
 
 Prefer built-in intents first. When Marivo does not directly support an
-analysis step, use session-scoped scratch work: `session.explore_ibis(...)` for
-clean raw Ibis queries against a registered backend, or `frame.to_pandas()` plus
-`session.from_pandas(...)` for pandas/other Python analysis. Scratch outputs are
-`ExplorationResult`; keep them terminal unless they must feed typed intents, then
-promote explicitly with `session.promote_metric_frame(...)` or related helpers.
+analysis step but the result must re-enter the typed metric flow, use
+`session.derive_metric_frame(...)` — the governed escape hatch for custom Ibis
+queries whose output is validated and persisted as a `MetricFrame`. Use
+`frame.to_pandas()` for terminal pandas analysis that does not need to feed
+typed intents.
 
 ## Session
 
@@ -222,7 +239,7 @@ an explicit test/CI or runtime override; its signature is
 
 ## Minimal templates
 
-### Observe + compare + decompose
+### Observe + compare + attribute
 
 ```python
 import marivo.analysis as mv
@@ -231,8 +248,8 @@ cur = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2
 base = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 time_axis = session.catalog.get("<metric_time_dimension_id>")
-attribution = session.decompose(delta, axis=time_axis)
-attribution.show()
+drivers = session.attribute(delta, axes=[time_axis])
+drivers.show()
 ```
 
 ### Discover + select
@@ -252,16 +269,33 @@ result = session.correlate(a, b, alignment=mv.window_bucket())
 result.show()
 ```
 
-### Escape hatch
+### Governed derive
 
 ```python
-scratch = session.explore_ibis(lambda con: con.table("orders"), datasource="warehouse")
-df = frame.to_pandas()
-scratch = session.from_pandas(df)
-promoted = session.promote_metric_frame(scratch, metric=session.catalog.get("sales.revenue"),
-                                   semantic_kind="segmented", measure_column="value",
-                                   axes={"country": session.catalog.get("sales.orders.country")},
-                                   semantic_model="sales")
+custom = session.derive_metric_frame(
+    metric=session.catalog.get("sales.revenue"),
+    query=mv.ibis_query(
+        datasource="warehouse",
+        build=lambda db, ctx: db.table("orders"),
+    ),
+    columns=mv.metric_columns(
+        value="value",
+        time=mv.time_column(
+            column="order_date",
+            ref=session.catalog.get("sales.orders.order_date"),
+        ),
+        dimensions=[
+            mv.dimension_column(
+                column="region",
+                ref=session.catalog.get("sales.orders.region"),
+            ),
+        ],
+    ),
+    timescope={"start": "2026-06-18", "end": "2026-06-25"},
+    grain="day",
+    label="custom_revenue_by_region",
+)
+custom.show()
 ```
 
 ## Cross-dataset observe
@@ -295,13 +329,13 @@ only a script boundary; it is not a session boundary. Reuse the same session so
 artifacts, knowledge, facts, followups, and job history remain available.
 
 - **Bundle** (one script, end with `frame.show()`):
-  observe → compare → decompose with a pre-chosen axis; observe → forecast;
+  observe → compare → attribute with a pre-chosen axis; observe → forecast;
   observe → assess_quality. The shape and the next call are decided before
   you run.
 - **Split** (run, read, then write the next script):
   - `discover` → which candidate to `select` and drill into.
   - `correlate` → which of several associations is worth follow-up.
-  - `decompose` → which segment from the ranking to observe at finer grain.
+  - `attribute` → which segment from the ranking to observe at finer grain.
   - Any branch where `frame.show()` or `artifact.contract().affordances` is the input to your
     decision.
 

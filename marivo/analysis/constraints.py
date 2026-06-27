@@ -100,6 +100,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "runtime",
         (
             "compare",
+            "attribute",
             "decompose",
             "discover",
             "select",

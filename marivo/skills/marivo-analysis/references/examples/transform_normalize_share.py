@@ -6,7 +6,6 @@ Output shape: same frame shape with the metric measure converted to shares.
 
 from __future__ import annotations
 
-import pandas as pd
 from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 
 # Setup: load the tiny semantic model and attach an examples session.
@@ -15,23 +14,15 @@ ensure_loaded()
 import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
-segmented_frame = session.promote_metric_frame(
-    pd.DataFrame(
-        {
-            "country": ["US", "CA", "MX"],
-            "revenue": [120.0, 80.0, 40.0],
-        }
-    ),
-    metric=session.catalog.get(METRIC_ID),
-    axes={"country": session.catalog.get("sales.orders.region")},
-    measure_column="revenue",
-    semantic_kind="segmented",
-    semantic_model="sales",
+segmented_frame = session.observe(
+    session.catalog.get(METRIC_ID),
+    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    dimensions=[session.catalog.get("sales.orders.region")],
 )
 share = session.transform.normalize(segmented_frame, mode="share")
 print(share.summary())
 
 # Expected output:
-# kind='metric_frame'
-# semantic_kind='segmented'
-# columns=['country', 'revenue']
+# kind='metric_frame' row_count=2
+# columns=['region', 'value']
+# semantic_shape='segmented' lineage_oneliner='observe -> transform'

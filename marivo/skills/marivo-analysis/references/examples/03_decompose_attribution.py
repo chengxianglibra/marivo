@@ -29,7 +29,7 @@ base = session.observe(
     grain="month",
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-attribution = session.decompose(delta, axis=created_at)
+attribution = session.attribute(delta, axes=[created_at])
 summary = attribution.summary()
 print(f"kind={summary.kind!r}")
 print(f"row_count={summary.row_count}")
@@ -70,9 +70,9 @@ ratio_series_delta = session.compare(
     ratio_base_series,
     alignment=mv.window_bucket(),
 )
-ratio_bucket_attr = session.decompose(
+ratio_bucket_attr = session.attribute(
     ratio_series_delta,
-    axis=created_at,
+    axes=[created_at],
 )
 print(ratio_bucket_attr.summary())
 
@@ -94,8 +94,8 @@ ratio_panel_delta = session.compare(
     ratio_base_panel,
     alignment=mv.window_bucket(),
 )
-ratio_panel_attr = session.decompose(
+ratio_panel_attr = session.attribute(
     ratio_panel_delta,
-    axis=region,
+    axes=[region],
 )
 print(ratio_panel_attr.summary())

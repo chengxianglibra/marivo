@@ -36,7 +36,7 @@ class DeltaFrameMeta(BaseFrameMeta):
 class DeltaFrame(BaseFrame):
     meta: DeltaFrameMeta
 
-    _NEXT_INTENTS = ("decompose", "discover", "transform")
+    _NEXT_INTENTS = ("attribute", "discover", "transform")
 
     def _repr_identity(self) -> str:
         unit_part = f" unit={self.meta.unit}" if self.meta.unit else ""

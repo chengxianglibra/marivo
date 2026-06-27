@@ -60,6 +60,6 @@ def test_hypothesis_test_populates_surface1_and_test_finding() -> None:
         ).fetchall()
         proposition_types = conn.execute("SELECT proposition_type FROM propositions").fetchall()
 
-    assert artifact_rows == [("test", "hypothesis_test_result", "complete")]
+    assert artifact_rows == [("hypothesis_test", "hypothesis_test_result", "complete")]
     assert finding_types == [("test_result",)]
     assert proposition_types == [("tested_hypothesis",)]

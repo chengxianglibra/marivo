@@ -7,7 +7,7 @@ environment where `marivo` is installed.
 Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension objects from
 `session.catalog.get("<dimension_id>")`, `mv.CalendarRef(...)`, and
 `mv.window_bucket()` / calendar alignment helpers at public operator boundaries. Do not pass bare
-strings directly to `observe`, `decompose`, `transform`, or calendar-backed
+strings directly to `observe`, `attribute`, `transform`, or calendar-backed
 `compare`.
 
 ## Wrong Python environment
@@ -44,14 +44,14 @@ Docs: marivo/skills/marivo-analysis/references/pitfalls.md
 ```
 
 **Action:** pass two `MetricFrame`s into `session.compare`, then pass the resulting
-`DeltaFrame` to `session.decompose`.
+`DeltaFrame` to `session.attribute`.
 
 ```python
 cur = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
 base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("sales.orders.created_at")
-attribution = session.decompose(delta, axis=created_at)
+attribution = session.attribute(delta, axes=[created_at])
 ```
 
 Use explicit dict windows or structured slices in new examples and
@@ -75,26 +75,50 @@ df["adjusted"] = df["value"] * 1.1
 Keep the original `MetricFrame`, `DeltaFrame`, or `AttributionFrame` unchanged
 when feeding Marivo intents.
 
-## PromotionFailedError
+## derive_metric_frame column and kind errors
 
-**Cause:** A pandas/Ibis scratch result is missing the typed metadata needed to
-become a canonical frame.
+`derive_metric_frame` does not accept `semantic_kind`, `semantic_model`, or
+`version`. The output family is fixed by the function name, semantic identity
+comes from `metric=...`, and query output fields are bound through
+`mv.metric_columns(...)`.
 
-**Action:** Pass explicit typed refs and column names. For a metric frame, include
-`metric=session.catalog.get("sales.revenue")`, `semantic_kind="segmented"`,
-`measure_column="value"`, `axes={"country": session.catalog.get("sales.orders.country")}`, and
-`semantic_model="sales"`. For delta and attribution promotion, include source
-artifact refs such as `mv.ArtifactRef("frame_delta")`.
+**Cause:** The query output is missing a column bound in `mv.metric_columns(...)`,
+or the value column is non-numeric.
 
-No metadata is auto-inferred: every required field comes from an explicit
-argument or a `mv.PromotionPolicy(semantic_anchors=...)` fallback.
+**Action:** Read `missing` and `ambiguous` from the error details, then bind
+the correct column names:
 
-**Cause (catalog miss):** The error details contain
-`metric_not_in_catalog:<id>`. The session has a ready semantic catalog with
-metrics defined, and the promoted metric id is not one of them.
+```python
+frame = session.derive_metric_frame(
+    metric=session.catalog.get("sales.revenue"),
+    query=mv.ibis_query(
+        datasource="tiny_orders",
+        build=lambda db, ctx: db.table("orders"),
+    ),
+    columns=mv.metric_columns(
+        value="amount",
+        time=mv.time_column(
+            column="created_at",
+            ref=session.catalog.get("sales.orders.created_at"),
+        ),
+        dimensions=[
+            mv.dimension_column(
+                column="region",
+                ref=session.catalog.get("sales.orders.region"),
+            ),
+        ],
+    ),
+    timescope={"start": "2025-07-01", "end": "2026-09-30"},
+    grain="day",
+    label="custom_revenue_by_region",
+)
+```
+
+**Cause (catalog miss):** The metric id passed to `metric=` is not in the
+session catalog.
 
 **Action:** Read `available_metric_ids` from the error details, or list the
-catalog and re-promote with a defined metric id:
+catalog and re-derive with a defined metric id:
 
 ```python
 import marivo.semantic as ms
@@ -166,7 +190,7 @@ session = mv.session.get_or_create(name="analysis")
 
 Only tests, CI, or deterministic override scripts should pass explicit
 `backends={...}` or `backend_factory=...` before calling `observe`, `compare`,
-`decompose`, `discover`, or `correlate`.
+`attribute`, `discover`, or `correlate`.
 
 ```python
 import os
@@ -319,21 +343,21 @@ assert correlation.meta.kind == "association_result"
 Use `.summary()` for compact inspection, `.preview(limit=...)` for bounded row
 inspection, and `.to_pandas()` for downstream pandas work.
 
-## Decompose without an explicit axis
+## Attribute without explicit axes
 
 **Symptom:**
 
 ```text
-TypeError: decompose() missing 1 required keyword-only argument: 'axis'
+SemanticKindMismatchError: attribute() requires at least one axis
 ```
 
-**Action:** pass a catalog dimension or time-dimension for the axis represented
-in the `DeltaFrame`.
+**Action:** pass one or more catalog dimensions or time-dimensions for the axes
+represented in the `DeltaFrame`.
 
 ```python
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("sales.orders.created_at")
-attribution = session.decompose(delta, axis=created_at)
+drivers = session.attribute(delta, axes=[created_at])
 ```
 
 ## test / forecast / assess_quality

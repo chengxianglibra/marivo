@@ -24,7 +24,7 @@ from marivo.analysis.session.core import (
 
 _HIDDEN = {"self", "session", "_triggered_by"}
 
-_INTENT_TO_METHOD = {"test": "hypothesis_test"}
+_INTENT_TO_METHOD: dict[str, str] = {}
 
 # Discover and transform are exposed as namespace properties, not plain methods.
 _NAMESPACE_CLASSES = (SessionDiscoverNamespace, SessionTransformNamespace)

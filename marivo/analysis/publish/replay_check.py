@@ -21,6 +21,7 @@ KNOWN_SESSION_INTENTS: frozenset[str] = frozenset(
     {
         "observe",
         "compare",
+        "attribute",
         "decompose",
         "correlate",
         "forecast",

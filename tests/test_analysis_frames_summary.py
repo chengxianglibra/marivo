@@ -238,7 +238,7 @@ def test_metric_frame_advertises_next_intents() -> None:
 def test_delta_frame_advertises_next_intents() -> None:
     from marivo.analysis.frames.delta import DeltaFrame
 
-    assert DeltaFrame._NEXT_INTENTS == ("decompose", "discover", "transform")
+    assert DeltaFrame._NEXT_INTENTS == ("attribute", "discover", "transform")
 
 
 def test_candidate_set_advertises_next_intents() -> None:

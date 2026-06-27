@@ -5,6 +5,16 @@ from typing import Any as _Any
 from marivo.analysis import errors as errors
 from marivo.analysis import session
 from marivo.analysis.calendar.model import CalendarPolicy
+from marivo.analysis.derive import (
+    DeriveContext,
+    IbisQuerySpec,
+    MetricColumnBinding,
+    MetricColumns,
+    dimension_column,
+    ibis_query,
+    metric_columns,
+    time_column,
+)
 from marivo.analysis.followups import (
     BlockingIssue,
     ConfidenceScope,
@@ -31,7 +41,6 @@ from marivo.analysis.frames.candidate import (
 from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.coverage import CoverageFrame
 from marivo.analysis.frames.delta import DeltaFrame
-from marivo.analysis.frames.exploration import ExplorationResult
 from marivo.analysis.frames.forecast import ForecastFrame
 from marivo.analysis.frames.hypothesis import HypothesisTestResult
 from marivo.analysis.frames.metric import MetricFrame
@@ -48,8 +57,6 @@ from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import (
     AlignmentKind,
     AlignmentPolicy,
-    PromotionPolicy,
-    PromotionSemanticAnchors,
     SamplingPolicy,
     dow_aligned,
     holiday_aligned,
@@ -113,19 +120,20 @@ __all__ = [
     "ConfidenceScope",
     "CoverageFrame",
     "DeltaFrame",
+    "DeriveContext",
     "DiscoverSensitivity",
-    "ExplorationResult",
     "ForecastFrame",
     "FramePreview",
     "FrameSummary",
     "FrameSummaryEntry",
     "HypothesisTestResult",
+    "IbisQuerySpec",
     "JobSummary",
     "Lineage",
     "LineageStep",
+    "MetricColumnBinding",
+    "MetricColumns",
     "MetricFrame",
-    "PromotionPolicy",
-    "PromotionSemanticAnchors",
     "QualityReport",
     "ReportRegistration",
     "SamplingPolicy",
@@ -139,6 +147,7 @@ __all__ = [
     "SliceValue",
     "TimeScope",
     "TimeScopeInput",
+    "dimension_column",
     "dow_aligned",
     "errors",
     "evidence",
@@ -147,7 +156,10 @@ __all__ = [
     "help_text",
     "holiday_aligned",
     "holiday_and_dow_aligned",
+    "ibis_query",
+    "metric_columns",
     "publish",
     "session",
+    "time_column",
     "window_bucket",
 ]

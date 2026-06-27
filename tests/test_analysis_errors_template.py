@@ -265,7 +265,7 @@ def test_axis_not_in_panel_dimensions_renders_paste_ready_fix_snippet():
 
     assert "panel dimension column 'region'" in rendered
     assert 'axis = session.catalog.get("<domain.entity.dimension>").ref' in rendered
-    assert "session.decompose(delta, axis=axis)" in rendered
+    assert "session.attribute(delta, axes=[axis])" in rendered
     assert "region, country" in rendered
 
 

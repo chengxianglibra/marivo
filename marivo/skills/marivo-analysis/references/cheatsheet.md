@@ -22,7 +22,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 | --- | --- | --- | --- |
 | `session.observe` | `session.catalog.get("domain.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or `where={dimension: value}` (see Where Predicate Ops below). |
 | `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
-| `session.decompose` | `DeltaFrame`, catalog dimension | `AttributionFrame` | Always pass `axis=session.catalog.get("<dimension_id>")`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
+| `session.attribute` | `DeltaFrame`, `[catalog dimension]` | `AttributionFrame` | Always pass `axes=[session.catalog.get("<dimension_id>")]`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape` (from `marivo.analysis.frames.candidate`). |
 | `candidates.select(...)` | `CandidateSet` | typed value (`SemanticRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"affordances"`, `"keys.<dim>"`). |
 | `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.window_bucket()`; default lag is zero. |
@@ -62,14 +62,14 @@ SQL-style ops like `"eq"`, `"ne"`, `"gte"` are **not** supported. Use Python ope
 
 | Frame | Created by |
 | --- | --- |
-| `MetricFrame` | `session.observe`, `session.promote_metric_frame` for validated scratch re-entry |
+| `MetricFrame` | `session.observe`, `session.derive_metric_frame` for governed custom Ibis re-entry |
 | `DeltaFrame` | `session.compare` |
 | `CandidateSet` | `session.discover.<objective>` |
 | `AssociationResult` | `session.correlate` |
 | `HypothesisTestResult` | `session.hypothesis_test` |
 | `ForecastFrame` | `session.forecast` |
 | `QualityReport` | `session.assess_quality` |
-| `AttributionFrame` | `session.decompose` |
+| `AttributionFrame` | `session.attribute` |
 
 Use `artifact.contract().affordances` to inspect mechanical compatibility. Affordances are not ranked, not recommended next steps, and not business conclusions; the agent chooses whether to use one. Inspect any frame with
 `.summary()`, `.preview(limit=n)`, or `.to_pandas()`.
@@ -82,7 +82,7 @@ Frames are immutable. Use `frame.summary()` for a cheap read,
 Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension objects from
 `session.catalog.get("<dimension_id>")`, `mv.CalendarRef(...)`, and
 `mv.window_bucket()` / calendar alignment helpers at public operator boundaries. Do not pass bare
-strings directly to `observe`, `decompose`, `transform`, or calendar-backed
+strings directly to `observe`, `attribute`, `transform`, or calendar-backed
 `compare`.
 
 ## Minimal Patterns
@@ -100,7 +100,7 @@ base = session.observe(
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("sales.orders.created_at")
-attribution = session.decompose(delta, axis=created_at)
+attribution = session.attribute(delta, axes=[created_at])
 print(attribution.summary())
 ```
 
@@ -113,53 +113,47 @@ candidates = session.discover.point_anomalies(series, threshold=1.0)
 print(candidates.meta.objective)  # "point_anomalies"
 ```
 
-## Escape Hatch
+## Governed Derive
 
-Use escape hatches only after checking the built-in intents. They are for
-session-scoped scratch work when a step needs custom joins, raw table scans,
-feature engineering, bespoke statistics, or library-specific processing that
-Marivo does not model directly.
+Use `session.derive_metric_frame(...)` when a custom Ibis calculation must
+re-enter the typed metric flow — custom joins, raw table scans, feature
+engineering, or bespoke aggregations that Marivo does not model directly. The
+output is validated and persisted as a `MetricFrame` with full lineage.
 
-| Need | Use |
+| Need | Public path |
 | --- | --- |
-| Raw Ibis query against a registered backend | `scratch = session.explore_ibis(lambda con: con.table("orders"), datasource="warehouse", description="manual scan")` |
-| Export a Marivo frame for mutable local analysis | `df = frame.to_pandas()` |
-| Import pandas or library output into the session | `scratch = session.from_pandas(df, description="feature engineering output")` |
-| Inspect scratch provenance | `scratch.meta.source_kind`, `scratch.meta.source_query`, `scratch.meta.source_datasource` |
-| Re-enter canonical metric flow only when a typed intent needs it | `country = session.catalog.get("sales.orders.country"); session.promote_metric_frame(scratch, metric=session.catalog.get("sales.revenue"), semantic_kind="segmented", measure_column="value", axes={"country": country}, semantic_model="sales")` |
-| Re-enter delta flow only for typed change analysis | `session.promote_delta_frame(scratch, current=mv.ArtifactRef("frame_current"), baseline=mv.ArtifactRef("frame_baseline"), delta_column="delta", current_column="current", baseline_column="baseline")` |
-| Re-enter attribution flow only for typed driver output | `session.promote_attribution_frame(scratch, source_delta=mv.ArtifactRef("frame_delta"), driver_field="country", contribution_column="contribution")` |
-
-`session.explore_ibis(...)` calls the builder with the session backend
-connection and requires an Ibis expression. It executes immediately and returns
-an `ExplorationResult`, preserving source query and datasource metadata when
-available. The callable runs in its own closure scope — you must `import ibis`
-before using ibis top-level names like `ibis.desc()` or `_` inside it.
+| Standard semantic metric observation | `session.observe(metric_ref, timescope={...}, grain=...)` |
+| Custom backend calculation that must re-enter metric analysis | `session.derive_metric_frame(metric=..., query=mv.ibis_query(...), columns=mv.metric_columns(...), timescope={...}, grain=...)` |
+| Inspect or export rows from any tabular artifact | `artifact.preview(limit=...)` or `artifact.to_pandas()` |
 
 ```python
-import ibis
-
-scratch = session.explore_ibis(
-    lambda con: (
-        con.table("orders")
-        .filter(lambda t: t.country == "US")
-        .aggregate(value=lambda t: t.revenue.sum())
-        .order_by(ibis.desc("value"))
+retention = session.derive_metric_frame(
+    metric=session.catalog.get("sales.revenue"),
+    query=mv.ibis_query(
+        datasource="warehouse",
+        build=lambda db, ctx: db.table("orders"),
     ),
-    datasource="warehouse",
-    description="US revenue raw scan",
+    columns=mv.metric_columns(
+        value="value",
+        time=mv.time_column(
+            column="order_date",
+            ref=session.catalog.get("sales.orders.order_date"),
+        ),
+        dimensions=[
+            mv.dimension_column(
+                column="region",
+                ref=session.catalog.get("sales.orders.region"),
+            ),
+        ],
+    ),
+    timescope={"start": "2026-06-18", "end": "2026-06-25"},
+    grain="day",
+    label="custom_revenue_by_region",
 )
-print(scratch.meta.source_query)
 ```
 
-Pandas output stays local until you import it. Imported scratch frames are
-session artifacts but are not valid inputs to typed intents until promoted.
-
-```python
-df = frame.to_pandas()
-df["share"] = df["value"] / df["value"].sum()
-scratch = session.from_pandas(df, description="share calculation")
-```
+For terminal pandas analysis that does not need to feed typed intents, export a
+frame with `frame.to_pandas()` and work locally.
 
 ## Discover Objectives
 

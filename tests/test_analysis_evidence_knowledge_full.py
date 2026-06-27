@@ -138,7 +138,7 @@ def _seed_full_knowledge(db_path: Path) -> None:
         with store.transaction() as tx:
             for artifact_id, subject, step_type, artifact_type in [
                 ("art_driver", driver_subject, "decompose", "attribution_frame"),
-                ("art_test", test_subject, "test", "hypothesis_test_result"),
+                ("art_test", test_subject, "hypothesis_test", "hypothesis_test_result"),
                 ("art_forecast", forecast_subject, "forecast", "forecast_frame"),
                 (
                     "art_association",

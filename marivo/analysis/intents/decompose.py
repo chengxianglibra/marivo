@@ -389,12 +389,15 @@ def decompose(
     *,
     axis: DimensionInput,
     session: Session | None = None,
+    _intent: str = "decompose",
+    _params_extra: dict[str, object] | None = None,
 ) -> AttributionFrame:
     session = resolve_session(session)
     ensure_session_writable(session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="decompose requires a DeltaFrame input")
     axis_id = _normalize_axis_boundary(session, axis)
+    params_extra = dict(_params_extra or {})
     ensure_frame_in_session(frame, session=session, label="decompose frame")
     if frame.meta.semantic_kind not in {"scalar", "time_series", "segmented", "panel"}:
         raise SemanticKindMismatchError(
@@ -468,11 +471,13 @@ def decompose(
             "value_column": "delta",
             "contribution_column": "contribution",
             "method": method,
+            "mode": params_extra.get("mode", "flat"),
+            "axes": params_extra.get("axes", [axis_id]),
         }
         return persist_attribution_frame(
             session=session,
             df=output,
-            intent="decompose",
+            intent=_intent,
             params=params,
             sources=[frame],
             metric_ids=[frame.meta.metric_id],
@@ -519,11 +524,13 @@ def decompose(
             "value_column": value_column,
             "contribution_column": "contribution",
             "method": "sum",
+            "mode": params_extra.get("mode", "flat"),
+            "axes": params_extra.get("axes", [axis_id]),
         }
         return persist_attribution_frame(
             session=session,
             df=output,
-            intent="decompose",
+            intent=_intent,
             params=params,
             sources=[frame],
             metric_ids=[frame.meta.metric_id],
@@ -557,11 +564,13 @@ def decompose(
         "source_ref": frame.ref,
         "axis": {"semantic_id": axis_id},
         "measure_column": value_column,
+        "mode": params_extra.get("mode", "flat"),
+        "axes": params_extra.get("axes", [axis_id]),
     }
     return persist_attribution_frame(
         session=session,
         df=output,
-        intent="decompose",
+        intent=_intent,
         params=params,
         sources=[frame],
         metric_ids=[frame.meta.metric_id],
