@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         os.chdir(root)
 
-        md.help("discover_entity", print=False)
+        md.help_text("discover_entity")
         test_result = md.test("warehouse")
         print("datasource test:", test_result.ok)
 

@@ -401,7 +401,7 @@ def test_datasource_constraint_defaults_use_error_details() -> None:
     assert load_error.id == "datasource_file_loadable"
 
 
-def test_datasource_text_help_prints_and_can_be_suppressed(
+def test_datasource_text_help_prints_and_help_text_returns_string(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     result = md.help("trino")
@@ -410,25 +410,23 @@ def test_datasource_text_help_prints_and_can_be_suppressed(
     assert result is None
     assert "marivo.datasource: trino" in captured.out
 
-    suppressed = md.help("trino", print=False)
+    text = md.help_text("trino")
     captured = capsys.readouterr()
-    assert isinstance(suppressed, str)
-    assert "marivo.datasource: trino" in suppressed
+    assert "marivo.datasource: trino" in text
     assert captured.out == ""
 
 
-def test_datasource_help_json_print_false_suppresses_stdout(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    result = md.help("trino", format="json", print=False)
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert isinstance(result, dict)
+def test_datasource_help_rejects_format_and_print_kwargs() -> None:
+    with pytest.raises(TypeError):
+        md.help("trino", format="json")  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        md.help("trino", print=False)  # type: ignore[call-arg]
 
 
-def test_datasource_help_invalid_format_raises_shared_error() -> None:
-    with pytest.raises(ValueError, match="format must be 'text' or 'json'"):
-        md.help(format="yaml")  # type: ignore[arg-type]
+def test_datasource_help_has_no_format_or_print_parameter() -> None:
+    sig = inspect.signature(md.help)
+    assert "format" not in sig.parameters
+    assert "print" not in sig.parameters
 
 
 def test_shared_catalog_hint_lookup_supports_semantic() -> None:

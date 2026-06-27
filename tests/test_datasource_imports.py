@@ -40,7 +40,7 @@ for name in list(sys.modules):
 
 import marivo.datasource as md
 
-assert md.help(format="json")["surface"] == "marivo.datasource"
+assert "marivo.datasource" in md.help_text()
 assert "marivo.semantic" not in sys.modules
 assert "marivo.analysis" not in sys.modules
 """
