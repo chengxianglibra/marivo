@@ -239,8 +239,8 @@ def test_promotion_semantic_anchors_accept_semantic_object(semantic_project_fact
     catalog = SemanticCatalog(project)
 
     anchors = PromotionSemanticAnchors(
-        metric=catalog.get("sales.revenue"),
-        subject=catalog.get("sales.orders.country"),
+        metric=catalog.get("metric.sales.revenue"),
+        subject=catalog.get("dimension.sales.orders.country"),
     )
 
     assert anchors.metric == "sales.revenue"

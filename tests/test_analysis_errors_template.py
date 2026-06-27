@@ -114,7 +114,7 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
     assert "delta_frame" in rendered
     assert "metric_frame" in rendered
     assert "Fix:" in rendered
-    assert 'revenue = session.catalog.get("sales.revenue")' in rendered
+    assert 'revenue = session.catalog.get("metric.sales.revenue")' in rendered
     assert (
         'cur  = session.observe(revenue, timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
@@ -159,7 +159,7 @@ def test_window_invalid_has_window_fix_template():
     assert "last quarter" in rendered
     assert "Fix:" in rendered
     assert (
-        '  session.observe(session.catalog.get("sales.revenue"), '
+        '  session.observe(session.catalog.get("metric.sales.revenue"), '
         'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert 'session.observe("revenue", window=' not in rendered
@@ -175,9 +175,9 @@ def test_metric_not_found_has_list_metrics_fix_template():
 
     assert "metric_id=revenu" in rendered
     assert "Fix:" in rendered
-    assert "  catalog.list(kind='metric')  # confirm the exact id" in rendered
+    assert "  catalog.list(kind=ms.SemanticKind.METRIC)  # confirm the exact id" in rendered
     assert (
-        'session.observe(catalog.get("<registered_metric_id>"), '
+        'session.observe(catalog.get("metric.<registered_metric_id>"), '
         'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert 'session.observe("<registered_metric_id>", window=' not in rendered
@@ -193,7 +193,7 @@ def test_metric_not_found_uses_model_and_metric_details_in_cause():
 
     assert "sales.revenu" in rendered
     assert "Fix:" in rendered
-    assert "  catalog.list(kind='metric')  # confirm the exact id" in rendered
+    assert "  catalog.list(kind=ms.SemanticKind.METRIC)  # confirm the exact id" in rendered
     assert "<metric_id>" not in rendered
 
 
@@ -264,7 +264,7 @@ def test_axis_not_in_panel_dimensions_renders_paste_ready_fix_snippet():
     rendered = str(err)
 
     assert "panel dimension column 'region'" in rendered
-    assert 'axis = session.catalog.get("<domain.entity.dimension>").ref' in rendered
+    assert 'axis = session.catalog.get("dimension.<domain.entity.dimension>").ref' in rendered
     assert "session.attribute(delta, axes=[axis])" in rendered
     assert "region, country" in rendered
 

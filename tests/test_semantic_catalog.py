@@ -640,28 +640,28 @@ def test_catalog_list_refs_returns_semantic_refs(semantic_project_factory):
 
 def test_catalog_list_domain_returns_entities(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales")
+    result = catalog.list(catalog.get("domain.sales").ref)
     kinds = {str(obj.kind) for obj in result.objects}
     assert "entity" in kinds
 
 
 def test_catalog_list_domain_returns_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales")
+    result = catalog.list(catalog.get("domain.sales").ref)
     kinds = {str(obj.kind) for obj in result.objects}
     assert "metric" in kinds
 
 
 def test_catalog_list_domain_includes_orders_entity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales")
+    result = catalog.list(catalog.get("domain.sales").ref)
     refs = {obj.ref.id for obj in result.objects}
     assert "sales.orders" in refs
 
 
 def test_catalog_list_domain_includes_revenue_metric(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales")
+    result = catalog.list(catalog.get("domain.sales").ref)
     refs = {obj.ref.id for obj in result.objects}
     assert "sales.revenue" in refs
 
@@ -691,13 +691,13 @@ def test_catalog_list_domain_relationships(semantic_project_factory):
     )
     catalog = SemanticCatalog(project)
 
-    result = catalog.list("sales", kind="relationship")
+    result = catalog.list(catalog.get("domain.sales").ref, kind=SemanticKind.RELATIONSHIP)
 
     assert result.ids() == ["sales.orders_to_users"]
     assert all(str(obj.kind) == "relationship" for obj in result.objects)
 
 
-def test_catalog_list_accepts_semantic_ref_as_parent(semantic_project_factory):
+def test_catalog_list_accepts_semantic_ref_scope(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     domain_ref = make_ref("sales", SemanticKind.DOMAIN)
     result = catalog.list(domain_ref)
@@ -705,33 +705,41 @@ def test_catalog_list_accepts_semantic_ref_as_parent(semantic_project_factory):
     assert "sales.orders" in refs
 
 
+def test_catalog_list_rejects_string_scope(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.list("sales")  # type: ignore[arg-type]
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "SemanticRef" in str(exc_info.value)
+
+
 # --- Dataset-level listing ---
 
 
 def test_catalog_list_entity_returns_dimensions(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales.orders")
+    result = catalog.list(catalog.get("entity.sales.orders").ref)
     kinds = {str(obj.kind) for obj in result.objects}
     assert "dimension" in kinds
 
 
 def test_catalog_list_entity_returns_time_dimensions(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales.orders")
+    result = catalog.list(catalog.get("entity.sales.orders").ref)
     kinds = {str(obj.kind) for obj in result.objects}
     assert "time_dimension" in kinds
 
 
 def test_catalog_list_entity_returns_filtered_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales.orders")
+    result = catalog.list(catalog.get("entity.sales.orders").ref)
     kinds = {str(obj.kind) for obj in result.objects}
     assert "metric" in kinds
 
 
 def test_catalog_list_entity_filtered_metric_has_canonical_domain_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales.orders")
+    result = catalog.list(catalog.get("entity.sales.orders").ref)
     metric_objs = [obj for obj in result.objects if str(obj.kind) == "metric"]
     assert len(metric_objs) == 1
     assert metric_objs[0].ref.id == "sales.revenue"
@@ -739,14 +747,14 @@ def test_catalog_list_entity_filtered_metric_has_canonical_domain_ref(semantic_p
 
 def test_catalog_list_entity_dimension_has_correct_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales.orders")
+    result = catalog.list(catalog.get("entity.sales.orders").ref)
     field_refs = {obj.ref.id for obj in result.objects if str(obj.kind) == "dimension"}
     assert "sales.orders.region" in field_refs
 
 
 def test_catalog_list_entity_time_dimension_has_correct_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales.orders")
+    result = catalog.list(catalog.get("entity.sales.orders").ref)
     tf_refs = {obj.ref.id for obj in result.objects if str(obj.kind) == "time_dimension"}
     assert "sales.orders.created_at" in tf_refs
 
@@ -756,20 +764,34 @@ def test_catalog_list_entity_time_dimension_has_correct_ref(semantic_project_fac
 
 def test_catalog_list_kind_filter_metric_returns_only_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales", kind="metric")
+    result = catalog.list(catalog.get("domain.sales").ref, kind=SemanticKind.METRIC)
     assert all(str(obj.kind) == "metric" for obj in result.objects)
     assert len(result.objects) >= 1
 
 
 def test_catalog_list_kind_filter_entity_under_domain(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales", kind="entity")
+    result = catalog.list(catalog.get("domain.sales").ref, kind=SemanticKind.ENTITY)
     assert all(str(obj.kind) == "entity" for obj in result.objects)
+
+
+def test_catalog_list_kind_filter_dimension_under_domain(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.list(catalog.get("domain.sales").ref, kind=SemanticKind.DIMENSION)
+    assert result.ids() == ["sales.orders.region"]
+    assert all(str(obj.kind) == "dimension" for obj in result.objects)
+
+
+def test_catalog_list_kind_filter_time_dimension_under_domain(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.list(catalog.get("domain.sales").ref, kind=SemanticKind.TIME_DIMENSION)
+    assert result.ids() == ["sales.orders.created_at"]
+    assert all(str(obj.kind) == "time_dimension" for obj in result.objects)
 
 
 def test_catalog_list_kind_filter_metric_under_entity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("sales.orders", kind="metric")
+    result = catalog.list(catalog.get("entity.sales.orders").ref, kind=SemanticKind.METRIC)
     assert all(str(obj.kind) == "metric" for obj in result.objects)
     assert any(obj.ref.id == "sales.revenue" for obj in result.objects)
 
@@ -777,33 +799,34 @@ def test_catalog_list_kind_filter_metric_under_entity(semantic_project_factory):
 # --- Error cases ---
 
 
-def test_catalog_list_unsupported_kind_raises_error(semantic_project_factory):
+def test_catalog_list_rejects_string_kind(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.list(kind="datasets")  # typo: "datasets" is not valid
+        catalog.list(kind="dimension")  # type: ignore[arg-type]
     assert exc_info.value.kind == ErrorKind.UNSUPPORTED_KIND
+    assert "SemanticKind.DIMENSION" in str(exc_info.value)
 
 
 def test_catalog_list_unsupported_kind_error_lists_valid_values(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.list(kind="datasets")
+        catalog.list(kind="datasets")  # type: ignore[arg-type]
     msg = str(exc_info.value)
-    assert "metric" in msg
-    assert "entity" in msg
+    assert "SemanticKind.METRIC" in msg
+    assert "SemanticKind.ENTITY" in msg
 
 
 def test_catalog_list_metric_as_parent_raises_unsupported_parent(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.list("sales.revenue")
+        catalog.list(catalog.get("metric.sales.revenue").ref)
     assert exc_info.value.kind == ErrorKind.UNSUPPORTED_LIST_PARENT
 
 
 def test_catalog_list_unsupported_parent_error_suggests_get_details(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.list("sales.revenue")
+        catalog.list(catalog.get("metric.sales.revenue").ref)
     assert "catalog.get" in str(exc_info.value)
     assert "details()" in str(exc_info.value)
 
@@ -811,14 +834,15 @@ def test_catalog_list_unsupported_parent_error_suggests_get_details(semantic_pro
 def test_catalog_list_field_as_parent_raises_unsupported_parent(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.list("sales.orders.region")
+        catalog.list(catalog.get("dimension.sales.orders.region").ref)
     assert exc_info.value.kind == ErrorKind.UNSUPPORTED_LIST_PARENT
 
 
 def test_catalog_list_unknown_ref_raises_not_found(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
+    unknown_ref = make_ref("nonexistent.thing", SemanticKind.ENTITY)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.list("nonexistent.thing")
+        catalog.list(unknown_ref)
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
@@ -827,21 +851,21 @@ def test_catalog_list_unknown_ref_raises_not_found(semantic_project_factory):
 
 def test_catalog_get_returns_semantic_object_for_domain(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales")
+    obj = catalog.get("domain.sales")
     assert obj.ref.id == "sales"
     assert str(obj.kind) == "domain"
 
 
 def test_catalog_get_returns_semantic_object_for_datasource(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("warehouse")
+    obj = catalog.get("datasource.warehouse")
     assert obj.ref.id == "warehouse"
     assert str(obj.kind) == "datasource"
 
 
 def test_catalog_get_returns_semantic_object_for_entity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales.orders")
+    obj = catalog.get("entity.sales.orders")
     assert obj.ref.id == "sales.orders"
     assert str(obj.kind) == "entity"
     assert obj.domain == "sales"
@@ -849,49 +873,71 @@ def test_catalog_get_returns_semantic_object_for_entity(semantic_project_factory
 
 def test_catalog_get_returns_semantic_object_for_dimension(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales.orders.region")
+    obj = catalog.get("dimension.sales.orders.region")
     assert obj.ref.id == "sales.orders.region"
     assert str(obj.kind) == "dimension"
 
 
 def test_catalog_get_returns_semantic_object_for_time_dimension(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales.orders.created_at")
+    obj = catalog.get("time_dimension.sales.orders.created_at")
     assert str(obj.kind) == "time_dimension"
 
 
 def test_catalog_get_returns_semantic_object_for_metric(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales.revenue")
+    obj = catalog.get("metric.sales.revenue")
     assert obj.ref.id == "sales.revenue"
     assert str(obj.kind) == "metric"
 
 
-def test_catalog_get_accepts_semantic_ref_input(semantic_project_factory):
+def test_catalog_get_rejects_semantic_ref_input(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     ref = make_ref("sales.revenue", SemanticKind.METRIC)
-    obj = catalog.get(ref)
-    assert obj.ref.id == "sales.revenue"
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.get(ref)  # type: ignore[arg-type]
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "<kind>.<semantic_id>" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["sales", "warehouse", "sales.orders", "sales.revenue", "sales.orders.region"],
+)
+def test_catalog_get_rejects_bare_semantic_ids(semantic_project_factory, raw):
+    catalog = _make_catalog(semantic_project_factory)
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.get(raw)
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "<kind>.<semantic_id>" in str(exc_info.value)
+
+
+def test_catalog_get_kind_mismatch_raises_not_found(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.get("metric.sales.orders.region")
+    assert exc_info.value.kind == ErrorKind.NOT_FOUND
+    assert "metric" in str(exc_info.value)
 
 
 def test_catalog_get_not_found_raises_typed_error(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.get("sales.nonexistent")
+        catalog.get("metric.sales.nonexistent")
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
 def test_catalog_get_not_found_error_mentions_browse_hint(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.get("revenue")  # short name
+        catalog.get("metric.sales.missing")
     msg = str(exc_info.value)
     assert "catalog.list" in msg
 
 
 def test_catalog_get_no_stdout(semantic_project_factory, capsys):
     catalog = _make_catalog(semantic_project_factory)
-    catalog.get("sales.revenue")
+    catalog.get("metric.sales.revenue")
     assert capsys.readouterr().out == ""
 
 
@@ -914,7 +960,7 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
         }
     )
     catalog = SemanticCatalog(project)
-    obj = catalog.get("sales.revenue")
+    obj = catalog.get("metric.sales.revenue")
     assert obj.context.business_definition == "All completed order amounts."
 
 
@@ -926,13 +972,13 @@ def test_catalog_get_business_definition_matches_authored_context(semantic_proje
         }
     )
     catalog = SemanticCatalog(project)
-    obj = catalog.get("sales.revenue")
+    obj = catalog.get("metric.sales.revenue")
     assert obj.context.business_definition == "Total gross order amount before refunds."
 
 
 def test_catalog_get_source_location_is_populated(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales.revenue")
+    obj = catalog.get("metric.sales.revenue")
     loc = obj.source_location
     assert loc.file != ""
     assert loc.line > 0
@@ -948,11 +994,11 @@ def test_catalog_details_expose_ai_context_via_context_field(semantic_project_fa
     catalog = SemanticCatalog(project)
 
     cases = {
-        "sales.orders": "orders",
-        "sales.orders.region": "region",
-        "sales.orders.amount": "amount",
-        "sales.orders.created_at": "created_at",
-        "sales.revenue": "revenue",
+        "entity.sales.orders": "orders",
+        "dimension.sales.orders.region": "region",
+        "measure.sales.orders.amount": "amount",
+        "time_dimension.sales.orders.created_at": "created_at",
+        "metric.sales.revenue": "revenue",
     }
     for ref, python_symbol in cases.items():
         details = catalog.get(ref).details()
@@ -978,7 +1024,7 @@ def test_catalog_details_render_includes_agent_consumption_context(
     )
     catalog = SemanticCatalog(project)
 
-    metric_rendered = catalog.get("sales.revenue").details().render()
+    metric_rendered = catalog.get("metric.sales.revenue").details().render()
     assert "business_definition: Total gross order amount before refunds." in metric_rendered
     assert "guardrails:" in metric_rendered
     assert "- Do not use as net revenue." in metric_rendered
@@ -988,7 +1034,7 @@ def test_catalog_details_render_includes_agent_consumption_context(
     assert "measure: sales.orders.amount" in metric_rendered
     assert "parity_status:" in metric_rendered
 
-    entity_rendered = catalog.get("sales.orders").details().render()
+    entity_rendered = catalog.get("entity.sales.orders").details().render()
     assert "datasource: warehouse" in entity_rendered
     assert "source:" in entity_rendered
     assert "children:" in entity_rendered
@@ -1013,7 +1059,7 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
     )
     catalog = SemanticCatalog(project)
 
-    details = catalog.get("warehouse").details()
+    details = catalog.get("datasource.warehouse").details()
     assert isinstance(details, DatasourceDetails)
     assert details.fields == {"host": "h", "catalog": "c"}
     assert details.env_refs == {"auth": "TRINO_AUTH"}
@@ -1025,7 +1071,7 @@ def test_catalog_datasource_details_do_not_expose_secret_values(
 
 def test_catalog_get_dataset_details_correct_datasource_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales.orders")
+    obj = catalog.get("entity.sales.orders")
     d = obj.details()
     assert isinstance(d, EntityDetails)
     assert d.datasource.id == "warehouse"
@@ -1042,7 +1088,7 @@ def test_catalog_entity_details_source_uses_shared_ir_type(semantic_project_fact
 
     from marivo.datasource.ir import TableSourceIR
 
-    details = catalog.get("sales.orders").details()
+    details = catalog.get("entity.sales.orders").details()
     assert isinstance(details, EntityDetails)
     assert isinstance(details.source, TableSourceIR)
     assert details.source.to_dict()["table"] == "orders"
@@ -1050,7 +1096,7 @@ def test_catalog_entity_details_source_uses_shared_ir_type(semantic_project_fact
 
 def test_catalog_get_metric_details_correct_dataset_ref(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales.revenue")
+    obj = catalog.get("metric.sales.revenue")
     d = obj.details()
     assert isinstance(d, MetricDetails)
     assert any(r.id == "sales.orders" for r in d.entities)
@@ -1078,7 +1124,7 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
     )
     catalog = SemanticCatalog(project)
 
-    details = catalog.get("sales.conversion").details()
+    details = catalog.get("metric.sales.conversion").details()
 
     assert isinstance(details, DerivedMetricDetails)
     assert details.components == (
@@ -1106,7 +1152,7 @@ def test_catalog_time_dimension_details_include_sample_interval(semantic_project
     )
     catalog = SemanticCatalog(project)
 
-    details = catalog.get("sales.orders.sampled_at").details()
+    details = catalog.get("time_dimension.sales.orders.sampled_at").details()
 
     assert isinstance(details, TimeDimensionDetails)
     assert details.sample_interval is not None
@@ -1136,7 +1182,7 @@ def test_catalog_strptime_time_dimension_details_include_sample_interval(semanti
     )
     catalog = SemanticCatalog(project)
 
-    details = catalog.get("sales.orders.sampled_at").details()
+    details = catalog.get("time_dimension.sales.orders.sampled_at").details()
 
     assert isinstance(details, TimeDimensionDetails)
     assert details.parse_kind == "strptime"
@@ -1146,7 +1192,7 @@ def test_catalog_strptime_time_dimension_details_include_sample_interval(semanti
 
 def test_catalog_get_model_details_children_include_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales")
+    obj = catalog.get("domain.sales")
     d = obj.details()
     assert isinstance(d, DomainDetails)
     child_refs = {r.id for r in d.children}
@@ -1156,7 +1202,7 @@ def test_catalog_get_model_details_children_include_metrics(semantic_project_fac
 
 def test_catalog_get_dataset_details_children_include_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.get("sales.orders")
+    obj = catalog.get("entity.sales.orders")
     d = obj.details()
     assert isinstance(d, EntityDetails)
     child_refs = {r.id for r in d.children}
@@ -1273,12 +1319,12 @@ def test_catalog_load_reloads_project(semantic_project_factory):
         """)
     )
     with pytest.raises(SemanticRuntimeError):
-        catalog.get("sales.profit")
+        catalog.get("metric.sales.profit")
 
     catalog.load()
 
     assert project.is_ready()
-    assert catalog.get("sales.profit").ref.id == "sales.profit"
+    assert catalog.get("metric.sales.profit").ref.id == "sales.profit"
 
 
 def test_catalog_load_preserves_filtered_model_scope(semantic_project_factory):
@@ -1391,7 +1437,7 @@ def test_catalog_preview_field_preserves_context_columns(semantic_project_factor
     backend = _preview_backend()
     with _patch_preview_connections(project, backend):
         preview = catalog.preview(
-            "sales.orders.region",
+            catalog.get("dimension.sales.orders.region").ref,
             context_columns=("order_id",),
             limit=2,
         )
@@ -1411,7 +1457,7 @@ def test_catalog_preview_metric_preserves_approximate_warning(semantic_project_f
 
     backend = _preview_backend()
     with _patch_preview_connections(project, backend):
-        preview = catalog.preview("sales.revenue", limit=2)
+        preview = catalog.preview(catalog.get("metric.sales.revenue").ref, limit=2)
 
     assert preview.ref == "sales.revenue"
     assert any(w.kind == "approximate_preview" for w in preview.warnings)
@@ -1427,7 +1473,7 @@ def test_catalog_preview_context_columns_rejected_for_metric(semantic_project_fa
     catalog = SemanticCatalog(project)
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.preview("sales.revenue", context_columns=("order_id",))
+        catalog.preview(catalog.get("metric.sales.revenue").ref, context_columns=("order_id",))
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "context_columns" in str(exc_info.value)
@@ -1499,17 +1545,16 @@ def test_catalog_readiness_accepts_semantic_ref_values(semantic_project_factory)
     from marivo.semantic.readiness import ReadinessReport
 
     catalog = _make_catalog(semantic_project_factory)
-    revenue_ref = catalog.get("sales.revenue").ref
+    revenue_ref = catalog.get("metric.sales.revenue").ref
     report = catalog.readiness(refs=[revenue_ref])
     assert isinstance(report, ReadinessReport)
 
 
-def test_catalog_readiness_accepts_string_refs(semantic_project_factory):
-    from marivo.semantic.readiness import ReadinessReport
-
+def test_catalog_readiness_rejects_string_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    report = catalog.readiness(refs=["sales.revenue"])
-    assert isinstance(report, ReadinessReport)
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.readiness(refs=["sales.revenue"])  # type: ignore[list-item]
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
 
 
 def test_catalog_readiness_no_stdout(semantic_project_factory, capsys):
@@ -1525,7 +1570,7 @@ def test_catalog_verify_object_static_domain_passes(semantic_project_factory):
     from marivo.semantic.dtos import VerifyResult
 
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.verify_object("sales")
+    result = catalog.verify_object(catalog.get("domain.sales").ref)
     assert isinstance(result, VerifyResult)
     assert result.status == "passed"
     assert result.ref == "sales"
@@ -1536,7 +1581,7 @@ def test_catalog_verify_object_static_dimension_passes(semantic_project_factory)
     from marivo.semantic.dtos import VerifyResult
 
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.verify_object("sales.orders.region")
+    result = catalog.verify_object(catalog.get("dimension.sales.orders.region").ref)
     assert isinstance(result, VerifyResult)
     assert result.status == "passed"
     assert result.kind == "dimension"
@@ -1561,7 +1606,7 @@ def test_catalog_verify_object_entity_level_metric_ref_suggests_domain_level(
 
     catalog = _make_catalog(semantic_project_factory)
     # "sales.orders.revenue" is wrong — metrics are at domain level
-    result = catalog.verify_object("sales.orders.revenue")
+    result = catalog.verify_object(make_ref("sales.orders.revenue", SemanticKind.METRIC))
     assert isinstance(result, VerifyResult)
     assert result.status == "failed"
     assert result.kind == "entity"
@@ -1576,7 +1621,7 @@ def test_catalog_verify_object_unknown_ref_without_suggestion(semantic_project_f
     from marivo.semantic.dtos import VerifyResult
 
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.verify_object("nonexistent.thing")
+    result = catalog.verify_object(make_ref("nonexistent.thing", SemanticKind.ENTITY))
     assert isinstance(result, VerifyResult)
     assert result.status == "failed"
     msg = result.issues[0].message
@@ -1587,10 +1632,10 @@ def test_catalog_verify_object_unknown_ref_without_suggestion(semantic_project_f
 def test_catalog_get_entity_level_metric_ref_suggests_domain_level(
     semantic_project_factory,
 ):
-    """catalog.get with entity-level metric ref should suggest the domain-level ref."""
+    """catalog.get with typed entity-level metric id should suggest the domain-level id."""
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.get("sales.orders.revenue")
+        catalog.get("metric.sales.orders.revenue")
     msg = str(exc_info.value)
     assert "sales.revenue" in msg
     assert "domain level" in msg
@@ -1599,11 +1644,11 @@ def test_catalog_get_entity_level_metric_ref_suggests_domain_level(
 def test_catalog_get_domain_level_dimension_ref_suggests_entity_level(
     semantic_project_factory,
 ):
-    """catalog.get with domain-level dimension ref should suggest the entity-level ref."""
+    """catalog.get with typed domain-level dimension id should suggest the entity-level id."""
     catalog = _make_catalog(semantic_project_factory)
     # "sales.region" is wrong — dimensions are at entity level
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.get("sales.region")
+        catalog.get("dimension.sales.region")
     msg = str(exc_info.value)
     assert "sales.orders.region" in msg
     assert "entity level" in msg
@@ -1638,14 +1683,14 @@ def test_catalog_metric_details_unit_passthrough(semantic_project_factory):
         }
     )
     catalog = SemanticCatalog(project)
-    d = catalog.get("sales.revenue").details()
+    d = catalog.get("metric.sales.revenue").details()
     assert isinstance(d, MetricDetails)
     assert d.unit == "CNY"
 
 
 def test_catalog_metric_details_unit_defaults_to_none(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    d = catalog.get("sales.revenue").details()
+    d = catalog.get("metric.sales.revenue").details()
     assert d.unit is None
 
 

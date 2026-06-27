@@ -71,7 +71,7 @@ def _make_catalog(semantic_project_factory) -> SemanticCatalog:
 
 def test_build_metric_object_metric(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    rev = catalog.get("sales.revenue").details()
+    rev = catalog.get("metric.sales.revenue").details()
     assert isinstance(rev, SimpleMetricDetails)
     assert rev.metric_type == "simple"
     assert rev.aggregation == "sum"
@@ -85,7 +85,7 @@ def test_build_metric_object_metric(semantic_project_factory):
 
 def test_build_metric_object_count_target(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    order_rows = catalog.get("sales.order_rows").details()
+    order_rows = catalog.get("metric.sales.order_rows").details()
     assert isinstance(order_rows, SimpleMetricDetails)
     assert order_rows.aggregation == "count"
     assert order_rows.measure is None
@@ -99,7 +99,7 @@ def test_build_metric_object_count_target(semantic_project_factory):
 
 def test_build_metric_object_derived_ratio(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    aov = catalog.get("sales.aov").details()
+    aov = catalog.get("metric.sales.aov").details()
     assert isinstance(aov, DerivedMetricDetails)
     assert aov.metric_type == "derived"
     assert aov.composition == "ratio"
@@ -109,7 +109,7 @@ def test_build_metric_object_derived_ratio(semantic_project_factory):
 
 def test_derived_metric_details_render_includes_composition(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    aov = catalog.get("sales.aov").details()
+    aov = catalog.get("metric.sales.aov").details()
     assert isinstance(aov, DerivedMetricDetails)
     rendered = aov.render()
     assert "composition: ratio" in rendered
@@ -118,7 +118,7 @@ def test_derived_metric_details_render_includes_composition(semantic_project_fac
 
 def test_simple_metric_details_render_includes_additivity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    rev = catalog.get("sales.revenue").details()
+    rev = catalog.get("metric.sales.revenue").details()
     assert isinstance(rev, SimpleMetricDetails)
     rendered = rev.render()
     assert "additivity: additive" in rendered

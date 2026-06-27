@@ -19,18 +19,18 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 cur = session.observe(
-    session.catalog.get(METRIC_ID),
+    session.catalog.get(f"metric.{METRIC_ID}"),
     where={
-        session.catalog.get("sales.orders.created_at"): {
+        session.catalog.get("time_dimension.sales.orders.created_at"): {
             "op": "between",
             "value": ["2026-07-01", "2026-09-30"],
         }
     },
 )
 base = session.observe(
-    session.catalog.get(METRIC_ID),
+    session.catalog.get(f"metric.{METRIC_ID}"),
     where={
-        session.catalog.get("sales.orders.created_at"): {
+        session.catalog.get("time_dimension.sales.orders.created_at"): {
             "op": "between",
             "value": ["2025-07-01", "2025-09-30"],
         }

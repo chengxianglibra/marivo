@@ -1119,8 +1119,6 @@ def _surface() -> Surface:
         pinned_entries=("SemanticCatalog", "SemanticObject", "SemanticObjectList"),
         hidden_names=frozenset(
             {
-                "SemanticKindInput",
-                "SemanticRefInput",
                 "datetime",
                 "timestamp",
                 "strptime",

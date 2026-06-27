@@ -914,9 +914,9 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
             details={
                 "candidates": candidates,
                 "fix_snippet": (
-                    'session.observe(session.catalog.get("sales.revenue"), '
+                    'session.observe(session.catalog.get("metric.sales.revenue"), '
                     'timescope={"start": "2026-07-01", "end": "2026-08-01"}, '
-                    'time_dimension=session.catalog.get("<domain.entity.time_dimension>").ref)'
+                    'time_dimension=session.catalog.get("time_dimension.<domain.entity.time_dimension>").ref)'
                 ),
             },
         )
@@ -935,9 +935,9 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
         details={
             "candidates": candidates,
             "fix_snippet": (
-                'session.observe(session.catalog.get("sales.revenue"), '
+                'session.observe(session.catalog.get("metric.sales.revenue"), '
                 'timescope={"start": "2026-07-01", "end": "2026-08-01"}, '
-                'time_dimension=session.catalog.get("<domain.entity.time_dimension>").ref)'
+                'time_dimension=session.catalog.get("time_dimension.<domain.entity.time_dimension>").ref)'
             ),
         },
     )

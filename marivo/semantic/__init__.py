@@ -7,8 +7,9 @@ Public surface::
     catalog = ms.load()                # returns SemanticCatalog
     catalog = ms.load(domains=['sales'])  # filter to specific domains
     catalog.list().show()
-    catalog.list(kind="metric").show()              # all metrics across domains
-    catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
+    catalog.list(kind=ms.SemanticKind.METRIC).show()              # all metrics across domains
+    sales = catalog.get("domain.sales")
+    catalog.list(sales.ref, kind=ms.SemanticKind.METRIC).show()  # metrics in one domain
 
     ms.domain(name="sales", default=True)
     orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
@@ -72,11 +73,9 @@ from marivo.semantic.catalog import (
     RelationshipDetails,
     SemanticCatalog,
     SemanticKind,
-    SemanticKindInput,
     SemanticObject,
     SemanticObjectDetails,
     SemanticObjectList,
-    SemanticRefInput,
     SimpleMetricDetails,
     TimeDimensionDetails,
     load,
@@ -152,7 +151,7 @@ def verify_object(
 
 def readiness(
     *,
-    refs: Sequence[SemanticRefInput] | None = None,
+    refs: Sequence[SemanticRef] | None = None,
 ) -> ReadinessReport:
     """Run structural readiness check for the given semantic refs.
 
@@ -161,9 +160,8 @@ def readiness(
     ``ms.parity_check(...)``, and ``ms.richness()``.
 
     Args:
-        refs: Semantic refs to check. Accepts strings or SemanticRef objects.
-            Resolves the full dependency closure for each ref. None checks
-            all loaded objects.
+        refs: Semantic refs to check. Resolves the full dependency closure
+            for each ref. None checks all loaded objects.
 
     Returns:
         ReadinessReport indicating whether analysis handoff is safe.
@@ -181,7 +179,8 @@ def readiness(
 
     project = SemanticProject()
     project.load()
-    return project.readiness(refs=refs)
+    str_refs = [ref.id for ref in refs] if refs is not None else None
+    return project.readiness(refs=str_refs)
 
 
 def richness(
@@ -369,12 +368,10 @@ __all__ = [
     "RichnessReport",
     "SemanticCatalog",
     "SemanticKind",
-    "SemanticKindInput",
     "SemanticObject",
     "SemanticObjectDetails",
     "SemanticObjectList",
     "SemanticRef",
-    "SemanticRefInput",
     "SimpleMetricDetails",
     "SqlProvenance",
     "TimeDimensionDetails",

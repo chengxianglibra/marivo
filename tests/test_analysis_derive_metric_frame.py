@@ -66,9 +66,9 @@ def test_derive_metric_frame_materializes_metric_frame_with_governed_contract(
             }
         ),
     )
-    metric = session.catalog.get("sales.revenue")
-    region = session.catalog.get("sales.orders.region")
-    order_date = session.catalog.get("sales.orders.order_date")
+    metric = session.catalog.get("metric.sales.revenue")
+    region = session.catalog.get("dimension.sales.orders.region")
+    order_date = session.catalog.get("time_dimension.sales.orders.order_date")
 
     frame = session.derive_metric_frame(
         metric=metric,
@@ -130,7 +130,7 @@ def test_derive_metric_frame_rejects_non_metric_anchor(tmp_path, monkeypatch) ->
 
     with pytest.raises(SemanticKindMismatchError):
         session.derive_metric_frame(
-            metric=session.catalog.get("sales.orders.region"),
+            metric=session.catalog.get("dimension.sales.orders.region"),
             query=mv.ibis_query(datasource="warehouse", build=lambda db, ctx: _Expr()),
             columns=mv.metric_columns(value="value"),
             timescope={"start": "2026-06-18", "end": "2026-06-25"},
@@ -147,7 +147,7 @@ def test_derive_metric_frame_rejects_missing_output_columns(tmp_path, monkeypatc
 
     with pytest.raises(PromotionFailedError) as exc_info:
         session.derive_metric_frame(
-            metric=session.catalog.get("sales.revenue"),
+            metric=session.catalog.get("metric.sales.revenue"),
             query=mv.ibis_query(datasource="warehouse", build=lambda db, ctx: _Expr()),
             columns=mv.metric_columns(value="value"),
             timescope={"start": "2026-06-18", "end": "2026-06-25"},
@@ -197,9 +197,9 @@ def test_derive_metric_frame_grain_token_consistent_for_non_string_grain(
             }
         ),
     )
-    metric = session.catalog.get("sales.revenue")
-    region = session.catalog.get("sales.orders.region")
-    order_date = session.catalog.get("sales.orders.order_date")
+    metric = session.catalog.get("metric.sales.revenue")
+    region = session.catalog.get("dimension.sales.orders.region")
+    order_date = session.catalog.get("time_dimension.sales.orders.order_date")
 
     frame = session.derive_metric_frame(
         metric=metric,

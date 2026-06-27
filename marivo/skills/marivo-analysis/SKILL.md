@@ -35,7 +35,7 @@ virtualenv yet, create or activate one before using this skill.
 2. For a specific intent pattern, adapt the closest runnable
    `references/examples/NN_*.py`; those examples use a tiny fixture so they
    can run in CI.
-3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind="metric").show()`.
+3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind=ms.SemanticKind.METRIC).show()`.
 4. Use runtime help as the authoritative per-object contract. Start with
    `mv.help('agent_surface')`, then inspect the specific intent, frame, policy,
    or topic you are about to use; examples:
@@ -66,15 +66,15 @@ Default agent-facing operators:
 import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="investigation")
-axis = session.catalog.get("model.entity.time_dimension")
+axis = session.catalog.get("time_dimension.model.entity.time_dimension")
 
 series = session.observe(
-    session.catalog.get("model.metric"),
+    session.catalog.get("metric.model.metric"),
     timescope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
 )
 baseline = session.observe(
-    session.catalog.get("model.metric"),
+    session.catalog.get("metric.model.metric"),
     timescope={"start": "2026-06-11", "end": "2026-06-18"},
     grain="day",
 )
@@ -115,11 +115,11 @@ Multi-step scripts are quiet until you explicitly inspect:
 ```python
 session = mv.session.get_or_create(name="revenue_drop")
 cur = session.observe(
-    session.catalog.get("sales.revenue"),
+    session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2026-06-18", "end": "2026-06-25"},
 )
 base = session.observe(
-    session.catalog.get("sales.revenue"),
+    session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2026-06-11", "end": "2026-06-18"},
 )
 delta = session.compare(cur, base)
@@ -137,7 +137,7 @@ Derived ratio and weighted-average observations keep parent frames clean:
 (e.g., `failed_count`, `total_count` for a ratio).
 
 ```python
-rate = session.observe(session.catalog.get("sales.failure_rate"))
+rate = session.observe(session.catalog.get("metric.sales.failure_rate"))
 components = rate.components()
 components.show()
 ```
@@ -253,10 +253,10 @@ an explicit test/CI or runtime override; its signature is
 ```python
 import marivo.analysis as mv
 
-cur = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
-base = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
+cur = session.observe(session.catalog.get("metric.<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
+base = session.observe(session.catalog.get("metric.<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-time_axis = session.catalog.get("<metric_time_dimension_id>")
+time_axis = session.catalog.get("time_dimension.<metric_time_dimension_id>")
 drivers = session.attribute(delta, axes=[time_axis])
 drivers.show()
 ```
@@ -264,7 +264,7 @@ drivers.show()
 ### Discover + select
 
 ```python
-series = session.observe(session.catalog.get("<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="day")
+series = session.observe(session.catalog.get("metric.<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=1.0)
 window = candidates.select(rank=1, attribute="window")
 ```
@@ -272,8 +272,8 @@ window = candidates.select(rank=1, attribute="window")
 ### Correlate
 
 ```python
-a = session.observe(session.catalog.get("<metric_a>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
-b = session.observe(session.catalog.get("<metric_b>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+a = session.observe(session.catalog.get("metric.<metric_a>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
+b = session.observe(session.catalog.get("metric.<metric_b>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
 result = session.correlate(a, b, alignment=mv.window_bucket())
 result.show()
 ```
@@ -282,7 +282,7 @@ result.show()
 
 ```python
 custom = session.derive_metric_frame(
-    metric=session.catalog.get("sales.revenue"),
+    metric=session.catalog.get("metric.sales.revenue"),
     query=mv.ibis_query(
         datasource="warehouse",
         build=lambda db, ctx: db.table("orders"),
@@ -291,12 +291,12 @@ custom = session.derive_metric_frame(
         value="value",
         time=mv.time_column(
             column="order_date",
-            ref=session.catalog.get("sales.orders.order_date"),
+            ref=session.catalog.get("time_dimension.sales.orders.order_date"),
         ),
         dimensions=[
             mv.dimension_column(
                 column="region",
-                ref=session.catalog.get("sales.orders.region"),
+                ref=session.catalog.get("dimension.sales.orders.region"),
             ),
         ],
     ),
@@ -371,15 +371,15 @@ prev = session.get_frame("<ref>")
 import marivo.analysis as ap
 
 session = ap.session.get_or_create(name="sales_weekly_revenue")
-region = session.catalog.get("sales.orders.region")
+region = session.catalog.get("dimension.sales.orders.region")
 
 current = session.observe(
-    metric=session.catalog.get("sales.revenue"),
+    metric=session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2026-05-01", "end": "2026-05-08"}, grain="day",
     dimensions=[region],
 )
 baseline = session.observe(
-    metric=session.catalog.get("sales.revenue"),
+    metric=session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2026-04-24", "end": "2026-05-01"}, grain="day",
     dimensions=[region],
 )

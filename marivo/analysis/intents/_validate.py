@@ -153,7 +153,7 @@ def validate_decompose_columns(
             SemanticKindMismatchError(
                 message="decompose axis column does not exist in the DeltaFrame",
                 hint=(
-                    f"Use axis=session.catalog.get(<dimension_id>).ref for {normalized_axis!r} "
+                    f"Use axis=session.catalog.get('dimension.<dimension_id>').ref for {normalized_axis!r} "
                     "if that column exists in the DeltaFrame."
                 ),
                 details={

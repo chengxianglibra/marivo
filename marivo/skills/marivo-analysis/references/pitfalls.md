@@ -4,8 +4,8 @@ Use this file when a Marivo Python analysis script fails with a structured
 exception. Fix the smallest script and re-run it with the active Python
 environment where `marivo` is installed.
 
-Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension objects from
-`session.catalog.get("<dimension_id>")`, `mv.CalendarRef(...)`, and
+Use catalog metric objects from `session.catalog.get("metric.<metric_id>")`, catalog dimension objects from
+`session.catalog.get("dimension.<dimension_id>")`, `mv.CalendarRef(...)`, and
 `mv.window_bucket()` / calendar alignment helpers at public operator boundaries. Do not pass bare
 strings directly to `observe`, `attribute`, `transform`, or calendar-backed
 `compare`.
@@ -36,8 +36,8 @@ Location: session.compare call
 Cause: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
 
 Fix:
-  cur  = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
-  base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
+  cur  = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+  base = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
   delta = session.compare(cur, base, alignment=mv.window_bucket())
 
 Docs: marivo/skills/marivo-analysis/references/pitfalls.md
@@ -47,10 +47,10 @@ Docs: marivo/skills/marivo-analysis/references/pitfalls.md
 `DeltaFrame` to `session.attribute`.
 
 ```python
-cur = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
-base = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
+cur = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+base = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-created_at = session.catalog.get("sales.orders.created_at")
+created_at = session.catalog.get("time_dimension.sales.orders.created_at")
 attribution = session.attribute(delta, axes=[created_at])
 ```
 
@@ -90,7 +90,7 @@ the correct column names:
 
 ```python
 frame = session.derive_metric_frame(
-    metric=session.catalog.get("sales.revenue"),
+    metric=session.catalog.get("metric.sales.revenue"),
     query=mv.ibis_query(
         datasource="tiny_orders",
         build=lambda db, ctx: db.table("orders"),
@@ -99,12 +99,12 @@ frame = session.derive_metric_frame(
         value="amount",
         time=mv.time_column(
             column="created_at",
-            ref=session.catalog.get("sales.orders.created_at"),
+            ref=session.catalog.get("time_dimension.sales.orders.created_at"),
         ),
         dimensions=[
             mv.dimension_column(
                 column="region",
-                ref=session.catalog.get("sales.orders.region"),
+                ref=session.catalog.get("dimension.sales.orders.region"),
             ),
         ],
     ),
@@ -123,7 +123,7 @@ catalog and re-derive with a defined metric id:
 ```python
 import marivo.semantic as ms
 catalog = ms.load()
-catalog.list(kind="metric").show()
+catalog.list(kind=ms.SemanticKind.METRIC).show()
 ```
 
 ## No active session
@@ -238,8 +238,8 @@ MetricNotFoundError: metric 'sales.revenu' not found
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.list(kind="metric")
-cur = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+catalog.list(kind=ms.SemanticKind.METRIC)
+cur = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
 ```
 
 Metric ids are case-sensitive strings in `<model>.<metric>` form.
@@ -256,7 +256,7 @@ only through July 30; July 31 rows are missing.
 
 ```python
 session.observe(
-    session.catalog.get("sales.revenue"),
+    session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-08-01"},  # includes all of July
 )
 ```
@@ -275,18 +275,18 @@ or a slice validation error while applying filters.
 
 ```python
 session.observe(
-    session.catalog.get("sales.revenue"),
+    session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 
 session.observe(
-    session.catalog.get("sales.revenue"),
-    where={session.catalog.get("sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    session.catalog.get("metric.sales.revenue"),
+    where={session.catalog.get("time_dimension.sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 ```
 
 Do not default to natural-language periods or bare quarter strings in new skill
-content. Resolve metric ids with `session.catalog.get("<metric_id>")`.
+content. Resolve metric ids with `session.catalog.get("metric.<metric_id>")`.
 
 ## SQL-style slice predicate op
 
@@ -357,7 +357,7 @@ represented in the `DeltaFrame`.
 
 ```python
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-created_at = session.catalog.get("sales.orders.created_at")
+created_at = session.catalog.get("time_dimension.sales.orders.created_at")
 drivers = session.attribute(delta, axes=[created_at])
 ```
 
@@ -379,7 +379,7 @@ or call `candidates.as_<shape>()` to assert.
 ## `discover.driver_axes(...)` requires `search_space`
 
 `driver_axes` is the only objective that needs catalog-backed dimensions such as
-`search_space=[session.catalog.get("sales.orders.region"), ...]`. Without it, `session.discover.driver_axes`
+`search_space=[session.catalog.get("dimension.sales.orders.region"), ...]`. Without it, `session.discover.driver_axes`
 raises
 `SemanticKindMismatchError` with `details["missing"] = "search_space"`.
 

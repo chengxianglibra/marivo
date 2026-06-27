@@ -363,14 +363,14 @@ def test_column_helper_catalog_details_and_preview(
     )
     catalog = SemanticCatalog(project)
 
-    amount = catalog.get("sales.orders.amount")
+    amount = catalog.get("measure.sales.orders.amount")
     details = amount.details()
     assert amount.kind == SemanticKind.MEASURE
     assert details.ref.id == "sales.orders.amount"
     assert details.unit == "USD"
 
     with _patch_connection_service(project, backend_factory):
-        preview = catalog.preview("sales.orders.amount", limit=2)
+        preview = catalog.preview(catalog.get("measure.sales.orders.amount").ref, limit=2)
 
     assert preview.returned_row_count == 2
 

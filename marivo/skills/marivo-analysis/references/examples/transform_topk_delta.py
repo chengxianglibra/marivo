@@ -16,14 +16,14 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 current = session.observe(
-    session.catalog.get(METRIC_ID),
+    session.catalog.get(f"metric.{METRIC_ID}"),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    dimensions=[session.catalog.get("sales.orders.region")],
+    dimensions=[session.catalog.get("dimension.sales.orders.region")],
 )
 baseline = session.observe(
-    session.catalog.get(METRIC_ID),
+    session.catalog.get(f"metric.{METRIC_ID}"),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
-    dimensions=[session.catalog.get("sales.orders.region")],
+    dimensions=[session.catalog.get("dimension.sales.orders.region")],
 )
 delta_frame = session.compare(
     current,

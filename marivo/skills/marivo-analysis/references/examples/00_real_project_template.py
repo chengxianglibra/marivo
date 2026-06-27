@@ -18,7 +18,7 @@ timescope = {"start": "2026-05-01", "end": "2026-06-01"}
 grain = "day"
 
 catalog = ms.load()
-available_metric_ids = catalog.list(kind="metric").ids()
+available_metric_ids = catalog.list(kind=ms.SemanticKind.METRIC).ids()
 if metric_id not in available_metric_ids:
     raise SystemExit(
         f"Metric {metric_id!r} was not found. Available metrics: {available_metric_ids}"
@@ -30,7 +30,7 @@ session = mv.session.get_or_create(
 )
 
 frame = session.observe(
-    session.catalog.get(metric_id),
+    session.catalog.get(f"metric.{metric_id}"),
     timescope=timescope,
     grain=grain,
 )

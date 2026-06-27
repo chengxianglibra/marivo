@@ -1339,7 +1339,7 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
 
 def test_transform_slice_accepts_catalog_dimension_ref(tmp_path):
     frame = _make_segmented(tmp_path)
-    country = session_attach.current().catalog.get("sales.orders.country").ref
+    country = session_attach.current().catalog.get("dimension.sales.orders.country").ref
 
     sliced = _active_transform(frame, op="slice", where={country: "US"})
 

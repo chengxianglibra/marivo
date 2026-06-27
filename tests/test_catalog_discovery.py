@@ -1,8 +1,8 @@
 """Tests for semantic layer discovery fixes.
 
-Covers four related bugs:
-1. catalog.list(kind="metric") returns empty at top level
-2. catalog.list() does not support domain filter
+Covers four related catalog discovery behaviors:
+1. catalog.list(kind=SemanticKind.METRIC) returns metrics at top level
+2. catalog.list(domain_ref) scopes browsing by ref
 3. DomainDetails and other *Details types have no render/show/repr
 4. SemanticObject has no public children property
 """
@@ -115,27 +115,27 @@ def _common_details_kwargs(*, python_symbol: str = "") -> dict[str, object]:
 
 
 # ---------------------------------------------------------------------------
-# Change 1: catalog.list(kind="metric") returns metrics at top level
+# Change 1: catalog.list(kind=SemanticKind.METRIC) returns metrics at top level
 # ---------------------------------------------------------------------------
 
 
 def test_discovery_list_kind_metric_returns_metrics(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(kind="metric")
+    result = catalog.list(kind=SemanticKind.METRIC)
     assert len(result.objects) >= 1
     assert all(str(obj.kind) == "metric" for obj in result.objects)
 
 
 def test_discovery_list_kind_metric_includes_revenue(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(kind="metric")
+    result = catalog.list(kind=SemanticKind.METRIC)
     refs = {obj.ref.id for obj in result.objects}
     assert "sales.revenue" in refs
 
 
 def test_discovery_list_kind_metric_cross_domain(semantic_project_factory):
     catalog = _make_multi_domain_catalog(semantic_project_factory)
-    result = catalog.list(kind="metric")
+    result = catalog.list(kind=SemanticKind.METRIC)
     refs = {obj.ref.id for obj in result.objects}
     assert "sales.revenue" in refs
     assert "ops.event_count" in refs
@@ -143,21 +143,21 @@ def test_discovery_list_kind_metric_cross_domain(semantic_project_factory):
 
 def test_discovery_list_kind_entity_returns_entities(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(kind="entity")
+    result = catalog.list(kind=SemanticKind.ENTITY)
     assert len(result.objects) >= 1
     assert all(str(obj.kind) == "entity" for obj in result.objects)
 
 
 def test_discovery_list_kind_dimension_returns_dimensions(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(kind="dimension")
+    result = catalog.list(kind=SemanticKind.DIMENSION)
     assert len(result.objects) >= 1
     assert all(str(obj.kind) == "dimension" for obj in result.objects)
 
 
 def test_discovery_list_kind_time_dimension_returns_time_dimensions(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(kind="time_dimension")
+    result = catalog.list(kind=SemanticKind.TIME_DIMENSION)
     assert len(result.objects) >= 1
     assert all(str(obj.kind) == "time_dimension" for obj in result.objects)
 
@@ -186,7 +186,7 @@ def test_discovery_list_kind_relationship_returns_relationships(semantic_project
         }
     )
     catalog = SemanticCatalog(project)
-    result = catalog.list(kind="relationship")
+    result = catalog.list(kind=SemanticKind.RELATIONSHIP)
     assert len(result.objects) >= 1
     assert all(str(obj.kind) == "relationship" for obj in result.objects)
 
@@ -208,13 +208,13 @@ def test_discovery_list_no_kind_still_returns_domains_and_datasources_only(
 
 
 # ---------------------------------------------------------------------------
-# Change 2: catalog.list(domain=...) filter
+# Change 2: catalog.list(domain_ref) scope
 # ---------------------------------------------------------------------------
 
 
 def test_discovery_domain_filter_returns_domain_children(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(domain="sales")
+    result = catalog.list(catalog.get("domain.sales").ref)
     kinds = {str(obj.kind) for obj in result.objects}
     assert "entity" in kinds
     assert "metric" in kinds
@@ -222,21 +222,21 @@ def test_discovery_domain_filter_returns_domain_children(semantic_project_factor
 
 def test_discovery_domain_filter_with_kind_metric(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(domain="sales", kind="metric")
+    result = catalog.list(catalog.get("domain.sales").ref, kind=SemanticKind.METRIC)
     assert all(str(obj.kind) == "metric" for obj in result.objects)
     assert any(obj.ref.id == "sales.revenue" for obj in result.objects)
 
 
 def test_discovery_domain_filter_with_kind_entity(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(domain="sales", kind="entity")
+    result = catalog.list(catalog.get("domain.sales").ref, kind=SemanticKind.ENTITY)
     assert all(str(obj.kind) == "entity" for obj in result.objects)
     assert any(obj.ref.id == "sales.orders" for obj in result.objects)
 
 
 def test_discovery_domain_filter_multi_domain_scopes_correctly(semantic_project_factory):
     catalog = _make_multi_domain_catalog(semantic_project_factory)
-    result = catalog.list(domain="ops", kind="metric")
+    result = catalog.list(catalog.get("domain.ops").ref, kind=SemanticKind.METRIC)
     refs = {obj.ref.id for obj in result.objects}
     assert "ops.event_count" in refs
     assert "sales.revenue" not in refs
@@ -245,15 +245,14 @@ def test_discovery_domain_filter_multi_domain_scopes_correctly(semantic_project_
 def test_discovery_domain_filter_unknown_domain_raises_error(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.list(domain="nonexistent")
+        catalog.get("domain.nonexistent")
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
-def test_discovery_domain_and_parent_mutually_exclusive(semantic_project_factory):
+def test_discovery_domain_keyword_is_removed(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.list("sales", domain="sales")
-    assert exc_info.value.kind == ErrorKind.CONFLICTING_PARAMETERS
+    with pytest.raises(TypeError):
+        catalog.list(domain="sales")  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +495,7 @@ def test_discovery_relationship_details_render():
 
 def test_discovery_domain_object_children_returns_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    domain_obj = catalog.get("sales")
+    domain_obj = catalog.get("domain.sales")
     children = domain_obj.children
     assert isinstance(children, tuple)
     child_refs = {r.id for r in children}
@@ -506,7 +505,7 @@ def test_discovery_domain_object_children_returns_refs(semantic_project_factory)
 
 def test_discovery_entity_object_children_returns_field_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    entity_obj = catalog.get("sales.orders")
+    entity_obj = catalog.get("entity.sales.orders")
     children = entity_obj.children
     assert isinstance(children, tuple)
     child_refs = {r.id for r in children}
@@ -515,11 +514,11 @@ def test_discovery_entity_object_children_returns_field_refs(semantic_project_fa
 
 def test_discovery_metric_object_children_returns_empty_tuple(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    metric_obj = catalog.get("sales.revenue")
+    metric_obj = catalog.get("metric.sales.revenue")
     assert metric_obj.children == ()
 
 
 def test_discovery_dimension_object_children_returns_empty_tuple(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    dim_obj = catalog.get("sales.orders.region")
+    dim_obj = catalog.get("dimension.sales.orders.region")
     assert dim_obj.children == ()

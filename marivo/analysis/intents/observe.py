@@ -176,15 +176,33 @@ def catalog_ref(ref: str, kind: SemanticKind) -> SemanticRef:
     return make_ref(ref, kind)
 
 
+def _catalog_id(ref: str, kind: SemanticKind) -> str:
+    return f"{kind.value}.{ref}"
+
+
+def _catalog_kind(catalog: Any, ref: str) -> SemanticKind | None:
+    return cast("SemanticKind | None", catalog._resolve_kind_of(ref, catalog._require_ready()))
+
+
+def _catalog_object(catalog: Any, ref: str, kind: SemanticKind) -> Any:
+    return catalog.get(_catalog_id(ref, kind))
+
+
 def _entity_details(catalog: Any, ref: str) -> EntityDetails:
-    details = catalog.get(ref).details()
+    details = _catalog_object(catalog, ref, SemanticKind.ENTITY).details()
     if not isinstance(details, EntityDetails):
         raise MetricNotFoundError(message=f"entity {ref!r} not found", details={"entity": ref})
     return details
 
 
 def _field_details(catalog: Any, ref: str) -> DimensionDetails | TimeDimensionDetails:
-    details = catalog.get(ref).details()
+    kind = _catalog_kind(catalog, ref)
+    if kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+        raise SemanticKindMismatchError(
+            message=f"field {ref!r} is not a dimension or time dimension",
+            details={"ref": ref, "actual_kind": str(kind) if kind is not None else None},
+        )
+    details = _catalog_object(catalog, ref, kind).details()
     if not isinstance(details, (DimensionDetails, TimeDimensionDetails)):
         raise SemanticKindMismatchError(
             message=f"field {ref!r} is not a dimension or time dimension",
@@ -861,7 +879,9 @@ def _execute_base(
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
         dimension_exprs = {
             field_ir.name: _validate_field_expr(
-                resolver.dimension_on(catalog.get(field_ir.semantic_id).ref, bucketed_table),
+                resolver.dimension_on(
+                    _field_details(catalog, field_ir.semantic_id).ref, bucketed_table
+                ),
                 field_id=field_ir.semantic_id,
             ).name(field_ir.name)
             for _, field_ir in resolved_dimensions
@@ -1512,7 +1532,7 @@ def _metric_expr(
     dataset_tables: dict[str, Any],
 ) -> Any:
     return resolver.metric_on(
-        catalog.get(metric_id).ref,
+        _catalog_object(catalog, metric_id, SemanticKind.METRIC).ref,
         *(dataset_tables[dataset_name] for dataset_name in metric_datasets),
     )
 
@@ -1593,7 +1613,9 @@ def _metric_planner_scope(catalog: Any, metric_ir: Any) -> set[str]:
         scoped.add(root)
     if metric_ir.metric_type == "derived":
         for component_id in metric_ir.composition.components.values():
-            component_details = catalog.get(component_id).details()
+            component_details = _catalog_object(
+                catalog, component_id, SemanticKind.METRIC
+            ).details()
             if isinstance(component_details, (SimpleMetricDetails, DerivedMetricDetails)):
                 component_ir = _planned_metric(component_details)
                 scoped.update(component_ir.entities)
@@ -1621,7 +1643,7 @@ def observe(
     catalog._require_ready()
     metric_id = _normalize_metric_boundary(catalog, metric)
     model_name, metric_name = metric_id.split(".", 1)
-    metric_details = catalog.get(metric_id).details()
+    metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
     assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
     metric_ir = _planned_metric(metric_details)
     planner_scope = _metric_planner_scope(catalog, metric_ir)
@@ -1673,7 +1695,7 @@ def observe(
         and resolved_window.time_dimension is None
     ):
         for _role, _comp_id in metric_ir.composition.components.items():
-            _comp_details = catalog.get(_comp_id).details()
+            _comp_details = _catalog_object(catalog, _comp_id, SemanticKind.METRIC).details()
             assert isinstance(_comp_details, (SimpleMetricDetails, DerivedMetricDetails))
             _comp_ir = _planned_metric(_comp_details)
             if (
@@ -1730,7 +1752,9 @@ def observe(
             component_id: _planned_metric(component_details)
             for component_id in metric_ir.composition.components.values()
             if isinstance(
-                component_details := catalog.get(component_id).details(),
+                component_details := _catalog_object(
+                    catalog, component_id, SemanticKind.METRIC
+                ).details(),
                 (SimpleMetricDetails, DerivedMetricDetails),
             )
         }

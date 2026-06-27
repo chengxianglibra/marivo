@@ -693,8 +693,8 @@ class Session:
 
         Example:
             >>> catalog = session.catalog
-            >>> revenue = catalog.get("sales.revenue")
-            >>> country = catalog.get("sales.orders.country").ref
+            >>> revenue = catalog.get("metric.sales.revenue")
+            >>> country = catalog.get("dimension.sales.orders.country").ref
             >>> frame = session.observe(
             ...     revenue,
             ...     timescope={"start": "2026-07-01", "end": "2026-10-01"},
@@ -777,7 +777,7 @@ class Session:
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:
-            >>> revenue = session.catalog.get("sales.revenue")
+            >>> revenue = session.catalog.get("metric.sales.revenue")
             >>> cur  = session.observe(revenue, timescope={"start": "2026-07-01", "end": "2026-10-01"})
             >>> base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-10-01"})
             >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
@@ -813,7 +813,7 @@ class Session:
 
         Example:
             >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
-            >>> country = session.catalog.get("sales.orders.country").ref
+            >>> country = session.catalog.get("dimension.sales.orders.country").ref
             >>> attribution = session.attribute(delta, axes=[country])
         """
         from marivo.analysis.intents.attribute import attribute
@@ -907,7 +907,7 @@ class Session:
 
         Example:
             >>> history = session.observe(
-            ...     session.catalog.get("sales.revenue"),
+            ...     session.catalog.get("metric.sales.revenue"),
             ...     timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
             ... )
             >>> forecast = session.forecast(history, horizon=30)

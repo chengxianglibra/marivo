@@ -98,7 +98,7 @@ def _patch_preview_connections(project, backend):
 def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    obj = catalog.get("sales.orders.amount")
+    obj = catalog.get("measure.sales.orders.amount")
     details = obj.details()
 
     assert obj.kind == SemanticKind.MEASURE
@@ -114,8 +114,10 @@ def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -
 def test_catalog_lists_measure_kind_at_top_level_and_under_entity(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    assert catalog.list(kind="measure").ids() == ["sales.orders.amount"]
-    assert catalog.list("sales.orders", kind="measure").ids() == ["sales.orders.amount"]
+    assert catalog.list(kind=SemanticKind.MEASURE).ids() == ["sales.orders.amount"]
+    assert catalog.list(
+        catalog.get("entity.sales.orders").ref, kind=SemanticKind.MEASURE
+    ).ids() == ["sales.orders.amount"]
     assert catalog.list(
         make_ref("sales.orders", SemanticKind.ENTITY), kind=SemanticKind.MEASURE
     ).ids() == ["sales.orders.amount"]
@@ -126,7 +128,7 @@ def test_entity_children_include_dimension_measure_time_dimension_metrics_and_re
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    details = catalog.get("sales.orders").details()
+    details = catalog.get("entity.sales.orders").details()
 
     assert isinstance(details, EntityDetails)
     child_refs = {(child.id, child.kind) for child in details.children}
@@ -142,8 +144,8 @@ def test_dimension_and_time_dimension_details_do_not_expose_legacy_shape(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    dim = catalog.get("sales.orders.region").details()
-    time_dim = catalog.get("sales.orders.order_date").details()
+    dim = catalog.get("dimension.sales.orders.region").details()
+    time_dim = catalog.get("time_dimension.sales.orders.order_date").details()
 
     assert isinstance(dim, DimensionDetails)
     assert dim.entity.id == "sales.orders"
@@ -162,8 +164,8 @@ def test_metric_details_measure_ref_and_provenance_are_phase3_shape(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    aggregate_metric = catalog.get("sales.revenue").details()
-    native_metric = catalog.get("sales.native_revenue").details()
+    aggregate_metric = catalog.get("metric.sales.revenue").details()
+    native_metric = catalog.get("metric.sales.native_revenue").details()
 
     assert isinstance(aggregate_metric, MetricDetails)
     assert aggregate_metric.measure == make_ref("sales.orders.amount", SemanticKind.MEASURE)
@@ -189,14 +191,14 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
 
     backend = _preview_backend()
     with _patch_preview_connections(project, backend):
-        preview = catalog.preview("sales.orders.amount", limit=3)
+        preview = catalog.preview(catalog.get("measure.sales.orders.amount").ref, limit=3)
 
     assert preview.ref == "sales.orders.amount"
     assert preview.kind == "semantic_measure"
     assert "amount" in preview.columns
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.preview("sales.orders.amount", context_columns=("region",))
+        catalog.preview(catalog.get("measure.sales.orders.amount").ref, context_columns=("region",))
 
     assert "context_columns" in str(exc_info.value)
     assert "dimension" in str(exc_info.value)
@@ -223,7 +225,7 @@ def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_fac
     catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        normalize_dimension_input(catalog, catalog.get("sales.orders.amount"))
+        normalize_dimension_input(catalog, catalog.get("measure.sales.orders.amount"))
 
     message = str(exc_info.value)
     assert "measure" in message

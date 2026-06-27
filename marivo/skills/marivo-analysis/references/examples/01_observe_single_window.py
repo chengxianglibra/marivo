@@ -15,7 +15,7 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 cur = session.observe(
-    session.catalog.get(METRIC_ID),
+    session.catalog.get(f"metric.{METRIC_ID}"),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 print(cur.summary())

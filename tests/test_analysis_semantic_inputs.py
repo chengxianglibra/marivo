@@ -54,7 +54,7 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
 
 def test_normalize_metric_accepts_semantic_object_and_ref(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
-    metric = catalog.get("sales.revenue")
+    metric = catalog.get("metric.sales.revenue")
 
     assert normalize_metric_input(catalog, metric) == "sales.revenue"
     assert normalize_metric_input(catalog, metric.ref) == "sales.revenue"
@@ -72,7 +72,7 @@ def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
 
 def test_normalize_metric_rejects_wrong_semantic_kind(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
-    dim = catalog.get("sales.orders.country")
+    dim = catalog.get("dimension.sales.orders.country")
 
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_metric_input(catalog, dim.ref)
@@ -116,15 +116,16 @@ def test_normalize_dimension_accepts_dimension_and_time_dimension(semantic_proje
     catalog = _catalog(semantic_project_factory)
 
     assert (
-        normalize_dimension_input(catalog, catalog.get("sales.orders.country"))
+        normalize_dimension_input(catalog, catalog.get("dimension.sales.orders.country"))
         == "sales.orders.country"
     )
     assert (
-        normalize_dimension_input(catalog, catalog.get("sales.orders.ds").ref) == "sales.orders.ds"
+        normalize_dimension_input(catalog, catalog.get("time_dimension.sales.orders.ds").ref)
+        == "sales.orders.ds"
     )
-    assert normalize_dimension_inputs(catalog, [catalog.get("sales.orders.country").ref]) == [
-        "sales.orders.country"
-    ]
+    assert normalize_dimension_inputs(
+        catalog, [catalog.get("dimension.sales.orders.country").ref]
+    ) == ["sales.orders.country"]
 
 
 def test_normalize_dimension_rejects_forged_dimension_ref_to_metric(
@@ -147,7 +148,7 @@ def test_normalize_dimension_boundary_rejects_metric_object_when_catalog_has_no_
     empty_catalog = cast("SemanticCatalog", _ExplodingCatalog())
 
     with pytest.raises(SemanticKindMismatchError) as exc:
-        normalize_dimension_boundary(empty_catalog, source_catalog.get("sales.revenue"))
+        normalize_dimension_boundary(empty_catalog, source_catalog.get("metric.sales.revenue"))
 
     assert exc.value.details["expected_kind"] == "dimension"
     assert exc.value.details["actual_kind"] == "metric"
@@ -174,8 +175,8 @@ def test_normalize_dimension_unknown_ref_raises_analysis_error(
 
 def test_normalize_where_inputs_returns_plain_string_keys(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
-    country = catalog.get("sales.orders.country").ref
-    ds = catalog.get("sales.orders.ds")
+    country = catalog.get("dimension.sales.orders.country").ref
+    ds = catalog.get("time_dimension.sales.orders.ds")
 
     assert normalize_where_inputs(
         catalog, {country: "US", ds: {"op": ">=", "value": "2026-01-01"}}

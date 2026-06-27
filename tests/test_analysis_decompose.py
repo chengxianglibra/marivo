@@ -175,7 +175,7 @@ def test_decompose_accepts_catalog_dimension_ref(tmp_path):
         ),
         semantic_kind="segmented",
     )
-    axis = session.catalog.get("sales.orders.region").ref
+    axis = session.catalog.get("dimension.sales.orders.region").ref
 
     out = decompose(frame, axis=axis, session=session)
 

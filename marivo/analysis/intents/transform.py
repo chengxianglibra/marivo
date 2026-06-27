@@ -268,7 +268,7 @@ def _normalize_where_boundary(
         if isinstance(key, str):
             raise TransformArgError(
                 message="transform slice(where=...) requires catalog dimension refs",
-                hint="Pass where={session.catalog.get('sales.orders.country').ref: 'US'}.",
+                hint="Pass where={session.catalog.get('dimension.sales.orders.country').ref: 'US'}.",
                 details={"expected_kind": "DimensionInput", "got_kind": "str"},
             )
     return {
@@ -287,7 +287,7 @@ def _normalize_drop_axes_boundary(
         if isinstance(axis, str):
             raise TransformArgError(
                 message="transform rollup(drop_axes=...) requires catalog dimension refs",
-                hint="Pass drop_axes=[session.catalog.get('sales.orders.country').ref].",
+                hint="Pass drop_axes=[session.catalog.get('dimension.sales.orders.country').ref].",
                 details={"expected_kind": "DimensionInput", "got_kind": "str"},
             )
     return [
@@ -577,7 +577,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
     if not isinstance(drop_axes, list) or not drop_axes:
         raise TransformArgError(
             message="transform(op='rollup') requires a non-empty drop_axes list",
-            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("<dimension_id>").ref].',
+            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
             details={"op": "rollup", "argument": "drop_axes"},
         )
 
@@ -607,7 +607,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
             continue
         raise TransformArgError(
             message="transform(op='rollup') drop_axes items must be catalog dimension refs or str",
-            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("<dimension_id>").ref].',
+            hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
             details={
                 "op": "rollup",
                 "argument": "drop_axes",
@@ -1397,7 +1397,7 @@ def _resolve_slice_column(
     raise TransformArgError(
         message="transform(op='slice') where keys must be catalog dimension refs or str",
         hint=(
-            'Use where={session.catalog.get("<dimension_id>").ref: "US"} '
+            'Use where={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
             "or where={'value': (10, 20)}."
         ),
         details={"op": "slice", "actual_key_type": type(key).__name__},
@@ -1809,7 +1809,7 @@ def _op_slice(
         raise TransformArgError(
             message="transform(op='slice') requires a non-empty where dict",
             hint=(
-                'Pass where={session.catalog.get("<dimension_id>").ref: "US"} '
+                'Pass where={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
                 "or where={'value': (10, 20)}."
             ),
             details={"op": "slice", "argument": "where"},

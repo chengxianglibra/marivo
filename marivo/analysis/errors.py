@@ -126,8 +126,8 @@ class MetricNotFoundError(AnalysisError):
             "fix_snippet": (
                 "import marivo.semantic as ms\n"
                 "catalog = ms.load()\n"
-                "catalog.list(kind='metric')  # confirm the exact id\n"
-                'session.observe(catalog.get("<registered_metric_id>"), '
+                "catalog.list(kind=ms.SemanticKind.METRIC)  # confirm the exact id\n"
+                'session.observe(catalog.get("metric.<registered_metric_id>"), '
                 'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
             ),
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
@@ -142,7 +142,7 @@ class WindowInvalidError(AnalysisError):
             "location": "session.observe timescope or frame window argument",
             "cause": f"timescope={window_ref} could not be parsed.",
             "fix_snippet": (
-                'session.observe(session.catalog.get("sales.revenue"), '
+                'session.observe(session.catalog.get("metric.sales.revenue"), '
                 'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
             ),
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
@@ -176,7 +176,7 @@ class SemanticKindMismatchError(AnalysisError):
                     "search_space=[catalog dimension refs]."
                 ),
                 "fix_snippet": (
-                    'region = session.catalog.get("sales.orders.region").ref\n'
+                    'region = session.catalog.get("dimension.sales.orders.region").ref\n'
                     "session.discover.driver_axes(delta, search_space=[region])"
                 ),
                 "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
@@ -365,7 +365,7 @@ class SemanticKindMismatchError(AnalysisError):
                     "a catalog metric object or ref."
                 ),
                 "fix_snippet": (
-                    'session.observe(session.catalog.get("sales.revenue"), '
+                    'session.observe(session.catalog.get("metric.sales.revenue"), '
                     'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
                 ),
                 "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
@@ -385,7 +385,7 @@ class SemanticKindMismatchError(AnalysisError):
                 "compare result where an observe result is required."
             ),
             "fix_snippet": (
-                'revenue = session.catalog.get("sales.revenue")\n'
+                'revenue = session.catalog.get("metric.sales.revenue")\n'
                 "cur  = session.observe(revenue, "
                 'timescope={"start": "2026-07-01", "end": "2026-10-01"})\n'
                 "base = session.observe(revenue, "
@@ -480,10 +480,10 @@ class PromotionFailedError(AnalysisError):
                 "fix_snippet": (
                     "session.promote_metric_frame(\n"
                     "    scratch,\n"
-                    '    metric=session.catalog.get("sales.revenue"),\n'
+                    '    metric=session.catalog.get("metric.sales.revenue"),\n'
                     '    semantic_kind="segmented",\n'
                     '    measure_column="value",\n'
-                    '    axes={"country": session.catalog.get("sales.orders.country").ref},\n'
+                    '    axes={"country": session.catalog.get("dimension.sales.orders.country").ref},\n'
                     '    semantic_model="sales",\n'
                     ")"
                 )
@@ -507,7 +507,7 @@ class PromotionFailedError(AnalysisError):
                 "fix_snippet": (
                     "import marivo.semantic as ms\n"
                     "catalog = ms.load()\n"
-                    'catalog.list(kind="metric").show()  # pick a defined metric id, then re-promote'
+                    "catalog.list(kind=ms.SemanticKind.METRIC).show()  # pick a defined metric id, then re-promote"
                 ),
                 "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
@@ -524,7 +524,7 @@ class TestShapeNotTestableError(AnalysisError):
             "location": "session.hypothesis_test call",
             "cause": "mean_changed needs paired observations; scalar frames or too-small paired samples cannot be tested in v1.",
             "fix_snippet": (
-                'revenue = session.catalog.get("sales.revenue")\n'
+                'revenue = session.catalog.get("metric.sales.revenue")\n'
                 'cur = session.observe(revenue, timescope={"start": "2026-07-01", "end": "2026-08-01"}, grain="day")\n'
                 'base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-08-01"}, grain="day")\n'
                 "session.hypothesis_test(cur, base)"
@@ -558,7 +558,7 @@ class ForecastShapeUnsupportedError(AnalysisError):
         return {
             "location": "session.forecast input frame",
             "cause": "forecast v1 accepts only MetricFrame time_series or panel shapes.",
-            "fix_snippet": 'history = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")\nsession.forecast(history, horizon=30)',
+            "fix_snippet": 'history = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")\nsession.forecast(history, horizon=30)',
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
@@ -578,7 +578,7 @@ class ForecastInsufficientHistoryError(AnalysisError):
         return {
             "location": "session.forecast history",
             "cause": "the time_series input has fewer training points than the selected model requires.",
-            "fix_snippet": 'history = session.observe(session.catalog.get("sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")',
+            "fix_snippet": 'history = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")',
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
@@ -797,9 +797,9 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
             "fix_snippet": (
                 "import marivo.semantic as ms\n"
                 "catalog = ms.load()\n"
-                "catalog.list(kind='dimension')  # confirm available dimensions per entity\n"
-                'session.observe(catalog.get("sales.revenue"), '
-                'dimensions=[catalog.get("<existing_dimension>").ref])'
+                "catalog.list(kind=ms.SemanticKind.DIMENSION)  # confirm available dimensions per entity\n"
+                'session.observe(catalog.get("metric.sales.revenue"), '
+                'dimensions=[catalog.get("dimension.<existing_dimension>").ref])'
             ),
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
@@ -856,7 +856,7 @@ class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
             ),
             "fix_snippet": (
                 f"# Choose the full catalog ref for panel dimension column {first_available!r}.\n"
-                'axis = session.catalog.get("<domain.entity.dimension>").ref\n'
+                'axis = session.catalog.get("dimension.<domain.entity.dimension>").ref\n'
                 "session.attribute(delta, axes=[axis])"
             ),
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
@@ -886,8 +886,8 @@ class SegmentDimensionMismatchError(AlignmentFailedError):
             "location": "session.compare call",
             "cause": cause,
             "fix_snippet": (
-                "metric = session.catalog.get('model.metric')\n"
-                'common_dim = session.catalog.get("model.entity.common_dim").ref\n'
+                "metric = session.catalog.get('metric.model.metric')\n"
+                'common_dim = session.catalog.get("dimension.model.entity.common_dim").ref\n'
                 "current = session.observe(metric, dimensions=[common_dim])\n"
                 "baseline = session.observe(metric, dimensions=[common_dim])\n"
                 "delta = session.compare(current, baseline, "
@@ -934,7 +934,7 @@ class ComponentFrameUnavailableError(AnalysisError):
                 "weighted-average frames produced by component-aware observe/compare."
             ),
             "fix_snippet": (
-                'frame = session.observe(session.catalog.get("model.derived_ratio"))\n'
+                'frame = session.observe(session.catalog.get("metric.model.derived_ratio"))\n'
                 "components = frame.components()"
             ),
             "doc": "docs/superpowers/specs/2026-05-28-component-aware-frame-contract-design.md",
