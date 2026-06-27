@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import io
 import os
 import py_compile
@@ -38,6 +39,36 @@ _TEMPLATE_FORBIDDEN_SNIPPETS = (
     "ensure_loaded(",
     "mv.session.active(",
 )
+_SEMANTIC_EXAMPLE_NAMES = ("01_datasource.py", "02_semantic_model.py")
+_SEMANTIC_DATASOURCE_REQUIRED_CALLS = (
+    "md.help",
+    "md.test",
+    "md.discover_entity",
+    "md.discover_dimensions",
+    "md.discover_time_dimensions",
+    "md.discover_measures",
+    "md.discover_dimension_values",
+)
+_SEMANTIC_MODEL_REQUIRED_CALLS = (
+    "ms.measure_column",
+    "ms.aggregate",
+    "ms.relationship",
+    "ms.metric",
+    "ms.ratio",
+    "ms.weighted_average",
+    "ms.linear",
+    "ms.verify_object",
+    "ms.readiness",
+)
+_SEMANTIC_MODEL_REQUIRED_FEATURES = ("@ms.metric(root_entity=orders)",)
+_SEMANTIC_EXAMPLE_FORBIDDEN_REFERENCES = (
+    "md.inspect_columns",
+    "md.inspect_table",
+    "md.probe_join_keys",
+    "project.assess_authoring(",
+    "ms.AuthoringSourceInput(",
+)
+_SEMANTIC_EXAMPLE_FORBIDDEN_NAMES = ("judgment_targets",)
 
 
 @dataclass
@@ -187,6 +218,143 @@ def _check_template_example(example: Path) -> Failure | None:
     return None
 
 
+def _attribute_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = _attribute_name(node.value)
+        if owner is None:
+            return None
+        return f"{owner}.{node.attr}"
+    return None
+
+
+@dataclass(frozen=True)
+class _SemanticExampleSource:
+    calls: frozenset[str]
+    attributes: frozenset[str]
+    names: frozenset[str]
+    metric_decorator_has_root_entity_orders: bool
+
+
+def _embedded_source_trees(tree: ast.Module, *, filename: str) -> list[ast.Module]:
+    trees: list[ast.Module] = []
+    for node in ast.walk(tree):
+        value: ast.AST | None = None
+        if isinstance(node, ast.Assign | ast.AnnAssign):
+            value = node.value
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        try:
+            trees.append(ast.parse(value.value, filename=filename))
+        except SyntaxError:
+            continue
+    return trees
+
+
+def _semantic_example_source(example: Path) -> _SemanticExampleSource | Failure:
+    try:
+        tree = ast.parse(example.read_text(), filename=str(example))
+    except SyntaxError as exc:
+        return Failure(example, "semantic example content", f"syntax error: {exc.msg}")
+
+    trees = [tree, *_embedded_source_trees(tree, filename=str(example))]
+    calls: set[str] = set()
+    attributes: set[str] = set()
+    names: set[str] = set()
+    metric_decorator_has_root_entity_orders = False
+
+    for source_tree in trees:
+        for node in ast.walk(source_tree):
+            if isinstance(node, ast.Name):
+                names.add(node.id)
+            if isinstance(node, ast.Attribute):
+                attr_name = _attribute_name(node)
+                if attr_name is not None:
+                    attributes.add(attr_name)
+            if isinstance(node, ast.Call):
+                call_name = _attribute_name(node.func)
+                if call_name is not None:
+                    calls.add(call_name)
+
+        for node in ast.walk(source_tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            for decorator in node.decorator_list:
+                if not isinstance(decorator, ast.Call):
+                    continue
+                if _attribute_name(decorator.func) != "ms.metric":
+                    continue
+                for keyword in decorator.keywords:
+                    if (
+                        keyword.arg == "root_entity"
+                        and isinstance(keyword.value, ast.Name)
+                        and keyword.value.id == "orders"
+                    ):
+                        metric_decorator_has_root_entity_orders = True
+
+    return _SemanticExampleSource(
+        calls=frozenset(calls),
+        attributes=frozenset(attributes),
+        names=frozenset(names),
+        metric_decorator_has_root_entity_orders=metric_decorator_has_root_entity_orders,
+    )
+
+
+def _check_semantic_example_contract(examples_dir: Path, examples: list[Path]) -> list[Failure]:
+    failures: list[Failure] = []
+    expected = set(_SEMANTIC_EXAMPLE_NAMES)
+    actual = {example.name for example in examples}
+    if actual != expected:
+        failures.append(
+            Failure(
+                examples_dir,
+                "semantic example contract",
+                "expected exactly "
+                + ", ".join(_SEMANTIC_EXAMPLE_NAMES)
+                + "; found "
+                + ", ".join(sorted(actual)),
+            )
+        )
+
+    required_by_name = {
+        "01_datasource.py": _SEMANTIC_DATASOURCE_REQUIRED_CALLS,
+        "02_semantic_model.py": _SEMANTIC_MODEL_REQUIRED_CALLS,
+    }
+    for example in examples:
+        source = _semantic_example_source(example)
+        if isinstance(source, Failure):
+            failures.append(source)
+            continue
+        missing = [
+            call for call in required_by_name.get(example.name, ()) if call not in source.calls
+        ]
+        if (
+            example.name == "02_semantic_model.py"
+            and not source.metric_decorator_has_root_entity_orders
+        ):
+            missing.extend(_SEMANTIC_MODEL_REQUIRED_FEATURES)
+        forbidden = [
+            reference
+            for reference in _SEMANTIC_EXAMPLE_FORBIDDEN_REFERENCES
+            if reference.removesuffix("(") in source.attributes
+        ]
+        forbidden.extend(name for name in _SEMANTIC_EXAMPLE_FORBIDDEN_NAMES if name in source.names)
+        if missing or forbidden:
+            detail_parts: list[str] = []
+            if missing:
+                detail_parts.append(
+                    "missing required calls: " + ", ".join(repr(s) for s in missing)
+                )
+            if forbidden:
+                detail_parts.append(
+                    "forbidden executable references present: "
+                    + ", ".join(repr(s) for s in forbidden)
+                )
+            failures.append(Failure(example, "semantic example content", "; ".join(detail_parts)))
+    return failures
+
+
 def _check_example(example: Path, *, in_process: bool = False) -> Failure | None:
     if _is_template_example(example):
         return _check_template_example(example)
@@ -286,7 +454,10 @@ def main(argv: list[str] | None = None) -> int:
         if not examples_dir.is_dir():
             failures.append(Failure(examples_dir, "missing examples dir", ""))
             continue
-        for example in _iter_example_files(examples_dir):
+        examples = _iter_example_files(examples_dir)
+        if skill_dir.name == "marivo-semantic":
+            failures.extend(_check_semantic_example_contract(examples_dir, examples))
+        for example in examples:
             failure = _check_example(example, in_process=args.in_process)
             if failure is not None:
                 failures.append(failure)

@@ -15,7 +15,6 @@ plain functions to match the rest of the test suite.
 from __future__ import annotations
 
 import dataclasses
-import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -493,14 +492,16 @@ def test_removed_component_body_constraints_absent() -> None:
 
 def test_semantic_skill_constraint_table_matches_catalog() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    reference = repo_root / "marivo/skills/marivo-semantic/references/authoring-patterns.md"
-    text = reference.read_text()
+    skill_dir = repo_root / "marivo/skills/marivo-semantic"
+    deleted_reference = skill_dir / "references/authoring-patterns.md"
+    skill = (skill_dir / "SKILL.md").read_text()
+    workflow = (skill_dir / "references/workflow.md").read_text()
 
-    rows = re.findall(r"^\| `([^`]+)` \| [^|]+ \| `([^`]+)` \|$", text, re.MULTILINE)
-    assert rows
-    for constraint_id, example_path in rows:
-        assert get_constraint(constraint_id) is not None, constraint_id
-        assert (reference.parent.parent / example_path).exists(), example_path
+    assert not deleted_reference.exists()
+    assert "help -> discover -> settle/grill -> prepare -> author -> verify" in skill
+    assert "This skill owns workflow and routing only" in skill
+    assert "author exactly one semantic object" in workflow
+    assert "ms.verify_object(...)" in workflow
 
 
 # ---------------------------------------------------------------------------

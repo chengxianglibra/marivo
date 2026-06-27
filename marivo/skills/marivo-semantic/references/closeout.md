@@ -1,6 +1,7 @@
 # marivo-semantic closeout
 
-Closeout decides whether semantic refs are ready for `marivo-analysis`.
+Closeout decides whether authored semantic refs are ready for
+`marivo-analysis`.
 
 ## Reload
 
@@ -8,48 +9,25 @@ Closeout decides whether semantic refs are ready for `marivo-analysis`.
 catalog = ms.load()
 ```
 
-## Readiness gate
+## Readiness Gate
 
-`readiness(...)` is a pure structural check — no datasource connection
-required. It verifies load errors, unknown refs, evidence ledger blockers,
-cross-datasource unfederated metrics, SQL parity unverified warnings, strict
-enrichment issues (missing `business_definition` / `guardrails`), and load
-warnings forwarding.
+Run `ms.readiness(...)` for the refs that will be handed to analysis:
 
 ```python
-report = ms.readiness(
-    refs=("sales.orders", "sales.revenue"),
-)
+report = ms.readiness(refs=("sales.orders", "sales.revenue"))
 report.show()
 if report.status == "blocked":
     raise SystemExit("Semantic project is not ready for analysis handoff.")
 ```
 
-For runtime validation that requires datasource connectivity, use the
-dedicated APIs separately:
+Do not hand blocked refs to `marivo-analysis`.
 
-- **Previews**: `md.preview(...)` for raw sources, `catalog.preview(...)`
-  for semantic refs
-- **Parity**: `parity_check()`
-- **Richness**: `richness()`
+Use dedicated runtime checks separately when needed:
 
-## Abandoned candidates
+- `md.discover_*` for datasource evidence;
+- `catalog.preview(...)` for semantic preview;
+- `ms.parity_check(...)` for source-SQL parity;
+- `ms.richness(...)` for enrichment gaps.
 
-`ReadinessReport.abandoned` lists candidates recorded with
-`authoring_abandoned` during the authoring ladder. These are informational;
-abandonment is not a permanent block.
-
-## Blocked readiness
-
-Blocked readiness prevents analysis handoff. Missing
-`ai_context.business_definition` is a blocker; missing
-`ai_context.guardrails` is a warning.
-
-## Debugging helpers
-
-For targeted inspection outside the normal closeout path:
-
-- `md.preview(...)` — bounded raw preview
-- `catalog.preview(ref, ...)` — bounded semantic preview
-- `ms.parity_check(ref, ...)` — SQL parity detail
-- `ms.richness()` — demand-ranked richness gaps
+Warnings are not the same as blockers. Fix blockers first, then report warning
+items as follow-up work when they do not prevent the requested handoff.
