@@ -275,7 +275,7 @@ with tempfile.TemporaryDirectory() as tmp:
             md.table("orders"),
             scope=md.unpruned(max_rows=100),
         )
-        print("orders entity evidence:", len(orders_entity.column_profiles), "columns")
+        orders_entity.show()
         write_domain(ORDERS_ENTITY)
         verify("sales.orders")
 
@@ -284,7 +284,7 @@ with tempfile.TemporaryDirectory() as tmp:
             md.table("customers"),
             scope=md.unpruned(max_rows=100),
         )
-        print("customers entity evidence:", len(customers_entity.column_profiles), "columns")
+        customers_entity.show()
         write_domain(CUSTOMERS_ENTITY)
         verify("sales.customers")
 
@@ -334,7 +334,7 @@ with tempfile.TemporaryDirectory() as tmp:
             columns=("order_date",),
             scope=md.unpruned(max_rows=100),
         )
-        print("order date evidence:", len(order_date_discovery.columns[0].detected_formats))
+        order_date_discovery.show()
         write_domain(ORDER_DATE_TIME_DIMENSION)
         verify("sales.orders.order_date")
 

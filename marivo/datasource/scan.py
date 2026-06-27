@@ -105,7 +105,22 @@ class ScanReport:
         print(self.render())
 
 
-@dataclass(frozen=True)
+def _format_profile_value(value: object | None) -> str:
+    if value is None:
+        return "none"
+    text = str(value)
+    if len(text) > 48:
+        return text[:45] + "..."
+    return text
+
+
+def _format_ratio(value: float | None) -> str:
+    if value is None:
+        return "none"
+    return f"{value:.2f}"
+
+
+@dataclass(frozen=True, repr=False)
 class ColumnProfile:
     """Statistical profile of a single column from a datasource scan.
 
@@ -152,6 +167,77 @@ class ColumnProfile:
     max_length: int | None = None
     avg_length: float | None = None
     type_family: str = "unknown"
+
+    def _repr_identity(self) -> str:
+        return f"ColumnProfile column={self.name} type={self.data_type} family={self.type_family}"
+
+    def _fact_rows(self) -> list[list[str]]:
+        rows: list[list[str]] = [
+            ["comment", _format_profile_value(self.comment)],
+            [
+                "range",
+                f"{_format_profile_value(self.min_value)}..{_format_profile_value(self.max_value)}",
+            ],
+            [
+                "top_values",
+                ", ".join(
+                    f"{_format_profile_value(value)}:{count}"
+                    for value, count in self.top_values[:3]
+                )
+                or "none",
+            ],
+            [
+                "sample_values",
+                ", ".join(_format_profile_value(value) for value in self.sample_values[:3])
+                or "none",
+            ],
+        ]
+        if self.distinct_ratio is not None:
+            rows.append(["distinct_ratio", _format_ratio(self.distinct_ratio)])
+        if self.top_value_concentration is not None:
+            rows.append(["top_value_concentration", _format_ratio(self.top_value_concentration)])
+        if self.negative_count or self.zero_count:
+            rows.append(
+                ["numeric_counts", f"negative={self.negative_count} zero={self.zero_count}"]
+            )
+        if (
+            self.min_length is not None
+            or self.max_length is not None
+            or self.avg_length is not None
+        ):
+            rows.append(
+                [
+                    "length",
+                    (
+                        f"min={_format_profile_value(self.min_length)} "
+                        f"max={_format_profile_value(self.max_length)} "
+                        f"avg={_format_ratio(self.avg_length)}"
+                    ),
+                ]
+            )
+        return rows
+
+    def render(self) -> str:
+        status = (
+            f"type={self.data_type} family={self.type_family} nullable={self.nullable} "
+            f"nulls={self.null_count} empty={self.empty_count} "
+            f"distinct={self.distinct_count} non_null={self.non_null_count}"
+        )
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=status,
+            columns=["fact", "value"],
+            rows=self._fact_rows(),
+            row_count=len(self._fact_rows()),
+            preview_truncation_hint="inspect profile attributes for all facts",
+            available=(".render()", ".show()"),
+        )
+
+    def __repr__(self) -> str:
+        return result_repr(self._repr_identity())
+
+    def show(self) -> None:
+        print(self.render())
 
 
 @dataclass(frozen=True, repr=False)
