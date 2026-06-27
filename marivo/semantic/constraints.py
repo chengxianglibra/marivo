@@ -524,7 +524,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric", "SemanticCatalog"),
         "Requested metrics must exist in the loaded project.",
         "Runtime operations compile registered metric ids.",
-        "catalog = ms.load(); catalog.list(kind='metric') and use the metric semantic_id.",
+        "catalog = ms.load(); catalog.list(kind=ms.SemanticKind.METRIC) and use catalog.get('metric.<semantic_id>').",
     ),
     ConstraintId.ENTITY_EXISTS: _constraint(
         ConstraintId.ENTITY_EXISTS,
@@ -533,7 +533,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "SemanticCatalog"),
         "Requested entities must exist in the loaded project.",
         "Runtime operations look up registered entity ids.",
-        "catalog.list(kind='entity') and use the entity semantic_id.",
+        "catalog.list(kind=ms.SemanticKind.ENTITY) and use catalog.get('entity.<semantic_id>').",
     ),
     ConstraintId.DIMENSION_EXISTS: _constraint(
         ConstraintId.DIMENSION_EXISTS,
@@ -542,7 +542,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dimension", "SemanticCatalog"),
         "Requested dimensions must exist in the loaded project.",
         "Runtime operations look up registered dimension ids.",
-        "catalog.list(kind='dimension') and use the dimension semantic_id.",
+        "catalog.list(kind=ms.SemanticKind.DIMENSION) and use catalog.get('dimension.<semantic_id>').",
     ),
     ConstraintId.SYMBOL_EXISTS: _constraint(
         ConstraintId.SYMBOL_EXISTS,
@@ -632,7 +632,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric", "relationship"),
         "Unqualified name lookups must resolve to a single object kind.",
         "Cross-kind name matches make registry lookups ambiguous.",
-        "Use catalog.list(parent, kind=...) to narrow candidates, then catalog.get(ref).",
+        "Use catalog.list(scope_ref, kind=...) to narrow candidates, then catalog.get('<kind>.<semantic_id>').",
         docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.BACKEND_FACTORY_AVAILABLE: _constraint(
@@ -679,27 +679,25 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticCatalog",),
         "Kind filter must be a valid SemanticKind value.",
         "The kind parameter accepts: model, datasource, entity, dimension, time_dimension, metric, relationship.",
-        "Use catalog.list() without kind to browse all, or pass a valid kind string.",
+        "Use catalog.list() without kind to browse all, or pass a SemanticKind enum value.",
     ),
     ConstraintId.CATALOG_PARENT_BROWSABLE: _constraint(
         ConstraintId.CATALOG_PARENT_BROWSABLE,
         "unsupported_list_parent",
         "runtime",
         ("SemanticCatalog",),
-        "Only domain, datasource, and entity refs can be used as catalog.list() parents.",
+        "Only domain, datasource, and entity refs can be used as catalog.list() scopes.",
         "Metrics, dimensions, time dimensions, and relationships are leaf objects with no children to list.",
-        "Use catalog.get(ref).details() to inspect a leaf object's dependencies.",
+        "Use catalog.get('<kind>.<semantic_id>').details() to inspect a leaf object's dependencies.",
     ),
     ConstraintId.CATALOG_PARAMETERS_COMPATIBLE: _constraint(
         ConstraintId.CATALOG_PARAMETERS_COMPATIBLE,
         "conflicting_parameters",
         "runtime",
         ("SemanticCatalog",),
-        "catalog.list() 'parent' and 'domain' are mutually exclusive.",
-        "The 'domain' parameter is a convenience shortcut for listing under a specific domain, "
-        "so it cannot be combined with 'parent'.",
-        "Use catalog.list(domain=...) with an optional kind= filter, "
-        "or catalog.list(parent=...) for hierarchy browsing.",
+        "catalog.list() accepts a single SemanticRef scope and no domain shortcut.",
+        "The old 'domain' keyword was removed so agents use one scoped browsing path.",
+        "Use domain = catalog.get('domain.<name>') and then catalog.list(domain.ref, kind=...).",
     ),
     ConstraintId.SAMPLE_INTERVAL_VALID: _constraint(
         ConstraintId.SAMPLE_INTERVAL_VALID,

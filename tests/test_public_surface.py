@@ -41,12 +41,10 @@ SEMANTIC_PUBLIC = {
     "RelationshipRef",
     "SemanticCatalog",
     "SemanticKind",
-    "SemanticKindInput",
     "SemanticObject",
     "SemanticObjectDetails",
     "SemanticObjectList",
     "SemanticRef",
-    "SemanticRefInput",
     "SimpleMetricDetails",
     "SqlProvenance",
     "TimeDimensionDetails",
@@ -253,8 +251,11 @@ def test_help_index_has_no_blank_summary(surface_factory: str) -> None:
     assert blank == [], f"{surface_factory} has blank help summaries: {blank}"
 
 
-def test_semantic_input_aliases_hidden_from_index() -> None:
+def test_semantic_input_aliases_removed_from_public_surface() -> None:
     from marivo.semantic.help import _surface
+
+    assert "SemanticKindInput" not in ms.__all__
+    assert "SemanticRefInput" not in ms.__all__
 
     data = render(_surface(), None, "json")
     visible_names = {e["name"] for e in data["entries"]}

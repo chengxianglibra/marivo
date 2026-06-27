@@ -14,7 +14,7 @@ catalog = ms.load()
 Run `ms.readiness(...)` for the refs that will be handed to analysis:
 
 ```python
-report = ms.readiness(refs=("sales.orders", "sales.revenue"))
+report = ms.readiness(refs=(ms.ref("entity.sales.orders"), ms.ref("metric.sales.revenue")))
 report.show()
 if report.status == "blocked":
     raise SystemExit("Semantic project is not ready for analysis handoff.")

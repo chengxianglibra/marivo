@@ -55,7 +55,7 @@ from marivo.semantic.richness import (
 from marivo.semantic.validator import Registry, Sidecar
 
 if TYPE_CHECKING:
-    from marivo.semantic.catalog import SemanticRefInput
+    from marivo.refs import SemanticRef
 
 __all__ = [
     "ReadinessInputSummary",
@@ -515,7 +515,7 @@ class SemanticProject:
     def readiness(
         self,
         *,
-        refs: Iterable[SemanticRefInput] | None = None,
+        refs: Iterable[SemanticRef | str] | None = None,
     ) -> ReadinessReport:
         """Return a structural semantic readiness report.
 

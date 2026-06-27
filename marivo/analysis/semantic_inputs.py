@@ -74,19 +74,36 @@ def _require_catalog_input(
     return ref, kind
 
 
+def _typed_catalog_id(ref: str, kind: SemanticKind) -> str:
+    return f"{kind.value}.{ref}"
+
+
+def _actual_catalog_kind(catalog: SemanticCatalog, ref: str) -> SemanticKind | None:
+    reg = catalog._require_ready()
+    return catalog._resolve_kind_of(ref, reg)
+
+
 def normalize_metric_input(catalog: SemanticCatalog, metric: MetricInput) -> str:
     """Return a metric semantic id from a catalog object/ref."""
     ref, kind = _require_catalog_input(metric, argument="metric", expected_kind="metric")
     if kind != SemanticKind.METRIC:
         _reject_kind(ref=ref, actual_kind=str(kind), expected_kind="metric", argument="metric")
     try:
-        obj = catalog.get(ref)
+        obj = catalog.get(_typed_catalog_id(ref, kind))
     except SemanticRuntimeError as exc:
         if exc.kind != "not_found":
             raise
+        actual_kind = _actual_catalog_kind(catalog, ref)
+        if actual_kind is not None:
+            _reject_kind(
+                ref=ref,
+                actual_kind=str(actual_kind),
+                expected_kind="metric",
+                argument="metric",
+            )
         raise MetricNotFoundError(
             message=f"metric {ref!r} not found",
-            hint="Use session.catalog.list(<domain>, kind='metric') to browse metric refs.",
+            hint="Use session.catalog.list(domain.ref, kind=SemanticKind.METRIC) to browse metric refs.",
             details={
                 "metric": ref,
                 "metric_id": ref,
@@ -117,36 +134,48 @@ def normalize_dimension_input(
     if kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
         _reject_kind(ref=ref, actual_kind=str(kind), expected_kind="dimension", argument=argument)
     try:
-        obj = catalog.get(ref)
+        obj = catalog.get(_typed_catalog_id(ref, kind))
     except SemanticRuntimeError as exc:
         if exc.kind != "not_found":
             raise
-        available_ids = _available_dimension_ids(catalog)
-        if "." not in ref:
-            candidates = [
-                candidate for candidate in available_ids if candidate.rsplit(".", 1)[-1] == ref
-            ]
-            if len(candidates) == 1:
-                return normalize_dimension_input(
-                    catalog,
-                    make_ref(candidates[0], kind),
-                    argument=argument,
-                )
-            if len(candidates) > 1:
+        actual_kind = _actual_catalog_kind(catalog, ref)
+        if actual_kind is not None:
+            if actual_kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+                obj = catalog.get(_typed_catalog_id(ref, actual_kind))
+            else:
                 _reject_kind(
                     ref=ref,
-                    actual_kind="ambiguous",
+                    actual_kind=str(actual_kind),
                     expected_kind="dimension",
                     argument=argument,
-                    available_ids=available_ids,
                 )
-        _reject_kind(
-            ref=ref,
-            actual_kind="not_found",
-            expected_kind="dimension",
-            argument=argument,
-            available_ids=available_ids,
-        )
+        else:
+            available_ids = _available_dimension_ids(catalog)
+            if "." not in ref:
+                candidates = [
+                    candidate for candidate in available_ids if candidate.rsplit(".", 1)[-1] == ref
+                ]
+                if len(candidates) == 1:
+                    return normalize_dimension_input(
+                        catalog,
+                        make_ref(candidates[0], kind),
+                        argument=argument,
+                    )
+                if len(candidates) > 1:
+                    _reject_kind(
+                        ref=ref,
+                        actual_kind="ambiguous",
+                        expected_kind="dimension",
+                        argument=argument,
+                        available_ids=available_ids,
+                    )
+            _reject_kind(
+                ref=ref,
+                actual_kind="not_found",
+                expected_kind="dimension",
+                argument=argument,
+                available_ids=available_ids,
+            )
     if obj.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
         _reject_kind(
             ref=ref, actual_kind=str(obj.kind), expected_kind="dimension", argument=argument

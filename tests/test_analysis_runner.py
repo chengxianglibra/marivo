@@ -103,7 +103,7 @@ def _build_dataset_adapter(sp: SemanticProject, dataset_semantic_id: str) -> obj
             raise RuntimeError(f"runner adapter test must pass backend directly for {name!r}")
 
     catalog = SemanticCatalog(sp)
-    details = catalog.get(dataset_semantic_id).details()
+    details = catalog.get(f"entity.{dataset_semantic_id}").details()
     assert isinstance(details, EntityDetails)
     resolver = catalog._resolver(connections=_NoConnectionService())
     adapter = _build_entity_adapter(catalog, resolver, details)

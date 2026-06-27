@@ -195,7 +195,7 @@ def _discover_content() -> dict[str, object]:
         "summary": "session.discover objective helper matrix.",
         "objectives": objectives,
         "example": (
-            'region = session.catalog.get("sales.orders.region").ref\n'
+            'region = session.catalog.get("dimension.sales.orders.region").ref\n'
             "session.discover.driver_axes(delta, search_space=[region])"
         ),
     }
@@ -417,7 +417,7 @@ def _session_content(constraints: tuple[Constraint, ...]) -> dict[str, object]:
         "constraints": [constraint.to_summary_dict() for constraint in constraints],
         "example": (
             "session = mv.session.get_or_create(name='analysis')\n"
-            "revenue = session.catalog.get('orders.revenue')\n"
+            "revenue = session.catalog.get('metric.orders.revenue')\n"
             "metric = session.observe(revenue, "
             "timescope={'start': '2026-01-01', 'end': '2026-01-31'})"
         ),
@@ -969,7 +969,7 @@ def _help_catalog_ref(
             ErrorKind.INVALID_REF,
             (
                 f"{ref.kind} {ref.id!r} not found in loaded project. "
-                "Call catalog.list(kind='metric').ids() to see available ids."
+                "Call catalog.list(kind=ms.SemanticKind.METRIC).ids() to see available ids."
             ),
             cls=SemanticRuntimeError,
         )
@@ -1001,7 +1001,7 @@ def _semantic_ir_help_lines(ir: object, *, kind: str) -> list[str]:
                 lines.append(f"  - {ex}")
     lines.append("")
     lines.append(
-        f"use: catalog.list(kind='metric').ids() to enumerate; "
-        f"pass catalog.get({semantic_id!r}) to session.observe(...)"
+        "use: catalog.list(kind=ms.SemanticKind.METRIC).ids() to enumerate; "
+        f"pass catalog.get('{kind}.{semantic_id}') to session.observe(...)"
     )
     return lines

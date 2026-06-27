@@ -396,13 +396,13 @@ with tempfile.TemporaryDirectory() as tmp:
 
         readiness = ms.readiness(
             refs=(
-                "sales.orders.region",
-                "sales.orders.order_date",
-                "sales.orders.amount",
-                "sales.gross_revenue",
-                "sales.aov",
-                "sales.avg_revenue_per_order",
-                "sales.net_revenue",
+                ms.ref("dimension.sales.orders.region"),
+                ms.ref("time_dimension.sales.orders.order_date"),
+                ms.ref("measure.sales.orders.amount"),
+                ms.ref("metric.sales.gross_revenue"),
+                ms.ref("metric.sales.aov"),
+                ms.ref("metric.sales.avg_revenue_per_order"),
+                ms.ref("metric.sales.net_revenue"),
             )
         )
         print("readiness:", readiness.status)

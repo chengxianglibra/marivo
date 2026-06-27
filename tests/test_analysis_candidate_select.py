@@ -341,7 +341,7 @@ def test_select_axis_returns_catalog_ref_for_discovered_driver_axis(tmp_path):
     src = _delta(session, delta_df, semantic_kind="segmented")
     axis_candidates = session.discover.driver_axes(
         src,
-        search_space=[session.catalog.get("sales.orders.region").ref],
+        search_space=[session.catalog.get("dimension.sales.orders.region").ref],
     )
     selected_axis = axis_candidates.select(rank=1, attribute="axis")
     assert selected_axis == make_ref("sales.orders.region", SemanticKind.DIMENSION)
@@ -384,7 +384,7 @@ def test_select_selector_feeds_transform_slice(tmp_path):
     }
     slice_cands = session.discover.interesting_slices(
         src,
-        search_space=[session.catalog.get("sales.orders.region").ref],
+        search_space=[session.catalog.get("dimension.sales.orders.region").ref],
         threshold=2.0,
     )
     selector = slice_cands.select(rank=1, attribute="selector")

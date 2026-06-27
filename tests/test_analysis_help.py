@@ -437,7 +437,9 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
     )
     from marivo.semantic.catalog import SemanticCatalog
 
-    metric_ids = [ref.id for ref in SemanticCatalog(project).list("sales", kind="metric").refs()]
+    catalog = SemanticCatalog(project)
+    domain = catalog.get("domain.sales")
+    metric_ids = [ref.id for ref in catalog.list(domain.ref, kind=SemanticKind.METRIC).refs()]
     if not metric_ids:
         pytest.skip("no metrics in fixture")
     ref = make_ref(metric_ids[0], SemanticKind.METRIC)

@@ -329,7 +329,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
         use_datasources=False,
     )
     catalog = ms.load(workspace_dir=tmp_path)
-    metric = catalog.get("sales.revenue")
+    metric = catalog.get("metric.sales.revenue")
 
     class GuardedCatalog(SemanticCatalog):
         def __init__(self, wrapped):
@@ -352,7 +352,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
     guarded_catalog = GuardedCatalog(catalog)
 
     def metric_adapter(ref):
-        details = guarded_catalog.get(ref).details()
+        details = guarded_catalog.get(f"metric.{ref}").details()
         composition_ns = None
         if isinstance(details, DerivedMetricDetails):
             composition_ns = SimpleNamespace(
@@ -387,7 +387,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
         metric_ir=metric_adapter("sales.revenue"),
         dataset_irs=dataset_irs,
         dataset_fns=dataset_fns,
-        dimensions=[guarded_catalog.get("sales.orders.country").ref],
+        dimensions=[guarded_catalog.get("dimension.sales.orders.country").ref],
         where=None,
         resolved_window=None,
         time_dimension=None,
@@ -435,8 +435,8 @@ def test_observe_rejects_bare_metric_string(tmp_path):
 
 
 def test_session_observe_accepts_catalog_object_and_ref(sales_session, sales_catalog):
-    metric = sales_catalog.get("sales.revenue")
-    country = sales_catalog.get("sales.orders.country").ref
+    metric = sales_catalog.get("metric.sales.revenue")
+    country = sales_catalog.get("dimension.sales.orders.country").ref
 
     frame = sales_session.observe(metric, dimensions=[country])
 
@@ -536,7 +536,10 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     assert "multiple time_dimensions" in rendered
     assert "create_date" in rendered
     assert "create_time" in rendered
-    assert 'time_dimension=session.catalog.get("<domain.entity.time_dimension>").ref' in rendered
+    assert (
+        'time_dimension=session.catalog.get("time_dimension.<domain.entity.time_dimension>").ref'
+        in rendered
+    )
     assert "is_default=True" in rendered
 
 

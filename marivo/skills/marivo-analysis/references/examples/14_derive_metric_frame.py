@@ -16,9 +16,9 @@ import marivo.analysis as mv  # noqa: E402
 
 session = mv.session.current()
 
-metric = session.catalog.get(METRIC_ID)
-created_at = session.catalog.get("sales.orders.created_at")
-region = session.catalog.get("sales.orders.region")
+metric = session.catalog.get(f"metric.{METRIC_ID}")
+created_at = session.catalog.get("time_dimension.sales.orders.created_at")
+region = session.catalog.get("dimension.sales.orders.region")
 
 frame = session.derive_metric_frame(
     metric=metric,

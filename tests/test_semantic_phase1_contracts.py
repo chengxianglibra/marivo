@@ -23,7 +23,7 @@ def test_base_metric_requires_additivity(semantic_project_factory):
     )
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).get("sales.revenue")
+        SemanticCatalog(project).get("metric.sales.revenue")
 
     error = exc_info.value.errors[0]
     assert error.kind == "organization_error"
@@ -47,7 +47,7 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
         }
     )
 
-    metric = SemanticCatalog(project).get("sales.revenue").details()
+    metric = SemanticCatalog(project).get("metric.sales.revenue").details()
     assert isinstance(metric, MetricDetails)
     assert metric.additivity == "additive"
     assert metric.root_entity is not None
@@ -74,7 +74,7 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
     )
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).get("sales.revenue")
+        SemanticCatalog(project).get("metric.sales.revenue")
 
     error = exc_info.value.errors[0]
     assert error.kind == "missing_metric_root_entity"
@@ -101,7 +101,7 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
         }
     )
 
-    metric = SemanticCatalog(project).get("sales.revenue").details()
+    metric = SemanticCatalog(project).get("metric.sales.revenue").details()
     assert isinstance(metric, MetricDetails)
     assert metric.root_entity is not None
     assert metric.root_entity.id == "sales.orders"
@@ -130,7 +130,7 @@ def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_proje
     project.load()
 
     with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).get("sales.bad_user_sum")
+        SemanticCatalog(project).get("metric.sales.bad_user_sum")
 
     error = exc_info.value.errors[0]
     assert error.kind == "non_root_metric_aggregate"
@@ -164,7 +164,7 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
         }
     )
 
-    dataset = SemanticCatalog(project).get("sales.user_profile_daily").details()
+    dataset = SemanticCatalog(project).get("entity.sales.user_profile_daily").details()
     assert isinstance(dataset, EntityDetails)
     assert dataset.versioning is not None
     assert dataset.versioning.kind == "snapshot"

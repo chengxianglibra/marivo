@@ -23,7 +23,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 | --- | --- | --- | --- |
 | `session.observe` | `session.catalog.get("domain.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or `where={dimension: value}` (see Where Predicate Ops below). |
 | `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
-| `session.attribute` | `DeltaFrame`, `[catalog dimension]` | `AttributionFrame` | Always pass `axes=[session.catalog.get("<dimension_id>")]`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
+| `session.attribute` | `DeltaFrame`, `[catalog dimension]` | `AttributionFrame` | Always pass `axes=[session.catalog.get("dimension.<dimension_id>")]`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
 | `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape` (from `marivo.analysis.frames.candidate`). |
 | `candidates.select(...)` | `CandidateSet` | typed value (`SemanticRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"affordances"`, `"keys.<dim>"`). |
 | `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.window_bucket()`; default lag is zero. |
@@ -80,8 +80,8 @@ Frames are immutable. Use `frame.summary()` for a cheap read,
 `frame.to_pandas()` when you need a mutable copy. Use
 `frame.to_pandas().head(n)` only when you explicitly want pandas behavior.
 
-Use catalog metric objects from `session.catalog.get("<metric_id>")`, catalog dimension objects from
-`session.catalog.get("<dimension_id>")`, `mv.CalendarRef(...)`, and
+Use catalog metric objects from `session.catalog.get("metric.<metric_id>")`, catalog dimension objects from
+`session.catalog.get("dimension.<dimension_id>")`, `mv.CalendarRef(...)`, and
 `mv.window_bucket()` / calendar alignment helpers at public operator boundaries. Do not pass bare
 strings directly to `observe`, `attribute`, `transform`, or calendar-backed
 `compare`.
@@ -92,23 +92,23 @@ strings directly to `observe`, `attribute`, `transform`, or calendar-backed
 import marivo.analysis as mv
 
 cur = session.observe(
-    session.catalog.get("sales.revenue"),
+    session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 base = session.observe(
-    session.catalog.get("sales.revenue"),
+    session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-created_at = session.catalog.get("sales.orders.created_at")
+created_at = session.catalog.get("time_dimension.sales.orders.created_at")
 attribution = session.attribute(delta, axes=[created_at])
 attribution.show()
 ```
 
 ```python
 series = session.observe(
-    session.catalog.get("sales.revenue"),
-    where={session.catalog.get("sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    session.catalog.get("metric.sales.revenue"),
+    where={session.catalog.get("time_dimension.sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 candidates = session.discover.point_anomalies(series, threshold=1.0)
 candidates.show()
@@ -129,7 +129,7 @@ output is validated and persisted as a `MetricFrame` with full lineage.
 
 ```python
 retention = session.derive_metric_frame(
-    metric=session.catalog.get("sales.revenue"),
+    metric=session.catalog.get("metric.sales.revenue"),
     query=mv.ibis_query(
         datasource="warehouse",
         build=lambda db, ctx: db.table("orders"),
@@ -138,12 +138,12 @@ retention = session.derive_metric_frame(
         value="value",
         time=mv.time_column(
             column="order_date",
-            ref=session.catalog.get("sales.orders.order_date"),
+            ref=session.catalog.get("time_dimension.sales.orders.order_date"),
         ),
         dimensions=[
             mv.dimension_column(
                 column="region",
-                ref=session.catalog.get("sales.orders.region"),
+                ref=session.catalog.get("dimension.sales.orders.region"),
             ),
         ],
     ),
@@ -162,7 +162,7 @@ frame with `frame.to_pandas()` and work locally.
 | --- | --- | --- | --- | --- |
 | `session.discover.point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
 | `session.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | At least 4 time buckets in one series |
-| `session.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[session.catalog.get("sales.orders.region"), ...]` |
+| `session.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[session.catalog.get("dimension.sales.orders.region"), ...]` |
 | `session.discover.interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
 | `session.discover.interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
 | `session.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
@@ -184,15 +184,15 @@ deterministic row order, not recommendations from Marivo.
 | Override backend resolution for tests/CI | `mv.session.get_or_create(name=..., backend_factory=..., use_datasources=False)` |
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
 | Inspect calendar file shape | `mv.help("calendar")` |
-| Confirm metric ids | `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind="metric")` |
+| Confirm metric ids | `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind=ms.SemanticKind.METRIC)` |
 | Recover a frame across scripts (no re-query) | `session.get_frame(ref)` |
 | List persisted frame refs and metadata | `session.frame_summaries()` |
 | Find frame ref by metric_id | `session.frame_summaries()` |
 
 Calendar alignment and timestamp bucketing use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_dimension(..., timezone="UTC")`.
 
-Metric inputs come from exact catalog ids such as `session.catalog.get("model.metric")`. Do not guess
-ids from metric display names; call `catalog.list(kind="metric")` after loading the
+Metric inputs come from exact catalog ids such as `session.catalog.get("metric.model.metric")`. Do not guess
+ids from metric display names; call `catalog.list(kind=ms.SemanticKind.METRIC)` after loading the
 semantic project.
 
 For cross-dataset base metrics (datasets cover multiple datasets with an explicit
@@ -257,9 +257,9 @@ When a dataset has multiple time dimensions, choose one with top-level `time_dim
 
 ```python
 session.observe(
-    session.catalog.get("sales.revenue"),
+    session.catalog.get("metric.sales.revenue"),
     timescope={"start": "2026-07-01", "end": "2026-08-01"},
-    time_dimension=session.catalog.get("sales.orders.create_date"),
+    time_dimension=session.catalog.get("time_dimension.sales.orders.create_date"),
 )
 ```
 

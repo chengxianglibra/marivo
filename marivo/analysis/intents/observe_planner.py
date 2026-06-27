@@ -47,6 +47,7 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
+from marivo.semantic.refs import make_ref
 
 
 class JoinSafety(StrEnum):
@@ -292,8 +293,30 @@ def _planned_metric(details: MetricDetails) -> _MetricDetailsAdapter:
     return _MetricDetailsAdapter(details)
 
 
+def _catalog_id(ref: str, kind: SemanticKind) -> str:
+    return f"{kind.value}.{ref}"
+
+
 def _details(catalog: SemanticCatalog, ref: str) -> Any:
-    return catalog.get(ref).details()
+    for kind in (
+        SemanticKind.METRIC,
+        SemanticKind.ENTITY,
+        SemanticKind.DIMENSION,
+        SemanticKind.TIME_DIMENSION,
+        SemanticKind.RELATIONSHIP,
+        SemanticKind.MEASURE,
+    ):
+        try:
+            return catalog.get(_catalog_id(ref, kind)).details()
+        except SemanticRuntimeError as exc:
+            if exc.kind != ErrorKind.NOT_FOUND.value:
+                raise
+    raise_observe_planning_error(
+        code="path-missing",
+        message=f"Semantic reference {ref!r} was not found.",
+        candidates={"ref": ref},
+        repair=[],
+    )
 
 
 def _entity(catalog: SemanticCatalog, ref: str) -> EntityDetails:
@@ -323,7 +346,7 @@ def _metric(catalog: SemanticCatalog, ref: str) -> MetricDetails:
 def _fields_for_entity(catalog: SemanticCatalog, entity_ref: str) -> list[FieldDetails]:
     fields: list[FieldDetails] = []
     for kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-        for obj in catalog.list(entity_ref, kind=kind):
+        for obj in catalog.list(make_ref(entity_ref, SemanticKind.ENTITY), kind=kind):
             details = obj.details()
             if isinstance(details, (DimensionDetails, TimeDimensionDetails)):
                 fields.append(details)
@@ -588,7 +611,9 @@ def _relationship_neighbors(
 ) -> list[tuple[str, RelationshipInfo]]:
     neighbors: list[tuple[str, RelationshipInfo]] = []
     relationships: list[RelationshipInfo] = []
-    for obj in catalog.list(dataset_id, kind=SemanticKind.RELATIONSHIP):
+    for obj in catalog.list(
+        make_ref(dataset_id, SemanticKind.ENTITY), kind=SemanticKind.RELATIONSHIP
+    ):
         details = obj.details()
         if isinstance(details, RelationshipDetails):
             relationships.append(_planned_relationship(details))
@@ -642,7 +667,7 @@ def unique_shortest_relationship_path(
 
 
 def _field_names(catalog: SemanticCatalog, field_ids: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(catalog.get(fid).name for fid in field_ids)
+    return tuple(_details(catalog, fid).name for fid in field_ids)
 
 
 def _effective_key(catalog: SemanticCatalog, dataset_id: str) -> tuple[str, ...]:

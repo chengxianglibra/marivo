@@ -16,6 +16,7 @@ from typing import Any
 import marivo.semantic as ms
 
 ALLOWED_IMPORT_ROOTS: frozenset[str] = frozenset({"marivo", "os"})
+CATALOG_GET_KIND_PREFIXES: frozenset[str] = frozenset(kind.value for kind in ms.SemanticKind)
 
 KNOWN_SESSION_INTENTS: frozenset[str] = frozenset(
     {
@@ -61,8 +62,8 @@ class ReplayCheckResult:
 
 def _catalog_metric_ids(catalog: Any) -> set[str]:
     ids: set[str] = set()
-    for domain in catalog.list(kind="domain"):
-        ids.update(catalog.list(domain.ref, kind="metric").ids())
+    for domain in catalog.list(kind=ms.SemanticKind.DOMAIN):
+        ids.update(catalog.list(domain.ref, kind=ms.SemanticKind.METRIC).ids())
     return ids
 
 
@@ -171,6 +172,13 @@ def _catalog_get_literal(call: ast.Call) -> str | None:
     return None
 
 
+def _typed_catalog_literal(literal: str) -> tuple[str, str] | None:
+    kind, separator, semantic_id = literal.partition(".")
+    if not separator or not semantic_id or kind not in CATALOG_GET_KIND_PREFIXES:
+        return None
+    return kind, semantic_id
+
+
 def _catalog_get_literal_from_expr(
     expr: ast.expr,
     *,
@@ -200,7 +208,7 @@ def _catalog_ref_bindings(
     catalog_vars: set[str],
     session_vars: set[str],
 ) -> dict[str, list[tuple[int, str]]]:
-    """Map simple ``name = catalog.get("literal")`` bindings to their ref."""
+    """Map simple ``name = catalog.get("kind.literal")`` bindings to their typed id."""
     bindings: dict[str, list[tuple[int, str]]] = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -249,10 +257,30 @@ def _check_metric_refs(tree: ast.Module, metric_ids: frozenset[str]) -> list[Rep
             )
             if literal is None:
                 continue  # non-literal id cannot be statically resolved in v1
-            if literal in metric_ids:
+            typed_literal = _typed_catalog_literal(literal)
+            if typed_literal is None:
+                issues.append(
+                    ReplayCheckIssue(
+                        "metric_ref",
+                        f"catalog.get metric input must use typed id 'metric.<semantic_id>': {literal}",
+                        node.lineno,
+                    )
+                )
+                continue
+            kind, semantic_id = typed_literal
+            if kind != ms.SemanticKind.METRIC.value:
+                issues.append(
+                    ReplayCheckIssue(
+                        "metric_ref",
+                        f"catalog.get metric input must be metric kind, got {kind}: {literal}",
+                        node.lineno,
+                    )
+                )
+                continue
+            if semantic_id in metric_ids:
                 continue
             issues.append(
-                ReplayCheckIssue("metric_ref", f"unresolved metric: {literal}", node.lineno)
+                ReplayCheckIssue("metric_ref", f"unresolved metric: {semantic_id}", node.lineno)
             )
     return issues
 

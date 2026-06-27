@@ -102,9 +102,10 @@ surface:
 ```python
 catalog = ms.load()
 catalog.list().show()
-catalog.list("sales").show()
-catalog.list(kind="metric").show()
-catalog.get("sales.revenue").details().show()
+sales = catalog.get("domain.sales")
+catalog.list(sales.ref).show()
+catalog.list(kind=ms.SemanticKind.METRIC).show()
+catalog.get("metric.sales.revenue").details().show()
 ```
 
 Use `mv.help(ref)` for a short consumption briefing on a semantic object.

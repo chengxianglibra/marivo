@@ -37,12 +37,12 @@ calendar_dir = session.project_root / ".marivo" / "calendar"
 )
 
 cur = session.observe(
-    session.catalog.get(METRIC_ID),
+    session.catalog.get(f"metric.{METRIC_ID}"),
     timescope={"start": "2026-09-01", "end": "2026-09-16"},
     grain="day",
 )
 base = session.observe(
-    session.catalog.get(METRIC_ID),
+    session.catalog.get(f"metric.{METRIC_ID}"),
     timescope={"start": "2025-07-01", "end": "2025-08-01"},
     grain="day",
 )

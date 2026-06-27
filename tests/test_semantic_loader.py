@@ -88,10 +88,10 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
 
     assert project.is_ready()
     catalog = SemanticCatalog(project)
-    datasources = catalog.list(kind="datasource").objects
+    datasources = catalog.list(kind=SemanticKind.DATASOURCE).objects
     assert [ds.ref.id for ds in datasources] == ["warehouse"]
-    orders = catalog.get("sales.orders").details()
-    refunds = catalog.get("finance.refunds").details()
+    orders = catalog.get("entity.sales.orders").details()
+    refunds = catalog.get("entity.finance.refunds").details()
     assert isinstance(orders, EntityDetails)
     assert isinstance(refunds, EntityDetails)
     assert orders.datasource.id == "warehouse"

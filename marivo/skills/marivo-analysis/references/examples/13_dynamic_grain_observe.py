@@ -30,7 +30,7 @@ session = mv.session.current()
 # Single-unit calendar grains use the token string form.
 # This works with the tiny fixture's day-granularity time field.
 series_day = session.observe(
-    session.catalog.get(METRIC_ID),
+    session.catalog.get(f"metric.{METRIC_ID}"),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="day",
 )
@@ -45,14 +45,14 @@ print(f"day_series_kind={series_day.meta.semantic_kind!r}")
 
 # Grain token string: sub-day multi-bucket grains.
 # series_5min_token = session.observe(
-#     session.catalog.get("ops.hits"),
+#     session.catalog.get("metric.ops.hits"),
 #     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
 #     grain="5minute",
 # )
 
 # Hourly grain on a timestamp-type time field.
 # series_hourly = session.observe(
-#     session.catalog.get("ops.hits"),
+#     session.catalog.get("metric.ops.hits"),
 #     timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 06:00:00"},
 #     grain="hour",
 # )

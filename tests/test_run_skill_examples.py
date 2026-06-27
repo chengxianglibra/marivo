@@ -84,6 +84,7 @@ _VALID_MODEL_EXAMPLE = textwrap.dedent(
         ratio=result,
         weighted_average=result,
         linear=result,
+        ref=result,
         verify_object=result,
         readiness=result,
     )
@@ -105,7 +106,7 @@ _VALID_MODEL_EXAMPLE = textwrap.dedent(
     ms.weighted_average()
     ms.linear()
     ms.verify_object("sales.orders")
-    ms.readiness(refs=("sales.orders",))
+    ms.readiness(refs=(ms.ref("entity.sales.orders"),))
     print("semantic model example ok")
     """
 ).lstrip()
@@ -317,7 +318,7 @@ _VALID_TEMPLATE = textwrap.dedent(
     import marivo.semantic as ms
 
     catalog = ms.load()
-    metric_ids = catalog.list(kind="metric").ids()
+    metric_ids = catalog.list(kind=ms.SemanticKind.METRIC).ids()
     metric_id = "sales.revenue"
     if metric_id not in metric_ids:
         raise SystemExit(f"Metric not found: {metric_id}")
@@ -328,7 +329,7 @@ _VALID_TEMPLATE = textwrap.dedent(
         default_calendar="cn_holidays",
     )
     frame = session.observe(
-        session.catalog.get(metric_id),
+        session.catalog.get(f"metric.{metric_id}"),
         window={"start": "2026-05-01", "end": "2026-05-31"},
     )
     print(frame.summary())
