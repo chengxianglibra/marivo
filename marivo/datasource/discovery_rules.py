@@ -357,15 +357,40 @@ def measure_column_rules(
     profile: ColumnProfile,
 ) -> tuple[DiscoverySignal | DiscoveryIssue, ...]:
     """Candidate-scope measure rules for one column profile."""
+    if profile.read_status == "not_found":
+        return (
+            DiscoveryIssue(
+                rule_id="column_not_found",
+                kind="measure",
+                severity="blocker",
+                subject=profile.name,
+                message="requested measure column was not found in the source schema",
+                evidence=_ev(("read_status", profile.read_status)),
+            ),
+        )
+    if profile.read_status == "unreadable":
+        return (
+            DiscoveryIssue(
+                rule_id="unreadable_column",
+                kind="measure",
+                severity="blocker",
+                subject=profile.name,
+                message="requested measure column exists in schema but was not readable in the sample",
+                evidence=_ev(
+                    ("read_status", profile.read_status),
+                    ("data_type", profile.data_type),
+                ),
+            ),
+        )
     shadowing_issue = _authoring_shadowing_issue(profile, kind="measure")
     if not _is_numeric(profile.data_type):
         issues: tuple[DiscoverySignal | DiscoveryIssue, ...] = (
             DiscoveryIssue(
-                rule_id="measure_non_numeric_type",
+                rule_id="unsupported_type",
                 kind="measure",
                 severity="blocker",
                 subject=profile.name,
-                message="requested measure column is not a numeric type",
+                message="requested measure column has unsupported non-numeric type",
                 evidence=_ev(("data_type", profile.data_type)),
             ),
         )

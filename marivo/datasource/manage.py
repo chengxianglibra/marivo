@@ -659,6 +659,7 @@ def _inspect_columns(
                     min_value=None,
                     max_value=None,
                     type_family=_coarse_type_family("UNKNOWN"),
+                    read_status="not_found",
                 )
             )
             continue
@@ -680,6 +681,7 @@ def _inspect_columns(
                     min_value=None,
                     max_value=None,
                     type_family=_coarse_type_family(data_type),
+                    read_status="unreadable",
                 )
             )
             continue

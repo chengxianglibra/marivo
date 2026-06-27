@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from marivo.datasource.authoring import ref
 from marivo.datasource.discovery import (
     DimensionDiscoveryResult,
@@ -22,7 +24,12 @@ from marivo.datasource.scan import ColumnProfile, ScanReport, ScanScope, table
 
 
 def _profile(
-    name: str, data_type: str, distinct: int = 5, null_count: int = 0, empty_count: int = 0
+    name: str,
+    data_type: str,
+    distinct: int = 5,
+    null_count: int = 0,
+    empty_count: int = 0,
+    read_status: Literal["readable", "not_found", "unreadable"] = "readable",
 ) -> ColumnProfile:
     return ColumnProfile(
         name=name,
@@ -36,6 +43,7 @@ def _profile(
         sample_values=(),
         min_value=None,
         max_value=None,
+        read_status=read_status,
     )
 
 
@@ -84,12 +92,35 @@ def test_empty_values_present_warning() -> None:
     assert any(i.rule_id == "dimension_empty_values_present" for i in issues)
 
 
-def test_measure_numeric_signal_and_non_numeric_blocker() -> None:
+def test_measure_numeric_signal_and_unsupported_type_blocker() -> None:
     numeric = measure_column_rules(_profile("amount", "DOUBLE"))
     assert "measure_numeric_type" in [s.rule_id for s in numeric if isinstance(s, DiscoverySignal)]
     text = measure_column_rules(_profile("label", "VARCHAR"))
     blockers = [i for i in text if isinstance(i, DiscoveryIssue) and i.severity == "blocker"]
-    assert any(i.rule_id == "measure_non_numeric_type" for i in blockers)
+    assert any(i.rule_id == "unsupported_type" for i in blockers)
+    assert not any(i.rule_id == "measure_non_numeric_type" for i in blockers)
+
+
+def test_measure_missing_column_emits_column_not_found_blocker() -> None:
+    out = measure_column_rules(_profile("elapsed_time_millis", "UNKNOWN", read_status="not_found"))
+    blockers = [i for i in out if isinstance(i, DiscoveryIssue) and i.severity == "blocker"]
+
+    assert [i.rule_id for i in blockers] == ["column_not_found"]
+    assert not any(i.rule_id == "unsupported_type" for i in blockers)
+    assert not any(
+        isinstance(i, DiscoverySignal) and i.rule_id == "measure_numeric_type" for i in out
+    )
+
+
+def test_measure_unreadable_column_emits_unreadable_column_blocker() -> None:
+    out = measure_column_rules(_profile("amount", "DOUBLE", read_status="unreadable"))
+    blockers = [i for i in out if isinstance(i, DiscoveryIssue) and i.severity == "blocker"]
+
+    assert [i.rule_id for i in blockers] == ["unreadable_column"]
+    assert not any(i.rule_id == "unsupported_type" for i in blockers)
+    assert not any(
+        isinstance(i, DiscoverySignal) and i.rule_id == "measure_numeric_type" for i in out
+    )
 
 
 def test_dimension_values_truncated_when_not_complete() -> None:
@@ -142,7 +173,7 @@ def test_build_measure_result_marks_non_numeric_blocker() -> None:
     )
     assert isinstance(result, MeasureDiscoveryResult)
     blocker = [i for i in result.columns[0].issues if i.severity == "blocker"]
-    assert any(i.rule_id == "measure_non_numeric_type" for i in blocker)
+    assert any(i.rule_id == "unsupported_type" for i in blocker)
     assert not hasattr(result, "judgment_targets")
 
 

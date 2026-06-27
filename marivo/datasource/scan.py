@@ -24,6 +24,7 @@ PartitionResolution = Literal["explicit", "latest", "none", "unpruned"]
 # colliding with the semantic authoring DatasetSource alias. Exported in the
 # public md surface in a later plan; defined here so discovery types can use it.
 TableSource = TableSourceIR | ParquetSourceIR | CsvSourceIR
+ColumnReadStatus = Literal["readable", "not_found", "unreadable"]
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,8 @@ class ColumnProfile:
         max_length: Maximum string length over non-null string values, or ``None``.
         avg_length: Average string length over non-null string values, or ``None``.
         type_family: Coarse type family label from ``_coarse_type_family``.
+        read_status: Whether the column was read, absent from schema, or absent
+            from the bounded sample despite schema metadata.
     """
 
     name: str
@@ -167,6 +170,7 @@ class ColumnProfile:
     max_length: int | None = None
     avg_length: float | None = None
     type_family: str = "unknown"
+    read_status: ColumnReadStatus = "readable"
 
     def _repr_identity(self) -> str:
         return f"ColumnProfile column={self.name} type={self.data_type} family={self.type_family}"

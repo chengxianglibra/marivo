@@ -618,7 +618,9 @@ or user confirmation to decide the policy.
 ### Measure Rules
 
 - `measure_numeric_type`: signal for numeric typed columns.
-- `measure_non_numeric_type`: blocker issue for requested non-numeric columns.
+- `column_not_found`: blocker issue for requested columns absent from the source schema.
+- `unreadable_column`: blocker issue for requested columns present in schema but absent from the bounded sample.
+- `unsupported_type`: blocker issue for requested readable columns with non-numeric types.
 - `measure_negative_values_present`: signal for sampled negative values.
 - `measure_zero_values_present`: signal for sampled zero values.
 - `measure_nullable`: info issue for sampled nulls.
@@ -856,8 +858,9 @@ Add or rewrite focused tests before implementation:
   `ai_context` or enum metadata.
 - `discover_time_dimensions` emits native temporal and parse-candidate signals
   and reports ambiguous integer parses or unsupported hour-only formats.
-- `discover_measures` emits numeric/non-numeric, negative, zero, nullable, and
-  optional unit-token evidence without choosing a unit or aggregation.
+- `discover_measures` emits numeric, missing-column, unreadable-column,
+  unsupported-type, negative, zero, nullable, and optional unit-token evidence
+  without choosing a unit or aggregation.
 - `discover_relationship` replaces `probe_join_keys` and reports key type
   evidence, sampled match rate, and fanout evidence. `scope.max_rows` bounds
   per-side scans and `key_sample_size` bounds the distinct-key sample
