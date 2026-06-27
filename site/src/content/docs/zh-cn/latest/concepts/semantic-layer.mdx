@@ -60,7 +60,7 @@ your-project/
 | `.id` | `str` | 限定 semantic id（如 `"sales.revenue"`）。 |
 | `.kind` | `SemanticKind` | 对象种类——以下八个值之一。 |
 
-`str(ref)` 返回 `.id`，因此 ref 可以用在任何接受字符串 id 的地方。
+`str(ref)` 返回 `.id`，因此 ref 在接受 semantic id 的读取/查询 API 中仍然方便。Authoring 参数必须使用 Ref 对象，不能传裸字符串。
 相等性和哈希基于 `(type, id)`，所以同子类同 id 的两个 ref 可互换。
 
 ### 按 kind 区分的子类
@@ -242,9 +242,9 @@ orders = ms.entity(
 对于行会随时间变化的 entity，需要声明如何读取当前状态：
 
 - `ms.snapshot(partition_field, grain="day", timezone=None, format=None)` ——
-  按天分区的快照；读取最新分区。
+  按天分区的快照；`partition_field` 必须是 `DimensionRef` 或 `TimeDimensionRef`。
 - `ms.validity(valid_from, valid_to, interval, open_end, timezone=None)` ——
-  SCD2 validity 区间。`interval` 为 `"closed_open"`（`[from, to)`）或
+  SCD2 validity 区间；`valid_from` 和 `valid_to` 必须是 `DimensionRef` 或 `TimeDimensionRef`。`interval` 为 `"closed_open"`（`[from, to)`）或
   `"closed_closed"`；`open_end` 列出表示“仍然有效”的哨兵值（例如 SQL `NULL` 用
   `(None,)`，或 `("9999-12-31",)`）。
 
@@ -257,7 +257,7 @@ entity 表的 ibis expression。
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Dimension 名称。成为 `<domain>.<entity>.<name>`。 |
-| `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `entity` | `EntityRef` | 是 | — | 所属 entity。 |
 | `column` | `str` | 是 | — | Entity 表上的物理列名。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
@@ -279,7 +279,7 @@ region = ms.dimension_column(
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Dimension 名称。 |
-| `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `entity` | `EntityRef` | 是 | — | 所属 entity。 |
 | `column` | `str` | 是 | — | Entity 表上的物理列名。 |
 | `granularity` | grain 字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
 | `parse` | parse 变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断 parse 变体。 |
@@ -340,7 +340,7 @@ Measure 是你打算聚合的行级数量事实（例如金额或数量）。直
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Measure 名称。成为 `<domain>.<entity>.<name>`。 |
-| `entity` | `EntityRef \| str` | 是 | — | 所属 entity。 |
+| `entity` | `EntityRef` | 是 | — | 所属 entity。 |
 | `column` | `str` | 是 | — | Entity 表上的物理列名。 |
 | `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
 | `unit` | `str` | 否 | `None` | UCUM unit token：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
@@ -369,7 +369,7 @@ Metric 是 agent 分析时依赖的可信数值，可以直接用于分析。Mar
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Metric 名称。 |
-| `measure` | `MeasureRef \| str` | 是 | — | 要聚合的 measure。 |
+| `measure` | `MeasureRef` | 是 | — | 要聚合的 measure。 |
 | `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"min"`、`"max"` 等。 |
 | `fold` | fold | 否 | `None` | semi-additive measure 的 time-fold 覆盖。 |
 | `unit` | `str` | 否 | 继承 | 覆盖从 measure 推导的 unit。 |
@@ -396,9 +396,9 @@ order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_conte
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 否 | 函数名 | Metric 名称。 |
-| `entities` | `list[EntityRef \| str]` | 是 | — | Body 读取的 entities。 |
+| `entities` | `list[EntityRef]` | 是 | — | Body 读取的 entities。 |
 | `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
-| `root_entity` | `EntityRef \| str` | 否 | 单个 entity | 当 `entities` 多于一个时必填。 |
+| `root_entity` | `EntityRef` | 否 | 单个 entity | 当 `entities` 多于一个时必填。 |
 | `fanout_policy` | `"block" \| "aggregate_then_join"` | 否 | `"block"` | 如何处理跨 entity 连接的 fan-out。 |
 | `unit` | `str` | 否 | `None` | UCUM unit token。 |
 | `provenance` | `SqlProvenance` | 否 | `None` | 用于 parity 校验的 `ms.from_sql(sql=..., dialect=...)`。 |
@@ -469,8 +469,8 @@ Keys 使用 dimension ref，而不是原始列名。
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Relationship 名称。 |
-| `from_entity` | `EntityRef \| str` | 是 | — | 源 entity。 |
-| `to_entity` | `EntityRef \| str` | 是 | — | 目标 entity。 |
+| `from_entity` | `EntityRef` | 是 | — | 源 entity。 |
+| `to_entity` | `EntityRef` | 是 | — | 目标 entity。 |
 | `keys` | `list[JoinKey]` | 是 | — | 一个或多个 `ms.join_on(from_key, to_key)` 配对。 |
 | `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
 

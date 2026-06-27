@@ -119,7 +119,7 @@ def test_derived_metric_keeps_default_fanout_policy(tmp_path, monkeypatch):
         "    return orders.count()\n"
         "aov = ms.ratio(\n"
         "    name='aov',\n"
-        "    numerator='sales.gmv', denominator='sales.cnt',\n"
+        "    numerator=gmv, denominator=cnt,\n"
         ")\n"
     )
     monkeypatch.chdir(tmp_path)

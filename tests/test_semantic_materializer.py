@@ -734,8 +734,8 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
 
         revenue_ratio = ms.ratio(
             name="revenue_ratio",
-            numerator="sales.revenue",
-            denominator="sales.revenue",
+            numerator=revenue,
+            denominator=revenue,
         )
     """)
 
@@ -767,8 +767,8 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
 
         revenue_ratio = ms.ratio(
             name="revenue_ratio",
-            numerator="sales.revenue",
-            denominator="sales.revenue",
+            numerator=revenue,
+            denominator=revenue,
         )
     """)
 
@@ -805,8 +805,8 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
 
         aov = ms.weighted_average(
             name="aov",
-            value="sales.revenue",
-            weight="sales.count_metric",
+            value=revenue,
+            weight=count_metric,
         )
     """)
 
@@ -837,14 +837,14 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
 
         revenue_ratio = ms.ratio(
             name="revenue_ratio",
-            numerator="sales.revenue",
-            denominator="sales.revenue",
+            numerator=revenue,
+            denominator=revenue,
         )
 
         double_ratio = ms.ratio(
             name="double_ratio",
-            numerator="sales.revenue_ratio",
-            denominator="sales.revenue_ratio",
+            numerator=revenue_ratio,
+            denominator=revenue_ratio,
         )
     """)
 

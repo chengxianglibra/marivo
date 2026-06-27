@@ -64,7 +64,7 @@ All refs share two read-only attributes:
 | `.id` | `str` | Qualified semantic id (e.g. `"sales.revenue"`). |
 | `.kind` | `SemanticKind` | Object kind — one of the eight values below. |
 
-`str(ref)` returns `.id`, so refs can be used wherever a string id is expected.
+`str(ref)` returns `.id`, so refs remain convenient in read/query APIs that accept semantic ids. Authoring parameters still require Ref objects, not bare strings.
 Equality and hashing are by `(type, id)`, so two refs of the same subclass and
 id are interchangeable.
 
@@ -255,9 +255,9 @@ orders = ms.entity(
 For entities whose rows change over time, declare how to read the current state:
 
 - `ms.snapshot(partition_field, grain="day", timezone=None, format=None)` — daily
-  partitioned snapshots; reads the latest partition.
+  partitioned snapshots; `partition_field` must be a `DimensionRef` or `TimeDimensionRef`.
 - `ms.validity(valid_from, valid_to, interval, open_end, timezone=None)` — SCD2
-  validity intervals. `interval` is `"closed_open"` (`[from, to)`) or
+  validity intervals; `valid_from` and `valid_to` must be `DimensionRef` or `TimeDimensionRef` values. `interval` is `"closed_open"` (`[from, to)`) or
   `"closed_closed"`; `open_end` lists the sentinel values that mean "still current"
   (e.g. `(None,)` for SQL `NULL`, or `("9999-12-31",)`).
 
@@ -271,7 +271,7 @@ single ibis expression over the entity table.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Dimension name. Becomes `<domain>.<entity>.<name>`. |
-| `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `entity` | `EntityRef` | Yes | — | The owning entity. |
 | `column` | `str` | Yes | — | Physical column name on the entity table. |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
 | `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
@@ -293,7 +293,7 @@ A time dimension is a special dimension that carries grain and parsing metadata.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Dimension name. |
-| `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `entity` | `EntityRef` | Yes | — | The owning entity. |
 | `column` | `str` | Yes | — | Physical column name on the entity table. |
 | `granularity` | grain literal | Yes | — | `year`, `quarter`, `month`, `week`, `day`, `hour`, `minute`, or `second` — the finest grain at which queries are meaningful. |
 | `parse` | parse variant | No | `None` | How the source column becomes a time value (see below). Omit for native temporal columns — the parse variant is inferred at analysis time. |
@@ -358,7 +358,7 @@ additivity and an optional unit.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Measure name. Becomes `<domain>.<entity>.<name>`. |
-| `entity` | `EntityRef \| str` | Yes | — | The owning entity. |
+| `entity` | `EntityRef` | Yes | — | The owning entity. |
 | `column` | `str` | Yes | — | Physical column name on the entity table. |
 | `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
 | `unit` | `str` | No | `None` | UCUM unit token: `"USD"`, `"CNY"`, `"%"`, `"ms"`, `"{order}"`. |
@@ -387,7 +387,7 @@ Aggregates a measure. No body; additivity is inherited from the measure.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Metric name. |
-| `measure` | `MeasureRef \| str` | Yes | — | The measure to aggregate. |
+| `measure` | `MeasureRef` | Yes | — | The measure to aggregate. |
 | `agg` | aggregation | Yes | — | `"sum"`, `"mean"`, `"min"`, `"max"`, … |
 | `fold` | fold | No | `None` | Time-fold override for semi-additive measures. |
 | `unit` | `str` | No | inherited | Override the unit derived from the measure. |
@@ -416,9 +416,9 @@ aggregation, and you declare `additivity` directly.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | No | function name | Metric name. |
-| `entities` | `list[EntityRef \| str]` | Yes | — | Entities the body reads. |
+| `entities` | `list[EntityRef]` | Yes | — | Entities the body reads. |
 | `additivity` | additivity value | Yes | — | `"additive"`, `"non_additive"`, or `ms.semi_additive(...)`. |
-| `root_entity` | `EntityRef \| str` | No | the single entity | Required when `entities` has more than one. |
+| `root_entity` | `EntityRef` | No | the single entity | Required when `entities` has more than one. |
 | `fanout_policy` | `"block" \| "aggregate_then_join"` | No | `"block"` | How to handle join fan-out across entities. |
 | `unit` | `str` | No | `None` | UCUM unit token. |
 | `provenance` | `SqlProvenance` | No | `None` | `ms.from_sql(sql=..., dialect=...)` for parity checking. |
@@ -490,8 +490,8 @@ Keys are dimension refs, not raw column names.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Relationship name. |
-| `from_entity` | `EntityRef \| str` | Yes | — | Source entity. |
-| `to_entity` | `EntityRef \| str` | Yes | — | Target entity. |
+| `from_entity` | `EntityRef` | Yes | — | Source entity. |
+| `to_entity` | `EntityRef` | Yes | — | Target entity. |
 | `keys` | `list[JoinKey]` | Yes | — | One or more `ms.join_on(from_key, to_key)` pairs. |
 | `domain` / `ai_context` | — | No | — | As elsewhere. |
 

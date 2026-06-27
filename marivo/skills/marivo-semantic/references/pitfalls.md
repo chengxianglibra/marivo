@@ -32,6 +32,14 @@ join-key viability, or existing refs when Marivo can discover them.
 Author exactly one object, then run `ms.verify_object(ref)`. Fix failures
 before moving to the next object.
 
+## Passing naked semantic-id strings
+
+Do not pass strings such as `"sales.orders"` or `"sales.revenue"` to
+semantic-object authoring parameters. Use the Ref returned by the earlier
+authoring call, import the Ref from the module that declares it, or use
+`ms.ref("<kind>.<semantic_id>")` only for explicit forward/cross-file
+references.
+
 ## Advancing past failed verification
 
 If `ms.verify_object(ref)` fails, stop. Show the verification result, repair

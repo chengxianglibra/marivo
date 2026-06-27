@@ -278,9 +278,11 @@ project = SemanticProject(root="/path/to/marivo/semantic")
 domain 是业务域边界，例如 `sales`、`marketing`、`subscription`。domain 名称参与下游 semantic id，例如 `sales.revenue`。agent 不应用自然语言近似匹配替代 domain id；如果不确定，应先 `catalog.list()` / `catalog.get(...)`。
 
 当前标准 authoring pipeline 不要求 `_exports.py`。跨 domain 或前向引用无法自然使用
-decorated Python ref 时，使用当前实现格式的字符串 ref，例如
-`ms.ref("marketing.sessions")` 或 `ms.ref("sales.orders.user_id")`。已有项目若维护
-`_exports.py`，它属于多文件 loader 工作流的边界文件，不是本管线的默认组织要求。
+decorated Python ref 时，使用显式 typed fallback ref，例如
+`ms.ref("metric.marketing.sessions")`、`ms.ref("entity.sales.orders")` 或
+`ms.ref("dimension.sales.orders.user_id")`。裸 semantic-id 字符串不能作为对象间
+authoring 参数引用。已有项目若维护 `_exports.py`，它属于多文件 loader 工作流的边界文件，
+不是本管线的默认组织要求。
 
 ### Datasource
 
@@ -341,7 +343,7 @@ user_profile_daily = ms.entity(
     source=ms.table("user_profile_daily"),
     primary_key=["user_id", "dt"],
     versioning=ms.snapshot(
-        partition_field="dt",
+        partition_field=ms.ref("dimension.sales.user_profile_daily.dt"),
         grain="day",
         timezone="Asia/Shanghai",
         format="%Y%m%d",
@@ -349,8 +351,8 @@ user_profile_daily = ms.entity(
 )
 ```
 
-`partition_field` is the entity dimension name that carries the snapshot key.
-`grain` declares the snapshot cadence (currently `day`). `timezone` resolves
+`partition_field` is the declared dimension/time-dimension Ref that carries
+the snapshot key. `grain` declares the snapshot cadence (currently `day`). `timezone` resolves
 "latest" relative to the requested observe window using a real calendar.
 `format` describes the on-disk partition encoding (e.g. `%Y%m%d` for VARCHAR
 keys, omitted when the column is already a date). Analysis joins against a
@@ -670,7 +672,7 @@ inventory_daily = ms.entity(
     source=ms.table("inventory_daily"),
     primary_key=["sku_id", "warehouse_id", "dt"],
     versioning=ms.snapshot(
-        partition_field="dt",
+        partition_field=ms.ref("time_dimension.sales.inventory_daily.snapshot_date"),
         grain="day",
         timezone="UTC",
         format="%Y%m%d",
@@ -865,25 +867,28 @@ print(frame.summary())
 
 ### 什么时候使用 ref
 
-目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。字符串 `ms.ref(...)` 只用于无法自然 import 的前向引用、跨 domain 引用或工具生成场景。
+目标态优先使用 decorated object refs，因为它能让 Python 静态阅读和重构更直接。
+`ms.ref("<kind>.<semantic_id>")` 只用于无法自然 import 的前向引用、跨 domain 引用或
+工具生成场景；裸字符串如 `"sales.revenue"` 不允许作为 authoring 参数引用。
 
 ```python
 sessions_per_user = ms.ratio(
     name="sessions_per_user",
-    numerator=ms.ref("marketing.sessions"),
+    numerator=ms.ref("metric.marketing.sessions"),
     denominator=total_users,
 )
 ```
 
-`ms.ref(...)` 的唯一位置参数使用当前实现的 semantic id 格式。例：
+`ms.ref(...)` 的唯一位置参数使用 `<kind>.<semantic_id>` 格式。例：
 
-- `ms.ref("marketing.sessions")`
-- `ms.ref("sales.orders.user_id")`
-- `ms.ref("marketing.sessions_daily")`
+- `ms.ref("metric.marketing.sessions")`
+- `ms.ref("entity.sales.orders")`
+- `ms.ref("dimension.sales.orders.user_id")`
+- `ms.ref("time_dimension.sales.orders.created_at")`
 
 跨 domain refs 允许，但必须在 resolve 阶段做存在性、cycle 和 contract 检查；不能退回到 SQL provenance 里复制另一个 domain 的定义。
 
-因为字符串 ref 是重构风险，`check` 默认应列出所有字符串 refs，并标记为 `potentially_fragile_reference`。目标态还应提供结构化重命名 helper，让 agent 优先通过工具修改 semantic refs，而不是手工 grep。
+因为 fallback ref 仍由字符串字面量构造，`check` 默认应列出 `ms.ref(...)` refs，并标记为 `potentially_fragile_reference`。目标态还应提供结构化重命名 helper，让 agent 优先通过工具修改 semantic refs，而不是手工 grep。
 
 Refactor helper 契约：
 

@@ -627,7 +627,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.orders"], additivity="additive", )
+        @ms.metric(entities=[ms.ref("entity.sales.orders")], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -680,7 +680,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.nonexistent"], additivity="additive", )
+        @ms.metric(entities=[ms.ref("entity.sales.nonexistent")], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -751,9 +751,9 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
 
         ms.relationship(
             name="bad_rel",
-            from_entity="sales.nonexistent",
-            to_entity="sales.also_nonexistent",
-            keys=[ms.join_on("sales.orders.f1", "sales.orders.f2")],
+            from_entity=ms.ref("entity.sales.nonexistent"),
+            to_entity=ms.ref("entity.sales.also_nonexistent"),
+            keys=[ms.join_on(ms.ref("dimension.sales.orders.f1"), ms.ref("dimension.sales.orders.f2"))],
         )
     """)
     project = semantic_project_factory(

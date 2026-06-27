@@ -100,8 +100,8 @@ def _bootstrap_schema_project(tmp_path):
         "    return queries.elapsed_time.sum()\n\n"
         "ms.ratio(\n"
         "    name='avg_elapsed_time',\n"
-        "    numerator='analytics.elapsed_total',\n"
-        "    denominator='analytics.query_count',\n"
+        "    numerator=elapsed_total,\n"
+        "    denominator=query_count,\n"
         ")\n"
     )
 

@@ -365,7 +365,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.orders"], additivity="additive", )
+        @ms.metric(entities=[ms.ref("entity.sales.orders")], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -457,7 +457,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.orders"], additivity="additive", )
+        @ms.metric(entities=[ms.ref("entity.sales.orders")], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -547,7 +547,7 @@ def test_cross_file_missing_entity_ref(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.nonexistent"], additivity="additive", )
+        @ms.metric(entities=[ms.ref("entity.sales.nonexistent")], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -688,7 +688,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=["sales.orders"], additivity="additive", )
+        @ms.metric(entities=[ms.ref("entity.sales.orders")], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -728,11 +728,11 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dimension(entity="sales.orders")
+        @ms.dimension(entity=ms.ref("entity.sales.orders"))
         def order_id(table):
             return table.order_id
 
-        @ms.dimension(entity="sales.items")
+        @ms.dimension(entity=ms.ref("entity.sales.items"))
         def item_order_id(table):
             return table.order_id
     """)
@@ -741,9 +741,9 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
 
         ms.relationship(
             name="orders_to_items",
-            from_entity="sales.orders",
-            to_entity="sales.items",
-            keys=[ms.join_on("sales.orders.order_id", "sales.items.item_order_id")],
+            from_entity=ms.ref("entity.sales.orders"),
+            to_entity=ms.ref("entity.sales.items"),
+            keys=[ms.join_on(ms.ref("dimension.sales.orders.order_id"), ms.ref("dimension.sales.items.item_order_id"))],
         )
     """)
     project = semantic_project_factory(
@@ -778,8 +778,8 @@ def test_relationship_empty_keys_rejected_via_loader(semantic_project_factory) -
 
         ms.relationship(
             name="bad_rel",
-            from_entity="sales.orders",
-            to_entity="sales.orders",
+            from_entity=ms.ref("entity.sales.orders"),
+            to_entity=ms.ref("entity.sales.orders"),
             keys=[],
         )
     """)
@@ -810,7 +810,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dimension(entity="sales.orders")
+        @ms.dimension(entity=ms.ref("entity.sales.orders"))
         def amount(table):
             return table.amount
 
@@ -845,7 +845,7 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
     fields_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.dimension(entity="sales.orders")
+        @ms.dimension(entity=ms.ref("entity.sales.orders"))
         def region(table):
             return table.region
 
@@ -1255,8 +1255,8 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
         ms.relationship(
             name="orders_to_refunds",
             from_entity=orders,
-            to_entity="finance.refunds",
-            keys=[ms.join_on("sales.orders.amount", "finance.refunds.refunds_total")],
+            to_entity=ms.ref("entity.finance.refunds"),
+            keys=[ms.join_on(ms.ref("dimension.sales.orders.amount"), ms.ref("dimension.finance.refunds.refunds_total"))],
         )
     """)
     project = semantic_project_factory(

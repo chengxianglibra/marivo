@@ -157,9 +157,12 @@ Physical references appear in exactly two places:
    plus `md.table(...)` / `md.file(...)`.
 2. **`prepare_entity` input** — the single bridge from physical to semantic.
 
-After an entity is registered, every API input is a semantic ref
-(`"sales.orders"` strings or typed `EntityRef` / `DimensionRef` / `MetricRef`,
-i.e. `SemanticRefInput`). All typed ref classes are subclasses of the
+After an entity is registered, every authoring API input that references another
+semantic object is a typed semantic ref (`EntityRef`, `DimensionRef`,
+`TimeDimensionRef`, `MeasureRef`, `MetricRef`, or `RelationshipRef`). Bare
+semantic-id strings are not accepted in authoring calls; use an imported ref or
+the explicit typed fallback `ms.ref("<kind>.<semantic_id>")`. All typed ref
+classes are subclasses of the
 cross-layer `SemanticRef` base (`marivo.refs.SemanticRef`), which exposes a
 single `.id` accessor for the identity string and a `.kind` property for the
 `SymbolKind`. Prepare and verify resolve physical sources and

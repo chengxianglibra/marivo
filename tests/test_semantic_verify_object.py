@@ -333,8 +333,8 @@ def test_verify_derived_metric_auto_records_decomposition(
                 "    return orders.amount.sum()\n"
                 "revenue_ratio = ms.ratio(\n"
                 "    name='revenue_ratio',\n"
-                "    numerator='sales.revenue',\n"
-                "    denominator='sales.revenue',\n"
+                "    numerator=revenue,\n"
+                "    denominator=revenue,\n"
                 ")\n"
             )
         },

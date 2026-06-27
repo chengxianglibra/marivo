@@ -15,6 +15,8 @@ Tests cover:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 import marivo.datasource as md
@@ -113,7 +115,7 @@ def test_time_field_outside_context_raises() -> None:
 def test_metric_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
 
-        @ms.metric(entities=["sales.orders"], additivity="additive")
+        @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -126,7 +128,9 @@ def test_relationship_outside_context_raises() -> None:
             name="orders_to_items",
             from_entity="orders",
             to_entity="items",
-            keys=[ms.join_on("sales.orders.id", "sales.items.order_id")],
+            keys=[
+                ms.join_on(DimensionRef("sales.orders.id"), DimensionRef("sales.items.order_id"))
+            ],
         )
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
@@ -406,7 +410,7 @@ def test_field_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.dimension(entity="sales.orders")
+        @ms.dimension(entity=EntityRef("sales.orders"))
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -420,7 +424,7 @@ def test_dimension_accepts_leading_docstring() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.dimension(entity="sales.orders")
+        @ms.dimension(entity=EntityRef("sales.orders"))
         def region(table: object) -> object:
             """Order region."""
             return None  # type: ignore[unreachable]
@@ -435,7 +439,7 @@ def test_field_name_defaults_to_function_name() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.dimension(entity="sales.orders")
+        @ms.dimension(entity=EntityRef("sales.orders"))
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -451,7 +455,7 @@ def test_field_explicit_name() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.dimension(name="order_amount", entity="sales.orders")
+        @ms.dimension(name="order_amount", entity=EntityRef("sales.orders"))
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -483,7 +487,7 @@ def test_field_pushes_callable() -> None:
         def amount_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.dimension(entity="sales.orders")(amount_fn)
+        ms.dimension(entity=EntityRef("sales.orders"))(amount_fn)
         ir, callable_ = ctx.pending_objects[-1]
         assert callable_ is amount_fn
         assert ir.entity == "sales.orders"
@@ -496,7 +500,7 @@ def test_field_body_rejects_lambda() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.dimension(entity="sales.orders")
+            @ms.dimension(entity=EntityRef("sales.orders"))
             def amount(table: object) -> object:
                 fn = lambda value: value
                 return fn(table)
@@ -511,7 +515,7 @@ def test_field_kind_defaults_to_dimension() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.dimension(entity="sales.orders")
+        @ms.dimension(entity=EntityRef("sales.orders"))
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -593,7 +597,7 @@ def test_field_kind_measure() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.measure(entity="sales.orders", additivity="additive")
+        @ms.measure(entity=EntityRef("sales.orders"), additivity="additive")
         def amount(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -608,7 +612,7 @@ def test_measure_accepts_leading_docstring() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.measure(entity="sales.orders", additivity="additive")
+        @ms.measure(entity=EntityRef("sales.orders"), additivity="additive")
         def amount(table: object) -> object:
             """Order amount."""
             return None  # type: ignore[unreachable]
@@ -624,7 +628,7 @@ def test_measure_body_error_uses_measure_label() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.measure(entity="sales.orders", additivity="additive")
+            @ms.measure(entity=EntityRef("sales.orders"), additivity="additive")
             def amount(table: object) -> object:
                 return table.amount
                 table.amount  # noqa: B018
@@ -699,7 +703,7 @@ def test_time_field_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.time_dimension(entity="sales.orders", granularity="day")
+        @ms.time_dimension(entity=EntityRef("sales.orders"), granularity="day")
         def order_date(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -713,7 +717,7 @@ def test_time_dimension_accepts_leading_docstring() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.time_dimension(entity="sales.orders", granularity="day")
+        @ms.time_dimension(entity=EntityRef("sales.orders"), granularity="day")
         def order_date(table: object) -> object:
             """Order date."""
             return None  # type: ignore[unreachable]
@@ -729,7 +733,7 @@ def test_time_dimension_body_error_uses_time_dimension_label() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.time_dimension(entity="sales.orders", granularity="day")
+            @ms.time_dimension(entity=EntityRef("sales.orders"), granularity="day")
             def order_date(table: object) -> object:
                 return table.created_at
                 table.created_at  # noqa: B018
@@ -747,7 +751,7 @@ def test_time_field_ir_has_time_metadata() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.orders",
+            entity=EntityRef("sales.orders"),
             granularity="hour",
             parse=ms.hour_prefix("order_date"),
         )
@@ -773,7 +777,7 @@ def test_time_dimension_rejects_invalid_parse_value() -> None:
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.time_dimension(
-                entity="sales.orders",
+                entity=EntityRef("sales.orders"),
                 granularity="day",
                 parse=object(),  # type: ignore[arg-type]
             )(order_date)
@@ -788,7 +792,7 @@ def test_time_field_requires_data_type_and_granularity() -> None:
     try:
         with pytest.raises(TypeError):
 
-            @ms.time_dimension(entity="sales.orders")  # type: ignore[call-arg]
+            @ms.time_dimension(entity=EntityRef("sales.orders"))  # type: ignore[call-arg]
             def order_date(table: object) -> object:
                 return None  # type: ignore[unreachable]
     finally:
@@ -800,7 +804,7 @@ def test_time_field_body_rejects_sql_escape_hatch() -> None:
     try:
         with pytest.raises(SemanticLoadError) as exc_info:
 
-            @ms.time_dimension(entity="sales.orders", granularity="day")
+            @ms.time_dimension(entity=EntityRef("sales.orders"), granularity="day")
             def order_date(backend: object) -> object:
                 return backend.sql("select current_date")
 
@@ -817,7 +821,7 @@ def test_time_field_accepts_timezone_metadata() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.orders",
+            entity=EntityRef("sales.orders"),
             granularity="hour",
             parse=ms.timestamp(timezone="UTC"),
         )
@@ -839,7 +843,7 @@ def test_time_field_accepts_missing_timezone_for_datetime_metadata() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.orders",
+            entity=EntityRef("sales.orders"),
             granularity="hour",
             parse=ms.datetime(),
         )
@@ -860,7 +864,7 @@ def test_time_field_accepts_missing_timezone_for_timestamp_metadata() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.orders",
+            entity=EntityRef("sales.orders"),
             granularity="hour",
             parse=ms.timestamp(),
         )
@@ -880,7 +884,7 @@ def test_time_field_rejects_invalid_timezone() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
-                entity="sales.orders",
+                entity=EntityRef("sales.orders"),
                 granularity="hour",
                 parse=ms.timestamp(timezone="Mars/Olympus"),
             )
@@ -911,7 +915,7 @@ def test_time_field_rejects_date_format_on_temporal_type() -> None:
         with pytest.raises(TypeError):
 
             @ms.time_dimension(
-                entity="sales.orders",
+                entity=EntityRef("sales.orders"),
                 granularity="day",
                 parse=ms.datetime(timezone="UTC"),
                 date_format="%Y-%m-%d",  # type: ignore[call-arg]
@@ -929,7 +933,7 @@ def test_time_field_rejects_date_format_on_date_type() -> None:
         with pytest.raises(TypeError):
 
             @ms.time_dimension(
-                entity="sales.orders",
+                entity=EntityRef("sales.orders"),
                 granularity="day",
                 date_format="%Y-%m-%d",  # type: ignore[call-arg]
             )
@@ -946,7 +950,7 @@ def test_time_field_rejects_date_format_on_hour_only_field() -> None:
         with pytest.raises(TypeError):
 
             @ms.time_dimension(
-                entity="sales.orders",
+                entity=EntityRef("sales.orders"),
                 granularity="hour",
                 parse=ms.hour_prefix("order_date"),
                 date_format="%H",  # type: ignore[call-arg]
@@ -963,7 +967,7 @@ def test_time_dimension_without_parse_is_valid() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.orders",
+            entity=EntityRef("sales.orders"),
             granularity="day",
         )
         def order_date(table: object) -> object:
@@ -982,7 +986,7 @@ def test_time_field_accepts_canonical_strptime() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.orders",
+            entity=EntityRef("sales.orders"),
             granularity="day",
             parse=ms.strptime("%Y%m%d"),
         )
@@ -1004,7 +1008,7 @@ def test_time_field_strips_whitespace_from_strptime() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.orders",
+            entity=EntityRef("sales.orders"),
             granularity="day",
             parse=ms.strptime("  %Y-%m-%d  "),
         )
@@ -1031,7 +1035,7 @@ def test_time_dimension_accepts_sample_interval() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.bandwidth_samples",
+            entity=EntityRef("sales.bandwidth_samples"),
             granularity="second",
             parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
         )
@@ -1056,7 +1060,7 @@ def test_strptime_time_dimension_accepts_sample_interval() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.bandwidth_samples",
+            entity=EntityRef("sales.bandwidth_samples"),
             granularity="second",
             parse=ms.strptime(
                 "%Y%m%d%H%M%S",
@@ -1086,7 +1090,7 @@ def test_time_dimension_rejects_invalid_sample_interval_unit() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
-                entity="sales.bandwidth_samples",
+                entity=EntityRef("sales.bandwidth_samples"),
                 granularity="second",
                 parse=ms.timestamp(timezone="UTC", sample_interval=(1, "day")),  # type: ignore[arg-type]
             )
@@ -1104,7 +1108,7 @@ def test_strptime_time_dimension_rejects_invalid_sample_interval_unit() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
-                entity="sales.bandwidth_samples",
+                entity=EntityRef("sales.bandwidth_samples"),
                 granularity="second",
                 parse=ms.strptime(
                     "%Y%m%d%H%M%S",
@@ -1129,7 +1133,7 @@ def test_strptime_time_dimension_rejects_sample_interval_without_date_context(
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
-                entity="sales.bandwidth_samples",
+                entity=EntityRef("sales.bandwidth_samples"),
                 granularity="hour",
                 parse=ms.strptime(
                     fmt,
@@ -1151,7 +1155,7 @@ def test_time_dimension_coarser_granularity_error_suggests_fix() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
-                entity="sales.bandwidth_samples",
+                entity=EntityRef("sales.bandwidth_samples"),
                 granularity="day",
                 parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
             )
@@ -1172,7 +1176,7 @@ def test_strptime_time_dimension_coarser_granularity_error_suggests_fix() -> Non
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
-                entity="sales.bandwidth_samples",
+                entity=EntityRef("sales.bandwidth_samples"),
                 granularity="day",
                 parse=ms.strptime(
                     "%Y%m%d%H%M%S",
@@ -1198,7 +1202,7 @@ def test_hour_prefix_accepts_sample_interval() -> None:
     try:
 
         @ms.time_dimension(
-            entity="sales.bandwidth_samples",
+            entity=EntityRef("sales.bandwidth_samples"),
             granularity="hour",
             parse=ms.hour_prefix("sales.bandwidth_samples.dt", sample_interval=(1, "hour")),
         )
@@ -1221,7 +1225,7 @@ def test_hour_prefix_rejects_sample_interval_day_unit() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
-                entity="sales.bandwidth_samples",
+                entity=EntityRef("sales.bandwidth_samples"),
                 granularity="hour",
                 parse=ms.hour_prefix("sales.bandwidth_samples.dt", sample_interval=(1, "day")),  # type: ignore[arg-type]
             )
@@ -1320,7 +1324,7 @@ def test_metric_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], additivity="additive")
+        @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1334,7 +1338,7 @@ def test_metric_accepts_leading_docstring() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], additivity="additive")
+        @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")
         def revenue(table: object) -> object:
             """Order revenue."""
             return None  # type: ignore[unreachable]
@@ -1349,7 +1353,7 @@ def test_metric_with_entities() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], additivity="additive")
+        @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1381,7 +1385,7 @@ def test_metric_provenance_fields() -> None:
     try:
 
         @ms.metric(
-            entities=["sales.orders"],
+            entities=[EntityRef("sales.orders")],
             additivity="additive",
             provenance=ms.from_sql(sql="SELECT SUM(amount) FROM orders", dialect="ansi"),
         )
@@ -1404,7 +1408,7 @@ def test_metric_rejects_invalid_provenance_value() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(
-                entities=["sales.orders"],
+                entities=[EntityRef("sales.orders")],
                 additivity="additive",
                 provenance=object(),  # type: ignore[arg-type]
             )
@@ -1421,7 +1425,7 @@ def test_metric_body_ast_hash() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], additivity="additive")
+        @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -1440,7 +1444,7 @@ def test_metric_pushes_callable() -> None:
         def revenue_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.metric(entities=["sales.orders"], additivity="additive")(revenue_fn)
+        ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")(revenue_fn)
         ir, callable_ = ctx.pending_objects[-1]
         assert callable_ is revenue_fn
     finally:
@@ -1451,12 +1455,12 @@ def test_metric_accepts_semi_additive() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.time_dimension(entity="sales.bandwidth_samples", granularity="minute")
+        @ms.time_dimension(entity=EntityRef("sales.bandwidth_samples"), granularity="minute")
         def sample_ts(table: object) -> object:
             return None  # type: ignore[unreachable]
 
         @ms.metric(
-            entities=["sales.bandwidth_samples"],
+            entities=[EntityRef("sales.bandwidth_samples")],
             additivity=ms.semi_additive(
                 over=sample_ts,
                 fold="mean",
@@ -1489,7 +1493,8 @@ def test_semi_additive_rejects_string_over() -> None:
 def test_aggregate_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        ref = ms.aggregate(name="amount", measure="sales.orders.amount", agg="sum")
+        amount = MeasureRef("sales.orders.amount")
+        ref = ms.aggregate(name="amount", measure=amount, agg="sum")
         assert isinstance(ref, MetricRef)
         assert ref.id == "sales.amount"
     finally:
@@ -1499,7 +1504,7 @@ def test_aggregate_returns_ref() -> None:
 def test_aggregate_pushes_body_free_ir() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        ref = ms.aggregate(name="revenue", measure="sales.orders.amount", agg="sum")
+        ref = ms.aggregate(name="revenue", measure=MeasureRef("sales.orders.amount"), agg="sum")
         ir, sidecar = ctx.pending_objects[-1]
         assert sidecar is None  # body-free
         assert ir.metric_type == "simple"
@@ -1514,7 +1519,7 @@ def test_aggregate_pushes_body_free_ir() -> None:
 def test_aggregate_infers_name_from_measure() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        ref = ms.aggregate(name="amount", measure="sales.orders.amount", agg="sum")
+        ref = ms.aggregate(name="amount", measure=MeasureRef("sales.orders.amount"), agg="sum")
         assert ref.id == "sales.amount"
     finally:
         _exit_ctx()
@@ -1523,7 +1528,7 @@ def test_aggregate_infers_name_from_measure() -> None:
 def test_aggregate_explicit_name() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        ref = ms.aggregate(name="revenue", measure="sales.orders.amount", agg="sum")
+        ref = ms.aggregate(name="revenue", measure=MeasureRef("sales.orders.amount"), agg="sum")
         assert ref.id == "sales.revenue"
     finally:
         _exit_ctx()
@@ -1577,8 +1582,8 @@ def test_ratio_returns_ref_and_pushes_body_free_ir() -> None:
     try:
         ref = ms.ratio(
             name="margin",
-            numerator="sales.revenue",
-            denominator="sales.cost",
+            numerator=MetricRef("sales.revenue"),
+            denominator=MetricRef("sales.cost"),
         )
 
         assert isinstance(ref, MetricRef)
@@ -1602,8 +1607,8 @@ def test_weighted_average_keeps_value_weight_keys() -> None:
     try:
         ms.weighted_average(
             name="aov",
-            value="sales.revenue",
-            weight="sales.order_count",
+            value=MetricRef("sales.revenue"),
+            weight=MetricRef("sales.order_count"),
         )
 
         ir, sidecar_entry = ctx.pending_objects[-1]
@@ -1622,8 +1627,8 @@ def test_linear_returns_ref_and_pushes_ir() -> None:
     try:
         ref = ms.linear(
             name="net_revenue",
-            add=["sales.gross_revenue"],
-            subtract=["sales.refunds"],
+            add=[MetricRef("sales.gross_revenue")],
+            subtract=[MetricRef("sales.refunds")],
         )
         assert isinstance(ref, MetricRef)
         assert ref.id == "sales.net_revenue"
@@ -1639,7 +1644,7 @@ def test_linear_requires_at_least_two_terms() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.linear(name="lonely", add=["sales.revenue"])
+            ms.linear(name="lonely", add=[MetricRef("sales.revenue")])
 
         assert exc_info.value.kind == ErrorKind.INVALID_REF
     finally:
@@ -1670,7 +1675,7 @@ def test_metric_sidecar_stores_callable() -> None:
         def revenue_fn(table: object) -> object:
             return None  # type: ignore[unreachable]
 
-        ms.metric(entities=["sales.orders"], additivity="additive")(revenue_fn)
+        ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")(revenue_fn)
         _, sidecar_entry = ctx.pending_objects[-1]
         assert sidecar_entry is revenue_fn
     finally:
@@ -1687,9 +1692,11 @@ def test_relationship_returns_ref() -> None:
     try:
         rel = ms.relationship(
             name="orders_to_items",
-            from_entity="sales.orders",
-            to_entity="sales.items",
-            keys=[ms.join_on("sales.orders.id", "sales.items.order_id")],
+            from_entity=EntityRef("sales.orders"),
+            to_entity=EntityRef("sales.items"),
+            keys=[
+                ms.join_on(DimensionRef("sales.orders.id"), DimensionRef("sales.items.order_id"))
+            ],
         )
         assert isinstance(rel, RelationshipRef)
         assert rel.id == "sales.orders_to_items"
@@ -1702,9 +1709,11 @@ def test_relationship_pushes_ir() -> None:
     try:
         ms.relationship(
             name="orders_to_items",
-            from_entity="sales.orders",
-            to_entity="sales.items",
-            keys=[ms.join_on("sales.orders.id", "sales.items.order_id")],
+            from_entity=EntityRef("sales.orders"),
+            to_entity=EntityRef("sales.items"),
+            keys=[
+                ms.join_on(DimensionRef("sales.orders.id"), DimensionRef("sales.items.order_id"))
+            ],
         )
         ir, callable_ = ctx.pending_objects[-1]
         assert ir.name == "orders_to_items"
@@ -1723,8 +1732,8 @@ def test_relationship_rejects_non_join_key_entries() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.relationship(
                 name="orders_to_items",
-                from_entity="sales.orders",
-                to_entity="sales.items",
+                from_entity=EntityRef("sales.orders"),
+                to_entity=EntityRef("sales.items"),
                 keys=[object()],  # type: ignore[list-item]
             )
         assert exc_info.value.kind == ErrorKind.INVALID_REF
@@ -1762,9 +1771,164 @@ def test_relationship_with_ref_objects() -> None:
 
 
 def test_ref_returns_string() -> None:
-    result = ms.ref("sales.revenue")
-    assert isinstance(result, str)
-    assert result == "sales.revenue"
+    result = ms.ref("metric.sales.revenue")
+    assert isinstance(result, MetricRef)
+    assert result.id == "sales.revenue"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_type", "expected_id"),
+    [
+        ("domain.sales", ms.DomainRef, "sales"),
+        ("entity.sales.orders", EntityRef, "sales.orders"),
+        ("dimension.sales.orders.region", DimensionRef, "sales.orders.region"),
+        ("time_dimension.sales.orders.created_at", TimeDimensionRef, "sales.orders.created_at"),
+        ("measure.sales.orders.amount", MeasureRef, "sales.orders.amount"),
+        ("metric.sales.revenue", MetricRef, "sales.revenue"),
+        ("relationship.sales.orders_to_items", RelationshipRef, "sales.orders_to_items"),
+    ],
+)
+def test_ref_returns_typed_ref(raw: str, expected_type: type[object], expected_id: str) -> None:
+    result = ms.ref(raw)
+
+    assert isinstance(result, expected_type)
+    assert result.id == expected_id
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "sales.revenue",
+        "metric",
+        "metric.sales",
+        "metric..revenue",
+        ".sales.revenue",
+        "unknown.sales.revenue",
+    ],
+)
+def test_ref_rejects_untyped_or_malformed_ref(raw: str) -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.ref(raw)
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.constraint_id == ConstraintId.REF_SHAPE
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        (lambda: ms.aggregate(name="revenue", measure="sales.orders.amount", agg="sum"), "measure"),
+        (
+            lambda: ms.ratio(
+                name="margin", numerator="sales.revenue", denominator=MetricRef("sales.cost")
+            ),
+            "numerator",
+        ),
+        (
+            lambda: ms.weighted_average(
+                name="aov", value=MetricRef("sales.revenue"), weight="sales.orders"
+            ),
+            "weight",
+        ),
+        (
+            lambda: ms.linear(
+                name="net", add=[MetricRef("sales.revenue")], subtract=["sales.refunds"]
+            ),
+            "subtract",
+        ),
+        (
+            lambda: ms.relationship(
+                name="orders_to_items",
+                from_entity="sales.orders",
+                to_entity=EntityRef("sales.items"),
+                keys=[],
+            ),
+            "from_entity",
+        ),
+        (lambda: ms.join_on("sales.orders.id", DimensionRef("sales.items.order_id")), "from_key"),
+        (lambda: ms.snapshot(partition_field="sales.orders.dt", grain="day"), "partition_field"),
+        (
+            lambda: ms.validity(
+                valid_from="sales.orders.valid_from",
+                valid_to=DimensionRef("sales.orders.valid_to"),
+                interval="closed_open",
+                open_end=(None,),
+            ),
+            "valid_from",
+        ),
+    ],
+)
+def test_authoring_reference_parameters_reject_naked_strings(
+    call: Callable[[], object], expected: str
+) -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            call()
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.constraint_id == ConstraintId.REF_SHAPE
+    assert expected in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        (
+            lambda: ms.aggregate(name="revenue", measure=MetricRef("sales.revenue"), agg="sum"),
+            "MeasureRef",
+        ),
+        (
+            lambda: ms.ratio(
+                name="margin",
+                numerator=MeasureRef("sales.orders.amount"),
+                denominator=MetricRef("sales.cost"),
+            ),
+            "MetricRef",
+        ),
+        (
+            lambda: ms.relationship(
+                name="orders_to_items",
+                from_entity=MetricRef("sales.orders"),
+                to_entity=EntityRef("sales.items"),
+                keys=[],
+            ),
+            "EntityRef",
+        ),
+        (
+            lambda: ms.join_on(EntityRef("sales.orders"), DimensionRef("sales.items.order_id")),
+            "DimensionRef",
+        ),
+        (
+            lambda: ms.snapshot(partition_field=MetricRef("sales.revenue"), grain="day"),
+            "DimensionRef",
+        ),
+        (
+            lambda: ms.validity(
+                valid_from=MetricRef("sales.valid_from"),
+                valid_to=DimensionRef("sales.orders.valid_to"),
+                interval="closed_open",
+                open_end=(None,),
+            ),
+            "DimensionRef",
+        ),
+    ],
+)
+def test_authoring_reference_parameters_reject_wrong_ref_kind(
+    call: Callable[[], object], expected: str
+) -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            call()
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert exc_info.value.constraint_id == ConstraintId.REF_SHAPE
+    assert expected in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -1789,13 +1953,13 @@ def test_duplicate_metric_name_raises() -> None:
     _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], additivity="additive")
+        @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")
         def revenue(backend: object) -> object:
             return None  # type: ignore[unreachable]
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(entities=["sales.orders"], additivity="additive")
+            @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")
             def revenue(backend: object) -> object:  # type: ignore[misc]
                 return None  # type: ignore[unreachable]
 
@@ -1900,7 +2064,7 @@ def test_metric_with_ai_context() -> None:
     try:
 
         @ms.metric(
-            entities=["sales.orders"],
+            entities=[EntityRef("sales.orders")],
             additivity="additive",
             ai_context=ms.ai_context(
                 business_definition="Total revenue",
@@ -1928,7 +2092,7 @@ def test_ai_context_with_valid_keys_works() -> None:
     try:
 
         @ms.metric(
-            entities=["sales.orders"],
+            entities=[EntityRef("sales.orders")],
             additivity="additive",
             ai_context=ms.ai_context(
                 business_definition="Revenue",
@@ -2013,7 +2177,7 @@ def test_ai_context_raw_dict_raises_teachable_error() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.metric(
-                entities=["sales.orders"],
+                entities=[EntityRef("sales.orders")],
                 additivity="additive",
                 ai_context={"business_definition": "I should use ms.ai_context()"},  # type: ignore[arg-type]
             )
@@ -2107,7 +2271,7 @@ def test_metric_unit_lands_on_ir() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], additivity="additive", unit="CNY")
+        @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive", unit="CNY")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -2121,7 +2285,7 @@ def test_metric_unit_defaults_to_none() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
 
-        @ms.metric(entities=["sales.orders"], additivity="additive")
+        @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive")
         def revenue(table: object) -> object:
             return None  # type: ignore[unreachable]
 
@@ -2136,8 +2300,8 @@ def test_ratio_unit_lands_on_ir() -> None:
     try:
         ms.ratio(
             name="aov",
-            numerator="sales.revenue",
-            denominator="sales.order_count",
+            numerator=MetricRef("sales.revenue"),
+            denominator=MetricRef("sales.order_count"),
             unit="1",
         )
         ir, _ = ctx.pending_objects[-1]
@@ -2152,7 +2316,7 @@ def test_metric_unit_rejects_whitespace_and_empty(bad: str) -> None:
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
-            @ms.metric(entities=["sales.orders"], additivity="additive", unit=bad)
+            @ms.metric(entities=[EntityRef("sales.orders")], additivity="additive", unit=bad)
             def revenue(table: object) -> object:
                 return None  # type: ignore[unreachable]
 
@@ -2181,8 +2345,8 @@ def test_ratio_unit_rejects_whitespace_and_empty(bad: str) -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.ratio(
                 name="margin",
-                numerator="sales.revenue",
-                denominator="sales.cost",
+                numerator=MetricRef("sales.revenue"),
+                denominator=MetricRef("sales.cost"),
                 unit=bad,
             )
 

@@ -231,8 +231,8 @@ def _bootstrap_failure_rate(tmp_path):
         "\n"
         "ms.ratio(\n"
         "    name='failure_rate',\n"
-        "    numerator='sales.failed_count',\n"
-        "    denominator='sales.total_count',\n"
+        "    numerator=failed_count,\n"
+        "    denominator=total_count,\n"
         ")\n"
     )
 

@@ -331,7 +331,6 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
         "AiContextValue | None", "business meaning and agent-facing guidance", default="None"
     )
     entity_ref = _param("EntityRef", "entity ref returned by ms.entity(...)")
-    entity_ref_or_str = _param("EntityRef | str", "owning entity")
     column = _param("str", "physical source column name")
     function_body = _param("Callable", "decorated function body returning one supported expression")
     unit = _param("str | None", "UCUM unit token such as 'USD', 'CNY', '%', or '1'", default="None")
@@ -403,7 +402,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "optional": ["name", "domain", "ai_context"],
             "discover": "md.discover_dimensions",
             "parameters": {
-                "entity": entity_ref_or_str,
+                "entity": entity_ref,
                 "function_body": function_body,
                 "name": _param(
                     "str | None", "defaults to the decorated function name", default="None"
@@ -453,7 +452,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "optional": ["name", "parse", "is_default", "domain", "ai_context"],
             "discover": "md.discover_time_dimensions",
             "parameters": {
-                "entity": entity_ref_or_str,
+                "entity": entity_ref,
                 "granularity": _param(
                     "Literal",
                     "finest grain at which queries are meaningful",
@@ -508,7 +507,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "optional": ["name", "unit", "domain", "ai_context"],
             "discover": "md.discover_measures",
             "parameters": {
-                "entity": entity_ref_or_str,
+                "entity": entity_ref,
                 "additivity": additivity,
                 "function_body": function_body,
                 "name": _param(
@@ -622,16 +621,14 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                         "ai_context",
                     ],
                     "parameters": {
-                        "entities": _param(
-                            "list[EntityRef | str]", "entities used by the metric body"
-                        ),
+                        "entities": _param("list[EntityRef]", "entities used by the metric body"),
                         "additivity": additivity,
                         "function_body": function_body,
                         "name": _param(
                             "str | None", "defaults to the decorated function name", default="None"
                         ),
                         "root_entity": _param(
-                            "EntityRef | str | None",
+                            "EntityRef | None",
                             "required when more than one entity is provided",
                             default="None",
                         ),
