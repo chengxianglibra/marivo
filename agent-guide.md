@@ -91,6 +91,17 @@ These rules govern every public surface change:
   optional-field mega-classes: precise types fail loudly, optional-field
   unions fail silently.
 
+## Authoring Guidance Layering
+
+`ms.help` owns the static authoring contract — constructor, required/optional
+parameters, types, defaults, omit rules, and cross-parameter constraints — as
+the single source agents consult before authoring. `md.discover_*` owns
+runtime datasource evidence only — profiles, signals, issues, detected
+formats — never parameter tables or semantic-selection judgments. The
+`marivo-semantic` skill owns workflow and routing only — help → discover →
+settle from evidence → prepare → author → verify — and must not duplicate
+parameter tables from either.
+
 ## Tests
 
 - Use shared fixtures in `tests/conftest.py` and `tests/shared_fixtures.py`
