@@ -87,6 +87,25 @@ def test_public_discover_column_families_return_display_results(tmp_path: Path) 
     assert ".columns" not in measures_render
 
 
+def test_public_discover_measures_reports_missing_column_not_type_mismatch(
+    tmp_path: Path,
+) -> None:
+    _register_orders(tmp_path)
+
+    result = md.discover_measures(
+        md.ref("warehouse"),
+        md.table("orders"),
+        columns=("elapsed_time_millis",),
+        scope=md.unpruned(max_rows=10),
+        project_root=tmp_path,
+    )
+
+    rendered = result.render()
+    assert "elapsed_time_millis" in rendered
+    assert "column_not_found" in rendered
+    assert "measure_non_numeric_type" not in rendered
+
+
 def test_public_discover_relationship_replaces_probe_join_keys(tmp_path: Path) -> None:
     _register_orders(tmp_path)
     warehouse = md.ref("warehouse")
