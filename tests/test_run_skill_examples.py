@@ -9,6 +9,8 @@ import textwrap
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = REPO_ROOT / "scripts" / "run_skill_examples.py"
 SEMANTIC_EXAMPLES = REPO_ROOT / "marivo/skills/marivo-semantic/references/examples"
@@ -34,6 +36,111 @@ def _make_skill_tree(root: Path, skill_name: str, *, skill_md: str = "# placehol
     return examples_dir
 
 
+_VALID_DATASOURCE_EXAMPLE = textwrap.dedent(
+    """
+    from types import SimpleNamespace
+
+    def result(*args, **kwargs):
+        return SimpleNamespace(table="orders", columns=[], values=[], ok=True)
+
+    md = SimpleNamespace(
+        help=result,
+        test=result,
+        discover_entity=result,
+        discover_dimensions=result,
+        discover_time_dimensions=result,
+        discover_measures=result,
+        discover_dimension_values=result,
+    )
+
+    md.help("discover_entity")
+    md.test("warehouse")
+    md.discover_entity()
+    md.discover_dimensions()
+    md.discover_time_dimensions()
+    md.discover_measures()
+    md.discover_dimension_values()
+    print("semantic datasource example ok")
+    """
+).lstrip()
+
+_VALID_MODEL_EXAMPLE = textwrap.dedent(
+    """
+    from types import SimpleNamespace
+
+    def result(*args, **kwargs):
+        return SimpleNamespace(status="ok")
+
+    def metric(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
+    ms = SimpleNamespace(
+        measure_column=result,
+        aggregate=result,
+        relationship=result,
+        metric=metric,
+        ratio=result,
+        weighted_average=result,
+        linear=result,
+        verify_object=result,
+        readiness=result,
+    )
+    orders = object()
+
+    # Comments should not affect semantic validation:
+    # md.inspect_columns
+    # judgment_targets
+
+    ms.measure_column()
+    ms.aggregate()
+    ms.relationship()
+
+    @ms.metric(root_entity=orders)
+    def revenue_by_customer_country():
+        return 1
+
+    ms.ratio()
+    ms.weighted_average()
+    ms.linear()
+    ms.verify_object("sales.orders")
+    ms.readiness(refs=("sales.orders",))
+    print("semantic model example ok")
+    """
+).lstrip()
+
+_COMMENT_ONLY_DATASOURCE_EXAMPLE = textwrap.dedent(
+    """
+    # md.help(
+    # md.test(
+    # md.discover_entity(
+    # md.discover_dimensions(
+    # md.discover_time_dimensions(
+    # md.discover_measures(
+    # md.discover_dimension_values(
+    print("semantic datasource example ok")
+    """
+).lstrip()
+
+
+def _make_semantic_example_tree(
+    root: Path,
+    *,
+    datasource: str | None = None,
+    model: str | None = None,
+) -> Path:
+    _make_skill_tree(root, "marivo-analysis")
+    examples = _make_skill_tree(root, "marivo-semantic")
+    (examples / "01_datasource.py").write_text(
+        datasource if datasource is not None else _VALID_DATASOURCE_EXAMPLE
+    )
+    (examples / "02_semantic_model.py").write_text(
+        model if model is not None else _VALID_MODEL_EXAMPLE
+    )
+    return examples
+
+
 def _run_runner(root: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(RUNNER)],
@@ -46,7 +153,6 @@ def _run_runner(root: Path) -> subprocess.CompletedProcess[str]:
 
 def test_runner_succeeds_on_empty_tree(tmp_path: Path) -> None:
     _make_skill_tree(tmp_path, "marivo-analysis")
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
 
@@ -54,7 +160,6 @@ def test_runner_succeeds_on_empty_tree(tmp_path: Path) -> None:
 def test_runner_executes_passing_example(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_smoke.py").write_text('print("hello from example")\n')
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
     assert "hello from example" not in result.stdout, (
@@ -66,7 +171,6 @@ def test_runner_uses_in_process_execution_by_default(tmp_path: Path, monkeypatch
     runner = _load_runner_module()
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_smoke.py").write_text('print("hello from example")\n')
-    _make_skill_tree(tmp_path, "marivo-semantic")
     seen_in_process: list[bool] = []
 
     def check_example(_example: Path, *, in_process: bool = False) -> object | None:
@@ -83,7 +187,6 @@ def test_runner_can_opt_into_subprocess_execution(tmp_path: Path, monkeypatch: o
     runner = _load_runner_module()
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_smoke.py").write_text('print("hello from example")\n')
-    _make_skill_tree(tmp_path, "marivo-semantic")
     seen_in_process: list[bool] = []
 
     def check_example(_example: Path, *, in_process: bool = False) -> object | None:
@@ -102,7 +205,6 @@ def test_in_process_example_prefers_current_root_on_sys_path(
 ) -> None:
     runner = _load_runner_module()
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
-    _make_skill_tree(tmp_path, "marivo-semantic")
     stale_root = tmp_path / "stale"
     stale_root.mkdir()
     (stale_root / "worktree_marker.py").write_text("VALUE = 'stale'\n")
@@ -126,7 +228,6 @@ def test_in_process_example_prefers_current_root_on_sys_path(
 def test_runner_fails_when_example_exits_nonzero(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_bad.py").write_text("raise SystemExit(2)\n")
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "01_bad.py" in result.stderr
@@ -135,7 +236,6 @@ def test_runner_fails_when_example_exits_nonzero(tmp_path: Path) -> None:
 def test_runner_fails_when_example_stdout_empty(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "01_quiet.py").write_text("x = 1\n")
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "01_quiet.py" in result.stderr
@@ -143,14 +243,12 @@ def test_runner_fails_when_example_stdout_empty(tmp_path: Path) -> None:
 
 def test_skill_md_within_cap_passes(tmp_path: Path) -> None:
     _make_skill_tree(tmp_path, "marivo-analysis", skill_md="# ok\n" * 100)
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
 
 
 def test_skill_md_over_cap_fails(tmp_path: Path) -> None:
     _make_skill_tree(tmp_path, "marivo-analysis", skill_md="# x\n" * 700)
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "SKILL.md exceeds" in result.stderr
@@ -243,7 +341,6 @@ _VALID_TEMPLATE = textwrap.dedent(
 def test_pitfall_passes_when_keywords_present(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "99_pitfall_x.py").write_text(_PITFALL_PASS)
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
 
@@ -251,7 +348,6 @@ def test_pitfall_passes_when_keywords_present(tmp_path: Path) -> None:
 def test_pitfall_fails_when_keywords_missing(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "99_pitfall_x.py").write_text(_PITFALL_FAIL)
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "missing pitfall keyword" in result.stderr.lower()
@@ -261,7 +357,6 @@ def test_pitfall_fails_when_keywords_missing(tmp_path: Path) -> None:
 def test_template_example_is_validated_without_execution(tmp_path: Path) -> None:
     examples = _make_skill_tree(tmp_path, "marivo-analysis")
     (examples / "00_real_project_template.py").write_text(_VALID_TEMPLATE)
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode == 0, result.stderr
     assert "should not run" not in result.stderr
@@ -272,7 +367,6 @@ def test_template_example_fails_when_required_snippet_is_missing(tmp_path: Path)
     (examples / "00_real_project_template.py").write_text(
         _VALID_TEMPLATE.replace("catalog = ms.load()", "catalog = object()")
     )
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "invalid template" in result.stderr
@@ -284,30 +378,72 @@ def test_template_example_fails_when_using_fixture_shortcuts(tmp_path: Path) -> 
     (examples / "00_real_project_template.py").write_text(
         _VALID_TEMPLATE + "\nfrom _fixtures.tiny_semantic import ensure_loaded\n"
     )
-    _make_skill_tree(tmp_path, "marivo-semantic")
     result = _run_runner(tmp_path)
     assert result.returncode != 0
     assert "invalid template" in result.stderr
     assert "_fixtures" in result.stderr
 
 
-def test_semantic_examples_teach_current_metric_ladder() -> None:
-    """Default semantic examples must teach measure-first authoring."""
-    single_domain = (SEMANTIC_EXAMPLES / "01_single_domain_file.py").read_text()
-    derived_metrics = (SEMANTIC_EXAMPLES / "04_derived_metrics.py").read_text()
-    relationship = (SEMANTIC_EXAMPLES / "05_relationship_cross_entity.py").read_text()
+def test_runner_accepts_semantic_examples_matching_layering_contract(tmp_path: Path) -> None:
+    runner = _load_runner_module()
+    _make_semantic_example_tree(tmp_path)
 
-    assert "ms.measure_column(" in single_domain
-    assert "@ms.measure(" not in single_domain
-    assert "ms.aggregate(" in single_domain
-    assert "@ms.metric(" not in single_domain
+    assert runner.main(["--root", str(tmp_path)]) == 0
 
-    assert "ms.measure_column(" in derived_metrics
-    assert "ms.aggregate(" in derived_metrics
-    assert "ms.count(" in derived_metrics
-    assert "@ms.metric(" not in derived_metrics
 
-    assert "ms.relationship(" in relationship
-    assert "ms.prepare_cross_entity_metric(" in relationship
-    assert "root_entity=orders" in relationship
-    assert "@ms.metric(" in relationship
+def test_runner_rejects_empty_semantic_examples_dir(tmp_path: Path) -> None:
+    runner = _load_runner_module()
+    _make_skill_tree(tmp_path, "marivo-analysis")
+    _make_skill_tree(tmp_path, "marivo-semantic")
+
+    assert runner.main(["--root", str(tmp_path)]) != 0
+
+
+@pytest.mark.parametrize(
+    ("datasource", "model"),
+    [
+        pytest.param(
+            _COMMENT_ONLY_DATASOURCE_EXAMPLE,
+            None,
+            id="comments-do-not-satisfy-required-calls",
+        ),
+        pytest.param(
+            None,
+            _VALID_MODEL_EXAMPLE + "\nmd.inspect_columns()\n",
+            id="forbidden-stale-snippet",
+        ),
+    ],
+)
+def test_runner_rejects_semantic_examples_outside_layering_contract(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    datasource: str | None,
+    model: str | None,
+) -> None:
+    runner = _load_runner_module()
+    _make_semantic_example_tree(tmp_path, datasource=datasource, model=model)
+
+    assert runner.main(["--root", str(tmp_path)]) != 0
+    stderr = capsys.readouterr().err.lower()
+    assert "semantic example" in stderr
+    assert "contract" in stderr or "content" in stderr
+
+
+def test_semantic_examples_match_layering_simplification_contract() -> None:
+    names = {path.name for path in SEMANTIC_EXAMPLES.glob("*.py")}
+    assert names == {"01_datasource.py", "02_semantic_model.py"}
+
+    runner = _load_runner_module()
+    examples = sorted(SEMANTIC_EXAMPLES.glob("*.py"))
+    failures = runner._check_semantic_example_contract(SEMANTIC_EXAMPLES, examples)
+    assert failures == []
+
+    datasource = (SEMANTIC_EXAMPLES / "01_datasource.py").read_text()
+    model = (SEMANTIC_EXAMPLES / "02_semantic_model.py").read_text()
+
+    assert "_DuckDBSpec" not in datasource
+    assert "_DuckDBSpec" not in model
+    assert "md.register(" not in datasource
+    assert "md.register(" not in model
+    assert "md.duckdb(" in datasource
+    assert "md.duckdb(" in model

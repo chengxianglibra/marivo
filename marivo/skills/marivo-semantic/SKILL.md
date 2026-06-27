@@ -17,87 +17,100 @@ the Marivo package source. Do not rely on repo fixtures, `make`, or a fixed
 `.venv` name. Identify the project Python environment first, then use its
 explicit Python path such as `<venv>/bin/python`.
 
-The current project should contain `models/semantic/`. If it does not, create
-the project structure before authoring semantic objects.
+The current project should contain `models/datasources/` and
+`models/semantic/`. If either directory is missing, create the project
+structure before authoring objects.
 
-## Authoring Layer Contract
+## Layer Contract
 
-Use the same sequence for every datasource-backed semantic object:
+The authoring sequence is:
 
 ```text
-help -> discover -> prepare -> author -> verify
+help -> discover -> settle/grill -> prepare -> author -> verify
 ```
 
 Layer ownership:
 
-- `ms.help("<constructor-or-object>")` is the static authoring contract: constructor, required parameters, optional parameters, allowed values, defaults, omit rules, nested parse shapes, and static constraints.
-- `md.discover_*` is runtime datasource evidence: physical columns, profiles, detected formats, value ranges, primary-key evidence, relationship evidence, signals, and issues.
-- `ms.prepare_*` is readiness: blockers, registry/project state, matches, and whether the exact object can be authored now.
-- This skill is workflow only. Do not copy constructor parameter tables into skill docs.
+- ms.help(...) owns static authoring contracts: constructors, required and
+  optional parameters, allowed values, defaults, omit rules, nested parse
+  shapes, and static constraints.
+- md.discover_* owns runtime datasource evidence: physical columns, profiles,
+  detected formats, value ranges, primary-key evidence, relationship evidence,
+  signals, and issues.
+- `ms.prepare_*` and `ms.verify_object(...)` own readiness, blockers, matches,
+  registry state, and validation.
+- This skill owns workflow and routing only. Do not copy constructor parameter
+  tables, Brief field tables, discovery result schemas, parse recipes, or
+  backend API catalogs into skill docs.
 
-## Datasource-Backed Authoring Ladder
+## Authoring Ladder
 
-Follow this ladder for every datasource-backed object. Each cycle produces
-exactly one semantic object, verified before advancing.
+Build datasource-backed semantic objects in dependency order:
 
-1. Register or select datasource refs with `md.list()`, `md.describe()`, and `md.test()`.
-2. Bind refs explicitly: `warehouse = md.ref("warehouse")`.
-3. Read the relevant help contract, such as `ms.help("entity")`, `ms.help("dimension_column")`, `ms.help("time_dimension_column")`, or `ms.help("measure_column")`.
-4. Run the matching bounded discovery call: `md.discover_entity(...)`, `md.discover_dimensions(...)`, `md.discover_time_dimensions(...)`, `md.discover_measures(...)`, or `md.discover_relationship(...)`.
-5. Use discovery evidence, registry facts, project docs, prior decisions, and user answers to settle constructor values.
-6. Ask the user only when the value cannot be discovered or inferred from project context.
-7. Call the matching `ms.prepare_*` API and branch on the Brief status.
-8. Author exactly one object in `models/semantic/<domain>/_domain.py`.
-9. Run `ms.verify_object(ref)` and fix failures before moving on.
-10. Use `md.discover_dimension_values(...)` only for current filter/value evidence. Do not persist those values into semantic metadata.
-11. Use `md.raw_sql(...)` only as a diagnostic escape hatch with a required `reason`.
-12. Run `ms.readiness(...)` before analysis handoff.
+```text
+domain -> entity -> dimension -> time_dimension -> measure -> metric
+       -> relationship -> cross-entity metric -> derived metric
+```
 
-## Ladder Rules
+Datasource registration is a prerequisite owned by `marivo.datasource`, not a
+semantic ladder rung.
 
-- Follow the ladder: domain -> entity -> dimension -> time_dimension -> measure -> metric -> relationship -> cross-entity metric -> derived metric.
-- Before writing each object, call the matching `ms.prepare_*` API and branch on the returned Brief status.
-- Use the datasource-first agreement gate before authoring: inspect Brief facts, datasource metadata, bounded data samples, existing semantic objects, source SQL/provenance, project docs, and decision ledger entries before asking the user.
-- Grill the user only after discovery leaves a real semantic decision open. Ask one unresolved semantic decision at a time, include the recommended answer first, and keep every option evidence-derived.
-- Do not ask users for schema, column names, data types, partition hints, sample values, join-key viability, or existing object state when Marivo can discover them.
-- Do not invent plausible options. If evidence supports one path, ask for confirmation; if evidence is insufficient, run another bounded discovery query or ask an open clarification.
-- Write exactly one semantic object per cycle in `models/semantic/<domain>/_domain.py`.
-- Default direct-column semantic authoring is `ms.time_dimension_column(...)`, `ms.dimension_column(...)`, and `ms.measure_column(...)`; verify the measure, then declare `ms.aggregate(name="total_amount", measure=amount, agg="sum")`. Use decorators only for expression-bearing semantic objects. Use `ms.count(name="orders_count", entity=orders, ai_context=ms.ai_context(business_definition="..."))` for entity row counts. Use `@ms.metric(...)` only for expression-body tier-2 metrics.
-- Use `ms.from_sql(sql=..., dialect=...)` for SQL provenance, not `source_sql`/`source_dialect` kwargs.
-- After writing one object, call `ms.verify_object(ref)` and do not advance while it fails.
-- **`verify_object` is enforced:** `ms.prepare_dimension`, `ms.prepare_time_dimension`, `ms.prepare_measure`, `ms.prepare_metric`, `ms.prepare_relationship`, and `ms.prepare_cross_entity_metric` raise `LadderOrderError` if their entity arguments have not passed `ms.verify_object`. You must verify the entity before these calls.
-- Use scope helpers for ordinary authoring: `md.latest_partition()`, `md.partition({...})`, or `md.unpruned(max_rows=...)`. `md.ScanScope` remains a value type for advanced debugging; do not construct `md.ScanScope(...)` directly in recipes when a helper matches.
-- Ask users only for semantic intent, business policy, or unresolved ambiguity that cannot be answered from documented project knowledge or datasource/project discovery.
-- Record abandonment with `ms.record_decision(decision_kind="authoring_abandoned", ...)` when a candidate cannot be safely authored.
-- Run `ms.readiness(...)` at closeout and do not hand off to analysis while readiness is blocked.
+Every semantic object uses the same cycle:
 
-## Inspecting semantic objects
+1. Read `ms.help("<constructor-or-object>")`.
+2. Run the matching bounded `md.discover_*` call.
+3. Settle constructor values from discovery evidence, registry facts, project
+   docs, source SQL/provenance, prior decisions, and user answers.
+4. Grill the user only when a semantic decision remains unresolved.
+5. After agreement, call the matching `ms.prepare_*` API as the
+   post-agreement readiness check before authoring.
+6. Author exactly one object.
+7. Run `ms.verify_object(ref)` and fix failures before advancing.
 
-Use `ms.load()` to obtain a `SemanticCatalog`, then browse and inspect:
+## Grill-Me Gate
+
+Before authoring each semantic object, inspect help, discovery evidence,
+current catalog state, project docs, source SQL/provenance when present, prior
+decisions, and user answers.
+
+If those sources clearly settle the object, proceed to the matching
+`ms.prepare_*` readiness check and state the evidence basis. Author only when
+readiness can proceed. If a semantic choice remains unresolved, ask one
+question at a time and wait for agreement before writing code.
+
+After agreement, `ms.prepare_*` is the post-agreement readiness check before
+authoring. Use it to catch blockers, matches, and registry state before writing
+the object.
+
+Rules:
+
+- Ask only about semantic intent, business policy, or unresolved ambiguity.
+- Do not ask for datasource facts Marivo can discover, such as schema, column
+  names, data types, sample values, join-key viability, or existing refs.
+- Do not invent multiple-choice options. Every option must be grounded in
+  metadata comments, column profiles, sample distributions, existing semantic
+  objects, source SQL, project docs, or prior decisions.
+- If evidence supports one path, ask for confirmation of that path.
+- If evidence does not support a finite option list, ask an open clarification
+  instead of fabricating options.
+- If agreement cannot be reached, record abandonment instead of writing a
+  speculative semantic object.
+
+## Inspecting Existing Semantic Objects
+
+Use `ms.load()` to obtain a `SemanticCatalog`, then inspect with the catalog
+surface:
 
 ```python
 catalog = ms.load()
-catalog.list().show()                         # top-level: domains and datasources
-catalog.list("sales").show()                  # entities and metrics under a domain
-catalog.list("sales.orders").show()           # dimensions, time dimensions, relationships, filtered metrics
-catalog.list(kind="metric").show()            # all metrics across every domain
-catalog.list(domain="sales", kind="metric").show()  # metrics in one domain
-revenue = catalog.get("sales.revenue")
-revenue.details()                             # kind-specific details
-revenue.details().show()                      # full bounded object inspection
-revenue.children                              # child refs (empty for leaf objects)
+catalog.list().show()
+catalog.list("sales").show()
+catalog.list(kind="metric").show()
+catalog.get("sales.revenue").details().show()
 ```
 
 Use `mv.help(ref)` for a short consumption briefing on a semantic object.
-Use `ms.help("<topic>")` for semantic authoring and validation contract help.
-Use `catalog.get(ref).details().show()` when you need the full semantic object
-metadata, graph refs, source/provenance, and authored AI context.
-
-```python
-ms.help("metric")                   # authoring contract help
-mv.help(revenue)                    # bounded consumption context
-mv.help(revenue, project=project)   # explicit project when not in CWD
-```
+Use `ms.help("<topic>")` for semantic authoring contracts.
 
 Read `_domain.py` only when you need to modify the semantic domain, inspect
 implementation expressions, or debug authoring behavior.
@@ -106,9 +119,7 @@ implementation expressions, or debug authoring behavior.
 
 | Need | Read |
 | --- | --- |
-| End-to-end ladder workflow | `references/workflow.md` |
-| Brief status actions and ladder order | `references/object-briefs.md` |
-| Datasource discovery and scope helpers | `references/datasource.md` |
-| Evidence, ledger, abandon protocol | `references/evidence-and-ledger.md` |
-| Readiness closeout | `references/closeout.md` |
-| Known failure modes | `references/pitfalls.md` |
+| End-to-end object workflow | `references/workflow.md` |
+| Datasource prerequisite flow | `references/datasource.md` |
+| Analysis handoff gate | `references/closeout.md` |
+| Workflow-level failure modes | `references/pitfalls.md` |
