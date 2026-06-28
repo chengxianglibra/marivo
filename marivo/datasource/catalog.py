@@ -82,7 +82,7 @@ class DatasourceCatalog:
         >>> catalog = md.load()
         >>> catalog.list()
         >>> catalog.get("wh")
-        >>> md.discover_entity(md.ref("wh"), md.table("orders"))
+        >>> md.discover_entity(md.ref("datasource.wh"), md.table("orders"))
 
     Constraints:
         catalog is obtained via md.load(), not constructed directly.
@@ -276,7 +276,7 @@ def load(
         >>> catalog = md.load()
         >>> catalog.list()
         >>> catalog.get("wh")
-        >>> md.discover_entity(md.ref("wh"), md.table("orders"))
+        >>> md.discover_entity(md.ref("datasource.wh"), md.table("orders"))
 
     Constraints:
         The catalog is read-only; use ``md.register()`` and ``md.remove()``

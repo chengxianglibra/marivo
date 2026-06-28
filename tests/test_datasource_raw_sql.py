@@ -9,7 +9,7 @@ import pytest
 
 import marivo.datasource as md
 from marivo.datasource import store
-from marivo.datasource.authoring import _DuckDBSpec, _TrinoSpec
+from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
 from marivo.datasource.backends import _with_read_only_kwargs, build_backend
 from marivo.datasource.errors import DatasourceError, DatasourceRawSqlError
 from marivo.datasource.manage import _execute_readonly
@@ -20,14 +20,14 @@ def _register_raw_sql_fixture(project_root: Path) -> None:
     con = ibis.duckdb.connect(db_path)
     con.create_table("orders", {"id": [1, 2], "amount": [10.0, 20.0]})
     con.disconnect()
-    md.register(_DuckDBSpec(name="warehouse", path=str(db_path)), project_root=project_root)
+    md.register(DuckDBSpec(name="warehouse", path=str(db_path)), project_root=project_root)
 
 
 def test_raw_sql_requires_reason_before_connecting(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 
     with pytest.raises(ValueError, match="reason must be non-empty"):
-        md.raw_sql(md.ref("warehouse"), "SELECT 1", reason="", project_root=tmp_path)
+        md.raw_sql(md.ref("datasource.warehouse"), "SELECT 1", reason="", project_root=tmp_path)
 
 
 def test_raw_sql_rejects_multi_statement_input(tmp_path: Path) -> None:
@@ -35,7 +35,7 @@ def test_raw_sql_rejects_multi_statement_input(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="single read-only statement"):
         md.raw_sql(
-            md.ref("warehouse"),
+            md.ref("datasource.warehouse"),
             "SELECT 1; SELECT 2",
             reason="diagnose duplicate keys",
             project_root=tmp_path,
@@ -46,7 +46,7 @@ def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 
     result = md.raw_sql(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         "SELECT id, amount FROM orders ORDER BY id",
         limit=1,
         reason="diagnose order amount sample",
@@ -54,7 +54,7 @@ def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
     )
 
     assert isinstance(result, md.RawSqlResult)
-    assert result.datasource == md.ref("warehouse")
+    assert result.datasource == md.ref("datasource.warehouse")
     assert result.reason == "diagnose order amount sample"
     assert result.returned_row_count == 1
     assert result.is_truncated is True
@@ -79,7 +79,7 @@ def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -
     _inspect_table("warehouse", table="orders", project_root=tmp_path)
 
     result = md.raw_sql(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         "SELECT count(*) AS n FROM orders",
         reason="diagnose after inspect",
         project_root=tmp_path,
@@ -93,7 +93,7 @@ def test_raw_sql_write_attempt_surfaces_typed_error(tmp_path: Path) -> None:
 
     with pytest.raises(DatasourceError) as exc_info:
         md.raw_sql(
-            md.ref("warehouse"),
+            md.ref("datasource.warehouse"),
             "INSERT INTO orders VALUES (3, 30.0)",
             reason="attempt to mutate via escape hatch",
             project_root=tmp_path,
@@ -101,7 +101,7 @@ def test_raw_sql_write_attempt_surfaces_typed_error(tmp_path: Path) -> None:
     assert isinstance(exc_info.value, DatasourceRawSqlError)
     # The write did not execute: orders still holds the fixture's two rows.
     result = md.raw_sql(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         "SELECT count(*) AS n FROM orders",
         reason="verify no mutation",
         project_root=tmp_path,
@@ -241,7 +241,7 @@ def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
+        TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
         project_root=tmp_path,
     )
     cursor = _FakeCursor(
@@ -256,7 +256,7 @@ def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
 
     result = md.raw_sql(
-        md.ref("trino_wh"),
+        md.ref("datasource.trino_wh"),
         "DESCRIBE orders",
         limit=1,
         reason="diagnose trino table schema",
@@ -275,7 +275,7 @@ def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
+        TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
         project_root=tmp_path,
     )
     backend = _RawSqlBackend(
@@ -293,7 +293,7 @@ def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
 
     result = md.raw_sql(
-        md.ref("trino_wh"),
+        md.ref("datasource.trino_wh"),
         "SHOW COLUMNS FROM orders",
         limit=2,
         reason="diagnose trino column metadata",
@@ -310,7 +310,7 @@ def test_raw_sql_trino_select_keeps_readonly_transaction_and_subquery_wrap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
+        TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
         project_root=tmp_path,
     )
     backend = _RawSqlBackend({"marivo_raw_sql": _FakeCursor(["n"], [(2,)])})
@@ -321,7 +321,7 @@ def test_raw_sql_trino_select_keeps_readonly_transaction_and_subquery_wrap(
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
 
     result = md.raw_sql(
-        md.ref("trino_wh"),
+        md.ref("datasource.trino_wh"),
         "SELECT count(*) AS n FROM orders",
         reason="diagnose row count",
         project_root=tmp_path,

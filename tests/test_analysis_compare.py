@@ -775,13 +775,13 @@ def _bootstrap_unit_sales_project(tmp_path) -> None:
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('warehouse')\n"
+        "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "\n"

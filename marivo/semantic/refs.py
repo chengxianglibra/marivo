@@ -119,7 +119,7 @@ class DomainRef(_NonCallableRef):
 
 _KIND_TO_REF: dict[SymbolKind, Callable[[str], SemanticRef]] = {
     SymbolKind.DOMAIN: DomainRef,
-    SymbolKind.DATASOURCE: DatasourceRef,
+    SymbolKind.DATASOURCE: DatasourceRef.from_id,
     SymbolKind.ENTITY: EntityRef,
     SymbolKind.DIMENSION: DimensionRef,
     SymbolKind.MEASURE: MeasureRef,

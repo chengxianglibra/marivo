@@ -8,7 +8,7 @@ import ibis
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource.authoring import _DuckDBSpec
+from marivo.datasource.authoring import DuckDBSpec
 from marivo.datasource.manage import _inspect_columns
 from marivo.datasource.scan import ColumnProfile, _coarse_type_family
 
@@ -67,7 +67,7 @@ def _create_orders_duckdb(path: Path) -> None:
 def test_inspect_columns_populates_enriched_fields(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_orders_duckdb(db_path)
-    md.register(_DuckDBSpec(name="wh", path=str(db_path)))
+    md.register(DuckDBSpec(name="wh", path=str(db_path)))
 
     inspection = _inspect_columns(
         "wh",

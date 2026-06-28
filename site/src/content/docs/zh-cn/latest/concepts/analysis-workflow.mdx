@@ -234,10 +234,13 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
 `MetricFrame`。Semantic refs 标识 metric、time 和 dimension 绑定；query 输出列是普通字符串。
 
 ```python
+import marivo.datasource as md
+
+warehouse = md.ref("datasource.warehouse")
 custom = session.derive_metric_frame(
     metric=session.catalog.get("sales.revenue"),
     query=mv.ibis_query(
-        datasource="warehouse",
+        datasource=warehouse,
         build=lambda db, ctx: db.table("orders"),
     ),
     columns=mv.metric_columns(

@@ -12,12 +12,12 @@ from marivo.analysis.errors import (
 )
 from marivo.datasource import store as datasource_store
 from marivo.datasource.authoring import (
+    ClickHouseSpec,
     DatasourceSpec,
-    _ClickHouseSpec,
-    _DuckDBSpec,
-    _MySQLSpec,
-    _PostgresSpec,
-    _TrinoSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
 )
 
 
@@ -36,15 +36,15 @@ def test_load_all_empty_when_no_file() -> None:
 
 def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
     if backend_type == "duckdb":
-        return _DuckDBSpec(name=name, **fields)
+        return DuckDBSpec(name=name, **fields)
     if backend_type == "trino":
-        return _TrinoSpec(name=name, **fields)
+        return TrinoSpec(name=name, **fields)
     if backend_type == "mysql":
-        return _MySQLSpec(name=name, **fields)
+        return MySQLSpec(name=name, **fields)
     if backend_type == "postgres":
-        return _PostgresSpec(name=name, **fields)
+        return PostgresSpec(name=name, **fields)
     if backend_type == "clickhouse":
-        return _ClickHouseSpec(name=name, **fields)
+        return ClickHouseSpec(name=name, **fields)
     raise AssertionError(f"unexpected backend_type: {backend_type}")
 
 
@@ -79,7 +79,7 @@ def test_save_overwrites_same_name() -> None:
 def test_save_rejects_plaintext_sensitive_field() -> None:
     with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
         datasource_store.save_one(
-            _TrinoSpec(
+            TrinoSpec(
                 name="wh",
                 host="h",
                 catalog="c",
@@ -93,7 +93,7 @@ def test_save_rejects_plaintext_sensitive_field() -> None:
 def test_save_rejects_plaintext_user() -> None:
     with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
         datasource_store.save_one(
-            _TrinoSpec(
+            TrinoSpec(
                 name="wh",
                 host="h",
                 catalog="c",
@@ -106,7 +106,7 @@ def test_save_rejects_plaintext_user() -> None:
 def test_save_rejects_plaintext_auth() -> None:
     with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
         datasource_store.save_one(
-            _TrinoSpec(
+            TrinoSpec(
                 name="wh",
                 host="h",
                 catalog="c",
@@ -135,7 +135,7 @@ def test_save_allows_json_object_fields() -> None:
 def test_save_rejects_non_json_object_value() -> None:
     with pytest.raises(DatasourceFieldInvalidError):
         datasource_store.save_one(
-            _TrinoSpec(
+            TrinoSpec(
                 name="wh",
                 host="h",
                 catalog="c",
@@ -146,7 +146,7 @@ def test_save_rejects_non_json_object_value() -> None:
 
 def test_save_rejects_env_ref_non_string() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        datasource_store.save_one(_TrinoSpec(name="wh", host="h", catalog="c", auth_env=""))
+        datasource_store.save_one(TrinoSpec(name="wh", host="h", catalog="c", auth_env=""))
     assert exc_info.value.details["field"] == "auth_env"
 
 

@@ -87,10 +87,10 @@ def test_plan_base_observe_rejects_legacy_project_kwarg():
 def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
@@ -105,11 +105,11 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
 def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=ms.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -150,11 +150,11 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
 def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=ms.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -201,10 +201,10 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
 def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -235,11 +235,11 @@ def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_f
 def test_unique_shortest_path_and_join_safety(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-                "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=ms.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"
@@ -251,7 +251,7 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
                 "    return orders.amount.sum()\n"
             ),
             "sales/relationships.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "from .datasets import orders, users, order_user_id, user_id\n"
                 "ms.relationship(\n"
                 "    name='orders_to_users',\n"
@@ -279,13 +279,15 @@ def test_unique_shortest_path_finds_cross_domain_relationship_from_non_owner(
 ):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": ("import marivo.semantic as ms\nsales = ms.domain(name='sales')\n"),
+            "sales/_domain.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nsales = ms.domain(name='sales')\n"
+            ),
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "from ._domain import sales\n"
                 "identity = ms.domain(name='identity')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'), domain=sales)\n"
-                "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'), domain=identity)\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'), domain=sales)\n"
+                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=ms.table('users'), domain=identity)\n"
                 "@ms.dimension(entity=orders, domain=sales)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"
@@ -294,7 +296,7 @@ def test_unique_shortest_path_finds_cross_domain_relationship_from_non_owner(
                 "    return users.user_id\n"
             ),
             "sales/relationships.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "from ._domain import sales\n"
                 "from .datasets import orders, users, order_user_id, user_id\n"
                 "ms.relationship(\n"
@@ -317,10 +319,10 @@ def test_unique_shortest_path_finds_cross_domain_relationship_from_non_owner(
 def test_field_fn_invalid_expression_preserves_observe_error_code(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def bad_dimension(orders):\n"
                 "    return 42\n"
@@ -339,10 +341,10 @@ def test_field_fn_invalid_expression_preserves_observe_error_code(semantic_proje
 def test_field_fn_converts_typed_missing_dimension_kind(monkeypatch, semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
             ),
         }
     )
@@ -374,10 +376,10 @@ def test_field_fn_does_not_misclassify_callable_not_found_failures(
 ):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def warehouse_status(orders):\n"
                 "    return (_ for _ in ()).throw(\n"

@@ -129,7 +129,7 @@ ai_context={
 ## Datasources
 
 Datasources 在 `models/datasources/*.py` 中声明，每种 backend 用一个 typed helper。
-该 helper 注册连接，本身不返回值。Semantic 文件通过 `md.ref("warehouse")` 按名称引用
+该 helper 注册连接。Semantic 文件通过 `md.ref("datasource.warehouse")` 以 kind-qualified ref 引用
 datasource。
 
 ```python
@@ -210,7 +210,7 @@ measures 和 metrics 依附的锚点。
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Entity 名称。成为 `<domain>.<name>`。 |
-| `datasource` | `DatasourceRef \| str` | 是 | — | `md.ref("warehouse")` 或全局 datasource 名称。 |
+| `datasource` | `DatasourceRef` | 是 | — | `md.ref("datasource.warehouse")`。 |
 | `source` | source builder | 是 | — | `ms.table(...)`、`ms.parquet(...)` 或 `ms.csv(...)`。 |
 | `primary_key` | `list[str]` | 否 | `None` | 构成 primary key 的列名。 |
 | `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | Snapshot 或 SCD2 validity 版本控制（见下）。 |
@@ -218,7 +218,7 @@ measures 和 metrics 依附的锚点。
 | `ai_context` | `AiContext` | 否 | `None` | 面向 agent 的上下文。 |
 
 ```python
-warehouse = md.ref("warehouse")
+warehouse = md.ref("datasource.warehouse")
 
 orders = ms.entity(
     name="orders",

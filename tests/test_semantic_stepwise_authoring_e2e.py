@@ -9,7 +9,7 @@ from pathlib import Path
 import ibis
 
 import marivo.datasource as md
-from marivo.datasource.authoring import _DuckDBSpec
+from marivo.datasource.authoring import DuckDBSpec
 from marivo.semantic.reader import SemanticProject
 
 
@@ -30,7 +30,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     # Register the datasource in the project
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
@@ -39,7 +39,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
     semantic_dir.mkdir(parents=True)
     domain_file = semantic_dir / "_domain.py"
     domain_file.write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n",
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
         encoding="utf-8",
     )
 
@@ -53,7 +53,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     # -- Rung 2: Entity - discover, author, verify ----------------------------
     entity_discovery = md.discover_entity(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         md.table("orders"),
         scope=scope,
         project_root=tmp_path,
@@ -63,9 +63,9 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
     assert "order_id" in entity_render
 
     domain_file.write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales')\n"
-        "orders = ms.entity(name='orders', datasource='warehouse', "
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
         "source=ms.table('orders'), primary_key=['order_id'])\n",
         encoding="utf-8",
     )
@@ -75,7 +75,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     # -- Rung 3: Dimension - discover, author, verify -------------------------
     dimension_discovery = md.discover_dimensions(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         md.table("orders"),
         columns=("customer_id",),
         scope=scope,
@@ -96,7 +96,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     # -- Rung 4: Time dimension - discover, author, verify --------------------
     time_discovery = md.discover_time_dimensions(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         md.table("orders"),
         columns=("dt",),
         scope=scope,
@@ -119,7 +119,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     # -- Rung 5: Measure - discover, author, verify ---------------------------
     measure_discovery = md.discover_measures(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         md.table("orders"),
         columns=("amount",),
         scope=scope,

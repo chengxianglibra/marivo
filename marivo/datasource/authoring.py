@@ -160,6 +160,11 @@ class _SpecBase:
     fields: dict[str, JsonValue] = field(init=False)
     env_refs: dict[str, str] = field(init=False)
 
+    @property
+    def ref(self) -> DatasourceRef:
+        """Typed reference to this datasource for semantic authoring."""
+        return DatasourceRef(self.name)
+
     def __post_init__(self) -> None:
         validate_datasource_name(self.name)
         self._validate_required_string_fields()
@@ -242,7 +247,7 @@ class _SpecBase:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _DuckDBSpec(_SpecBase):
+class DuckDBSpec(_SpecBase):
     """DuckDB datasource specification."""
 
     backend_type: ClassVar[str] = "duckdb"
@@ -255,7 +260,7 @@ class _DuckDBSpec(_SpecBase):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _TrinoSpec(_SpecBase):
+class TrinoSpec(_SpecBase):
     """Trino datasource specification."""
 
     backend_type: ClassVar[str] = "trino"
@@ -290,7 +295,7 @@ class _TrinoSpec(_SpecBase):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _MySQLSpec(_SpecBase):
+class MySQLSpec(_SpecBase):
     """MySQL datasource specification."""
 
     backend_type: ClassVar[str] = "mysql"
@@ -311,7 +316,7 @@ class _MySQLSpec(_SpecBase):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _PostgresSpec(_SpecBase):
+class PostgresSpec(_SpecBase):
     """Postgres datasource specification."""
 
     backend_type: ClassVar[str] = "postgres"
@@ -333,7 +338,7 @@ class _PostgresSpec(_SpecBase):
 
 
 @dataclass(frozen=True, kw_only=True)
-class _ClickHouseSpec(_SpecBase):
+class ClickHouseSpec(_SpecBase):
     """ClickHouse datasource specification."""
 
     backend_type: ClassVar[str] = "clickhouse"
@@ -357,7 +362,7 @@ class _ClickHouseSpec(_SpecBase):
     )
 
 
-DatasourceSpec: TypeAlias = _DuckDBSpec | _TrinoSpec | _MySQLSpec | _PostgresSpec | _ClickHouseSpec  # noqa: UP040
+DatasourceSpec: TypeAlias = DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec  # noqa: UP040
 
 
 class DatasourceRef(SemanticRef):
@@ -365,14 +370,50 @@ class DatasourceRef(SemanticRef):
 
     __slots__ = ()
 
-    def __init__(self, name: str) -> None:
-        validate_datasource_name(name)
-        super().__init__(name, SymbolKind.DATASOURCE)
+    def __init__(self, id: str) -> None:
+        super().__init__(_canonical_datasource_id(id), SymbolKind.DATASOURCE)
+
+    @classmethod
+    def from_id(cls, id: str) -> DatasourceRef:
+        """Build a datasource ref from either a short name or canonical id."""
+        return cls(id)
 
 
-def ref(name: str) -> DatasourceRef:
-    """Reference a global project datasource by short name."""
-    return DatasourceRef(name)
+def _canonical_datasource_id(value: Any) -> str:
+    prefix = f"{SymbolKind.DATASOURCE}."
+    if isinstance(value, DatasourceRef):
+        return value.id
+    if not isinstance(value, str) or not value:
+        raise ValueError("datasource refs must use 'datasource.<name>'.")
+    candidate = value.strip()
+    if candidate.startswith(prefix):
+        short_name = candidate[len(prefix) :]
+    elif "." in candidate:
+        raise ValueError("datasource refs must use 'datasource.<name>'.")
+    else:
+        short_name = candidate
+    validate_datasource_name(short_name)
+    return f"{prefix}{short_name}"
+
+
+def _storage_name(value: str | DatasourceRef) -> str:
+    """Return the project storage key for a datasource ref or legacy short name."""
+    canonical_id = _canonical_datasource_id(value)
+    return canonical_id.removeprefix(f"{SymbolKind.DATASOURCE}.")
+
+
+def _require_datasource_ref(value: Any, *, argument: str = "datasource") -> DatasourceRef:
+    if isinstance(value, DatasourceRef):
+        return value
+    raise TypeError(
+        f'{argument} must be md.DatasourceRef from md.ref("datasource.warehouse"). '
+        "Do not pass a bare string."
+    )
+
+
+def ref(id: str) -> DatasourceRef:
+    """Reference a global project datasource by kind-qualified id."""
+    return DatasourceRef(id)
 
 
 _DATASOURCE_CTX: ContextVar[DatasourceLoaderContext | None] = ContextVar(
@@ -398,6 +439,10 @@ def _caller_location() -> DatasourceSourceLocation:
     return DatasourceSourceLocation(file="<unknown>", line=0)
 
 
+def _current_ctx() -> DatasourceLoaderContext | None:
+    return _DATASOURCE_CTX.get()
+
+
 def _require_ctx() -> DatasourceLoaderContext:
     ctx = _DATASOURCE_CTX.get()
     if ctx is None:
@@ -416,11 +461,11 @@ def validate_datasource_name(name: Any) -> None:
         )
     if "." in name:
         raise DatasourceFieldInvalidError(
-            message=f"datasource {name!r} must use a global datasource name",
+            message=f"datasource {name!r} must use a storage name without kind prefix",
             details={
                 "datasource": name,
                 "field": "<name>",
-                "reason": "datasource name must not be model-qualified",
+                "reason": "datasource spec names must not be kind-qualified",
             },
         )
     if not _DATASOURCE_NAME_RE.fullmatch(name):
@@ -446,6 +491,12 @@ def _declare(spec: DatasourceSpec) -> None:
     ctx.pending_objects.append(_ir_from_spec(spec, location=_caller_location()))
 
 
+def _declare_if_loading(spec: DatasourceSpec) -> None:
+    ctx = _current_ctx()
+    if ctx is not None:
+        ctx.pending_objects.append(_ir_from_spec(spec, location=_caller_location()))
+
+
 def duckdb(
     name: str,
     *,
@@ -453,7 +504,7 @@ def duckdb(
     read_only: bool = False,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
-) -> None:
+) -> DuckDBSpec:
     """Declare a DuckDB datasource.
 
     Args:
@@ -465,23 +516,26 @@ def duckdb(
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
-        None
+        ``DuckDBSpec`` usable with ``md.register(...)`` or ``.ref``.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.duckdb(name="warehouse", path=":memory:")
+        >>> spec = md.duckdb(name="warehouse", path=":memory:")
+        >>> spec.ref
 
     Constraints:
-        Call only from a datasource file being loaded by Marivo.
+        When called while loading a datasource file, the spec is automatically
+        declared for that project.
     """
-    spec = _DuckDBSpec(
+    spec = DuckDBSpec(
         name=name,
         path=path,
         read_only=read_only,
         ai_context=ai_context,
         extra=extra,
     )
-    _declare(spec)
+    _declare_if_loading(spec)
+    return spec
 
 
 def trino(
@@ -500,7 +554,7 @@ def trino(
     auth_env: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
-) -> None:
+) -> TrinoSpec:
     """Declare a Trino datasource.
 
     Args:
@@ -521,17 +575,18 @@ def trino(
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
-        None
+        ``TrinoSpec`` usable with ``md.register(...)`` or ``.ref``.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.trino(name="warehouse", host="trino.example", catalog="hive")
+        >>> spec = md.trino(name="warehouse", host="trino.example", catalog="hive")
 
     Constraints:
-        Call only from a datasource file being loaded by Marivo.
+        When called while loading a datasource file, the spec is automatically
+        declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
     """
-    spec = _TrinoSpec(
+    spec = TrinoSpec(
         name=name,
         host=host,
         catalog=catalog,
@@ -547,7 +602,8 @@ def trino(
         ai_context=ai_context,
         extra=extra,
     )
-    _declare(spec)
+    _declare_if_loading(spec)
+    return spec
 
 
 def mysql(
@@ -561,7 +617,7 @@ def mysql(
     password_env: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
-) -> None:
+) -> MySQLSpec:
     """Declare a MySQL datasource.
 
     Args:
@@ -577,17 +633,18 @@ def mysql(
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
-        None
+        ``MySQLSpec`` usable with ``md.register(...)`` or ``.ref``.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.mysql(name="oltp", host="mysql.example", database="app")
+        >>> spec = md.mysql(name="oltp", host="mysql.example", database="app")
 
     Constraints:
-        Call only from a datasource file being loaded by Marivo.
+        When called while loading a datasource file, the spec is automatically
+        declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
     """
-    spec = _MySQLSpec(
+    spec = MySQLSpec(
         name=name,
         host=host,
         database=database,
@@ -598,7 +655,8 @@ def mysql(
         ai_context=ai_context,
         extra=extra,
     )
-    _declare(spec)
+    _declare_if_loading(spec)
+    return spec
 
 
 def postgres(
@@ -613,7 +671,7 @@ def postgres(
     password_env: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
-) -> None:
+) -> PostgresSpec:
     """Declare a Postgres datasource.
 
     Args:
@@ -630,17 +688,18 @@ def postgres(
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
-        None
+        ``PostgresSpec`` usable with ``md.register(...)`` or ``.ref``.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.postgres(name="oltp", host="pg.example", database="app")
+        >>> spec = md.postgres(name="oltp", host="pg.example", database="app")
 
     Constraints:
-        Call only from a datasource file being loaded by Marivo.
+        When called while loading a datasource file, the spec is automatically
+        declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
     """
-    spec = _PostgresSpec(
+    spec = PostgresSpec(
         name=name,
         host=host,
         database=database,
@@ -652,7 +711,8 @@ def postgres(
         ai_context=ai_context,
         extra=extra,
     )
-    _declare(spec)
+    _declare_if_loading(spec)
+    return spec
 
 
 def clickhouse(
@@ -667,7 +727,7 @@ def clickhouse(
     password_env: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
-) -> None:
+) -> ClickHouseSpec:
     """Declare a ClickHouse datasource.
 
     Args:
@@ -684,17 +744,18 @@ def clickhouse(
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
 
     Returns:
-        None
+        ``ClickHouseSpec`` usable with ``md.register(...)`` or ``.ref``.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.clickhouse(name="analytics", host="ch.example")
+        >>> spec = md.clickhouse(name="analytics", host="ch.example")
 
     Constraints:
-        Call only from a datasource file being loaded by Marivo.
+        When called while loading a datasource file, the spec is automatically
+        declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
     """
-    spec = _ClickHouseSpec(
+    spec = ClickHouseSpec(
         name=name,
         host=host,
         port=port,
@@ -706,4 +767,5 @@ def clickhouse(
         ai_context=ai_context,
         extra=extra,
     )
-    _declare(spec)
+    _declare_if_loading(spec)
+    return spec

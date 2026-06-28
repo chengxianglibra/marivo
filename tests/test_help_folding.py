@@ -88,7 +88,6 @@ def test_datasource_fold_partition() -> None:
     fams = _families(surface)
     # Convenience functions (duckdb, trino, etc.) are top-level callables, not folded.
     assert "Datasource specs" not in fams
-    assert "DatasourceSpec" not in {name for members in fams.values() for name in members}
     assert fams["References"] == ["DatasourceRef"]
     assert "Internal IR types" not in fams
     assert set(fams["Results"]) == {
@@ -99,10 +98,16 @@ def test_datasource_fold_partition() -> None:
     }
     assert fams["Metadata types"] == ["TableMetadata"]
     assert set(fams["Other types"]) == {
+        "ClickHouseSpec",
         "DatasourceConnection",
         "DatasourceDescription",
         "DatasourceList",
+        "DatasourceSpec",
         "DatasourceSummary",
+        "DuckDBSpec",
+        "MySQLSpec",
+        "PostgresSpec",
+        "TrinoSpec",
     }
     enumerated = _enumerated(surface)
     # Entry-point and input types are pinned as top-level entries, not folded.

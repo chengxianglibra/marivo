@@ -66,9 +66,9 @@ def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
 
 
 def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
-    from marivo.datasource.authoring import _TrinoSpec
+    import marivo.datasource as md
 
-    spec = _TrinoSpec(
+    spec = md.TrinoSpec(
         name="warehouse",
         host="trino.example",
         catalog="hive",
@@ -81,13 +81,29 @@ def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
     assert spec.env_refs == {"auth": "TRINO_AUTH"}
 
 
-def test_datasource_ref_uses_global_short_name() -> None:
+def test_datasource_ref_uses_kind_qualified_identity() -> None:
     import marivo.datasource as md
 
-    ref = md.ref("warehouse")
+    ref = md.ref("datasource.warehouse")
 
-    assert ref.id == "warehouse"
-    assert repr(ref) == "DatasourceRef('warehouse')"
+    assert ref.id == "datasource.warehouse"
+    assert not hasattr(ref, "name")
+    assert repr(ref) == "DatasourceRef('datasource.warehouse')"
+
+
+def test_datasource_ref_accepts_short_name_for_compatibility() -> None:
+    import marivo.datasource as md
+
+    assert md.ref("warehouse") == md.ref("datasource.warehouse")
+
+
+def test_datasource_ref_rejects_other_kind_identity() -> None:
+    import pytest
+
+    import marivo.datasource as md
+
+    with pytest.raises(ValueError, match="datasource\\.<name>"):
+        md.ref("metric.sales.revenue")
 
 
 def test_datasource_public_exports() -> None:
@@ -96,6 +112,12 @@ def test_datasource_public_exports() -> None:
     for name in (
         "DatasourceCatalog",
         "DatasourceRef",
+        "DatasourceSpec",
+        "DuckDBSpec",
+        "TrinoSpec",
+        "MySQLSpec",
+        "PostgresSpec",
+        "ClickHouseSpec",
         "DiscoveryResult",
         "JoinSide",
         "ScanScope",

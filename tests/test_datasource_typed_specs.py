@@ -1,4 +1,4 @@
-"""Contract tests for datasource convenience functions and internal spec classes."""
+"""Contract tests for datasource convenience functions and public spec classes."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import (
-    _ClickHouseSpec,
-    _DuckDBSpec,
+    ClickHouseSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
     _ir_from_spec,
-    _MySQLSpec,
-    _PostgresSpec,
-    _TrinoSpec,
 )
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
@@ -34,7 +34,7 @@ def _help_json(symbol: str) -> dict[str, object]:
 
 
 def _ir(
-    spec: _DuckDBSpec | _TrinoSpec | _MySQLSpec | _PostgresSpec | _ClickHouseSpec,
+    spec: DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
 ) -> DatasourceIR:
     return _ir_from_spec(
         spec,
@@ -42,11 +42,11 @@ def _ir(
     )
 
 
-# -- Internal spec class tests (validation, serialization, IR mapping) --
+# -- Public spec class tests (validation, serialization, IR mapping) --
 
 
 def test_duckdb_spec_defaults_to_memory_path() -> None:
-    spec = _DuckDBSpec(name="local")
+    spec = DuckDBSpec(name="local")
     ir = _ir(spec)
 
     assert spec.backend_type == "duckdb"
@@ -56,7 +56,7 @@ def test_duckdb_spec_defaults_to_memory_path() -> None:
 
 
 def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:
-    spec = _TrinoSpec(
+    spec = TrinoSpec(
         name="warehouse",
         host="trino.example",
         catalog="hive",
@@ -82,15 +82,15 @@ def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:
 
 
 def test_mysql_postgres_and_clickhouse_required_shapes() -> None:
-    assert _ir(_MySQLSpec(name="mysql_wh", host="mysql.example", database="mart")).fields == {
+    assert _ir(MySQLSpec(name="mysql_wh", host="mysql.example", database="mart")).fields == {
         "host": "mysql.example",
         "database": "mart",
     }
-    assert _ir(_PostgresSpec(name="pg_wh", host="pg.example", database="mart")).fields == {
+    assert _ir(PostgresSpec(name="pg_wh", host="pg.example", database="mart")).fields == {
         "host": "pg.example",
         "database": "mart",
     }
-    assert _ir(_ClickHouseSpec(name="ch_wh", host="ch.example", secure=True)).fields == {
+    assert _ir(ClickHouseSpec(name="ch_wh", host="ch.example", secure=True)).fields == {
         "host": "ch.example",
         "secure": True,
     }
@@ -98,12 +98,12 @@ def test_mysql_postgres_and_clickhouse_required_shapes() -> None:
 
 def test_missing_required_field_raises_native_type_error() -> None:
     with pytest.raises(TypeError, match="catalog"):
-        _TrinoSpec(name="warehouse", host="trino.example")  # type: ignore[call-arg]
+        TrinoSpec(name="warehouse", host="trino.example")  # type: ignore[call-arg]
 
 
 def test_unknown_field_raises_native_type_error() -> None:
     with pytest.raises(TypeError, match="prot"):
-        _TrinoSpec(  # type: ignore[call-arg]
+        TrinoSpec(  # type: ignore[call-arg]
             name="warehouse",
             host="trino.example",
             catalog="hive",
@@ -113,7 +113,7 @@ def test_unknown_field_raises_native_type_error() -> None:
 
 def test_empty_required_string_raises_teaching_error() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        _TrinoSpec(name="warehouse", host="", catalog="hive")
+        TrinoSpec(name="warehouse", host="", catalog="hive")
 
     assert exc_info.value.details["datasource"] == "warehouse"
     assert exc_info.value.details["field"] == "host"
@@ -121,7 +121,7 @@ def test_empty_required_string_raises_teaching_error() -> None:
 
 
 def test_extra_merges_json_safe_passthrough_fields() -> None:
-    spec = _ClickHouseSpec(
+    spec = ClickHouseSpec(
         name="ch_wh",
         host="ch.example",
         extra={"compression": "lz4", "connect_timeout": 10},
@@ -136,7 +136,7 @@ def test_extra_merges_json_safe_passthrough_fields() -> None:
 
 def test_extra_rejects_plaintext_sensitive_stems() -> None:
     with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
-        _TrinoSpec(
+        TrinoSpec(
             name="warehouse",
             host="trino.example",
             catalog="hive",
@@ -149,7 +149,7 @@ def test_extra_rejects_plaintext_sensitive_stems() -> None:
 
 def test_extra_rejects_non_json_values() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        _TrinoSpec(
+        TrinoSpec(
             name="warehouse",
             host="trino.example",
             catalog="hive",
@@ -161,7 +161,7 @@ def test_extra_rejects_non_json_values() -> None:
 
 def test_datasource_specs_do_not_accept_description() -> None:
     with pytest.raises(TypeError, match="description"):
-        _DuckDBSpec(name="local", description="Local warehouse")  # type: ignore[call-arg]
+        DuckDBSpec(name="local", description="Local warehouse")  # type: ignore[call-arg]
 
 
 def test_datasource_helpers_do_not_accept_description() -> None:
@@ -172,8 +172,17 @@ def test_datasource_helpers_do_not_accept_description() -> None:
         md.duckdb(name="warehouse", description="Local warehouse")  # type: ignore[call-arg]
 
 
+def test_datasource_helper_returns_public_spec_and_ref() -> None:
+    spec = md.duckdb(name="warehouse", path="warehouse.duckdb")
+
+    assert isinstance(spec, md.DuckDBSpec)
+    assert spec.ref == md.ref("datasource.warehouse")
+    assert spec.ref.id == "datasource.warehouse"
+    assert not hasattr(spec.ref, "name")
+
+
 def test_spec_ai_context_maps_to_ir() -> None:
-    spec = _DuckDBSpec(
+    spec = DuckDBSpec(
         name="warehouse",
         ai_context=ms.ai_context(
             business_definition="Local analytical warehouse.",
@@ -231,7 +240,7 @@ def test_store_writes_convenience_function_call(
     monkeypatch.chdir(tmp_path)
 
     md.register(
-        _TrinoSpec(name="warehouse", host="trino.example", catalog="hive", auth_env="TRINO_AUTH")
+        TrinoSpec(name="warehouse", host="trino.example", catalog="hive", auth_env="TRINO_AUTH")
     )
 
     datasource_file = tmp_path / "models" / "datasources" / "warehouse.py"
@@ -247,7 +256,7 @@ def test_store_persists_ai_context(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.chdir(tmp_path)
 
     md.register(
-        _DuckDBSpec(
+        DuckDBSpec(
             name="warehouse",
             path=":memory:",
             ai_context=ms.ai_context(
@@ -269,7 +278,7 @@ def test_md_list_returns_displayable_datasource_list(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    md.register(_DuckDBSpec(name="warehouse", path=":memory:"))
+    md.register(DuckDBSpec(name="warehouse", path=":memory:"))
 
     result = md.list()
 
@@ -287,7 +296,7 @@ def test_catalog_list_returns_same_displayable_type(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    md.register(_DuckDBSpec(name="warehouse", path=":memory:"))
+    md.register(DuckDBSpec(name="warehouse", path=":memory:"))
 
     result = md.load().list()
 
@@ -301,7 +310,7 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("TRINO_AUTH", "super-secret-token")
     md.register(
-        _TrinoSpec(
+        TrinoSpec(
             name="warehouse",
             host="trino.example",
             catalog="hive",
@@ -339,11 +348,11 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     assert "super-secret-token" not in out
 
 
-# -- Internal spec field visibility --
+# -- Public spec field visibility --
 
 
 def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:
-    trino_field_names = {field.name for field in fields(_TrinoSpec)}
+    trino_field_names = {field.name for field in fields(TrinoSpec)}
 
     assert {"name", "host", "catalog", "port", "user_env", "auth_env", "extra"} <= trino_field_names
     assert "description" not in trino_field_names

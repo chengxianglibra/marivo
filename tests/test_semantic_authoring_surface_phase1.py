@@ -228,7 +228,10 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
     with loader_context(ctx):
         sales = ms.domain(name="sales", default=True)
         orders = ms.entity(
-            name="orders", datasource="warehouse", source=ms.table("orders"), domain=sales
+            name="orders",
+            datasource=md.ref("datasource.warehouse"),
+            source=ms.table("orders"),
+            domain=sales,
         )
 
         @ms.dimension(entity=orders)
@@ -265,7 +268,10 @@ def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
     with loader_context(ctx):
         sales = ms.domain(name="sales", default=True)
         orders = ms.entity(
-            name="orders", datasource="warehouse", source=ms.table("orders"), domain=sales
+            name="orders",
+            datasource=md.ref("datasource.warehouse"),
+            source=ms.table("orders"),
+            domain=sales,
         )
         with pytest.raises(TypeError):
             ms.dimension(entity=orders, additivity="additive")
@@ -280,10 +286,16 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
     with loader_context(ctx):
         sales = ms.domain(name="sales", default=True)
         orders = ms.entity(
-            name="orders", datasource="warehouse", source=ms.table("orders"), domain=sales
+            name="orders",
+            datasource=md.ref("datasource.warehouse"),
+            source=ms.table("orders"),
+            domain=sales,
         )
         refunds = ms.entity(
-            name="refunds", datasource="warehouse", source=ms.table("refunds"), domain=sales
+            name="refunds",
+            datasource=md.ref("datasource.warehouse"),
+            source=ms.table("refunds"),
+            domain=sales,
         )
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
@@ -300,10 +312,16 @@ def test_relationship_uses_join_key_pairs() -> None:
     with loader_context(ctx):
         sales = ms.domain(name="sales", default=True)
         orders = ms.entity(
-            name="orders", datasource="warehouse", source=ms.table("orders"), domain=sales
+            name="orders",
+            datasource=md.ref("datasource.warehouse"),
+            source=ms.table("orders"),
+            domain=sales,
         )
         customers = ms.entity(
-            name="customers", datasource="warehouse", source=ms.table("customers"), domain=sales
+            name="customers",
+            datasource=md.ref("datasource.warehouse"),
+            source=ms.table("customers"),
+            domain=sales,
         )
 
         @ms.dimension(entity=orders)
@@ -340,7 +358,10 @@ def test_time_dimension_uses_parse_value_object() -> None:
     with loader_context(ctx):
         sales = ms.domain(name="sales", default=True)
         orders = ms.entity(
-            name="orders", datasource="warehouse", source=ms.table("orders"), domain=sales
+            name="orders",
+            datasource=md.ref("datasource.warehouse"),
+            source=ms.table("orders"),
+            domain=sales,
         )
 
         @ms.time_dimension(entity=orders, granularity="day", parse=ms.strptime("%Y%m%d"))
@@ -378,7 +399,10 @@ def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
     with loader_context(ctx):
         sales = ms.domain(name="sales", default=True)
         orders = ms.entity(
-            name="orders", datasource="warehouse", source=ms.table("orders"), domain=sales
+            name="orders",
+            datasource=md.ref("datasource.warehouse"),
+            source=ms.table("orders"),
+            domain=sales,
         )
 
         @ms.time_dimension(entity=orders, granularity="day")

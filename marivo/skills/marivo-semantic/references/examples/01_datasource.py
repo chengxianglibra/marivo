@@ -27,21 +27,18 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     con.disconnect()
 
-    datasource_dir = root / "models" / "datasources"
-    datasource_dir.mkdir(parents=True)
-    (datasource_dir / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(db_path)!r})\n"
-    )
-
     previous = Path.cwd()
     try:
         os.chdir(root)
 
+        spec = md.duckdb(name="warehouse", path=str(db_path))
+        md.register(spec)
+
         md.help_text("discover_entity")
-        test_result = md.test("warehouse")
+        test_result = md.test(spec.ref)
         print("datasource test:", test_result.ok)
 
-        warehouse = md.ref("warehouse")
+        warehouse = spec.ref
         orders = md.table("orders")
         scope = md.unpruned(max_rows=100)
 

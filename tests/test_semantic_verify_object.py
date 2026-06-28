@@ -3,13 +3,15 @@
 from pathlib import Path
 
 import marivo.datasource as md
-from marivo.datasource.authoring import _DuckDBSpec
+from marivo.datasource.authoring import DuckDBSpec
 from marivo.semantic import ledger as lg
 
 
 def test_verify_object_static_domain_passes(semantic_project_factory) -> None:
     project = semantic_project_factory(
-        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+        {
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        }
     )
 
     result = project.verify_object("sales")
@@ -23,9 +25,9 @@ def test_verify_object_blocks_missing_datasource(tmp_path: Path, semantic_projec
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='missing', source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.missing'), source=ms.table('orders'))\n"
             )
         },
         workspace_dir=tmp_path,
@@ -47,15 +49,15 @@ def test_verify_object_scoped_entity_preview_passes(
     con.create_table("orders", {"order_id": [1], "dt": ["20260612"]})
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
             )
         },
         workspace_dir=tmp_path,
@@ -88,15 +90,15 @@ def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_proj
     )
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     return semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -160,9 +162,9 @@ def test_verify_metric_auto_records_semi_additive_additivity(semantic_project_fa
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -224,15 +226,15 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
     con.create_table("orders", {"order_id": [1], "amount": [100]})
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -252,9 +254,9 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='month', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -283,15 +285,15 @@ def test_verify_dimension_no_auto_record(tmp_path: Path, semantic_project_factor
     con.create_table("orders", {"order_id": [1], "region": ["US"]})
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
@@ -318,15 +320,15 @@ def test_verify_derived_metric_auto_records_decomposition(
     con.create_table("orders", {"order_id": [1], "amount": [100]})
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(orders):\n"
@@ -365,15 +367,15 @@ def test_verify_clears_readiness_unresolved_clarification(
     con.create_table("orders", {"order_id": [1], "amount": [100], "dt": ["20260610"]})
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"

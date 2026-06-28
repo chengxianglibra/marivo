@@ -18,7 +18,7 @@ import marivo.semantic as ms
 
 DOMAIN = """
 ms.domain(name="sales")
-warehouse = md.ref("warehouse")
+warehouse = md.ref("datasource.warehouse")
 """
 
 ORDERS_ENTITY = """
@@ -266,93 +266,97 @@ with tempfile.TemporaryDirectory() as tmp:
     previous = Path.cwd()
     try:
         os.chdir(root)
+        warehouse = md.ref("datasource.warehouse")
+        orders_source = md.table("orders")
+        customers_source = md.table("customers")
+        scope = md.unpruned(max_rows=100)
 
         write_domain(DOMAIN)
         verify("sales")
 
         orders_entity = md.discover_entity(
-            md.ref("warehouse"),
-            md.table("orders"),
-            scope=md.unpruned(max_rows=100),
+            warehouse,
+            orders_source,
+            scope=scope,
         )
         orders_entity.show()
         write_domain(ORDERS_ENTITY)
         verify("sales.orders")
 
         customers_entity = md.discover_entity(
-            md.ref("warehouse"),
-            md.table("customers"),
-            scope=md.unpruned(max_rows=100),
+            warehouse,
+            customers_source,
+            scope=scope,
         )
         customers_entity.show()
         write_domain(CUSTOMERS_ENTITY)
         verify("sales.customers")
 
         region_discovery = md.discover_dimensions(
-            md.ref("warehouse"),
-            md.table("orders"),
+            warehouse,
+            orders_source,
             columns=("region",),
-            scope=md.unpruned(max_rows=100),
+            scope=scope,
         )
         region_discovery.show()
         write_domain(ORDER_REGION_DIMENSION)
         verify("sales.orders.region")
 
         order_customer_discovery = md.discover_dimensions(
-            md.ref("warehouse"),
-            md.table("orders"),
+            warehouse,
+            orders_source,
             columns=("customer_id",),
-            scope=md.unpruned(max_rows=100),
+            scope=scope,
         )
         order_customer_discovery.show()
         write_domain(ORDER_CUSTOMER_ID_DIMENSION)
         verify("sales.orders.customer_id")
 
         customer_id_discovery = md.discover_dimensions(
-            md.ref("warehouse"),
-            md.table("customers"),
+            warehouse,
+            customers_source,
             columns=("customer_id",),
-            scope=md.unpruned(max_rows=100),
+            scope=scope,
         )
         customer_id_discovery.show()
         write_domain(CUSTOMER_ID_DIMENSION)
         verify("sales.customers.customer_id")
 
         country_discovery = md.discover_dimensions(
-            md.ref("warehouse"),
-            md.table("customers"),
+            warehouse,
+            customers_source,
             columns=("country",),
-            scope=md.unpruned(max_rows=100),
+            scope=scope,
         )
         country_discovery.show()
         write_domain(CUSTOMER_COUNTRY_DIMENSION)
         verify("sales.customers.country")
 
         order_date_discovery = md.discover_time_dimensions(
-            md.ref("warehouse"),
-            md.table("orders"),
+            warehouse,
+            orders_source,
             columns=("order_date",),
-            scope=md.unpruned(max_rows=100),
+            scope=scope,
         )
         order_date_discovery.show()
         write_domain(ORDER_DATE_TIME_DIMENSION)
         verify("sales.orders.order_date")
 
         amount_discovery = md.discover_measures(
-            md.ref("warehouse"),
-            md.table("orders"),
+            warehouse,
+            orders_source,
             columns=("amount",),
-            scope=md.unpruned(max_rows=100),
+            scope=scope,
         )
         amount_discovery.show()
         write_domain(AMOUNT_MEASURE)
         verify("sales.orders.amount")
 
         refund_discovery = md.discover_measures(
-            md.ref("warehouse"),
-            md.table("orders"),
+            warehouse,
+            orders_source,
             columns=("refund_amount",),
-            scope=md.unpruned(max_rows=100),
+            scope=scope,
         )
         refund_discovery.show()
         write_domain(REFUND_MEASURE)
@@ -371,13 +375,9 @@ with tempfile.TemporaryDirectory() as tmp:
         verify("sales.orders_count")
 
         relationship_discovery = md.discover_relationship(
-            from_side=md.JoinSide(
-                md.ref("warehouse"), md.table("orders"), columns=("customer_id",)
-            ),
-            to_side=md.JoinSide(
-                md.ref("warehouse"), md.table("customers"), columns=("customer_id",)
-            ),
-            scope=md.unpruned(max_rows=100),
+            from_side=md.JoinSide(warehouse, orders_source, columns=("customer_id",)),
+            to_side=md.JoinSide(warehouse, customers_source, columns=("customer_id",)),
+            scope=scope,
         )
         relationship_discovery.show()
         write_domain(RELATIONSHIP)

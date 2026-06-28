@@ -128,10 +128,13 @@ output is validated and persisted as a `MetricFrame` with full lineage.
 | Inspect or export rows from any tabular artifact | `artifact.preview(limit=...)` or `artifact.to_pandas()` |
 
 ```python
+import marivo.datasource as md
+
+warehouse = md.ref("datasource.warehouse")
 retention = session.derive_metric_frame(
     metric=session.catalog.get("metric.sales.revenue"),
     query=mv.ibis_query(
-        datasource="warehouse",
+        datasource=warehouse,
         build=lambda db, ctx: db.table("orders"),
     ),
     columns=mv.metric_columns(
@@ -251,7 +254,7 @@ For Trino, map prompt `catalog` to Ibis `database`, and map
 `client-tags`/`client_tags` to Python `client_tags` as a list. See
 `references/backend-setup.md` for the full mapping and guardrails.
 
-Datasource names are global, not model-qualified. Semantic datasets use `.dataset(datasource="warehouse")`; backend factories receive `"warehouse"`, never `"sales.warehouse"`.
+Datasource names are global, not model-qualified. Semantic authoring uses typed datasource refs such as `md.ref("datasource.warehouse")`; analysis backend factories still receive the registered short name `"warehouse"`, never `"sales.warehouse"`.
 
 When a dataset has multiple time dimensions, choose one with top-level `time_dimension`:
 

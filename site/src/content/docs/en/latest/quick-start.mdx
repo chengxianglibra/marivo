@@ -50,7 +50,7 @@ ms.domain(
 
 orders = ms.entity(
     name="orders",
-    datasource=md.ref("warehouse"),
+    datasource=md.ref("datasource.warehouse"),
     source=ms.table("orders"),
     primary_key=["order_id"],
     ai_context=ms.ai_context(
@@ -141,7 +141,7 @@ time:
 import marivo.datasource as md
 import marivo.semantic as ms
 
-warehouse = md.ref("warehouse")
+warehouse = md.ref("datasource.warehouse")
 orders_source = md.table("orders")
 scope = md.latest_partition()
 

@@ -16,6 +16,12 @@ Registration & lifecycle
    connect
    DatasourceConnection
    register
+   DatasourceSpec
+   DuckDBSpec
+   TrinoSpec
+   MySQLSpec
+   PostgresSpec
+   ClickHouseSpec
    load
    list
    remove

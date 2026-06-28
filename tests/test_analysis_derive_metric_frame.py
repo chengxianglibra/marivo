@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.datasource as md
 from marivo.analysis.errors import PromotionFailedError, SemanticKindMismatchError
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
@@ -32,12 +33,12 @@ def _session_with_fake_backend(tmp_path, monkeypatch, df: pd.DataFrame):
     session = mv.session.get_or_create(name="derive", use_datasources=True)
 
     def fake_session_backend(datasource: str):
-        assert datasource == "warehouse"
+        assert datasource == "datasource.warehouse"
         return object()
 
     def fake_execute(expr, *, datasource_name, cache, session_id):
         assert isinstance(expr, _Expr)
-        assert datasource_name == "warehouse"
+        assert datasource_name == "datasource.warehouse"
         assert session_id == session.id
         return SimpleNamespace(
             df=df.copy(),
@@ -73,7 +74,7 @@ def test_derive_metric_frame_materializes_metric_frame_with_governed_contract(
     frame = session.derive_metric_frame(
         metric=metric,
         query=mv.ibis_query(
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
             build=lambda db, ctx: _Expr(),
         ),
         columns=mv.metric_columns(
@@ -131,7 +132,10 @@ def test_derive_metric_frame_rejects_non_metric_anchor(tmp_path, monkeypatch) ->
     with pytest.raises(SemanticKindMismatchError):
         session.derive_metric_frame(
             metric=session.catalog.get("dimension.sales.orders.region"),
-            query=mv.ibis_query(datasource="warehouse", build=lambda db, ctx: _Expr()),
+            query=mv.ibis_query(
+                datasource=md.ref("datasource.warehouse"),
+                build=lambda db, ctx: _Expr(),
+            ),
             columns=mv.metric_columns(value="value"),
             timescope={"start": "2026-06-18", "end": "2026-06-25"},
             grain=None,
@@ -148,7 +152,10 @@ def test_derive_metric_frame_rejects_missing_output_columns(tmp_path, monkeypatc
     with pytest.raises(PromotionFailedError) as exc_info:
         session.derive_metric_frame(
             metric=session.catalog.get("metric.sales.revenue"),
-            query=mv.ibis_query(datasource="warehouse", build=lambda db, ctx: _Expr()),
+            query=mv.ibis_query(
+                datasource=md.ref("datasource.warehouse"),
+                build=lambda db, ctx: _Expr(),
+            ),
             columns=mv.metric_columns(value="value"),
             timescope={"start": "2026-06-18", "end": "2026-06-25"},
             grain=None,
@@ -169,11 +176,21 @@ def test_derive_helpers_keep_string_columns_and_semantic_refs_separate() -> None
     assert columns.value == "value"
     assert columns.dimensions[0].column == "region"
     assert columns.dimensions[0].ref == dim_ref
-    assert (
-        mv.ibis_query(datasource="warehouse", build=lambda db, ctx: _Expr()).datasource
-        == "warehouse"
-    )
+    spec = mv.ibis_query(datasource=md.ref("datasource.warehouse"), build=lambda db, ctx: _Expr())
+    assert spec.datasource == md.ref("datasource.warehouse")
+    assert spec.datasource.id == "datasource.warehouse"
     assert metric_ref.id == "sales.revenue"
+
+
+def test_ibis_query_rejects_string_datasource() -> None:
+    with pytest.raises(TypeError, match=r'md\.ref\("datasource\.warehouse"\)'):
+        mv.ibis_query(datasource="warehouse", build=lambda db, ctx: _Expr())  # type: ignore[arg-type]
+
+    with pytest.raises(TypeError, match=r'md\.ref\("datasource\.warehouse"\)'):
+        mv.IbisQuerySpec(  # type: ignore[arg-type]
+            datasource="datasource.warehouse",
+            build=lambda db, ctx: _Expr(),
+        )
 
 
 def test_derive_metric_frame_grain_token_consistent_for_non_string_grain(
@@ -204,7 +221,7 @@ def test_derive_metric_frame_grain_token_consistent_for_non_string_grain(
     frame = session.derive_metric_frame(
         metric=metric,
         query=mv.ibis_query(
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
             build=lambda db, ctx: _Expr(),
         ),
         columns=mv.metric_columns(

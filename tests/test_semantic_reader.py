@@ -5,15 +5,17 @@ from __future__ import annotations
 import textwrap
 
 _DOMAIN_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
     ms.domain(name="sales", default=True)
 """)
 
 
 _OBJECTS_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
 
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.metric(
         entities=[orders],

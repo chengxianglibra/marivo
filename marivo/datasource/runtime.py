@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from marivo.datasource import backends, store
+from marivo.datasource.authoring import _storage_name
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
 
@@ -74,23 +75,27 @@ class DatasourceConnectionService:
     @contextmanager
     def use_backend(self, name: str, *, read_only: bool = False) -> Iterator[Any]:
         """Yield a live backend, disconnecting on exit (success or error)."""
-        backend = _build_backend_from_store(name, self._project_root, read_only=read_only)
+        datasource_name = _storage_name(name)
+        backend = _build_backend_from_store(
+            datasource_name, self._project_root, read_only=read_only
+        )
         try:
             yield backend
         finally:
             _disconnect(backend)
 
     def _build_session_backend(self, name: str) -> Any:
-        override = self._backend_overrides.get(name)
+        datasource_name = _storage_name(name)
+        override = self._backend_overrides.get(datasource_name)
         if override is not None:
             return override()
         if self._backend_factory is not None:
-            return self._backend_factory(name)
+            return self._backend_factory(datasource_name)
         if self._use_datasources:
-            return _build_backend_from_store(name, self._project_root)
+            return _build_backend_from_store(datasource_name, self._project_root)
         raise DatasourceMissingError(
-            message=f"datasource {name!r} is not configured for this session",
-            details={"datasource": name, "available": sorted(self._backend_overrides)},
+            message=f"datasource {datasource_name!r} is not configured for this session",
+            details={"datasource": datasource_name, "available": sorted(self._backend_overrides)},
         )
 
     def session_backend(self, name: str) -> Any:
@@ -99,19 +104,21 @@ class DatasourceConnectionService:
         The same backend instance is returned on repeated calls for the
         same name until ``close_all()`` is called.
         """
-        backend = self._session_backends.get(name)
+        datasource_name = _storage_name(name)
+        backend = self._session_backends.get(datasource_name)
         if backend is None:
-            backend = self._build_session_backend(name)
-            self._session_backends[name] = backend
+            backend = self._build_session_backend(datasource_name)
+            self._session_backends[datasource_name] = backend
         return backend
 
     def engine_timezone(self, name: str) -> DatasourceEngineTimezone:
         """Return the cached engine timezone for a datasource session backend."""
-        resolved = self._engine_timezones.get(name)
+        datasource_name = _storage_name(name)
+        resolved = self._engine_timezones.get(datasource_name)
         if resolved is None:
-            backend = self.session_backend(name)
+            backend = self.session_backend(datasource_name)
             resolved = probe_engine_timezone(backend)
-            self._engine_timezones[name] = resolved
+            self._engine_timezones[datasource_name] = resolved
         return resolved
 
     def close_all(self) -> None:

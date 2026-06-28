@@ -87,7 +87,7 @@ def test_model_outside_context_raises() -> None:
 
 def test_dataset_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
 
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
@@ -199,7 +199,7 @@ def test_field_accepts_model_ref() -> None:
         sales_ref = ms.domain(name="sales", default=True)
         ds = ms.entity(
             name="orders",
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
             source=ms.table("orders"),
         )
 
@@ -220,7 +220,9 @@ def test_field_accepts_model_ref() -> None:
 def test_dataset_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
 
         assert isinstance(orders, EntityRef)
         assert orders.id == "sales.orders"
@@ -232,7 +234,19 @@ def test_dataset_requires_name_without_body() -> None:
     _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(TypeError):
-            ms.entity(datasource="wh", source=ms.table("orders"))  # type: ignore[call-arg]
+            ms.entity(datasource=md.ref("datasource.wh"), source=ms.table("orders"))  # type: ignore[call-arg]
+    finally:
+        _exit_ctx()
+
+
+def test_dataset_rejects_bare_string_datasource() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.entity(name="orders", datasource="wh", source=ms.table("orders"))  # type: ignore[arg-type]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert 'md.ref("datasource.warehouse")' in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -242,7 +256,7 @@ def test_dataset_explicit_name() -> None:
     try:
         _orders_impl = ms.entity(
             name="orders_tbl",
-            datasource="wh",
+            datasource=md.ref("datasource.wh"),
             source=ms.table("orders"),
         )
 
@@ -255,13 +269,17 @@ def test_dataset_explicit_name() -> None:
 def test_dataset_pushes_ir_without_callable() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        ref = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        ref = ms.entity(
+            name="orders",
+            datasource=md.ref("datasource.wh"),
+            source=ms.table("orders"),
+        )
         ir, callable_ = ctx.pending_objects[-1]
         assert ref.id == "sales.orders"
         assert ir.semantic_id == "sales.orders"
         assert ir.domain == "sales"
         assert ir.name == "orders"
-        assert ir.datasource == "wh"
+        assert ir.datasource == "datasource.wh"
         assert ir.source == ms.table("orders")
         assert callable_ is None
     finally:
@@ -271,10 +289,10 @@ def test_dataset_pushes_ir_without_callable() -> None:
 def test_dataset_datasource_as_string() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
 
         ir, _ = ctx.pending_objects[-1]
-        assert ir.datasource == "wh"
+        assert ir.datasource == "datasource.wh"
     finally:
         _exit_ctx()
 
@@ -282,11 +300,11 @@ def test_dataset_datasource_as_string() -> None:
 def test_dataset_datasource_as_datasource_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        warehouse = md.ref("wh")
+        warehouse = md.ref("datasource.wh")
         ms.entity(name="orders", datasource=warehouse, source=ms.table("orders"))
 
         ir, _ = ctx.pending_objects[-1]
-        assert ir.datasource == "wh"
+        assert ir.datasource == "datasource.wh"
     finally:
         _exit_ctx()
 
@@ -296,7 +314,7 @@ def test_dataset_primary_key() -> None:
     try:
         ms.entity(
             name="orders",
-            datasource="wh",
+            datasource=md.ref("datasource.wh"),
             source=ms.table("orders"),
             primary_key=["order_id"],
         )
@@ -312,7 +330,7 @@ def test_dataset_source_records_table_database() -> None:
     try:
         ms.entity(
             name="orders",
-            datasource="wh",
+            datasource=md.ref("datasource.wh"),
             source=ms.table("orders", database="sales_mart"),
         )
 
@@ -329,7 +347,7 @@ def test_dataset_source_records_parquet_source() -> None:
     try:
         ms.entity(
             name="orders",
-            datasource="wh",
+            datasource=md.ref("datasource.wh"),
             source=ms.parquet("/data/orders/*.parquet", hive_partitioning=True),
         )
 
@@ -346,7 +364,7 @@ def test_dataset_source_records_csv_source() -> None:
     try:
         ms.entity(
             name="orders",
-            datasource="wh",
+            datasource=md.ref("datasource.wh"),
             source=ms.csv("/data/orders.csv", header=False, delimiter="|"),
         )
 
@@ -363,7 +381,7 @@ def test_entity_rejects_invalid_source_value() -> None:
     _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.entity(name="orders", datasource="wh", source=object())  # type: ignore[arg-type]
+            ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=object())  # type: ignore[arg-type]
         assert exc_info.value.kind == ErrorKind.INVALID_REF
         assert "source" in str(exc_info.value)
     finally:
@@ -394,7 +412,9 @@ def test_entity_is_not_a_decorator() -> None:
     """ms.entity() is a plain call returning EntityRef, not a decorator."""
     _enter_ctx(default_domain="sales")
     try:
-        result = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        result = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
         assert isinstance(result, EntityRef)
         # It does not accept a function body — it returns a ref, not a decorator.
     finally:
@@ -529,7 +549,9 @@ def test_field_kind_defaults_to_dimension() -> None:
 def test_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
 
         ref = ms.dimension_column(
             name="region",
@@ -581,7 +603,9 @@ def test_dimension_column_rejects_string_entity() -> None:
 def test_dimension_column_rejects_empty_column() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.dimension_column(name="region", entity=orders, column="")
     finally:
@@ -642,7 +666,9 @@ def test_measure_body_error_uses_measure_label() -> None:
 def test_measure_column_pushes_ir_sidecar_and_pending_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
 
         ref = ms.measure_column(
             name="amount",
@@ -1261,7 +1287,9 @@ def test_hour_prefix_rejects_sample_interval_day_unit() -> None:
 def test_time_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
 
         ref = ms.time_dimension_column(
             name="log_date",
@@ -1320,7 +1348,9 @@ def test_time_dimension_column_rejects_string_entity() -> None:
 def test_time_dimension_column_reuses_parse_granularity_validation() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.time_dimension_column(
                 name="log_date",
@@ -1960,10 +1990,10 @@ def test_authoring_reference_parameters_reject_wrong_ref_kind(
 def test_duplicate_dataset_name_raises() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+            ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
 
         assert exc_info.value.kind == ErrorKind.DUPLICATE_NAME
     finally:
@@ -1995,7 +2025,7 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
     try:
         ds = ms.entity(
             name="dau_7d_portrait",
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
             source=ms.table("dau_7d_portrait"),
         )
         assert ds.id == "sales.dau_7d_portrait"
@@ -2019,7 +2049,7 @@ def test_field_and_time_field_same_name_same_dataset_collides() -> None:
     try:
         ds = ms.entity(
             name="orders",
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
             source=ms.table("orders"),
         )
 
@@ -2240,12 +2270,12 @@ def test_two_datasets_same_column_name_distinct_ids() -> None:
     try:
         orders_ds = ms.entity(
             name="orders",
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
             source=ms.table("orders"),
         )
         portrait_ds = ms.entity(
             name="portrait",
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
             source=ms.table("portrait"),
         )
 
@@ -2269,7 +2299,7 @@ def test_field_model_mismatch_with_dataset_raises() -> None:
     try:
         ds = ms.entity(
             name="orders",
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
             source=ms.table("orders"),
         )
 

@@ -111,13 +111,15 @@ def _patch_project_backends(project, backend_factory):
 
 
 _DOMAIN_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
     ms.domain(name="sales", default=True)
 """)
 
 _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):
@@ -133,8 +135,9 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
 """)
 
 _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -146,8 +149,9 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
 """)
 
 _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -158,8 +162,9 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
 """)
 
 _DIALECT_MISMATCH_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -171,8 +176,9 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
 """)
 
 _DERIVED_METRIC_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -198,8 +204,9 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 """)
 
 _NO_SOURCE_SQL_METRIC_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -300,8 +307,9 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
     """Parity check with abs_tol should pass within tolerance."""
     # Create a project where expected and actual differ by a small amount
     small_mismatch_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -380,8 +388,9 @@ def test_derived_metric_with_provenance_sql_fails_load(
     """Derived metric constructors do not accept provenance — the module fails
     to load with an organization_error when extra kwargs are passed."""
     metrics_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -435,10 +444,11 @@ def test_provenance_dialect_does_not_require_semantic_datasource_backend_type(
 def test_cross_datasource_metric_raises(semantic_project_factory, backend_factory) -> None:
     """Parity check on metric with cross-datasource datasets should raise."""
     cross_ds_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
-        orders_a = ms.entity(name="orders_a", datasource="warehouse1", source=ms.table("orders"))
+        orders_a = ms.entity(name="orders_a", datasource=md.ref("datasource.warehouse1"), source=ms.table("orders"))
 
-        orders_b = ms.entity(name="orders_b", datasource="warehouse2", source=ms.table("orders"))
+        orders_b = ms.entity(name="orders_b", datasource=md.ref("datasource.warehouse2"), source=ms.table("orders"))
 
         @ms.metric(
             entities=[orders_a, orders_b],
@@ -553,8 +563,9 @@ def test_derived_propagation_all_verified(semantic_project_factory, backend_fact
 def test_derived_propagation_one_drifted(semantic_project_factory, backend_factory) -> None:
     """When one component metric is drifted, derived should be DRIFTED."""
     drifted_component_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -623,8 +634,9 @@ def test_derived_propagation_verified_and_no_provenance_sql(
 ) -> None:
     """When one component is SQL-verified and another has no provenance SQL, derived is VERIFIED."""
     mixed_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
         @ms.metric(
             entities=[orders],

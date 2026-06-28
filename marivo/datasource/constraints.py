@@ -70,9 +70,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceFieldInvalid",
         "decorator",
         ("duckdb", "trino", "mysql", "postgres", "clickhouse", "DatasourceRef", "ref"),
-        "Datasource names are global short names.",
-        "Semantic declarations refer to datasources by stable project-level ids, not model-qualified names.",
-        "Use names like 'warehouse' and reference them with md.ref('warehouse').",
+        "Datasource spec names are global storage keys.",
+        "Semantic declarations refer to datasources by stable kind-qualified ids.",
+        "Define specs with names like 'warehouse' and reference them with md.ref('datasource.warehouse').",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_BACKEND_TYPE_REQUIRED: _constraint(

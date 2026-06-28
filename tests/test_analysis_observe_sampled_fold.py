@@ -89,14 +89,14 @@ def _bootstrap_bandwidth(
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
         "bandwidth_samples = ms.entity(\n"
         "    name='bandwidth_samples',\n"
-        "    datasource='warehouse',\n"
+        "    datasource=md.ref('datasource.warehouse'),\n"
         "    primary_key=['sample_id'],\n"
         "    source=ms.table('bandwidth_samples'),\n"
         ")\n"
@@ -488,14 +488,14 @@ def _bootstrap_hour_prefix(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
         "hourly_bandwidth = ms.entity(\n"
         "    name='hourly_bandwidth',\n"
-        "    datasource='warehouse',\n"
+        "    datasource=md.ref('datasource.warehouse'),\n"
         "    primary_key=['obs_id'],\n"
         "    source=ms.table('hourly_bandwidth'),\n"
         ")\n"

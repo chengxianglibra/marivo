@@ -44,13 +44,13 @@ def _bootstrap(tmp_path, *, root: str = "orders"):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     root_line = "root_entity=orders" if root == "orders" else "root_entity=users"
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "users = ms.entity(name='users', datasource='warehouse', primary_key=['user_id'], source=ms.table('users'))\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
+        "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=ms.table('users'))\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
@@ -79,7 +79,7 @@ def _bootstrap(tmp_path, *, root: str = "orders"):
         "    return orders.amount.sum()\n"
     )
     (semantic_dir / "relationships.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "from .datasets import orders, users, order_user_id, user_id\n"
         "ms.relationship(\n"
         "    name='orders_to_users',\n"
@@ -161,16 +161,16 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     # Use field names that match primary_key columns for join safety detection:
     # orders.primary_key=['order_id'] -> need field.name='order_id'
     # order_items.primary_key=['item_id'] -> need field.name='item_id', and
     #   order_items.order_id is NOT a key -> one-to-many from orders
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
-        "order_items = ms.entity(name='order_items', datasource='warehouse', primary_key=['item_id'], source=ms.table('order_items'))\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
+        "order_items = ms.entity(name='order_items', datasource=md.ref('datasource.warehouse'), primary_key=['item_id'], source=ms.table('order_items'))\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
@@ -193,7 +193,7 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
         "    return orders.amount.sum()\n"
     )
     (semantic_dir / "relationships.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "from .datasets import orders, order_items, order_id, item_order_id\n"
         "ms.relationship(\n"
         "    name='orders_to_order_items',\n"
@@ -236,14 +236,14 @@ def _bootstrap_snapshot(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
         "user_profile_daily = ms.entity(\n"
         "    name='user_profile_daily',\n"
-        "    datasource='warehouse',\n"
+        "    datasource=md.ref('datasource.warehouse'),\n"
         "    source=ms.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
         "    versioning=ms.snapshot(partition_field=ms.ref('dimension.sales.user_profile_daily.dt'), grain='day', timezone='Asia/Shanghai', format='%Y%m%d'),\n"
@@ -273,7 +273,7 @@ def _bootstrap_snapshot(tmp_path):
         "    return orders.amount.sum()\n"
     )
     (semantic_dir / "relationships.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "from .datasets import orders, user_profile_daily, order_user_id, user_id\n"
         "ms.relationship(\n"
         "    name='orders_to_profile',\n"

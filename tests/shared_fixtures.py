@@ -190,7 +190,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     time_dimension = (
         "@ms.time_dimension(entity=orders, granularity='day')\n"
@@ -200,10 +200,10 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         else ""
     )
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('warehouse')\n"
+        "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "\n"
@@ -390,7 +390,7 @@ def load_inline_semantic(
         )
         (semantic_dir / "__init__.py").write_text("")
         (semantic_dir / "_domain.py").write_text(
-            f"import marivo.semantic as ms\nms.domain(name={domain!r}, default=True)\n"
+            f"import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name={domain!r}, default=True)\n"
         )
         (semantic_dir / "models.py").write_text(source)
         result = load_project(semantic_dir.parent)

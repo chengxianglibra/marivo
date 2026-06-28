@@ -74,13 +74,13 @@ def _bootstrap_schema_project(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='analytics')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='analytics')\n"
     )
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('warehouse')\n"
+        "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
         "queries = ms.entity(name='queries', datasource=warehouse, source=ms.table('queries'))\n"
         "\n"

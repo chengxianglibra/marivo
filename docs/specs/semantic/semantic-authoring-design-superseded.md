@@ -1217,7 +1217,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 ms.domain(name="sales", description="Sales analytics")
-warehouse = md.ref("warehouse")
+warehouse = md.ref("datasource.warehouse")
 ```
 
 #### 2.1 Per-source authoring

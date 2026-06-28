@@ -77,7 +77,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 ms.domain(name="sales", ai_context=ms.ai_context(business_definition="Sales analytics"))
-warehouse = md.ref("warehouse")
+warehouse = md.ref("datasource.warehouse")
 
 orders = ms.entity(
     name="orders",
@@ -310,7 +310,7 @@ md.trino(
 设计约束：
 
 - datasource name 是全局 key，禁止使用 `<domain>.<datasource>`。
-- semantic domain 不调用 `ms.datasource(...)`，优先用 `md.ref("warehouse")` 在 `ms.entity(datasource=warehouse, source=...)` 中引用全局 datasource name。
+- semantic domain 不调用 `ms.datasource(...)`，优先用 `md.ref("datasource.warehouse")` 在 `ms.entity(datasource=warehouse, source=...)` 中引用 kind-qualified datasource id。
 - 非机密连接字段写在 datasource 文件里；`user`、`password`、`auth`、`token`、`api_key`、`secret`、`private_key` 等机密字段只能通过 `*_env` 引用环境变量。
 - Trino `catalog` 是连接目标；`schema` 只是可选默认 schema，也可以在 `ms.table("orders", database="sales_mart")` 中显式传入。
 - datasource 是 entity 的执行来源，不是 metric 的业务口径。
@@ -369,9 +369,10 @@ versioning. Phase 2 supports the `valid_from` / `valid_to` + `interval` +
 `open_end` dialect; `current_flag` is not yet supported.
 
 ```python
+warehouse = md.ref("datasource.warehouse")
 user_history = ms.entity(
     name="user_history",
-    datasource="warehouse",
+    datasource=warehouse,
     source=ms.table("user_history"),
     primary_key=["user_id", "valid_from"],
     versioning=ms.validity(
@@ -823,7 +824,7 @@ if result.errors:
 
 ### 2. 声明最小业务对象
 
-新增 metric 时的最小 happy path 是 datasource、entity、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `md.discover_entity(md.ref("warehouse"), md.table(...))` 等 `md.discover_*` 系列；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
+新增 metric 时的最小 happy path 是 datasource、entity、metric 和 decomposition。只有当分析需要时间窗口、过滤复用或跨表关系时，再渐进加入 time_dimension、dimension 和 relationship。表级证据首选 `md.discover_entity(md.ref("datasource.warehouse"), md.table(...))` 等 `md.discover_*` 系列；`table.schema()` 只能作为类型兜底，不能替代表注释、列注释、nullable 和分区信息。
 
 新建 metric 可以省略 provenance 并自动进入 `unverified`，但 agent 不能把它当作完成状态。若同一 PR 新增多个 unverified metrics，应停下来确认业务来源；CI 可用 `--strict-provenance` 禁止 unverified metric 合入。
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
+from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.scan import ScanScope
 from marivo.preview import (
@@ -303,7 +304,7 @@ class DomainDetails(_DetailsBase):
 class EntityDetails(_DetailsBase):
     """Details for an entity object."""
 
-    datasource: SemanticRef
+    datasource: DatasourceRef
     source: DatasetSource
     primary_key: tuple[str, ...]
     versioning: EntityVersioning | None
@@ -927,11 +928,11 @@ def _normalize_location(loc: SourceLocation | DatasourceSourceLocation) -> Sourc
 
 
 def _build_datasource_object(ds_ir: DatasourceIR, reg: Registry) -> SemanticObject:
-    ref = make_ref(ds_ir.semantic_id, SemanticKind.DATASOURCE)
+    ref = DatasourceRef.from_id(ds_ir.semantic_id)
     dependents = tuple(
         make_ref(d.semantic_id, SemanticKind.ENTITY)
         for d in reg.entities.values()
-        if d.datasource == ds_ir.semantic_id
+        if DatasourceRef.from_id(d.datasource) == ref
     )
     details = DatasourceDetails(
         ref=ref,
@@ -1000,7 +1001,7 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
 
 def _build_entity_object(ds_ir: EntityIR, reg: Registry) -> SemanticObject:
     ref = make_ref(ds_ir.semantic_id, SemanticKind.ENTITY)
-    ds_ref = make_ref(ds_ir.datasource, SemanticKind.DATASOURCE)
+    ds_ref = DatasourceRef.from_id(ds_ir.datasource)
     fields_refs = tuple(
         make_ref(
             f.semantic_id,
@@ -1604,14 +1605,17 @@ class SemanticCatalog:
         reg: Registry,
         kind_filter: SemanticKind | None,
     ) -> _ListOfSemanticObject:
+        datasource = DatasourceRef.from_id(datasource_ref)
         items: list[SemanticObject] = []
         if kind_filter is None or kind_filter == SemanticKind.ENTITY:
             for ds_ir in reg.entities.values():
-                if ds_ir.datasource == datasource_ref:
+                if DatasourceRef.from_id(ds_ir.datasource) == datasource:
                     items.append(_build_entity_object(ds_ir, reg))
         if kind_filter is None or kind_filter == SemanticKind.MEASURE:
             entity_ids_for_datasource = {
-                e.semantic_id for e in reg.entities.values() if e.datasource == datasource_ref
+                e.semantic_id
+                for e in reg.entities.values()
+                if DatasourceRef.from_id(e.datasource) == datasource
             }
             for meas_ir in reg.measures.values():
                 if meas_ir.entity in entity_ids_for_datasource:
@@ -1654,7 +1658,7 @@ class SemanticCatalog:
             return SemanticKind.DOMAIN
         datasource_irs = self._project._datasource_irs or tuple(reg.datasources.values())
         for ds_ir in datasource_irs:
-            if ds_ir.semantic_id == ref_str:
+            if DatasourceRef.from_id(ds_ir.semantic_id).id == ref_str:
                 return SemanticKind.DATASOURCE
         if ref_str in reg.entities:
             return SemanticKind.ENTITY
@@ -1739,7 +1743,7 @@ class SemanticCatalog:
             return _build_domain_object(reg.domains[ref_str], reg)
         datasource_irs = self._project._datasource_irs or tuple(reg.datasources.values())
         for ds_ir in datasource_irs:
-            if ds_ir.semantic_id == ref_str:
+            if DatasourceRef.from_id(ds_ir.semantic_id).id == ref_str:
                 return _build_datasource_object(ds_ir, reg)
         if ref_str in reg.entities:
             return _build_entity_object(reg.entities[ref_str], reg)

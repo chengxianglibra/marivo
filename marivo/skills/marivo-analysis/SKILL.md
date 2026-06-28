@@ -281,10 +281,13 @@ result.show()
 ### Governed derive
 
 ```python
+import marivo.datasource as md
+
+warehouse = md.ref("datasource.warehouse")
 custom = session.derive_metric_frame(
     metric=session.catalog.get("metric.sales.revenue"),
     query=mv.ibis_query(
-        datasource="warehouse",
+        datasource=warehouse,
         build=lambda db, ctx: db.table("orders"),
     ),
     columns=mv.metric_columns(

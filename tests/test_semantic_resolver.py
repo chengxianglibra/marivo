@@ -32,11 +32,11 @@ def _catalog(semantic_project_factory):
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
             ),
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def amount(table):\n"
                 "    return table.amount\n"
@@ -58,7 +58,7 @@ def test_resolver_table_uses_connection_service(semantic_project_factory):
     table = resolver.table("sales.orders")
 
     assert "amount" in table.columns
-    assert connections.names == ["warehouse"]
+    assert connections.names == ["datasource.warehouse"]
 
 
 def test_resolver_dimension_on_accepts_semantic_ref(semantic_project_factory):

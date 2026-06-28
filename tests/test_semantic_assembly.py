@@ -612,6 +612,7 @@ def semantic_project_factory(tmp_path):
 
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
     ms.domain(name="sales", default=True)
 """)
@@ -620,11 +621,13 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
     """Dataset in one file, metric referencing it in another should work."""
     datasets_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
 
         @ms.metric(entities=[ms.ref("entity.sales.orders")], additivity="additive", )
@@ -678,6 +681,7 @@ def test_duplicate_default_time_dimension_raises() -> None:
 def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
     """Metric referencing a non-existent dataset should produce an error."""
     metrics_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
 
         @ms.metric(entities=[ms.ref("entity.sales.nonexistent")], additivity="additive", )
@@ -698,9 +702,10 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
 def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     """After loading, registry and sidecar should be populated."""
     datasets_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
     """)
     project = semantic_project_factory(
         {
@@ -712,7 +717,7 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     reg = project._registry
     assert reg is not None
     assert "sales" in reg.domains
-    assert "wh" in reg.datasources
+    assert "datasource.wh" in reg.datasources
     assert "sales.orders" in reg.entities
     side = project._sidecar
     assert side is not None
@@ -722,8 +727,9 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
 def test_warnings_in_load_result(semantic_project_factory) -> None:
     """LoadResult should expose an empty warnings tuple when no warnings exist."""
     metrics_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -747,6 +753,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
 def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
     """Relationship referencing a non-existent dataset should fail via loader."""
     rels_py = textwrap.dedent("""\
+        import marivo.datasource as md
         import marivo.semantic as ms
 
         ms.relationship(

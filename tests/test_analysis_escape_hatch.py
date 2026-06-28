@@ -6,6 +6,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.datasource as md
 from marivo.analysis import escape_hatch
 from marivo.analysis.frames.exploration import (
     ExplorationResult,
@@ -182,13 +183,13 @@ def test_explore_ibis_materializes_scratch_and_records_provenance():
     scratch = escape_hatch.explore_ibis(
         build_us_revenue,
         session=session,
-        datasource="warehouse",
+        datasource=md.ref("datasource.warehouse"),
         description="US revenue scratch",
     )
 
     assert isinstance(scratch, ExplorationResult)
     assert scratch.meta.source_kind == "ibis"
-    assert scratch.meta.source_datasource == "warehouse"
+    assert scratch.meta.source_datasource == "datasource.warehouse"
     assert scratch.meta.description == "US revenue scratch"
     assert scratch.meta.source_query is None or "orders" in scratch.meta.source_query.lower()
     assert scratch.to_pandas().iloc[0]["value"] == 13.0
@@ -204,7 +205,7 @@ def test_explore_ibis_records_source_artifact_refs():
     scratch = escape_hatch.explore_ibis(
         lambda backend: backend.table("orders"),
         session=session,
-        datasource="warehouse",
+        datasource=md.ref("datasource.warehouse"),
         sources=[mv.ArtifactRef("frame_source")],
     )
 
@@ -221,7 +222,7 @@ def test_explore_ibis_materializes_scalar_expression_as_value_column():
     scratch = escape_hatch.explore_ibis(
         lambda backend: backend.table("orders").value.sum(),
         session=session,
-        datasource="warehouse",
+        datasource=md.ref("datasource.warehouse"),
     )
 
     materialized = scratch.to_pandas()
@@ -238,7 +239,7 @@ def test_explore_ibis_rejects_plain_builder_return():
         escape_hatch.explore_ibis(
             lambda backend: ["not", "an", "expression"],
             session=session,
-            datasource="warehouse",
+            datasource=md.ref("datasource.warehouse"),
         )
 
 
@@ -257,7 +258,22 @@ def test_explore_ibis_name_error_adds_context():
     query_builder = ns["query_builder"]
 
     with pytest.raises(NameError, match=r"explore_ibis.*import ibis"):
-        escape_hatch.explore_ibis(query_builder, session=session, datasource="warehouse")
+        escape_hatch.explore_ibis(
+            query_builder,
+            session=session,
+            datasource=md.ref("datasource.warehouse"),
+        )
+
+
+def test_explore_ibis_rejects_string_datasource():
+    session = mv.session.get_or_create(name="demo")
+
+    with pytest.raises(TypeError, match=r'md\.ref\("datasource\.warehouse"\)'):
+        escape_hatch.explore_ibis(
+            lambda backend: backend.table("orders"),
+            session=session,
+            datasource="warehouse",  # type: ignore[arg-type]
+        )
 
 
 def test_core_operators_reject_exploration_result_inputs():

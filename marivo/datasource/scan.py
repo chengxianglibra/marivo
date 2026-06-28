@@ -282,13 +282,13 @@ class JoinSide:
     """One side of a relationship discovery join.
 
     Attributes:
-        datasource: Datasource reference from ``md.ref("name")``.
+        datasource: Datasource reference from ``md.ref("datasource.name")``.
         source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
         columns: Column names participating in the join key.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.JoinSide(md.ref("warehouse"), md.table("orders"), columns=("customer_id",))
+        >>> md.JoinSide(md.ref("datasource.warehouse"), md.table("orders"), columns=("customer_id",))
 
     Constraints:
         ``datasource`` identifies the configured connection. ``source`` identifies

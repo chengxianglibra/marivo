@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
+from marivo.datasource.authoring import DatasourceRef
+
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
 
@@ -221,8 +223,9 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
         kinds[domain_ir.name] = _SemanticKind.DOMAIN
         objects[domain_ir.name] = domain_ir
     for ds_ir in project._datasource_irs or reg.datasources.values():
-        kinds[ds_ir.semantic_id] = _SemanticKind.DATASOURCE
-        objects[ds_ir.semantic_id] = ds_ir
+        datasource_ref = DatasourceRef.from_id(ds_ir.semantic_id).id
+        kinds[datasource_ref] = _SemanticKind.DATASOURCE
+        objects[datasource_ref] = ds_ir
 
     return kinds, objects
 

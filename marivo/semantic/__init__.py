@@ -2,6 +2,7 @@
 
 Public surface::
 
+    import marivo.datasource as md
     import marivo.semantic as ms
 
     catalog = ms.load()                # returns SemanticCatalog
@@ -12,7 +13,8 @@ Public surface::
     catalog.list(sales.ref, kind=ms.SemanticKind.METRIC).show()  # metrics in one domain
 
     ms.domain(name="sales", default=True)
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    warehouse = md.ref("datasource.warehouse")
+    orders = ms.entity(name="orders", datasource=warehouse, source=ms.table("orders"))
     amount = ms.measure_column(
         name="amount", entity=orders, column="amount",
         additivity="additive", unit="USD",

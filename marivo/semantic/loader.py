@@ -16,6 +16,7 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any, Literal
 
+from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.errors import (
     DatasourceConfigError,
     DatasourceDuplicateError,
@@ -528,7 +529,7 @@ def _build_registry(
     registry = Registry()
     sidecar: Sidecar = {}
     for datasource_ir in datasource_irs:
-        registry.datasources[datasource_ir.semantic_id] = datasource_ir
+        registry.datasources[DatasourceRef.from_id(datasource_ir.semantic_id).id] = datasource_ir
 
     for ctx in all_contexts:
         for ir, callable_ in ctx.pending_objects:
