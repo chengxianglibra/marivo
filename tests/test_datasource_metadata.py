@@ -592,6 +592,161 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
     assert any("table_name = 'orders'" in query for query in backend.queries)
 
 
+def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "amount": "float64"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", 1),
+                    ("amount", "double", "YES", 2),
+                ],
+            ),
+        },
+        raise_on_tokens=["comment"],
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("trino_wh", table="orders")
+
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["order_id"].type == "bigint"
+    assert by_name["order_id"].nullable is False
+    assert by_name["amount"].type == "double"
+    assert by_name["amount"].comment is None
+    assert any("comment" in query for query in backend.queries)
+    assert any(
+        "SELECT column_name, data_type, is_nullable, ordinal_position" in query
+        for query in backend.queries
+    )
+    assert any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
+    assert not any(warning.kind == "metadata_query_failed" for warning in metadata.warnings)
+
+
+def test_inspect_table_trino_hive_partitioned_by_from_show_create(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "dt": "string", "region": "string"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", None, 1),
+                    ("dt", "varchar", "NO", None, 2),
+                    ("region", "varchar", "YES", None, 3),
+                ],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [
+                    (
+                        "CREATE TABLE hive.analytics.orders (\n"
+                        "   order_id bigint,\n"
+                        "   dt varchar,\n"
+                        "   region varchar\n"
+                        ")\nWITH (\n"
+                        "   partitioned_by = ARRAY['dt', 'region']\n"
+                        ")",
+                    )
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("trino_wh", table="orders")
+
+    assert metadata.partitions == (
+        PartitionMetadata(name="dt", type="varchar", transform=None, comment=None),
+        PartitionMetadata(name="region", type="varchar", transform=None, comment=None),
+    )
+    assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
+
+
+def test_inspect_table_trino_iceberg_partitioning_from_show_create(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "iceberg_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="iceberg",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"created_at": "timestamp", "user_id": "int64", "amount": "float64"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [
+                    ("created_at", "timestamp(6)", "NO", None, 1),
+                    ("user_id", "bigint", "NO", None, 2),
+                    ("amount", "double", "YES", None, 3),
+                ],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [
+                    (
+                        "CREATE TABLE iceberg.analytics.events (\n"
+                        "   created_at timestamp(6),\n"
+                        "   user_id bigint,\n"
+                        "   amount double\n"
+                        ")\nWITH (\n"
+                        "   partitioning = ARRAY['month(created_at)', 'bucket(user_id, 16)']\n"
+                        ")",
+                    )
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("iceberg_wh", table="events")
+
+    assert metadata.partitions == (
+        PartitionMetadata(name="created_at", type="timestamp(6)", transform="month", comment=None),
+        PartitionMetadata(name="user_id", type="bigint", transform="bucket", comment=None),
+    )
+    assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
+
+
 def test_inspect_table_trino_without_schema_returns_schema_only(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,

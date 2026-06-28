@@ -281,6 +281,99 @@ def _schema_columns(table_expr: Any) -> tuple[ColumnMetadata, ...]:
     )
 
 
+def _trino_columns_from_rows(
+    rows: Iterable[Mapping[str, object]],
+    *,
+    include_comment: bool,
+) -> dict[str, ColumnMetadata]:
+    columns: dict[str, ColumnMetadata] = {}
+    for row in rows:
+        name = str(row.get("column_name"))
+        ordinal = row.get("ordinal_position")
+        columns[name] = ColumnMetadata(
+            name=name,
+            type=str(row.get("data_type") or ""),
+            nullable=_bool_from_nullable(row.get("is_nullable")),
+            comment=_empty_to_none(row.get("comment")) if include_comment else None,
+            ordinal_position=int(str(ordinal)) if ordinal is not None else None,
+        )
+    return columns
+
+
+_TRINO_PARTITION_ARRAY_RE = re.compile(
+    r"\b(?:partitioned_by|partitioning)\s*=\s*ARRAY\s*\[(.*?)\]",
+    re.IGNORECASE | re.DOTALL,
+)
+_TRINO_ARRAY_STRING_RE = re.compile(r"'((?:[^']|'')*)'")
+_TRINO_PARTITION_TRANSFORM_RE = re.compile(r"^([A-Za-z_]\w*)\((.*)\)$")
+
+
+def _trino_partition_specs_from_show_create(create_sql: str) -> tuple[str, ...]:
+    match = _TRINO_PARTITION_ARRAY_RE.search(create_sql)
+    if not match:
+        return ()
+    return tuple(
+        value.replace("''", "'").strip() for value in _TRINO_ARRAY_STRING_RE.findall(match.group(1))
+    )
+
+
+def _trino_partition_from_spec(
+    spec: str,
+    catalog_columns: Mapping[str, ColumnMetadata],
+) -> PartitionMetadata | None:
+    transform: str | None = None
+    column_name = spec.strip()
+    transform_match = _TRINO_PARTITION_TRANSFORM_RE.match(column_name)
+    if transform_match:
+        transform = transform_match.group(1)
+        first_arg = transform_match.group(2).split(",", 1)[0].strip()
+        column_name = first_arg.strip('"')
+    column = catalog_columns.get(column_name)
+    if column is None:
+        return None
+    return PartitionMetadata(
+        name=column_name,
+        type=column.type,
+        transform=transform,
+        comment=None,
+    )
+
+
+def _trino_partitions_from_show_create(
+    *,
+    backend: Any,
+    table: str,
+    catalog: str,
+    schema_name: str,
+    catalog_columns: Mapping[str, ColumnMetadata],
+    warnings: list[MetadataWarning],
+) -> tuple[PartitionMetadata, ...]:
+    try:
+        table_ref = _table_ref(table, (catalog, schema_name))
+        rows = _query_rows(backend, f"SHOW CREATE TABLE {table_ref}")
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"trino show create table query failed: {exc}",
+            )
+        )
+        return ()
+    if not rows:
+        return ()
+    create_sql = ""
+    for value in rows[0].values():
+        if value is not None:
+            create_sql = str(value)
+            break
+    partitions: list[PartitionMetadata] = []
+    for spec in _trino_partition_specs_from_show_create(create_sql):
+        partition = _trino_partition_from_spec(spec, catalog_columns)
+        if partition is not None:
+            partitions.append(partition)
+    return tuple(partitions)
+
+
 def _merge_columns(
     schema_columns: Sequence[ColumnMetadata],
     catalog_columns: Mapping[str, ColumnMetadata],
@@ -308,6 +401,17 @@ def _empty_to_none(value: object) -> str | None:
         return None
     text = str(value)
     return text if text else None
+
+
+def _is_missing_metadata_column(exc: Exception, column: str) -> bool:
+    message = str(exc).lower()
+    lowered = column.lower()
+    return (
+        "column_not_found" in message
+        or "column not found" in message
+        or "cannot be resolved" in message
+        or "missing columns" in message
+    ) and lowered in message
 
 
 def _bool_from_nullable(value: object) -> bool | None:
@@ -787,12 +891,20 @@ def _inspect_trino(
         if table_rows:
             table_comment = _empty_to_none(table_rows[0].get("comment"))
     except Exception as exc:
-        warnings.append(
-            MetadataWarning(
-                kind="metadata_query_failed",
-                message=f"trino table comment query failed: {exc}",
+        if _is_missing_metadata_column(exc, "comment"):
+            warnings.append(
+                MetadataWarning(
+                    kind="comments_unavailable",
+                    message=f"trino table comments are unavailable: {exc}",
+                )
             )
-        )
+        else:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"trino table comment query failed: {exc}",
+                )
+            )
 
     catalog_columns: dict[str, ColumnMetadata] = {}
     try:
@@ -802,31 +914,29 @@ def _inspect_trino(
             "FROM information_schema.columns "
             f"WHERE {where_clause} ORDER BY ordinal_position",
         )
-        for row in column_rows:
-            name = str(row.get("column_name"))
-            ordinal = row.get("ordinal_position")
-            catalog_columns[name] = ColumnMetadata(
-                name=name,
-                type=str(row.get("data_type") or ""),
-                nullable=_bool_from_nullable(row.get("is_nullable")),
-                comment=_empty_to_none(row.get("comment")),
-                ordinal_position=int(str(ordinal)) if ordinal is not None else None,
-            )
+        catalog_columns = _trino_columns_from_rows(column_rows, include_comment=True)
     except Exception as exc:
-        warnings.append(
-            MetadataWarning(
-                kind="metadata_query_failed",
-                message=f"trino column metadata query failed: {exc}",
+        try:
+            column_rows = _query_rows(
+                backend,
+                "SELECT column_name, data_type, is_nullable, ordinal_position "
+                "FROM information_schema.columns "
+                f"WHERE {where_clause} ORDER BY ordinal_position",
             )
-        )
-
-    if include_partitions:
-        warnings.append(
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message="trino partition metadata is connector-specific and not exposed by this adapter",
+            catalog_columns = _trino_columns_from_rows(column_rows, include_comment=False)
+            warnings.append(
+                MetadataWarning(
+                    kind="comments_unavailable",
+                    message=f"trino column comments are unavailable: {exc}",
+                )
             )
-        )
+        except Exception as exc2:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"trino column metadata query failed: {exc2}",
+                )
+            )
 
     is_view = False
     view_definition: str | None = None
@@ -851,14 +961,36 @@ def _inspect_trino(
             )
         )
 
+    columns = _merge_columns(schema_columns, catalog_columns)
+    partitions: tuple[PartitionMetadata, ...] = ()
+    if include_partitions:
+        partitions = _trino_partitions_from_show_create(
+            backend=backend,
+            table=table,
+            catalog=catalog,
+            schema_name=schema_name,
+            catalog_columns={column.name: column for column in columns},
+            warnings=warnings,
+        )
+        if not partitions:
+            warnings.append(
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message=(
+                        "trino partition metadata is connector-specific "
+                        "and not exposed by this adapter"
+                    ),
+                )
+            )
+
     return TableMetadata(
         datasource=datasource,
         table=table,
         database=database,
         backend_type="trino",
         comment=table_comment,
-        columns=_merge_columns(schema_columns, catalog_columns),
-        partitions=(),
+        columns=columns,
+        partitions=partitions,
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,

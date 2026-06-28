@@ -176,3 +176,43 @@ def test_build_entity_result_wires_rules_and_evidence() -> None:
     # Result-scope signals and issues do not overlap.
     result_ids = {i.rule_id for i in result.issues}
     assert result_ids.isdisjoint(result_signal_ids)
+
+
+def test_entity_result_render_includes_schema_and_partition_columns() -> None:
+    metadata = _metadata(
+        partitions=(
+            PartitionMetadata(name="dt", type="date"),
+            PartitionMetadata(name="region", type="varchar"),
+        ),
+        columns=(
+            ColumnMetadata(
+                name="order_id", type="INTEGER", nullable=False, comment=None, ordinal_position=1
+            ),
+            ColumnMetadata(
+                name="amount",
+                type="DOUBLE",
+                nullable=True,
+                comment="Gross amount",
+                ordinal_position=2,
+            ),
+            ColumnMetadata(
+                name="dt", type="DATE", nullable=False, comment=None, ordinal_position=3
+            ),
+        ),
+    )
+    result = build_entity_result(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=metadata,
+        scan=_scan(5),
+        scope=ScanScope(),
+        column_profiles=(_profile("order_id", "INTEGER", type_family="integer"),),
+    )
+
+    rendered = result.render()
+
+    assert "schema columns:" in rendered
+    assert "order_id | INTEGER | N" in rendered
+    assert "amount | DOUBLE | Y | Gross amount" in rendered
+    assert "partition columns: dt, region" in rendered
+    assert result.partition_columns == ("dt", "region")

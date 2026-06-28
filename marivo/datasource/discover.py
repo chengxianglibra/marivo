@@ -83,7 +83,9 @@ def discover_entity(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
+        ``DiscoveryResult``; call `.show()` to inspect bounded evidence,
+        including schema columns, partition columns when the backend exposes
+        them, primary-key evidence, and sampled column profiles.
 
     Example:
         >>> import marivo.datasource as md
@@ -92,7 +94,9 @@ def discover_entity(
 
     Constraints:
         Discovery returns bounded evidence only. It does not author semantic
-        objects or decide business meaning.
+        objects or decide business meaning. Partition evidence is always
+        requested as part of entity discovery; there is no public
+        ``include_partitions`` switch.
     """
     scan_scope = _scope_or_default(scope)
     datasource_id = _datasource_id(datasource)

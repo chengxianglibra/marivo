@@ -543,6 +543,21 @@ class EntityDiscoveryResult:
     def render(self) -> str:
         lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
         _append_issue_lines(lines, title="result issues", issues=self.issues)
+        if self.table_metadata is not None and self.table_metadata.columns:
+            lines.append("schema columns:")
+            for column in self.table_metadata.columns[:_MAX_TABLE_ROWS]:
+                nullable = "Y" if column.nullable else ("N" if column.nullable is False else "?")
+                row = f"  {column.name} | {column.type} | {nullable}"
+                if column.comment:
+                    row += f" | {column.comment}"
+                lines.append(row)
+            if len(self.table_metadata.columns) > _MAX_TABLE_ROWS:
+                lines.append(
+                    f"  ... {len(self.table_metadata.columns) - _MAX_TABLE_ROWS} more; "
+                    "inspect table metadata for all columns"
+                )
+        else:
+            lines.append("schema columns: none")
         if self.primary_key_evidence:
             lines.append("primary key evidence:")
             for candidate in self.primary_key_evidence[:_MAX_TABLE_ROWS]:

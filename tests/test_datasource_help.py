@@ -45,6 +45,21 @@ def test_datasource_help_detail_for_discover_measures_teaches_evidence_boundary(
     assert ".issues" not in text
 
 
+def test_datasource_help_detail_for_discover_entity_names_schema_and_partitions() -> None:
+    text = md.help_text("discover_entity")
+
+    assert "schema columns" in text
+    assert "partition columns" in text
+
+
+def test_datasource_help_detail_for_raw_sql_names_metadata_diagnostics() -> None:
+    text = md.help_text("raw_sql")
+
+    assert "SHOW" in text
+    assert "DESCRIBE" in text
+    assert "EXPLAIN" in text
+
+
 def test_datasource_describe_covers_discovery_symbols() -> None:
     for symbol, expected in (
         ("discover_entity", "DiscoveryResult"),

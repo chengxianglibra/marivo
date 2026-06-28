@@ -41,6 +41,10 @@ md.discover_time_dimensions(warehouse, orders, columns=("dt",), scope=scope).sho
 md.discover_measures(warehouse, orders, columns=("amount",), scope=scope).show()
 ```
 
+`md.discover_entity(...)` is the first-class schema path for entity authoring:
+read the rendered schema columns and partition columns there before asking the
+user or using a SQL diagnostic.
+
 Discovery evidence informs semantic decisions, but it does not author semantic
 objects and it does not replace `ms.help(...)` for constructor contracts. Treat
 the discovery result as opaque evidence text, not a field-access object.
@@ -49,5 +53,6 @@ Use `md.discover_dimension_values(...)` only for current filter/value evidence.
 Do not persist bounded sampled values into semantic metadata.
 
 Use `md.raw_sql(...)` only as a diagnostic escape hatch with a required
-`reason`. SQL text is provenance or diagnostics; it is not an executable
-semantic expression body.
+`reason`. It supports bounded `SELECT`/`WITH` diagnostics and read-only metadata
+diagnostics such as `SHOW`, `DESCRIBE`, `DESC`, and `EXPLAIN`. SQL text is
+provenance or diagnostics; it is not an executable semantic expression body.
