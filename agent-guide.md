@@ -102,6 +102,15 @@ formats — never parameter tables or semantic-selection judgments. The
 settle from evidence → prepare → author → verify — and must not duplicate
 parameter tables from either.
 
+## Analysis Guidance Layering
+
+The `marivo-analysis` skill owns workflow only — intent paths, session
+discipline, observation points, and final report shape. `mv.help` owns the
+static analysis contract — signatures, artifact families, constraints, return
+types, errors, and runnable examples. Frames and results own dynamic guidance —
+`summary()`, `show()`, `contract()`, and affordances describe current state and
+mechanically valid next actions; judgment stays with the agent.
+
 ## Tests
 
 - Use shared fixtures in `tests/conftest.py` and `tests/shared_fixtures.py`
