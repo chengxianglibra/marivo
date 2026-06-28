@@ -19,4 +19,4 @@ report = session.assess_quality(frame)
 assert report.meta.kind == "quality_report"
 assert report.meta.report_shape == "metric"
 assert {"check_id", "check_kind", "severity", "details_json"}.issubset(report.columns)
-print(report.summary())
+report.show()

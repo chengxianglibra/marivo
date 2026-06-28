@@ -45,4 +45,4 @@ frame.show()
 # Expected output:
 # MetricFrame ref=frame_... metric=sales.revenue shape=panel rows=6
 # columns: order_id | created_at | amount | region | user_id | state
-# preview: 5 bounded rows shown; call .preview(limit=...) or .to_pandas() for all
+# preview: 5 bounded rows shown; call .to_pandas() for terminal custom analysis

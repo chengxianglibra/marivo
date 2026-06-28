@@ -110,8 +110,8 @@ The `marivo-analysis` skill owns workflow only — intent paths, session
 discipline, observation points, and final report shape. `mv.help` owns the
 static analysis contract — signatures, artifact families, constraints, return
 types, errors, and runnable examples. Frames and results own dynamic guidance —
-`summary()`, `show()`, `contract()`, and affordances describe current state and
-mechanically valid next actions; judgment stays with the agent.
+`show()` describes current state, `contract()` describes mechanically valid
+next actions, and judgment stays with the agent.
 
 ## Tests
 

@@ -156,48 +156,17 @@ def test_non_metric_frame_raises(tmp_path):
         session.assess_quality(delta)
 
 
-def test_summary_returns_quality_report_summary(tmp_path, capsys):
-    from marivo.analysis.frames.quality import (
-        CheckResult,
-        QualityReportSummary,
-    )
-    from marivo.render import AgentResult
-
+def test_quality_report_render_surfaces_check_results(tmp_path):
     session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
     report = session.assess_quality(frame)
-
-    s = report.summary()
-    assert isinstance(s, QualityReportSummary)
-    assert isinstance(s, AgentResult)
-    assert s.kind == "quality_report"
-    assert s.overall_status == "ok"
-    assert s.blocking_issue_count == 0
-    assert s.warning_count == 0
-    assert s.target_semantic_kind == "time_series"
-    assert s.target_metric_id == "sales.revenue"
-    assert len(s.checks) == 3
-    assert all(isinstance(c, CheckResult) for c in s.checks)
-    check_ids = [c.check_id for c in s.checks]
-    assert "row_count" in check_ids
-    assert all(c.status == "ok" for c in s.checks)
-
-    r = repr(s)
-    assert r == (
-        f"<QualityReportSummary ref={report.ref} status=ok blocking=0; call .show() to inspect>"
-    )
-    assert "\n" not in r
-
-    rendered = s.render()
-    assert rendered.startswith(f"QualityReportSummary ref={report.ref} status=ok blocking=0")
-    assert "status: ok; blocking=0 warning=0" in rendered
-    assert "- .render()" in rendered
-    assert "- .show()" in rendered
-    assert not rendered.endswith("\n")
-
-    assert s.show() is None
-    captured = capsys.readouterr()
-    assert captured.out == rendered + "\n"
+    rendered = report.render()
+    assert f"status={report.meta.overall_status}" in rendered
+    assert f"blocking={report.meta.blocking_issue_count}" in rendered
+    assert f"warning={report.meta.warning_count}" in rendered
+    for check_id in report._df["check_id"].head(5):
+        assert str(check_id) in rendered
+    assert "summary()" not in rendered
 
 
 def test_summary_reflects_blocking(tmp_path):
@@ -205,10 +174,9 @@ def test_summary_reflects_blocking(tmp_path):
     empty = _metric(session, [], semantic_kind="scalar", axes={})
     report = session.assess_quality(empty)
 
-    s = report.summary()
-    assert s.overall_status == "blocking"
-    assert s.blocking_issue_count >= 1
-    assert any(c.status == "blocking" for c in s.checks)
+    assert report.meta.overall_status == "blocking"
+    assert report.meta.blocking_issue_count >= 1
+    assert (report.to_pandas()["severity"] == "blocking").any()
 
 
 def test_repr_contains_identity_and_show_hint(tmp_path):
@@ -240,10 +208,9 @@ def test_summary_reflects_warning(tmp_path):
     )
     report = session.assess_quality(warning)
 
-    s = report.summary()
-    assert s.overall_status == "warning"
-    assert s.warning_count >= 1
-    assert s.blocking_issue_count == 0
+    assert report.meta.overall_status == "warning"
+    assert report.meta.warning_count >= 1
+    assert report.meta.blocking_issue_count == 0
 
 
 def test_summary_scalar_without_metric_id(tmp_path):
@@ -252,8 +219,7 @@ def test_summary_scalar_without_metric_id(tmp_path):
     frame.meta.metric_id = None
     report = session.assess_quality(frame)
 
-    s = report.summary()
-    assert s.target_metric_id is None
+    assert report.meta.target_metric_id is None
 
 
 # --- Panel duplicate_keys with observe-produced axes format ---
@@ -326,7 +292,7 @@ def test_assess_quality_returns_report_without_copying_report_into_source_artifa
     assert not hasattr(frame.meta, "quality")
     assert not hasattr(frame.meta, "recommended_followups")
     assert report.ref != frame.ref
-    assert report.summary().overall_status == "ok"
+    assert report.meta.overall_status == "ok"
 
 
 def test_panel_time_coverage_with_timezone(tmp_path):

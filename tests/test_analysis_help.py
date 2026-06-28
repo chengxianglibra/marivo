@@ -244,8 +244,6 @@ def test_help_resolves_core_runtime_and_result_types() -> None:
     expected_kinds = {
         "Session": "class",
         "BaseFrameMeta": "class",
-        "FrameSummary": "class",
-        "FramePreview": "class",
         "SessionSummary": "class",
         "JobSummary": "class",
         "Lineage": "class",
@@ -525,8 +523,9 @@ def test_help_no_longer_teaches_recommended_followups() -> None:
     full = _capture()
     session_help = _capture("Session")
     candidate_help = _capture("CandidateSet")
+    agent_surface_help = _capture("agent_surface")
 
-    combined = "\n".join([full, session_help, candidate_help]).lower()
+    combined = "\n".join([full, session_help, candidate_help, agent_surface_help]).lower()
     assert "recommended_followups" not in combined
     assert "recommended follow-up" not in combined
     assert "recommend follow" not in combined
@@ -539,7 +538,11 @@ def test_help_json_frame_contract_uses_affordance_language() -> None:
     assert "next_intents" not in result
     rendered = str(result).lower()
     assert "recommended" not in rendered
-    assert "affordance" in rendered
+
+    # Affordance language lives in the agent_surface topic, not in frame descriptors.
+    agent_surface = _json_data("agent_surface")
+    agent_rendered = str(agent_surface).lower()
+    assert "affordance" in agent_rendered
 
 
 def test_phase1_public_docs_do_not_expose_planner_or_recommendation_terms() -> None:

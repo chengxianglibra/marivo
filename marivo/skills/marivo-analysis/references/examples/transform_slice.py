@@ -32,14 +32,14 @@ sliced = session.transform.slice(
     revenue_by_region,
     where={region: "north"},
 )
-print(sliced.summary())
+sliced.show()
 
 # List shorthand: keep multiple values (membership).
 sliced_multi = session.transform.slice(
     revenue_by_region,
     where={region: ["north", "south"]},
 )
-print(sliced_multi.summary())
+sliced_multi.show()
 
 # Expected output (two summaries printed):
 # [1] kind='metric_frame' row_count=1 columns=['value']

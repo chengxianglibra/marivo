@@ -25,12 +25,11 @@ base = session.observe(
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
-summary = delta.summary()
-print(f"kind={summary.kind!r}")
-print(f"row_count={summary.row_count}")
-print(f"columns={summary.columns!r}")
+delta.show()
+print(f"kind={delta.kind!r}")
+print(f"row_count={len(delta)}")
+print(f"columns={delta.columns!r}")
 
 # Expected output:
-# kind='delta_frame'
-# row_count=1
-# columns=['current', 'baseline', 'delta', 'pct_change', 'pct_change_status']
+# DeltaFrame show() card, then printed kind/row_count/columns lines from the
+# explicit print() calls above.

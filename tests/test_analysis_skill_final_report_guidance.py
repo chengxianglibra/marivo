@@ -11,7 +11,7 @@ def test_analysis_skill_links_final_report_guidance() -> None:
     text = SKILL_PATH.read_text()
 
     assert "references/final-report.md" in text
-    # show() replaces print(frame.summary()) as the default inspection pattern
+    # show() is the default inspection pattern for analysis artifacts
     assert "frame.show()" in text or ".show()" in text
 
 
@@ -28,7 +28,7 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "result.meta.evidence_status",
         "result.meta.blocking_issues",
         "result.meta.confidence_scope",
-        "artifact.contract().affordances",
+        "artifact.contract()",
         "session.assess_quality",
         "MarivoReportArtifact",
         "grounding.json",

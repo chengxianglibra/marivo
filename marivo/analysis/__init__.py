@@ -31,8 +31,6 @@ from marivo.analysis.frames.base import (
     ArtifactState,
     BaseFrame,
     BaseFrameMeta,
-    FramePreview,
-    FrameSummary,
 )
 from marivo.analysis.frames.candidate import (
     CandidateObjective,
@@ -123,8 +121,6 @@ __all__ = [
     "DeriveContext",
     "DiscoverSensitivity",
     "ForecastFrame",
-    "FramePreview",
-    "FrameSummary",
     "FrameSummaryEntry",
     "HypothesisTestResult",
     "IbisQuerySpec",

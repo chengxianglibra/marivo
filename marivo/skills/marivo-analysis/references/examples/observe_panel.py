@@ -21,7 +21,7 @@ panel = session.observe(
     grain="day",
     dimensions=[session.catalog.get("dimension.sales.orders.region")],
 )
-print(panel.summary())
+panel.show()
 
 # Expected output:
 # kind='metric_frame'

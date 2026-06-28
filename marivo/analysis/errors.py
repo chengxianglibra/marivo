@@ -646,17 +646,10 @@ class FrameMutationError(AnalysisError): ...
 
 class FrameReadError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
-        limit = self.details.get("limit")
-        if isinstance(limit, int):
-            return {
-                "location": "frame.preview(limit=...)",
-                "cause": "preview limit must be between 1 and 100.",
-                "fix_snippet": "frame.preview(limit=10)",
-                "doc": "marivo/skills/marivo-analysis/references/cheatsheet.md",
-            }
         return {
-            "location": "frame preview/read method",
+            "location": "frame.show()",
             "cause": "frame read arguments are invalid.",
+            "fix_snippet": "frame.show()",
             "doc": "marivo/skills/marivo-analysis/references/cheatsheet.md",
         }
 

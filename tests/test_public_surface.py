@@ -120,8 +120,6 @@ ANALYSIS_PUBLIC = {
     "DeriveContext",
     "DiscoverSensitivity",
     "ForecastFrame",
-    "FramePreview",
-    "FrameSummary",
     "FrameSummaryEntry",
     "HypothesisTestResult",
     "IbisQuerySpec",
@@ -280,3 +278,12 @@ def test_no_internal_ir_family_and_small_other_bucket() -> None:
 def test_followup_action_is_not_public_analysis_api() -> None:
     assert "FollowupAction" not in ma.__all__
     assert not hasattr(ma, "FollowupAction")
+
+
+def test_analysis_public_surface_keeps_session_summaries_not_frame_summaries() -> None:
+    assert not hasattr(ma, "FrameSummary")
+    assert not hasattr(ma, "FramePreview")
+    assert not hasattr(ma, "AssociationResultSummary")
+    assert not hasattr(ma, "QualityReportSummary")
+    assert hasattr(ma, "FrameSummaryEntry")
+    assert hasattr(ma, "JobSummary")

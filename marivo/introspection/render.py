@@ -50,12 +50,8 @@ def render_json(descriptor: Descriptor) -> dict[str, Any]:
             }
             for f in descriptor.fields
         ]
-    if descriptor.kind == "frame":
-        data["affordance_note"] = (
-            "Use artifact.contract().affordances for mechanical compatibility. Affordances are not ranked and are not recommendations."
-        )
-        if descriptor.constructed_by is not None:
-            data["constructed_by"] = descriptor.constructed_by
+    if descriptor.kind == "frame" and descriptor.constructed_by is not None:
+        data["constructed_by"] = descriptor.constructed_by
     if descriptor.kind == "surface":
         data["entries"] = [
             {
@@ -110,11 +106,6 @@ def render_text(descriptor: Descriptor) -> str:
             lines.append(f"- {' '.join(parts)}")
     if descriptor.constructed_by is not None:
         lines.append(f"Constructed by: {descriptor.constructed_by}")
-    if descriptor.kind == "frame":
-        lines.append("")
-        lines.append(
-            "Use artifact.contract().affordances for mechanical compatibility. Affordances are not ranked and are not recommendations."
-        )
     if descriptor.constraints:
         lines.append("")
         lines.append("Constraints:")

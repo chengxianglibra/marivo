@@ -162,7 +162,7 @@ Use one stable session name for the entire investigation:
 session = mv.session.get_or_create(name="my_investigation")
 ```
 
-When a script is split after reading `summary()` or `contract().affordances`, the next
+When a script is split after reading `show()` or `contract()`, the next
 script must use the same session. Recover previously produced frames from disk
 instead of re-running observe:
 
@@ -344,8 +344,7 @@ correlation = session.correlate(
 assert correlation.meta.kind == "association_result"
 ```
 
-Use `.summary()` for compact inspection, `.preview(limit=...)` for bounded row
-inspection, and `.to_pandas()` for downstream pandas work.
+Use `.show()` for compact inspection and `.to_pandas()` for downstream pandas work.
 
 ## Attribute without explicit axes
 

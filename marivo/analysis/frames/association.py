@@ -5,45 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
-from marivo.render import format_bounded_card, result_repr
-
-
-class AssociationResultSummary(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    kind: str
-    ref: str
-    metric_ids: list[str]
-    method: Literal["pearson"]
-    correlation: float
-    aligned_row_count: int
-    dropped_row_count: int
-    produced_by_job: str | None
-    lineage_oneliner: str
-
-    def _repr_identity(self) -> str:
-        return (
-            f"AssociationResultSummary ref={self.ref} method={self.method} r={self.correlation:.2f}"
-        )
-
-    def render(self) -> str:
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=(
-                f"r={self.correlation:.2f} method={self.method} "
-                f"aligned={self.aligned_row_count} dropped={self.dropped_row_count}"
-            ),
-            available=(".render()", ".show()"),
-        )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
+from marivo.analysis.frames.render import format_bounded_card
 
 
 class AssociationResultMeta(BaseFrameMeta):
@@ -72,17 +37,19 @@ class AssociationResult(BaseFrame):
             f"r={self.meta.correlation:.2f} rows={self.meta.row_count}"
         )
 
-    def summary(self) -> AssociationResultSummary:  # type: ignore[override]
-        step_intents = [step.intent for step in self.meta.lineage.steps]
-        lineage_oneliner = " -> ".join(step_intents) if step_intents else "(empty)"
-        return AssociationResultSummary(
-            kind=self.meta.kind,
-            ref=self.meta.ref,
-            metric_ids=self.meta.metric_ids,
-            method=self.meta.method,
-            correlation=self.meta.correlation,
-            aligned_row_count=self.meta.aligned_row_count,
-            dropped_row_count=self.meta.dropped_row_count,
-            produced_by_job=self.meta.produced_by_job,
-            lineage_oneliner=lineage_oneliner,
+    def render(self) -> str:
+        columns, preview_rows = self._preview_rows(limit=5)
+        metric_ids = ",".join(self.meta.metric_ids)
+        return format_bounded_card(
+            identity=self._repr_identity(),
+            status=(
+                f"method={self.meta.method} r={self.meta.correlation:.2f} "
+                f"aligned={self.meta.aligned_row_count} dropped={self.meta.dropped_row_count} "
+                f"metrics={metric_ids}"
+            ),
+            columns=columns,
+            rows=preview_rows,
+            row_count=len(self._df),
+            preview_truncation_hint="call .to_pandas() for terminal custom analysis",
+            available=self._AVAILABLE_ENTRIES,
         )

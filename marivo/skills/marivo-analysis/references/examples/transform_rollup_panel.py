@@ -22,7 +22,7 @@ panel_frame = session.observe(
     dimensions=[region],
 )
 rolled = session.transform.rollup(panel_frame, drop_axes=[region])
-print(rolled.summary())
+rolled.show()
 
 # Expected output:
 # kind='metric_frame' row_count=3

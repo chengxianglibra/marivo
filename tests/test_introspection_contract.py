@@ -438,10 +438,10 @@ def test_shared_catalog_hint_lookup_supports_semantic() -> None:
 def test_analysis_error_can_receive_catalog_default_hint() -> None:
     from marivo.analysis.errors import FrameReadError
 
-    err = FrameReadError(message="bad preview", details={"limit": 101})
+    err = FrameReadError(message="bad read", details={})
 
     assert err.hint is not None
-    assert "preview" in err.hint.lower()
+    assert "show()" in err.hint.lower()
 
 
 def test_datasource_error_can_receive_catalog_default_hint() -> None:

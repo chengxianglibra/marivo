@@ -29,7 +29,7 @@ prev = session.observe(
 )
 delta = session.compare(cur, prev, alignment=mv.window_bucket())
 attribution = session.attribute(delta, axes=[region])
-print(attribution.summary())
+attribution.show()
 
 # Expected output:
 # kind='attribution_frame'

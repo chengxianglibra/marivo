@@ -701,7 +701,7 @@ class Session:
             ...     grain="day",
             ...     dimensions=[country],
             ... )
-            >>> frame.summary()
+            >>> frame.show()
         """
         from marivo.analysis.intents.observe import observe
 
@@ -856,7 +856,7 @@ class Session:
             ...     a, b,
             ...     alignment=mv.window_bucket(),
             ... )
-            >>> result.summary()
+            >>> result.show()
         """
         from marivo.analysis.intents.correlate import correlate
 
@@ -911,7 +911,7 @@ class Session:
             ...     timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
             ... )
             >>> forecast = session.forecast(history, horizon=30)
-            >>> forecast.summary()
+            >>> forecast.show()
         """
         from marivo.analysis.intents.forecast import forecast
 
@@ -993,7 +993,7 @@ class Session:
 
         Example:
             >>> result = session.hypothesis_test(cur, base)
-            >>> result.summary()
+            >>> result.show()
         """
         from marivo.analysis.intents.hypothesis_test import hypothesis_test
 

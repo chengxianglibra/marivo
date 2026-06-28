@@ -333,7 +333,7 @@ _VALID_TEMPLATE = textwrap.dedent(
         session.catalog.get(f"metric.{metric_id}"),
         window={"start": "2026-05-01", "end": "2026-05-31"},
     )
-    print(frame.summary())
+    frame.show()
 
     raise RuntimeError("should not run")
     """

@@ -20,7 +20,7 @@ segmented_frame = session.observe(
     dimensions=[session.catalog.get("dimension.sales.orders.region")],
 )
 share = session.transform.normalize(segmented_frame, mode="share")
-print(share.summary())
+share.show()
 
 # Expected output:
 # kind='metric_frame' row_count=2

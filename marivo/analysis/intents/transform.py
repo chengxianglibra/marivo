@@ -163,7 +163,7 @@ def _transform_dispatch(
 
     Example:
         >>> top = session.transform.topk(delta, by="delta", limit=10, order="decrease")
-        >>> top.summary()
+        >>> top.show()
     """
 
     if session is None:

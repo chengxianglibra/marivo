@@ -97,8 +97,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "JobSummary",
         "BaseFrame",
         "BaseFrameMeta",
-        "FrameSummary",
-        "FramePreview",
         "FrameSummaryEntry",
         "Lineage",
         "LineageStep",
