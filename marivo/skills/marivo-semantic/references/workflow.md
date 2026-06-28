@@ -1,9 +1,10 @@
 # marivo-semantic workflow notes
 
-The canonical authoring flow lives in `SKILL.md`. This reference only adds
-supporting notes for evidence sources, Ref handling, and handoff checks. It
-intentionally does not repeat constructor parameters, discovery result schemas,
-parse recipes, or the flow-control state machine.
+The canonical authoring flow lives in `SKILL.md`:
+`help -> discover -> settle/grill -> author -> verify`. This reference only
+adds supporting notes for evidence sources, Ref handling, and handoff checks.
+It intentionally does not repeat constructor parameters, discovery result
+schemas, parse recipes, or the flow-control state machine.
 
 ## Discovery Before Questions
 

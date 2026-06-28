@@ -2,17 +2,17 @@
 
 > **Superseded:** use
 > `docs/specs/semantic/stepwise-authoring-design.md` for the active
-> stepwise prepare/verify/readiness workflow. This document consolidates
-> historical context from three previous pipeline designs and remains only
-> as reference material.
+> `help -> discover -> settle/grill -> author -> verify` workflow. This
+> document consolidates historical context from three previous pipeline
+> designs and remains only as reference material.
 
 Status: superseded.
 
-The active normal workflow is defined in
-`docs/specs/semantic/stepwise-authoring-design.md`. This consolidated
-document preserves the authoring-loop, pipeline, and skill design context
-from the superseded documents listed below. Current agents should use the
-stepwise prepare/verify/readiness workflow instead.
+Historical note: this document predates removal of the public semantic
+`prepare_*` authoring stage. The active normal workflow is defined in
+`docs/specs/semantic/stepwise-authoring-design.md` as
+`help -> discover -> settle/grill -> author -> verify`. Remaining `prepare_*`
+text below is historical context only.
 
 ---
 
@@ -26,10 +26,12 @@ The active normal workflow is defined in
 in this document is retained as background, but standalone check choreography is
 superseded. Current agents should use:
 
-1. Discovery and source inspection.
-2. `project.prepare_entity(...)` / `project.prepare_metric(...)` for each candidate object.
-3. `project.verify_object(...)` after writing.
-4. A single `project.readiness(...)` closeout.
+1. `ms.help(...)` for static constructor contracts.
+2. `md.discover_*` for bounded datasource evidence.
+3. Evidence settlement or one-at-a-time grill questions.
+4. Authoring exactly one semantic object.
+5. `ms.verify_object(...)` after writing.
+6. A single `ms.readiness(...)` closeout.
 
 This document defines the end-to-end contract for Claude Code, Codex, and other
 coding agents that build Marivo semantic layers. It complements
@@ -1791,10 +1793,12 @@ The following content was previously in `skill-semantic-layer-authoring-design.m
 The old standalone static-check workflow is no longer the public agent
 contract. Normal semantic authoring now follows the stepwise authoring design:
 
-1. Discovery and source inspection.
-2. `project.prepare_entity(...)` / `project.prepare_metric(...)` for each candidate object.
-3. `project.verify_object(...)` after writing.
-4. A single `project.readiness(...)` closeout for the target refs.
+1. `ms.help(...)` for static constructor contracts.
+2. `md.discover_*` for bounded datasource evidence.
+3. Evidence settlement or one-at-a-time grill questions.
+4. Authoring exactly one semantic object.
+5. `ms.verify_object(...)` after writing.
+6. A single `ms.readiness(...)` closeout for the target refs.
 
 The standalone authoring-input checker is an internal implementation detail of
 `project.assess_authoring(...)`, not a normal skill call-site. Richness findings

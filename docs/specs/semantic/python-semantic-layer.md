@@ -24,8 +24,9 @@
 ## Authoring 快速路径
 
 The stepwise authoring workflow for agents is defined in
-`docs/specs/semantic/stepwise-authoring-design.md`. That document owns the
-prepare/verify/readiness lifecycle and replaces the earlier three-phase
+`docs/specs/semantic/stepwise-authoring-design.md`. The current public flow is
+`help -> discover -> settle/grill -> author -> verify`, followed by readiness
+closeout before analysis handoff. It replaces the earlier three-phase
 authoring pipeline.
 
 Authoring guidance is split across three layers, each with one job:

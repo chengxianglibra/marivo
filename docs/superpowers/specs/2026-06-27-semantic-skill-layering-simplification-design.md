@@ -5,6 +5,11 @@ Status: Approved design, pending written-spec review
 Related: `docs/superpowers/specs/2026-06-26-authoring-guidance-layering-design.md`,
 `agent-guide.md`, `marivo/skills/marivo-semantic/SKILL.md`
 
+> Historical note: this spec predates removal of the public semantic
+> `prepare_*` authoring stage. Current agents must use
+> `help -> discover -> settle/grill -> author -> verify`; remaining
+> `prepare_*` text below is historical context only.
+
 ## Problem
 
 The packaged `marivo-semantic` skill still carries too much authoring

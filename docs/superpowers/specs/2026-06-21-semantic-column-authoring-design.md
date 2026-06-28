@@ -6,6 +6,11 @@ Related: `agent-guide.md` ("Agent-Facing Surface Principles"),
 `docs/superpowers/specs/2026-06-16-semantic-authoring-surface-redesign-design.md`,
 `docs/superpowers/specs/2026-06-21-datasource-semantic-agent-surface-fix-design.md`
 
+> Historical note: this spec predates removal of the public semantic
+> `prepare_*` authoring stage. Current agents must use
+> `help -> discover -> settle/grill -> author -> verify`; remaining
+> `prepare_*` text below is historical context only.
+
 ## Problem
 
 Marivo semantic files are executable Python, and Python should remain the

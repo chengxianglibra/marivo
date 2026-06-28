@@ -5,6 +5,11 @@
 - 范围:语义层(IR + 授权 + loader 解析 + validator + richness + 授权 brief),一次实施
 - 前置:`docs/superpowers/specs/2026-06-11-metric-unit-design.md`(metric 侧 unit 字段已落地)
 
+> Historical note: this spec predates removal of the public semantic
+> `prepare_*` authoring stage. Current agents must use
+> `help -> discover -> settle/grill -> author -> verify`; remaining
+> `prepare_*` text below is historical context only.
+
 ## 背景与动机
 
 `2026-06-11-metric-unit-design.md` 给 metric 加了可选 `unit`,语义为**作者声明**,并显式把两件事划为非目标:

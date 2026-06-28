@@ -98,9 +98,11 @@ parameters, types, defaults, omit rules, and cross-parameter constraints — as
 the single source agents consult before authoring. `md.discover_*` owns
 runtime datasource evidence only — profiles, signals, issues, detected
 formats — never parameter tables or semantic-selection judgments. The
-`marivo-semantic` skill owns workflow and routing only — help → discover →
-settle from evidence → prepare → author → verify — and must not duplicate
-parameter tables from either.
+`marivo-semantic` skill owns workflow and routing only —
+`help -> discover -> settle/grill -> author -> verify` — and must not
+duplicate parameter tables from either. There is no separate public semantic
+prepare stage; agents settle constructor values from help, discovery evidence,
+catalog/project facts, and user answers before authoring one object.
 
 ## Analysis Guidance Layering
 

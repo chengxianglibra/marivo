@@ -6,6 +6,11 @@ Related: `docs/superpowers/specs/2026-06-25-authoring-discover-design.md`,
 `docs/superpowers/specs/2026-06-21-semantic-column-authoring-design.md`,
 `marivo/skills/marivo-semantic/SKILL.md`
 
+> Historical note: this spec predates removal of the public semantic
+> `prepare_*` authoring stage. Current agents must use
+> `help -> discover -> settle/grill -> author -> verify`; remaining
+> `prepare_*` text below is historical context only.
+
 ## Problem
 
 The current semantic authoring guidance is split across three places without a

@@ -4,6 +4,11 @@ Date: 2026-06-16
 
 Status: draft
 
+> Historical note: this spec predates removal of the public semantic
+> `prepare_*` authoring stage. Current agents must use
+> `help -> discover -> settle/grill -> author -> verify`; remaining
+> `prepare_*` text below is historical context only.
+
 ## Problem
 
 The `marivo.semantic` public surface is consumed primarily by coding agents
