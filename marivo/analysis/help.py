@@ -98,10 +98,8 @@ _SUMMARIES: dict[str, str] = {
     "SessionSummary": "lightweight row returned by mv.session.list()",
     "JobSummary": "lightweight row returned by Session.jobs() and recent_jobs()",
     "ReportRegistration": "immutable result of Session.save_report() with report id, path, entrypoint, and hash",
-    "BaseFrame": "base immutable analysis artifact protocol: ref, kind, summary(), schema(), contract(), state, show()",
+    "BaseFrame": "base immutable analysis artifact protocol: ref, kind, show(), contract(), state, to_pandas()",
     "BaseFrameMeta": "shared metadata model available as frame.meta",
-    "FrameSummary": "stable structured return from frame.summary()",
-    "FramePreview": "bounded structured return from frame.preview()",
     "FrameSummaryEntry": "rich persisted frame metadata returned by Session.frame_summaries()",
     "Lineage": "ordered provenance for an analysis frame",
     "LineageStep": "single lineage step within a frame provenance chain",
@@ -111,7 +109,7 @@ _SUMMARIES: dict[str, str] = {
     "ForecastFrame": "forecast output for a time_series or panel metric history",
     "QualityReport": "quality assessment output for an observed metric frame",
     "CandidateSet": "candidate rows returned by discovery; candidates are not recommendations",
-    "AssociationResult": "correlation result (summary shows r, method, sample size)",
+    "AssociationResult": "correlation result (show() displays r, method, sample size)",
     "ComponentFrame": "component values linked to component-aware derived metric frames",
     "CoverageFrame": "sampled metric time-slot coverage linked from a MetricFrame",
     "HypothesisTestResult": "statistical test result frame",
@@ -128,7 +126,7 @@ _SUMMARIES: dict[str, str] = {
     "ArtifactContract": "mechanical consumption contract returned by artifact.contract()",
     "ArtifactParamTemplate": "parameter template for an affordance entry",
     "ArtifactPrecondition": "precondition pass/fail entry within an affordance",
-    "ArtifactSchema": "structural schema returned by artifact.schema()",
+    "ArtifactSchema": "schema descriptor embedded in artifact.contract().schema",
     "ArtifactState": "baseline materialization and content hash facts",
     "BlockingIssue": "blocking issue attached to frame meta",
     "CalendarPolicy": "calendar provider policy for calendar-backed alignment",
@@ -490,20 +488,19 @@ def _agent_surface_content() -> dict[str, object]:
         "artifact_protocol": [
             "ref",
             "kind",
-            "summary()",
-            "schema()",
+            "show()",
             "contract()",
             "quality_summary",
             "blocking_issues",
             "lineage",
             "state",
-            "show()",
+            "to_pandas()",
         ],
-        "tabular_reads": ["preview(limit=...)", "to_pandas()"],
+        "tabular_reads": ["to_pandas()"],
         "read_order": [
             "repr(artifact)",
-            "artifact.summary()",
-            "artifact.preview(limit=...)",
+            "artifact.show()",
+            "artifact.contract()",
             "artifact.to_pandas()",
         ],
         "recovery": [
@@ -537,7 +534,7 @@ def _agent_surface_text(content: dict[str, object]) -> str:
     lines.extend(("", "Bounded read order:"))
     for step in cast("list[str]", content["read_order"]):
         lines.append(f"  {step}")
-    lines.extend(("", "Tabular artifacts also support:"))
+    lines.extend(("", "Terminal escape hatch:"))
     lines.append("  " + ", ".join(cast("list[str]", content["tabular_reads"])))
     lines.extend(("", "Quality boundary:"))
     lines.append(f"  {content['quality_boundary']}")

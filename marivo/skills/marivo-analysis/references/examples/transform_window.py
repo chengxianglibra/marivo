@@ -23,9 +23,7 @@ clipped = session.transform.window(
     time_series_frame,
     window={"start": "2026-07-02", "end": "2026-07-04"},
 )
-print(clipped.summary())
+clipped.show()
 
 # Expected output:
-# kind='metric_frame'
-# semantic_kind='time_series'
-# columns=['bucket_start', 'revenue']
+# MetricFrame show() card: identity line, columns, bounded rows, available footer.

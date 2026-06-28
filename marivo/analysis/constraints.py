@@ -209,9 +209,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "FrameRead",
         "runtime",
         ("BaseFrame", "MetricFrame", "DeltaFrame", "CandidateSet"),
-        "Frame read helpers enforce bounded preview arguments.",
-        "Help and preview APIs should stay small enough for agents and terminals.",
-        "Use frame.preview(limit=10); valid limits are 1 through 100.",
+        "Frame read helpers enforce bounded inspection arguments.",
+        "Help and show APIs should stay small enough for agents and terminals.",
+        "Use frame.show() for bounded inspection, or frame.to_pandas() for terminal custom analysis.",
         docs_ref=_CHEATSHEET,
     ),
     ConstraintId.BACKEND_FACTORY_CONFIGURED: _constraint(

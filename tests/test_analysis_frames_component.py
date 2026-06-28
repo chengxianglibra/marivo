@@ -58,7 +58,7 @@ def test_component_frame_meta_kind_and_next_intents():
     )
 
     assert meta.kind == "component_frame"
-    assert frame.next_intents() == ()
+    assert not frame.contract().affordances
     assert frame.to_pandas().iloc[0]["failure_rate"] == pytest.approx(1.0 / 3.0)
 
 

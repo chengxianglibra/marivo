@@ -20,9 +20,7 @@ by_region = session.observe(
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     dimensions=[session.catalog.get("dimension.sales.orders.region")],
 )
-print(by_region.summary())
+by_region.show()
 
 # Expected output:
-# kind='metric_frame'
-# semantic_kind='segmented'
-# columns=['region', 'failure_rate']
+# MetricFrame show() card: identity line, columns, bounded rows, available footer.

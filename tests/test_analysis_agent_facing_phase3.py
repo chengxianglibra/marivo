@@ -182,5 +182,5 @@ def test_final_report_guidance_marks_next_steps_as_agent_authored() -> None:
 
     assert "Agent-authored Next Steps" in text
     assert "Marivo affordances are mechanical compatibility facts" in text
-    assert "artifact.contract().affordances" in text
+    assert "artifact.contract()" in text
     assert "not recommendations from Marivo" in text

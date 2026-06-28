@@ -31,7 +31,7 @@ delta_frame = session.compare(
     alignment=mv.window_bucket(),
 )
 top_decreases = session.transform.topk(delta_frame, by="delta", limit=3, order="decrease")
-print(top_decreases.summary())
+top_decreases.show()
 
 # Expected output:
 # kind='delta_frame' row_count=2

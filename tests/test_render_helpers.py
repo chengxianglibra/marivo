@@ -47,10 +47,10 @@ def test_truncation_line_shows_remaining():
         columns=["a"],
         rows=[["1"], ["2"], ["3"], ["4"], ["5"]],
         row_count=10,
-        preview_truncation_hint="call .preview(limit=...) or .to_pandas()",
+        preview_truncation_hint="call .to_pandas()",
         available=(".render()",),
     )
-    assert "5 more rows; call .preview(limit=...) or .to_pandas()" in result
+    assert "5 more rows; call .to_pandas()" in result
 
 
 def test_column_list_capped_at_eight():
@@ -69,7 +69,7 @@ def test_preview_rows_capped_at_five():
         columns=["a"],
         rows=[["r" + str(i)] for i in range(10)],
         row_count=10,
-        preview_truncation_hint="call .preview(limit=...)",
+        preview_truncation_hint="call .to_pandas()",
         available=(".render()",),
     )
     shown = [ln for ln in result.splitlines() if ln.startswith("r")]
@@ -84,10 +84,10 @@ def test_no_status_when_none():
 def test_multiple_available_entries():
     result = format_bounded_card(
         identity="X",
-        available=(".summary()", ".preview(limit=...)", ".to_pandas()", ".render()"),
+        available=(".show()", ".contract()", ".to_pandas()", ".render()"),
     )
-    assert "- .summary()" in result
-    assert "- .preview(limit=...)" in result
+    assert "- .show()" in result
+    assert "- .contract()" in result
     assert "- .to_pandas()" in result
     assert "- .render()" in result
 
@@ -98,10 +98,10 @@ def test_truncation_shown_when_row_count_is_none():
         columns=["a"],
         rows=[["r" + str(i)] for i in range(10)],
         row_count=None,
-        preview_truncation_hint="call .preview(limit=...)",
+        preview_truncation_hint="call .to_pandas()",
         available=(".render()",),
     )
-    assert "5 more rows; call .preview(limit=...)" in result
+    assert "5 more rows; call .to_pandas()" in result
 
 
 def test_truncation_singular_row():
@@ -139,3 +139,15 @@ def test_derive_summaries_uses_docstring_topic_and_override() -> None:
     assert out["topic_a"] == "topic summary"
     assert out["aliased"] == "alias summary"
     assert out["novalue"] == ""
+
+
+def test_default_truncation_hint_does_not_teach_preview() -> None:
+    rendered = format_bounded_card(
+        identity="MetricFrame ref=frame_1 rows=10",
+        columns=["bucket_start", "value"],
+        rows=[["2026-06-01", "1"]],
+        row_count=10,
+        available=(".show()", ".contract()", ".to_pandas()"),
+    )
+    assert ".preview(" not in rendered
+    assert ".to_pandas()" in rendered

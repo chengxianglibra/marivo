@@ -30,15 +30,13 @@ base = session.observe(
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 attribution = session.attribute(delta, axes=[created_at])
-summary = attribution.summary()
-print(f"kind={summary.kind!r}")
-print(f"row_count={summary.row_count}")
-print(f"columns={summary.columns!r}")
+attribution.show()
+print(f"kind={attribution.kind!r}")
+print(f"row_count={len(attribution)}")
+print(f"columns={attribution.columns!r}")
 
 # Expected output:
-# kind='attribution_frame'
-# row_count=3
-# columns=['bucket_start', 'delta', 'contribution', 'pct_contribution', 'rank']
+# AttributionFrame show() card, then printed kind/row_count/columns lines.
 
 # Component-aware ratio metric: observe two windows and compare.
 ratio_cur = session.observe(
@@ -74,7 +72,7 @@ ratio_bucket_attr = session.attribute(
     ratio_series_delta,
     axes=[created_at],
 )
-print(ratio_bucket_attr.summary())
+ratio_bucket_attr.show()
 
 # Component-aware panel ratio metric: attribute each bucket by segment.
 ratio_cur_panel = session.observe(
@@ -98,4 +96,4 @@ ratio_panel_attr = session.attribute(
     ratio_panel_delta,
     axes=[region],
 )
-print(ratio_panel_attr.summary())
+ratio_panel_attr.show()

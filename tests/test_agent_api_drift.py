@@ -282,6 +282,20 @@ def test_readiness_render_contains_available(semantic_project_factory) -> None:
 # current well-scoped output.
 
 
+def test_analysis_help_teaches_two_artifact_exits() -> None:
+    import marivo.analysis as mv
+
+    rendered = mv.help_text("MetricFrame")
+    assert ".show()" in rendered
+    assert ".contract()" in rendered
+    assert ".to_pandas()" in rendered
+    assert ".summary()" not in rendered
+    assert ".schema()" not in rendered
+    assert ".preview(" not in rendered
+    assert ".next_intents()" not in rendered
+    assert "contract().affordances" not in rendered
+
+
 def test_mv_help_top_level_within_budget(capsys) -> None:
     mv.help()
     captured = capsys.readouterr()
@@ -347,3 +361,15 @@ def test_analysis_skill_rejects_display_true_examples() -> None:
 def test_semantic_skill_teaches_mv_help_ref() -> None:
     skill = _read("marivo/skills/marivo-semantic/SKILL.md")
     assert "mv.help(" in skill
+
+
+def test_analysis_skill_teaches_show_contract_not_removed_exits() -> None:
+    root = REPO_ROOT / "marivo/skills/marivo-analysis"
+    combined = "\n".join(path.read_text() for path in root.rglob("*.md"))
+    examples = "\n".join(path.read_text() for path in (root / "references/examples").glob("*.py"))
+    text = combined + "\n" + examples
+    assert "artifact.show()" in text or "frame.show()" in text
+    assert "artifact.contract()" in text or "frame.contract()" in text
+    assert ".summary()" not in text
+    assert ".preview(" not in text
+    assert "contract().affordances" not in text

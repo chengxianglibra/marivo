@@ -4,10 +4,10 @@ from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
-from marivo.analysis.errors import FrameMutationError, FrameReadError
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, FramePreview
+from marivo.analysis.errors import FrameMutationError
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
 
 
@@ -81,141 +81,6 @@ def test_getitem_delegates_to_df():
     df = pd.DataFrame({"x": [1, 2]})
     f = BaseFrame(_df=df, meta=_meta())
     assert list(f["x"]) == [1, 2]
-
-
-def test_frame_preview_is_pydantic_model():
-    assert issubclass(FramePreview, BaseModel)
-
-
-def test_preview_default_limit_returns_bounded_dto():
-    df = pd.DataFrame({"x": list(range(12))})
-    f = BaseFrame(_df=df, meta=_meta(row_count=12))
-    preview = f.preview()
-    assert preview.kind == "metric_frame"
-    assert preview.ref == "frame_abc12345"
-    assert preview.row_count == 12
-    assert preview.returned_row_count == 10
-    assert preview.columns == ["x"]
-    assert preview.rows == [{"x": idx} for idx in range(10)]
-    assert preview.is_truncated is True
-
-
-def test_frame_preview_repr_is_bounded_agent_hint():
-    df = pd.DataFrame({"x": list(range(12))})
-    f = BaseFrame(_df=df, meta=_meta(row_count=12))
-    preview = f.preview()
-
-    r = repr(preview)
-
-    assert r == (
-        "<FramePreview ref=frame_abc12345 kind=metric_frame returned=10/12 "
-        "truncated=True; call .show() to inspect>"
-    )
-    assert "\n" not in r
-
-
-def test_frame_preview_render_and_show_are_bounded(capsys):
-    df = pd.DataFrame({"x": list(range(12)), "y": [f"row-{idx}" for idx in range(12)]})
-    f = BaseFrame(_df=df, meta=_meta(row_count=12))
-    preview = f.preview()
-
-    rendered = preview.render()
-
-    assert rendered.startswith(
-        "FramePreview ref=frame_abc12345 kind=metric_frame returned=10/12 truncated=True"
-    )
-    assert "columns: x | y" in rendered
-    assert "preview:" in rendered
-    assert "0 | row-0" in rendered
-    assert "4 | row-4" in rendered
-    assert "5 | row-5" not in rendered
-    assert "... 7 more rows; call .preview(limit=...) or .to_pandas()" in rendered
-    assert "- .rows (list[dict])" in rendered
-    assert "- .columns" in rendered
-    assert not rendered.endswith("\n")
-
-    assert preview.show() is None
-    captured = capsys.readouterr()
-    assert captured.out == rendered + "\n"
-
-
-def test_preview_custom_limit_matches_front_rows():
-    df = pd.DataFrame({"x": [1, 2, 3, 4, 5]})
-    f = BaseFrame(_df=df, meta=_meta())
-    preview = f.preview(limit=2)
-    assert preview.returned_row_count == 2
-    assert preview.rows == [{"x": 1}, {"x": 2}]
-    assert preview.is_truncated is True
-
-
-def test_preview_not_truncated_when_limit_covers_frame():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    preview = f.preview(limit=5)
-    assert preview.returned_row_count == 2
-    assert preview.is_truncated is False
-
-
-def test_preview_rejects_invalid_limits():
-    df = pd.DataFrame({"x": [1]})
-    f = BaseFrame(_df=df, meta=_meta())
-    with pytest.raises(FrameReadError):
-        f.preview(limit=0)
-    with pytest.raises(FrameReadError):
-        f.preview(limit=101)
-
-
-def test_preview_disambiguates_duplicate_columns():
-    df = pd.DataFrame([[1, 2, 3]], columns=["value", "value", "value#2"])
-    f = BaseFrame(_df=df, meta=_meta(row_count=1))
-    preview = f.preview(limit=1)
-    assert preview.columns == ["value", "value#2", "value#2#2"]
-    assert preview.rows == [{"value": 1, "value#2": 2, "value#2#2": 3}]
-
-
-def test_preview_normalizes_missing_values():
-    df = pd.DataFrame(
-        {
-            "float_nan": [float("nan")],
-            "none": [None],
-            "pd_na": [pd.NA],
-            "pd_nat": [pd.NaT],
-        },
-    )
-    f = BaseFrame(_df=df, meta=_meta(row_count=1))
-    assert f.preview(limit=1).rows == [
-        {
-            "float_nan": None,
-            "none": None,
-            "pd_na": None,
-            "pd_nat": None,
-        },
-    ]
-
-
-def test_preview_empty_frame_returns_columns_and_no_rows():
-    df = pd.DataFrame(columns=["x", "y"])
-    f = BaseFrame(_df=df, meta=_meta(row_count=0))
-    preview = f.preview(limit=5)
-    assert preview.row_count == 0
-    assert preview.returned_row_count == 0
-    assert preview.columns == ["x", "y"]
-    assert preview.rows == []
-    assert preview.is_truncated is False
-
-
-def test_frame_preview_forbids_extra_fields():
-    with pytest.raises(ValidationError):
-        FramePreview(
-            kind="metric_frame",
-            ref="frame_abc12345",
-            row_count=1,
-            returned_row_count=1,
-            columns=["x"],
-            rows=[{"x": 1}],
-            is_truncated=False,
-            extra_field=True,
-        )
 
 
 def test_frame_no_longer_exposes_head():
@@ -333,6 +198,15 @@ def test_render_includes_to_pandas_in_available():
     assert ".to_pandas()" in f.render()
 
 
+def test_render_available_teaches_show_contract_to_pandas():
+    df = pd.DataFrame({"x": [1]})
+    f = BaseFrame(_df=df, meta=_meta())
+    rendered = f.render()
+    assert ".show()" in rendered
+    assert ".contract()" in rendered
+    assert ".to_pandas()" in rendered
+
+
 def test_show_prints_render_plus_newline(capsys):
     df = pd.DataFrame({"x": [1]})
     f = BaseFrame(_df=df, meta=_meta())
@@ -368,7 +242,7 @@ def test_render_truncation_line_actionable():
     f = BaseFrame(_df=df, meta=_meta(row_count=20))
     rendered = f.render()
     assert "more rows" in rendered
-    assert ".preview(limit=...)" in rendered or ".to_pandas()" in rendered
+    assert ".to_pandas()" in rendered
 
 
 def test_base_frame_exposes_phase1_artifact_protocol() -> None:
@@ -394,25 +268,20 @@ def test_base_frame_exposes_phase1_artifact_protocol() -> None:
     assert frame.state.materialization == "materialized"
     assert frame.state.content_hash == "sha256:" + "1" * 64
 
-    schema = frame.schema()
-    assert schema.kind == "metric_frame"
-    assert schema.ref == "frame_protocol"
-    assert [(column.name, column.role) for column in schema.columns] == [
-        ("bucket_start", "time"),
-        ("country", "dimension"),
-        ("value", "value"),
-    ]
-
     contract = frame.contract()
     assert contract.kind == "metric_frame"
     assert contract.ref == "frame_protocol"
     assert contract.is_canonical is True
     assert contract.blocking_issues == []
     assert contract.affordances == []
+    assert [(column.name, column.role) for column in contract.schema.columns] == [
+        ("bucket_start", "time"),
+        ("country", "dimension"),
+        ("value", "value"),
+    ]
 
 
 def test_phase1_protocol_objects_are_closed_models() -> None:
-    from pydantic import ValidationError
 
     from marivo.analysis.frames.base import (
         ArtifactAffordance,
@@ -432,8 +301,6 @@ def test_phase1_protocol_objects_are_closed_models() -> None:
         (
             ArtifactSchema,
             {
-                "kind": "metric_frame",
-                "ref": "frame_x",
                 "columns": [],
                 "semantic_shape": None,
             },
@@ -465,6 +332,7 @@ def test_phase1_protocol_objects_are_closed_models() -> None:
                 "kind": "metric_frame",
                 "ref": "frame_x",
                 "is_canonical": True,
+                "schema": ArtifactSchema(columns=[]),
                 "blocking_issues": [],
                 "affordances": [],
             },

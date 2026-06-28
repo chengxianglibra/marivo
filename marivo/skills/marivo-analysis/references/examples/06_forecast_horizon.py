@@ -23,4 +23,4 @@ forecast = session.forecast(
 assert forecast.meta.kind == "forecast_frame"
 assert forecast.meta.horizon == 2
 assert {"time", "predicted", "lower", "upper", "reason_code"}.issubset(forecast.columns)
-print(forecast.summary())
+forecast.show()

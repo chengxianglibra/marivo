@@ -59,7 +59,7 @@ GOOD_SCRIPT = (
     '    catalog.get("metric.sales.revenue"),\n'
     '    timescope={"start": "2026-05-01", "end": "2026-05-08"},\n'
     ")\n"
-    "print(cur.summary())\n"
+    "cur.show()\n"
 )
 
 

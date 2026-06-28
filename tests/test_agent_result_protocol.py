@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
-from marivo.analysis.frames.association import AssociationResultSummary
-from marivo.analysis.frames.base import BaseFrame, FramePreview, FrameSummary
-from marivo.analysis.frames.quality import QualityReportSummary
+from marivo.analysis.frames.base import BaseFrame
+from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.help import _FRAME_SYMBOLS as ANALYSIS_FRAME_SYMBOLS
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
@@ -169,63 +169,6 @@ def _session_summary() -> SessionSummary:
     )
 
 
-def _frame_summary() -> FrameSummary:
-    return FrameSummary(
-        kind="metric_frame",
-        ref="frame_ab12",
-        row_count=7,
-        columns=["period", "value"],
-        null_ratios={"period": 0.0, "value": 0.0},
-        produced_by_job="job_1",
-        lineage_oneliner="observe",
-        semantic_shape="time_series",
-    )
-
-
-def _frame_preview() -> FramePreview:
-    return FramePreview(
-        kind="metric_frame",
-        ref="frame_ab12",
-        row_count=7,
-        returned_row_count=2,
-        columns=["period", "value"],
-        rows=[
-            {"period": "2026-01-01", "value": 10},
-            {"period": "2026-01-02", "value": 12},
-        ],
-        is_truncated=True,
-    )
-
-
-def _quality_report_summary() -> QualityReportSummary:
-    return QualityReportSummary(
-        kind="quality_report",
-        ref="frame_quality",
-        target_metric_id="sales.revenue",
-        target_semantic_kind="time_series",
-        overall_status="warning",
-        blocking_issue_count=0,
-        warning_count=1,
-        checks=[],
-        produced_by_job="job_quality",
-        lineage_oneliner="observe -> assess_quality",
-    )
-
-
-def _association_result_summary() -> AssociationResultSummary:
-    return AssociationResultSummary(
-        kind="association_result",
-        ref="frame_assoc",
-        metric_ids=["sales.revenue", "marketing.spend"],
-        method="pearson",
-        correlation=0.82,
-        aligned_row_count=12,
-        dropped_row_count=1,
-        produced_by_job="job_assoc",
-        lineage_oneliner="correlate",
-    )
-
-
 def _authoring_assessment() -> AuthoringAssessment:
     issue = AssessmentIssue(
         kind="missing_evidence",
@@ -248,10 +191,6 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_job_summary, id="JobSummary"),
     pytest.param(_frame_summary_entry, id="FrameSummaryEntry"),
     pytest.param(_session_summary, id="SessionSummary"),
-    pytest.param(_frame_summary, id="FrameSummary"),
-    pytest.param(_frame_preview, id="FramePreview"),
-    pytest.param(_quality_report_summary, id="QualityReportSummary"),
-    pytest.param(_association_result_summary, id="AssociationResultSummary"),
     pytest.param(_authoring_assessment, id="AuthoringAssessment"),
 ]
 
@@ -289,3 +228,40 @@ def test_concrete_analysis_frames_are_public_and_descriptive() -> None:
             continue
         assert cls.__name__ in ma.__all__, cls.__name__
         assert cls.__name__ in ANALYSIS_FRAME_SYMBOLS, cls.__name__
+
+
+def _metric_frame() -> MetricFrame:
+    from datetime import UTC, datetime
+
+    from marivo.analysis.lineage import Lineage
+
+    meta = MetricFrameMeta(
+        kind="metric_frame",
+        ref="frame_protocol_test",
+        session_id="sess_test",
+        project_root="/tmp",
+        produced_by_job=None,
+        created_at=datetime(2026, 6, 28, tzinfo=UTC),
+        row_count=1,
+        byte_size=0,
+        lineage=Lineage(),
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "revenue"},
+        window=None,
+        where={},
+        semantic_kind="time_series",
+        semantic_model="sales",
+    )
+    return MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
+
+
+def test_public_analysis_frames_expose_two_agent_exits() -> None:
+    frame = _metric_frame()
+    assert hasattr(frame, "show")
+    assert hasattr(frame, "contract")
+    assert hasattr(frame, "to_pandas")
+    assert not hasattr(frame, "summary")
+    assert not hasattr(frame, "schema")
+    assert not hasattr(frame, "preview")
+    assert not hasattr(frame, "next_intents")

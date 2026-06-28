@@ -18,10 +18,7 @@ cur = session.observe(
     session.catalog.get(f"metric.{METRIC_ID}"),
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
 )
-print(cur.summary())
-print(cur.preview(limit=5))
+cur.show()
 
 # Expected output:
-# kind='metric_frame'
-# row_count=1
-# columns=['value']
+# MetricFrame identity line, columns preview, bounded rows, available footer.

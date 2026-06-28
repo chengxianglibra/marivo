@@ -72,11 +72,11 @@ SQL-style ops like `"eq"`, `"ne"`, `"gte"` are **not** supported. Use Python ope
 | `QualityReport` | `session.assess_quality` |
 | `AttributionFrame` | `session.attribute` |
 
-Use `artifact.contract().affordances` to inspect mechanical compatibility. Affordances are not ranked, not recommended next steps, and not business conclusions; the agent chooses whether to use one. Inspect any frame with
-`.summary()`, `.preview(limit=n)`, or `.to_pandas()`.
+Use `artifact.show()` for bounded inspection. Use `artifact.contract()` before
+composing the next operator. Use `artifact.to_pandas()` only for terminal
+custom analysis outside the typed artifact flow.
 
-Frames are immutable. Use `frame.summary()` for a cheap read,
-`frame.preview(limit=n)` for a bounded row projection, and
+Frames are immutable. Use `frame.show()` for a cheap read and
 `frame.to_pandas()` when you need a mutable copy. Use
 `frame.to_pandas().head(n)` only when you explicitly want pandas behavior.
 
@@ -125,7 +125,7 @@ output is validated and persisted as a `MetricFrame` with full lineage.
 | --- | --- |
 | Standard semantic metric observation | `session.observe(metric_ref, timescope={...}, grain=...)` |
 | Custom backend calculation that must re-enter metric analysis | `session.derive_metric_frame(metric=..., query=mv.ibis_query(...), columns=mv.metric_columns(...), timescope={...}, grain=...)` |
-| Inspect or export rows from any tabular artifact | `artifact.preview(limit=...)` or `artifact.to_pandas()` |
+| Inspect or export rows from any tabular artifact | `artifact.show()` or `artifact.to_pandas()` |
 
 ```python
 import marivo.datasource as md

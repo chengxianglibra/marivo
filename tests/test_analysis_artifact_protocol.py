@@ -182,17 +182,17 @@ def test_public_artifact_families_share_phase1_protocol() -> None:
         tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"
         assert artifact.ref, f"{tag}: ref is falsy"
         assert artifact.kind == artifact.meta.kind, f"{tag}: kind mismatch"
-        assert isinstance(artifact.schema(), ArtifactSchema), f"{tag}: schema() type"
         assert isinstance(artifact.contract(), ArtifactContract), f"{tag}: contract() type"
         assert isinstance(artifact.state, ArtifactState), f"{tag}: state type"
         assert artifact.state.content_hash == "sha256:" + "a" * 64, f"{tag}: content_hash"
-        assert artifact.preview(limit=1).returned_row_count == 1, f"{tag}: preview row count"
         assert artifact.to_pandas() is not artifact._df, f"{tag}: to_pandas not isolated"
 
+        contract = artifact.contract()
+        assert isinstance(contract.schema, ArtifactSchema), f"{tag}: contract().schema type"
+        assert contract.schema.columns, f"{tag}: contract().schema columns empty"
+
         payload = {
-            "summary": artifact.summary().model_dump(mode="json"),
-            "schema": artifact.schema().model_dump(mode="json"),
-            "contract": artifact.contract().model_dump(mode="json"),
+            "contract": contract.model_dump(mode="json"),
             "state": artifact.state.model_dump(mode="json"),
         }
         for projection_name, projection in payload.items():

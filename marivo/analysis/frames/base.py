@@ -13,19 +13,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.analysis.errors import (
     FrameMutationError,
-    FrameReadError,
     SemanticKindMismatchError,
 )
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.followups import BlockingIssue, ConfidenceScope
 from marivo.analysis.frames.render import format_bounded_card
 from marivo.analysis.lineage import Lineage
-from marivo.render import result_repr
 
 _RENDER_PREVIEW_ROWS = 5
 _RENDER_MAX_COLUMNS = 8
-_PREVIEW_DEFAULT_LIMIT = 10
-_PREVIEW_MAX_LIMIT = 100
 
 
 def _display_column_names(columns: pd.Index) -> list[str]:
@@ -104,76 +100,6 @@ def assert_attribution_shape(*, got: str, expected: str, frame_kind: str) -> Non
         )
 
 
-class FrameSummary(BaseModel):
-    """Compact, stable summary of a frame without materializing a copy."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: str
-    ref: str
-    row_count: int
-    columns: list[str]
-    null_ratios: dict[str, float]
-    produced_by_job: str | None
-    lineage_oneliner: str
-    semantic_shape: str | None = None
-
-    def _repr_identity(self) -> str:
-        return f"FrameSummary kind={self.kind} ref={self.ref} rows={self.row_count}"
-
-    def render(self) -> str:
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=self.lineage_oneliner,
-            columns=list(self.columns),
-            available=(".render()", ".show()"),
-        )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
-
-
-class FramePreview(BaseModel):
-    """Bounded row projection for agent-facing frame inspection."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: str
-    ref: str
-    row_count: int
-    returned_row_count: int
-    columns: list[str]
-    rows: list[dict[str, Any]]
-    is_truncated: bool
-
-    def _repr_identity(self) -> str:
-        return (
-            f"FramePreview ref={self.ref} kind={self.kind} "
-            f"returned={self.returned_row_count}/{self.row_count} "
-            f"truncated={self.is_truncated}"
-        )
-
-    def render(self) -> str:
-        preview_rows = [[str(row.get(column)) for column in self.columns] for row in self.rows]
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            columns=self.columns,
-            rows=preview_rows,
-            row_count=self.row_count,
-            preview_truncation_hint="call .preview(limit=...) or .to_pandas()",
-            available=(".rows (list[dict])", ".columns"),
-        )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
-
-
 ArtifactColumnRole = Literal["time", "dimension", "value", "measure", "unknown"]
 ArtifactMaterialization = Literal["materialized", "recomputed", "partial"]
 ArtifactPreconditionStatus = Literal["pass", "fail"]
@@ -191,12 +117,10 @@ class ArtifactColumn(BaseModel):
 
 
 class ArtifactSchema(BaseModel):
-    """Bounded deterministic schema descriptor for an artifact."""
+    """Bounded deterministic schema descriptor embedded in an artifact contract."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: str
-    ref: str
     columns: list[ArtifactColumn]
     semantic_shape: str | None = None
 
@@ -240,6 +164,9 @@ class ArtifactContract(BaseModel):
     kind: str
     ref: str
     is_canonical: bool
+    # Shadows the deprecated BaseModel.schema() classmethod; required by the
+    # design contract that embeds schema facts directly on ArtifactContract.
+    schema: ArtifactSchema  # type: ignore[assignment]
     blocking_issues: list[BlockingIssue] = Field(default_factory=list)
     affordances: list[ArtifactAffordance] = Field(default_factory=list)
 
@@ -310,10 +237,9 @@ class BaseFrame:
 
     _NEXT_INTENTS: tuple[str, ...] = ()
     _AVAILABLE_ENTRIES: tuple[str, ...] = (
-        ".summary()",
-        ".preview(limit=...)",
+        ".show()",
+        ".contract()",
         ".to_pandas()",
-        ".render()",
     )
 
     @property
@@ -343,19 +269,8 @@ class BaseFrame:
             content_hash=self.meta.content_hash,
         )
 
-    def schema(self) -> ArtifactSchema:
-        """Return a bounded deterministic schema descriptor for the artifact.
-
-        Returns:
-            ArtifactSchema with column roles inferred from column names.
-
-        Example:
-            >>> frame.schema()
-            ArtifactSchema(kind='metric_frame', ref=...)
-
-        Constraints:
-            Does not materialize a data copy.
-        """
+    def _build_schema(self) -> ArtifactSchema:
+        """Build the schema descriptor embedded in the artifact contract."""
         columns = [
             ArtifactColumn(
                 name=name,
@@ -369,8 +284,6 @@ class BaseFrame:
         ]
         raw_shape = getattr(self.meta, "semantic_kind", None)
         return ArtifactSchema(
-            kind=self.meta.kind,
-            ref=self.meta.ref,
             columns=columns,
             semantic_shape=raw_shape if isinstance(raw_shape, str) else None,
         )
@@ -382,7 +295,7 @@ class BaseFrame:
         ``_NEXT_INTENTS``, not recommendations.
 
         Returns:
-            ArtifactContract listing blocking issues and affordances.
+            ArtifactContract listing schema, blocking issues, and affordances.
 
         Example:
             >>> frame.contract()
@@ -407,13 +320,10 @@ class BaseFrame:
             kind=self.meta.kind,
             ref=self.meta.ref,
             is_canonical=self.meta.kind != "exploration_result",
+            schema=self._build_schema(),
             blocking_issues=list(self.meta.blocking_issues),
             affordances=affordances,
         )
-
-    def next_intents(self) -> tuple[str, ...]:
-        """Return the intent names that accept this frame as input."""
-        return type(self)._NEXT_INTENTS
 
     def to_pandas(self) -> pd.DataFrame:
         """Return a defensive copy of the wrapped DataFrame."""
@@ -467,54 +377,13 @@ class BaseFrame:
             message="frame arithmetic is blocked; call .to_pandas() first",
         )
 
-    def preview(self, limit: int = _PREVIEW_DEFAULT_LIMIT) -> FramePreview:
-        if limit < 1 or limit > _PREVIEW_MAX_LIMIT:
-            raise FrameReadError(
-                message="preview limit must be between 1 and 100",
-                details={"limit": limit, "min": 1, "max": _PREVIEW_MAX_LIMIT},
-            )
-
-        row_count = len(self._df)
+    def _preview_rows(self, *, limit: int) -> tuple[list[str], list[list[str]]]:
         columns = _display_column_names(self._df.columns)
-        preview_source = self._df.head(limit)
-        rows = [
-            {column: _preview_cell(value) for column, value in zip(columns, row, strict=True)}
-            for row in preview_source.itertuples(index=False, name=None)
-        ]
-        return FramePreview(
-            kind=self.meta.kind,
-            ref=self.meta.ref,
-            row_count=row_count,
-            returned_row_count=len(rows),
-            columns=columns,
-            rows=rows,
-            is_truncated=row_count > limit,
-        )
-
-    def summary(self) -> FrameSummary:
-        n = len(self._df)
-        columns = _display_column_names(self._df.columns)
-
-        null_ratios = {
-            column: 0.0 if n == 0 else float(self._df.iloc[:, idx].isna().sum()) / n
-            for idx, column in enumerate(columns)
-        }
-        step_intents = [step.intent for step in self.meta.lineage.steps]
-        lineage_oneliner = " -> ".join(step_intents) if step_intents else "(empty)"
-
-        raw_shape = getattr(self.meta, "semantic_kind", None)
-        semantic_shape = raw_shape if isinstance(raw_shape, str) else None
-
-        return FrameSummary(
-            kind=self.meta.kind,
-            ref=self.meta.ref,
-            row_count=n,
-            columns=columns,
-            null_ratios=null_ratios,
-            produced_by_job=self.meta.produced_by_job,
-            lineage_oneliner=lineage_oneliner,
-            semantic_shape=semantic_shape,
-        )
+        visible_columns = columns[:_RENDER_MAX_COLUMNS]
+        rows: list[list[str]] = []
+        for row in self._df.head(limit).itertuples(index=False, name=None):
+            rows.append([str(_preview_cell(v)) for v in row[:_RENDER_MAX_COLUMNS]])
+        return visible_columns, rows
 
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} ref={self.meta.ref} rows={self.meta.row_count}"
@@ -546,18 +415,14 @@ class BaseFrame:
             MetricFrame ref=frame_ab12 metric=sales.revenue shape=time_series rows=7
             ...
         """
-        columns = _display_column_names(self._df.columns)
-        visible_columns = columns[:_RENDER_MAX_COLUMNS]
-        preview_rows: list[list[str]] = []
-        for row in self._df.head(_RENDER_PREVIEW_ROWS).itertuples(index=False, name=None):
-            preview_rows.append([str(_preview_cell(v)) for v in row[:_RENDER_MAX_COLUMNS]])
+        columns, preview_rows = self._preview_rows(limit=_RENDER_PREVIEW_ROWS)
         return format_bounded_card(
             identity=self._repr_identity(),
             status=self._render_status(),
-            columns=visible_columns,
+            columns=columns,
             rows=preview_rows,
             row_count=len(self._df),
-            preview_truncation_hint="call .preview(limit=...) or .to_pandas()",
+            preview_truncation_hint="call .to_pandas() for terminal custom analysis",
             available=self._AVAILABLE_ENTRIES,
         )
 

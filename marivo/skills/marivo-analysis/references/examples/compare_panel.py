@@ -29,7 +29,7 @@ prev = session.observe(
     dimensions=[session.catalog.get("dimension.sales.orders.region")],
 )
 delta = session.compare(cur, prev, alignment=mv.window_bucket())
-print(delta.summary())
+delta.show()
 
 # Expected output:
 # kind='delta_frame'

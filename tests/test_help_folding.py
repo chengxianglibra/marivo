@@ -156,8 +156,6 @@ def test_analysis_fold_partition() -> None:
         "ConfidenceScope",
         "DeriveContext",
         "DiscoverSensitivity",
-        "FramePreview",
-        "FrameSummary",
         "FrameSummaryEntry",
         "HypothesisTestResult",
         "IbisQuerySpec",

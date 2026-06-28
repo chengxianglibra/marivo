@@ -207,7 +207,7 @@ def _discover_dispatch(
 
     Example:
         >>> candidates = session.discover.point_anomalies(series, threshold=1.0)
-        >>> candidates.summary()
+        >>> candidates.show()
     """
     session = resolve_session(session)
     ensure_session_writable(session)

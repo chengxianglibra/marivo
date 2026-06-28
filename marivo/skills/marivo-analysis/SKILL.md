@@ -84,14 +84,12 @@ drivers.show()
 ```
 
 Every default operator returns a typed, immutable artifact directly. Stay in
-artifact world until you intentionally call `artifact.to_pandas()`. Use
-`artifact.show()` for bounded inspection.
+artifact world until you intentionally call `artifact.to_pandas()`.
 
-Read artifacts in this order: `repr(artifact)`, `artifact.summary()`,
-`artifact.schema()`, `artifact.contract()`, and only then
-`artifact.preview(...)` or `artifact.to_pandas()` for tabular data. Use
-`artifact.contract().affordances` for mechanical compatibility. Affordances are
-not recommendations from Marivo; the agent chooses whether to continue.
+After each analysis step, read `artifact.show()` at deliberate observation
+points. Before composing another operator, read `artifact.contract()`.
+The affordances inside the contract are neutral machine data, not a
+recommendation surface.
 
 `mv.window_bucket()` compares time-series and panel windows
 by ordinal bucket position by default. Use
@@ -191,9 +189,9 @@ the evidence namespace: `session.evidence.findings(...)`,
 For any non-trivial close-out, read `references/final-report.md` before the
 final user response. Do not end with only `frame.show()`, `frame.head(n)`, or
 raw tables. Synthesize the answer, scope, evidence, caveats, source details, and
-agent-authored next steps into a clear Markdown report. Marivo can expose
-mechanical compatibility through `artifact.contract().affordances`, but it does
-not recommend what the agent should do next.
+agent-authored next steps into a clear Markdown report. Marivo exposes
+mechanical compatibility through `artifact.contract()`, but it does not
+recommend what the agent should do next.
 
 ## Decision tree
 
@@ -348,7 +346,7 @@ artifact refs, evidence facts, and job history remain available.
   - `discover` → which candidate to `select` and drill into.
   - `correlate` → which of several associations is worth follow-up.
   - `attribute` → which segment from the ranking to observe at finer grain.
-  - Any branch where `frame.show()` or `artifact.contract().affordances` is the input to your
+  - Any branch where `frame.show()` or `frame.contract()` is the input to your
     decision.
 
 Rule of thumb: if you cannot write the next `mv.*` call without first reading

@@ -63,9 +63,9 @@ def format_bounded_card(
         rows: Preview row values as pre-serialized strings (capped at 5 rows).
         row_count: Total row count used to compute the truncation message.
         preview_truncation_hint: Suffix for the truncation line when rows are
-            truncated (e.g. ``"call .preview(limit=...) or .to_pandas()"``)
+            truncated (e.g. ``"call .to_pandas() for terminal custom analysis"``)
         available: Tuple of method strings listed in the ``available:``
-            section (e.g. ``(".summary()", ".render()")``)
+            section (e.g. ``(".show()", ".contract()", ".to_pandas()")``)
 
     Returns:
         Bounded plain-text card without a trailing newline.
@@ -92,12 +92,12 @@ def format_bounded_card(
         if row_count is not None and row_count > len(shown_rows):
             remaining = row_count - len(shown_rows)
             row_word = "row" if remaining == 1 else "rows"
-            hint = preview_truncation_hint or "call .preview(limit=...) for more"
+            hint = preview_truncation_hint or "call .to_pandas() for terminal custom analysis"
             lines.append(f"... {remaining} more {row_word}; {hint}")
         elif row_count is None and len(rows) > len(shown_rows):
             remaining = len(rows) - len(shown_rows)
             row_word = "row" if remaining == 1 else "rows"
-            hint = preview_truncation_hint or "call .preview(limit=...) for more"
+            hint = preview_truncation_hint or "call .to_pandas() for terminal custom analysis"
             lines.append(f"... {remaining} more {row_word}; {hint}")
 
     lines.append("available:")

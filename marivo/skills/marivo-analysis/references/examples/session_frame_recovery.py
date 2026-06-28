@@ -41,10 +41,10 @@ base = session.observe(
     timescope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(recovered, base, alignment=mv.window_bucket())
-print(delta.summary())
+delta.show()
 
 # Expected output:
 # ref='art_...'
 # found N frame(s) for 'sales.revenue'
 # recovered ref='art_...' kind='metric_frame'
-# <DeltaFrameSummary ...>
+# <DeltaFrame ref=... rows=1; call .show() to inspect>

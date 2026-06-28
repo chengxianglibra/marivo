@@ -105,3 +105,12 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
     assert loaded.meta.source_refs == ["frame_a", "frame_b"]
     assert loaded.meta.correlation == 0.75
     assert loaded.to_pandas().iloc[0]["correlation"] == 0.75
+
+    rendered = loaded.render()
+    assert "method=pearson" in rendered
+    assert "r=" in rendered
+    assert "aligned=" in rendered
+    assert "dropped=" in rendered
+    for metric_id in loaded.meta.metric_ids:
+        assert metric_id in rendered
+    assert "summary()" not in rendered
