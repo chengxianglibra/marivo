@@ -175,15 +175,22 @@ Association and quality domain facts that currently live only in specialized
 terminal result protocol, but analysis help and skills should not present it as
 an agent-facing workflow step.
 
+Any truncation hint rendered by `show()` or the shared bounded-card formatter
+must stop advertising `.preview(limit=...)`. Hints should point to
+`.to_pandas()` for terminal custom analysis.
+
 ## Affected Surfaces
 
 Code surfaces:
 
+- `marivo/render.py`
 - `marivo/analysis/frames/base.py`
 - concrete frame/result classes under `marivo/analysis/frames/`
 - candidate result surfaces that currently expose affordances as selected row
   fields
 - `marivo/analysis/help.py`
+- `marivo/analysis/errors.py`
+- `marivo/analysis/constraints.py`
 - `marivo/analysis/__init__.py` and public surface snapshots where `summary`
   DTOs, schema-only types, preview types, or intent-list helpers are currently
   exposed
@@ -238,6 +245,7 @@ Required focused checks:
   mechanical metadata and contains no recommendation wording.
 - Render tests assert the `available:` footer teaches exactly `.show()`,
   `.contract()`, and `.to_pandas()` for frames where `to_pandas()` is valid.
+  The same tests also assert truncation hints do not mention `.preview(...)`.
 - Association and quality tests assert the domain facts formerly exposed by
   specialized `summary()` DTOs are visible through `show()`/`render()`.
 - Help/introspection tests assert `.summary()`, `.schema()`, `.preview()`, and
@@ -264,6 +272,8 @@ make typecheck
   available through `contract().schema`.
 - `preview()` and `next_intents()` are not public on analysis frame/result
   objects.
+- Error repair text, constraint guidance, and render truncation hints do not
+  mention `.preview(limit=...)`.
 - `contract().affordances` remains available as neutral machine data, but docs
   and skills do not teach it as a standalone reading step.
 - Association correlation/alignment facts and quality per-check facts remain
@@ -287,7 +297,8 @@ The implementation should move in this order:
 3. Remove public `summary()`, `schema()`, `preview()`, and `next_intents()` from
    analysis artifacts.
 4. Update render/show content and available footers, including association and
-   quality domain facts.
+   quality domain facts. Update shared truncation hints so no rendered output
+   points to `.preview(limit=...)`.
 5. Update help, skills, examples, and docs.
 6. Run focused tests, then broaden to repository entrypoints for touched
    surfaces.
