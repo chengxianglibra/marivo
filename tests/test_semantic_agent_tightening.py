@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -270,6 +271,51 @@ def test_superseded_semantic_docs_point_to_stepwise_design() -> None:
         assert "stepwise-authoring-design.md" in text, (
             f"{path} missing stepwise-authoring-design.md reference"
         )
+
+
+def test_active_semantic_authoring_guidance_omits_prepare_stage() -> None:
+    current_flow = "help -> discover -> settle/grill -> author -> verify"
+    active_paths = [
+        "agent-guide.md",
+        "docs/specs/semantic/stepwise-authoring-design.md",
+        "docs/specs/semantic/python-semantic-layer.md",
+        "marivo/skills/marivo-semantic/SKILL.md",
+        "marivo/skills/marivo-semantic/references/workflow.md",
+    ]
+    banned_patterns = [
+        re.compile(r"prepare_\w+"),
+        re.compile(r"prepare\s*[-/>\u2192]+\s*author", re.IGNORECASE),
+        re.compile(r"prepare-before", re.IGNORECASE),
+        re.compile(r"prepare/verify", re.IGNORECASE),
+    ]
+
+    for path in active_paths:
+        text = _read(path)
+        assert current_flow in text, f"{path} missing current flow"
+        for pattern in banned_patterns:
+            assert pattern.search(text) is None, (
+                f"{path} still teaches removed prepare stage via {pattern.pattern!r}"
+            )
+
+
+def test_prepare_era_specs_are_marked_historical() -> None:
+    current_flow = "help -> discover -> settle/grill -> author -> verify"
+    historical_paths = [
+        "docs/specs/semantic/semantic-authoring-design-superseded.md",
+        "docs/superpowers/specs/2026-06-16-metric-unit-measure-propagation-design.md",
+        "docs/superpowers/specs/2026-06-16-semantic-authoring-surface-redesign-design.md",
+        "docs/superpowers/specs/2026-06-20-api-reference-organization-design.md",
+        "docs/superpowers/specs/2026-06-21-datasource-semantic-agent-surface-fix-design.md",
+        "docs/superpowers/specs/2026-06-21-semantic-column-authoring-design.md",
+        "docs/superpowers/specs/2026-06-25-authoring-discover-design.md",
+        "docs/superpowers/specs/2026-06-26-authoring-guidance-layering-design.md",
+        "docs/superpowers/specs/2026-06-27-semantic-skill-layering-simplification-design.md",
+    ]
+
+    for path in historical_paths:
+        text = _read(path)
+        assert "Historical note" in text, f"{path} missing historical note"
+        assert current_flow in text, f"{path} missing current flow pointer"
 
 
 def test_semantic_design_docs_teach_discovery_first_contract() -> None:

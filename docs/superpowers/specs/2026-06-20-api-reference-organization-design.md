@@ -4,6 +4,11 @@ Date: 2026-06-20
 
 Status: approved scope, pending written-spec review
 
+> Historical note: this spec predates removal of the public semantic
+> `prepare_*` authoring stage. Current agents must use
+> `help -> discover -> settle/grill -> author -> verify`; remaining
+> `prepare_*` text below is historical context only.
+
 Supersedes: Component 1 (`docs/api/*.rst` structure) of
 `2026-06-19-sphinx-python-api-docs-design.md`. All other parts of that spec —
 build wiring, theme, dependencies, output location, navigation — are unchanged.
