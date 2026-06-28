@@ -23,6 +23,8 @@ from marivo.render import format_bounded_card, result_repr
 
 MetadataWarningKind = Literal[
     "comments_unavailable",
+    "table_comments_unavailable",
+    "column_comments_unavailable",
     "nullable_unavailable",
     "partitions_unavailable",
     "primary_keys_unavailable",
@@ -894,7 +896,7 @@ def _inspect_trino(
         if _is_missing_metadata_column(exc, "comment"):
             warnings.append(
                 MetadataWarning(
-                    kind="comments_unavailable",
+                    kind="table_comments_unavailable",
                     message=f"trino table comments are unavailable: {exc}",
                 )
             )
@@ -926,7 +928,7 @@ def _inspect_trino(
             catalog_columns = _trino_columns_from_rows(column_rows, include_comment=False)
             warnings.append(
                 MetadataWarning(
-                    kind="comments_unavailable",
+                    kind="column_comments_unavailable",
                     message=f"trino column comments are unavailable: {exc}",
                 )
             )
