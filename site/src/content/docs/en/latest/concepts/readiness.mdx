@@ -74,6 +74,9 @@ Each `ReadinessIssue` carries the same teaching shape:
 `report.show()` prints a bounded card; `report.to_dict()` returns the full machine
 list for programmatic handling.
 
+Optional enrichment gaps, such as missing `ai_context.guardrails`, are reported
+by `ms.richness()`. They do not change readiness status.
+
 ## Issue kinds
 
 | Kind | Severity | Trigger | Next step |
@@ -83,7 +86,6 @@ list for programmatic handling.
 | `missing_business_definition` | blocker | A checked object has no `ai_context.business_definition`. | Add a `business_definition`. |
 | `cross_datasource_unfederated` | blocker | A metric spans more than one datasource without federation. | Move integration upstream, enable a federated backend, or split the metric. |
 | `unresolved_clarification` | blocker | A dangerous decision (time-dimension identity, metric composition) has no recorded decision. | Reload after the declaration, or record the object-level `DecisionRecord`. |
-| `missing_guardrails` | warning | A checked object has no `ai_context.guardrails`. | Add `guardrails`. |
 | `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
 | `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
