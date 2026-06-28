@@ -26,6 +26,7 @@ from marivo.datasource.discovery import (
 )
 from marivo.datasource.help import help, help_text
 from marivo.datasource.manage import (
+    DatasourceConnection,
     DatasourceDescription,
     DatasourceList,
     DatasourceSummary,
@@ -55,6 +56,7 @@ from marivo.preview import PreviewResult
 
 __all__ = [
     "DatasourceCatalog",
+    "DatasourceConnection",
     "DatasourceDescription",
     "DatasourceList",
     "DatasourceRef",

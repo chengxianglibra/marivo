@@ -118,6 +118,106 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     assert backend.disconnected is True
 
 
+def test_connect_context_manager_yields_backend_and_disconnects(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+
+    class _FakeBackend:
+        disconnect_calls = 0
+
+        def raw_sql(self, sql: str) -> str:
+            assert sql == "SELECT 1"
+            return "ok"
+
+        def list_tables(self) -> list[str]:
+            return ["orders"]
+
+        def disconnect(self) -> None:
+            self.disconnect_calls += 1
+
+    backend = _FakeBackend()
+    import marivo.datasource.manage as registry_mod
+    from marivo.datasource.backends import BuiltDatasourceBackend
+
+    monkeypatch.setattr(
+        registry_mod._backends,
+        "build_backend_with_secrets",
+        lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
+    )
+
+    connection = md.connect("wh")
+    assert connection.backend is backend
+    assert connection.list_tables() == ["orders"]
+
+    with connection as con:
+        assert con is backend
+        assert con.raw_sql("SELECT 1") == "ok"
+        assert backend.disconnect_calls == 0
+
+    assert backend.disconnect_calls == 1
+
+
+def test_connect_context_manager_disconnects_after_error(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+
+    class _FakeBackend:
+        disconnect_calls = 0
+
+        def disconnect(self) -> None:
+            self.disconnect_calls += 1
+
+    backend = _FakeBackend()
+    import marivo.datasource.manage as registry_mod
+    from marivo.datasource.backends import BuiltDatasourceBackend
+
+    monkeypatch.setattr(
+        registry_mod._backends,
+        "build_backend_with_secrets",
+        lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"), md.connect("wh"):
+        raise RuntimeError("boom")
+
+    assert backend.disconnect_calls == 1
+
+
+def test_connect_manual_disconnect_is_idempotent(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+
+    class _FakeBackend:
+        disconnect_calls = 0
+
+        def disconnect(self) -> None:
+            self.disconnect_calls += 1
+
+    backend = _FakeBackend()
+    import marivo.datasource.manage as registry_mod
+    from marivo.datasource.backends import BuiltDatasourceBackend
+
+    monkeypatch.setattr(
+        registry_mod._backends,
+        "build_backend_with_secrets",
+        lambda _datasource: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
+    )
+
+    connection = md.connect("wh")
+    connection.disconnect()
+    connection.disconnect()
+    with connection:
+        pass
+
+    assert backend.disconnect_calls == 1
+
+
 def test_datasource_test_success_persists_env_sourced_secret(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

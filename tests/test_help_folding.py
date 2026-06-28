@@ -99,6 +99,7 @@ def test_datasource_fold_partition() -> None:
     }
     assert fams["Metadata types"] == ["TableMetadata"]
     assert set(fams["Other types"]) == {
+        "DatasourceConnection",
         "DatasourceDescription",
         "DatasourceList",
         "DatasourceSummary",

@@ -180,6 +180,74 @@ class DatasourceTestResult:
         print(self.render())
 
 
+class DatasourceConnection:
+    """Context-manageable datasource backend connection.
+
+    Args:
+        backend: The live ibis backend opened for a project datasource.
+
+    Returns:
+        A connection proxy that delegates backend methods and owns cleanup.
+
+    Example:
+        >>> import marivo.datasource as md
+        >>> with md.connect("wh") as con:
+        ...     con.raw_sql("SELECT 1")
+
+    Constraints:
+        ``with`` blocks yield the raw ibis backend and disconnect on exit.
+        Scripts that cannot use ``with`` may call ``.disconnect()`` manually.
+        The ``.backend`` property exposes the raw backend for explicit handoff.
+    """
+
+    def __init__(self, backend: Any) -> None:
+        self._backend = backend
+        self._closed = False
+
+    @property
+    def backend(self) -> Any:
+        """Return the wrapped raw ibis backend."""
+        return self._backend
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._backend, name)
+
+    def __enter__(self) -> Any:
+        return self._backend
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object | None,
+    ) -> Literal[False]:
+        self._disconnect(suppress_errors=exc_type is not None)
+        return False
+
+    def _disconnect(self, *, suppress_errors: bool) -> None:
+        if self._closed:
+            return
+        disconnect = getattr(self._backend, "disconnect", None)
+        if not callable(disconnect):
+            self._closed = True
+            return
+        try:
+            disconnect()
+        except Exception:
+            if not suppress_errors:
+                raise
+        finally:
+            self._closed = True
+
+    def disconnect(self) -> None:
+        """Disconnect the backend once; repeated calls are no-ops."""
+        self._disconnect(suppress_errors=False)
+
+    def __repr__(self) -> str:
+        state = "closed" if self._closed else "open"
+        return result_repr(f"DatasourceConnection backend={type(self._backend).__name__} {state}")
+
+
 def register(
     spec: DatasourceSpec,
     *,
@@ -281,27 +349,26 @@ def describe(name: str) -> DatasourceDescription:
     )
 
 
-def connect(name: str) -> Any:
-    """Open a live ibis backend for a datasource; caller disconnects.
+def connect(name: str) -> DatasourceConnection:
+    """Open a context-manageable live ibis backend for a datasource.
 
     Args:
         name: The datasource name to connect to.
 
     Returns:
-        A live ibis backend. The caller must call ``.disconnect()`` when done.
+        A ``DatasourceConnection`` proxy that delegates backend methods and
+        disconnects automatically when used as a context manager.
 
     Example:
         >>> import marivo.datasource as md
-        >>> backend = md.connect("wh")
-        >>> try:
-        ...     backend.raw_sql("SELECT 1")
-        ... finally:
-        ...     backend.disconnect()
+        >>> with md.connect("wh") as con:
+        ...     con.raw_sql("SELECT 1")
 
     Constraints:
-        The caller owns the backend lifetime and must call ``disconnect()``.
+        Prefer ``with md.connect(...) as con`` so cleanup is automatic. For
+        manual lifetime management, call ``connection.disconnect()`` when done.
         Env-sourced secrets used to open this backend are remembered on the
-        backend object so that a subsequent round-trip validation can persist
+        connection object so that a subsequent round-trip validation can persist
         them via ``secrets.persist_backend_env_sourced``.
     """
     datasource = _store.load_one(name)
@@ -311,8 +378,10 @@ def connect(name: str) -> Any:
             details={"datasource": name, "available": _store.list_names()},
         )
     built = _backends.build_backend_with_secrets(datasource)
+    connection = DatasourceConnection(built.backend)
     _secrets.remember_env_sourced(built.backend, built.env_sourced_secrets)
-    return built.backend
+    _secrets.remember_env_sourced(connection, built.env_sourced_secrets)
+    return connection
 
 
 def _preview_ref(datasource: str, table: str, database: str | tuple[str, ...] | None) -> str:
