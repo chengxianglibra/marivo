@@ -9,7 +9,7 @@ import pytest
 
 import marivo.datasource as md
 from marivo.datasource import store
-from marivo.datasource.authoring import _DuckDBSpec
+from marivo.datasource.authoring import _DuckDBSpec, _TrinoSpec
 from marivo.datasource.backends import _with_read_only_kwargs, build_backend
 from marivo.datasource.errors import DatasourceError, DatasourceRawSqlError
 from marivo.datasource.manage import _execute_readonly
@@ -156,6 +156,54 @@ class _FakeBackend:
         return sql
 
 
+class _FakeCursor:
+    def __init__(self, columns: list[str], rows: list[tuple[object, ...]]) -> None:
+        self.description = [(column, None) for column in columns]
+        self._rows = rows
+        self.fetchmany_calls: list[int] = []
+
+    def fetchmany(self, size: int) -> list[tuple[object, ...]]:
+        self.fetchmany_calls.append(size)
+        return self._rows[:size]
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        return self._rows
+
+
+class _RawSqlBackend:
+    def __init__(self, results: dict[str, _FakeCursor]) -> None:
+        self.calls: list[str] = []
+        self.results = results
+
+    def raw_sql(self, sql: str) -> _FakeCursor:
+        self.calls.append(sql)
+        for token, cursor in self.results.items():
+            if token in sql:
+                return cursor
+        return _FakeCursor([], [])
+
+
+class _RawSqlBackendContext:
+    def __init__(self, backend: _RawSqlBackend) -> None:
+        self.backend = backend
+
+    def __enter__(self) -> _RawSqlBackend:
+        return self.backend
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+
+class _RawSqlService:
+    def __init__(self, backend: _RawSqlBackend) -> None:
+        self.backend = backend
+        self.calls: list[tuple[str, bool]] = []
+
+    def use_backend(self, datasource: str, *, read_only: bool) -> _RawSqlBackendContext:
+        self.calls.append((datasource, read_only))
+        return _RawSqlBackendContext(self.backend)
+
+
 def test_execute_readonly_transaction_sequence_per_backend() -> None:
     # DuckDB/ClickHouse: connection already read-only, no transaction control.
     duck = _FakeBackend()
@@ -186,3 +234,102 @@ def test_execute_readonly_rolls_back_on_failure() -> None:
     with pytest.raises(RuntimeError, match="boom"):
         _execute_readonly(pg, "postgres", "SELECT 1")
     assert pg.calls == ["BEGIN READ ONLY", "SELECT 1", "ROLLBACK"]
+
+
+def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
+        project_root=tmp_path,
+    )
+    cursor = _FakeCursor(
+        ["Column", "Type"],
+        [("order_id", "bigint"), ("amount", "double")],
+    )
+    backend = _RawSqlBackend({"DESCRIBE orders": cursor})
+    service = _RawSqlService(backend)
+
+    import marivo.datasource.manage as manage_mod
+
+    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
+
+    result = md.raw_sql(
+        md.ref("trino_wh"),
+        "DESCRIBE orders",
+        limit=1,
+        reason="diagnose trino table schema",
+        project_root=tmp_path,
+    )
+
+    assert backend.calls == ["DESCRIBE orders"]
+    assert service.calls == [("trino_wh", True)]
+    assert result.rows == ({"Column": "order_id", "Type": "bigint"},)
+    assert result.is_truncated is True
+    assert cursor.fetchmany_calls == [2]
+
+
+def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
+        project_root=tmp_path,
+    )
+    backend = _RawSqlBackend(
+        {
+            "SHOW COLUMNS FROM orders": _FakeCursor(
+                ["Column", "Type"],
+                [("order_id", "bigint"), ("amount", "double")],
+            )
+        }
+    )
+    service = _RawSqlService(backend)
+
+    import marivo.datasource.manage as manage_mod
+
+    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
+
+    result = md.raw_sql(
+        md.ref("trino_wh"),
+        "SHOW COLUMNS FROM orders",
+        limit=2,
+        reason="diagnose trino column metadata",
+        project_root=tmp_path,
+    )
+
+    assert backend.calls == ["SHOW COLUMNS FROM orders"]
+    assert result.returned_row_count == 2
+    assert result.is_truncated is False
+
+
+def test_raw_sql_trino_select_keeps_readonly_transaction_and_subquery_wrap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _TrinoSpec(name="trino_wh", host="trino.example", catalog="hive"),
+        project_root=tmp_path,
+    )
+    backend = _RawSqlBackend({"marivo_raw_sql": _FakeCursor(["n"], [(2,)])})
+    service = _RawSqlService(backend)
+
+    import marivo.datasource.manage as manage_mod
+
+    monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
+
+    result = md.raw_sql(
+        md.ref("trino_wh"),
+        "SELECT count(*) AS n FROM orders",
+        reason="diagnose row count",
+        project_root=tmp_path,
+    )
+
+    assert backend.calls[0] == "START TRANSACTION READ ONLY"
+    assert backend.calls[1] == (
+        "SELECT * FROM (SELECT count(*) AS n FROM orders) AS marivo_raw_sql LIMIT 100"
+    )
+    assert backend.calls[2] == "COMMIT"
+    assert result.rows == ({"n": 2},)

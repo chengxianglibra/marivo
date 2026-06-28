@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import ibis
@@ -37,6 +38,8 @@ def test_public_discover_column_families_return_display_results(tmp_path: Path) 
     entity = md.discover_entity(warehouse, source, scope=scope, project_root=tmp_path)
     assert isinstance(entity, md.DiscoveryResult)
     entity_render = entity.render()
+    assert "schema columns:" in entity_render
+    assert "order_id |" in entity_render
     assert "primary key evidence:" in entity_render
     assert "order_id" in entity_render
     assert "sampled_unique" in entity_render
@@ -178,3 +181,9 @@ def test_datasource_public_surface_exposes_discovery_not_inspection() -> None:
     assert "md.discover_entity" in text
     assert "md.raw_sql" in text
     assert "md.inspect_columns" not in text
+
+
+def test_discover_entity_has_no_include_partitions_parameter() -> None:
+    signature = inspect.signature(md.discover_entity)
+
+    assert "include_partitions" not in signature.parameters

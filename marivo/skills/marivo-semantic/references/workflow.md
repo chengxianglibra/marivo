@@ -9,7 +9,8 @@ parse recipes, or the flow-control state machine.
 
 Before asking the user, inspect the evidence Marivo can already provide:
 
-- `md.discover_entity(...)` for table and entity evidence;
+- `md.discover_entity(...)` for table schema columns, partition columns, and
+  entity evidence;
 - `md.discover_dimensions(...)` for dimension-shaped column evidence;
 - `md.discover_time_dimensions(...)` for temporal column evidence;
 - `md.discover_measures(...)` for numeric measure-shaped evidence;
@@ -34,7 +35,9 @@ When the canonical flow reaches the grill step, each question must:
 
 If evidence supports only one path, ask the user to confirm it. If evidence is
 too thin for options, ask an open question or run another bounded discovery
-query.
+query. Use `md.raw_sql(...)` only for diagnostics that discovery cannot expose;
+metadata statements such as `SHOW`, `DESCRIBE`, `DESC`, and `EXPLAIN` are
+supported diagnostics, not semantic expression bodies.
 
 Do not ask users for schema, column names, data types, sample values,
 join-key viability, or existing object state when Marivo can discover them.

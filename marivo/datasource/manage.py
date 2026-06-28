@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import re
 import time
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import suppress
@@ -1133,6 +1134,18 @@ def _require_single_statement(sql: str) -> str:
     return stripped
 
 
+_RAW_SQL_METADATA_KEYWORDS = {"SHOW", "DESCRIBE", "DESC", "EXPLAIN"}
+
+
+def _raw_sql_keyword(sql: str) -> str:
+    match = re.match(r"([A-Za-z_]+)", sql.lstrip())
+    return match.group(1).upper() if match else ""
+
+
+def _is_metadata_diagnostic_sql(sql: str) -> bool:
+    return _raw_sql_keyword(sql) in _RAW_SQL_METADATA_KEYWORDS
+
+
 # Transaction-based backends have no connect-level read-only mode; raw_sql wraps
 # their query in a read-only transaction. DuckDB and ClickHouse enforce read-only
 # at connect time (see backends._with_read_only_kwargs) and need no transaction.
@@ -1143,7 +1156,13 @@ _READONLY_TX_START: dict[str, str] = {
 }
 
 
-def _execute_readonly(backend: Any, backend_type: str, sql: str) -> Any:
+def _execute_readonly(
+    backend: Any,
+    backend_type: str,
+    sql: str,
+    *,
+    use_transaction: bool = True,
+) -> Any:
     """Run ``sql`` against ``backend`` under read-only enforcement.
 
     For DuckDB/ClickHouse the connection is already read-only, so the query runs
@@ -1151,7 +1170,7 @@ def _execute_readonly(backend: Any, backend_type: str, sql: str) -> Any:
     ``BEGIN/START TRANSACTION READ ONLY`` transaction that is committed on success
     or rolled back on failure.
     """
-    start = _READONLY_TX_START.get(backend_type)
+    start = _READONLY_TX_START.get(backend_type) if use_transaction else None
     if start is None:
         return backend.raw_sql(sql)
     backend.raw_sql(start)
@@ -1168,6 +1187,8 @@ def _execute_readonly(backend: Any, backend_type: str, sql: str) -> Any:
 def _extract_raw_sql_frame(
     cursor: Any,
     include_types: bool,
+    *,
+    limit: int | None = None,
 ) -> tuple[tuple[str, ...], tuple[dict[str, object], ...], dict[str, str]]:
     """Extract columns, rows, and best-effort types from a backend cursor.
 
@@ -1176,17 +1197,25 @@ def _extract_raw_sql_frame(
     ``column_names``+``result_rows`` path (ClickHouse).
     """
     description = getattr(cursor, "description", None)
+    row_limit = limit + 1 if limit is not None else None
     fetchall = getattr(cursor, "fetchall", None)
     if description is not None and callable(fetchall):
         columns = tuple(str(item[0]) for item in description)
         types = {str(item[0]): str(item[1]) for item in description} if include_types else {}
-        rows = tuple(dict(zip(columns, row, strict=True)) for row in fetchall())
+        fetchmany = getattr(cursor, "fetchmany", None)
+        raw_rows = (
+            fetchmany(row_limit) if row_limit is not None and callable(fetchmany) else fetchall()
+        )
+        if row_limit is not None:
+            raw_rows = raw_rows[:row_limit]
+        rows = tuple(dict(zip(columns, row, strict=True)) for row in raw_rows)
         return columns, rows, types
     column_names = getattr(cursor, "column_names", None)
     result_rows = getattr(cursor, "result_rows", None)
     if column_names and result_rows is not None:
         columns = tuple(str(name) for name in column_names)
-        rows = tuple(dict(zip(columns, row, strict=True)) for row in result_rows)
+        raw_rows = result_rows[:row_limit] if row_limit is not None else result_rows
+        rows = tuple(dict(zip(columns, row, strict=True)) for row in raw_rows)
         return columns, rows, {}
     return (), (), {}
 
@@ -1204,7 +1233,10 @@ def raw_sql(
 
     Args:
         datasource: Datasource reference returned by ``md.ref("warehouse")``.
-        sql: Single read-only SQL statement.
+        sql: Single read-only SQL statement. ``SELECT`` and ``WITH`` diagnostics
+            are bounded with a wrapper query; metadata diagnostics such as
+            ``SHOW``, ``DESCRIBE``, ``DESC``, and ``EXPLAIN`` execute directly
+            so backend metadata syntax remains valid.
         limit: Maximum rows to return.
         reason: Required diagnostic reason; shown in the result.
         include_types: Whether to include returned column type labels when available.
@@ -1220,7 +1252,9 @@ def raw_sql(
     Constraints:
         Rejects empty reasons, empty SQL, and multi-statement SQL before execution.
         Read-only is enforced at the connection level: DuckDB and ClickHouse open in
-        read-only mode, Postgres/Trino/MySQL run inside a ``READ ONLY`` transaction,
+        read-only mode, Postgres/MySQL and ordinary Trino queries run inside a
+        ``READ ONLY`` transaction, Trino metadata diagnostics run without an
+        explicit transaction,
         and unsupported backends are refused with a typed datasource error. Any
         execution failure (including a write attempt) surfaces as a
         ``DatasourceRawSqlError``; the backend is always disconnected.
@@ -1242,10 +1276,25 @@ def raw_sql(
     backend_type = datasource_ir.backend_type
     service = DatasourceConnectionService(project_root)
     with service.use_backend(datasource_id, read_only=True) as backend:
-        limited_sql = f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {limit}"
+        is_metadata_diagnostic = _is_metadata_diagnostic_sql(statement)
+        execution_sql = (
+            statement
+            if is_metadata_diagnostic
+            else f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {limit}"
+        )
+        use_transaction = not (backend_type == "trino" and is_metadata_diagnostic)
         try:
-            cursor = _execute_readonly(backend, backend_type, limited_sql)
-            columns, rows, types = _extract_raw_sql_frame(cursor, include_types)
+            cursor = _execute_readonly(
+                backend,
+                backend_type,
+                execution_sql,
+                use_transaction=use_transaction,
+            )
+            columns, extracted_rows, types = _extract_raw_sql_frame(
+                cursor,
+                include_types,
+                limit=limit if is_metadata_diagnostic else None,
+            )
         except DatasourceError:
             raise
         except Exception as exc:
@@ -1258,6 +1307,8 @@ def raw_sql(
                     "cause": str(exc),
                 },
             ) from exc
+        rows = extracted_rows[:limit]
+        is_truncated = len(extracted_rows) > limit if is_metadata_diagnostic else len(rows) >= limit
         return RawSqlResult(
             datasource=datasource,
             backend_type=backend_type,
@@ -1268,6 +1319,6 @@ def raw_sql(
             rows=rows,
             requested_limit=limit,
             returned_row_count=len(rows),
-            is_truncated=len(rows) >= limit,
+            is_truncated=is_truncated,
             warnings=(),
         )
