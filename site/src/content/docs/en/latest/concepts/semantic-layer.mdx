@@ -531,13 +531,27 @@ dimension_evidence.show()
 measure_evidence.show()
 ```
 
-Discovery returns bounded evidence, signals, and issues — it does not choose
-business meaning, unit, additivity, or the object to author. Agents read
-discovery evidence through `.show()` / `.render()`; concrete result classes and
-internal evidence fields are not public authoring inputs. `ms.help(...)` tells
-the agent which parameters must be settled (the static authoring contract);
-discovery supplies the runtime evidence. Author exactly one object, then run
-`ms.verify_object(...)`.
+Discovery returns evidence, signals, and issues — it does not choose business
+meaning, unit, additivity, or the object to author. Agents read discovery
+evidence through `.show()` / `.render()`; concrete result classes and internal
+evidence fields are not public authoring inputs. `show()` and `render()` use a
+safe final text byte limit by default. For wide-table authoring, export the full
+discovered text and process it in chunks:
+
+```python
+from pathlib import Path
+
+full_text = entity_evidence.render(max_output_bytes=None)
+Path("entity_discovery.txt").write_text(full_text)
+```
+
+The output byte limit is separate from scan coverage. If discovery reports
+`discovery_column_limit_truncated`, increase the scan column budget, for example
+`md.latest_partition(max_columns=300)`, then render with
+`max_output_bytes=None` when the agent needs the complete schema/profile text.
+`ms.help(...)` tells the agent which parameters must be settled (the static
+authoring contract); discovery supplies the runtime evidence. Author exactly
+one object, then run `ms.verify_object(...)`.
 
 ## Loading and the readiness gate
 

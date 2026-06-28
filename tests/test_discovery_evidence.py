@@ -20,6 +20,7 @@ from marivo.datasource.discovery import (
     MeasureDiscoveryResult,
     PrimaryKeyCandidate,
     RelationshipDiscoveryEvidence,
+    RelationshipDiscoveryResult,
     TimeColumnDiscovery,
     TimeDimensionDiscoveryResult,
     TimeValueRange,
@@ -358,6 +359,35 @@ def test_time_dimension_render_includes_formats_range_and_partition_evidence() -
     assert rendered.index("time column evidence:") < rendered.index("available:")
 
 
+def test_time_dimension_full_render_lists_all_columns() -> None:
+    result = TimeDimensionDiscoveryResult(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=None,
+        scan=_scan_report(),
+        signals=(),
+        issues=(),
+        columns=tuple(
+            TimeColumnDiscovery(
+                column=f"time_col_{i:02d}",
+                profile=_rich_profile(f"time_col_{i:02d}", "VARCHAR"),
+                detected_formats=(),
+                value_range=TimeValueRange(lower="2026-01-01", upper="2026-01-04"),
+                partition_aligned=False,
+                signals=(),
+                issues=(),
+            )
+            for i in range(1, 13)
+        ),
+    )
+
+    rendered = result.render(max_output_bytes=None)
+
+    assert "time_col_01" in rendered
+    assert "time_col_12" in rendered
+    assert "... 4 more" not in rendered
+
+
 def test_measure_render_lists_columns_without_judgment_targets() -> None:
     result = _measure_result()
     rendered = result.render()
@@ -402,6 +432,58 @@ def test_measure_render_includes_result_scope_issue_details() -> None:
     assert "discovery_unpruned_scan" in rendered
     assert "scan was explicitly unpruned" in rendered
     assert "partition=none" in rendered
+
+
+def test_dimension_values_full_render_lists_all_values() -> None:
+    result = DimensionValueDiscoveryResult(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        column="status",
+        values=tuple(DimensionValueFact(value=f"value_{i:02d}", count=i) for i in range(1, 13)),
+        complete=True,
+        scan=_scan_report(),
+        signals=(),
+        issues=(),
+    )
+
+    rendered = result.render(max_output_bytes=None)
+
+    assert "value_01 | 1" in rendered
+    assert "value_12 | 12" in rendered
+    assert "... 4 more" not in rendered
+
+
+def test_relationship_result_full_render_lists_all_key_type_evidence() -> None:
+    evidence = RelationshipDiscoveryEvidence(
+        from_side=JoinSide(ref("warehouse"), table("orders"), columns=("customer_id",)),
+        to_side=JoinSide(ref("warehouse"), table("customers"), columns=("customer_id",)),
+        key_type_evidence=tuple(
+            KeyTypeEvidence(
+                side="from",
+                column=f"key_col_{i:02d}",
+                type_family="integer",
+                data_type="BIGINT",
+            )
+            for i in range(1, 13)
+        ),
+        sampled_key_count=12,
+        matched_key_count=12,
+        match_rate=1.0,
+        max_rows_per_key=1,
+        avg_rows_per_key=1.0,
+        cardinality_evidence="many_to_one",
+        from_scan=_scan_report(),
+        to_scan=_scan_report(),
+        signals=(),
+        issues=(),
+    )
+    result = RelationshipDiscoveryResult(evidence=evidence, signals=(), issues=())
+
+    rendered = result.render(max_output_bytes=None)
+
+    assert "key_col_01" in rendered
+    assert "key_col_12" in rendered
+    assert "... 4 more" not in rendered
 
 
 def test_dimension_value_complete_invariant_when_no_truncated_issue() -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from marivo.datasource.authoring import ref
 from marivo.datasource.discovery import (
     DiscoveryIssue,
@@ -216,3 +218,123 @@ def test_entity_result_render_includes_schema_and_partition_columns() -> None:
     assert "amount | DOUBLE | Y | Gross amount" in rendered
     assert "partition columns: dt, region" in rendered
     assert result.partition_columns == ("dt", "region")
+
+
+def test_entity_result_full_render_includes_all_wide_table_schema_and_profiles() -> None:
+    columns = tuple(
+        ColumnMetadata(
+            name=f"wide_col_{i:02d}",
+            type="VARCHAR",
+            nullable=True,
+            comment=None,
+            ordinal_position=i,
+        )
+        for i in range(1, 69)
+    )
+    profiles = tuple(_profile(column.name, "VARCHAR", type_family="string") for column in columns)
+    result = build_entity_result(
+        datasource=ref("warehouse"),
+        source=table("wide_orders"),
+        table_metadata=_metadata(columns=columns),
+        scan=_scan(5),
+        scope=ScanScope(max_columns=100),
+        column_profiles=profiles,
+    )
+
+    rendered = result.render(max_output_bytes=None)
+
+    assert "wide_col_01 | VARCHAR | Y" in rendered
+    assert "wide_col_68 | VARCHAR | Y" in rendered
+    assert "wide_col_01 type=VARCHAR" in rendered
+    assert "wide_col_68 type=VARCHAR" in rendered
+    assert "... 60 more" not in rendered
+
+
+def test_entity_result_default_render_caps_final_text_bytes() -> None:
+    columns = tuple(
+        ColumnMetadata(
+            name=f"verbose_col_{i:03d}",
+            type="VARCHAR",
+            nullable=True,
+            comment="x" * 1000,
+            ordinal_position=i,
+        )
+        for i in range(1, 90)
+    )
+    profiles = tuple(_profile(column.name, "VARCHAR", type_family="string") for column in columns)
+    result = build_entity_result(
+        datasource=ref("warehouse"),
+        source=table("wide_orders"),
+        table_metadata=_metadata(columns=columns),
+        scan=_scan(5),
+        scope=ScanScope(max_columns=100),
+        column_profiles=profiles,
+    )
+
+    rendered = result.render()
+
+    assert len(rendered.encode("utf-8")) <= 64_000
+    assert "output truncated bytes=" in rendered
+    assert "max_output_bytes=64000" in rendered
+    assert "render(max_output_bytes=None)" in rendered
+    assert not rendered.endswith("\n")
+
+
+def test_entity_result_full_render_disables_final_text_cap() -> None:
+    columns = tuple(
+        ColumnMetadata(
+            name=f"verbose_col_{i:03d}",
+            type="VARCHAR",
+            nullable=True,
+            comment="x" * 1000,
+            ordinal_position=i,
+        )
+        for i in range(1, 90)
+    )
+    profiles = tuple(_profile(column.name, "VARCHAR", type_family="string") for column in columns)
+    result = build_entity_result(
+        datasource=ref("warehouse"),
+        source=table("wide_orders"),
+        table_metadata=_metadata(columns=columns),
+        scan=_scan(5),
+        scope=ScanScope(max_columns=100),
+        column_profiles=profiles,
+    )
+
+    rendered = result.render(max_output_bytes=None)
+
+    assert len(rendered.encode("utf-8")) > 64_000
+    assert "output truncated bytes=" not in rendered
+    assert "verbose_col_089 | VARCHAR | Y" in rendered
+
+
+def test_entity_result_rejects_non_positive_output_cap() -> None:
+    result = build_entity_result(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=_metadata(),
+        scan=_scan(5),
+        scope=ScanScope(),
+        column_profiles=(),
+    )
+
+    with pytest.raises(ValueError, match="max_output_bytes must be positive"):
+        result.render(max_output_bytes=0)
+
+
+def test_entity_result_show_uses_full_render_when_requested(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = build_entity_result(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=_metadata(),
+        scan=_scan(5),
+        scope=ScanScope(),
+        column_profiles=(),
+    )
+
+    assert result.show(max_output_bytes=None) is None
+
+    captured = capsys.readouterr()
+    assert captured.out == result.render(max_output_bytes=None) + "\n"
