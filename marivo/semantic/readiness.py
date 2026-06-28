@@ -22,7 +22,6 @@ ReadinessIssueKind = Literal[
     "time_dimension_pushdown_advisory",
     "unresolved_clarification",
     "missing_business_definition",
-    "missing_guardrails",
 ]
 
 
@@ -267,8 +266,8 @@ def _strict_enrichment_issues(
     objects: Mapping[str, object],
 ) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
     """Contracts section 7: analyzable handoff refs must carry a non-empty
-    business_definition (blocker) and guardrails (warning). Relationships are out
-    of scope, matching semantic-preview scoping."""
+    business_definition (blocker). Richness owns optional enrichment suggestions.
+    Relationships are out of scope, matching semantic-preview scoping."""
     analyzable = {
         _SemanticKind.ENTITY,
         _SemanticKind.DIMENSION,
@@ -292,16 +291,6 @@ def _strict_enrichment_issues(
                     (ref,),
                     f"{ref} has no ai_context.business_definition for analysis handoff.",
                     "Add ai_context.business_definition so analysis can match and reuse this ref.",
-                )
-            )
-        if _missing_guardrails(obj):
-            warnings.append(
-                _issue(
-                    "missing_guardrails",
-                    "warning",
-                    (ref,),
-                    f"{ref} has no ai_context.guardrails for analysis handoff.",
-                    "Add ai_context.guardrails to record usage constraints before reuse.",
                 )
             )
     return blockers, warnings
@@ -420,12 +409,6 @@ def _missing_business_definition(obj: object) -> bool:
     ai_context = getattr(obj, "ai_context", None)
     business_definition = getattr(ai_context, "business_definition", None)
     return not (business_definition and business_definition.strip())
-
-
-def _missing_guardrails(obj: object) -> bool:
-    ai_context = getattr(obj, "ai_context", None)
-    guardrails = getattr(ai_context, "guardrails", ())
-    return not guardrails
 
 
 def _decision_record_refs(project: SemanticProject) -> tuple[str, ...]:

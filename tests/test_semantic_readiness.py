@@ -197,16 +197,38 @@ def test_readiness_warns_for_missing_business_definition(
     assert "missing_business_definition" in _issue_kinds(report.blockers)
 
 
-def test_readiness_strict_enrichment_warns_when_only_guardrails_missing(
+def test_readiness_strict_enrichment_is_ready_when_only_guardrails_missing(
     semantic_project_factory,
 ):
-    # _READY_DOMAIN_PY has business_definition on every object but no guardrails.
-    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": textwrap.dedent("""\
+                import marivo.semantic as ms
 
-    report = project.readiness()
+                ms.domain(name="sales")
 
+                orders = ms.entity(
+                    name="orders",
+                    datasource="warehouse",
+                    source=ms.table("orders"),
+                    ai_context=ms.ai_context(business_definition="One row per paid order."),
+                )
+
+                @ms.dimension(
+                    entity=orders,
+                    ai_context=ms.ai_context(business_definition="Gross order amount in USD."),
+                )
+                def amount(table):
+                    return table.amount
+            """),
+        }
+    )
+
+    report = project.readiness(refs=("sales.orders.amount",))
+
+    assert report.status == "ready"
     assert "missing_business_definition" not in _issue_kinds(report.blockers)
-    assert "missing_guardrails" in _issue_kinds(report.warnings)
+    assert "missing_guardrails" not in _issue_kinds(report.warnings)
 
 
 def test_readiness_reports_authoring_abandoned_candidates(
@@ -539,18 +561,6 @@ def test_missing_business_definition_predicate():
     assert _missing_business_definition(SimpleNamespace(ai_context=AiContextIR()))
 
 
-def test_missing_guardrails_predicate():
-    from types import SimpleNamespace
-
-    from marivo.datasource.ir import AiContextIR
-    from marivo.semantic.readiness import _missing_guardrails
-
-    assert _missing_guardrails(SimpleNamespace(ai_context=AiContextIR()))
-    assert not _missing_guardrails(
-        SimpleNamespace(ai_context=AiContextIR(guardrails=("Exclude test orders.",)))
-    )
-
-
 def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
     from marivo.semantic.readiness import _object_maps, _strict_enrichment_issues
 
@@ -576,17 +586,14 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
     blockers, warnings = _strict_enrichment_issues(tuple(kinds), kinds, objects)
 
     blocker_refs = {ref for issue in blockers for ref in issue.refs}
-    warning_refs = {ref for issue in warnings for ref in issue.refs}
 
     # The bare field is flagged; the fully enriched dataset and field are not.
     assert "sales.orders.region" in blocker_refs
     assert "sales.orders" not in blocker_refs
     assert "sales.orders.amount" not in blocker_refs
-    assert "sales.orders.region" in warning_refs
+    assert warnings == []
     assert all(issue.kind == "missing_business_definition" for issue in blockers)
     assert all(issue.severity == "blocker" for issue in blockers)
-    assert all(issue.kind == "missing_guardrails" for issue in warnings)
-    assert all(issue.severity == "warning" for issue in warnings)
 
 
 # -- issue kind validation ---------------------------------------------------
@@ -607,7 +614,7 @@ def test_strict_enrichment_issue_kinds_are_valid():
 
     kinds = get_args(ReadinessIssueKind)
     assert "missing_business_definition" in kinds
-    assert "missing_guardrails" in kinds
+    assert "missing_guardrails" not in kinds
 
 
 # -- check CLI ---------------------------------------------------------------
