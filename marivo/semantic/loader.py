@@ -604,6 +604,41 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
 
     Returns a LoadResult with status, errors, warnings, registry, and sidecar.
     """
+    root = Path(root)
+    if root.name == "models" and (root / "semantic").is_dir():
+        return LoadResult(
+            status="errored",
+            errors=(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=(
+                        "load_project(root) expects the semantic root directory "
+                        "`models/semantic/`, but received the parent `models/` directory."
+                    ),
+                    refs=(str(root),),
+                    hint="Pass the `models/semantic/` path to load_project(...).",
+                ),
+            ),
+        )
+    if (root / "models" / "semantic").is_dir():
+        return LoadResult(
+            status="errored",
+            errors=(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=(
+                        "load_project(root) expects the semantic root directory "
+                        "`models/semantic/`, but received a workspace root."
+                    ),
+                    refs=(str(root),),
+                    hint=(
+                        "Pass `workspace/models/semantic` to load_project(...) or use "
+                        "ms.load(workspace_dir=...) for workspace-root loading."
+                    ),
+                ),
+            ),
+        )
+
     errors: list[SemanticError] = []
     warnings: list[StructuredWarning] = []
     registry: Registry | None = None

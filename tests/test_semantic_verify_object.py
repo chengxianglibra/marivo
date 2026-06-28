@@ -2,9 +2,13 @@
 
 from pathlib import Path
 
+import pytest
+
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
 from marivo.semantic import ledger as lg
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
 
 def test_verify_object_static_domain_passes(semantic_project_factory) -> None:
@@ -14,11 +18,26 @@ def test_verify_object_static_domain_passes(semantic_project_factory) -> None:
         }
     )
 
-    result = project.verify_object("sales")
+    result = project.verify_object(ms.ref("domain.sales"))
 
     assert result.status == "passed"
     assert result.kind == "domain"
     assert result.scan is None
+
+
+@pytest.mark.parametrize("ref", ["sales", "domain.sales"])
+def test_verify_object_rejects_string_refs(semantic_project_factory, ref: str) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        }
+    )
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        project.verify_object(ref)  # type: ignore[arg-type]
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "SemanticRef" in str(exc_info.value)
 
 
 def test_verify_object_blocks_missing_datasource(tmp_path: Path, semantic_project_factory) -> None:
@@ -33,7 +52,7 @@ def test_verify_object_blocks_missing_datasource(tmp_path: Path, semantic_projec
         workspace_dir=tmp_path,
     )
 
-    result = project.verify_object("sales.orders")
+    result = project.verify_object(ms.ref("entity.sales.orders"))
 
     assert result.status == "failed"
     assert result.issues[0].kind == "datasource_unreachable"
@@ -63,7 +82,9 @@ def test_verify_object_scoped_entity_preview_passes(
         workspace_dir=tmp_path,
     )
 
-    result = project.verify_object("sales.orders", scope=md.ScanScope(partition=None, max_rows=5))
+    result = project.verify_object(
+        ms.ref("entity.sales.orders"), scope=md.ScanScope(partition=None, max_rows=5)
+    )
 
     assert result.status == "passed"
     assert result.kind == "entity"
@@ -117,7 +138,7 @@ def test_verify_time_dimension_auto_records_identity(
 ) -> None:
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
 
-    result = project.verify_object("sales.orders.dt")
+    result = project.verify_object(ms.ref("time_dimension.sales.orders.dt"))
 
     assert result.status == "passed"
     assert result.kind == "time_dimension"
@@ -139,7 +160,7 @@ def test_verify_time_dimension_auto_records_identity(
 def test_verify_metric_auto_records_decomposition(tmp_path: Path, semantic_project_factory) -> None:
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
 
-    result = project.verify_object("sales.revenue")
+    result = project.verify_object(ms.ref("metric.sales.revenue"))
 
     assert result.status == "passed"
     assert result.kind == "metric"
@@ -176,7 +197,7 @@ def test_verify_metric_auto_records_semi_additive_additivity(semantic_project_fa
         }
     )
 
-    result = project.verify_object("sales.inventory")
+    result = project.verify_object(ms.ref("metric.sales.inventory"))
 
     assert result.status == "passed"
     assert result.kind == "metric"
@@ -198,14 +219,14 @@ def test_verify_auto_record_idempotent(tmp_path: Path, semantic_project_factory)
     """Second verify_object call should not duplicate the auto-recorded decision."""
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
 
-    result1 = project.verify_object("sales.revenue")
+    result1 = project.verify_object(ms.ref("metric.sales.revenue"))
     assert result1.status == "passed"
     assert len(result1.auto_recorded) == 1
 
     store = lg.LedgerStore(project.state_root)
     count_after_first = len(store.read_object("sales.revenue").decisions)
 
-    result2 = project.verify_object("sales.revenue")
+    result2 = project.verify_object(ms.ref("metric.sales.revenue"))
     assert result2.status == "passed"
     assert len(result2.auto_recorded) == 1
 
@@ -244,7 +265,7 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
         workspace_dir=tmp_path,
     )
 
-    result1 = project.verify_object("sales.orders.dt")
+    result1 = project.verify_object(ms.ref("time_dimension.sales.orders.dt"))
     assert result1.auto_recorded == ("sales.orders.dt:time_dimension_identity",)
 
     store = lg.LedgerStore(project.state_root)
@@ -266,7 +287,7 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
         workspace_dir=tmp_path,
     )
 
-    result2 = project.verify_object("sales.orders.dt")
+    result2 = project.verify_object(ms.ref("time_dimension.sales.orders.dt"))
     assert result2.auto_recorded == ("sales.orders.dt:time_dimension_identity",)
 
     obj = store.read_object("sales.orders.dt")
@@ -303,7 +324,7 @@ def test_verify_dimension_no_auto_record(tmp_path: Path, semantic_project_factor
         workspace_dir=tmp_path,
     )
 
-    result = project.verify_object("sales.orders.region")
+    result = project.verify_object(ms.ref("dimension.sales.orders.region"))
     assert result.status == "passed"
     assert result.kind == "dimension"
     assert result.auto_recorded == ()
@@ -343,7 +364,7 @@ def test_verify_derived_metric_auto_records_decomposition(
         workspace_dir=tmp_path,
     )
 
-    result = project.verify_object("sales.revenue_ratio")
+    result = project.verify_object(ms.ref("metric.sales.revenue_ratio"))
     assert result.status == "passed"
     assert result.kind == "derived_metric"
     assert result.auto_recorded == ("sales.revenue_ratio:metric_composition",)
@@ -396,8 +417,8 @@ def test_verify_clears_readiness_unresolved_clarification(
     )
 
     # Auto-record decisions via verify_object.
-    project.verify_object("sales.orders.dt")
-    project.verify_object("sales.revenue")
+    project.verify_object(ms.ref("time_dimension.sales.orders.dt"))
+    project.verify_object(ms.ref("metric.sales.revenue"))
 
     # After verify, readiness should not flag unresolved_clarification.
     report_after = project.readiness()

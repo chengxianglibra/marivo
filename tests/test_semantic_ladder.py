@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
 from marivo.semantic import ledger as lg
 
@@ -57,7 +58,7 @@ def test_verify_object_entity_auto_records_verified(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    result = project.verify_object("sales.orders")
+    result = project.verify_object(ms.ref("entity.sales.orders"))
 
     assert result.status == "passed"
     assert result.kind == "entity"
@@ -79,7 +80,7 @@ def test_stale_verification_raises_after_source_change(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    project.verify_object("sales.orders")
+    project.verify_object(ms.ref("entity.sales.orders"))
     assert project._is_entity_verified("sales.orders")
 
     # Rewrite the entity with a different source table name
@@ -126,7 +127,7 @@ def test_verify_object_reports_project_load_failed(semantic_project_factory) -> 
         load=False,
     )
 
-    result = project.verify_object("cdn.total_billing_bandwidth")
+    result = project.verify_object(ms.ref("metric.cdn.total_billing_bandwidth"))
 
     assert result.status == "failed"
     # The kind defaults to "entity" when the registry is unavailable
@@ -154,7 +155,7 @@ def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_facto
         load=False,
     )
 
-    result = project.verify_object("cdn.some_metric")
+    result = project.verify_object(ms.ref("metric.cdn.some_metric"))
 
     assert result.status == "failed"
     assert result.issues[0].kind == "project_load_failed"
@@ -173,7 +174,7 @@ def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     project = semantic_project_factory({"sales/_domain.py": model})
     project.load()
 
-    result = project.verify_object("sales.orders.amount")
+    result = project.verify_object(ms.ref("measure.sales.orders.amount"))
 
     assert result.status == "passed"
     assert result.kind == "measure"
@@ -194,7 +195,7 @@ def test_verify_object_known_ref_still_not_found_when_loaded(
     )
     assert project.is_ready()
 
-    result = project.verify_object("sales.nonexistent_metric")
+    result = project.verify_object(ms.ref("metric.sales.nonexistent_metric"))
 
     assert result.status == "failed"
     assert result.issues[0].kind == "static_check_failed"

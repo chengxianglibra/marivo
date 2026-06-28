@@ -105,7 +105,7 @@ _VALID_MODEL_EXAMPLE = textwrap.dedent(
     ms.ratio()
     ms.weighted_average()
     ms.linear()
-    ms.verify_object("sales.orders")
+    ms.verify_object(ms.ref("entity.sales.orders"))
     ms.readiness(refs=(ms.ref("entity.sales.orders"),))
     print("semantic model example ok")
     """

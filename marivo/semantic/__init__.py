@@ -113,7 +113,7 @@ _AGENT_FINGERPRINT = "agent_recorded"
 
 
 def verify_object(
-    ref: str,
+    ref: SemanticRef,
     *,
     scope: ScanScope | None = None,
 ) -> VerifyResult:
@@ -126,7 +126,8 @@ def verify_object(
     evidence ledger.
 
     Args:
-        ref: Fully qualified semantic ref (e.g. ``"sales.orders"``).
+        ref: SemanticRef returned by an authoring call, ``ms.ref(...)``, or
+            ``catalog.get(...).ref``.
         scope: Scan scope controlling partition, max rows, and timeout.
             Defaults to ``ScanScope()``.
 
@@ -135,7 +136,7 @@ def verify_object(
 
     Example:
         >>> import marivo.semantic as ms
-        >>> result = ms.verify_object("sales.orders")
+        >>> result = ms.verify_object(ms.ref("entity.sales.orders"))
         >>> result.status
 
     Constraints:
@@ -143,6 +144,15 @@ def verify_object(
         before advancing to dependent objects.
     """
     from marivo.semantic.reader import SemanticProject
+
+    if not isinstance(ref, SemanticRef):
+        errors._raise(
+            errors.ErrorKind.INVALID_REF,
+            "ms.verify_object(ref=...) requires a SemanticRef from an authoring call, "
+            "ms.ref('<kind>.<semantic_id>'), or catalog.get('<kind>.<semantic_id>').ref.",
+            cls=errors.SemanticRuntimeError,
+            refs=(str(ref),),
+        )
 
     project = SemanticProject()
     project.load()

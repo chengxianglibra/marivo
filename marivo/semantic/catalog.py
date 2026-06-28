@@ -817,7 +817,12 @@ class SemanticObjectList:
         lines.append("")
         lines.append("next steps:")
         if self._items:
-            first_ref = self._items[0].ref.id
+            first = self._items[0]
+            first_ref = (
+                first.ref.id
+                if first.kind == SemanticKind.DATASOURCE
+                else f"{first.kind}.{first.ref.id}"
+            )
             lines.append(
                 f"  catalog.get({first_ref!r}){'': <4}# retrieve a SemanticObject by full ref"
             )
@@ -1810,7 +1815,7 @@ class SemanticCatalog:
         respectively).
 
         Args:
-            ref: Full semantic ref string or SemanticRef to verify.
+            ref: SemanticRef to verify.
             scope: Scan scope controlling partition, max rows, and timeout.
                 Defaults to ``ScanScope()``.
 
@@ -1832,8 +1837,8 @@ class SemanticCatalog:
             # so we get a proper VerifyResult with the real load errors
             # instead of an unhandled exception.
             self.load()
-        ref_str = _require_semantic_ref(ref, parameter="verify_object(ref=...)").id
-        result = self._project.verify_object(ref_str, scope=scope)
+        ref_obj = _require_semantic_ref(ref, parameter="verify_object(ref=...)")
+        result = self._project.verify_object(ref_obj, scope=scope)
         self._reg = self._project._registry
         return result
 
