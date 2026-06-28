@@ -9,6 +9,7 @@ from pathlib import Path
 import ibis
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
 from marivo.semantic.reader import SemanticProject
 
@@ -70,7 +71,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.orders", scope=scope)
+    verify = project.verify_object(ms.ref("entity.sales.orders"), scope=scope)
     assert verify.status == "passed", f"Entity verify failed: {verify.issues}"
 
     # -- Rung 3: Dimension - discover, author, verify -------------------------
@@ -91,7 +92,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.orders.customer_id", scope=scope)
+    verify = project.verify_object(ms.ref("dimension.sales.orders.customer_id"), scope=scope)
     assert verify.status == "passed", f"Dimension verify failed: {verify.issues}"
 
     # -- Rung 4: Time dimension - discover, author, verify --------------------
@@ -114,7 +115,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.orders.dt", scope=scope)
+    verify = project.verify_object(ms.ref("time_dimension.sales.orders.dt"), scope=scope)
     assert verify.status == "passed", f"Time dimension verify failed: {verify.issues}"
 
     # -- Rung 5: Measure - discover, author, verify ---------------------------
@@ -136,7 +137,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.orders.amount", scope=scope)
+    verify = project.verify_object(ms.ref("measure.sales.orders.amount"), scope=scope)
     assert verify.status == "passed", f"Measure verify failed: {verify.issues}"
 
     # -- Rung 6: Metric - aggregate the verified measure, then verify ---------
@@ -146,7 +147,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     project.load()
-    verify = project.verify_object("sales.revenue", scope=scope)
+    verify = project.verify_object(ms.ref("metric.sales.revenue"), scope=scope)
     assert verify.status == "passed", f"Metric verify failed: {verify.issues}"
 
     # -- Closeout: Readiness --------------------------------------------------

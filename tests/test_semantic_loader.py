@@ -969,6 +969,39 @@ def test_find_project_finds_marivo_toml_without_semantic(tmp_path) -> None:
     assert not project.semantic_root.exists()
 
 
+def test_load_project_rejects_models_root_with_clear_error(tmp_path) -> None:
+    from marivo.semantic.loader import load_project
+
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+    )
+
+    result = load_project(tmp_path / "models")
+
+    assert result.status == "errored"
+    assert result.errors[0].kind == ErrorKind.INVALID_PROJECT
+    assert "models/semantic" in result.errors[0].message
+
+
+def test_load_project_rejects_workspace_root_with_clear_error(tmp_path) -> None:
+    from marivo.semantic.loader import load_project
+
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+    )
+
+    result = load_project(tmp_path)
+
+    assert result.status == "errored"
+    assert result.errors[0].kind == ErrorKind.INVALID_PROJECT
+    assert "models/semantic" in result.errors[0].message
+    assert "ms.load(workspace_dir=...)" in result.errors[0].hint
+
+
 def test_load_raises_when_semantic_is_a_file(tmp_path) -> None:
     """SemanticProject.load() should raise when marivo/semantic is a file."""
     from marivo.semantic.errors import SemanticLoadError

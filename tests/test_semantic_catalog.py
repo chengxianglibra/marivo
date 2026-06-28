@@ -465,6 +465,12 @@ def test_semantic_object_list_render_contains_ref_and_kind():
     assert "metric" in rendered
 
 
+def test_semantic_object_list_render_uses_typed_catalog_get_hint():
+    rendered = _make_list().render()
+    assert "catalog.get('metric.sales.revenue')" in rendered
+    assert "catalog.get('sales.revenue')" not in rendered
+
+
 def test_semantic_object_list_show_prints_render(capsys):
     lst = _make_list()
     result = lst.show()

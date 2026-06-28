@@ -12,12 +12,13 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 from marivo.config import SEMANTIC_DIR
 from marivo.datasource.ir import DatasourceIR, source_to_dict
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import ScanReport, ScanScope
+from marivo.refs import SemanticRef
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringObjectKind,
@@ -53,9 +54,6 @@ from marivo.semantic.richness import (
     build_richness_report,
 )
 from marivo.semantic.validator import Registry, Sidecar
-
-if TYPE_CHECKING:
-    from marivo.refs import SemanticRef
 
 __all__ = [
     "ReadinessInputSummary",
@@ -558,7 +556,7 @@ class SemanticProject:
 
     def verify_object(
         self,
-        ref: str,
+        ref: SemanticRef,
         *,
         scope: ScanScope | None = None,
     ) -> VerifyResult:
@@ -574,7 +572,8 @@ class SemanticProject:
         Parameters
         ----------
         ref:
-            Fully qualified semantic ref (e.g. ``"sales.orders"``).
+            SemanticRef returned by authoring calls, ``ms.ref(...)``, or
+            ``catalog.get(...).ref``.
         scope:
             Scan scope controlling partition, max rows, and timeout.
             Defaults to ``ScanScope()``.
@@ -585,6 +584,17 @@ class SemanticProject:
             Status, issues, and optional scan report for entity verification.
         """
         from marivo.semantic.scope import scoped_entity_expression
+
+        if not isinstance(ref, SemanticRef):
+            _raise(
+                ErrorKind.INVALID_REF,
+                "SemanticProject.verify_object(ref=...) requires a SemanticRef from "
+                "an authoring call, ms.ref('<kind>.<semantic_id>'), or "
+                "catalog.get('<kind>.<semantic_id>').ref.",
+                cls=SemanticRuntimeError,
+                refs=(str(ref),),
+            )
+        ref_str = ref.id
 
         if scope is None:
             scope = self._DEFAULT_SCOPE
@@ -599,17 +609,17 @@ class SemanticProject:
             if len(load_errors) > 3:
                 error_summary += f"; ... and {len(load_errors) - 3} more"
             message = (
-                f"Cannot verify {ref!r}: project failed to load. "
+                f"Cannot verify {ref_str!r}: project failed to load. "
                 f"Fix the following errors and try again: {error_summary}"
             )
-            return self._failed_verify(ref, "entity", "project_load_failed", message)
+            return self._failed_verify(ref_str, "entity", "project_load_failed", message)
 
-        kind = self._kind_for_ref(ref)
+        kind = self._kind_for_ref(ref_str)
 
         if kind == "domain" or kind == "relationship":
             return VerifyResult(
                 status="passed",
-                ref=ref,
+                ref=ref_str,
                 kind=kind,
                 issues=(),
                 warnings=(),
@@ -618,10 +628,10 @@ class SemanticProject:
             )
 
         if kind == "entity":
-            entity = self._registry.entities.get(ref) if self._registry is not None else None
+            entity = self._registry.entities.get(ref_str) if self._registry is not None else None
             if entity is None:
                 return self._failed_verify(
-                    ref, "entity", "authored_object_invalid", "Object is not loaded."
+                    ref_str, "entity", "authored_object_invalid", "Object is not loaded."
                 )
             try:
                 service = DatasourceConnectionService(project_root=self._workspace_dir)
@@ -643,12 +653,12 @@ class SemanticProject:
                     )
                 fingerprint = _entity_verified_fingerprint(entity)
                 recorded = self._auto_record_decision(
-                    ref,
+                    ref_str,
                     "entity_verified",
                     "passed",
                     fingerprint,
                     qualifying_sources=("live_datasource_probe",),
-                    blast_radius=self.blast_radius_of((ref,)),
+                    blast_radius=self.blast_radius_of((ref_str,)),
                     cited_source={
                         "datasource": entity.datasource,
                         "source_kind": entity.source.kind,
@@ -657,7 +667,7 @@ class SemanticProject:
                 )
                 return VerifyResult(
                     status="passed",
-                    ref=ref,
+                    ref=ref_str,
                     kind="entity",
                     issues=(),
                     warnings=(),
@@ -668,13 +678,13 @@ class SemanticProject:
                 issue = AssessmentIssue(
                     kind="datasource_unreachable",
                     severity="blocker",
-                    refs=(ref,),
+                    refs=(ref_str,),
                     message=str(exc),
                     rule_id="verify_object_datasource_access",
                 )
                 return VerifyResult(
                     status="failed",
-                    ref=ref,
+                    ref=ref_str,
                     kind="entity",
                     issues=(issue,),
                     warnings=(),
@@ -685,7 +695,7 @@ class SemanticProject:
         if kind == "dimension":
             return VerifyResult(
                 status="passed",
-                ref=ref,
+                ref=ref_str,
                 kind="dimension",
                 issues=(),
                 warnings=(),
@@ -695,7 +705,7 @@ class SemanticProject:
         if kind == "measure":
             return VerifyResult(
                 status="passed",
-                ref=ref,
+                ref=ref_str,
                 kind="measure",
                 issues=(),
                 warnings=(),
@@ -711,10 +721,15 @@ class SemanticProject:
                 TimestampParse,
             )
 
-            field_ir = self._registry.dimensions.get(ref) if self._registry is not None else None
+            field_ir = (
+                self._registry.dimensions.get(ref_str) if self._registry is not None else None
+            )
             if field_ir is None:
                 return self._failed_verify(
-                    ref, "time_dimension", "authored_object_invalid", "Object is not loaded."
+                    ref_str,
+                    "time_dimension",
+                    "authored_object_invalid",
+                    "Object is not loaded.",
                 )
             fingerprint = _time_dimension_identity_fingerprint(field_ir)
             parse = field_ir.parse
@@ -731,12 +746,12 @@ class SemanticProject:
                 data_type_str = "hour_prefix"
             chosen = f"{data_type_str}/{field_ir.granularity}"
             recorded = self._auto_record_decision(
-                ref,
+                ref_str,
                 "time_dimension_identity",
                 chosen,
                 fingerprint,
                 qualifying_sources=("semantic_declaration",),
-                blast_radius=self.blast_radius_of((ref,)),
+                blast_radius=self.blast_radius_of((ref_str,)),
                 cited_source={
                     "data_type": data_type_str,
                     "granularity": field_ir.granularity,
@@ -745,7 +760,7 @@ class SemanticProject:
             auto_recorded = (recorded,)
             return VerifyResult(
                 status="passed",
-                ref=ref,
+                ref=ref_str,
                 kind="time_dimension",
                 issues=(),
                 warnings=(),
@@ -753,7 +768,7 @@ class SemanticProject:
                 auto_recorded=auto_recorded,
             )
         if kind in ("metric", "derived_metric"):
-            return self._verify_metric(ref, kind)
+            return self._verify_metric(ref_str, kind)
 
         # Unknown kind fallback — check for common wrong-level refs before
         # returning a generic message.  When the registry is unavailable,
@@ -761,16 +776,19 @@ class SemanticProject:
         # check above should normally prevent reaching this branch).
         if self._registry is None:
             message = (
-                f"Cannot verify {ref!r}: project registry is not available. "
+                f"Cannot verify {ref_str!r}: project registry is not available. "
                 f"Call ms.load() to check for errors."
             )
-            return self._failed_verify(ref, "entity", "project_load_failed", message)
-        suggestion = _suggest_ref_level(self._registry, ref)
+            return self._failed_verify(ref_str, "entity", "project_load_failed", message)
+        suggestion = _suggest_ref_level(self._registry, ref_str)
         if suggestion is not None:
-            message = f"Semantic object {ref!r} was not found. {suggestion}"
+            message = f"Semantic object {ref_str!r} was not found. {suggestion}"
         else:
-            message = f"Semantic object {ref!r} was not found. Use catalog.list().show() to browse available refs."
-        return self._failed_verify(ref, "entity", "static_check_failed", message)
+            message = (
+                f"Semantic object {ref_str!r} was not found. "
+                "Use catalog.list().show() to browse available refs."
+            )
+        return self._failed_verify(ref_str, "entity", "static_check_failed", message)
 
     def _kind_for_ref(self, ref: str) -> AuthoringObjectKind | Literal["unknown"]:
         """Determine the kind of a semantic ref from the registry."""

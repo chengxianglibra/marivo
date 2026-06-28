@@ -256,12 +256,12 @@ with tempfile.TemporaryDirectory() as tmp:
         authored.extend(sections)
         domain_file.write_text(HEADER + "\n".join(authored))
 
-    def verify(ref: str) -> None:
+    def verify(ref: ms.SemanticRef) -> None:
         result = ms.verify_object(ref)
-        print(f"verify {ref}:", result.status)
+        print(f"verify {ref.id}:", result.status)
         if result.status == "failed":
             result.show()
-            raise SystemExit(f"verify failed for {ref}")
+            raise SystemExit(f"verify failed for {ref.id}")
 
     previous = Path.cwd()
     try:
@@ -272,7 +272,7 @@ with tempfile.TemporaryDirectory() as tmp:
         scope = md.unpruned(max_rows=100)
 
         write_domain(DOMAIN)
-        verify("sales")
+        verify(ms.ref("domain.sales"))
 
         orders_entity = md.discover_entity(
             warehouse,
@@ -281,7 +281,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         orders_entity.show()
         write_domain(ORDERS_ENTITY)
-        verify("sales.orders")
+        verify(ms.ref("entity.sales.orders"))
 
         customers_entity = md.discover_entity(
             warehouse,
@@ -290,7 +290,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         customers_entity.show()
         write_domain(CUSTOMERS_ENTITY)
-        verify("sales.customers")
+        verify(ms.ref("entity.sales.customers"))
 
         region_discovery = md.discover_dimensions(
             warehouse,
@@ -300,7 +300,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         region_discovery.show()
         write_domain(ORDER_REGION_DIMENSION)
-        verify("sales.orders.region")
+        verify(ms.ref("dimension.sales.orders.region"))
 
         order_customer_discovery = md.discover_dimensions(
             warehouse,
@@ -310,7 +310,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         order_customer_discovery.show()
         write_domain(ORDER_CUSTOMER_ID_DIMENSION)
-        verify("sales.orders.customer_id")
+        verify(ms.ref("dimension.sales.orders.customer_id"))
 
         customer_id_discovery = md.discover_dimensions(
             warehouse,
@@ -320,7 +320,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         customer_id_discovery.show()
         write_domain(CUSTOMER_ID_DIMENSION)
-        verify("sales.customers.customer_id")
+        verify(ms.ref("dimension.sales.customers.customer_id"))
 
         country_discovery = md.discover_dimensions(
             warehouse,
@@ -330,7 +330,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         country_discovery.show()
         write_domain(CUSTOMER_COUNTRY_DIMENSION)
-        verify("sales.customers.country")
+        verify(ms.ref("dimension.sales.customers.country"))
 
         order_date_discovery = md.discover_time_dimensions(
             warehouse,
@@ -340,7 +340,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         order_date_discovery.show()
         write_domain(ORDER_DATE_TIME_DIMENSION)
-        verify("sales.orders.order_date")
+        verify(ms.ref("time_dimension.sales.orders.order_date"))
 
         amount_discovery = md.discover_measures(
             warehouse,
@@ -350,7 +350,7 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         amount_discovery.show()
         write_domain(AMOUNT_MEASURE)
-        verify("sales.orders.amount")
+        verify(ms.ref("measure.sales.orders.amount"))
 
         refund_discovery = md.discover_measures(
             warehouse,
@@ -360,19 +360,19 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         refund_discovery.show()
         write_domain(REFUND_MEASURE)
-        verify("sales.orders.refund_amount")
+        verify(ms.ref("measure.sales.orders.refund_amount"))
 
         ms.help("aggregate")
         write_domain(GROSS_REVENUE_METRIC)
-        verify("sales.gross_revenue")
+        verify(ms.ref("metric.sales.gross_revenue"))
 
         ms.help("aggregate")
         write_domain(REFUNDS_METRIC)
-        verify("sales.refunds")
+        verify(ms.ref("metric.sales.refunds"))
 
         ms.help("count")
         write_domain(ORDERS_COUNT_METRIC)
-        verify("sales.orders_count")
+        verify(ms.ref("metric.sales.orders_count"))
 
         relationship_discovery = md.discover_relationship(
             from_side=md.JoinSide(warehouse, orders_source, columns=("customer_id",)),
@@ -381,17 +381,21 @@ with tempfile.TemporaryDirectory() as tmp:
         )
         relationship_discovery.show()
         write_domain(RELATIONSHIP)
-        verify("sales.orders_to_customers")
+        verify(ms.ref("relationship.sales.orders_to_customers"))
 
         ms.help("metric")
         write_domain(CROSS_ENTITY_METRIC)
-        verify("sales.revenue_by_customer_country")
+        verify(ms.ref("metric.sales.revenue_by_customer_country"))
 
         ms.help("ratio")
         ms.help("weighted_average")
         ms.help("linear")
         write_domain(DERIVED_METRICS)
-        for ref in ("sales.aov", "sales.avg_revenue_per_order", "sales.net_revenue"):
+        for ref in (
+            ms.ref("metric.sales.aov"),
+            ms.ref("metric.sales.avg_revenue_per_order"),
+            ms.ref("metric.sales.net_revenue"),
+        ):
             verify(ref)
 
         readiness = ms.readiness(
