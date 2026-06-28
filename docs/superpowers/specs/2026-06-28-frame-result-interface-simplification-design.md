@@ -9,10 +9,10 @@
 
 Analysis artifacts are the objects an agent reads in Marivo's write-run-read
 loop. The current surface exposes too many near-peer information exits:
-`repr`, `summary()`, `show()`, `schema()`, `contract()`, and
-`contract().affordances`. Each method has a defensible local purpose, but the
-combined surface forces agents to choose a reading order before they can do the
-real work.
+`repr`, `summary()`, `show()`, `preview()`, `schema()`, `contract()`,
+`contract().affordances`, and `next_intents()`. Each method has a defensible
+local purpose, but the combined surface forces agents to choose a reading order
+before they can do the real work.
 
 The product boundary remains strict: Marivo is a deterministic analysis kernel.
 It exposes typed computation, evidence, lineage, contracts, and fail-closed
@@ -20,7 +20,7 @@ errors. It does not choose business next steps or act as an agent planner.
 
 ## Problem
 
-The current frame/result surface has three agent-ergonomics problems.
+The current frame/result surface has four agent-ergonomics problems.
 
 1. `summary()` and `show()` both look like observation exits. Agents can waste
    steps reading both, or choose `summary()` and miss the bounded display that
@@ -30,6 +30,9 @@ The current frame/result surface has three agent-ergonomics problems.
 3. `contract().affordances` is documented as its own action target in some
    guidance, which makes affordances feel like recommendations instead of
    neutral mechanical compatibility facts.
+4. `preview()` and `next_intents()` are additional near-peer exits for
+   observation and continuation planning, so the surface cannot honestly claim
+   a two-exit model while they remain public.
 
 ## Goals
 
@@ -39,6 +42,7 @@ The current frame/result surface has three agent-ergonomics problems.
 - Remove `summary()` from the public frame/result surface.
 - Fold schema facts into `contract()` so there is one machine-readable contract
   exit.
+- Remove `preview()` and `next_intents()` from the public frame/result surface.
 - Keep affordances as neutral contract data, never as recommended next steps.
 - Preserve tabular escape hatches such as `to_pandas()` for terminal custom
   analysis.
@@ -74,6 +78,9 @@ contract(). Use tabular escape hatches only for terminal custom analysis.
 `repr(artifact)` remains a safe Python fallback that identifies the artifact
 and points to `.show()`. It is not a separate agent workflow step.
 
+`preview()` is not a public escape hatch in this design. `show()` owns bounded
+inspection; `to_pandas()` owns terminal custom analysis.
+
 ## Interface Design
 
 ### `show()`
@@ -100,27 +107,26 @@ and compatible exits, but the agent remains responsible for judgment.
 `contract()` is the only machine-readable contract exit. Agents read it when
 they need to compose the next operator.
 
-`ArtifactContract` should contain:
+`ArtifactContract` should contain the current contract fields plus embedded
+schema:
 
 - `kind`
 - `ref`
-- `family`
 - `is_canonical`
 - `schema`
-- `methods`
 - `affordances`
 - `blocking_issues`
-- `preconditions`
 
 `schema` moves into the contract as structured column facts:
 
 ```python
 class ArtifactSchema(BaseModel):
-    kind: str
-    ref: str
     semantic_shape: str | None
     columns: list[ArtifactColumn]
 ```
+
+The embedded schema intentionally drops its own `kind` and `ref`; those remain
+on `ArtifactContract` to avoid duplicate identity.
 
 `affordances` remain mechanical compatibility entries:
 
@@ -146,9 +152,24 @@ in help, skills, examples, or top-level public exports.
 `schema()` is removed from the public frame/result API. Its information moves
 to `artifact.contract().schema`.
 
+`preview()` is removed from the public frame/result API. Existing bounded row
+projection logic may remain as private render helpers for `show()`.
+
+`next_intents()` is removed from the public frame/result API. Existing
+`_NEXT_INTENTS`-style implementation data may remain private input for building
+`contract().affordances`.
+
 `contract().affordances` remains a field path, but agent guidance should say
 "read `contract()`" instead of teaching `contract().affordances` as a separate
 step.
+
+Association and quality domain facts that currently live only in specialized
+`summary()` overrides must move into each family's `show()`/`render()` body:
+
+- `AssociationResult.show()` must surface method, correlation, aligned row
+  count, dropped row count, and metric ids.
+- `QualityReport.show()` must surface overall status, warning/blocking counts,
+  and bounded per-check results.
 
 `render()` may remain as a shared implementation detail of the existing
 terminal result protocol, but analysis help and skills should not present it as
@@ -164,7 +185,8 @@ Code surfaces:
   fields
 - `marivo/analysis/help.py`
 - `marivo/analysis/__init__.py` and public surface snapshots where `summary`
-  DTOs or schema-only types are currently exposed
+  DTOs, schema-only types, preview types, or intent-list helpers are currently
+  exposed
 
 Agent-facing documentation:
 
@@ -179,7 +201,8 @@ Tests:
 - public surface snapshot tests
 - introspection/help drift tests
 - agent result protocol tests
-- frame/result unit tests that currently call `.summary()` or `.schema()`
+- frame/result unit tests that currently call `.summary()`, `.schema()`,
+  `.preview()`, or `.next_intents()`
 - skill/example checks that mention `summary()` or `contract().affordances`
 
 ## Expected Help Contract
@@ -194,7 +217,7 @@ Use .to_pandas() only when leaving typed artifact flow for terminal custom work.
 
 Help for `MetricFrame`, `DeltaFrame`, `AttributionFrame`, `CandidateSet`, and
 other terminal analysis artifacts should not list `.summary()` or `.schema()`
-as public methods.
+as public methods. They should also not list `.preview()` or `.next_intents()`.
 
 ## Testing Strategy
 
@@ -203,16 +226,22 @@ it.
 
 Required focused checks:
 
-- A public surface test fails if analysis exposes public summary DTOs or a
-  public frame/result `.summary()` method.
+- A public surface test fails if analysis exposes frame/result summary DTOs or
+  public frame/result `.summary()`, `.schema()`, `.preview()`, or
+  `.next_intents()` methods. Session-level summaries such as `SessionSummary`,
+  `JobSummary`, and `FrameSummaryEntry` are out of scope for this assertion.
 - A protocol test asserts public analysis artifacts expose `show()` and
   `contract()` as the primary agent exits.
 - A contract test asserts `artifact.contract().schema` contains column names,
   dtypes, nullability, and semantic roles.
 - A contract test asserts `artifact.contract().affordances` remains unranked
   mechanical metadata and contains no recommendation wording.
-- Help/introspection tests assert `.summary()` and `.schema()` are absent from
-  public analysis artifact help.
+- Render tests assert the `available:` footer teaches exactly `.show()`,
+  `.contract()`, and `.to_pandas()` for frames where `to_pandas()` is valid.
+- Association and quality tests assert the domain facts formerly exposed by
+  specialized `summary()` DTOs are visible through `show()`/`render()`.
+- Help/introspection tests assert `.summary()`, `.schema()`, `.preview()`, and
+  `.next_intents()` are absent from public analysis artifact help.
 - Skill/example checks assert guidance says `contract()`, not
   `contract().affordances`, as the next-call composition step.
 
@@ -233,8 +262,12 @@ make typecheck
   public help, skills, examples, and top-level exports.
 - `schema()` is not public on analysis frame/result objects; schema facts are
   available through `contract().schema`.
+- `preview()` and `next_intents()` are not public on analysis frame/result
+  objects.
 - `contract().affordances` remains available as neutral machine data, but docs
   and skills do not teach it as a standalone reading step.
+- Association correlation/alignment facts and quality per-check facts remain
+  visible through `show()` after removing specialized `summary()` methods.
 - No recommendation or planner semantics are introduced.
 - Existing frame/result objects continue to satisfy bounded display behavior
   through `show()` and safe one-line `repr`.
@@ -249,9 +282,12 @@ summary-like data, keep it private and local to the renderer or frame family.
 The implementation should move in this order:
 
 1. Update public tests to describe the new two-exit contract.
-2. Move schema data into `ArtifactContract`.
-3. Remove public `summary()` and `schema()` from analysis artifacts.
-4. Update render/show content and available footers.
+2. Move schema data into `ArtifactContract`, without adding unrelated
+   `family`, `methods`, or top-level `preconditions` fields.
+3. Remove public `summary()`, `schema()`, `preview()`, and `next_intents()` from
+   analysis artifacts.
+4. Update render/show content and available footers, including association and
+   quality domain facts.
 5. Update help, skills, examples, and docs.
 6. Run focused tests, then broaden to repository entrypoints for touched
    surfaces.
