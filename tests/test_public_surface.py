@@ -163,6 +163,7 @@ ANALYSIS_PUBLIC = {
 
 DATASOURCE_PUBLIC = {
     "DatasourceCatalog",
+    "DatasourceConnection",
     "DatasourceDescription",
     "DatasourceList",
     "DatasourceRef",

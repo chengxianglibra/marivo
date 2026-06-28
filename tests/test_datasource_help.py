@@ -60,6 +60,14 @@ def test_datasource_help_detail_for_raw_sql_names_metadata_diagnostics() -> None
     assert "EXPLAIN" in text
 
 
+def test_datasource_help_detail_for_connect_teaches_context_manager() -> None:
+    text = md.help_text("connect")
+
+    assert "DatasourceConnection" in text
+    assert "with md.connect" in text
+    assert "disconnect" in text
+
+
 def test_datasource_describe_covers_discovery_symbols() -> None:
     for symbol, expected in (
         ("discover_entity", "DiscoveryResult"),
@@ -96,6 +104,7 @@ def test_datasource_api_docs_only_list_public_discovery_result() -> None:
     text = Path("docs/api/datasource.rst").read_text(encoding="utf-8")
 
     assert "DiscoveryResult" in text
+    assert "DatasourceConnection" in text
     for removed in (
         "EntityDiscoveryResult",
         "DimensionDiscoveryResult",

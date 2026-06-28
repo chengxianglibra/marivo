@@ -14,6 +14,7 @@ Registration & lifecycle
    :nosignatures:
 
    connect
+   DatasourceConnection
    register
    load
    list

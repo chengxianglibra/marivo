@@ -10,6 +10,7 @@ from marivo.datasource import store as _store
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
+    DatasourceConnection,
     DatasourceDescription,
     DatasourceList,
     DatasourceSummary,
@@ -143,17 +144,18 @@ class DatasourceCatalog:
         """
         return describe(name)
 
-    def connect(self, name: str) -> Any:
+    def connect(self, name: str) -> DatasourceConnection:
         """Connect to a datasource by name.
 
         Args:
             name: The datasource name to connect to.
 
         Returns:
-            An ibis backend for the datasource.
+            A ``DatasourceConnection`` proxy for the datasource backend.
 
         Example:
-            >>> backend = catalog.connect("wh")
+            >>> with catalog.connect("wh") as con:
+            ...     con.raw_sql("SELECT 1")
         """
         return connect(name)
 
