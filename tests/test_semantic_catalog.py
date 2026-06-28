@@ -646,6 +646,24 @@ def test_catalog_list_refs_returns_semantic_refs(semantic_project_factory):
     assert all(isinstance(r, SemanticRef) for r in refs)
 
 
+def test_catalog_list_top_level_render_includes_drill_down_hint(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+
+    rendered = catalog.list().render()
+
+    assert "catalog.list(catalog.get('domain.sales').ref).show()" in rendered
+
+
+def test_catalog_list_top_level_render_explains_nested_browse_scope(
+    semantic_project_factory,
+):
+    catalog = _make_catalog(semantic_project_factory)
+
+    rendered = catalog.list().render()
+
+    assert "browse inside this object" in rendered
+
+
 # --- Model-level listing ---
 
 
@@ -675,6 +693,25 @@ def test_catalog_list_domain_includes_revenue_metric(semantic_project_factory):
     result = catalog.list(catalog.get("domain.sales").ref)
     refs = {obj.ref.id for obj in result.objects}
     assert "sales.revenue" in refs
+
+
+def test_catalog_list_domain_render_uses_typed_entity_get_hint(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+
+    rendered = catalog.list(catalog.get("domain.sales").ref).render()
+
+    assert "catalog.get('entity.sales.orders')" in rendered
+    assert "catalog.get('sales.orders')" not in rendered
+
+
+def test_catalog_list_datasource_render_uses_typed_entity_hints(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+
+    rendered = catalog.list(catalog.get("datasource.warehouse").ref).render()
+
+    assert "catalog.get('entity.sales.orders')" in rendered
+    assert "catalog.get('sales.orders')" not in rendered
+    assert "catalog.list(catalog.get('entity.sales.orders').ref).show()" in rendered
 
 
 def test_catalog_list_domain_relationships(semantic_project_factory):
@@ -768,6 +805,51 @@ def test_catalog_list_entity_time_dimension_has_correct_ref(semantic_project_fac
     result = catalog.list(catalog.get("entity.sales.orders").ref)
     tf_refs = {obj.ref.id for obj in result.objects if str(obj.kind) == "time_dimension"}
     assert "sales.orders.created_at" in tf_refs
+
+
+@pytest.mark.parametrize(
+    ("kind", "typed_get_hint"),
+    [
+        (SemanticKind.DIMENSION, "catalog.get('dimension.sales.orders.region')"),
+        (
+            SemanticKind.TIME_DIMENSION,
+            "catalog.get('time_dimension.sales.orders.created_at')",
+        ),
+        (SemanticKind.METRIC, "catalog.get('metric.sales.revenue')"),
+    ],
+)
+def test_catalog_list_entity_leaf_render_uses_typed_get_hint_without_drill_down(
+    semantic_project_factory,
+    kind,
+    typed_get_hint,
+):
+    catalog = _make_catalog(semantic_project_factory)
+
+    rendered = catalog.list(catalog.get("entity.sales.orders").ref, kind=kind).render()
+
+    assert typed_get_hint in rendered
+    assert "catalog.list(catalog.get(" not in rendered
+
+
+def test_catalog_list_entity_measure_render_uses_typed_get_hint_without_drill_down(
+    semantic_project_factory,
+):
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RICH_DETAILS_DATASETS_PY,
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    rendered = catalog.list(
+        catalog.get("entity.sales.orders").ref,
+        kind=SemanticKind.MEASURE,
+    ).render()
+
+    assert "catalog.get('measure.sales.orders.amount')" in rendered
+    assert "catalog.get('sales.orders.amount')" not in rendered
+    assert "catalog.list(catalog.get(" not in rendered
 
 
 # --- Kind filter ---
