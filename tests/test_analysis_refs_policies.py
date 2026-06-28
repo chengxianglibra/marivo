@@ -222,10 +222,10 @@ def test_promotion_semantic_anchors_accept_semantic_object(semantic_project_fact
     project = semantic_project_factory(
         {
             "sales/__init__.py": "",
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/model.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def country(orders):\n"
                 "    return orders.country\n"

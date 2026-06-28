@@ -13,9 +13,11 @@ from _fixtures.tiny_semantic import METRIC_ID, ensure_loaded
 ensure_loaded()
 
 import marivo.analysis as mv  # noqa: E402
+import marivo.datasource as md  # noqa: E402
 
 session = mv.session.current()
 
+warehouse = md.ref("datasource.tiny_orders")
 metric = session.catalog.get(f"metric.{METRIC_ID}")
 created_at = session.catalog.get("time_dimension.sales.orders.created_at")
 region = session.catalog.get("dimension.sales.orders.region")
@@ -23,7 +25,7 @@ region = session.catalog.get("dimension.sales.orders.region")
 frame = session.derive_metric_frame(
     metric=metric,
     query=mv.ibis_query(
-        datasource="tiny_orders",
+        datasource=warehouse,
         build=lambda db, ctx: db.table("orders"),
     ),
     columns=mv.metric_columns(

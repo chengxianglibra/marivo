@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from marivo.config import DATASOURCES_DIR
-from marivo.datasource.authoring import DatasourceSpec
+from marivo.datasource.authoring import DatasourceSpec, _storage_name
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.ir import AiContextIR, DatasourceIR
 from marivo.datasource.loader import load_datasources
@@ -21,7 +21,7 @@ def datasource_dir(project_root: Path | None = None) -> Path:
 
 
 def datasource_path(name: str, project_root: Path | None = None) -> Path:
-    return datasource_dir(project_root) / f"{name}.py"
+    return datasource_dir(project_root) / f"{_storage_name(name)}.py"
 
 
 def _literal(value: Any) -> str:
@@ -50,14 +50,6 @@ def _ai_context_literal(context: AiContextIR) -> str | None:
         return None
     return f"ms.ai_context({', '.join(parts)})"
 
-
-_SPEC_CLASS_BY_BACKEND: dict[str, str] = {
-    "clickhouse": "_ClickHouseSpec",
-    "duckdb": "_DuckDBSpec",
-    "mysql": "_MySQLSpec",
-    "postgres": "_PostgresSpec",
-    "trino": "_TrinoSpec",
-}
 
 _CONVENIENCE_FUNC_BY_BACKEND: dict[str, str] = {
     "clickhouse": "clickhouse",
@@ -119,7 +111,7 @@ def load_all(project_root: Path | None = None) -> dict[str, DatasourceIR]:
 
 
 def load_one(name: str, project_root: Path | None = None) -> DatasourceIR | None:
-    return load_all(project_root).get(name)
+    return load_all(project_root).get(_storage_name(name))
 
 
 def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> DatasourceIR:

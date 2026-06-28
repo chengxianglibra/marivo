@@ -15,12 +15,12 @@ from marivo.analysis.errors import (
 )
 from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource.authoring import (
+    ClickHouseSpec,
     DatasourceSpec,
-    _ClickHouseSpec,
-    _DuckDBSpec,
-    _MySQLSpec,
-    _PostgresSpec,
-    _TrinoSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
 )
 from marivo.preview import PreviewResult
 
@@ -33,15 +33,15 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
     if backend_type == "duckdb":
-        return _DuckDBSpec(name=name, **fields)
+        return DuckDBSpec(name=name, **fields)
     if backend_type == "trino":
-        return _TrinoSpec(name=name, **fields)
+        return TrinoSpec(name=name, **fields)
     if backend_type == "mysql":
-        return _MySQLSpec(name=name, **fields)
+        return MySQLSpec(name=name, **fields)
     if backend_type == "postgres":
-        return _PostgresSpec(name=name, **fields)
+        return PostgresSpec(name=name, **fields)
     if backend_type == "clickhouse":
-        return _ClickHouseSpec(name=name, **fields)
+        return ClickHouseSpec(name=name, **fields)
     raise AssertionError(f"unexpected backend_type: {backend_type}")
 
 
@@ -61,7 +61,7 @@ def test_set_rejects_model_qualified_name(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
     assert exc_info.value.details["field"] == "<name>"
-    assert "global datasource name" in str(exc_info.value)
+    assert "storage name without kind prefix" in str(exc_info.value)
 
 
 def test_list_returns_sorted_summaries(project_root: Path) -> None:

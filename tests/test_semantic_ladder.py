@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import marivo.datasource as md
-from marivo.datasource.authoring import _DuckDBSpec
+from marivo.datasource.authoring import DuckDBSpec
 from marivo.semantic import ledger as lg
 
 
@@ -24,15 +24,15 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
     )
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
     return semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -93,9 +93,9 @@ def test_stale_verification_raises_after_source_change(
     project2 = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales')\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', "
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders_v2'))\n"
             )
         },
@@ -116,8 +116,12 @@ def test_verify_object_reports_project_load_failed(semantic_project_factory) -> 
     # Create a project whose metrics file calls a non-existent ms.max()
     project = semantic_project_factory(
         {
-            "cdn/_domain.py": ("import marivo.semantic as ms\nms.domain(name='cdn')\n"),
-            "cdn/broken.py": ("import marivo.semantic as ms\nms.max()  # does not exist\n"),
+            "cdn/_domain.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='cdn')\n"
+            ),
+            "cdn/broken.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.max()  # does not exist\n"
+            ),
         },
         load=False,
     )
@@ -142,7 +146,9 @@ def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_facto
     project cannot load — not the old static_check_failed / 'not found'."""
     project = semantic_project_factory(
         {
-            "cdn/_domain.py": ("import marivo.semantic as ms\nms.domain(name='cdn')\n"),
+            "cdn/_domain.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='cdn')\n"
+            ),
             "cdn/bad.py": "raise RuntimeError('intentional load error')\n",
         },
         load=False,
@@ -157,9 +163,9 @@ def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_facto
 
 def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     model = (
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales')\n"
-        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
         "@ms.measure(entity=orders, additivity='additive')\n"
         "def amount(orders):\n"
         "    return orders.amount\n"
@@ -180,7 +186,9 @@ def test_verify_object_known_ref_still_not_found_when_loaded(
     verify_object still uses static_check_failed (not project_load_failed)."""
     project = semantic_project_factory(
         {
-            "sales/_domain.py": ("import marivo.semantic as ms\nms.domain(name='sales')\n"),
+            "sales/_domain.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+            ),
         },
         load=True,
     )

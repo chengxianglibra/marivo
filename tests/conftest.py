@@ -47,12 +47,17 @@ def semantic_project_factory(tmp_path):
             full.parent.mkdir(parents=True, exist_ok=True)
             full.write_text(src)
 
-        declared_datasources = {
-            match.group("name")
-            for src in files.values()
-            for match in re.finditer(r"datasource=(?P<quote>['\"])(?P<name>[^'\"]+)(?P=quote)", src)
-            if "." not in match.group("name")
-        }
+        declared_datasources: set[str] = set()
+        for src in files.values():
+            for match in re.finditer(
+                r"(?:datasource=|md\.ref\()(?P<quote>['\"])(?P<name>[^'\"]+)(?P=quote)",
+                src,
+            ):
+                name = match.group("name")
+                if name.startswith("datasource."):
+                    declared_datasources.add(name.removeprefix("datasource."))
+                elif "." not in name:
+                    declared_datasources.add(name)
         for datasource_name in declared_datasources:
             datasource_file = marivo_root / "datasources" / f"{datasource_name}.py"
             if datasource_file.exists():
@@ -85,7 +90,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
     )
     time_dimension = (
         "@ms.time_dimension(entity=orders, granularity='day')\n"
@@ -95,10 +100,10 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         else ""
     )
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('warehouse')\n"
+        "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "\n"

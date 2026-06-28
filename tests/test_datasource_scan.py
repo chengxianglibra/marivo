@@ -9,7 +9,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.authoring import _DuckDBSpec
+from marivo.datasource.authoring import DuckDBSpec
 from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.manage import (
     _inspect_columns,
@@ -71,7 +71,7 @@ def test_inspect_table_accepts_structured_source(tmp_path: Path) -> None:
     con.disconnect()
 
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
@@ -93,7 +93,7 @@ def test_inspect_columns_profiles_selected_columns(tmp_path: Path) -> None:
     )
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
@@ -123,13 +123,17 @@ def test_probe_join_keys_reports_match_and_cardinality(tmp_path: Path) -> None:
     con.create_table("customers", {"customer_id": [1, 2, 2, 5]})
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
     probe = _probe_join_keys(
-        from_side=md.JoinSide(md.ref("warehouse"), md.table("orders"), columns=("customer_id",)),
-        to_side=md.JoinSide(md.ref("warehouse"), md.table("customers"), columns=("customer_id",)),
+        from_side=md.JoinSide(
+            md.ref("datasource.warehouse"), md.table("orders"), columns=("customer_id",)
+        ),
+        to_side=md.JoinSide(
+            md.ref("datasource.warehouse"), md.table("customers"), columns=("customer_id",)
+        ),
         scope=md.ScanScope(partition=None, max_rows=100),
         project_root=tmp_path,
         key_sample_size=10,
@@ -152,7 +156,7 @@ def test_inspect_columns_warns_on_column_truncation(tmp_path: Path) -> None:
     con.create_table("wide_table", data)
     con.disconnect()
     md.register(
-        _DuckDBSpec(name="warehouse", path=str(db_path)),
+        DuckDBSpec(name="warehouse", path=str(db_path)),
         project_root=tmp_path,
     )
 
@@ -175,8 +179,8 @@ def test_inspect_columns_warns_on_column_truncation(tmp_path: Path) -> None:
 
 
 def test_join_side_uses_datasource_ref_and_table_source() -> None:
-    side = md.JoinSide(md.ref("warehouse"), md.table("orders"), columns=("customer_id",))
+    side = md.JoinSide(md.ref("datasource.warehouse"), md.table("orders"), columns=("customer_id",))
 
-    assert side.datasource == md.ref("warehouse")
+    assert side.datasource == md.ref("datasource.warehouse")
     assert side.source == md.table("orders")
     assert side.columns == ("customer_id",)

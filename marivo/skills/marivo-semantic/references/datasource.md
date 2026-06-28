@@ -6,10 +6,13 @@ only tells agents how to prepare a datasource for semantic authoring.
 ## Flow
 
 1. Read `md.help()` or `md.help("<backend>")` before writing datasource files.
-2. Declare project datasources under `models/datasources/*.py`.
-3. Bind datasource refs with `md.ref("<name>")`.
-4. Run `md.test("<name>")` before semantic authoring.
-5. Use bounded `md.discover_*` calls for source evidence before each semantic
+2. Construct a typed datasource spec with `md.duckdb(...)`, `md.trino(...)`,
+   `md.clickhouse(...)`, `md.mysql(...)`, or `md.postgres(...)`.
+3. Persist the spec with `md.register(spec)` or declare it under
+   `models/datasources/*.py`.
+4. Run `md.test(spec.ref)` before semantic authoring.
+5. Bind datasource refs with `spec.ref` or `md.ref("datasource.<name>")`.
+6. Use bounded `md.discover_*` calls for source evidence before each semantic
    object.
 
 ## Project Files
@@ -19,7 +22,11 @@ Semantic files reference datasources declared under `models/datasources/*.py`:
 ```python
 import marivo.datasource as md
 
-warehouse = md.ref("warehouse")
+spec = md.duckdb(name="warehouse", path="warehouse.duckdb")
+md.register(spec)
+md.test(spec.ref).show()
+
+warehouse = spec.ref
 ```
 
 Do not copy backend parameter tables into this skill. Use `md.help("duckdb")`,
@@ -31,7 +38,7 @@ matching runtime error when the field shape is unclear.
 Use the public discovery family for datasource evidence:
 
 ```python
-warehouse = md.ref("warehouse")
+warehouse = md.ref("datasource.warehouse")
 orders = md.table("orders")
 scope = md.latest_partition()
 

@@ -34,13 +34,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # ---------------------------------------------------------------------------
 
 _DOMAIN_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
     ms.domain(name="sales", default=True)
 """)
 
 _OBJECTS_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):

@@ -210,9 +210,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_ref",
         "decorator",
         ("entity", "dimension", "time_dimension", "metric", "relationship", "ref"),
-        "References must be strings or decorator-returned refs.",
+        "References must be typed refs returned by Marivo authoring helpers.",
         "The loader persists semantic ids, not arbitrary Python objects.",
-        "Use datasource names as strings and EntityRef/DimensionRef/MetricRef values returned by decorators.",
+        'Use md.ref("datasource.warehouse") for datasource parameters and EntityRef/DimensionRef/MetricRef values returned by decorators.',
         example=_SEMANTIC_MODEL_EXAMPLE,
     ),
     ConstraintId.COMPOSITION_SHAPE: _constraint(

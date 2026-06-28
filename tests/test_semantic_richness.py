@@ -30,15 +30,15 @@ def test_richness_report_to_dict_is_json_safe():
 
 
 _DEPTH_BARE = (
-    "import marivo.semantic as ms\n"
-    "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+    "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+    "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
     "@ms.dimension(entity=orders, name='amount')\n"
     "def amount(table):\n    return table.amount\n"
 )
 
 _DEPTH_ENRICHED = (
-    "import marivo.semantic as ms\n"
-    "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'),\n"
+    "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+    "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'),\n"
     "    ai_context=ms.ai_context(business_definition='One row per order.',\n"
     "               guardrails=['Exclude test orders.'],\n"
     "               synonyms=['sales'], examples=['how many orders?']))\n"
@@ -52,7 +52,7 @@ _DEPTH_ENRICHED = (
 
 def _model(objects_src: str):
     return {
-        "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
         "sales/objects.py": objects_src,
     }
 
@@ -93,8 +93,8 @@ def test_demand_signal_defaults_are_empty():
 
 
 _FACT_NO_METRIC = (
-    "import marivo.semantic as ms\n"
-    "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+    "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+    "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
     "@ms.dimension(entity=orders, name='amount')\n"
     "def amount(table):\n    return table.amount\n"
 )
@@ -106,17 +106,17 @@ _FACT_WITH_METRIC = _FACT_NO_METRIC + (
 )
 
 _SHARED_KEYS_NO_REL = (
-    "import marivo.semantic as ms\n"
-    "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['customer_id'], source=ms.table('orders'))\n"
-    "customers = ms.entity(name='customers', datasource='warehouse', primary_key=['customer_id'], source=ms.table('customers'))\n"
+    "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+    "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['customer_id'], source=ms.table('orders'))\n"
+    "customers = ms.entity(name='customers', datasource=md.ref('datasource.warehouse'), primary_key=['customer_id'], source=ms.table('customers'))\n"
 )
 
 _SHARED_KEYS_WITH_REL = (
-    "import marivo.semantic as ms\n"
-    "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['customer_id'], source=ms.table('orders'))\n"
+    "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+    "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['customer_id'], source=ms.table('orders'))\n"
     "@ms.dimension(entity=orders, name='order_customer')\n"
     "def order_customer(table):\n    return table.customer_id\n"
-    "customers = ms.entity(name='customers', datasource='warehouse', primary_key=['customer_id'], source=ms.table('customers'))\n"
+    "customers = ms.entity(name='customers', datasource=md.ref('datasource.warehouse'), primary_key=['customer_id'], source=ms.table('customers'))\n"
     "@ms.dimension(entity=customers, name='customer_pk')\n"
     "def customer_pk(table):\n    return table.customer_id\n"
     "ms.relationship(name='orders_to_customers', from_entity=orders,\n"
@@ -301,10 +301,10 @@ def test_detect_depth_flags_missing_unit(semantic_project_factory):
     from marivo.semantic.richness import _detect_depth
 
     files = {
-        "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
         "sales/objects.py": (
-            "import marivo.semantic as ms\n"
-            "orders = ms.entity(name='orders', datasource='warehouse', "
+            "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
             "source=ms.table('orders'))\n"
             "@ms.metric(entities=[orders], name='bare_metric', "
             "additivity='additive', )\n"
@@ -336,10 +336,10 @@ def test_detect_depth_count_metric_gets_count_hint(semantic_project_factory):
     from marivo.semantic.richness import _SUGGESTED_ACTION, _detect_depth
 
     files = {
-        "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
         "sales/objects.py": (
-            "import marivo.semantic as ms\n"
-            "orders = ms.entity(name='orders', datasource='warehouse', "
+            "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
             "source=ms.table('orders'))\n"
             "@ms.measure(entity=orders, additivity='additive')\n"
             "def amount(orders):\n"

@@ -13,19 +13,19 @@ from marivo.analysis.publish import (
 # A sales model with model id "sales" and metric "sales.revenue".
 # Verified to load (status=ready, catalog metric ref "sales.revenue") via
 # semantic_project_factory. The warehouse datasource file is required because the
-# dataset uses md.ref('warehouse') (the factory only auto-creates datasources for
+# dataset uses md.ref('datasource.warehouse') (the factory only auto-creates datasources for
 # quoted datasource='...' usages).
 SALES_FILES = {
     "datasources/warehouse.py": (
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     ),
     "sales/__init__.py": "",
-    "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+    "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
     "sales/datasets.py": (
-        "import marivo.semantic as ms\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('warehouse')\n"
+        "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
         "\n"

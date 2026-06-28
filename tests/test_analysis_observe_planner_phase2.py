@@ -18,9 +18,9 @@ from marivo.semantic.catalog import SemanticCatalog
 def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
     return semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "user_history_ref = ms.ref('entity.sales.user_history')\n"
                 "@ms.dimension(entity=user_history_ref)\n"
                 "def valid_from(t):\n"
@@ -30,7 +30,7 @@ def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
                 "    return t.valid_to\n"
                 "user_history = ms.entity(\n"
                 "    name='user_history',\n"
-                "    datasource='warehouse',\n"
+                "    datasource=md.ref('datasource.warehouse'),\n"
                 "    source=ms.table('user_history'),\n"
                 f"    primary_key={primary_key},\n"
                 "    versioning=ms.validity(valid_from=valid_from, valid_to=valid_to, interval='closed_open', open_end=(None,)),\n"
@@ -145,10 +145,10 @@ def test_derive_version_mode_string_time_field_is_not_qualifying():
 def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', primary_key=['order_id'], source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"

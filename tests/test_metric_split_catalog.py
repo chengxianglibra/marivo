@@ -37,14 +37,16 @@ def test_metric_details_has_split_fields_not_legacy():
 # ---------------------------------------------------------------------------
 
 _DOMAIN_PY = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 ms.domain(name="sales", default=True)
 """
 
 _MODELS_PY = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount

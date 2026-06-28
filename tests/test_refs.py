@@ -39,10 +39,11 @@ def test_datasource_ref_is_semantic_ref() -> None:
 
     ref = DatasourceRef("warehouse")
     assert isinstance(ref, SemanticRef)
-    assert ref.id == "warehouse"
+    assert ref.id == "datasource.warehouse"
+    assert not hasattr(ref, "name")
     assert ref.kind is SymbolKind.DATASOURCE
-    assert str(ref) == "warehouse"
-    assert repr(ref) == "DatasourceRef('warehouse')"
+    assert str(ref) == "datasource.warehouse"
+    assert repr(ref) == "DatasourceRef('datasource.warehouse')"
     assert ref == DatasourceRef("warehouse")
 
 

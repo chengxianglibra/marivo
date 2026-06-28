@@ -20,14 +20,16 @@ from marivo.semantic.ir import SqlProvenance
 from marivo.semantic.refs import make_ref
 
 _DOMAIN_PY = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 ms.domain(name="sales", default=True)
 """
 
 _MODEL_PY = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
 @ms.dimension(entity=orders)
 def region(orders):

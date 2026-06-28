@@ -32,6 +32,7 @@ from marivo.analysis.windows import (
     normalize_timescope_input,
 )
 from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
+from marivo.datasource.authoring import DatasourceRef, _require_datasource_ref
 from marivo.refs import SemanticRef
 from marivo.semantic.catalog import SemanticObject
 
@@ -51,8 +52,11 @@ class DeriveContext:
 
 @dataclass(frozen=True)
 class IbisQuerySpec:
-    datasource: str
+    datasource: DatasourceRef
     build: Callable[[Any, DeriveContext], Any]
+
+    def __post_init__(self) -> None:
+        _require_datasource_ref(self.datasource, argument="mv.ibis_query(datasource=...)")
 
 
 @dataclass(frozen=True)
@@ -69,7 +73,9 @@ class MetricColumns:
     dimensions: tuple[MetricColumnBinding, ...] = ()
 
 
-def ibis_query(*, datasource: str, build: Callable[[Any, DeriveContext], Any]) -> IbisQuerySpec:
+def ibis_query(
+    *, datasource: DatasourceRef, build: Callable[[Any, DeriveContext], Any]
+) -> IbisQuerySpec:
     return IbisQuerySpec(datasource=datasource, build=build)
 
 
@@ -197,7 +203,8 @@ def derive_metric_frame(
         else None,
         label=label,
     )
-    backend = resolved_session._connection_runtime.session_backend(query.datasource)
+    datasource_id = query.datasource.id
+    backend = resolved_session._connection_runtime.session_backend(datasource_id)
     expr = query.build(backend, context)
     if not callable(getattr(expr, "compile", None)) and not callable(
         getattr(expr, "to_pandas", None)
@@ -207,7 +214,7 @@ def derive_metric_frame(
     started = monotonic()
     result = execute(
         expr,
-        datasource_name=query.datasource,
+        datasource_name=datasource_id,
         cache=resolved_session._connection_runtime,
         session_id=resolved_session.id,
     )
@@ -223,7 +230,7 @@ def derive_metric_frame(
     params: dict[str, Any] = {
         "metric": metric_id,
         "query": {
-            "datasource": query.datasource,
+            "datasource": datasource_id,
             "sql": result.query.sql if result.query is not None else None,
         },
         "columns": {

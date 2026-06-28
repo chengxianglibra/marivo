@@ -34,13 +34,15 @@ from marivo.semantic.refs import make_ref
 # ---------------------------------------------------------------------------
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
     ms.domain(name="sales", default=True)
 """)
 
 _DATASETS_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.dimension(entity=orders)
     def region(table):
@@ -74,10 +76,10 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _DATASETS_PY,
-            "ops/_domain.py": "import marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
             "ops/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
                 "@ms.metric(entities=[events], additivity='additive', )\n"
                 "def event_count(table):\n"
                 "    return table.id.nunique()\n"
@@ -167,9 +169,9 @@ def test_discovery_list_kind_relationship_returns_relationships(semantic_project
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "users = ms.entity(name='users', datasource='warehouse', source=ms.table('users'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), source=ms.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def user_id(table):\n"
                 "    return table.user_id\n"

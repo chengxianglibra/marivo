@@ -632,15 +632,14 @@ def _column_accessor(column: str) -> Callable[[Any], Any]:
     return _accessor
 
 
-def _resolve_datasource_ref(ref: DatasourceRef | str) -> str:
-    """Extract global datasource short name from a datasource ref or string."""
-    if isinstance(ref, str):
-        return ref
+def _resolve_datasource_ref(ref: DatasourceRef) -> str:
+    """Extract canonical datasource id from a datasource ref."""
     if isinstance(ref, DatasourceRef):
         return ref.id
     _raise(
         ErrorKind.INVALID_REF,
-        "ms.entity(datasource=...) accepts a datasource ref or global datasource name string.",
+        'ms.entity(datasource=...) accepts a datasource ref from md.ref("datasource.warehouse"). '
+        "Do not pass a bare string such as 'warehouse' or 'datasource.warehouse'.",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )
@@ -809,7 +808,7 @@ def count(
         A ``MetricRef`` for the count metric.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
         >>> order_count = ms.count(name="order_count", entity=orders)
 
     Constraints:
@@ -977,7 +976,7 @@ def csv(
 def entity(
     *,
     name: str,
-    datasource: DatasourceRef | str,
+    datasource: DatasourceRef,
     source: EntitySourceIR,
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
@@ -988,8 +987,7 @@ def entity(
 
     Args:
         name: Entity name.
-        datasource: Datasource ref returned by ``md.ref(...)`` or a global
-            datasource name string declared in ``models/datasources/*.py``.
+        datasource: Datasource ref returned by ``md.ref(...)``.
         source: Structured physical source, usually ``ms.table(...)`` or
             ``ms.parquet(...)``, or ``ms.csv(...)``.
         primary_key: Optional list of column names forming the primary key.
@@ -1001,13 +999,13 @@ def entity(
         An ``EntityRef`` usable by ``@ms.dimension`` and ``@ms.metric``.
 
     Raises:
-        SemanticDecoratorError: ``datasource`` is not a datasource ref or string, ``name``
+        SemanticDecoratorError: ``datasource`` is not a datasource ref, ``name``
             collides with another object, or ``source`` is not an entity source.
 
     Example:
         >>> orders = ms.entity(
         ...     name="orders",
-        ...     datasource="warehouse",
+        ...     datasource=md.ref("datasource.warehouse"),
         ...     source=ms.table("orders", database="sales_mart"),
         ... )
     """
@@ -1074,7 +1072,7 @@ def dimension_column(
         or more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
         >>> region = ms.dimension_column(name="region", entity=orders, column="region")
     """
     ctx = _require_ctx()
@@ -1225,7 +1223,7 @@ def measure_column(
         more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
         >>> amount = ms.measure_column(
         ...     name="amount", entity=orders, column="amount",
         ...     additivity="additive", unit="CNY",
@@ -1492,7 +1490,7 @@ def time_dimension_column(
         one or more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
         >>> log_date = ms.time_dimension_column(
         ...     name="log_date", entity=orders, column="dt",
         ...     granularity="day", parse=ms.strptime("%Y%m%d"),

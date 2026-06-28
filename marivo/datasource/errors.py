@@ -5,6 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 
+def _datasource_ref_literal(datasource: object) -> str:
+    if not isinstance(datasource, str) or not datasource:
+        return "'datasource.<name>'"
+    if datasource.startswith("datasource."):
+        return repr(datasource)
+    return repr(f"datasource.{datasource}")
+
+
 class DatasourceError(Exception):
     """Base class for datasource errors."""
 
@@ -267,15 +275,16 @@ class DatasourceMetadataError(DatasourceError):
         datasource = self.details.get("datasource")
         table = self.details.get("table")
         ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
+        ds_ref_literal = _datasource_ref_literal(datasource)
         table_ref = table if isinstance(table, str) and table else "<table>"
         return {
-            "location": f"md.discover_entity(md.ref({ds_ref!r}), md.table({table_ref!r}))",
+            "location": f"md.discover_entity(md.ref({ds_ref_literal}), md.table({table_ref!r}))",
             "cause": self.details.get("cause", "table metadata inspection failed"),
             "fix_snippet": (
                 "import marivo.datasource as md\n"
                 f"md.describe({ds_ref!r})\n"
                 f"md.test({ds_ref!r})\n"
-                f"md.discover_entity(md.ref({ds_ref!r}), md.table({table_ref!r}))"
+                f"md.discover_entity(md.ref({ds_ref_literal}), md.table({table_ref!r}))"
             ),
             "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }
@@ -286,13 +295,13 @@ class DatasourceRawSqlError(DatasourceError):
         datasource = self.details.get("datasource")
         backend_type = self.details.get("backend_type")
         cause = self.details.get("cause")
-        ds_ref = datasource if isinstance(datasource, str) and datasource else "<datasource>"
+        ds_ref_literal = _datasource_ref_literal(datasource)
         bt_ref = (
             backend_type if isinstance(backend_type, str) and backend_type else "<backend_type>"
         )
         cause_ref = cause if isinstance(cause, str) and cause else "raw_sql execution failed."
         return {
-            "location": f"md.raw_sql(md.ref({ds_ref!r})) backend_type={bt_ref!r}",
+            "location": f"md.raw_sql(md.ref({ds_ref_literal})) backend_type={bt_ref!r}",
             "cause": (
                 f"the read-only diagnostic failed to execute; no side effects were applied. "
                 f"Underlying cause: {cause_ref}"

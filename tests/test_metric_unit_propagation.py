@@ -35,10 +35,11 @@ def test_measure_ir_unit_allowed() -> None:
 
 
 _DIM_UNIT = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -77,10 +78,11 @@ def test_dimension_unit_on_categorical_is_rejected() -> None:
 
 
 _INLINE_UNITS = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -119,10 +121,11 @@ def test_derived_unit_algebra() -> None:
 
 
 _INLINE_UNIT_OVERRIDE = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -151,10 +154,11 @@ def test_linear_unit_error_taxonomy_registered() -> None:
 
 
 _INLINE_LINEAR_CONFLICT = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -178,10 +182,11 @@ def test_linear_incommensurable_units_rejected() -> None:
 
 
 _INLINE_LINEAR_OK = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
@@ -202,10 +207,11 @@ def test_linear_same_unit_no_error() -> None:
 
 
 _INLINE_LINEAR_OVERRIDE = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")

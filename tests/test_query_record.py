@@ -7,6 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+import marivo.datasource as md
 from marivo.analysis import escape_hatch
 from marivo.analysis.executor.query_record import (
     QueryExecution,
@@ -259,7 +260,7 @@ def test_scalar_observe_has_queries(tmp_path, monkeypatch):
     assert "queries" in job
     assert len(job["queries"]) >= 1
     q = job["queries"][0]
-    assert q["datasource"] == "warehouse"
+    assert q["datasource"] == "datasource.warehouse"
     assert q["row_count"] == 1
     assert q["duration_ms"] >= 0
     assert q["status"] == "succeeded"
@@ -323,12 +324,12 @@ def test_explore_ibis_source_query_includes_session_comment(tmp_path, monkeypatc
     )
     result = escape_hatch.explore_ibis(
         lambda backend: backend.table("orders"),
-        datasource="warehouse",
+        datasource=md.ref("datasource.warehouse"),
         session=s,
     )
     assert result.meta.source_query is not None
     assert "from=marivo" in result.meta.source_query
-    assert result.meta.source_datasource == "warehouse"
+    assert result.meta.source_datasource == "datasource.warehouse"
 
 
 def test_time_series_observe_has_queries(tmp_path, monkeypatch):
@@ -399,7 +400,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     job = s.job(scalar.meta.produced_by_job)
     assert len(job["queries"]) >= 1
     q = job["queries"][0]
-    assert q["datasource"] == "warehouse"
+    assert q["datasource"] == "datasource.warehouse"
     assert q["row_count"] >= 1
     assert q["duration_ms"] >= 0
     assert "from=marivo" in q["sql"]
@@ -412,7 +413,7 @@ def test_observe_shapes_have_queries(tmp_path, monkeypatch):
     )
     job = s.job(ts.meta.produced_by_job)
     assert len(job["queries"]) >= 1
-    assert job["queries"][0]["datasource"] == "warehouse"
+    assert job["queries"][0]["datasource"] == "datasource.warehouse"
 
     # Segmented
     seg = s.observe(

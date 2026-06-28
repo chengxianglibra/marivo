@@ -17,6 +17,7 @@ from marivo.datasource import store as _store
 from marivo.datasource.authoring import (
     DatasourceRef,
     DatasourceSpec,
+    _storage_name,
 )
 from marivo.datasource.discovery import RawSqlResult
 from marivo.datasource.errors import (
@@ -256,22 +257,21 @@ def register(
     """Create or replace a project datasource file from a DatasourceSpec.
 
     Args:
-        spec: An internal backend datasource spec such as ``_DuckDBSpec`` or ``_TrinoSpec``.
+        spec: A public backend datasource spec returned by helpers such as
+            ``md.duckdb(...)`` or ``md.trino(...)``.
         project_root: Optional project root directory; defaults to cwd.
 
     Returns:
         A ``DatasourceSummary`` for the newly stored datasource.
 
     Example:
-        >>> from marivo.datasource.authoring import _DuckDBSpec
         >>> import marivo.datasource as md
-        >>> md.register(_DuckDBSpec(name="wh", path=":memory:"))
+        >>> spec = md.duckdb(name="wh", path=":memory:")
+        >>> md.register(spec)
 
     Constraints:
-        Use one of the internal backend specs such as ``_DuckDBSpec`` or
-        ``_TrinoSpec``. Sensitive fields use named ``*_env`` references, not
-        plaintext literals or generic keyword bags. For datasource file
-        authoring, prefer ``md.duckdb()``, ``md.trino()``, etc.
+        Use one of the public typed specs. Sensitive fields use named
+        ``*_env`` references, not plaintext literals or generic keyword bags.
     """
     stored = _store.save_one(spec, project_root=project_root)
     return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)
@@ -942,8 +942,11 @@ def _is_numeric_series(series: Any) -> bool:
 
 
 def _join_side_datasource_name(side: JoinSide) -> str:
-    datasource = side.datasource
-    return datasource.id if hasattr(datasource, "id") else str(datasource)
+    return _storage_name(side.datasource)
+
+
+def _datasource_name(value: str | DatasourceRef) -> str:
+    return _storage_name(value)
 
 
 def _sample_distinct_keys(
@@ -1139,36 +1142,42 @@ def _probe_join_keys(
     )
 
 
-def test(name: str) -> DatasourceTestResult:
+def test(name: str | DatasourceRef) -> DatasourceTestResult:
     """Round-trip the backend and persist validated env secrets.
 
     Args:
-        name: The datasource name to test.
+        name: The datasource name or ``DatasourceRef`` to test.
 
     Returns:
         A ``DatasourceTestResult`` with ok/error status and latency.
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.test("wh")
+        >>> md.test(md.ref("datasource.wh"))
 
     Constraints:
         On success, env-sourced secrets that resolved correctly are
         persisted to the user-global plaintext cache. The backend is
         always disconnected.
     """
+    datasource_name = _datasource_name(name)
     start = time.perf_counter()
     backend: Any | None = None
     try:
-        backend = connect(name)
+        backend = connect(datasource_name)
         backend.raw_sql("SELECT 1")
         _secrets.persist_backend_env_sourced(backend)
         latency_ms = int((time.perf_counter() - start) * 1000)
-        return DatasourceTestResult(name=name, ok=True, error=None, latency_ms=latency_ms)
+        return DatasourceTestResult(
+            name=datasource_name,
+            ok=True,
+            error=None,
+            latency_ms=latency_ms,
+        )
     except Exception as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(
-            name=name,
+            name=datasource_name,
             ok=False,
             error=f"{type(exc).__name__}: {exc}",
             latency_ms=latency_ms,
@@ -1301,7 +1310,7 @@ def raw_sql(
     """Run a bounded read-only SQL diagnostic against a datasource.
 
     Args:
-        datasource: Datasource reference returned by ``md.ref("warehouse")``.
+        datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
         sql: Single read-only SQL statement. ``SELECT`` and ``WITH`` diagnostics
             are bounded with a wrapper query; metadata diagnostics such as
             ``SHOW``, ``DESCRIBE``, ``DESC``, and ``EXPLAIN`` execute directly
@@ -1316,7 +1325,7 @@ def raw_sql(
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.raw_sql(md.ref("warehouse"), "SELECT 1 AS ok", reason="check query path")
+        >>> md.raw_sql(md.ref("datasource.warehouse"), "SELECT 1 AS ok", reason="check query path")
 
     Constraints:
         Rejects empty reasons, empty SQL, and multi-statement SQL before execution.
@@ -1332,7 +1341,7 @@ def raw_sql(
         raise ValueError("limit must be positive.")
     reason_text = _require_raw_sql_reason(reason)
     statement = _require_single_statement(sql)
-    datasource_id = datasource.id if isinstance(datasource, DatasourceRef) else str(datasource)
+    datasource_id = _storage_name(datasource)
     datasource_ir = _store.load_one(datasource_id, project_root=project_root)
     if datasource_ir is None:
         raise DatasourceMissingError(

@@ -869,7 +869,7 @@ class RawSqlResult:
 
     Example:
         >>> import marivo.datasource as md
-        >>> md.raw_sql(md.ref("warehouse"), "SELECT 1", reason="check connectivity")
+        >>> md.raw_sql(md.ref("datasource.warehouse"), "SELECT 1", reason="check connectivity")
 
     Constraints:
         This is an escape hatch for diagnostics only. SQL text must not become

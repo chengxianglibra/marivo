@@ -53,7 +53,7 @@ def _bootstrap_project(
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        f"import marivo.semantic as ms\nms.domain(name='{model_name}')\n"
+        f"import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='{model_name}')\n"
     )
 
     time_field_block = ""
@@ -74,9 +74,9 @@ def _bootstrap_project(
         )
 
     (semantic_dir / "definitions.py").write_text(
-        f"import marivo.semantic as ms\n"
+        f"import marivo.datasource as md\nimport marivo.semantic as ms\n"
         f"\n"
-        f"{dataset_name} = ms.entity(name='{dataset_name}', datasource='{datasource_name}', "
+        f"{dataset_name} = ms.entity(name='{dataset_name}', datasource=md.ref('{datasource_name}'), "
         f"source=ms.table('{dataset_name}'))\n"
         f"\n"
         f"@ms.dimension(entity={dataset_name})\n"

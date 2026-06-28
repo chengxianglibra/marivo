@@ -8,6 +8,7 @@ import ibis
 import pytest
 
 import marivo.semantic as ms
+from marivo.datasource.authoring import DatasourceRef
 from marivo.semantic.catalog import (
     AiContextView,
     DatasourceDetails,
@@ -198,7 +199,8 @@ def test_entity_details_fields():
         primary_key=("order_id",),
         versioning=None,
     )
-    assert d.datasource.id == "warehouse"
+    assert d.datasource.id == "datasource.warehouse"
+    assert not hasattr(d.datasource, "name")
     assert d.primary_key == ("order_id",)
     assert d.versioning is None
 
@@ -479,13 +481,15 @@ def test_semantic_object_list_empty_renders_actionable_message():
 
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
     ms.domain(name="sales", default=True)
 """)
 
 _DATASETS_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
     @ms.dimension(entity=orders)
     def region(table):
@@ -504,11 +508,12 @@ _DATASETS_PY = textwrap.dedent("""\
 """)
 
 _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
+    import marivo.datasource as md
     import marivo.semantic as ms
 
     orders = ms.entity(
         name="orders",
-        datasource="warehouse",
+        datasource=md.ref("datasource.warehouse"),
         source=ms.table("orders"),
         ai_context=ms.ai_context(
             business_definition="One row per completed order.",
@@ -614,7 +619,7 @@ def test_catalog_list_top_level_includes_warehouse_datasource(semantic_project_f
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.list()
     refs = {obj.ref.id for obj in result.objects}
-    assert "warehouse" in refs
+    assert "datasource.warehouse" in refs
 
 
 def test_catalog_list_no_stdout_during_call(semantic_project_factory, capsys):
@@ -671,9 +676,9 @@ def test_catalog_list_domain_relationships(semantic_project_factory):
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
-                "users = ms.entity(name='users', datasource='warehouse', source=ms.table('users'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), source=ms.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def user_id(table):\n"
                 "    return table.user_id\n"
@@ -859,7 +864,8 @@ def test_catalog_get_returns_semantic_object_for_domain(semantic_project_factory
 def test_catalog_get_returns_semantic_object_for_datasource(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     obj = catalog.get("datasource.warehouse")
-    assert obj.ref.id == "warehouse"
+    assert obj.ref.id == "datasource.warehouse"
+    assert not hasattr(obj.ref, "name")
     assert str(obj.kind) == "datasource"
 
 
@@ -946,8 +952,9 @@ def test_catalog_get_context_matches_authored_ai_context(semantic_project_factor
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": textwrap.dedent("""\
+                import marivo.datasource as md
                 import marivo.semantic as ms
-                orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+                orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
                 @ms.metric(
                     entities=[orders],
@@ -1035,7 +1042,7 @@ def test_catalog_details_render_includes_agent_consumption_context(
     assert "parity_status:" in metric_rendered
 
     entity_rendered = catalog.get("entity.sales.orders").details().render()
-    assert "datasource: warehouse" in entity_rendered
+    assert "datasource: datasource.warehouse" in entity_rendered
     assert "source:" in entity_rendered
     assert "children:" in entity_rendered
     assert "sales.orders.region" in entity_rendered
@@ -1074,7 +1081,18 @@ def test_catalog_get_dataset_details_correct_datasource_ref(semantic_project_fac
     obj = catalog.get("entity.sales.orders")
     d = obj.details()
     assert isinstance(d, EntityDetails)
-    assert d.datasource.id == "warehouse"
+    assert isinstance(d.datasource, DatasourceRef)
+    assert d.datasource.id == "datasource.warehouse"
+    assert not hasattr(d.datasource, "name")
+
+
+def test_catalog_list_under_datasource_uses_typed_datasource_ref(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    datasource = catalog.get("datasource.warehouse")
+
+    result = catalog.list(datasource.ref, kind=SemanticKind.ENTITY)
+
+    assert [obj.ref.id for obj in result.objects] == ["sales.orders"]
 
 
 def test_catalog_entity_details_source_uses_shared_ir_type(semantic_project_factory):
@@ -1107,8 +1125,8 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
@@ -1138,8 +1156,8 @@ def test_catalog_time_dimension_details_include_sample_interval(semantic_project
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
                 "@ms.time_dimension(\n"
                 "    entity=orders,\n"
                 "    granularity='minute',\n"
@@ -1164,8 +1182,8 @@ def test_catalog_strptime_time_dimension_details_include_sample_interval(semanti
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
                 "@ms.time_dimension(\n"
                 "    entity=orders,\n"
                 "    granularity='minute',\n"
@@ -1230,7 +1248,7 @@ def test_ms_load_failure_raises_semantic_load_error(tmp_path):
     semantic = tmp_path / "models" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='wrong_name')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='wrong_name')\n"
     )
     from marivo.semantic.errors import SemanticLoadFailed
 
@@ -1292,8 +1310,9 @@ def test_catalog_load_reloads_project(semantic_project_factory):
     catalog = SemanticCatalog(project)
     (project.semantic_root / "sales" / "datasets.py").write_text(
         textwrap.dedent("""\
+            import marivo.datasource as md
             import marivo.semantic as ms
-            orders = ms.entity(name="orders", datasource="warehouse", source=ms.table("orders"))
+            orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
             @ms.dimension(entity=orders)
             def region(table):
@@ -1332,10 +1351,10 @@ def test_catalog_load_preserves_filtered_model_scope(semantic_project_factory):
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _DATASETS_PY,
-            "ops/_domain.py": "import marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
             "ops/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
             ),
         },
         load=False,
@@ -1356,10 +1375,10 @@ def test_catalog_load_with_models_changes_filter(semantic_project_factory):
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _DATASETS_PY,
-            "ops/_domain.py": "import marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
             "ops/datasets.py": (
-                "import marivo.semantic as ms\n"
-                "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
             ),
         },
         load=False,
@@ -1379,7 +1398,7 @@ def test_catalog_access_after_failed_load_raises_semantic_load_failed(tmp_path):
     semantic = tmp_path / "models" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='wrong_name')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='wrong_name')\n"
     )
 
     from marivo.semantic.errors import SemanticLoadFailed
@@ -1488,11 +1507,11 @@ def _write_minimal_project(tmp_path) -> None:
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
     )
     (semantic / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
         "\n"
         "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(table):\n"
@@ -1511,11 +1530,11 @@ def _write_multi_domain_project(tmp_path) -> None:
     sales = tmp_path / "models" / "semantic" / "sales"
     sales.mkdir(parents=True, exist_ok=True)
     (sales / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
     )
     (sales / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource='warehouse', source=ms.table('orders'))\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
         "\n"
         "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(table):\n"
@@ -1523,10 +1542,12 @@ def _write_multi_domain_project(tmp_path) -> None:
     )
     ops = tmp_path / "models" / "semantic" / "ops"
     ops.mkdir(parents=True, exist_ok=True)
-    (ops / "_domain.py").write_text("import marivo.semantic as ms\nms.domain(name='ops')\n")
+    (ops / "_domain.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n"
+    )
     (ops / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
-        "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
     )
 
 
@@ -1658,10 +1679,10 @@ def test_catalog_get_domain_level_dimension_ref_suggests_entity_level(
 
 
 _UNIT_DATASETS_PY = (
-    "import marivo.semantic as ms\n"
+    "import marivo.datasource as md\nimport marivo.semantic as ms\n"
     "import marivo.datasource as md\n"
     "\n"
-    "warehouse = md.ref('warehouse')\n"
+    "warehouse = md.ref('datasource.warehouse')\n"
     "\n"
     "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
     "\n"

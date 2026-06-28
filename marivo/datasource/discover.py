@@ -76,7 +76,7 @@ def discover_entity(
     """Discover entity-level datasource evidence for one physical source.
 
     Args:
-        datasource: Datasource reference returned by ``md.ref("warehouse")``.
+        datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
         source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
         scope: Optional bounded scan scope. Use ``md.latest_partition()``,
             ``md.partition({...})``, or ``md.unpruned()``.
@@ -89,7 +89,7 @@ def discover_entity(
 
     Example:
         >>> import marivo.datasource as md
-        >>> warehouse = md.ref("warehouse")
+        >>> warehouse = md.ref("datasource.warehouse")
         >>> md.discover_entity(warehouse, md.table("orders"), scope=md.latest_partition())
 
     Constraints:
@@ -134,7 +134,7 @@ def discover_dimensions(
     """Discover dimension-shaped column evidence for one source.
 
     Args:
-        datasource: Datasource reference returned by ``md.ref("warehouse")``.
+        datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
         source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
         columns: Optional physical column subset. ``None`` profiles all columns
             within ``scope.max_columns``.
@@ -146,7 +146,7 @@ def discover_dimensions(
 
     Example:
         >>> import marivo.datasource as md
-        >>> warehouse = md.ref("warehouse")
+        >>> warehouse = md.ref("datasource.warehouse")
         >>> md.discover_dimensions(warehouse, md.table("orders"), columns=("status",))
 
     Constraints:
@@ -188,7 +188,7 @@ def discover_time_dimensions(
     """Discover time-dimension column evidence for one source.
 
     Args:
-        datasource: Datasource reference returned by ``md.ref("warehouse")``.
+        datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
         source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
         columns: Optional candidate column subset.
         scope: Optional bounded scan scope helper result.
@@ -199,7 +199,7 @@ def discover_time_dimensions(
 
     Example:
         >>> import marivo.datasource as md
-        >>> warehouse = md.ref("warehouse")
+        >>> warehouse = md.ref("datasource.warehouse")
         >>> md.discover_time_dimensions(warehouse, md.table("orders"), columns=("created_at",))
 
     Constraints:
@@ -241,7 +241,7 @@ def discover_measures(
     """Discover measure-shaped column evidence for one source.
 
     Args:
-        datasource: Datasource reference returned by ``md.ref("warehouse")``.
+        datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
         source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
         columns: Optional candidate column subset.
         scope: Optional bounded scan scope helper result.
@@ -252,7 +252,7 @@ def discover_measures(
 
     Example:
         >>> import marivo.datasource as md
-        >>> warehouse = md.ref("warehouse")
+        >>> warehouse = md.ref("datasource.warehouse")
         >>> md.discover_measures(warehouse, md.table("orders"), columns=("amount",))
 
     Constraints:
@@ -341,7 +341,7 @@ def discover_relationship(
 
     Example:
         >>> import marivo.datasource as md
-        >>> warehouse = md.ref("warehouse")
+        >>> warehouse = md.ref("datasource.warehouse")
         >>> md.discover_relationship(
         ...     from_side=md.JoinSide(warehouse, md.table("orders"), columns=("customer_id",)),
         ...     to_side=md.JoinSide(warehouse, md.table("customers"), columns=("customer_id",)),
@@ -390,7 +390,7 @@ def discover_dimension_values(
     """Discover bounded current value counts for one dimension column.
 
     Args:
-        datasource: Datasource reference returned by ``md.ref("warehouse")``.
+        datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
         source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
         column: Column to sample value counts from.
         scope: Optional bounded scan scope helper result.
@@ -402,7 +402,7 @@ def discover_dimension_values(
 
     Example:
         >>> import marivo.datasource as md
-        >>> warehouse = md.ref("warehouse")
+        >>> warehouse = md.ref("datasource.warehouse")
         >>> md.discover_dimension_values(warehouse, md.table("orders"), column="status", limit=10)
 
     Constraints:

@@ -67,6 +67,23 @@ def test_session_backend_is_reused_until_close(
     assert created[0].disconnect_calls == 1
 
 
+def test_session_backend_accepts_canonical_datasource_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen: list[str] = []
+
+    def build(name: str, project_root: Path | None) -> FakeBackend:
+        seen.append(name)
+        return FakeBackend()
+
+    monkeypatch.setattr(runtime, "_build_backend_from_store", build)
+    service = runtime.DatasourceConnectionService(project_root=tmp_path)
+
+    service.session_backend("datasource.warehouse")
+
+    assert seen == ["warehouse"]
+
+
 def test_datasource_module_exposes_runtime_service() -> None:
     # DatasourceConnectionService is internal; importable from the submodule.
     assert runtime.DatasourceConnectionService is not None

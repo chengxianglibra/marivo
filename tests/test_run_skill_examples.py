@@ -315,6 +315,7 @@ _VALID_TEMPLATE = textwrap.dedent(
     # marivo-example: template
 
     import marivo.analysis as mv
+    import marivo.datasource as md
     import marivo.semantic as ms
 
     catalog = ms.load()
@@ -442,9 +443,9 @@ def test_semantic_examples_match_layering_simplification_contract() -> None:
     datasource = (SEMANTIC_EXAMPLES / "01_datasource.py").read_text()
     model = (SEMANTIC_EXAMPLES / "02_semantic_model.py").read_text()
 
-    assert "_DuckDBSpec" not in datasource
-    assert "_DuckDBSpec" not in model
-    assert "md.register(" not in datasource
+    assert "DuckDBSpec" not in datasource
+    assert "DuckDBSpec" not in model
+    assert "md.register(spec)" in datasource
     assert "md.register(" not in model
     assert "md.duckdb(" in datasource
-    assert "md.duckdb(" in model
+    assert 'md.ref("datasource.warehouse")' in model

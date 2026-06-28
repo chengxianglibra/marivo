@@ -378,7 +378,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "parameters": {
                 "name": name,
                 "datasource": _param(
-                    "DatasourceRef | str", "datasource ref or declared datasource name"
+                    "DatasourceRef", 'datasource ref from md.ref("datasource.warehouse")'
                 ),
                 "source": _param(
                     "TableSourceIR | ParquetSourceIR | CsvSourceIR", "structured physical source"

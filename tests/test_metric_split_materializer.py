@@ -20,9 +20,10 @@ from marivo.semantic.materializer import Materializer
 # ---------------------------------------------------------------------------
 
 _INLINE_SALES = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource="wh", source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount
@@ -95,7 +96,7 @@ def materialized_project(semantic_project_factory):
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
             ),
             "sales/models.py": _INLINE_SALES,
         }

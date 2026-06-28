@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from marivo.datasource.authoring import (
+    ClickHouseSpec,
     DatasourceRef,
+    DatasourceSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
     clickhouse,
     duckdb,
     mysql,
@@ -55,20 +61,26 @@ from marivo.datasource.scan import (
 from marivo.preview import PreviewResult
 
 __all__ = [
+    "ClickHouseSpec",
     "DatasourceCatalog",
     "DatasourceConnection",
     "DatasourceDescription",
     "DatasourceList",
     "DatasourceRef",
+    "DatasourceSpec",
     "DatasourceSummary",
     "DatasourceTestResult",
     "DiscoveryResult",
+    "DuckDBSpec",
     "JoinSide",
+    "MySQLSpec",
+    "PostgresSpec",
     "PreviewResult",
     "RawSqlResult",
     "ScanScope",
     "TableMetadata",
     "TableSource",
+    "TrinoSpec",
     "clickhouse",
     "connect",
     "csv",

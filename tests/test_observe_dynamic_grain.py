@@ -28,11 +28,11 @@ def _bootstrap_events(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='ops')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n"
     )
     (semantic_dir / "datasets.py").write_text(
-        "import marivo.semantic as ms\n"
-        "events = ms.entity(name='events', datasource='warehouse', source=ms.table('events'))\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
         "@ms.time_dimension(entity=events, granularity='minute', parse=ms.timestamp(timezone='UTC'))\n"
         "def ts(events):\n"
         "    return events.ts\n"

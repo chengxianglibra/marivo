@@ -8,7 +8,7 @@ from pathlib import Path
 import ibis
 
 import marivo.datasource as md
-from marivo.datasource.authoring import _DuckDBSpec
+from marivo.datasource.authoring import DuckDBSpec
 
 
 def _register_orders(project_root: Path) -> None:
@@ -26,12 +26,12 @@ def _register_orders(project_root: Path) -> None:
     )
     con.create_table("customers", {"customer_id": [10, 20, 20, 40]})
     con.disconnect()
-    md.register(_DuckDBSpec(name="warehouse", path=str(db_path)), project_root=project_root)
+    md.register(DuckDBSpec(name="warehouse", path=str(db_path)), project_root=project_root)
 
 
 def test_public_discover_column_families_return_display_results(tmp_path: Path) -> None:
     _register_orders(tmp_path)
-    warehouse = md.ref("warehouse")
+    warehouse = md.ref("datasource.warehouse")
     source = md.table("orders")
     scope = md.unpruned(max_rows=10)
 
@@ -96,7 +96,7 @@ def test_public_discover_measures_reports_missing_column_not_type_mismatch(
     _register_orders(tmp_path)
 
     result = md.discover_measures(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         md.table("orders"),
         columns=("elapsed_time_millis",),
         scope=md.unpruned(max_rows=10),
@@ -111,7 +111,7 @@ def test_public_discover_measures_reports_missing_column_not_type_mismatch(
 
 def test_public_discover_relationship_replaces_probe_join_keys(tmp_path: Path) -> None:
     _register_orders(tmp_path)
-    warehouse = md.ref("warehouse")
+    warehouse = md.ref("datasource.warehouse")
 
     result = md.discover_relationship(
         from_side=md.JoinSide(warehouse, md.table("orders"), columns=("customer_id",)),
@@ -134,7 +134,7 @@ def test_public_discover_dimension_values_are_bounded_runtime_evidence(tmp_path:
     _register_orders(tmp_path)
 
     result = md.discover_dimension_values(
-        md.ref("warehouse"),
+        md.ref("datasource.warehouse"),
         md.table("orders"),
         column="status",
         scope=md.unpruned(max_rows=10),

@@ -3,12 +3,15 @@ from __future__ import annotations
 
 from marivo.semantic import ledger as lg
 
-DOMAIN_PY = "import marivo.semantic as ms\nms.domain(name='sales')\n"
+DOMAIN_PY = (
+    "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+)
 DATASETS_PY = """
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-warehouse = md.ref('warehouse')
+warehouse = md.ref('datasource.warehouse')
 
 orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))
 

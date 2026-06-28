@@ -34,6 +34,7 @@ from marivo.analysis.windows import (
     dump_window,
     normalize_absolute_window_input,
 )
+from marivo.datasource.authoring import DatasourceRef, _require_datasource_ref
 from marivo.semantic.catalog import SemanticKind as CatalogSemanticKind
 from marivo.semantic.catalog import SemanticObject, SemanticRef
 
@@ -590,14 +591,17 @@ def from_pandas(
 def explore_ibis(
     query_builder: Callable[[Any], Any],
     *,
-    datasource: str,
+    datasource: DatasourceRef,
     session: Session | None = None,
     description: str | None = None,
     sources: list[ArtifactRef] | None = None,
 ) -> ExplorationResult:
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
-    backend = resolved_session._connection_runtime.session_backend(datasource)
+    datasource_id = _require_datasource_ref(
+        datasource, argument="mv.explore_ibis(datasource=...)"
+    ).id
+    backend = resolved_session._connection_runtime.session_backend(datasource_id)
     try:
         expr = query_builder(backend)
     except NameError as exc:
@@ -614,7 +618,7 @@ def explore_ibis(
         raise TypeError("explore_ibis query_builder must return an Ibis expression")
     result = execute(
         expr,
-        datasource_name=datasource,
+        datasource_name=datasource_id,
         cache=resolved_session._connection_runtime,
         session_id=resolved_session.id,
     )
@@ -637,7 +641,7 @@ def explore_ibis(
                     intent="explore_ibis",
                     job_ref=None,
                     inputs=source_refs,
-                    params_digest=_digest_text(f"{datasource}:{query or description or ''}"),
+                    params_digest=_digest_text(f"{datasource_id}:{query or description or ''}"),
                 )
             ],
             external_inputs=[frame_ref],
@@ -645,7 +649,7 @@ def explore_ibis(
         source_kind="ibis",
         description=description,
         source_query=query,
-        source_datasource=datasource,
+        source_datasource=datasource_id,
         source_artifact_refs=source_refs,
         promotion_refs=[],
     )

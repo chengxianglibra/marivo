@@ -317,7 +317,9 @@ def test_record_decision_standalone_creates_new_ledger_entry(
     import marivo.semantic as ms
 
     project = semantic_project_factory(
-        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+        {
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        }
     )
     # ms.record_decision() discovers the project from CWD.
     previous = Path.cwd()
@@ -351,7 +353,9 @@ def test_record_decision_standalone_replaces_existing_decision_by_kind(
     import marivo.semantic as ms
 
     project = semantic_project_factory(
-        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+        {
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        }
     )
     previous = Path.cwd()
     os.chdir(project.workspace_dir)
@@ -395,7 +399,9 @@ def test_record_decision_standalone_preserves_unrelated_decisions_on_replace(
     import marivo.semantic as ms
 
     project = semantic_project_factory(
-        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+        {
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        }
     )
     previous = Path.cwd()
     os.chdir(project.workspace_dir)
@@ -447,7 +453,9 @@ def test_record_decision_standalone_normalizes_list_to_tuple(
     import marivo.semantic as ms
 
     project = semantic_project_factory(
-        {"sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales')\n"}
+        {
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        }
     )
     previous = Path.cwd()
     os.chdir(project.workspace_dir)

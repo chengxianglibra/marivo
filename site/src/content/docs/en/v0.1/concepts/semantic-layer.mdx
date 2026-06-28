@@ -139,7 +139,7 @@ ai_context={
 
 Datasources are declared in `models/datasources/*.py` with a typed helper per
 backend. The helper registers the connection; it does not return a value. Semantic
-files refer to a datasource by name through `md.ref("warehouse")`.
+files refer to a datasource by kind-qualified ref through `md.ref("datasource.warehouse")`.
 
 ```python
 # models/datasources/warehouse.py
@@ -221,7 +221,7 @@ anchor that dimensions, measures, and metrics attach to.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Entity name. Becomes `<domain>.<name>`. |
-| `datasource` | `DatasourceRef \| str` | Yes | — | `md.ref("warehouse")` or the global datasource name. |
+| `datasource` | `DatasourceRef` | Yes | — | `md.ref("datasource.warehouse")`. |
 | `source` | source builder | Yes | — | `ms.table(...)`, `ms.parquet(...)`, or `ms.csv(...)`. |
 | `primary_key` | `list[str]` | No | `None` | Column names forming the primary key. |
 | `versioning` | `ms.snapshot \| ms.validity` | No | `None` | Snapshot or SCD2 validity versioning (see below). |
@@ -229,7 +229,7 @@ anchor that dimensions, measures, and metrics attach to.
 | `ai_context` | `AiContext` | No | `None` | Agent-facing context. |
 
 ```python
-warehouse = md.ref("warehouse")
+warehouse = md.ref("datasource.warehouse")
 
 orders = ms.entity(
     name="orders",

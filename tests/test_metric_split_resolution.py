@@ -55,10 +55,11 @@ def test_composition_and_measure_enum_members() -> None:
 # ---------------------------------------------------------------------------
 
 _INLINE_METRICS = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
@@ -107,10 +108,11 @@ def test_semi_additive_over_must_be_time_dimension() -> None:
 # ---------------------------------------------------------------------------
 
 _INLINE_SUM_ON_INTENSIVE = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
 
 @ms.measure(entity=o, additivity="non_additive")
@@ -131,10 +133,11 @@ def test_sum_on_non_additive_measure_is_rejected() -> None:
 # ---------------------------------------------------------------------------
 
 _INLINE_BAD_COMPONENT = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
 
 @ms.measure(entity=o, additivity="additive")
@@ -151,10 +154,11 @@ def test_unknown_composition_component_is_reported() -> None:
 
 
 _INLINE_CYCLE = """\
+import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("wh")
+wh = md.ref("datasource.wh")
 o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
 
 @ms.measure(entity=o, additivity="additive")
