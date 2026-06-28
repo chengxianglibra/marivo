@@ -818,14 +818,20 @@ class SemanticObjectList:
         lines.append("next steps:")
         if self._items:
             first = self._items[0]
-            first_ref = (
-                first.ref.id
-                if first.kind == SemanticKind.DATASOURCE
-                else f"{first.kind}.{first.ref.id}"
-            )
+            first_ref = _catalog_get_id(first)
             lines.append(
                 f"  catalog.get({first_ref!r}){'': <4}# retrieve a SemanticObject by full ref"
             )
+            first_browsable = next(
+                (obj for obj in self._items if str(obj.kind) in _BROWSABLE_PARENT_KINDS),
+                None,
+            )
+            if first_browsable is not None:
+                browse_ref = _catalog_get_id(first_browsable)
+                lines.append(
+                    f"  catalog.list(catalog.get({browse_ref!r}).ref).show()"
+                    "    # browse inside this object"
+                )
         lines.append(
             "  result.refs()                   # obtain all SemanticRef values for analysis handoff"
         )
@@ -857,6 +863,13 @@ _BROWSABLE_PARENT_KINDS: frozenset[str] = frozenset(
         str(SymbolKind.DATASOURCE),
     }
 )
+
+
+def _catalog_get_id(obj: SemanticObject) -> str:
+    """Return the copy-pasteable typed id accepted by catalog.get(...)."""
+    if obj.kind == SemanticKind.DATASOURCE:
+        return obj.ref.id
+    return f"{obj.kind}.{obj.ref.id}"
 
 
 def _supported_kind_members() -> str:
