@@ -35,6 +35,7 @@ DiscoveryObjectKind = Literal[
     "measure",
     "relationship",
 ]
+_DEFAULT_MAX_OUTPUT_BYTES = 64_000
 
 
 @runtime_checkable
@@ -46,9 +47,9 @@ class DiscoveryResult(Protocol):
     the bounded evidence text instead of traversing result fields.
     """
 
-    def render(self) -> str: ...
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str: ...
 
-    def show(self) -> None: ...
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -151,18 +152,19 @@ class PrimaryKeyCandidate:
     def _identity(self) -> str:
         return f"PrimaryKeyCandidate column={self.column} source={self.source}"
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         return _format_discovery_card(
             identity=self._identity(),
             status=f"evidence={_format_evidence_entries(self.evidence)}",
             available=(".evidence", ".render()", ".show()"),
+            max_output_bytes=max_output_bytes,
         )
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
@@ -185,18 +187,19 @@ class FormatCandidate:
     def _identity(self) -> str:
         return f"FormatCandidate format={self.format} kind={self.kind}"
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         return _format_discovery_card(
             identity=self._identity(),
             status=f"matched_count={self.matched_count} ambiguous={self.ambiguous}",
             available=(".render()", ".show()"),
+            max_output_bytes=max_output_bytes,
         )
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True)
@@ -235,7 +238,7 @@ class ColumnDiscovery:
     def _identity(self) -> str:
         return f"ColumnDiscovery column={self.column}"
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         return _format_discovery_card(
             identity=self._identity(),
             status=(
@@ -243,13 +246,14 @@ class ColumnDiscovery:
                 f"signals={_signal_ids(self.signals)} issues={_issue_count(self.issues)}"
             ),
             available=(".profile", ".signals", ".issues", ".render()", ".show()"),
+            max_output_bytes=max_output_bytes,
         )
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
@@ -277,7 +281,7 @@ class TimeColumnDiscovery:
     def _identity(self) -> str:
         return f"TimeColumnDiscovery column={self.column}"
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         return _format_discovery_card(
             identity=self._identity(),
             status=(
@@ -296,13 +300,14 @@ class TimeColumnDiscovery:
                 ".render()",
                 ".show()",
             ),
+            max_output_bytes=max_output_bytes,
         )
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
@@ -352,7 +357,7 @@ class RelationshipDiscoveryEvidence:
         )
         return header, rows
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         header, rows = self._table()
         return _format_discovery_card(
             identity=self._identity(),
@@ -373,20 +378,45 @@ class RelationshipDiscoveryEvidence:
                 ".render()",
                 ".show()",
             ),
+            max_output_bytes=max_output_bytes,
         )
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 # ----- Shared card formatter -----
 
 
-_MAX_TABLE_ROWS = 8
 _MAX_INLINE_ITEMS = 3
+_OUTPUT_TRUNCATION_HINT = (
+    "rerun with max_output_bytes=None or write render(max_output_bytes=None) to a file"
+)
+
+
+def _apply_output_cap(text: str, max_output_bytes: int | None) -> str:
+    if max_output_bytes is None:
+        return text
+    if max_output_bytes < 1:
+        raise ValueError("max_output_bytes must be positive.")
+    raw = text.encode("utf-8")
+    if len(raw) <= max_output_bytes:
+        return text
+
+    suffix = (
+        f"\n... output truncated bytes={len(raw)} "
+        f"max_output_bytes={max_output_bytes}; {_OUTPUT_TRUNCATION_HINT}"
+    )
+    suffix_bytes = suffix.encode("utf-8")
+    if len(suffix_bytes) >= max_output_bytes:
+        return suffix_bytes[:max_output_bytes].decode("utf-8", errors="ignore").rstrip("\n")
+
+    prefix_bytes = raw[: max_output_bytes - len(suffix_bytes)]
+    prefix = prefix_bytes.decode("utf-8", errors="ignore").rstrip("\n")
+    return f"{prefix}{suffix}"
 
 
 def _format_scalar(value: object | None) -> str:
@@ -416,14 +446,12 @@ def _append_issue_lines(
     if not issues:
         return
     lines.append(f"{title}:")
-    for issue in issues[:_MAX_TABLE_ROWS]:
+    for issue in issues:
         lines.append(
             "  "
             f"{issue.rule_id} severity={issue.severity} subject={issue.subject} "
             f"message={issue.message} evidence={_format_evidence_entries(issue.evidence)}"
         )
-    if len(issues) > _MAX_TABLE_ROWS:
-        lines.append(f"  ... {len(issues) - _MAX_TABLE_ROWS} more; rerun with narrower scope")
 
 
 def _format_top_values(profile: ColumnProfile) -> str:
@@ -486,18 +514,19 @@ def _format_discovery_card(
     table_rows: tuple[tuple[str, ...], ...] | None = None,
     result_issues: tuple[DiscoveryIssue, ...] = (),
     available: tuple[str, ...] = (".render()", ".show()"),
+    max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
 ) -> str:
-    """Render a bounded discovery result card without a trailing newline."""
+    """Render discovery evidence with final-text byte capping only."""
     lines: list[str] = [identity, f"status: {status}"]
     _append_issue_lines(lines, title="result issues", issues=result_issues)
     if table_header is not None and table_rows is not None:
         lines.append("columns: " + " | ".join(table_header))
-        for row in table_rows[:_MAX_TABLE_ROWS]:
+        for row in table_rows:
             lines.append(" | ".join(row))
     lines.append("available:")
     for entry in available:
         lines.append(f"- {entry}")
-    return "\n".join(lines)
+    return _apply_output_cap("\n".join(lines), max_output_bytes)
 
 
 def _signal_ids(signals: tuple[DiscoverySignal, ...]) -> str:
@@ -540,74 +569,51 @@ class EntityDiscoveryResult:
     def _identity(self) -> str:
         return f"EntityDiscoveryResult datasource={self.datasource.id} table={self.table}"
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
         _append_issue_lines(lines, title="result issues", issues=self.issues)
         if self.table_metadata is not None and self.table_metadata.columns:
             lines.append("schema columns:")
-            for column in self.table_metadata.columns[:_MAX_TABLE_ROWS]:
+            for column in self.table_metadata.columns:
                 nullable = "Y" if column.nullable else ("N" if column.nullable is False else "?")
                 row = f"  {column.name} | {column.type} | {nullable}"
                 if column.comment:
                     row += f" | {column.comment}"
                 lines.append(row)
-            if len(self.table_metadata.columns) > _MAX_TABLE_ROWS:
-                lines.append(
-                    f"  ... {len(self.table_metadata.columns) - _MAX_TABLE_ROWS} more; "
-                    "inspect table metadata for all columns"
-                )
         else:
             lines.append("schema columns: none")
         if self.primary_key_evidence:
             lines.append("primary key evidence:")
-            for candidate in self.primary_key_evidence[:_MAX_TABLE_ROWS]:
+            for candidate in self.primary_key_evidence:
                 lines.append(
                     "  "
                     f"{candidate.column} source={candidate.source} "
                     f"evidence={_format_evidence_entries(candidate.evidence)}"
                 )
-            if len(self.primary_key_evidence) > _MAX_TABLE_ROWS:
-                lines.append(
-                    f"  ... {len(self.primary_key_evidence) - _MAX_TABLE_ROWS} more; "
-                    "rerun with a narrower source or explicit scope for less evidence"
-                )
         else:
             lines.append("primary key evidence: none")
-        lines.append(
-            "time-like columns: " + (", ".join(self.time_like_columns[:_MAX_TABLE_ROWS]) or "none")
-        )
-        if len(self.time_like_columns) > _MAX_TABLE_ROWS:
-            lines.append(f"  ... {len(self.time_like_columns) - _MAX_TABLE_ROWS} more")
-        lines.append(
-            "partition columns: " + (", ".join(self.partition_columns[:_MAX_TABLE_ROWS]) or "none")
-        )
-        if len(self.partition_columns) > _MAX_TABLE_ROWS:
-            lines.append(f"  ... {len(self.partition_columns) - _MAX_TABLE_ROWS} more")
+        lines.append("time-like columns: " + (", ".join(self.time_like_columns) or "none"))
+        lines.append("partition columns: " + (", ".join(self.partition_columns) or "none"))
         if self.column_profiles:
             lines.append("column profiles:")
-            for profile in self.column_profiles[:_MAX_TABLE_ROWS]:
+            for profile in self.column_profiles:
                 lines.append(
                     "  "
                     f"{profile.name} {_format_profile_summary(profile)} "
                     f"top={_format_top_values(profile)} samples={_format_sample_values(profile)}"
-                )
-            if len(self.column_profiles) > _MAX_TABLE_ROWS:
-                lines.append(
-                    f"  ... {len(self.column_profiles) - _MAX_TABLE_ROWS} more; "
-                    "rerun with a narrower source, explicit columns, or smaller scope"
                 )
         else:
             lines.append("column profiles: none")
         lines.append("available:")
         for entry in (".render()", ".show()"):
             lines.append(f"- {entry}")
-        return "\n".join(lines)
+        return _apply_output_cap("\n".join(lines), max_output_bytes)
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
@@ -639,7 +645,7 @@ class DimensionDiscoveryResult:
         )
         return header, rows
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         header, rows = self._table()
         return _format_discovery_card(
             identity=self._identity(),
@@ -647,13 +653,14 @@ class DimensionDiscoveryResult:
             table_header=header,
             table_rows=rows,
             result_issues=self.issues,
+            max_output_bytes=max_output_bytes,
         )
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
@@ -672,12 +679,12 @@ class TimeDimensionDiscoveryResult:
             f"columns={len(self.columns)}"
         )
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
         _append_issue_lines(lines, title="result issues", issues=self.issues)
         if self.columns:
             lines.append("time column evidence:")
-            for column in self.columns[:_MAX_TABLE_ROWS]:
+            for column in self.columns:
                 lines.append(
                     "  "
                     f"{column.column} {_format_profile_summary(column.profile)} "
@@ -687,23 +694,18 @@ class TimeDimensionDiscoveryResult:
                     f"signals={_signal_ids(column.signals)} "
                     f"issues={_issue_ids(column.issues)}"
                 )
-            if len(self.columns) > _MAX_TABLE_ROWS:
-                lines.append(
-                    f"  ... {len(self.columns) - _MAX_TABLE_ROWS} more; "
-                    "rerun with columns=(...) to inspect a smaller candidate set"
-                )
         else:
             lines.append("time column evidence: none")
         lines.append("available:")
         for entry in (".render()", ".show()"):
             lines.append(f"- {entry}")
-        return "\n".join(lines)
+        return _apply_output_cap("\n".join(lines), max_output_bytes)
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
@@ -733,7 +735,7 @@ class MeasureDiscoveryResult:
         )
         return header, rows
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         header, rows = self._table()
         return _format_discovery_card(
             identity=self._identity(),
@@ -741,13 +743,14 @@ class MeasureDiscoveryResult:
             table_header=header,
             table_rows=rows,
             result_issues=self.issues,
+            max_output_bytes=max_output_bytes,
         )
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
@@ -761,7 +764,7 @@ class RelationshipDiscoveryResult:
         from_name = getattr(e.from_side.datasource, "name", e.from_side.datasource)
         return f"RelationshipDiscoveryResult from={from_name} match_rate={e.match_rate:.2f}"
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         e = self.evidence
         status = (
             f"evidence_only sampled_keys={e.sampled_key_count} "
@@ -772,15 +775,10 @@ class RelationshipDiscoveryResult:
         _append_issue_lines(lines, title="result issues", issues=self.issues)
         if e.key_type_evidence:
             lines.append("key type evidence:")
-            for item in e.key_type_evidence[:_MAX_TABLE_ROWS]:
+            for item in e.key_type_evidence:
                 lines.append(
                     f"  {item.side}.{item.column} type_family={item.type_family} "
                     f"data_type={item.data_type}"
-                )
-            if len(e.key_type_evidence) > _MAX_TABLE_ROWS:
-                lines.append(
-                    f"  ... {len(e.key_type_evidence) - _MAX_TABLE_ROWS} more; "
-                    "rerun with fewer key columns"
                 )
         else:
             lines.append("key type evidence: none")
@@ -792,13 +790,13 @@ class RelationshipDiscoveryResult:
         lines.append("available:")
         for entry in (".render()", ".show()"):
             lines.append(f"- {entry}")
-        return "\n".join(lines)
+        return _apply_output_cap("\n".join(lines), max_output_bytes)
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
@@ -823,7 +821,7 @@ class DimensionValueDiscoveryResult:
         rows = tuple((str(v.value), str(v.count)) for v in self.values)
         return header, rows
 
-    def render(self) -> str:
+    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
         header, rows = self._table()
         exhaustive = "exhaustive" if self.complete else "not_exhaustive"
         status = f"{exhaustive} rows={self.scan.rows_scanned} truncated={self.scan.truncated}"
@@ -833,6 +831,7 @@ class DimensionValueDiscoveryResult:
             table_header=header,
             table_rows=rows,
             result_issues=self.issues,
+            max_output_bytes=None,
         )
         lines = rendered.splitlines()
         lines.insert(-3, f"signals: {_signal_ids(self.signals)}")
@@ -842,13 +841,13 @@ class DimensionValueDiscoveryResult:
                 -3,
                 "truncation hint: rerun with a larger limit or narrower scope for more values",
             )
-        return "\n".join(lines)
+        return _apply_output_cap("\n".join(lines), max_output_bytes)
 
     def __repr__(self) -> str:
         return result_repr(self._identity())
 
-    def show(self) -> None:
-        print(self.render())
+    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)

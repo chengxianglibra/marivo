@@ -19,8 +19,12 @@ Before asking the user, inspect the evidence Marivo can already provide:
 - existing semantic catalog objects via `ms.load()`;
 - project docs, source SQL/provenance, and prior decisions when present.
 
-Read discovery results through `.show()` / `.render()`. Do not depend on
-concrete discovery result classes or internal evidence fields.
+Read discovery results through `.show()` / `.render()`. For wide tables or large
+profiles, use `.render(max_output_bytes=None)` and write the text to a file for
+chunked inspection. If discovery reports `discovery_column_limit_truncated`,
+increase the `ScanScope.max_columns` budget; this is separate from output byte
+limits. Do not depend on concrete discovery result classes or internal evidence
+fields.
 
 Ask the user only for semantic intent, business policy, or ambiguity that
 remains after that evidence pass.

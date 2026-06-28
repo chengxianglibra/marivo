@@ -161,6 +161,24 @@ def test_build_dimension_result_wires_scan_rules_and_columns() -> None:
     assert result_signal_ids.isdisjoint(column_signal_ids)
 
 
+def test_dimension_result_full_render_lists_all_wide_table_columns() -> None:
+    profiles = tuple(_profile(f"dimension_col_{i:02d}", "VARCHAR") for i in range(1, 69))
+    result = build_dimension_result(
+        datasource=ref("warehouse"),
+        source=table("wide_orders"),
+        table_metadata=None,
+        scan=_scan(),
+        scope=ScanScope(max_columns=100),
+        column_profiles=profiles,
+    )
+
+    rendered = result.render(max_output_bytes=None)
+
+    assert "dimension_col_01" in rendered
+    assert "dimension_col_68" in rendered
+    assert "... 60 more" not in rendered
+
+
 def test_build_measure_result_marks_non_numeric_blocker() -> None:
     profile = _profile("label", "VARCHAR")
     result = build_measure_result(
@@ -175,6 +193,24 @@ def test_build_measure_result_marks_non_numeric_blocker() -> None:
     blocker = [i for i in result.columns[0].issues if i.severity == "blocker"]
     assert any(i.rule_id == "unsupported_type" for i in blocker)
     assert not hasattr(result, "judgment_targets")
+
+
+def test_measure_result_full_render_lists_all_wide_table_columns() -> None:
+    profiles = tuple(_profile(f"measure_col_{i:02d}", "DOUBLE") for i in range(1, 69))
+    result = build_measure_result(
+        datasource=ref("warehouse"),
+        source=table("wide_orders"),
+        table_metadata=None,
+        scan=_scan(),
+        scope=ScanScope(max_columns=100),
+        column_profiles=profiles,
+    )
+
+    rendered = result.render(max_output_bytes=None)
+
+    assert "measure_col_01" in rendered
+    assert "measure_col_68" in rendered
+    assert "... 60 more" not in rendered
 
 
 def test_resolve_partition_explicit_unpruned_and_unresolved() -> None:
