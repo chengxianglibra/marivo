@@ -294,6 +294,9 @@ def test_metadata_rules_forward_warnings() -> None:
         partitions=(),
         warnings=(
             MetadataWarning(kind="partitions_unavailable", message="no partitions"),
+            MetadataWarning(
+                kind="table_comments_unavailable", message="table comments unavailable"
+            ),
             MetadataWarning(kind="metadata_query_failed", message="boom"),
         ),
     )
@@ -301,9 +304,11 @@ def test_metadata_rules_forward_warnings() -> None:
     assert [i.rule_id for i in issues] == [
         "discovery_metadata_warning",
         "discovery_metadata_warning",
+        "discovery_metadata_warning",
     ]
     severities = {i.message: i.severity for i in issues}
     assert severities["no partitions"] == "info"
+    assert severities["table comments unavailable"] == "info"
     assert severities["boom"] == "warning"
 
 

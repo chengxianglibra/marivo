@@ -505,6 +505,55 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     assert any("information_schema.columns" in query for query in backend.queries)
 
 
+def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailable(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+
+    class _TableCommentMissingBackend(_FakeBackend):
+        def raw_sql(self, sql: str):
+            if sql.startswith("SELECT comment FROM information_schema.tables"):
+                self.queries.append(sql)
+                raise Exception("COLUMN_NOT_FOUND: line 1:8: Column 'comment' cannot be resolved")
+            return super().raw_sql(sql)
+
+    backend = _TableCommentMissingBackend(
+        {"order_id": "int64", "amount": "float64"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", "订单ID", 1),
+                    ("amount", "double", "YES", "金额", 2),
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("trino_wh", table="orders")
+
+    by_name = {column.name: column for column in metadata.columns}
+    assert by_name["order_id"].comment == "订单ID"
+    assert by_name["amount"].comment == "金额"
+    warning_kinds = {warning.kind for warning in metadata.warnings}
+    assert "table_comments_unavailable" in warning_kinds
+    assert "comments_unavailable" not in warning_kinds
+    assert "metadata_query_failed" not in warning_kinds
+
+
 def test_inspect_table_trino_detects_view_definition(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -635,7 +684,8 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
         "SELECT column_name, data_type, is_nullable, ordinal_position" in query
         for query in backend.queries
     )
-    assert any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
+    assert any(warning.kind == "column_comments_unavailable" for warning in metadata.warnings)
+    assert not any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
     assert not any(warning.kind == "metadata_query_failed" for warning in metadata.warnings)
 
 
