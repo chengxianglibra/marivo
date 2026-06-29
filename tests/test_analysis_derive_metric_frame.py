@@ -240,3 +240,133 @@ def test_derive_metric_frame_grain_token_consistent_for_non_string_grain(
     window_grain = frame.meta.window["grain"]
     assert axes_grain == window_grain
     assert axes_grain == "2hour"
+
+
+def test_derive_metric_frame_grain_does_not_aggregate(tmp_path, monkeypatch) -> None:
+    """grain annotates window metadata; it does not aggregate the build output."""
+    row_level_df = pd.DataFrame(
+        {
+            "cohort_date": [
+                "2026-06-01",
+                "2026-06-05",
+                "2026-06-10",
+                "2026-06-15",
+                "2026-06-20",
+            ],
+            "region": ["US"] * 5,
+            "value": [10.0, 20.0, 30.0, 40.0, 50.0],
+        }
+    )
+    session = _session_with_fake_backend(tmp_path, monkeypatch, row_level_df)
+    metric = session.catalog.get("metric.sales.revenue")
+    region = session.catalog.get("dimension.sales.orders.region")
+    order_date = session.catalog.get("time_dimension.sales.orders.order_date")
+
+    frame = session.derive_metric_frame(
+        metric=metric,
+        query=mv.ibis_query(
+            datasource=md.ref("datasource.warehouse"),
+            build=lambda db, ctx: _Expr(),
+        ),
+        columns=mv.metric_columns(
+            value="value",
+            time=mv.time_column(column="cohort_date", ref=order_date),
+            dimensions=[
+                mv.dimension_column(column="region", ref=region),
+            ],
+        ),
+        timescope={"start": "2026-06-01", "end": "2026-07-01"},
+        grain="month",
+        label="revenue_by_month",
+    )
+
+    df = frame.to_pandas()
+    assert len(df) == 5
+    assert df["value"].tolist() == [10.0, 20.0, 30.0, 40.0, 50.0]
+
+
+def test_derive_metric_frame_retains_unbound_columns_with_grain(tmp_path, monkeypatch) -> None:
+    """Unbound columns in the build output are retained when grain is set."""
+    df_with_extra = pd.DataFrame(
+        {
+            "cohort_date": ["2026-06-01", "2026-06-15"],
+            "region": ["US", "US"],
+            "value": [10.0, 20.0],
+            "order_id": [1, 2],
+            "user_id": [100, 200],
+        }
+    )
+    session = _session_with_fake_backend(tmp_path, monkeypatch, df_with_extra)
+    metric = session.catalog.get("metric.sales.revenue")
+    region = session.catalog.get("dimension.sales.orders.region")
+    order_date = session.catalog.get("time_dimension.sales.orders.order_date")
+
+    frame = session.derive_metric_frame(
+        metric=metric,
+        query=mv.ibis_query(
+            datasource=md.ref("datasource.warehouse"),
+            build=lambda db, ctx: _Expr(),
+        ),
+        columns=mv.metric_columns(
+            value="value",
+            time=mv.time_column(column="cohort_date", ref=order_date),
+            dimensions=[
+                mv.dimension_column(column="region", ref=region),
+            ],
+        ),
+        timescope={"start": "2026-06-01", "end": "2026-07-01"},
+        grain="month",
+    )
+
+    df = frame.to_pandas()
+    assert set(df.columns) == {"cohort_date", "region", "value", "order_id", "user_id"}
+    assert len(df) == 2
+
+
+def test_derive_metric_frame_optional_timescope_without_time_column(tmp_path, monkeypatch) -> None:
+    """timescope=None produces a frame with no window (scalar kind)."""
+    session = _session_with_fake_backend(
+        tmp_path,
+        monkeypatch,
+        pd.DataFrame({"value": [10.0]}),
+    )
+
+    frame = session.derive_metric_frame(
+        metric=session.catalog.get("metric.sales.revenue"),
+        query=mv.ibis_query(
+            datasource=md.ref("datasource.warehouse"),
+            build=lambda db, ctx: _Expr(),
+        ),
+        columns=mv.metric_columns(value="value"),
+        timescope=None,
+    )
+
+    assert isinstance(frame, mv.MetricFrame)
+    assert frame.meta.semantic_kind == "scalar"
+    assert frame.meta.window is None
+
+
+def test_derive_context_bucket_returns_original_when_no_grain() -> None:
+    from marivo.analysis.derive import DeriveContext
+
+    ctx = DeriveContext(metric_id="m", timescope={}, grain=None, label=None)
+    sentinel = object()
+    assert ctx.bucket(sentinel) is sentinel
+
+
+def test_derive_context_bucket_truncates_for_month_grain() -> None:
+    from marivo.analysis.derive import DeriveContext
+
+    class _MockExpr:
+        def __init__(self) -> None:
+            self.truncated_to: str | None = None
+
+        def truncate(self, unit: str) -> _MockExpr:
+            self.truncated_to = unit
+            return self
+
+    ctx = DeriveContext(metric_id="m", timescope={}, grain="month", label=None)
+    expr = _MockExpr()
+    result = ctx.bucket(expr)
+    assert result is expr
+    assert expr.truncated_to == "M"

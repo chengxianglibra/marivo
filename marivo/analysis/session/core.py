@@ -14,6 +14,7 @@ from marivo.analysis.timezone import resolve_system_timezone
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
+    from marivo.analysis.derive import IbisQuerySpec, MetricColumns
     from marivo.analysis.evidence import (
         Assessment,
         EvidenceTrace,
@@ -704,19 +705,27 @@ class Session:
         self,
         *,
         metric: MetricInput,
-        query: object,
-        columns: object,
-        timescope: TimeScopeInput,
+        query: IbisQuerySpec,
+        columns: MetricColumns,
+        timescope: TimeScopeInput = None,
         grain: GrainInput = None,
         label: str | None = None,
     ) -> MetricFrame:
-        """Run a governed Ibis query and validate the output as a MetricFrame.
+        """Run a governed Ibis query and attach MetricFrame metadata to the result.
 
         This is the only default escape hatch that can re-enter the canonical
         metric-frame workflow. Semantic refs identify the metric and axis
-        bindings; query output columns are always plain strings. Unbound
-        columns in the build output are retained as-is; project within build
-        to limit the column set.
+        bindings; query output columns are always plain strings.
+
+        Unlike ``observe``, this method does not compute, filter, or aggregate
+        data -- the ``build`` callback owns the query output. ``timescope`` and
+        ``grain`` annotate the frame's window metadata and are passed to ``build``
+        via ``ctx`` for convenience (e.g., ``ctx.bucket()`` for time truncation).
+        The query output is used verbatim. Unbound columns in the build output
+        are retained as-is; project within build to limit the column set.
+
+        ``timescope`` defaults to ``None`` (no window) for frames without a time
+        axis.
         """
         from marivo.analysis.derive import IbisQuerySpec, MetricColumns, derive_metric_frame
 

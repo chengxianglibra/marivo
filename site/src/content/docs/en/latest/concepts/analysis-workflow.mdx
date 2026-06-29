@@ -276,6 +276,11 @@ custom = session.derive_metric_frame(
 custom.show()
 ```
 
+Unlike `observe`, `derive_metric_frame` does not filter or aggregate the `build`
+output — `timescope` and `grain` annotate the frame's window metadata and are
+passed to `build` via `ctx`. Use `ctx.bucket(time_expr)` inside `build()` to
+truncate timestamps to grain boundaries.
+
 Use `artifact.to_pandas()` for terminal local pandas work that does not need to
 feed typed Marivo operators.
 
