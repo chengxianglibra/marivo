@@ -714,7 +714,9 @@ class Session:
 
         This is the only default escape hatch that can re-enter the canonical
         metric-frame workflow. Semantic refs identify the metric and axis
-        bindings; query output columns are always plain strings.
+        bindings; query output columns are always plain strings. Unbound
+        columns in the build output are retained as-is; project within build
+        to limit the column set.
         """
         from marivo.analysis.derive import IbisQuerySpec, MetricColumns, derive_metric_frame
 

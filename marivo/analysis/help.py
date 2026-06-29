@@ -510,7 +510,8 @@ def _agent_surface_content() -> dict[str, object]:
         ],
         "derive_boundary": (
             "derive_metric_frame uses semantic refs for metric and axis bindings; "
-            "query output columns are plain strings."
+            "query output columns are plain strings. Unbound columns in the build "
+            "output are retained as-is; project within build to limit the column set."
         ),
         "quality_boundary": (
             "quality_summary is a cheap persisted metadata projection; "
