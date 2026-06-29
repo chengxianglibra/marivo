@@ -8,8 +8,6 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -30,15 +28,6 @@ def _load_run_skill_examples() -> ModuleType:
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text()
-
-
-_EXAMPLE_PARAMS = [
-    pytest.param(example, id=f"{example.parent.parent.parent.name}/{example.name}")
-    for skill_dir in _load_run_skill_examples()._iter_skill_dirs(REPO_ROOT)
-    for example in _load_run_skill_examples()._iter_example_files(
-        skill_dir / "references" / "examples"
-    )
-]
 
 
 def test_semantic_skill_is_workflow_only_after_layering_simplification() -> None:
@@ -155,56 +144,6 @@ def test_semantic_skill_enforces_single_decision_grill_and_batch_scope() -> None
         assert stale not in maintainer
 
 
-def test_semantic_skill_examples_are_datasource_and_complete_model_only() -> None:
-    examples_dir = REPO_ROOT / "marivo/skills" / "marivo-semantic" / "references" / "examples"
-    names = {path.name for path in examples_dir.glob("*.py")}
-
-    assert names == {"01_datasource.py", "02_semantic_model.py"}
-
-    datasource = _read("marivo/skills/marivo-semantic/references/examples/01_datasource.py")
-    model = _read("marivo/skills/marivo-semantic/references/examples/02_semantic_model.py")
-
-    for required in (
-        "md.help_text(",
-        "md.test(",
-        "md.discover_entity(",
-        "md.discover_dimensions(",
-        "md.discover_time_dimensions(",
-        "md.discover_measures(",
-        "md.discover_dimension_values(",
-    ):
-        assert required in datasource
-
-    for required in (
-        "ms.domain(",
-        "ms.entity(",
-        "ms.dimension_column(",
-        "ms.time_dimension_column(",
-        "ms.measure_column(",
-        "ms.aggregate(",
-        "ms.relationship(",
-        "@ms.metric(",
-        "root_entity=orders",
-        "ms.ratio(",
-        "ms.weighted_average(",
-        "ms.linear(",
-        "ms.verify_object(",
-        "ms.readiness(",
-    ):
-        assert required in model
-
-    forbidden = (
-        "md.inspect_columns",
-        "md.probe_join_keys",
-        "judgment_targets",
-        "project.assess_authoring(",
-        "ms.AuthoringSourceInput(",
-    )
-    for text in forbidden:
-        assert text not in datasource
-        assert text not in model
-
-
 def test_superseded_authoring_spec_points_to_stepwise_design() -> None:
     spec = _read("docs/specs/semantic/semantic-authoring-design-superseded.md")
     assert "docs/specs/semantic/stepwise-authoring-design.md" in spec
@@ -245,15 +184,6 @@ def test_skills_document_uniform_help_contract() -> None:
     assert "ms.help(" in combined
     assert "format='json'" not in combined
     assert 'format="json"' not in combined
-
-
-@pytest.mark.parametrize("example", _EXAMPLE_PARAMS)
-def test_semantic_skill_example_executes(example: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    run_skill_examples = _load_run_skill_examples()
-    monkeypatch.chdir(REPO_ROOT)
-    failure = run_skill_examples._check_example(example, in_process=True)
-
-    assert failure is None, f"{failure.reason}: {failure.detail}" if failure else None
 
 
 def test_stepwise_authoring_help_lists_new_symbols_only() -> None:

@@ -156,7 +156,7 @@ def _constraint(
 
 
 _EXAMPLE_BASE = "marivo/skills/marivo-semantic/references/examples"
-_SEMANTIC_MODEL_EXAMPLE = f"{_EXAMPLE_BASE}/02_semantic_model.py"
+_SEMANTIC_AUTHOR_EXAMPLE = f"{_EXAMPLE_BASE}/02_author_one_object.py"
 _SEMANTIC_WORKFLOW_REF = "marivo/skills/marivo-semantic/SKILL.md"
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
@@ -176,7 +176,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Decorators require an active semantic loader context.",
         "Semantic declarations register into the project loader registry, not global process state.",
         "Put declarations under models/semantic/<model>/ and load them with ms.load().",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.ACTIVE_DOMAIN_REQUIRED: _constraint(
         ConstraintId.ACTIVE_DOMAIN_REQUIRED,
@@ -186,7 +186,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Declarations need a domain namespace.",
         "Every semantic object is stored as <domain>.<name>.",
         "Call ms.domain(name=..., owner=...) in _domain.py or pass domain=... explicitly.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.UNIQUE_SEMANTIC_NAME: _constraint(
         ConstraintId.UNIQUE_SEMANTIC_NAME,
@@ -214,7 +214,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "References must be typed refs returned by Marivo authoring helpers.",
         "The loader persists semantic ids, not arbitrary Python objects.",
         'Use md.ref("datasource.warehouse") for datasource parameters and EntityRef/DimensionRef/MetricRef values returned by decorators.',
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.COMPOSITION_SHAPE: _constraint(
         ConstraintId.COMPOSITION_SHAPE,
@@ -224,7 +224,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metrics need a supported composition builder.",
         "Composition declares how metric values compose during drilldown and derived calculations.",
         "Run ms.help('composition') to inspect supported builders; SQL aggregation belongs in the metric body.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.METRIC_ENTITIES_REQUIRED: _constraint(
         ConstraintId.METRIC_ENTITIES_REQUIRED,
@@ -235,7 +235,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Entity-backed metrics read source rows from their declared entity arguments.",
         "Simple metrics need entities=[...]; use ms.ratio/ms.weighted_average/ms.linear "
         "for metrics composed from other metrics.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
         ConstraintId.METRIC_COMPONENT_SCOPE,
@@ -245,7 +245,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ms.component() is no longer supported in metric bodies.",
         "Derived metrics are body-free and declare composition through ms.ratio/ms.weighted_average/ms.linear.",
         "Remove ms.component() calls; use ms.ratio/ms.weighted_average/ms.linear with composition metadata instead.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.AI_CONTEXT_SCHEMA: _constraint(
         ConstraintId.AI_CONTEXT_SCHEMA,
@@ -265,7 +265,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Domains require a named human owner.",
         "Domain owners are accountable for semantic correctness and quality.",
         'Pass owner="Mina Zhang" to ms.domain(...).',
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.AST_SINGLE_RETURN: _constraint(
         ConstraintId.AST_SINGLE_RETURN,
@@ -275,7 +275,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Decorator function bodies must be a single return expression.",
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
         "Inline the expression directly as return <ibis expression>.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_FORBIDDEN_STATEMENT: _constraint(
@@ -290,7 +290,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ms.ratio(numerator=, denominator=), ms.linear(add=, subtract=), or "
         "ms.weighted_average(value=, weight=). For conditionals, use ibis "
         ".ifelse() / ibis.cases() inside the one return expression.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_SQL_ESCAPE_HATCH: _constraint(
@@ -301,7 +301,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Raw SQL calls are not allowed in Python-track expression bodies.",
         "The Python semantic track stores ibis expressions; SQL text is provenance only.",
         "Use ibis expressions in the body and put the original SQL in provenance=ms.from_sql(...) on metrics.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_IBIS_ATTR_SHADOW: _constraint(
@@ -312,7 +312,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Attribute accesses on entity table parameters must not shadow ibis Table methods/properties.",
         "Dot notation (e.g. table.schema) resolves to the ibis Table method instead of the column when the name conflicts. The planner then fails with an unhelpful AttributeError.",
         'Use bracket notation for column names that conflict with ibis Table attributes: table["schema"] instead of table.schema.',
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.DOMAIN_FILE_PRESENT: _constraint(
@@ -323,7 +323,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Each domain directory needs a _domain.py file that calls ms.domain().",
         "The loader uses _domain.py to establish the domain namespace.",
         'Create models/semantic/<domain>/_domain.py with ms.domain(name="<domain>", owner="Mina Zhang").',
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.DOMAIN_FILE_MATCHES_DIRECTORY: _constraint(
         ConstraintId.DOMAIN_FILE_MATCHES_DIRECTORY,
@@ -342,7 +342,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Entity and datasource references must resolve.",
         "Semantic objects compile through registered datasource and entity ids.",
         "Reference a declared datasource name or EntityRef/qualified entity id.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.DIMENSION_REF_EXISTS: _constraint(
         ConstraintId.DIMENSION_REF_EXISTS,
@@ -361,7 +361,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metric component references must resolve.",
         "Derived metrics compose existing metrics.",
         "Reference a declared MetricRef or qualified metric id in decomposition components.",
-        example=_SEMANTIC_MODEL_EXAMPLE,
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.METRIC_GRAPH_ACYCLIC: _constraint(
         ConstraintId.METRIC_GRAPH_ACYCLIC,

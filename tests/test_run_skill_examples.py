@@ -38,82 +38,82 @@ def _make_skill_tree(root: Path, skill_name: str, *, skill_md: str = "# placehol
     return examples_dir
 
 
-_VALID_DATASOURCE_EXAMPLE = textwrap.dedent(
+_VALID_DISCOVER_AND_GRILL_EXAMPLE = textwrap.dedent(
     """
     from types import SimpleNamespace
 
     def result(*args, **kwargs):
-        return SimpleNamespace(table="orders", columns=[], values=[], ok=True)
+        return SimpleNamespace(table="orders", columns=[], values=[], ok=True, show=lambda: None)
 
     md = SimpleNamespace(
         help_text=result,
         test=result,
+        table=lambda name: name,
+        ref=lambda name: name,
+        unpruned=lambda **kwargs: kwargs,
         discover_entity=result,
         discover_dimensions=result,
         discover_time_dimensions=result,
         discover_measures=result,
         discover_dimension_values=result,
     )
+    ms = SimpleNamespace(
+        load=lambda: SimpleNamespace(list=lambda: SimpleNamespace(show=lambda: None)),
+        ref=lambda value: SimpleNamespace(id=value),
+        verify_object=result,
+    )
 
     md.help_text("discover_entity")
-    md.test("warehouse")
-    md.discover_entity()
-    md.discover_dimensions()
-    md.discover_time_dimensions()
-    md.discover_measures()
-    md.discover_dimension_values()
-    print("semantic datasource example ok")
+    warehouse = md.ref("datasource.warehouse")
+    orders = md.table("orders")
+    scope = md.unpruned(max_rows=100)
+    md.test(warehouse)
+    md.discover_entity(warehouse, orders, scope=scope)
+    md.discover_dimensions(warehouse, orders, columns=("region",), scope=scope)
+    md.discover_time_dimensions(warehouse, orders, columns=("order_date",), scope=scope)
+    md.discover_measures(warehouse, orders, columns=("amount",), scope=scope)
+    md.discover_dimension_values(warehouse, orders, column="status", limit=5, scope=scope)
+    ms.load().list().show()
+    print("GRILL: Should status='refunded' be modeled as an excluded order state or as refund amount?")
     """
 ).lstrip()
 
-_VALID_MODEL_EXAMPLE = textwrap.dedent(
+_VALID_AUTHOR_ONE_OBJECT_EXAMPLE = textwrap.dedent(
     """
+    from pathlib import Path
     from types import SimpleNamespace
 
     def result(*args, **kwargs):
-        return SimpleNamespace(status="ok")
-
-    def metric(*args, **kwargs):
-        def decorator(fn):
-            return fn
-        return decorator
+        return SimpleNamespace(status="passed", show=lambda: None)
 
     ms = SimpleNamespace(
-        measure_column=result,
-        aggregate=result,
-        relationship=result,
-        metric=metric,
-        ratio=result,
-        weighted_average=result,
-        linear=result,
-        ref=result,
+        dimension_column=result,
+        help=lambda topic: None,
+        ref=lambda value: SimpleNamespace(id=value),
         verify_object=result,
         readiness=result,
     )
-    orders = object()
 
-    # Comments should not affect semantic validation:
-    # md.inspect_columns
-    # judgment_targets
-
-    ms.measure_column()
-    ms.aggregate()
-    ms.relationship()
-
-    @ms.metric(root_entity=orders)
-    def revenue_by_customer_country():
-        return 1
-
-    ms.ratio()
-    ms.weighted_average()
-    ms.linear()
-    ms.verify_object(ms.ref("entity.sales.orders"))
-    ms.readiness(refs=(ms.ref("entity.sales.orders"),))
-    print("semantic model example ok")
+    declaration = "import marivo.semantic as ms\\nregion = 'declared by fixture'\\n"
+    Path("models/semantic/sales").mkdir(parents=True, exist_ok=True)
+    Path("models/semantic/sales/order_region.py").write_text(declaration)
+    ms.help("dimension_column")
+    dimension = ms.dimension_column(
+        name="region",
+        entity=ms.ref("entity.sales.orders"),
+        column="region",
+    )
+    dimension.show()
+    ref = ms.ref("dimension.sales.orders.region")
+    verification = ms.verify_object(ref)
+    verification.show()
+    readiness = ms.readiness(refs=(ref,))
+    readiness.show()
+    print("verified:", ref.id)
     """
 ).lstrip()
 
-_COMMENT_ONLY_DATASOURCE_EXAMPLE = textwrap.dedent(
+_COMMENT_ONLY_DISCOVER_AND_GRILL_EXAMPLE = textwrap.dedent(
     """
     # md.help_text(
     # md.test(
@@ -122,7 +122,8 @@ _COMMENT_ONLY_DATASOURCE_EXAMPLE = textwrap.dedent(
     # md.discover_time_dimensions(
     # md.discover_measures(
     # md.discover_dimension_values(
-    print("semantic datasource example ok")
+    # GRILL:
+    print("semantic discovery example ok")
     """
 ).lstrip()
 
@@ -130,16 +131,16 @@ _COMMENT_ONLY_DATASOURCE_EXAMPLE = textwrap.dedent(
 def _make_semantic_example_tree(
     root: Path,
     *,
-    datasource: str | None = None,
-    model: str | None = None,
+    discover: str | None = None,
+    author: str | None = None,
 ) -> Path:
     _make_skill_tree(root, "marivo-analysis")
     examples = _make_skill_tree(root, "marivo-semantic")
-    (examples / "01_datasource.py").write_text(
-        datasource if datasource is not None else _VALID_DATASOURCE_EXAMPLE
+    (examples / "01_discover_and_grill.py").write_text(
+        discover if discover is not None else _VALID_DISCOVER_AND_GRILL_EXAMPLE
     )
-    (examples / "02_semantic_model.py").write_text(
-        model if model is not None else _VALID_MODEL_EXAMPLE
+    (examples / "02_author_one_object.py").write_text(
+        author if author is not None else _VALID_AUTHOR_ONE_OBJECT_EXAMPLE
     )
     return examples
 
@@ -190,7 +191,12 @@ def test_runner_uses_in_process_execution_by_default(tmp_path: Path, monkeypatch
     (examples / "01_smoke.py").write_text('print("hello from example")\n')
     seen_in_process: list[bool] = []
 
-    def check_example(_example: Path, *, in_process: bool = False) -> object | None:
+    def check_example(
+        _example: Path,
+        *,
+        in_process: bool = False,
+        repo_root: Path | None = None,
+    ) -> object | None:
         seen_in_process.append(in_process)
         return None
 
@@ -206,7 +212,12 @@ def test_runner_can_opt_into_subprocess_execution(tmp_path: Path, monkeypatch: o
     (examples / "01_smoke.py").write_text('print("hello from example")\n')
     seen_in_process: list[bool] = []
 
-    def check_example(_example: Path, *, in_process: bool = False) -> object | None:
+    def check_example(
+        _example: Path,
+        *,
+        in_process: bool = False,
+        repo_root: Path | None = None,
+    ) -> object | None:
         seen_in_process.append(in_process)
         return None
 
@@ -214,6 +225,18 @@ def test_runner_can_opt_into_subprocess_execution(tmp_path: Path, monkeypatch: o
 
     assert runner.main(["--root", str(tmp_path), "--subprocess"]) == 0
     assert seen_in_process == [False]
+
+
+def test_subprocess_execution_supports_relative_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module()
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    (examples / "01_smoke.py").write_text('print("hello from subprocess")\n')
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.main(["--root", ".", "--subprocess"]) == 0
 
 
 def test_in_process_example_prefers_current_root_on_sys_path(
@@ -278,7 +301,7 @@ def test_check_example_reports_timeout_with_partial_stdout(
     example = tmp_path / "01_timeout.py"
     example.write_text("raise AssertionError('should not execute')\n")
 
-    def timeout(_example: Path) -> tuple[int, str, str]:
+    def timeout(_example: Path, **_kwargs: object) -> tuple[int, str, str]:
         raise subprocess.TimeoutExpired(
             cmd=[sys.executable, _example.name],
             timeout=0.05,
@@ -418,28 +441,91 @@ def test_runner_rejects_empty_semantic_examples_dir(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("datasource", "model"),
+    ("discover", "author"),
     [
         pytest.param(
-            _COMMENT_ONLY_DATASOURCE_EXAMPLE,
+            _COMMENT_ONLY_DISCOVER_AND_GRILL_EXAMPLE,
             None,
             id="comments-do-not-satisfy-required-calls",
         ),
         pytest.param(
             None,
-            _VALID_MODEL_EXAMPLE + "\nmd.inspect_columns()\n",
+            _VALID_AUTHOR_ONE_OBJECT_EXAMPLE
+            + "\nfrom types import SimpleNamespace as _SimpleNamespace\n"
+            + "md = _SimpleNamespace(inspect_columns=lambda: None)\n"
+            + "md.inspect_columns()\n",
             id="forbidden-stale-snippet",
+        ),
+        pytest.param(
+            _VALID_DISCOVER_AND_GRILL_EXAMPLE
+            + "\nms.verify_object(ms.ref('entity.sales.orders'))\n",
+            None,
+            id="discover-example-must-not-author",
+        ),
+        pytest.param(
+            _VALID_DISCOVER_AND_GRILL_EXAMPLE
+            + "\nms.entity = result\n"
+            + 'ms.entity(name="orders")\n',
+            None,
+            id="discover-example-must-not-use-entity-constructor",
+        ),
+        pytest.param(
+            _VALID_DISCOVER_AND_GRILL_EXAMPLE.replace("GRILL:", "QUESTION:"),
+            None,
+            id="discover-example-must-print-grill",
+        ),
+        pytest.param(
+            None,
+            _VALID_AUTHOR_ONE_OBJECT_EXAMPLE.replace(
+                "ms.readiness(refs=(ref,))", "result(refs=(ref,))"
+            ),
+            id="author-example-must-run-readiness",
+        ),
+        pytest.param(
+            None,
+            _VALID_AUTHOR_ONE_OBJECT_EXAMPLE.replace("ms.dimension_column", "result").replace(
+                "    dimension = result(\n"
+                '        name="region",\n'
+                '        entity=ms.ref("entity.sales.orders"),\n'
+                '        column="region",\n'
+                "    )\n"
+                "    dimension.show()\n",
+                "",
+            ),
+            id="author-example-must-author-one-object",
+        ),
+        pytest.param(
+            None,
+            _VALID_AUTHOR_ONE_OBJECT_EXAMPLE
+            + "\nms.measure_column = result\n"
+            + 'measure = ms.measure_column(name="amount", entity=ref, column="amount")\n'
+            + "measure.show()\n",
+            id="author-example-must-author-exactly-one-object",
+        ),
+        pytest.param(
+            None,
+            _VALID_AUTHOR_ONE_OBJECT_EXAMPLE
+            + '\nsecond_dimension = ms.dimension_column(name="status", entity=ref, column="status")\n'
+            + "second_dimension.show()\n",
+            id="author-example-must-not-repeat-authoring-call",
+        ),
+        pytest.param(
+            _VALID_DISCOVER_AND_GRILL_EXAMPLE
+            + '\nwith open("models/semantic/sales/order_region.py", "w") as handle:\n'
+            + '    handle.write("region")\n',
+            None,
+            id="discover-example-must-not-write-files",
         ),
     ],
 )
 def test_runner_rejects_semantic_examples_outside_layering_contract(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    datasource: str | None,
-    model: str | None,
+    discover: str | None,
+    author: str | None,
 ) -> None:
     runner = _load_runner_module()
-    _make_semantic_example_tree(tmp_path, datasource=datasource, model=model)
+    _make_semantic_example_tree(tmp_path, discover=discover, author=author)
 
     assert runner.main(["--root", str(tmp_path)]) != 0
     stderr = capsys.readouterr().err.lower()
@@ -447,21 +533,94 @@ def test_runner_rejects_semantic_examples_outside_layering_contract(
     assert "contract" in stderr or "content" in stderr
 
 
-def test_semantic_examples_match_layering_simplification_contract() -> None:
-    names = {path.name for path in SEMANTIC_EXAMPLES.glob("*.py")}
-    assert names == {"01_datasource.py", "02_semantic_model.py"}
-
+def test_runner_executes_example_inside_support_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     runner = _load_runner_module()
-    examples = sorted(SEMANTIC_EXAMPLES.glob("*.py"))
-    failures = runner._check_semantic_example_contract(SEMANTIC_EXAMPLES, examples)
-    assert failures == []
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    support = examples / "_support"
+    support.mkdir()
+    (support / "__init__.py").write_text("")
+    (support / "example_project.py").write_text(
+        "from contextlib import contextmanager\n"
+        "from pathlib import Path\n"
+        "\n"
+        "@contextmanager\n"
+        "def analysis_examples_project():\n"
+        "    root = Path(__file__).resolve().parents[5] / 'fixture-root'\n"
+        "    root.mkdir(exist_ok=True)\n"
+        "    (root / 'marker.txt').write_text('fixture')\n"
+        "    yield type('Ctx', (), {'root': root})()\n"
+    )
+    (examples / "01_context.py").write_text(
+        "from pathlib import Path\n"
+        "assert Path.cwd().name == 'fixture-root', Path.cwd()\n"
+        "assert Path('marker.txt').read_text() == 'fixture'\n"
+        "print('support context ok')\n"
+    )
 
-    datasource = (SEMANTIC_EXAMPLES / "01_datasource.py").read_text()
-    model = (SEMANTIC_EXAMPLES / "02_semantic_model.py").read_text()
+    monkeypatch.chdir(tmp_path)
 
-    assert "DuckDBSpec" not in datasource
-    assert "DuckDBSpec" not in model
-    assert "md.register(spec)" in datasource
-    assert "md.register(" not in model
-    assert "md.duckdb(" in datasource
-    assert 'md.ref("datasource.warehouse")' in model
+    assert runner.main(["--root", str(tmp_path)]) == 0
+
+
+@pytest.mark.parametrize(
+    ("mode_args", "mode_name"),
+    [
+        pytest.param([], "in-process", id="in-process"),
+        pytest.param(["--subprocess"], "subprocess", id="subprocess"),
+    ],
+)
+def test_runner_preserves_repo_root_when_support_context_changes_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode_args: list[str],
+    mode_name: str,
+) -> None:
+    runner = _load_runner_module()
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    support = examples / "_support"
+    support.mkdir()
+    (support / "__init__.py").write_text("")
+    (support / "example_project.py").write_text(
+        "import os\n"
+        "from contextlib import contextmanager\n"
+        "from pathlib import Path\n"
+        "\n"
+        "@contextmanager\n"
+        "def analysis_examples_project():\n"
+        "    previous = Path.cwd()\n"
+        "    root = Path(__file__).resolve().parents[5] / 'fixture-root'\n"
+        "    root.mkdir(exist_ok=True)\n"
+        "    (root / 'worktree_marker.py').write_text(\"VALUE = 'stale'\\n\")\n"
+        "    os.chdir(root)\n"
+        "    try:\n"
+        "        yield type('Ctx', (), {'root': root})()\n"
+        "    finally:\n"
+        "        os.chdir(previous)\n"
+    )
+    (tmp_path / "worktree_marker.py").write_text("VALUE = 'current'\n")
+    (examples / "01_import_root_marker.py").write_text(
+        "import worktree_marker\n"
+        "assert worktree_marker.VALUE == 'current', worktree_marker.VALUE\n"
+        "print('loaded current root')\n"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    sys.modules.pop("worktree_marker", None)
+
+    assert runner.main(["--root", ".", *mode_args]) == 0, mode_name
+
+
+def test_runner_rejects_public_example_importing_support_helper(tmp_path: Path) -> None:
+    examples = _make_skill_tree(tmp_path, "marivo-analysis")
+    (examples / "01_bad.py").write_text(
+        "from _support.example_project import analysis_examples_project\nprint('bad import')\n"
+    )
+
+    result = _run_runner(tmp_path)
+
+    assert result.returncode != 0
+    assert "forbidden public example reference" in result.stderr
+    assert "_support" in result.stderr
