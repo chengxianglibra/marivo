@@ -31,6 +31,7 @@ from marivo.analysis.windows import (
     make_absolute_window,
     normalize_timescope_input,
 )
+from marivo.analysis.windows.grain import _TRUNCATE_CODE, parse_grain_token
 from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
 from marivo.datasource.authoring import DatasourceRef, _require_datasource_ref
 from marivo.refs import SemanticRef
@@ -48,6 +49,19 @@ class DeriveContext:
     timescope: dict[str, Any]
     grain: str | None
     label: str | None
+
+    def bucket(self, time_expr: Any) -> Any:
+        if self.grain is None:
+            return time_expr
+        grain = parse_grain_token(self.grain)
+        if grain.count == 1:
+            if grain.is_day:
+                return time_expr.cast("date")
+            return time_expr.truncate(_TRUNCATE_CODE[grain.unit])
+        width = grain.width_seconds()
+        day_start = time_expr.truncate("D")
+        offset = ((time_expr.epoch_seconds() - day_start.epoch_seconds()) // width) * width
+        return day_start + offset.as_interval("s")
 
 
 @dataclass(frozen=True)
@@ -175,7 +189,7 @@ def derive_metric_frame(
     metric: MetricInput,
     query: IbisQuerySpec,
     columns: MetricColumns,
-    timescope: TimeScopeInput,
+    timescope: TimeScopeInput = None,
     grain: GrainInput = None,
     label: str | None = None,
     session: Session | None = None,

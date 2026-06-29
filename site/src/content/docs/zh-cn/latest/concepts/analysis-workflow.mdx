@@ -263,6 +263,10 @@ custom = session.derive_metric_frame(
 custom.show()
 ```
 
+与 `observe` 不同，`derive_metric_frame` 不会对 `build` 输出进行过滤或聚合——
+`timescope` 和 `grain` 仅标注 frame 的窗口元数据，并通过 `ctx` 传递给 `build`。
+在 `build()` 内使用 `ctx.bucket(time_expr)` 可将时间戳截断到 grain 边界。
+
 需要做终端本地 pandas 工作、且不必回到 typed Marivo operator 时，使用
 `artifact.to_pandas()`。
 
