@@ -1370,11 +1370,11 @@ def _is_metadata_diagnostic_sql(sql: str) -> bool:
 
 
 # Transaction-based backends have no connect-level read-only mode; raw_sql wraps
-# their query in a read-only transaction. DuckDB and ClickHouse enforce read-only
-# at connect time (see backends._with_read_only_kwargs) and need no transaction.
+# their query in a read-only transaction. DuckDB, ClickHouse, and Trino enforce
+# read-only without a transaction (connection-level for DuckDB/ClickHouse,
+# subquery wrapper for Trino) and need no entry here.
 _READONLY_TX_START: dict[str, str] = {
     "postgres": "BEGIN READ ONLY",
-    "trino": "START TRANSACTION READ ONLY",
     "mysql": "START TRANSACTION READ ONLY",
 }
 
@@ -1388,10 +1388,11 @@ def _execute_readonly(
 ) -> Any:
     """Run ``sql`` against ``backend`` under read-only enforcement.
 
-    For DuckDB/ClickHouse the connection is already read-only, so the query runs
-    directly. For Postgres/Trino/MySQL the query runs inside a
-    ``BEGIN/START TRANSACTION READ ONLY`` transaction that is committed on success
-    or rolled back on failure.
+    DuckDB, ClickHouse, and Trino run the query directly (read-only is enforced
+    elsewhere — connection-level for DuckDB/ClickHouse, subquery wrapper for
+    Trino). Postgres and MySQL run the query inside a ``BEGIN/START TRANSACTION
+    READ ONLY`` transaction that is committed on success or rolled back on
+    failure.
     """
     start = _READONLY_TX_START.get(backend_type) if use_transaction else None
     if start is None:
@@ -1475,10 +1476,9 @@ def raw_sql(
     Constraints:
         Rejects empty reasons, empty SQL, and multi-statement SQL before execution.
         Read-only is enforced at the connection level: DuckDB and ClickHouse open in
-        read-only mode, Postgres/MySQL and ordinary Trino queries run inside a
-        ``READ ONLY`` transaction, Trino metadata diagnostics run without an
-        explicit transaction,
-        and unsupported backends are refused with a typed datasource error. Any
+        read-only mode, Postgres/MySQL run inside a ``READ ONLY`` transaction, and
+        Trino runs ordinary SELECT/WITH queries through a read-only subquery
+        wrapper. Unsupported backends are refused with a typed datasource error. Any
         execution failure (including a write attempt) surfaces as a
         ``DatasourceRawSqlError``; the backend is always disconnected.
     """
@@ -1505,7 +1505,7 @@ def raw_sql(
             if is_metadata_diagnostic
             else f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {limit}"
         )
-        use_transaction = not (backend_type == "trino" and is_metadata_diagnostic)
+        use_transaction = backend_type in ("postgres", "mysql")
         try:
             cursor = _execute_readonly(
                 backend,
