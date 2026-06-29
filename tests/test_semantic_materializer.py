@@ -109,7 +109,7 @@ def _materialize_metric(project, ref: str):
 _DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
 _DATASET_AND_METRIC_PY = textwrap.dedent("""\
@@ -1089,7 +1089,7 @@ def test_metric_callable_name_error_adds_import_hint(
 ) -> None:
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"

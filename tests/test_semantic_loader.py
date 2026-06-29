@@ -30,7 +30,7 @@ from marivo.semantic.refs import make_ref
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
 _MINIMAL_DATASET_PY = textwrap.dedent("""\
@@ -85,7 +85,7 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _SHARED_DATASOURCE_MODEL_A,
-            "finance/_domain.py": 'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="finance")\n',
+            "finance/_domain.py": 'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="finance", owner="Mina Zhang")\n',
             "finance/datasets.py": _SHARED_DATASOURCE_MODEL_B,
         }
     )
@@ -109,7 +109,7 @@ def test_duplicate_global_datasource_declaration_must_match(semantic_project_fac
             "datasources/warehouse_a.py": 'import marivo.datasource as md\nmd.duckdb(name="warehouse", path=":memory:")\n',
             "datasources/warehouse_b.py": 'import marivo.datasource as md\nmd.duckdb(name="warehouse", path="/tmp/other.duckdb")\n',
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "finance/_domain.py": 'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="finance")\n',
+            "finance/_domain.py": 'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="finance", owner="Mina Zhang")\n',
         }
     )
 
@@ -182,7 +182,7 @@ def test_model_name_mismatch(semantic_project_factory) -> None:
     bad_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        ms.domain(name="not_sales", default=True)
+        ms.domain(name="not_sales", owner='Mina Zhang', default=True)
     """)
     project = semantic_project_factory(
         {
@@ -514,6 +514,80 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
     assert reg is not None
     assert "sales.query_info" in reg.entities
     assert "sales.total_query_count" in reg.metrics
+
+
+def test_relative_import_from_later_sibling_is_not_executed_twice(
+    semantic_project_factory,
+) -> None:
+    """A sibling imported before its loader turn should not be registered twice."""
+    queries_py = textwrap.dedent("""\
+        import marivo.datasource as md
+        import marivo.semantic as ms
+
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+    """)
+    dimensions_py = textwrap.dedent("""\
+        import marivo.semantic as ms
+        from .queries import orders
+
+        status = ms.dimension_column(name="status", entity=orders, column="status")
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/_dimensions.py": dimensions_py,
+            "sales/queries.py": queries_py,
+        }
+    )
+    assert project.is_ready()
+    reg = project._registry
+    assert reg is not None
+    assert "sales.orders" in reg.entities
+    assert "sales.orders.status" in reg.dimensions
+
+
+def test_relative_imported_field_ref_from_later_sibling_keeps_resolver(
+    semantic_project_factory,
+) -> None:
+    """Imported field refs from later siblings should be wired after load."""
+    fields_py = textwrap.dedent("""\
+        import marivo.datasource as md
+        import marivo.semantic as ms
+
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+
+        @ms.measure(entity=orders, additivity="additive")
+        def amount(table):
+            return table.amount
+    """)
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic as ms
+        from .z_fields import orders, amount
+
+        @ms.metric(entities=[orders], additivity="additive")
+        def revenue(table):
+            return amount(table).sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/a_metrics.py": metrics_py,
+            "sales/z_fields.py": fields_py,
+        }
+    )
+    assert project.is_ready()
+    sidecar = project._sidecar
+    assert sidecar is not None
+    metric_callable = sidecar["sales.revenue"]
+
+    class _FakeAmount:
+        def sum(self) -> str:
+            return "summed"
+
+    class _FakeTable:
+        amount = _FakeAmount()
+
+    assert metric_callable(_FakeTable()) == "summed"
 
 
 def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> None:
@@ -975,7 +1049,7 @@ def test_load_project_rejects_models_root_with_clear_error(tmp_path) -> None:
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
 
     result = load_project(tmp_path / "models")
@@ -991,7 +1065,7 @@ def test_load_project_rejects_workspace_root_with_clear_error(tmp_path) -> None:
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
 
     result = load_project(tmp_path)
@@ -1087,7 +1161,7 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
                 'md.trino(name="warehouse", host="h", catalog="c")\n'
             ),
             "sales/_domain.py": (
-                'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="sales", default=True)\n'
+                'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="sales", owner="Mina Zhang", default=True)\n'
             ),
             "sales/objects.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -1155,7 +1229,7 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
                 'md.trino(name="warehouse", host="h", catalog="c")\n'
             ),
             "sales/_domain.py": (
-                'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="sales", default=True)\n'
+                'import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name="sales", owner="Mina Zhang", default=True)\n'
             ),
             "sales/objects.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -1208,7 +1282,7 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
 _FINANCE_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="finance", default=True)
+    ms.domain(name="finance", owner='Mina Zhang', default=True)
 """)
 
 _FINANCE_DATASET_PY = textwrap.dedent("""\

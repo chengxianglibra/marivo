@@ -226,7 +226,7 @@ def test_validity_open_end_has_no_any_payload() -> None:
 def test_measure_dimension_metric_and_aggregate_authoring() -> None:
     ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
     with loader_context(ctx):
-        sales = ms.domain(name="sales", default=True)
+        sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
@@ -266,7 +266,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
 def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
     ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
     with loader_context(ctx):
-        sales = ms.domain(name="sales", default=True)
+        sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
@@ -284,7 +284,7 @@ def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
 def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
     ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
     with loader_context(ctx):
-        sales = ms.domain(name="sales", default=True)
+        sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
@@ -310,7 +310,7 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
 def test_relationship_uses_join_key_pairs() -> None:
     ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
     with loader_context(ctx):
-        sales = ms.domain(name="sales", default=True)
+        sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
@@ -356,7 +356,7 @@ def test_relationship_uses_join_key_pairs() -> None:
 def test_time_dimension_uses_parse_value_object() -> None:
     ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
     with loader_context(ctx):
-        sales = ms.domain(name="sales", default=True)
+        sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
@@ -397,7 +397,7 @@ def test_time_dimension_parse_invalid_combinations_are_unconstructable() -> None
 def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
     ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
     with loader_context(ctx):
-        sales = ms.domain(name="sales", default=True)
+        sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),

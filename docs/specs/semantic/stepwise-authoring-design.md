@@ -83,10 +83,12 @@ Datasource evidence comes from `marivo.datasource`:
 - `md.discover_dimension_values(...)` for current value evidence.
 - `md.raw_sql(...)` only for diagnostics that discovery cannot expose.
 
-The public scan helpers build bounded scopes:
+Inspect table metadata before discovery and use explicit scan scopes:
 
 ```python
-scope = md.latest_partition()
+md.inspect_table(warehouse, orders).show()
+md.inspect_partitions(warehouse, orders, limit=50).show()
+
 scope = md.partition({"dt": "20260625"}, max_rows=1000)
 scope = md.unpruned(max_rows=1000)
 ```
@@ -102,6 +104,9 @@ Object-to-object authoring parameters use Ref objects. Prefer refs returned by
 earlier declarations or imported from sibling semantic modules. Use
 `ms.ref("<kind>.<semantic_id>")` only for explicit forward or cross-file
 references, import cycles, or generated-code boundaries.
+Sibling semantic modules can import refs from each other regardless of sorted
+loader order; a sibling imported by Python before the loader reaches it is not
+executed again during the same load.
 
 After an entity is registered, the agent should not re-supply datasource/table
 tuples for semantic object parameters. Physical facts remain datasource-owned;

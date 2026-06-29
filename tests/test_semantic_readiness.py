@@ -14,7 +14,7 @@ from marivo.semantic.readiness import (
 _DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
 _READY_DOMAIN_PY = textwrap.dedent("""\
@@ -172,7 +172,7 @@ def test_readiness_no_dtype_advisory_when_parse_deferred(semantic_project_factor
                 import marivo.datasource as md
                 import marivo.semantic as ms
 
-                ms.domain(name="sales")
+                ms.domain(name="sales", owner='Mina Zhang')
 
                 orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
 
@@ -209,7 +209,7 @@ def test_readiness_strict_enrichment_is_ready_when_only_guardrails_missing(
                 import marivo.datasource as md
                 import marivo.semantic as ms
 
-                ms.domain(name="sales")
+                ms.domain(name="sales", owner='Mina Zhang')
 
                 orders = ms.entity(
                     name="orders",
@@ -244,7 +244,7 @@ def test_readiness_reports_authoring_abandoned_candidates(
 
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
         }
     )
     ledger = LedgerStore(project.state_root)
@@ -385,7 +385,7 @@ def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project
 
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
@@ -414,7 +414,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
 
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
@@ -452,7 +452,7 @@ def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_projec
 def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'),\n"
@@ -502,7 +502,7 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
 def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
@@ -575,7 +575,7 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
 
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/objects.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'),\n"
@@ -686,7 +686,7 @@ def _naive_tz_report(
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        ms.domain(name="sales")
+        ms.domain(name="sales", owner='Mina Zhang')
 
         orders = ms.entity(
             name="orders",

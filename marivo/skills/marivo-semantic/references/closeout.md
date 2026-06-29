@@ -1,9 +1,10 @@
 # marivo-semantic closeout
 
-Closeout decides whether authored semantic refs are ready for
-`marivo-analysis`.
+Closeout decides whether authored semantic refs are ready for `marivo-analysis`.
 
 ## Reload
+
+Reload the catalog after the final authored object in the requested scope:
 
 ```python
 catalog = ms.load()
@@ -29,5 +30,5 @@ Use dedicated runtime checks separately when needed:
 - `ms.parity_check(...)` for source-SQL parity;
 - `ms.richness(...)` for enrichment gaps.
 
-Warnings are not the same as blockers. Fix blockers first, then report warning
-items as follow-up work when they do not prevent the requested handoff.
+Warnings are not blockers. Fix blockers first, then report warning items as
+follow-up work when they do not prevent the requested handoff.

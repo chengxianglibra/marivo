@@ -44,7 +44,7 @@ def _bootstrap(tmp_path, *, root: str = "orders"):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     root_line = "root_entity=orders" if root == "orders" else "root_entity=users"
     (semantic_dir / "datasets.py").write_text(
@@ -161,7 +161,7 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     # Use field names that match primary_key columns for join safety detection:
     # orders.primary_key=['order_id'] -> need field.name='order_id'
@@ -236,7 +236,7 @@ def _bootstrap_snapshot(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"

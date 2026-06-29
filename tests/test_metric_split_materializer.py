@@ -96,7 +96,7 @@ def materialized_project(semantic_project_factory):
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang', default=True)\n"
             ),
             "sales/models.py": _INLINE_SALES,
         }

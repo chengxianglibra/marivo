@@ -330,10 +330,10 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     rendered = catalog.render()
 
     assert "DatasourceCatalog datasources=1" in rendered
-    assert "warehouse" in rendered
-    assert "backend_type: trino" in rendered
-    assert "fields: catalog: hive, host: trino.example" in rendered
-    assert "env_refs: auth_env=TRINO_AUTH" in rendered
+    assert "warehouse:" in rendered
+    assert "backend_type=trino" in rendered
+    assert "fields=catalog: hive, host: trino.example" in rendered
+    assert "env_refs=auth_env=TRINO_AUTH" in rendered
     assert "business_definition: Curated warehouse tables." in rendered
     assert "guardrails: Use partition filters." in rendered
     assert "synonyms: wh" in rendered

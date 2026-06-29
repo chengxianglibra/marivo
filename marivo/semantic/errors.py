@@ -57,6 +57,7 @@ class ErrorKind(StrEnum):
     OUTSIDE_LOADER_CONTEXT = "outside_loader_context"
     METRIC_BODY_NOT_SINGLE_RETURN = "metric_body_not_single_return"
     INVALID_AI_CONTEXT = "invalid_ai_context"
+    INVALID_DOMAIN_OWNER = "invalid_domain_owner"
     SQL_ESCAPE_HATCH = "sql_escape_hatch"
     IBIS_ATTR_SHADOW = "ibis_attr_shadow"
 

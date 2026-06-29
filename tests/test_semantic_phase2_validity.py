@@ -19,9 +19,7 @@ from marivo.semantic.errors import SemanticLoadFailed
 # Helpers
 # ---------------------------------------------------------------------------
 
-_DOMAIN_FILE = (
-    "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
-)
+_DOMAIN_FILE = "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
 
 # Dataset with actual @ms.dimension declarations so DimensionRef objects exist in the
 # registry and the field-existence check in _validate_validity_versioning passes.
@@ -215,7 +213,7 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
     """ms.validity() with a valid_to that does not exist raises INVALID_ENTITY_VERSIONING."""
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "\n"

@@ -40,7 +40,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
     semantic_dir.mkdir(parents=True)
     domain_file = semantic_dir / "_domain.py"
     domain_file.write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
         encoding="utf-8",
     )
 
@@ -65,7 +65,7 @@ def test_stepwise_authoring_ladder_e2e(tmp_path: Path) -> None:
 
     domain_file.write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "ms.domain(name='sales')\n"
+        "ms.domain(name='sales', owner='Mina Zhang')\n"
         "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
         "source=ms.table('orders'), primary_key=['order_id'])\n",
         encoding="utf-8",

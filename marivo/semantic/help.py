@@ -345,6 +345,7 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
 
 def _authoring_contracts() -> dict[str, dict[str, object]]:
     name = _param("str", "semantic object name")
+    owner = _param("str", "human owner accountable for semantic correctness and quality")
     domain = _param("DomainRef | None", "override the active authoring domain", default="None")
     ai_context = _param(
         "AiContextValue | None", "business meaning and agent-facing guidance", default="None"
@@ -363,11 +364,14 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
         "domain": {
             "summary": "Declare a semantic domain namespace.",
             "constructor": "ms.domain",
-            "required": ["name"],
+            "required": ["name", "owner"],
             "optional": ["ai_context"],
             "discover": None,
-            "parameters": {"name": name, "ai_context": ai_context},
-            "static_constraints": ["name must be unique within the project"],
+            "parameters": {"name": name, "owner": owner, "ai_context": ai_context},
+            "static_constraints": [
+                "name must be unique within the project",
+                "owner must be a non-empty string naming the responsible person",
+            ],
         },
         "entity": {
             "summary": "Declare an entity over one structured physical source.",

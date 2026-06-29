@@ -19,7 +19,7 @@ from marivo.datasource.authoring import (
     DatasourceSpec,
     _storage_name,
 )
-from marivo.datasource.discovery import RawSqlResult
+from marivo.datasource.discovery import DatasourceResult, PartitionInspectionResult, RawSqlResult
 from marivo.datasource.errors import (
     DatasourceError,
     DatasourceMissingError,
@@ -27,7 +27,7 @@ from marivo.datasource.errors import (
     DatasourceRawSqlError,
 )
 from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
-from marivo.datasource.metadata import TableMetadata, _inspect_source
+from marivo.datasource.metadata import _inspect_source
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import (
     ColumnInspection,
@@ -46,11 +46,11 @@ from marivo.preview import (
     PreviewSamplePolicy,
     preview_ibis_table,
 )
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import Card, RenderableResult, result_repr
 
 
 @dataclass(frozen=True, repr=False)
-class DatasourceSummary:
+class DatasourceSummary(RenderableResult):
     """Summary row for one configured project datasource."""
 
     name: str
@@ -64,22 +64,12 @@ class DatasourceSummary:
     def _repr_identity(self) -> str:
         return f"DatasourceSummary name={self.name} backend={self.backend_type}"
 
-    def render(self) -> str:
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=None,
-            available=(".render()", ".show()"),
-        )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
+    def _card(self) -> Card:
+        return Card(identity=self._repr_identity(), available=(".render()", ".show()"))
 
 
 @dataclass(frozen=True, repr=False)
-class DatasourceList:
+class DatasourceList(RenderableResult):
     """Displayable collection of configured project datasource summaries."""
 
     _items: tuple[DatasourceSummary, ...]
@@ -105,26 +95,16 @@ class DatasourceList:
     def _repr_identity(self) -> str:
         return f"DatasourceList count={len(self._items)}"
 
-    def render(self) -> str:
+    def _card(self) -> Card:
         rows = [[item.name, item.backend_type] for item in self._items]
-        return format_bounded_card(
+        return Card(
             identity=self._repr_identity(),
-            columns=["name", "backend"],
-            rows=rows,
-            row_count=len(self._items),
-            preview_truncation_hint="inspect .items for all datasources",
             available=(".items", ".ids()", ".render()", ".show()"),
-        )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
+        ).table(columns=["name", "backend"], rows=rows, row_count=len(self._items))
 
 
 @dataclass(frozen=True, repr=False)
-class DatasourceDescription:
+class DatasourceDescription(RenderableResult):
     """Literal fields and env refs for one datasource."""
 
     name: str
@@ -138,24 +118,17 @@ class DatasourceDescription:
             f"fields={len(self.literal_fields)} env_refs={len(self.env_refs)}"
         )
 
-    def render(self) -> str:
-        field_names = sorted(self.literal_fields)[:8]
-        env_ref_names = sorted(self.env_refs)[:8]
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            columns=field_names + [f"{name}_env" for name in env_ref_names],
-            available=(".render()", ".show()"),
+    def _card(self) -> Card:
+        field_names = sorted(self.literal_fields)
+        env_ref_names = sorted(self.env_refs)
+        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).field(
+            label="columns",
+            value=" | ".join(field_names + [f"{name}_env" for name in env_ref_names]),
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
 
 @dataclass(frozen=True, repr=False)
-class DatasourceTestResult:
+class DatasourceTestResult(RenderableResult):
     """Result of a datasource connectivity round-trip."""
 
     name: str
@@ -167,18 +140,11 @@ class DatasourceTestResult:
         latency = "n/a" if self.latency_ms is None else f"{self.latency_ms}ms"
         return f"DatasourceTestResult name={self.name} ok={self.ok} latency={latency}"
 
-    def render(self) -> str:
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=self.error,
-            available=(".render()", ".show()"),
-        )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()"))
+        if self.error is not None:
+            card.status(self.error)
+        return card
 
 
 class DatasourceConnection:
@@ -585,18 +551,18 @@ def preview(
 
 
 def inspect_table(
-    datasource: str,
+    datasource: DatasourceRef,
     source: EntitySourceIR | None = None,
     *,
     table: str | None = None,
     database: str | tuple[str, ...] | None = None,
     include_partitions: bool = True,
     project_root: Path | None = None,
-) -> TableMetadata:
+) -> DatasourceResult:
     """Schema, comments, nullability, and partition metadata for a table.
 
     Args:
-        datasource: Name of the project datasource.
+        datasource: Datasource reference returned by ``md.ref(...)``.
         source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
             Pass either ``source`` or ``table``, not both.
         table: Table name within the datasource (alternative to ``source``).
@@ -605,12 +571,17 @@ def inspect_table(
         project_root: Optional project root directory; defaults to cwd.
 
     Returns:
-        A ``TableMetadata`` with columns, warnings, and optional partitions.
+        A ``TableMetadata`` with table comments, column types, nullability,
+        column comments, warnings, and optional partition columns.
 
     Constraints:
-        Internal helper backing ``md.discover_*``. Opens and closes a backend
-        connection internally; not an agent-facing API.
+        Metadata-only inspection. Does not execute sampled data scans. Opens
+        and closes a backend connection internally.
     """
+    if not isinstance(datasource, DatasourceRef):
+        raise TypeError(
+            f"datasource must be md.DatasourceRef from md.ref(...), got {type(datasource).__name__}."
+        )
     if source is not None and table is not None:
         raise TypeError("Pass either source or table, not both.")
     if source is None:
@@ -618,10 +589,194 @@ def inspect_table(
             raise TypeError("inspect_table requires a structured source or table name.")
         source = TableSourceIR(table=table, database=database)
     return _inspect_source(
-        datasource,
+        _storage_name(datasource),
         source=source,
         include_partitions=include_partitions,
         project_root=project_root,
+    )
+
+
+def _quote_metadata_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _partition_values_unavailable(
+    *,
+    datasource: DatasourceRef,
+    source: EntitySourceIR,
+    partition_columns: tuple[str, ...],
+    limit: int,
+    reason: str,
+) -> PartitionInspectionResult:
+    return PartitionInspectionResult(
+        datasource=datasource,
+        source=source,
+        partition_columns=partition_columns,
+        rows=(),
+        requested_limit=limit,
+        is_truncated=False,
+        warnings=(
+            "Partition values unavailable for this backend/table without scanning data. "
+            "Discovery still requires an explicit md.partition({...}) for partitioned tables. "
+            "Use backend metadata SQL through md.raw_sql(...) or provide the partition values "
+            f"from source knowledge. reason={reason}",
+        ),
+    )
+
+
+def _no_partition_values_result(
+    *,
+    datasource: DatasourceRef,
+    source: EntitySourceIR,
+    limit: int,
+) -> PartitionInspectionResult:
+    return PartitionInspectionResult(
+        datasource=datasource,
+        source=source,
+        partition_columns=(),
+        rows=(),
+        requested_limit=limit,
+        is_truncated=False,
+        warnings=(
+            "No partition columns were exposed by metadata. Discovery does not "
+            "require md.partition({...}) for this table.",
+        ),
+    )
+
+
+def inspect_partitions(
+    datasource: DatasourceRef,
+    source: EntitySourceIR,
+    *,
+    limit: int = 50,
+    project_root: Path | None = None,
+) -> DatasourceResult:
+    """Inspect bounded available partition values without scanning table data."""
+    if limit < 1:
+        raise ValueError("limit must be positive.")
+    if not isinstance(datasource, DatasourceRef):
+        raise TypeError(
+            f"datasource must be md.DatasourceRef from md.ref(...), got {type(datasource).__name__}."
+        )
+    datasource_id = _storage_name(datasource)
+    metadata = _inspect_source(
+        datasource_id,
+        source=source,
+        include_partitions=True,
+        project_root=project_root,
+    )
+    partition_columns = tuple(partition.name for partition in metadata.partitions)
+    if not partition_columns:
+        return _no_partition_values_result(
+            datasource=datasource,
+            source=source,
+            limit=limit,
+        )
+    if any(partition.transform for partition in metadata.partitions):
+        return _partition_values_unavailable(
+            datasource=datasource,
+            source=source,
+            partition_columns=partition_columns,
+            limit=limit,
+            reason="transformed partition values cannot be mapped to md.partition({...}) safely",
+        )
+    if not isinstance(source, TableSourceIR):
+        return _partition_values_unavailable(
+            datasource=datasource,
+            source=source,
+            partition_columns=partition_columns,
+            limit=limit,
+            reason="file source partition values are not exposed as backend metadata",
+        )
+
+    datasource_ir = _store.load_one(datasource_id, project_root=project_root)
+    if datasource_ir is None:
+        raise DatasourceMissingError(
+            message=f"datasource {datasource_id!r} is not configured",
+            details={"datasource": datasource_id, "available": _store.list_names(project_root)},
+        )
+    if datasource_ir.backend_type != "trino":
+        return _partition_values_unavailable(
+            datasource=datasource,
+            source=source,
+            partition_columns=partition_columns,
+            limit=limit,
+            reason=f"{datasource_ir.backend_type} partition value metadata is not supported",
+        )
+
+    database = source.database
+    catalog = str(datasource_ir.fields["catalog"])
+    schema_name: str | None
+    if isinstance(database, tuple):
+        if len(database) >= 2:
+            catalog = str(database[0])
+            schema_name = str(database[1])
+        elif len(database) == 1:
+            schema_name = str(database[0])
+        else:
+            schema_name = None
+    elif database is not None:
+        schema_name = str(database)
+    else:
+        schema_value = datasource_ir.fields.get("schema")
+        schema_name = str(schema_value) if schema_value is not None else None
+    if schema_name is None:
+        return _partition_values_unavailable(
+            datasource=datasource,
+            source=source,
+            partition_columns=partition_columns,
+            limit=limit,
+            reason="trino partition inspection requires database= or datasource schema",
+        )
+
+    backend: Any = None
+    try:
+        backend = _backends.build_backend(datasource_ir)
+        quoted_columns = ", ".join(
+            _quote_metadata_identifier(column) for column in partition_columns
+        )
+        table_ref = ".".join(
+            _quote_metadata_identifier(part)
+            for part in (catalog, schema_name, f"{source.table}$partitions")
+        )
+        order_by = ", ".join(
+            f"{_quote_metadata_identifier(column)} DESC" for column in partition_columns
+        )
+        sql = f"SELECT {quoted_columns} FROM {table_ref} ORDER BY {order_by} LIMIT {limit + 1}"
+        cursor = backend.raw_sql(sql)
+        _, raw_rows, _ = _extract_raw_sql_frame(cursor, include_types=False, limit=limit + 1)
+    except Exception as exc:
+        return _partition_values_unavailable(
+            datasource=datasource,
+            source=source,
+            partition_columns=partition_columns,
+            limit=limit,
+            reason=str(exc),
+        )
+    finally:
+        disconnect = getattr(backend, "disconnect", None)
+        if callable(disconnect):
+            with suppress(Exception):
+                disconnect()
+
+    complete_rows: builtins.list[dict[str, str]] = []
+    omitted_incomplete = 0
+    for row in raw_rows[:limit]:
+        if any(row.get(column) is None for column in partition_columns):
+            omitted_incomplete += 1
+            continue
+        complete_rows.append({column: str(row[column]) for column in partition_columns})
+    warnings: builtins.list[str] = []
+    if omitted_incomplete:
+        warnings.append(f"incomplete partition rows omitted={omitted_incomplete}")
+    return PartitionInspectionResult(
+        datasource=datasource,
+        source=source,
+        partition_columns=partition_columns,
+        rows=tuple(complete_rows),
+        requested_limit=limit,
+        is_truncated=len(raw_rows) > limit,
+        warnings=tuple(warnings),
     )
 
 
@@ -689,8 +844,6 @@ def _inspect_columns(
     partition_used: Mapping[str, str] | None = None
     if scope.partition is None:
         partition_resolution = "unpruned"
-    elif scope.partition == "latest":
-        partition_resolution = "latest"
     else:
         partition_resolution = "explicit"
         partition_used = dict(scope.partition)
@@ -815,11 +968,7 @@ def _execute_scoped_sample(
             raise TypeError(f"unsupported source type: {type(source).__name__}")
 
         # Apply partition filter if scope has an explicit partition.
-        if (
-            scope.partition is not None
-            and scope.partition != "latest"
-            and isinstance(scope.partition, Mapping)
-        ):
+        if scope.partition is not None and isinstance(scope.partition, Mapping):
             for column, value in scope.partition.items():
                 if column in expr.columns:
                     expr = expr.filter(expr[column] == value)
@@ -990,8 +1139,6 @@ def _sample_distinct_keys(
     partition_used: Mapping[str, str] | None = None
     if scope.partition is None:
         partition_resolution = "unpruned"
-    elif scope.partition == "latest":
-        partition_resolution = "latest"
     else:
         partition_resolution = "explicit"
         partition_used = dict(scope.partition)
@@ -1046,8 +1193,6 @@ def _count_matching_keys(
     partition_used: Mapping[str, str] | None = None
     if scope.partition is None:
         partition_resolution = "unpruned"
-    elif scope.partition == "latest":
-        partition_resolution = "latest"
     else:
         partition_resolution = "explicit"
         partition_used = dict(scope.partition)
@@ -1306,7 +1451,7 @@ def raw_sql(
     reason: str,
     include_types: bool = True,
     project_root: Path | None = None,
-) -> RawSqlResult:
+) -> DatasourceResult:
     """Run a bounded read-only SQL diagnostic against a datasource.
 
     Args:
@@ -1321,7 +1466,7 @@ def raw_sql(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``RawSqlResult`` labeled as ``escape_hatch`` evidence.
+        ``DatasourceResult`` labeled as ``escape_hatch`` evidence.
 
     Example:
         >>> import marivo.datasource as md

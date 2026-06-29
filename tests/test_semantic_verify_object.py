@@ -14,7 +14,7 @@ from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 def test_verify_object_static_domain_passes(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
         }
     )
 
@@ -29,7 +29,7 @@ def test_verify_object_static_domain_passes(semantic_project_factory) -> None:
 def test_verify_object_rejects_string_refs(semantic_project_factory, ref: str) -> None:
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
         }
     )
 
@@ -45,7 +45,7 @@ def test_verify_object_blocks_missing_datasource(tmp_path: Path, semantic_projec
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.missing'), source=ms.table('orders'))\n"
             )
         },
@@ -75,7 +75,7 @@ def test_verify_object_scoped_entity_preview_passes(
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
             )
         },
@@ -118,7 +118,7 @@ def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_proj
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
@@ -184,7 +184,7 @@ def test_verify_metric_auto_records_semi_additive_additivity(semantic_project_fa
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
@@ -254,7 +254,7 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
@@ -276,7 +276,7 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='month', parse=ms.strptime('%Y%m%d'))\n"
@@ -313,7 +313,7 @@ def test_verify_dimension_no_auto_record(tmp_path: Path, semantic_project_factor
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
@@ -348,7 +348,7 @@ def test_verify_derived_metric_auto_records_decomposition(
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', )\n"
@@ -395,7 +395,7 @@ def test_verify_clears_readiness_unresolved_clarification(
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"

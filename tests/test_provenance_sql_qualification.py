@@ -123,7 +123,7 @@ def _patch_project_backends(project, backend_factory):
 _ENTITY_WITH_DATABASE_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
     orders = ms.entity(
         name="orders",
         datasource=md.ref("datasource.warehouse"),
@@ -192,7 +192,7 @@ def test_parity_with_database_qualified_entity(
 _ENTITY_NO_DATABASE_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
     orders = ms.entity(
         name="orders",
         datasource=md.ref("datasource.warehouse"),
@@ -261,7 +261,7 @@ def test_parity_without_database_on_entity(
 _ENTITY_DATASOURCE_DB_FALLBACK_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
     orders = ms.entity(
         name="orders",
         datasource=md.ref("datasource.warehouse"),
@@ -319,7 +319,7 @@ def test_parity_datasource_database_fallback(
 _ENTITY_DATASOURCE_DB_FULLY_QUALIFIED_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
     orders = ms.entity(
         name="orders",
         datasource=md.ref("datasource.warehouse"),

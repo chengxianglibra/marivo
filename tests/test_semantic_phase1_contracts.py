@@ -11,7 +11,7 @@ from marivo.semantic.errors import SemanticLoadFailed
 def test_base_metric_requires_additivity(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
@@ -32,7 +32,7 @@ def test_base_metric_requires_additivity(semantic_project_factory):
 def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
@@ -57,7 +57,7 @@ def test_single_dataset_metric_defaults_root_dataset(semantic_project_factory):
 def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
@@ -84,7 +84,7 @@ def test_multi_dataset_metric_requires_explicit_root_dataset(semantic_project_fa
 def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
@@ -110,7 +110,7 @@ def test_multi_dataset_metric_accepts_root_dataset_ref(semantic_project_factory)
 def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
@@ -142,7 +142,7 @@ def test_multi_dataset_metric_rejects_non_root_aggregate_receiver(semantic_proje
 def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "user_profile_daily = ms.entity(\n"

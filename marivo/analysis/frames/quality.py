@@ -7,8 +7,8 @@ from typing import Literal
 
 from pydantic import ConfigDict
 
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
-from marivo.analysis.frames.render import format_bounded_card
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, _display_column_names
+from marivo.render import Card
 
 
 class QualityReportMeta(BaseFrameMeta):
@@ -37,18 +37,18 @@ class QualityReport(BaseFrame):
             f"blocking={self.meta.blocking_issue_count} rows={self.meta.row_count}"
         )
 
-    def render(self) -> str:
-        columns, preview_rows = self._preview_rows(limit=5)
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=(
+    def _card(self) -> Card:
+        columns = _display_column_names(self._df.columns)
+        return (
+            Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
+            .status(
                 f"status={self.meta.overall_status} "
                 f"blocking={self.meta.blocking_issue_count} "
                 f"warning={self.meta.warning_count}"
-            ),
-            columns=columns,
-            rows=preview_rows,
-            row_count=len(self._df),
-            preview_truncation_hint="call .to_pandas() for terminal custom analysis",
-            available=self._AVAILABLE_ENTRIES,
+            )
+            .lazy_table(
+                columns=columns,
+                rows_provider=self._preview_rows_provider,
+                row_count=len(self._df),
+            )
         )

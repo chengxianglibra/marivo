@@ -22,6 +22,7 @@ from marivo.datasource.scan import (
     ScanScope,
     table,
 )
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def _profile(
@@ -273,10 +274,9 @@ def test_entity_result_default_render_caps_final_text_bytes() -> None:
 
     rendered = result.render()
 
-    assert len(rendered.encode("utf-8")) <= 64_000
-    assert "output truncated bytes=" in rendered
-    assert "max_output_bytes=64000" in rendered
-    assert "render(max_output_bytes=None)" in rendered
+    assert len(rendered.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert f"output truncated at {_DEFAULT_MAX_OUTPUT_BYTES} bytes" in rendered
+    assert "max_output_bytes=None" in rendered
     assert not rendered.endswith("\n")
 
 
@@ -303,8 +303,8 @@ def test_entity_result_full_render_disables_final_text_cap() -> None:
 
     rendered = result.render(max_output_bytes=None)
 
-    assert len(rendered.encode("utf-8")) > 64_000
-    assert "output truncated bytes=" not in rendered
+    assert len(rendered.encode("utf-8")) > _DEFAULT_MAX_OUTPUT_BYTES
+    assert "output truncated" not in rendered
     assert "verbose_col_089 | VARCHAR | Y" in rendered
 
 
@@ -318,7 +318,7 @@ def test_entity_result_rejects_non_positive_output_cap() -> None:
         column_profiles=(),
     )
 
-    with pytest.raises(ValueError, match="max_output_bytes must be positive"):
+    with pytest.raises(ValueError, match="minimum"):
         result.render(max_output_bytes=0)
 
 

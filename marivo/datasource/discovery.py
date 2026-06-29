@@ -1,4 +1,4 @@
-"""Discovery evidence vocabulary for the datasource discovery surface.
+"""Result and evidence vocabulary for the datasource agent surface.
 
 Defines the frozen evidence, signal, issue, evidence-subject, and result types
 used by ``md.discover_*`` (wired in a later plan). Nothing here infers business
@@ -8,6 +8,7 @@ meaning; rules describe evidence shape only.
 from __future__ import annotations
 
 import datetime
+import json
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
@@ -19,7 +20,7 @@ from marivo.datasource.scan import (
     JoinSide,
     ScanReport,
 )
-from marivo.render import result_repr
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult
 
 # Public datasource-side alias for physical source values. Mirrors
 # ``marivo.datasource.scan.TableSource``; re-exported here so discovery
@@ -35,21 +36,20 @@ DiscoveryObjectKind = Literal[
     "measure",
     "relationship",
 ]
-_DEFAULT_MAX_OUTPUT_BYTES = 64_000
 
 
 @runtime_checkable
-class DiscoveryResult(Protocol):
-    """Opaque datasource discovery result shown to agents via render/show.
+class DatasourceResult(Protocol):
+    """Opaque datasource result shown to agents via render/show.
 
-    Public ``md.discover_*`` calls return this protocol. Concrete result
-    dataclasses and evidence DTOs are implementation details; agents should read
-    the bounded evidence text instead of traversing result fields.
+    Public ``md.discover_*`` and ``md.inspect_*`` calls return this protocol.
+    Concrete result dataclasses and evidence DTOs are implementation details;
+    agents should read the bounded evidence text instead of traversing fields.
     """
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str: ...
+    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str: ...
 
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None: ...
+    def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -134,7 +134,7 @@ class DimensionValueFact:
 
 
 @dataclass(frozen=True, repr=False)
-class PrimaryKeyCandidate:
+class PrimaryKeyCandidate(RenderableResult):
     """One primary-key candidate with its evidence source.
 
     Attributes:
@@ -149,26 +149,18 @@ class PrimaryKeyCandidate:
     source: Literal["declared_primary", "declared_unique", "sampled_unique"]
     evidence: tuple[DiscoveryEvidenceEntry, ...]
 
-    def _identity(self) -> str:
-        return f"PrimaryKeyCandidate column={self.column} source={self.source}"
+    def _repr_identity(self) -> str:
+        return f"PrimaryKeyCandidate column={_format_head_scalar(self.column)} source={self.source}"
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=f"evidence={_format_evidence_entries(self.evidence)}",
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
             available=(".evidence", ".render()", ".show()"),
-            max_output_bytes=max_output_bytes,
-        )
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
+        ).status(f"evidence={_format_evidence_entries(self.evidence)}")
 
 
 @dataclass(frozen=True, repr=False)
-class FormatCandidate:
+class FormatCandidate(RenderableResult):
     """One supported time-parse format observed in a bounded sample.
 
     Attributes:
@@ -184,22 +176,18 @@ class FormatCandidate:
     matched_count: int
     ambiguous: bool
 
-    def _identity(self) -> str:
-        return f"FormatCandidate format={self.format} kind={self.kind}"
+    def _repr_identity(self) -> str:
+        return f"FormatCandidate format={_format_head_scalar(self.format)} kind={self.kind}"
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=f"matched_count={self.matched_count} ambiguous={self.ambiguous}",
-            available=(".render()", ".show()"),
-            max_output_bytes=max_output_bytes,
+    def _card(self) -> Card:
+        return (
+            Card(
+                identity=self._repr_identity(),
+                available=(".format", ".render()", ".show()"),
+            )
+            .status(f"matched_count={self.matched_count} ambiguous={self.ambiguous}")
+            .field("format", self.format)
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True)
@@ -220,7 +208,7 @@ class KeyTypeEvidence:
 
 
 @dataclass(frozen=True, repr=False)
-class ColumnDiscovery:
+class ColumnDiscovery(RenderableResult):
     """Column-level evidence for a dimension or measure.
 
     Attributes:
@@ -235,29 +223,21 @@ class ColumnDiscovery:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
-    def _identity(self) -> str:
-        return f"ColumnDiscovery column={self.column}"
+    def _repr_identity(self) -> str:
+        return f"ColumnDiscovery column={_format_head_scalar(self.column)}"
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=(
-                f"{_format_profile_summary(self.profile)} "
-                f"signals={_signal_ids(self.signals)} issues={_issue_count(self.issues)}"
-            ),
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
             available=(".profile", ".signals", ".issues", ".render()", ".show()"),
-            max_output_bytes=max_output_bytes,
+        ).status(
+            f"{_format_profile_summary(self.profile)} "
+            f"signals={_signal_ids(self.signals)} issues={_issue_count(self.issues)}"
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
-class TimeColumnDiscovery:
+class TimeColumnDiscovery(RenderableResult):
     """Column-level evidence for a time-dimension column.
 
     Attributes:
@@ -278,19 +258,12 @@ class TimeColumnDiscovery:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
-    def _identity(self) -> str:
-        return f"TimeColumnDiscovery column={self.column}"
+    def _repr_identity(self) -> str:
+        return f"TimeColumnDiscovery column={_format_head_scalar(self.column)}"
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=(
-                f"{_format_profile_summary(self.profile)} "
-                f"formats={_format_formats(self.detected_formats)} "
-                f"range={_format_time_range(self.value_range)} "
-                f"partition_aligned={self.partition_aligned} "
-                f"signals={_signal_ids(self.signals)} issues={_issue_count(self.issues)}"
-            ),
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
             available=(
                 ".profile",
                 ".detected_formats",
@@ -300,18 +273,17 @@ class TimeColumnDiscovery:
                 ".render()",
                 ".show()",
             ),
-            max_output_bytes=max_output_bytes,
+        ).status(
+            f"{_format_profile_summary(self.profile)} "
+            f"formats={_format_formats(self.detected_formats)} "
+            f"range={_format_time_range(self.value_range)} "
+            f"partition_aligned={self.partition_aligned} "
+            f"signals={_signal_ids(self.signals)} issues={_issue_count(self.issues)}"
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
 
 
 @dataclass(frozen=True, repr=False)
-class RelationshipDiscoveryEvidence:
+class RelationshipDiscoveryEvidence(RenderableResult):
     """Relationship-level evidence from a bounded join-key probe.
 
     Attributes:
@@ -344,9 +316,9 @@ class RelationshipDiscoveryEvidence:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
-    def _identity(self) -> str:
-        from_cols = ",".join(self.from_side.columns)
-        to_cols = ",".join(self.to_side.columns)
+    def _repr_identity(self) -> str:
+        from_cols = _format_head_scalar(",".join(self.from_side.columns))
+        to_cols = _format_head_scalar(",".join(self.to_side.columns))
         return f"RelationshipDiscoveryEvidence from={from_cols} to={to_cols}"
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
@@ -357,66 +329,35 @@ class RelationshipDiscoveryEvidence:
         )
         return header, rows
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+    def _card(self) -> Card:
         header, rows = self._table()
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=(
+        return (
+            Card(
+                identity=self._repr_identity(),
+                available=(
+                    ".key_type_evidence",
+                    ".from_scan",
+                    ".to_scan",
+                    ".signals",
+                    ".issues",
+                    ".render()",
+                    ".show()",
+                ),
+            )
+            .status(
                 f"sampled_keys={self.sampled_key_count} matched={self.matched_key_count} "
                 f"match_rate={self.match_rate:.2f} max_rows_per_key={self.max_rows_per_key} "
                 f"avg_rows_per_key={self.avg_rows_per_key:.2f} "
                 f"cardinality={self.cardinality_evidence}"
-            ),
-            table_header=header,
-            table_rows=rows,
-            available=(
-                ".key_type_evidence",
-                ".from_scan",
-                ".to_scan",
-                ".signals",
-                ".issues",
-                ".render()",
-                ".show()",
-            ),
-            max_output_bytes=max_output_bytes,
+            )
+            .table(header, rows)
         )
 
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
 
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
-
-
-# ----- Shared card formatter -----
+# ----- Shared card helpers -----
 
 
 _MAX_INLINE_ITEMS = 3
-_OUTPUT_TRUNCATION_HINT = (
-    "rerun with max_output_bytes=None or write render(max_output_bytes=None) to a file"
-)
-
-
-def _apply_output_cap(text: str, max_output_bytes: int | None) -> str:
-    if max_output_bytes is None:
-        return text
-    if max_output_bytes < 1:
-        raise ValueError("max_output_bytes must be positive.")
-    raw = text.encode("utf-8")
-    if len(raw) <= max_output_bytes:
-        return text
-
-    suffix = (
-        f"\n... output truncated bytes={len(raw)} "
-        f"max_output_bytes={max_output_bytes}; {_OUTPUT_TRUNCATION_HINT}"
-    )
-    suffix_bytes = suffix.encode("utf-8")
-    if len(suffix_bytes) >= max_output_bytes:
-        return suffix_bytes[:max_output_bytes].decode("utf-8", errors="ignore").rstrip("\n")
-
-    prefix_bytes = raw[: max_output_bytes - len(suffix_bytes)]
-    prefix = prefix_bytes.decode("utf-8", errors="ignore").rstrip("\n")
-    return f"{prefix}{suffix}"
 
 
 def _format_scalar(value: object | None) -> str:
@@ -428,6 +369,11 @@ def _format_scalar(value: object | None) -> str:
     return text
 
 
+def _format_head_scalar(value: object | None) -> str:
+    text = _format_scalar(value)
+    return text.replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _format_evidence_entries(entries: tuple[DiscoveryEvidenceEntry, ...]) -> str:
     if not entries:
         return "none"
@@ -437,21 +383,11 @@ def _format_evidence_entries(entries: tuple[DiscoveryEvidenceEntry, ...]) -> str
     return visible
 
 
-def _append_issue_lines(
-    lines: list[str],
-    *,
-    title: str,
-    issues: tuple[DiscoveryIssue, ...],
-) -> None:
-    if not issues:
-        return
-    lines.append(f"{title}:")
-    for issue in issues:
-        lines.append(
-            "  "
-            f"{issue.rule_id} severity={issue.severity} subject={issue.subject} "
-            f"message={issue.message} evidence={_format_evidence_entries(issue.evidence)}"
-        )
+def _format_issue_line(issue: DiscoveryIssue) -> str:
+    return (
+        f"{issue.rule_id} severity={issue.severity} subject={issue.subject} "
+        f"message={issue.message} evidence={_format_evidence_entries(issue.evidence)}"
+    )
 
 
 def _format_top_values(profile: ColumnProfile) -> str:
@@ -483,7 +419,8 @@ def _format_profile_range(profile: ColumnProfile) -> str:
 
 def _format_profile_summary(profile: ColumnProfile) -> str:
     return (
-        f"type={profile.data_type} family={profile.type_family} nullable={profile.nullable} "
+        f"type={_format_head_scalar(profile.data_type)} "
+        f"family={_format_head_scalar(profile.type_family)} nullable={profile.nullable} "
         f"distinct={profile.distinct_count} nulls={profile.null_count} "
         f"non_null={profile.non_null_count} range={_format_profile_range(profile)}"
     )
@@ -493,7 +430,7 @@ def _format_formats(formats: tuple[FormatCandidate, ...]) -> str:
     if not formats:
         return "none"
     visible = ", ".join(
-        f"{candidate.format}:{candidate.matched_count}"
+        f"{_format_head_scalar(candidate.format)}:{candidate.matched_count}"
         + (" ambiguous" if candidate.ambiguous else "")
         for candidate in formats[:_MAX_INLINE_ITEMS]
     )
@@ -504,29 +441,6 @@ def _format_formats(formats: tuple[FormatCandidate, ...]) -> str:
 
 def _format_time_range(value_range: TimeValueRange) -> str:
     return f"{_format_scalar(value_range.lower)}..{_format_scalar(value_range.upper)}"
-
-
-def _format_discovery_card(
-    *,
-    identity: str,
-    status: str,
-    table_header: tuple[str, ...] | None = None,
-    table_rows: tuple[tuple[str, ...], ...] | None = None,
-    result_issues: tuple[DiscoveryIssue, ...] = (),
-    available: tuple[str, ...] = (".render()", ".show()"),
-    max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES,
-) -> str:
-    """Render discovery evidence with final-text byte capping only."""
-    lines: list[str] = [identity, f"status: {status}"]
-    _append_issue_lines(lines, title="result issues", issues=result_issues)
-    if table_header is not None and table_rows is not None:
-        lines.append("columns: " + " | ".join(table_header))
-        for row in table_rows:
-            lines.append(" | ".join(row))
-    lines.append("available:")
-    for entry in available:
-        lines.append(f"- {entry}")
-    return _apply_output_cap("\n".join(lines), max_output_bytes)
 
 
 def _signal_ids(signals: tuple[DiscoverySignal, ...]) -> str:
@@ -553,7 +467,7 @@ def _scan_status(scan: ScanReport, issues: int) -> str:
 
 
 @dataclass(frozen=True, repr=False)
-class EntityDiscoveryResult:
+class EntityDiscoveryResult(RenderableResult):
     datasource: DatasourceRef
     source: TableSource
     table_metadata: TableMetadata | None
@@ -566,58 +480,58 @@ class EntityDiscoveryResult:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
-    def _identity(self) -> str:
-        return f"EntityDiscoveryResult datasource={self.datasource.id} table={self.table}"
+    def _repr_identity(self) -> str:
+        return (
+            f"EntityDiscoveryResult datasource={_format_head_scalar(self.datasource.id)} "
+            f"table={_format_head_scalar(self.table)}"
+        )
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
-        _append_issue_lines(lines, title="result issues", issues=self.issues)
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            _scan_status(self.scan, _issue_count(self.issues))
+        )
+        if self.issues:
+            card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
         if self.table_metadata is not None and self.table_metadata.columns:
-            lines.append("schema columns:")
+            schema_rows = []
             for column in self.table_metadata.columns:
                 nullable = "Y" if column.nullable else ("N" if column.nullable is False else "?")
-                row = f"  {column.name} | {column.type} | {nullable}"
+                row = f"{column.name} | {column.type} | {nullable}"
                 if column.comment:
                     row += f" | {column.comment}"
-                lines.append(row)
+                schema_rows.append(row)
+            card.listing("schema columns", tuple(schema_rows))
         else:
-            lines.append("schema columns: none")
+            card.field("schema columns", "none")
         if self.primary_key_evidence:
-            lines.append("primary key evidence:")
-            for candidate in self.primary_key_evidence:
-                lines.append(
-                    "  "
+            card.listing(
+                "primary key evidence",
+                tuple(
                     f"{candidate.column} source={candidate.source} "
                     f"evidence={_format_evidence_entries(candidate.evidence)}"
-                )
+                    for candidate in self.primary_key_evidence
+                ),
+            )
         else:
-            lines.append("primary key evidence: none")
-        lines.append("time-like columns: " + (", ".join(self.time_like_columns) or "none"))
-        lines.append("partition columns: " + (", ".join(self.partition_columns) or "none"))
+            card.field("primary key evidence", "none")
+        card.field("time-like columns", ", ".join(self.time_like_columns) or "none")
+        card.field("partition columns", ", ".join(self.partition_columns) or "none")
         if self.column_profiles:
-            lines.append("column profiles:")
-            for profile in self.column_profiles:
-                lines.append(
-                    "  "
+            card.listing(
+                "column profiles",
+                tuple(
                     f"{profile.name} {_format_profile_summary(profile)} "
                     f"top={_format_top_values(profile)} samples={_format_sample_values(profile)}"
-                )
+                    for profile in self.column_profiles
+                ),
+            )
         else:
-            lines.append("column profiles: none")
-        lines.append("available:")
-        for entry in (".render()", ".show()"):
-            lines.append(f"- {entry}")
-        return _apply_output_cap("\n".join(lines), max_output_bytes)
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
+            card.field("column profiles", "none")
+        return card
 
 
 @dataclass(frozen=True, repr=False)
-class DimensionDiscoveryResult:
+class DimensionDiscoveryResult(RenderableResult):
     datasource: DatasourceRef
     source: TableSource
     table_metadata: TableMetadata | None
@@ -626,9 +540,10 @@ class DimensionDiscoveryResult:
     issues: tuple[DiscoveryIssue, ...]
     columns: tuple[ColumnDiscovery, ...]
 
-    def _identity(self) -> str:
+    def _repr_identity(self) -> str:
         return (
-            f"DimensionDiscoveryResult datasource={self.datasource.id} columns={len(self.columns)}"
+            f"DimensionDiscoveryResult datasource={_format_head_scalar(self.datasource.id)} "
+            f"columns={len(self.columns)}"
         )
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
@@ -645,26 +560,18 @@ class DimensionDiscoveryResult:
         )
         return header, rows
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+    def _card(self) -> Card:
         header, rows = self._table()
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=_scan_status(self.scan, _issue_count(self.issues)),
-            table_header=header,
-            table_rows=rows,
-            result_issues=self.issues,
-            max_output_bytes=max_output_bytes,
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            _scan_status(self.scan, _issue_count(self.issues))
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
+        if self.issues:
+            card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
+        return card.table(header, rows)
 
 
 @dataclass(frozen=True, repr=False)
-class TimeDimensionDiscoveryResult:
+class TimeDimensionDiscoveryResult(RenderableResult):
     datasource: DatasourceRef
     source: TableSource
     table_metadata: TableMetadata | None
@@ -673,43 +580,38 @@ class TimeDimensionDiscoveryResult:
     issues: tuple[DiscoveryIssue, ...]
     columns: tuple[TimeColumnDiscovery, ...]
 
-    def _identity(self) -> str:
+    def _repr_identity(self) -> str:
         return (
-            f"TimeDimensionDiscoveryResult datasource={self.datasource.id} "
+            f"TimeDimensionDiscoveryResult datasource={_format_head_scalar(self.datasource.id)} "
             f"columns={len(self.columns)}"
         )
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        lines = [self._identity(), f"status: {_scan_status(self.scan, _issue_count(self.issues))}"]
-        _append_issue_lines(lines, title="result issues", issues=self.issues)
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            _scan_status(self.scan, _issue_count(self.issues))
+        )
+        if self.issues:
+            card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
         if self.columns:
-            lines.append("time column evidence:")
-            for column in self.columns:
-                lines.append(
-                    "  "
+            card.listing(
+                "time column evidence",
+                tuple(
                     f"{column.column} {_format_profile_summary(column.profile)} "
                     f"formats={_format_formats(column.detected_formats)} "
                     f"range={_format_time_range(column.value_range)} "
                     f"partition_aligned={column.partition_aligned} "
                     f"signals={_signal_ids(column.signals)} "
                     f"issues={_issue_ids(column.issues)}"
-                )
+                    for column in self.columns
+                ),
+            )
         else:
-            lines.append("time column evidence: none")
-        lines.append("available:")
-        for entry in (".render()", ".show()"):
-            lines.append(f"- {entry}")
-        return _apply_output_cap("\n".join(lines), max_output_bytes)
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
+            card.field("time column evidence", "none")
+        return card
 
 
 @dataclass(frozen=True, repr=False)
-class MeasureDiscoveryResult:
+class MeasureDiscoveryResult(RenderableResult):
     datasource: DatasourceRef
     source: TableSource
     table_metadata: TableMetadata | None
@@ -718,8 +620,11 @@ class MeasureDiscoveryResult:
     issues: tuple[DiscoveryIssue, ...]
     columns: tuple[ColumnDiscovery, ...]
 
-    def _identity(self) -> str:
-        return f"MeasureDiscoveryResult datasource={self.datasource.id} columns={len(self.columns)}"
+    def _repr_identity(self) -> str:
+        return (
+            f"MeasureDiscoveryResult datasource={_format_head_scalar(self.datasource.id)} "
+            f"columns={len(self.columns)}"
+        )
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
         header = ("column", "type", "profile", "signals", "issues")
@@ -735,72 +640,63 @@ class MeasureDiscoveryResult:
         )
         return header, rows
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+    def _card(self) -> Card:
         header, rows = self._table()
-        return _format_discovery_card(
-            identity=self._identity(),
-            status=_scan_status(self.scan, _issue_count(self.issues)),
-            table_header=header,
-            table_rows=rows,
-            result_issues=self.issues,
-            max_output_bytes=max_output_bytes,
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            _scan_status(self.scan, _issue_count(self.issues))
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
+        if self.issues:
+            card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
+        return card.table(header, rows)
 
 
 @dataclass(frozen=True, repr=False)
-class RelationshipDiscoveryResult:
+class RelationshipDiscoveryResult(RenderableResult):
     evidence: RelationshipDiscoveryEvidence
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
-    def _identity(self) -> str:
+    def _repr_identity(self) -> str:
         e = self.evidence
         from_name = getattr(e.from_side.datasource, "name", e.from_side.datasource)
-        return f"RelationshipDiscoveryResult from={from_name} match_rate={e.match_rate:.2f}"
+        return (
+            f"RelationshipDiscoveryResult from={_format_head_scalar(from_name)} "
+            f"match_rate={e.match_rate:.2f}"
+        )
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+    def _card(self) -> Card:
         e = self.evidence
         status = (
             f"evidence_only sampled_keys={e.sampled_key_count} "
             f"matched={e.matched_key_count} match_rate={e.match_rate:.2f} "
             f"cardinality={e.cardinality_evidence} issues={_issue_count(self.issues)}"
         )
-        lines = [self._identity(), f"status: {status}"]
-        _append_issue_lines(lines, title="result issues", issues=self.issues)
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            status
+        )
+        if self.issues:
+            card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
         if e.key_type_evidence:
-            lines.append("key type evidence:")
-            for item in e.key_type_evidence:
-                lines.append(
-                    f"  {item.side}.{item.column} type_family={item.type_family} "
+            card.listing(
+                "key type evidence",
+                tuple(
+                    f"{item.side}.{item.column} type_family={item.type_family} "
                     f"data_type={item.data_type}"
-                )
+                    for item in e.key_type_evidence
+                ),
+            )
         else:
-            lines.append("key type evidence: none")
-        lines.append(f"relationship signals: {_signal_ids(e.signals)}")
+            card.field("key type evidence", "none")
+        card.field("relationship signals", _signal_ids(e.signals))
         if e.issues:
-            _append_issue_lines(lines, title="relationship issues", issues=e.issues)
+            card.listing("relationship issues", tuple(_format_issue_line(i) for i in e.issues))
         else:
-            lines.append("relationship issues: none")
-        lines.append("available:")
-        for entry in (".render()", ".show()"):
-            lines.append(f"- {entry}")
-        return _apply_output_cap("\n".join(lines), max_output_bytes)
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
+            card.field("relationship issues", "none")
+        return card
 
 
 @dataclass(frozen=True, repr=False)
-class DimensionValueDiscoveryResult:
+class DimensionValueDiscoveryResult(RenderableResult):
     datasource: DatasourceRef
     source: TableSource
     column: str
@@ -810,10 +706,10 @@ class DimensionValueDiscoveryResult:
     signals: tuple[DiscoverySignal, ...]
     issues: tuple[DiscoveryIssue, ...]
 
-    def _identity(self) -> str:
+    def _repr_identity(self) -> str:
         return (
-            f"DimensionValueDiscoveryResult datasource={self.datasource.id} "
-            f"column={self.column} values={len(self.values)}"
+            f"DimensionValueDiscoveryResult datasource={_format_head_scalar(self.datasource.id)} "
+            f"column={_format_head_scalar(self.column)} values={len(self.values)}"
         )
 
     def _table(self) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
@@ -821,37 +717,73 @@ class DimensionValueDiscoveryResult:
         rows = tuple((str(v.value), str(v.count)) for v in self.values)
         return header, rows
 
-    def render(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+    def _card(self) -> Card:
         header, rows = self._table()
         exhaustive = "exhaustive" if self.complete else "not_exhaustive"
         status = f"{exhaustive} rows={self.scan.rows_scanned} truncated={self.scan.truncated}"
-        rendered = _format_discovery_card(
-            identity=self._identity(),
-            status=status,
-            table_header=header,
-            table_rows=rows,
-            result_issues=self.issues,
-            max_output_bytes=None,
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            status
         )
-        lines = rendered.splitlines()
-        lines.insert(-3, f"signals: {_signal_ids(self.signals)}")
-        lines.insert(-3, f"issues: {_issue_ids(self.issues)}")
+        if self.issues:
+            card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
+        card.table(header, rows)
+        card.field("signals", _signal_ids(self.signals))
+        card.field("issues", _issue_ids(self.issues))
         if not self.complete:
-            lines.insert(
-                -3,
-                "truncation hint: rerun with a larger limit or narrower scope for more values",
+            card.field(
+                "truncation hint",
+                "rerun with a larger limit or narrower scope for more values",
             )
-        return _apply_output_cap("\n".join(lines), max_output_bytes)
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        print(self.render(max_output_bytes=max_output_bytes))
+        return card
 
 
 @dataclass(frozen=True, repr=False)
-class RawSqlResult:
+class PartitionInspectionResult(RenderableResult):
+    """Bounded metadata-only partition value inspection result."""
+
+    datasource: DatasourceRef
+    source: TableSource
+    partition_columns: tuple[str, ...]
+    rows: tuple[dict[str, str], ...]
+    requested_limit: int
+    is_truncated: bool
+    warnings: tuple[str, ...]
+
+    def _repr_identity(self) -> str:
+        return (
+            f"PartitionInspectionResult datasource={_format_head_scalar(self.datasource.id)} "
+            f"partitions={len(self.rows)}"
+        )
+
+    def _card(self) -> Card:
+        column_status = "none" if not self.partition_columns else str(len(self.partition_columns))
+        status = (
+            f"metadata_only columns={column_status} "
+            f"returned={len(self.rows)} limit={self.requested_limit} "
+            f"truncated={self.is_truncated} warnings={len(self.warnings)}"
+        )
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            status
+        )
+        card.field("partition columns", ", ".join(self.partition_columns) or "none")
+        if self.warnings:
+            card.listing("warnings", self.warnings)
+        if self.rows:
+            card.listing(
+                "partition values",
+                tuple(
+                    f"{', '.join(f'{key}={value}' for key, value in row.items())} "
+                    f"-> md.partition({json.dumps(row, ensure_ascii=False)})"
+                    for row in self.rows
+                ),
+            )
+        else:
+            card.field("partition values", "none")
+        return card
+
+
+@dataclass(frozen=True, repr=False)
+class RawSqlResult(RenderableResult):
     """Bounded result from the explicit datasource raw-SQL escape hatch.
 
     Attributes:
@@ -888,32 +820,23 @@ class RawSqlResult:
     is_truncated: bool
     warnings: tuple[str, ...]
 
-    def _identity(self) -> str:
+    def _repr_identity(self) -> str:
         return (
-            f"RawSqlResult datasource={self.datasource.id} "
+            f"RawSqlResult datasource={_format_head_scalar(self.datasource.id)} "
             f"rows={self.returned_row_count} escape_hatch"
         )
 
-    def render(self) -> str:
-        from marivo.render import format_bounded_card
-
-        preview_rows = [[str(row.get(column)) for column in self.columns] for row in self.rows[:8]]
-        status = (
-            f"escape_hatch reason={self.reason} "
-            f"truncated={self.is_truncated} warnings={len(self.warnings)}"
+    def _card(self) -> Card:
+        preview_rows = tuple(
+            tuple(str(row.get(column)) for column in self.columns) for row in self.rows
         )
-        return format_bounded_card(
-            identity=self._identity(),
-            status=status,
-            columns=list(self.columns),
-            rows=preview_rows,
-            row_count=self.returned_row_count,
-            preview_truncation_hint="increase limit for more diagnostic rows",
-            available=(".rows", ".columns", ".types", ".reason", ".render()", ".show()"),
+        status = f"escape_hatch truncated={self.is_truncated} warnings={len(self.warnings)}"
+        return (
+            Card(
+                identity=self._repr_identity(),
+                available=(".rows", ".columns", ".types", ".reason", ".render()", ".show()"),
+            )
+            .status(status)
+            .field("reason", self.reason)
+            .table(self.columns, preview_rows, row_count=self.returned_row_count)
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._identity())
-
-    def show(self) -> None:
-        print(self.render())

@@ -25,7 +25,7 @@ from marivo.preview import (
     validate_preview_limit,
 )
 from marivo.refs import SemanticRef
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import Card, FieldSection, ListSection, RenderableResult, Section
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import DatasetSource
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError, _raise
@@ -110,23 +110,6 @@ EntityVersioning = EntityVersioningIR
 # ---------------------------------------------------------------------------
 
 
-def _render_details_card(
-    *,
-    identity: str,
-    status: str | None = None,
-    extra_lines: tuple[str, ...] = (),
-) -> str:
-    """Return a bounded plain-text details card without a trailing newline."""
-    lines: list[str] = [identity]
-    if status:
-        lines.append(f"status: {status}")
-    for line in extra_lines:
-        lines.append(line)
-    lines.append("available:")
-    lines.append("- .show()")
-    return "\n".join(lines)
-
-
 def _source_location_text(source_location: SourceLocation) -> str:
     return f"{source_location.file}:{source_location.line}"
 
@@ -177,7 +160,7 @@ def _provenance_text(provenance: SqlProvenance | None) -> str:
     return f"{provenance.kind} dialect={provenance.dialect} sql={provenance.sql!r}"
 
 
-def _common_detail_lines(
+def _common_detail_sections(
     *,
     context: AiContextView,
     python_symbol: str,
@@ -185,41 +168,35 @@ def _common_detail_lines(
     parents: tuple[SemanticRef, ...],
     children: tuple[SemanticRef, ...],
     dependents: tuple[SemanticRef, ...],
-) -> list[str]:
-    lines = [
-        f"business_definition: {context.business_definition or '(none)'}",
-        "guardrails:",
+) -> list[Section]:
+    sections: list[Section] = [
+        FieldSection(label="business_definition", value=context.business_definition or "(none)"),
+        ListSection(label="guardrails", items=tuple(context.guardrails) or ()),
     ]
-    lines.extend(f"- {guardrail}" for guardrail in context.guardrails[:6])
-    if not context.guardrails:
-        lines.append("- (none)")
-    if len(context.guardrails) > 6:
-        lines.append(f"- ... (+{len(context.guardrails) - 6} more)")
     if context.synonyms:
-        lines.append(f"synonyms: {_format_tuple_values(context.synonyms)}")
+        sections.append(
+            FieldSection(label="synonyms", value=_format_tuple_values(context.synonyms))
+        )
     if context.examples:
-        lines.append("examples:")
-        lines.extend(f"- {example}" for example in context.examples[:3])
-        if len(context.examples) > 3:
-            lines.append(f"- ... (+{len(context.examples) - 3} more)")
+        sections.append(ListSection(label="examples", items=tuple(context.examples)))
     if context.instructions:
-        lines.append(f"instructions: {context.instructions}")
+        sections.append(FieldSection(label="instructions", value=context.instructions))
     if context.owner_notes:
-        lines.append(f"owner_notes: {context.owner_notes}")
-    lines.extend(
+        sections.append(FieldSection(label="owner_notes", value=context.owner_notes))
+    sections.extend(
         (
-            f"source_location: {_source_location_text(source_location)}",
-            f"python_symbol: {python_symbol or '(none)'}",
-            f"parents: {_format_refs(parents)}",
-            f"children: {_format_refs(children)}",
-            f"dependents: {_format_refs(dependents)}",
+            FieldSection(label="source_location", value=_source_location_text(source_location)),
+            FieldSection(label="python_symbol", value=python_symbol or "(none)"),
+            FieldSection(label="parents", value=_format_refs(parents)),
+            FieldSection(label="children", value=_format_refs(children)),
+            FieldSection(label="dependents", value=_format_refs(dependents)),
         )
     )
-    return lines
+    return sections
 
 
 @dataclass(frozen=True, repr=False)
-class _DetailsBase:
+class _DetailsBase(RenderableResult):
     """Common fields and result protocol shared by all *Details classes."""
 
     ref: SemanticRef
@@ -236,14 +213,14 @@ class _DetailsBase:
     def _repr_identity(self) -> str:
         return f"{self.__class__.__name__} ref={self.ref.id}"
 
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def render(self) -> str:
+    def _detail_sections(self) -> list[Section]:
         raise NotImplementedError
 
-    def show(self) -> None:
-        print(self.render())
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".show()",))
+        for section in self._detail_sections():
+            card = card.section(section)
+        return card
 
 
 @dataclass(frozen=True, repr=False)
@@ -254,8 +231,8 @@ class DatasourceDetails(_DetailsBase):
     fields: dict[str, object]
     env_refs: dict[str, str]
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -263,28 +240,25 @@ class DatasourceDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.extend(
+        sections.extend(
             (
-                f"backend_type: {self.backend_type}",
-                f"fields: {_format_mapping(self.fields)}",
-                f"env_refs: {_format_mapping(self.env_refs)}",
+                FieldSection(label="backend_type", value=self.backend_type),
+                FieldSection(label="fields", value=_format_mapping(self.fields)),
+                FieldSection(label="env_refs", value=_format_mapping(self.env_refs)),
             )
         )
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
-        )
+        return sections
 
 
 @dataclass(frozen=True, repr=False)
 class DomainDetails(_DetailsBase):
     """Details for a domain object."""
 
+    owner: str
     default: bool
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -292,12 +266,13 @@ class DomainDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.append(f"default: {self.default}")
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
+        sections.extend(
+            (
+                FieldSection(label="owner", value=self.owner),
+                FieldSection(label="default", value=str(self.default)),
+            )
         )
+        return sections
 
 
 @dataclass(frozen=True, repr=False)
@@ -309,8 +284,8 @@ class EntityDetails(_DetailsBase):
     primary_key: tuple[str, ...]
     versioning: EntityVersioning | None
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -318,19 +293,15 @@ class EntityDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.extend(
+        sections.extend(
             (
-                f"datasource: {self.datasource.id}",
-                f"source: {_source_text(self.source)}",
-                f"primary_key: {_format_tuple_values(self.primary_key)}",
-                f"versioning: {_versioning_text(self.versioning)}",
+                FieldSection(label="datasource", value=self.datasource.id),
+                FieldSection(label="source", value=_source_text(self.source)),
+                FieldSection(label="primary_key", value=_format_tuple_values(self.primary_key)),
+                FieldSection(label="versioning", value=_versioning_text(self.versioning)),
             )
         )
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
-        )
+        return sections
 
 
 @dataclass(frozen=True, repr=False)
@@ -339,8 +310,8 @@ class DimensionDetails(_DetailsBase):
 
     entity: SemanticRef
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -348,12 +319,8 @@ class DimensionDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.append(f"entity: {self.entity.id}")
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
-        )
+        sections.append(FieldSection(label="entity", value=self.entity.id))
+        return sections
 
 
 @dataclass(frozen=True, repr=False)
@@ -364,8 +331,8 @@ class MeasureDetails(_DetailsBase):
     additivity: Literal["additive", "semi_additive", "non_additive"]
     unit: str | None
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -373,14 +340,15 @@ class MeasureDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.extend((f"entity: {self.entity.id}", f"additivity: {self.additivity}"))
-        if self.unit:
-            extra.append(f"unit: {self.unit}")
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
+        sections.extend(
+            (
+                FieldSection(label="entity", value=self.entity.id),
+                FieldSection(label="additivity", value=self.additivity),
+            )
         )
+        if self.unit:
+            sections.append(FieldSection(label="unit", value=self.unit))
+        return sections
 
 
 @dataclass(frozen=True, repr=False)
@@ -396,8 +364,8 @@ class TimeDimensionDetails(_DetailsBase):
     is_default: bool
     sample_interval: SampleIntervalIR | None
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -406,25 +374,24 @@ class TimeDimensionDetails(_DetailsBase):
             dependents=self.dependents,
         )
         parse_kind_display = self.parse_kind or "(inferred)"
-        extra.extend(
+        sections.extend(
             (
-                f"entity: {self.entity.id}",
-                f"parse_kind: {parse_kind_display}",
-                f"granularity: {self.granularity}",
-                f"format: {self.format!r}",
-                f"timezone: {self.timezone!r}",
-                f"is_default: {self.is_default}",
-                f"sample_interval: {self.sample_interval.to_token() if self.sample_interval else '(none)'}",
+                FieldSection(label="entity", value=self.entity.id),
+                FieldSection(label="parse_kind", value=parse_kind_display),
+                FieldSection(label="granularity", value=str(self.granularity)),
+                FieldSection(label="format", value=repr(self.format)),
+                FieldSection(label="timezone", value=repr(self.timezone)),
+                FieldSection(label="is_default", value=str(self.is_default)),
+                FieldSection(
+                    label="sample_interval",
+                    value=self.sample_interval.to_token() if self.sample_interval else "(none)",
+                ),
             )
         )
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
-        )
+        return sections
 
 
-def _metric_common_lines(
+def _metric_common_sections(
     *,
     entities: tuple[SemanticRef, ...],
     root_entity: SemanticRef | None,
@@ -436,22 +403,22 @@ def _metric_common_lines(
     unit: str | None,
     provenance: SqlProvenance | None,
     parity_status: ParityStatus,
-) -> list[str]:
-    """Render lines shared by all metric detail variants."""
-    lines = [
-        f"entities: {_format_refs(entities)}",
-        f"root_entity: {_format_ref(root_entity)}",
-        f"type: {metric_type}",
-        f"additivity: {additivity}",
+) -> list[Section]:
+    """Render sections shared by all metric detail variants."""
+    sections: list[Section] = [
+        FieldSection(label="entities", value=_format_refs(entities)),
+        FieldSection(label="root_entity", value=_format_ref(root_entity)),
+        FieldSection(label="type", value=metric_type),
+        FieldSection(label="additivity", value=additivity),
     ]
     if fold is not None:
-        lines.append(f"fold: {fold} over {status_time_dimension}")
-    lines.append(f"fanout_policy: {fanout_policy}")
+        sections.append(FieldSection(label="fold", value=f"{fold} over {status_time_dimension}"))
+    sections.append(FieldSection(label="fanout_policy", value=fanout_policy))
     if unit:
-        lines.append(f"unit: {unit}")
-    lines.append(f"provenance: {_provenance_text(provenance)}")
-    lines.append(f"parity_status: {parity_status}")
-    return lines
+        sections.append(FieldSection(label="unit", value=unit))
+    sections.append(FieldSection(label="provenance", value=_provenance_text(provenance)))
+    sections.append(FieldSection(label="parity_status", value=str(parity_status)))
+    return sections
 
 
 @dataclass(frozen=True, repr=False)
@@ -481,8 +448,8 @@ class SimpleMetricDetails(_DetailsBase):
     def metric_type(self) -> Literal["simple"]:
         return "simple"
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -490,8 +457,8 @@ class SimpleMetricDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.extend(
-            _metric_common_lines(
+        sections.extend(
+            _metric_common_sections(
                 entities=self.entities,
                 root_entity=self.root_entity,
                 metric_type=self.metric_type,
@@ -505,16 +472,17 @@ class SimpleMetricDetails(_DetailsBase):
             )
         )
         if self.aggregation is not None:
-            extra.append(f"aggregation: {self.aggregation}")
+            sections.append(FieldSection(label="aggregation", value=self.aggregation))
         if self.measure is not None:
-            extra.append(f"measure: {self.measure.id}")
+            sections.append(FieldSection(label="measure", value=self.measure.id))
         if self.aggregation_target is not None and self.aggregation_target_kind != "measure":
-            extra.append(f"target: {self.aggregation_target_kind} {self.aggregation_target.id}")
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
-        )
+            sections.append(
+                FieldSection(
+                    label="target",
+                    value=f"{self.aggregation_target_kind} {self.aggregation_target.id}",
+                )
+            )
+        return sections
 
 
 @dataclass(frozen=True, repr=False)
@@ -544,8 +512,8 @@ class DerivedMetricDetails(_DetailsBase):
     def metric_type(self) -> Literal["derived"]:
         return "derived"
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -553,8 +521,8 @@ class DerivedMetricDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.extend(
-            _metric_common_lines(
+        sections.extend(
+            _metric_common_sections(
                 entities=self.entities,
                 root_entity=self.root_entity,
                 metric_type=self.metric_type,
@@ -567,23 +535,29 @@ class DerivedMetricDetails(_DetailsBase):
                 parity_status=self.parity_status,
             )
         )
-        extra.append(f"composition: {self.composition}")
+        sections.append(FieldSection(label="composition", value=self.composition))
         if self.components:
-            extra.append(
-                "components: " + ", ".join(f"{role}={ref.id}" for role, ref in self.components)
+            sections.append(
+                FieldSection(
+                    label="components",
+                    value=", ".join(f"{role}={ref.id}" for role, ref in self.components),
+                )
             )
         if self.linear_terms:
-            extra.append(
-                "linear_terms: "
-                + ", ".join(f"{sign}{metric}" for sign, metric in self.linear_terms)
+            sections.append(
+                FieldSection(
+                    label="linear_terms",
+                    value=", ".join(f"{sign}{metric}" for sign, metric in self.linear_terms),
+                )
             )
         if self.required_relationships:
-            extra.append(f"required_relationships: {_format_refs(self.required_relationships)}")
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
-        )
+            sections.append(
+                FieldSection(
+                    label="required_relationships",
+                    value=_format_refs(self.required_relationships),
+                )
+            )
+        return sections
 
 
 MetricDetails = SimpleMetricDetails | DerivedMetricDetails
@@ -604,8 +578,8 @@ class RelationshipDetails(_DetailsBase):
         # Set by _build_relationship_object from JoinKey pairs.
         pass
 
-    def render(self) -> str:
-        extra = _common_detail_lines(
+    def _detail_sections(self) -> list[Section]:
+        sections = _common_detail_sections(
             context=self.context,
             python_symbol=self.python_symbol,
             source_location=self.source_location,
@@ -613,22 +587,20 @@ class RelationshipDetails(_DetailsBase):
             children=self.children,
             dependents=self.dependents,
         )
-        extra.extend(
+        sections.extend(
             (
-                f"from: {self.from_entity.id}",
-                f"to: {self.to_entity.id}",
-                "join_keys: "
-                + ", ".join(
-                    f"{left}={right}"
-                    for left, right in zip(self.from_keys, self.to_keys, strict=True)
+                FieldSection(label="from", value=self.from_entity.id),
+                FieldSection(label="to", value=self.to_entity.id),
+                FieldSection(
+                    label="join_keys",
+                    value=", ".join(
+                        f"{left}={right}"
+                        for left, right in zip(self.from_keys, self.to_keys, strict=True)
+                    ),
                 ),
             )
         )
-        return _render_details_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            extra_lines=tuple(extra),
-        )
+        return sections
 
 
 SemanticObjectDetails = (
@@ -644,7 +616,7 @@ SemanticObjectDetails = (
 
 
 @dataclass(frozen=True, repr=False)
-class SemanticObject:
+class SemanticObject(RenderableResult):
     """Single read shape for all loaded semantic objects.
 
     Args:
@@ -723,23 +695,15 @@ class SemanticObject:
     def _repr_identity(self) -> str:
         return f"SemanticObject kind={self.kind} ref={self.ref.id}"
 
-    def render(self) -> str:
-        """Return a bounded plain-text object card without a trailing newline."""
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=self.context.business_definition,
-            available=(".details()", ".show()"),
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".details()", ".show()"))
+        return card.field(
+            label="business_definition",
+            value=self.context.business_definition or "(none)",
         )
 
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
 
-    def show(self) -> None:
-        """Print render() output and return None."""
-        print(self.render())
-
-
-class SemanticObjectList:
+class SemanticObjectList(RenderableResult):
     """Browsing result returned by catalog.list(...).
 
     Args:
@@ -794,60 +758,24 @@ class SemanticObjectList:
     def __getitem__(self, index: int) -> SemanticObject:
         return self._items[index]
 
-    def render(self) -> str:
-        """Return bounded plain-text browsing card without a trailing newline."""
-        lines: list[str] = []
-        if self._parent_label:
-            lines.append(self._parent_label)
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=("result.refs()",))
         if not self._items:
             filter_note = f" kind={self._kind_filter!r}" if self._kind_filter else ""
             parent_note = self._parent_label or "catalog"
-            lines.append(f"  (no objects found under {parent_note!r}{filter_note})")
-            lines.append("next steps:")
-            lines.append(
-                "  catalog.list().show()           # browse top-level domains and datasources"
+            return card.field(
+                label=f"no objects found under {parent_note!r}{filter_note}",
+                value="none",
             )
-            return "\n".join(lines)
 
         for obj in self._items:
-            kind_str = str(obj.kind)
-            ref_str = obj.ref.id
-            lines.append(f"  {kind_str:<12}{ref_str}")
-
-        lines.append("")
-        lines.append("next steps:")
-        if self._items:
-            first = self._items[0]
-            first_ref = _catalog_get_id(first)
-            lines.append(
-                f"  catalog.get({first_ref!r}){'': <4}# retrieve a SemanticObject by full ref"
-            )
-            first_browsable = next(
-                (obj for obj in self._items if str(obj.kind) in _BROWSABLE_PARENT_KINDS),
-                None,
-            )
-            if first_browsable is not None:
-                browse_ref = _catalog_get_id(first_browsable)
-                lines.append(
-                    f"  catalog.list(catalog.get({browse_ref!r}).ref).show()"
-                    "    # browse inside this object"
-                )
-        lines.append(
-            "  result.refs()                   # obtain all SemanticRef values for analysis handoff"
-        )
-        return "\n".join(lines).rstrip("\n")
+            card = card.listing(label=str(obj.kind), items=(obj.ref.id,))
+        return card
 
     def _repr_identity(self) -> str:
         label = self._parent_label or "catalog"
         filter_note = f" kind={self._kind_filter}" if self._kind_filter else ""
         return f"SemanticObjectList parent={label}{filter_note} count={len(self._items)}"
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        """Print render() output and return None."""
-        print(self.render())
 
 
 # ---------------------------------------------------------------------------
@@ -863,13 +791,6 @@ _BROWSABLE_PARENT_KINDS: frozenset[str] = frozenset(
         str(SymbolKind.DATASOURCE),
     }
 )
-
-
-def _catalog_get_id(obj: SemanticObject) -> str:
-    """Return the copy-pasteable typed id accepted by catalog.get(...)."""
-    if obj.kind == SemanticKind.DATASOURCE:
-        return obj.ref.id
-    return f"{obj.kind}.{obj.ref.id}"
 
 
 def _supported_kind_members() -> str:
@@ -1003,6 +924,7 @@ def _build_domain_object(model_ir: DomainIR, reg: Registry) -> SemanticObject:
         children=children,
         dependents=(),
         python_symbol="",
+        owner=model_ir.owner,
         default=model_ir.default,
     )
     return SemanticObject(

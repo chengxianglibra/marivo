@@ -9,6 +9,7 @@ import pytest
 
 import marivo.semantic as ms
 from marivo.datasource.authoring import DatasourceRef
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 from marivo.semantic.catalog import (
     AiContextView,
     DatasourceDetails,
@@ -174,9 +175,11 @@ def test_domain_details_fields():
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
         **_common_details_kwargs(python_symbol=""),
+        owner="Mina Zhang",
         default=True,
     )
     assert d.children[0].id == "sales.orders"
+    assert d.owner == "Mina Zhang"
     assert d.default is True
 
 
@@ -351,14 +354,15 @@ def test_relationship_details_fields():
     assert d.to_keys == ("id",)
 
 
-def _make_metric_obj() -> SemanticObject:
+def _make_metric_obj(*, context: AiContextView | None = None) -> SemanticObject:
     ref = make_ref("sales.revenue", SemanticKind.METRIC)
+    resolved_context = context or _make_ctx()
     details = SimpleMetricDetails(
         ref=ref,
         kind=SemanticKind.METRIC,
         name="revenue",
         domain="sales",
-        context=_make_ctx(),
+        context=resolved_context,
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         children=(),
@@ -381,7 +385,7 @@ def _make_metric_obj() -> SemanticObject:
         kind=SemanticKind.METRIC,
         name="revenue",
         domain="sales",
-        context=_make_ctx(),
+        context=resolved_context,
         source_location=_make_loc(),
         python_symbol="revenue",
         _details=details,
@@ -410,6 +414,25 @@ def test_semantic_object_details_no_stdout(capsys):
     obj = _make_metric_obj()
     obj.details()
     assert capsys.readouterr().out == ""
+
+
+def test_semantic_object_render_bounds_long_business_definition():
+    obj = _make_metric_obj(
+        context=AiContextView(
+            business_definition="Revenue detail. " * 1000,
+            guardrails=(),
+            synonyms=(),
+            examples=(),
+            instructions=None,
+            owner_notes=None,
+        )
+    )
+
+    rendered = obj.render()
+
+    assert len(rendered.encode()) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert "available:" in rendered
+    assert "business_definition:" in obj.render(max_output_bytes=None)
 
 
 # --- SemanticObjectList ---
@@ -465,10 +488,11 @@ def test_semantic_object_list_render_contains_ref_and_kind():
     assert "metric" in rendered
 
 
-def test_semantic_object_list_render_uses_typed_catalog_get_hint():
+def test_semantic_object_list_render_uses_refs_affordance():
     rendered = _make_list().render()
-    assert "catalog.get('metric.sales.revenue')" in rendered
-    assert "catalog.get('sales.revenue')" not in rendered
+    assert "available:" in rendered
+    assert "- result.refs()" in rendered
+    assert "catalog.get(" not in rendered
 
 
 def test_semantic_object_list_show_prints_render(capsys):
@@ -479,17 +503,19 @@ def test_semantic_object_list_show_prints_render(capsys):
     assert "sales.revenue" in out
 
 
-def test_semantic_object_list_empty_renders_actionable_message():
+def test_semantic_object_list_empty_renders_absence_without_next_step():
     lst = SemanticObjectList(items=(), parent_label="sales.orders", kind_filter="metric")
     rendered = lst.render()
     assert "sales.orders" in rendered
     assert "metric" in rendered
+    assert "no objects found under 'sales.orders' kind='metric': none" in rendered
+    assert "catalog.list().show()" not in rendered
 
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
 _DATASETS_PY = textwrap.dedent("""\
@@ -646,22 +672,24 @@ def test_catalog_list_refs_returns_semantic_refs(semantic_project_factory):
     assert all(isinstance(r, SemanticRef) for r in refs)
 
 
-def test_catalog_list_top_level_render_includes_drill_down_hint(semantic_project_factory):
+def test_catalog_list_top_level_render_includes_refs_affordance(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
 
     rendered = catalog.list().render()
 
-    assert "catalog.list(catalog.get('domain.sales').ref).show()" in rendered
+    assert "- result.refs()" in rendered
+    assert "catalog.list(catalog.get(" not in rendered
 
 
-def test_catalog_list_top_level_render_explains_nested_browse_scope(
+def test_catalog_list_top_level_render_omits_nested_browse_hint(
     semantic_project_factory,
 ):
     catalog = _make_catalog(semantic_project_factory)
 
     rendered = catalog.list().render()
 
-    assert "browse inside this object" in rendered
+    assert "available:" in rendered
+    assert "browse inside this object" not in rendered
 
 
 # --- Model-level listing ---
@@ -695,23 +723,24 @@ def test_catalog_list_domain_includes_revenue_metric(semantic_project_factory):
     assert "sales.revenue" in refs
 
 
-def test_catalog_list_domain_render_uses_typed_entity_get_hint(semantic_project_factory):
+def test_catalog_list_domain_render_uses_card_entity_listing(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
 
     rendered = catalog.list(catalog.get("domain.sales").ref).render()
 
-    assert "catalog.get('entity.sales.orders')" in rendered
-    assert "catalog.get('sales.orders')" not in rendered
+    assert "entity:" in rendered
+    assert "- sales.orders" in rendered
+    assert "catalog.get(" not in rendered
 
 
-def test_catalog_list_datasource_render_uses_typed_entity_hints(semantic_project_factory):
+def test_catalog_list_datasource_render_uses_card_entity_listing(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
 
     rendered = catalog.list(catalog.get("datasource.warehouse").ref).render()
 
-    assert "catalog.get('entity.sales.orders')" in rendered
-    assert "catalog.get('sales.orders')" not in rendered
-    assert "catalog.list(catalog.get('entity.sales.orders').ref).show()" in rendered
+    assert "entity:" in rendered
+    assert "- sales.orders" in rendered
+    assert "catalog.get(" not in rendered
 
 
 def test_catalog_list_domain_relationships(semantic_project_factory):
@@ -818,7 +847,7 @@ def test_catalog_list_entity_time_dimension_has_correct_ref(semantic_project_fac
         (SemanticKind.METRIC, "catalog.get('metric.sales.revenue')"),
     ],
 )
-def test_catalog_list_entity_leaf_render_uses_typed_get_hint_without_drill_down(
+def test_catalog_list_entity_leaf_render_uses_card_listing_without_drill_down(
     semantic_project_factory,
     kind,
     typed_get_hint,
@@ -827,11 +856,12 @@ def test_catalog_list_entity_leaf_render_uses_typed_get_hint_without_drill_down(
 
     rendered = catalog.list(catalog.get("entity.sales.orders").ref, kind=kind).render()
 
-    assert typed_get_hint in rendered
+    assert typed_get_hint not in rendered
+    assert "- result.refs()" in rendered
     assert "catalog.list(catalog.get(" not in rendered
 
 
-def test_catalog_list_entity_measure_render_uses_typed_get_hint_without_drill_down(
+def test_catalog_list_entity_measure_render_uses_card_listing_without_drill_down(
     semantic_project_factory,
 ):
     project = semantic_project_factory(
@@ -847,8 +877,9 @@ def test_catalog_list_entity_measure_render_uses_typed_get_hint_without_drill_do
         kind=SemanticKind.MEASURE,
     ).render()
 
-    assert "catalog.get('measure.sales.orders.amount')" in rendered
-    assert "catalog.get('sales.orders.amount')" not in rendered
+    assert "measure:" in rendered
+    assert "- sales.orders.amount" in rendered
+    assert "catalog.get(" not in rendered
     assert "catalog.list(catalog.get(" not in rendered
 
 
@@ -947,6 +978,7 @@ def test_catalog_get_returns_semantic_object_for_domain(semantic_project_factory
     obj = catalog.get("domain.sales")
     assert obj.ref.id == "sales"
     assert str(obj.kind) == "domain"
+    assert obj.details().owner == "Mina Zhang"
 
 
 def test_catalog_get_returns_semantic_object_for_datasource(semantic_project_factory):
@@ -1136,6 +1168,44 @@ def test_catalog_details_render_includes_agent_consumption_context(
     assert "sales.orders.region" in entity_rendered
 
 
+def test_catalog_details_render_bounds_long_business_definition():
+    details = SimpleMetricDetails(
+        ref=_make_ref("sales.revenue", SemanticKind.METRIC),
+        kind=SemanticKind.METRIC,
+        name="revenue",
+        domain="sales",
+        context=AiContextView(
+            business_definition="Revenue detail. " * 1000,
+            guardrails=(),
+            synonyms=(),
+            examples=(),
+            instructions=None,
+            owner_notes=None,
+        ),
+        source_location=_make_loc(),
+        parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
+        children=(),
+        dependents=(),
+        **_common_details_kwargs(python_symbol="revenue"),
+        entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
+        root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
+        aggregation=None,
+        measure=None,
+        additivity="additive",
+        fanout_policy="block",
+        unit=None,
+        provenance=None,
+        parity_status=ParityStatus.UNVERIFIED,
+        fold=None,
+        status_time_dimension=None,
+    )
+
+    rendered = details.render()
+
+    assert len(rendered.encode()) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert "available:" in rendered
+
+
 def test_catalog_datasource_details_do_not_expose_secret_values(
     semantic_project_factory,
     monkeypatch,
@@ -1237,6 +1307,9 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
         ("numerator", make_ref("sales.revenue", SemanticKind.METRIC)),
         ("denominator", make_ref("sales.order_count", SemanticKind.METRIC)),
     )
+    rendered = details.render()
+    assert "composition: ratio" in rendered
+    assert "components: numerator=sales.revenue, denominator=sales.order_count" in rendered
 
 
 def test_catalog_time_dimension_details_include_sample_interval(semantic_project_factory):
@@ -1336,7 +1409,7 @@ def test_ms_load_failure_raises_semantic_load_error(tmp_path):
     semantic = tmp_path / "models" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='wrong_name')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='wrong_name', owner='Mina Zhang')\n"
     )
     from marivo.semantic.errors import SemanticLoadFailed
 
@@ -1439,7 +1512,7 @@ def test_catalog_load_preserves_filtered_model_scope(semantic_project_factory):
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _DATASETS_PY,
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
@@ -1463,7 +1536,7 @@ def test_catalog_load_with_models_changes_filter(semantic_project_factory):
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _DATASETS_PY,
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
@@ -1486,7 +1559,7 @@ def test_catalog_access_after_failed_load_raises_semantic_load_failed(tmp_path):
     semantic = tmp_path / "models" / "semantic" / "sales"
     semantic.mkdir(parents=True)
     (semantic / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='wrong_name')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='wrong_name', owner='Mina Zhang')\n"
     )
 
     from marivo.semantic.errors import SemanticLoadFailed
@@ -1595,7 +1668,7 @@ def _write_minimal_project(tmp_path) -> None:
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
     (semantic / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang', default=True)\n"
     )
     (semantic / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -1618,7 +1691,7 @@ def _write_multi_domain_project(tmp_path) -> None:
     sales = tmp_path / "models" / "semantic" / "sales"
     sales.mkdir(parents=True, exist_ok=True)
     (sales / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', default=True)\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang', default=True)\n"
     )
     (sales / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -1631,7 +1704,7 @@ def _write_multi_domain_project(tmp_path) -> None:
     ops = tmp_path / "models" / "semantic" / "ops"
     ops.mkdir(parents=True, exist_ok=True)
     (ops / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n"
     )
     (ops / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"

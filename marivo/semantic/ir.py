@@ -234,6 +234,7 @@ class DomainIR:
     """Semantic domain container."""
 
     name: str
+    owner: str
     default: bool
     ai_context: AiContextIR
     location: SourceLocation

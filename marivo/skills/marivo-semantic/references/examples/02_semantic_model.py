@@ -17,7 +17,7 @@ import marivo.semantic as ms
 """
 
 DOMAIN = """
-ms.domain(name="sales")
+ms.domain(name="sales", owner='Mina Zhang')
 warehouse = md.ref("datasource.warehouse")
 """
 

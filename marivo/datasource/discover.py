@@ -7,10 +7,10 @@ from typing import Literal
 
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.discovery import (
+    DatasourceResult,
     DimensionValueDiscoveryResult,
     DimensionValueFact,
     DiscoveryIssue,
-    DiscoveryResult,
     DiscoverySignal,
     KeyTypeEvidence,
     TableSource,
@@ -24,7 +24,7 @@ from marivo.datasource.discovery_rules import (
     dimension_value_rules,
 )
 from marivo.datasource.manage import _inspect_columns, _probe_join_keys
-from marivo.datasource.metadata import _inspect_source
+from marivo.datasource.metadata import TableMetadata, _inspect_source
 from marivo.datasource.scan import ColumnInspection, JoinSide, ScanScope
 
 
@@ -38,6 +38,68 @@ def _datasource_id(datasource: DatasourceRef) -> str:
             f"datasource must be md.DatasourceRef from md.ref(...), got {type(datasource).__name__}."
         )
     return datasource.id
+
+
+def _source_call(source: TableSource) -> str:
+    table_name = getattr(source, "table", None)
+    if isinstance(table_name, str):
+        return f'md.table("{table_name}")'
+    return 'md.table("<table>")'
+
+
+def _partition_literal(columns: tuple[str, ...]) -> str:
+    return "{" + ", ".join(f'"{column}": "..."' for column in columns) + "}"
+
+
+def _require_discovery_partition_scope(
+    *,
+    metadata: TableMetadata | None,
+    source: TableSource,
+    scope: ScanScope,
+) -> None:
+    if metadata is None or not metadata.partitions:
+        return
+    partition_columns = tuple(partition.name for partition in metadata.partitions)
+    transformed = tuple(
+        partition.name for partition in metadata.partitions if partition.transform is not None
+    )
+    if transformed:
+        columns_text = ", ".join(partition_columns)
+        transformed_text = ", ".join(transformed)
+        raise ValueError(
+            "Partition filter required.\n\n"
+            f"The table is partitioned by: {columns_text}.\n"
+            "Discovery refuses to scan partitioned tables whose transformed partition "
+            "values cannot be expressed safely as md.partition({...}).\n\n"
+            f"Transformed partition columns: {transformed_text}.\n"
+            "Run:\n"
+            f"  md.inspect_partitions(ds, {_source_call(source)}, limit=50).show()\n\n"
+            "Then provide explicit partition values from backend metadata or source knowledge."
+        )
+    if scope.partition is None:
+        columns_text = ", ".join(partition_columns)
+        literal = _partition_literal(partition_columns)
+        raise ValueError(
+            "Partition filter required.\n\n"
+            f"The table is partitioned by: {columns_text}.\n"
+            "Discovery refuses to scan partitioned tables without an explicit partition filter.\n\n"
+            "Run:\n"
+            f"  md.inspect_partitions(ds, {_source_call(source)}, limit=50).show()\n\n"
+            "Then call:\n"
+            f"  scope = md.partition({literal})"
+        )
+    missing = tuple(column for column in partition_columns if column not in scope.partition)
+    if missing:
+        columns_text = ", ".join(partition_columns)
+        missing_text = ", ".join(missing)
+        literal = _partition_literal(partition_columns)
+        raise ValueError(
+            "Partition filter required.\n\n"
+            f"The table is partitioned by: {columns_text}.\n"
+            f"The provided md.partition(...) is missing: {missing_text}.\n\n"
+            "Then call:\n"
+            f"  scope = md.partition({literal})"
+        )
 
 
 def _profiles(
@@ -72,25 +134,25 @@ def discover_entity(
     *,
     scope: ScanScope | None = None,
     project_root: Path | None = None,
-) -> DiscoveryResult:
+) -> DatasourceResult:
     """Discover entity-level datasource evidence for one physical source.
 
     Args:
         datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
         source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
-        scope: Optional bounded scan scope. Use ``md.latest_partition()``,
-            ``md.partition({...})``, or ``md.unpruned()``.
+        scope: Optional bounded scan scope. Partitioned tables require
+            explicit ``md.partition({...})``.
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DiscoveryResult``; call `.show()` to inspect bounded evidence,
+        ``DatasourceResult``; call `.show()` to inspect bounded evidence,
         including schema columns, partition columns when the backend exposes
         them, primary-key evidence, and sampled column profiles.
 
     Example:
         >>> import marivo.datasource as md
         >>> warehouse = md.ref("datasource.warehouse")
-        >>> md.discover_entity(warehouse, md.table("orders"), scope=md.latest_partition())
+        >>> md.discover_entity(warehouse, md.table("orders"), scope=md.partition({"dt": "20260629"}))
 
     Constraints:
         Discovery returns bounded evidence only. It does not author semantic
@@ -106,6 +168,7 @@ def discover_entity(
         include_partitions=True,
         project_root=project_root,
     )
+    _require_discovery_partition_scope(metadata=metadata, source=source, scope=scan_scope)
     inspection = _profiles(
         datasource,
         source,
@@ -130,7 +193,7 @@ def discover_dimensions(
     columns: tuple[str, ...] | None = None,
     scope: ScanScope | None = None,
     project_root: Path | None = None,
-) -> DiscoveryResult:
+) -> DatasourceResult:
     """Discover dimension-shaped column evidence for one source.
 
     Args:
@@ -142,7 +205,7 @@ def discover_dimensions(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
+        ``DatasourceResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -160,6 +223,7 @@ def discover_dimensions(
         include_partitions=True,
         project_root=project_root,
     )
+    _require_discovery_partition_scope(metadata=metadata, source=source, scope=scan_scope)
     inspection = _profiles(
         datasource,
         source,
@@ -184,7 +248,7 @@ def discover_time_dimensions(
     columns: tuple[str, ...] | None = None,
     scope: ScanScope | None = None,
     project_root: Path | None = None,
-) -> DiscoveryResult:
+) -> DatasourceResult:
     """Discover time-dimension column evidence for one source.
 
     Args:
@@ -195,7 +259,7 @@ def discover_time_dimensions(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
+        ``DatasourceResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -213,6 +277,7 @@ def discover_time_dimensions(
         include_partitions=True,
         project_root=project_root,
     )
+    _require_discovery_partition_scope(metadata=metadata, source=source, scope=scan_scope)
     inspection = _profiles(
         datasource,
         source,
@@ -237,7 +302,7 @@ def discover_measures(
     columns: tuple[str, ...] | None = None,
     scope: ScanScope | None = None,
     project_root: Path | None = None,
-) -> DiscoveryResult:
+) -> DatasourceResult:
     """Discover measure-shaped column evidence for one source.
 
     Args:
@@ -248,7 +313,7 @@ def discover_measures(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
+        ``DatasourceResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -266,6 +331,7 @@ def discover_measures(
         include_partitions=True,
         project_root=project_root,
     )
+    _require_discovery_partition_scope(metadata=metadata, source=source, scope=scan_scope)
     inspection = _profiles(
         datasource,
         source,
@@ -326,7 +392,7 @@ def discover_relationship(
     scope: ScanScope | None = None,
     key_sample_size: int = 500,
     project_root: Path | None = None,
-) -> DiscoveryResult:
+) -> DatasourceResult:
     """Discover relationship evidence between two datasource sources.
 
     Args:
@@ -337,7 +403,7 @@ def discover_relationship(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
+        ``DatasourceResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -352,6 +418,28 @@ def discover_relationship(
         ``scope.max_rows``. Discovery does not author the semantic relationship.
     """
     scan_scope = _scope_or_default(scope)
+    from_metadata = _inspect_source(
+        _datasource_id(from_side.datasource),
+        source=from_side.source,
+        include_partitions=True,
+        project_root=project_root,
+    )
+    to_metadata = _inspect_source(
+        _datasource_id(to_side.datasource),
+        source=to_side.source,
+        include_partitions=True,
+        project_root=project_root,
+    )
+    _require_discovery_partition_scope(
+        metadata=from_metadata,
+        source=from_side.source,
+        scope=scan_scope,
+    )
+    _require_discovery_partition_scope(
+        metadata=to_metadata,
+        source=to_side.source,
+        scope=scan_scope,
+    )
     probe = _probe_join_keys(
         from_side=from_side,
         to_side=to_side,
@@ -386,7 +474,7 @@ def discover_dimension_values(
     scope: ScanScope | None = None,
     limit: int = 50,
     project_root: Path | None = None,
-) -> DiscoveryResult:
+) -> DatasourceResult:
     """Discover bounded current value counts for one dimension column.
 
     Args:
@@ -398,7 +486,7 @@ def discover_dimension_values(
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        ``DiscoveryResult``; call `.show()` to inspect bounded evidence.
+        ``DatasourceResult``; call `.show()` to inspect bounded evidence.
 
     Example:
         >>> import marivo.datasource as md
@@ -412,6 +500,13 @@ def discover_dimension_values(
     if limit < 1:
         raise ValueError("limit must be positive.")
     scan_scope = _scope_or_default(scope)
+    metadata = _inspect_source(
+        _datasource_id(datasource),
+        source=source,
+        include_partitions=True,
+        project_root=project_root,
+    )
+    _require_discovery_partition_scope(metadata=metadata, source=source, scope=scan_scope)
     inspection = _profiles(
         datasource,
         source,

@@ -82,7 +82,7 @@ def _bootstrap_semantic_layer(root: Path) -> None:
     semantic_dir.mkdir(parents=True, exist_ok=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     (semantic_dir / "definitions.py").write_text(
         "import marivo.semantic as ms\n"

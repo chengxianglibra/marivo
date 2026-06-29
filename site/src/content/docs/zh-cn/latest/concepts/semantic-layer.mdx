@@ -42,7 +42,7 @@ your-project/
       warehouse.py          # md.duckdb(name="warehouse", ...)
     semantic/
       sales/
-        _domain.py          # ms.domain(name="sales") + entities, metrics, ...
+        _domain.py          # ms.domain(name="sales", owner="Mina Zhang") + entities, metrics, ...
 ```
 
 ## Semantic refs
@@ -193,13 +193,14 @@ md.trino(
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Domain namespace，例如 `"sales"`。对象成为 `<name>.<object>`。 |
+| `owner` | `str` | 是 | — | 负责人姓名，负责该 domain 的语义正确性与质量，例如 `"Mina Zhang"`。 |
 | `default` | `bool` | 否 | `True` | 为 `True` 时，本文件中的 decorators 在未传 `domain=` 时解析到该 domain。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向 agent 的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
 import marivo.semantic as ms
 
-ms.domain(name="sales")
+ms.domain(name="sales", owner="Mina Zhang")
 ```
 
 ## 实体
@@ -485,12 +486,17 @@ ms.relationship(
 
 ## 先发现，再准备
 
-对 datasource-backed 语义对象，先用有界 datasource discovery 收集证据：
+对 datasource-backed 语义对象，先 inspect 表和分区元信息，再用显式分区范围收集有界
+discovery 证据：
 
 ```python
 warehouse = md.ref("datasource.warehouse")
 orders = md.table("orders")
-scope = md.latest_partition()
+
+md.inspect_table(warehouse, orders).show()
+md.inspect_partitions(warehouse, orders, limit=50).show()
+
+scope = md.partition({"dt": "20260629"})
 
 entity_evidence = md.discover_entity(warehouse, orders, scope=scope)
 dimension_evidence = md.discover_dimensions(

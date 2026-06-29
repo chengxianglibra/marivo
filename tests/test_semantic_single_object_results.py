@@ -51,8 +51,16 @@ def test_readiness_report_render_does_not_end_with_newline():
 
 def test_readiness_report_render_contains_identity_and_available():
     rendered = _make_readiness_report().render()
-    assert "ReadinessReport" in rendered
-    assert "available:" in rendered
+    assert rendered == "\n".join(
+        [
+            "ReadinessReport status=ready_with_warnings issues=0",
+            "analysis_ready: sales.revenue",
+            "checked_at: 2026-06-09T00:00:00Z",
+            "available:",
+            "- .render()",
+            "- .to_dict()",
+        ]
+    )
 
 
 def test_readiness_report_render_available_not_empty():
@@ -101,4 +109,13 @@ def test_richness_report_show_returns_none(capsys):
 
 
 def test_richness_report_render_contains_available():
-    assert "available:" in _make_richness_report().render()
+    assert _make_richness_report().render() == "\n".join(
+        [
+            "RichnessReport gaps=0",
+            "gaps: none",
+            "checked_at: 2026-06-09T00:00:00Z",
+            "available:",
+            "- .render()",
+            "- .to_dict()",
+        ]
+    )

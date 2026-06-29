@@ -26,6 +26,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
+from marivo.datasource.authoring import DuckDBSpec
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,7 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
 _OBJECTS_PY = textwrap.dedent("""\
@@ -252,10 +253,37 @@ def test_frame_show_prints_render_plus_newline(capsys) -> None:
     assert captured.out == frame.render() + "\n"
 
 
-def test_semantic_object_list_render_contains_next_steps(semantic_project_factory) -> None:
+def test_semantic_object_list_render_contains_refs_affordance(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.list(catalog.get("domain.sales").ref, kind=ms.SemanticKind.METRIC)
-    assert "next steps:" in result.render()
+    rendered = result.render()
+    assert "available:" in rendered
+    assert "- result.refs()" in rendered
+    assert "next steps:" not in rendered
+
+
+def test_datasource_catalog_render_uses_card_listing_shape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    md.register(
+        DuckDBSpec(name="warehouse", path=str(tmp_path / "warehouse.duckdb")),
+        project_root=tmp_path,
+    )
+    catalog = md.load(workspace_dir=tmp_path)
+
+    rendered = catalog.render()
+
+    assert "DatasourceCatalog datasources=1" in rendered
+    assert "warehouse:" in rendered
+    assert "- backend_type=duckdb" in rendered
+    assert "- fields=path:" in rendered
+    assert "- env_refs=(none)" in rendered
+    assert "- name:" not in rendered
+    assert "backend_type: duckdb" not in rendered
+    assert repr(catalog).count("\n") == 0
+
+    assert catalog.show() is None
+    assert capsys.readouterr().out == rendered + "\n"
 
 
 def test_semantic_object_list_available_never_none(semantic_project_factory) -> None:

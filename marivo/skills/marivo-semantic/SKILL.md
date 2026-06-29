@@ -5,46 +5,89 @@ description: Use for any Marivo datasource definition or semantic-layer authorin
 
 # marivo-semantic
 
-Use this skill when defining project datasources or building reusable semantic
-objects. For metric-centered analysis on an already-ready domain, use
+Use this skill when defining project datasources or reusable semantic objects.
+For metric-centered analysis on an already-ready semantic project, use
 `marivo-analysis`.
 
-## Runtime Assumptions
-
-This skill is written for an ordinary project that depends on Marivo as a
-pip-installed Python library; the current workspace is not expected to contain
-the Marivo package source. Do not rely on repo fixtures, `make`, or a fixed
-`.venv` name. Identify the project Python environment first, then use its
-explicit Python path such as `<venv>/bin/python`.
-
-The current project should contain `models/datasources/` and
-`models/semantic/`. If either directory is missing, create the project
-structure before authoring objects.
+This skill is written for projects that depend on Marivo as a Python library.
+Do not rely on Marivo repository fixtures, `make`, or a fixed `.venv` name in
+the target project. Identify the project Python environment and use its
+explicit interpreter path, such as `<venv>/bin/python`.
 
 ## Layer Contract
 
-The authoring sequence is:
+The current authoring sequence is:
 
 ```text
 help -> discover -> settle/grill -> author -> verify
 ```
 
-Layer ownership:
+This skill owns workflow and routing only:
 
-- ms.help(...) owns static authoring contracts: constructors, required and
-  optional parameters, allowed values, defaults, omit rules, nested parse
-  shapes, and static constraints.
-- md.discover_* owns runtime datasource evidence shown through `.show()` /
-  `.render()`: physical columns, profiles, detected formats, value ranges,
-  primary-key evidence, relationship evidence, deterministic authoring
-  warnings, signals, and issues.
-- `ms.verify_object(...)`, `ms.readiness(...)`, and load errors own blockers,
-  registry state, and validation after authoring.
-- This skill owns workflow and routing only. Do not copy constructor parameter
-  tables, discovery result schemas, parse recipes, or backend API catalogs into
-  skill docs.
+- `ms.help(...)` owns the static authoring contract.
+- `md.discover_*` owns datasource evidence shown through `.show()` /
+  `.render()`.
+- `ms.load()`, `ms.verify_object(...)`, `ms.readiness(...)`, and load errors
+  own catalog state, validation, blockers, and handoff readiness.
 
-## Authoring Ladder
+Do not copy constructor parameter tables, discovery result schemas, parse
+recipes, backend catalogs, or public error catalogs into skill docs.
+
+## Hard Gates
+
+These gates apply before writing semantic code:
+
+- **Evidence before questions:** inspect `ms.help(...)`, the matching
+  `md.discover_*` evidence, current catalog state, project docs, source
+  SQL/provenance when present, prior decisions, and user answers.
+- **Wide discovery, narrow authoring:** collect domain- or table-group evidence
+  once when useful, then reuse it while authoring. Broad evidence collection
+  does not change the authoring unit.
+- **One active batch:** default to one entity plus one semantic kind, such as
+  `entity.sales.orders + dimension`. Relationship and cross-entity batches may
+  span entities only when the kind requires it.
+- **One object then verify:** author exactly one semantic object, run
+  `ms.verify_object(ref)`, and fix failures before advancing.
+- **One grill decision:** A grill turn MUST ask exactly one unresolved semantic decision,
+  then stop and wait. Do not ask numbered lists of questions.
+  Do not write semantic code after asking.
+- **Ref-only links:** object-to-object authoring parameters use Ref objects,
+  not bare semantic-id strings. Use returned/imported refs, or
+  `ms.ref("<kind>.<semantic_id>")` for explicit forward or cross-file refs.
+- **No contract transcription:** when a field, signature, backend parameter,
+  parse shape, or error detail is unclear, read help, discovery output, or the
+  structured error instead of restating it here.
+
+## Process Flow
+
+```dot
+digraph marivo_semantic {
+    "Start semantic authoring" -> "Datasource ready?";
+    "Datasource ready?" -> "Prepare datasource" [label="no"];
+    "Datasource ready?" -> "Broad discovery pass" [label="yes"];
+    "Prepare datasource" -> "Broad discovery pass";
+
+    "Broad discovery pass" -> "Choose active batch";
+    "Choose active batch" -> "Read help, discovery, catalog";
+    "Read help, discovery, catalog" -> "Evidence settles object?";
+    "Evidence settles object?" -> "Ask one grill decision and stop" [label="no"];
+    "Evidence settles object?" -> "Author one object" [label="yes"];
+
+    "Author one object" -> "ms.verify_object(ref)";
+    "ms.verify_object(ref)" -> "Repair same object" [label="fails"];
+    "Repair same object" -> "ms.verify_object(ref)";
+    "ms.verify_object(ref)" -> "More objects in batch?" [label="passes"];
+    "More objects in batch?" -> "Author one object" [label="yes"];
+    "More objects in batch?" -> "Next batch or readiness handoff" [label="no"];
+}
+```
+
+The broad discovery pass includes `md.inspect_table(...)`,
+`md.inspect_partitions(...)` when the table is partitioned, and the matching
+`md.discover_*` calls. It gathers reusable physical evidence; it does not
+change the narrow authoring unit.
+
+## Canonical Loop
 
 Build datasource-backed semantic objects in dependency order:
 
@@ -53,125 +96,76 @@ domain -> entity -> dimension -> time_dimension -> measure -> metric
        -> relationship -> cross-entity metric -> derived metric
 ```
 
-Datasource registration is a prerequisite owned by `marivo.datasource`, not a
-semantic ladder rung.
+Datasource registration is a prerequisite owned by `marivo.datasource`; it is
+not a semantic ladder rung.
 
-Do not author a full domain in one pass. A domain is a container, not the
-authoring unit. The default active batch is one entity plus one semantic kind,
-for example `entity.sales.orders + dimension`, then
-`entity.sales.orders + time_dimension`, then `entity.sales.orders + measure`.
-Relationship and cross-entity batches may span two or more entities only when
-the batch kind requires that scope.
+You may run a broad discovery pass for the relevant domain or table group to
+collect schema, partitions, profiles, relationship candidates, existing catalog
+state, and project evidence. After that pass, keep authoring narrow: choose one
+active batch, author one object, verify it, then repeat.
 
-For each active batch, follow this sequence exactly:
+For each active batch, use one state machine:
 
 ```text
-select active batch
+choose active batch
   -> inspect ms.help(...)
   -> run matching md.discover_*
-  -> inspect current ms.load() catalog state
-  -> list candidate objects for this batch
-  -> settle candidates from evidence
-  -> grill one unresolved decision, if needed
+  -> inspect ms.load() catalog state
+  -> settle from evidence, registry, project docs, and prior decisions
+  -> grill one unresolved semantic decision, if needed
   -> author one object
   -> ms.verify_object(ref)
-  -> repeat author/verify for remaining objects in the same batch
-  -> close batch
-  -> choose next batch
+  -> repeat or close batch
 ```
 
-Do not skip to another batch while the current authored object has not passed
-`ms.verify_object(ref)`.
+Do not author a full domain in one pass. Do not write several objects and
+verify later. Do not skip to another batch while the current object has not
+passed `ms.verify_object(ref)`.
 
-Every semantic object uses this canonical loop:
+## Grill Rules
 
-```text
-ms.help(...) static contract
-  -> md.discover_* datasource evidence
-  -> settle from evidence, registry, project docs, and prior decisions
-  -> grill the user for unresolved semantic decisions
-  -> author exactly one semantic object
-  -> ms.verify_object(...)
-```
+Ask the user only for semantic intent, business policy, or ambiguity that
+remains after the evidence pass.
 
-Do not write several semantic objects and verify later. The unit of work is
-one semantic object.
+Do not ask for datasource facts Marivo can discover: schema, column names, data
+types, sample values, join-key viability, partition state, or existing refs.
 
-Concrete per-object actions:
+Do not invent multiple-choice options. Every option must be grounded in
+metadata comments, column profiles, sample distributions, existing semantic
+objects, source SQL, project docs, or prior decisions. If evidence supports one
+path, ask for confirmation of that path. If evidence is too thin for options,
+ask an open clarification or run another bounded discovery query.
 
-1. Read `ms.help("<constructor-or-object>")`.
-2. Run the matching bounded `md.discover_*` call and read `.show()` output.
-3. Settle constructor values from discovery evidence, registry facts, project
-   docs, source SQL/provenance, prior decisions, and user answers.
-4. Grill the user only when a semantic decision remains unresolved.
-5. Author exactly one object.
-6. Run `ms.verify_object(ref)` and fix failures before advancing.
+## Existing Catalog
 
-Object-to-object authoring parameters must use Ref objects, not bare semantic-id
-strings. Prefer refs returned by earlier authoring calls or imported from
-semantic modules. Use `ms.ref("<kind>.<semantic_id>")` only for explicit
-forward/cross-file references, import cycles, or generated code boundaries.
-
-## Grill-Me Gate
-
-Before authoring each semantic object, inspect help, discovery evidence,
-current catalog state, project docs, source SQL/provenance when present, prior
-decisions, and user answers.
-
-If those sources clearly settle the object, state the evidence basis and author
-exactly one object. If a semantic choice remains unresolved, ask one question
-at a time and wait for agreement before writing code.
-
-<GRILL-TURN-GATE>
-A grill turn MUST ask exactly one unresolved semantic decision.
-
-Do not ask numbered lists of questions or combine multiple decisions in one
-message. Do not ask a follow-up decision in the same message.
-Do not write or modify semantic code after asking a grill question.
-
-If multiple decisions remain, ask only the highest-blocking decision for the
-current semantic object, then stop and wait for the user's answer.
-</GRILL-TURN-GATE>
-
-Rules:
-
-- Ask only about semantic intent, business policy, or unresolved ambiguity.
-- Do not ask for datasource facts Marivo can discover, such as schema, column
-  names, data types, sample values, join-key viability, or existing refs.
-- Do not invent multiple-choice options. Every option must be grounded in
-  metadata comments, column profiles, sample distributions, existing semantic
-  objects, source SQL, project docs, or prior decisions.
-- If evidence supports one path, ask for confirmation of that path.
-- If evidence does not support a finite option list, ask an open clarification
-  instead of fabricating options.
-- If agreement cannot be reached, record abandonment instead of writing a
-  speculative semantic object.
-
-## Inspecting Existing Semantic Objects
-
-Use `ms.load()` to obtain a `SemanticCatalog`, then inspect with the catalog
-surface:
+Use `ms.load()` for current semantic state:
 
 ```python
 catalog = ms.load()
 catalog.list().show()
-sales = catalog.get("domain.sales")
-catalog.list(sales.ref).show()
 catalog.list(kind=ms.SemanticKind.METRIC).show()
 catalog.get("metric.sales.revenue").details().show()
 ```
 
-Use `mv.help(ref)` for a short consumption briefing on a semantic object.
-Use `ms.help("<topic>")` for semantic authoring contracts.
+Use `mv.help(ref)` for a short consumption briefing on a semantic object. Use
+`ms.help("<topic>")` for authoring contracts. Read semantic source files only
+when you need to modify them or debug implementation expressions.
 
-Read `_domain.py` only when you need to modify the semantic domain, inspect
-implementation expressions, or debug authoring behavior.
+## Anti-Patterns
+
+- Asking before discovery.
+- Authoring a whole domain or many object kinds in one batch.
+- Writing multiple objects before verification.
+- Offering plausible but evidence-free grill options.
+- Passing naked semantic-id strings where Ref objects are expected.
+- Treating raw SQL diagnostics as executable semantic expression bodies.
+- Handing blocked refs to `marivo-analysis`.
 
 ## Reference Routing
 
 | Need | Read |
 | --- | --- |
-| Evidence, Ref, and handoff notes | `references/workflow.md` |
-| Datasource prerequisite flow | `references/datasource.md` |
-| Analysis handoff gate | `references/closeout.md` |
+| Datasource prerequisite and discovery budgets | `references/datasource.md` |
+| Analysis handoff readiness | `references/closeout.md` |
 | Workflow-level failure modes | `references/pitfalls.md` |
+| Runnable examples | `references/examples/` |

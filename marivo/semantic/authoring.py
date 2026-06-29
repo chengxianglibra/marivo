@@ -668,6 +668,7 @@ def _push_ir(ctx: LoaderContext, ir: Any, callable_: Callable[..., Any] | None) 
 def domain(
     *,
     name: str,
+    owner: str,
     default: bool = True,
     ai_context: AiContextValue | None = None,
 ) -> DomainRef:
@@ -679,6 +680,8 @@ def domain(
 
     Args:
         name: Domain namespace, e.g. ``"sales"``.
+        owner: Human owner accountable for this domain's semantic correctness
+            and quality.
         default: If True, subsequent decorators in this file resolve to this
             domain when no explicit ``domain=`` kwarg is passed.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra
@@ -694,14 +697,22 @@ def domain(
 
     Example:
         >>> import marivo.semantic as ms
-        >>> sales = ms.domain(name="sales", default=True)
+        >>> sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
     """
     ctx = _require_ctx()
+    if not isinstance(owner, str) or not owner.strip():
+        _raise(
+            ErrorKind.INVALID_DOMAIN_OWNER,
+            f"{name!r}: owner must be a non-empty string; got {owner!r}.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.DOMAIN_OWNER_REQUIRED,
+        )
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
 
     ir = DomainIR(
         name=name,
+        owner=owner,
         default=default,
         ai_context=ai_ctx,
         location=location,

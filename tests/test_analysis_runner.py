@@ -53,7 +53,7 @@ def _bootstrap_project(
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        f"import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='{model_name}')\n"
+        f"import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='{model_name}', owner='Mina Zhang')\n"
     )
 
     time_field_block = ""

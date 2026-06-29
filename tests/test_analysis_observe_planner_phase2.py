@@ -18,7 +18,7 @@ from marivo.semantic.catalog import SemanticCatalog
 def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
     return semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "user_history_ref = ms.ref('entity.sales.user_history')\n"
@@ -145,7 +145,7 @@ def test_derive_version_mode_string_time_field_is_not_qualifying():
 def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"

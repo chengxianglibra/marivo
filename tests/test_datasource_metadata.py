@@ -19,18 +19,17 @@ from marivo.datasource.authoring import (
     TrinoSpec,
 )
 from marivo.datasource.errors import DatasourceMetadataError
-from marivo.datasource.manage import (
-    _inspect_source,
-)
-from marivo.datasource.manage import (
-    inspect_table as _inspect_table,
-)
 from marivo.datasource.metadata import (
     ColumnMetadata,
     MetadataWarning,
     PartitionMetadata,
     TableMetadata,
+    _inspect_source,
 )
+from marivo.datasource.metadata import (
+    inspect_table as _inspect_table,
+)
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def test_table_metadata_to_dict_is_json_safe() -> None:
@@ -106,6 +105,62 @@ def test_table_metadata_to_dict_includes_view_fields() -> None:
     assert payload["is_view"] is True
     assert payload["view_definition"] == "SELECT order_id FROM orders"
     assert json.loads(json.dumps(payload))["is_view"] is True
+
+
+def test_table_metadata_renders_shared_card_shape_and_uses_default_cap() -> None:
+    metadata = TableMetadata(
+        datasource="wh",
+        table="orders",
+        database=("analytics", "public"),
+        backend_type="duckdb",
+        comment="One row per order.",
+        columns=(
+            ColumnMetadata(
+                name="order_id",
+                type="int64",
+                nullable=False,
+                comment="Unique order id.",
+                ordinal_position=1,
+            ),
+            ColumnMetadata(
+                name="created_at",
+                type="timestamp",
+                nullable=None,
+                comment=None,
+                ordinal_position=2,
+            ),
+        ),
+        partitions=(
+            PartitionMetadata(
+                name="order_date",
+                type="date",
+                transform="identity",
+                comment="Date partition.",
+            ),
+        ),
+        warnings=(
+            MetadataWarning(
+                kind="partitions_unavailable",
+                message="partition metadata is not exposed",
+            ),
+        ),
+        is_view=True,
+    )
+
+    assert metadata.render() == "\n".join(
+        [
+            "TableMetadata ref=wh.analytics.public.orders backend=duckdb columns=2",
+            "status: view=yes warnings=1 partitions=1",
+            "comment: One row per order.",
+            "columns: column | type | nullable | comment",
+            "preview:",
+            "order_id | int64 | N | Unique order id.",
+            "created_at | timestamp | ? | ",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
 
 
 @pytest.fixture
@@ -741,6 +796,170 @@ def test_inspect_table_trino_hive_partitioned_by_from_show_create(
         PartitionMetadata(name="region", type="varchar", transform=None, comment=None),
     )
     assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
+
+
+def test_public_inspect_partitions_trino_lists_bounded_partition_tuples(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "log_date": "string", "log_hour": "string"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", None, 1),
+                    ("log_date", "varchar", "NO", None, 2),
+                    ("log_hour", "varchar", "NO", None, 3),
+                ],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [
+                    (
+                        "CREATE TABLE hive.analytics.orders (\n"
+                        "   order_id bigint,\n"
+                        "   log_date varchar,\n"
+                        "   log_hour varchar\n"
+                        ")\nWITH (\n"
+                        "   partitioned_by = ARRAY['log_date', 'log_hour']\n"
+                        ")",
+                    )
+                ],
+            ),
+            "$partitions": _FakeCursor(
+                ["log_date", "log_hour"],
+                [("20260629", "15"), ("20260629", "14"), ("20260628", "23")],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.trino_wh"),
+        md.table("orders"),
+        limit=2,
+        project_root=project_root,
+    )
+
+    assert isinstance(result, md.DatasourceResult)
+    rendered = result.render()
+    assert "PartitionInspectionResult" in rendered
+    assert "log_date=20260629" in rendered
+    assert "log_hour=15" in rendered
+    assert 'md.partition({"log_date": "20260629", "log_hour": "15"})' in rendered
+    assert "truncated" in rendered
+    assert any("$partitions" in query for query in backend.queries)
+
+
+def test_public_inspect_partitions_skips_incomplete_partition_tuples(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "log_date": "string", "log_hour": "string"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", None, 1),
+                    ("log_date", "varchar", "YES", None, 2),
+                    ("log_hour", "varchar", "YES", None, 3),
+                ],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [
+                    (
+                        "CREATE TABLE hive.analytics.orders (\n"
+                        "   order_id bigint,\n"
+                        "   log_date varchar,\n"
+                        "   log_hour varchar\n"
+                        ")\nWITH (\n"
+                        "   partitioned_by = ARRAY['log_date', 'log_hour']\n"
+                        ")",
+                    )
+                ],
+            ),
+            "$partitions": _FakeCursor(
+                ["log_date", "log_hour"],
+                [("20260629", None), ("20260629", "15")],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.trino_wh"),
+        md.table("orders"),
+        limit=2,
+        project_root=project_root,
+    )
+
+    rendered = result.render()
+    assert 'md.partition({"log_date": "20260629"})' not in rendered
+    assert 'md.partition({"log_date": "20260629", "log_hour": "15"})' in rendered
+    assert "incomplete partition rows omitted=1" in rendered
+
+
+def test_public_inspect_partitions_clickhouse_transformed_partition_unavailable(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("ch_wh", backend_type="clickhouse", host="ch.example", database="analytics"))
+    backend = _FakeBackend(
+        {"timestamp": "datetime", "value": "float64"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "toYYYYMM(timestamp)", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("timestamp", "DateTime", 0, "", 1), ("value", "Float64", 0, "", 2)],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.ch_wh"),
+        md.table("events", database="analytics"),
+        project_root=project_root,
+    )
+
+    rendered = result.render()
+    assert "Partition values unavailable" in rendered
+    assert "without scanning data" in rendered
+    assert "md.raw_sql" in rendered
+    assert not any("system.parts" in query for query in backend.queries)
 
 
 def test_inspect_table_trino_iceberg_partitioning_from_show_create(
@@ -1406,6 +1625,38 @@ def test_table_metadata_render_includes_column_table() -> None:
     assert "available:" in rendered
 
 
+def test_table_metadata_render_uses_shared_output_cap() -> None:
+    metadata = _make_table_metadata(
+        comment="x" * 200,
+        columns=(
+            ColumnMetadata(
+                name="amount",
+                type="float64",
+                nullable=True,
+                comment="y" * 200,
+                ordinal_position=1,
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="max_output_bytes is too small"):
+        metadata.render(max_output_bytes=120)
+
+    rendered = metadata.render(max_output_bytes=None)
+    assert "amount | float64 | Y | " in rendered
+    assert "output truncated" not in rendered
+
+
+def test_table_metadata_long_comment_default_render_is_bounded() -> None:
+    metadata = _make_table_metadata(comment="x" * (_DEFAULT_MAX_OUTPUT_BYTES * 2))
+
+    rendered = metadata.render()
+
+    assert len(rendered.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert "output truncated" in rendered
+    assert "available:" in rendered
+
+
 def test_table_metadata_render_shows_comment_and_view() -> None:
     metadata = _make_table_metadata(
         comment="One row per order",
@@ -1413,7 +1664,7 @@ def test_table_metadata_render_shows_comment_and_view() -> None:
         view_definition="SELECT * FROM raw_orders",
     )
     rendered = metadata.render()
-    assert "comment=One row per order" in rendered
+    assert "comment: One row per order" in rendered
     assert "view=yes" in rendered
 
 

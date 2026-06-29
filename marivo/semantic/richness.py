@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
+from marivo.render import Card, RenderableResult
+
 if TYPE_CHECKING:
     from marivo.semantic.ir import DimensionIR
     from marivo.semantic.reader import SemanticProject
@@ -41,33 +43,24 @@ class RichnessGap:
         }
 
 
-@dataclass(frozen=True)
-class RichnessReport:
+@dataclass(frozen=True, repr=False)
+class RichnessReport(RenderableResult):
     gaps: tuple[RichnessGap, ...]
     checked_at: str
 
-    def __repr__(self) -> str:
-        return f"<RichnessReport gaps={len(self.gaps)}; call .show() to inspect>"
+    def _repr_identity(self) -> str:
+        return f"RichnessReport gaps={len(self.gaps)}"
 
-    def render(self) -> str:
-        """Return bounded plain-text inspection card without a trailing newline."""
-        lines: list[str] = [f"RichnessReport gaps={len(self.gaps)}"]
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".render()", ".to_dict()"))
         if self.gaps:
-            for gap in self.gaps[:5]:
-                lines.append(f"  - {gap.kind}: {', '.join(gap.refs)}")
-            if len(self.gaps) > 5:
-                lines.append(f"  ... {len(self.gaps) - 5} more; call .to_dict() for full list")
+            card = card.listing(
+                label="gaps",
+                items=tuple(f"{g.kind}: {', '.join(g.refs)}" for g in self.gaps),
+            )
         else:
-            lines.append("  (no gaps found)")
-        lines.append(f"checked_at: {self.checked_at}")
-        lines.append("available:")
-        for entry in (".render()", ".to_dict()"):
-            lines.append(f"- {entry}")
-        return "\n".join(lines)
-
-    def show(self) -> None:
-        """Print render() output followed by a trailing newline and return None."""
-        print(self.render())
+            card = card.field(label="gaps", value="none")
+        return card.field(label="checked_at", value=self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
         return {

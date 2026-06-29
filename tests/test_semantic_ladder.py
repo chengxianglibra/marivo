@@ -32,7 +32,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
@@ -95,7 +95,7 @@ def test_stale_verification_raises_after_source_change(
         {
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "ms.domain(name='sales')\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
                 "source=ms.table('orders_v2'))\n"
             )
@@ -118,7 +118,7 @@ def test_verify_object_reports_project_load_failed(semantic_project_factory) -> 
     project = semantic_project_factory(
         {
             "cdn/_domain.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='cdn')\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='cdn', owner='Mina Zhang')\n"
             ),
             "cdn/broken.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\nms.max()  # does not exist\n"
@@ -148,7 +148,7 @@ def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_facto
     project = semantic_project_factory(
         {
             "cdn/_domain.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='cdn')\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='cdn', owner='Mina Zhang')\n"
             ),
             "cdn/bad.py": "raise RuntimeError('intentional load error')\n",
         },
@@ -165,7 +165,7 @@ def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_facto
 def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     model = (
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "ms.domain(name='sales')\n"
+        "ms.domain(name='sales', owner='Mina Zhang')\n"
         "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
         "@ms.measure(entity=orders, additivity='additive')\n"
         "def amount(orders):\n"
@@ -188,7 +188,7 @@ def test_verify_object_known_ref_still_not_found_when_loaded(
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
             ),
         },
         load=True,

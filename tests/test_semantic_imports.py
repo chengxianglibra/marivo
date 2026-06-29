@@ -470,15 +470,15 @@ def test_semantic_skill_constraint_table_matches_catalog() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     skill_dir = repo_root / "marivo/skills/marivo-semantic"
     deleted_reference = skill_dir / "references/authoring-patterns.md"
+    deleted_workflow = skill_dir / "references/workflow.md"
     skill = (skill_dir / "SKILL.md").read_text()
-    workflow = (skill_dir / "references/workflow.md").read_text()
 
     assert not deleted_reference.exists()
+    assert not deleted_workflow.exists()
     assert "help -> discover -> settle/grill -> author -> verify" in skill
     assert "This skill owns workflow and routing only" in skill
-    assert "author exactly one semantic object" in skill
-    assert "ms.verify_object(...)" in skill
-    assert "The canonical authoring flow lives in `SKILL.md`" in workflow
+    assert "author one object" in skill
+    assert "ms.verify_object(ref)" in skill
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +496,7 @@ _EXPECTED_DECORATOR_KINDS = {
     "outside_loader_context",
     "metric_body_not_single_return",
     "invalid_ai_context",
+    "invalid_domain_owner",
     "sql_escape_hatch",
     "ibis_attr_shadow",
     "invalid_sample_interval",
