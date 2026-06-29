@@ -15,6 +15,68 @@ def test_analysis_skill_links_final_report_guidance() -> None:
     assert "frame.show()" in text or ".show()" in text
 
 
+def test_analysis_skill_owns_workflow_not_static_contracts() -> None:
+    text = SKILL_PATH.read_text()
+
+    required_terms = [
+        "owns workflow only",
+        "mv.help()",
+        'mv.help("agent_surface")',
+        "artifact.show()",
+        "artifact.contract()",
+        "mechanically valid next actions",
+        "agent judgment",
+        "marivo-semantic",
+    ]
+    forbidden_terms = [
+        "## Where filter",
+        "## Derived ratio and weighted-average components",
+        "## Minimal templates",
+        "## Cross-dataset observe",
+        "Adapt the nearest `references/examples/NN_*.py`",
+        "`references/examples/*.py` — runnable templates (primary reference)",
+        "runnable shape of any intent see the matching `references/examples/NN_*.py`",
+    ]
+
+    missing = [term for term in required_terms if term not in text]
+    present = [term for term in forbidden_terms if term in text]
+
+    assert missing == []
+    assert present == []
+
+
+def test_analysis_skill_recaps_missing_semantic_layer_objects() -> None:
+    text = SKILL_PATH.read_text()
+    normalized_text = " ".join(text.split())
+
+    required_phrases = [
+        "When the analysis exposes missing semantic-layer objects",
+        "metadata",
+        "name them in the recap",
+        "tell the user what to add",
+        "`marivo-semantic`",
+        "missing metric",
+        "dimension",
+        "time dimension",
+        "entity relationship",
+        "unit",
+        "business context",
+        "analysis step was blocked or weakened",
+        "missing semantic object",
+    ]
+
+    missing = [phrase for phrase in required_phrases if phrase not in normalized_text]
+    assert missing == []
+
+
+def test_analysis_skill_does_not_make_examples_the_methodology() -> None:
+    text = SKILL_PATH.read_text()
+
+    assert "Examples are smoke tests and copyable starting points" in text
+    assert "not the analysis methodology" in text
+    assert "For exact callable contracts, use `mv.help" in text
+
+
 def test_final_report_guidance_contains_required_contract() -> None:
     text = FINAL_REPORT_PATH.read_text()
     required_terms = [

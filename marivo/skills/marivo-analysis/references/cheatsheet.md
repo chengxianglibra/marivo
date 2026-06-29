@@ -1,63 +1,48 @@
 # marivo-analysis cheatsheet
 
-Use this as the compact routing table after loading the skill. For runnable
-syntax, prefer `references/examples/*.py`. Assume `marivo` is imported from the
-active Python environment as an installed package.
+Use this as a compact routing aid after loading the skill. It is not the static
+API contract. For exact signatures, parameter constraints, return types,
+errors, and runnable examples, use `mv.help()` and the specific
+`mv.help("<topic>")` entry before authoring a call. For live affordances and
+mechanically valid next actions from a concrete artifact, use
+`artifact.contract()`. Assume `marivo` is imported from the active Python
+environment as an installed package.
 
 ## Runtime Help
 
 Use the uniform runtime help contract for exact callable, frame, policy, and
-topic details:
+topic details. Use `artifact.contract()` on concrete artifacts for live
+affordances and mechanically valid next actions:
 
 ```python
 mv.help('agent_surface')                 # default operator surface and artifact protocol
 mv.help('discover')                      # objective compatibility and required kwargs
 mv.help('alignment')                     # AlignmentPolicy variants
-mv.help('MetricFrame')                   # methods and affordances
+mv.help('MetricFrame')                   # methods and artifact protocol
 mv.help('MetricFrame.components')        # method signature and doc
 ```
 
 ## Intents
 
-| Intent | Inputs | Output | Agent rule |
-| --- | --- | --- | --- |
-| `session.observe` | `session.catalog.get("domain.metric")` | `MetricFrame` | Use `timescope={"start": "...", "end": "..."}` (end is exclusive: `[start, end)`) or `where={dimension: value}` (see Where Predicate Ops below). |
-| `session.compare` | `MetricFrame`, `MetricFrame` | `DeltaFrame` | Both inputs must come from `observe`; never pass a `DeltaFrame` back in. |
-| `session.attribute` | `DeltaFrame`, `[catalog dimension]` | `AttributionFrame` | Always pass `axes=[session.catalog.get("dimension.<dimension_id>")]`; `domain.dimension` refs resolve to the persisted delta column `dimension`. |
-| `session.discover.<objective>` | `MetricFrame` or `DeltaFrame` | `CandidateSet` | Use the typed helper from the table below; tabular row shape follows the `CandidateShape` (from `marivo.analysis.frames.candidate`). |
-| `candidates.select(...)` | `CandidateSet` | typed value (`SemanticRef`, `AbsoluteWindow`, selector dict, scalar) | Use `rank=` (1-indexed) and `attribute=` (e.g. `"axis"`, `"window"`, `"selector"`, `"affordances"`, `"keys.<dim>"`). |
-| `session.correlate` | `MetricFrame`, `MetricFrame` | `AssociationResult` | Use `alignment=mv.window_bucket()`; default lag is zero. |
-| `session.hypothesis_test(a, b)` | `MetricFrame + MetricFrame` | `HypothesisTestResult` | Paired `mean_changed` test |
-| `session.forecast(history, horizon=7)` | `MetricFrame(time_series\|panel)` | `ForecastFrame` | Naive / seasonal naive / drift projection |
-| `session.assess_quality(frame)` | `MetricFrame` | `QualityReport` | Row count, null ratio, time coverage, duplicate key checks |
-
-## Where Predicate Ops
-
-`observe(where=...)` accepts Python-style structured predicates.
-`transform.slice(where=...)` uses shorthand forms only (scalar, list, tuple).
-
-### observe structured predicates
-
-| Shorthand | Equivalent structured | Value shape |
+| Intent | Reach for it when | Routing reminder |
 | --- | --- | --- |
-| `"US"` | `{"op": "==", "value": "US"}` | scalar (str, int, float, bool, None) |
-| — | `{"op": "!=", "value": "US"}` | scalar |
-| — | `{"op": ">", "value": 100}` | scalar |
-| — | `{"op": ">=", "value": 100}` | scalar |
-| — | `{"op": "<", "value": 100}` | scalar |
-| — | `{"op": "<=", "value": 100}` | scalar |
-| `["US", "CA"]` | `{"op": "in", "value": ["US", "CA"]}` | non-empty list |
-| — | `{"op": "between", "value": ["2026-07-01", "2026-09-30"]}` | exactly two elements |
+| `session.observe` | You need a metric-backed frame from catalog evidence. | Read `mv.help("observe")` before authoring filters, windows, grain, or time-dimension arguments. |
+| `session.compare` | You have comparable observed metric frames and need a delta artifact. | Read `mv.help("compare")` and `mv.help("alignment")`; keep comparing frames, not already-derived deltas. |
+| `session.attribute` | You have a delta artifact and need driver attribution by catalog axes. | Use catalog objects at public boundaries; inspect the artifact contract before chaining. |
+| `session.discover.<objective>` | You need candidate windows, slices, axes, or anomalies from a frame. | Read `mv.help("discover")` for objective compatibility and required kwargs; inspect `CandidateSet.show()` and `CandidateSet.contract()` before selecting. |
+| `candidates.select(...)` | You need to carry one candidate value into the next step. | Use the selector contract from `mv.help("discover")` and the concrete candidate artifact. |
+| `session.correlate` | You need association evidence between metric frames. | Read `mv.help("correlate")` and use public alignment helpers. |
+| `session.hypothesis_test(a, b)` | You need a typed statistical comparison between frames. | Read `mv.help("hypothesis_test")`; report assumptions and quality evidence. |
+| `session.forecast(history, horizon=7)` | You need a bounded projection from a time-aware history frame. | Read `mv.help("forecast")`; treat the output as scenario evidence, not certainty. |
+| `session.derive_metric_frame` | Custom Ibis work must re-enter the typed metric flow. | Read the governed derive guidance below, then confirm exact parameters with runtime help and errors. |
+| `session.assess_quality(frame)` | You need quality evidence before trusting a frame or result. | Use the quality artifact in final caveats and next-step decisions. |
 
-SQL-style ops like `"eq"`, `"ne"`, `"gte"` are **not** supported. Use Python operators.
+## Predicate Routing
 
-### transform.slice shorthand values
-
-| Value | Meaning |
-| --- | --- |
-| `"US"` | equality (`==`) |
-| `["US", "CA"]` | membership (`in`) |
-| `("2026-07-01", "2026-09-30")` | range (`between`, both ends inclusive) |
+`where` and transform predicate value shapes are runtime API contracts. Before
+authoring them, read `mv.help("observe")` and `mv.help("transform")`. Use
+Python-style operators such as `==`, `!=`, `>`, `>=`, `<`, and `<=`; do not
+invent SQL-style mnemonic names such as `"eq"`, `"ne"`, or `"gte"`.
 
 ## Frame Flow
 
@@ -86,7 +71,7 @@ Use catalog metric objects from `session.catalog.get("metric.<metric_id>")`, cat
 strings directly to `observe`, `attribute`, `transform`, or calendar-backed
 `compare`.
 
-## Minimal Patterns
+## Minimal Flow Sketch
 
 ```python
 import marivo.analysis as mv
@@ -105,14 +90,10 @@ attribution = session.attribute(delta, axes=[created_at])
 attribution.show()
 ```
 
-```python
-series = session.observe(
-    session.catalog.get("metric.sales.revenue"),
-    where={session.catalog.get("time_dimension.sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
-)
-candidates = session.discover.point_anomalies(series, threshold=1.0)
-candidates.show()
-```
+For discovery, first produce a frame, then choose an objective using
+`mv.help("discover")`. Read `CandidateSet.show()` and
+`CandidateSet.contract()` before selecting a candidate or composing another
+operator.
 
 ## Governed Derive
 
@@ -121,59 +102,25 @@ re-enter the typed metric flow — custom joins, raw table scans, feature
 engineering, or bespoke aggregations that Marivo does not model directly. The
 output is validated and persisted as a `MetricFrame` with full lineage.
 
-| Need | Public path |
-| --- | --- |
-| Standard semantic metric observation | `session.observe(metric_ref, timescope={...}, grain=...)` |
-| Custom backend calculation that must re-enter metric analysis | `session.derive_metric_frame(metric=..., query=mv.ibis_query(...), columns=mv.metric_columns(...), timescope={...}, grain=...)` |
-| Inspect or export rows from any tabular artifact | `artifact.show()` or `artifact.to_pandas()` |
-
-```python
-import marivo.datasource as md
-
-warehouse = md.ref("datasource.warehouse")
-retention = session.derive_metric_frame(
-    metric=session.catalog.get("metric.sales.revenue"),
-    query=mv.ibis_query(
-        datasource=warehouse,
-        build=lambda db, ctx: db.table("orders"),
-    ),
-    columns=mv.metric_columns(
-        value="value",
-        time=mv.time_column(
-            column="order_date",
-            ref=session.catalog.get("time_dimension.sales.orders.order_date"),
-        ),
-        dimensions=[
-            mv.dimension_column(
-                column="region",
-                ref=session.catalog.get("dimension.sales.orders.region"),
-            ),
-        ],
-    ),
-    timescope={"start": "2026-06-18", "end": "2026-06-25"},
-    grain="day",
-    label="custom_revenue_by_region",
-)
-```
+Exact parameters, helper constructors, output-column bindings, and validation
+errors are owned by `mv.help("derive_metric_frame")` and the runtime error
+messages. Use normal semantic observation for standard metrics; reserve
+`session.derive_metric_frame(...)` for custom backend work that must still feed
+`compare`, `attribute`, `discover`, `correlate`, `hypothesis_test`,
+`forecast`, or `assess_quality`.
 
 For terminal pandas analysis that does not need to feed typed intents, export a
 frame with `frame.to_pandas()` and work locally.
 
-## Discover Objectives
+## Discover Routing
 
-| Helper | Source | Returns CandidateSet[shape] | Default strategy | Required kwargs |
-| --- | --- | --- | --- | --- |
-| `session.discover.point_anomalies` | `MetricFrame[time_series\|panel]` | `point_anomaly` | `zscore` | – |
-| `session.discover.period_shifts` | `DeltaFrame[time_series\|panel]` | `period_shift` | `delta_window_zscore` | At least 4 time buckets in one series |
-| `session.discover.driver_axes` | `DeltaFrame[*]` | `driver_axis` | `variance_explained` | `search_space=[session.catalog.get("dimension.sales.orders.region"), ...]` |
-| `session.discover.interesting_slices` | `MetricFrame[*]` or `DeltaFrame[*]` | `slice` | `delta_magnitude` | – (defaults to all dimension columns) |
-| `session.discover.interesting_windows` | `MetricFrame[time_series\|panel]` or `DeltaFrame[time_series\|panel]` | `window` | `rolling_zscore` | – |
-| `session.discover.cross_sectional_outliers` | `MetricFrame[segmented\|panel]` | `cross_sectional_outlier` | `mad` | – |
-
-Pass `value="<column>"` to disambiguate when the source has more than one
-numeric column. Use `candidates.select(rank=1, attribute="affordances")` to inspect mechanical
-continuation affordances attached to a candidate row. Candidate ranks are
-deterministic row order, not recommendations from Marivo.
+`session.discover.<objective>` routes from an observed, compared, or derived
+artifact into a `CandidateSet`. Objective compatibility, required kwargs,
+selector attributes, and candidate row details are owned by
+`mv.help("discover")` and the concrete `CandidateSet.contract()`. Use
+`CandidateSet.show()` for a bounded read, then let agent judgment decide
+whether a displayed candidate is worth carrying forward; candidate order is not
+a Marivo recommendation.
 
 ## Discovery Helpers
 
@@ -256,49 +203,8 @@ For Trino, map prompt `catalog` to Ibis `database`, and map
 
 Datasource names are global, not model-qualified. Semantic authoring uses typed datasource refs such as `md.ref("datasource.warehouse")`; analysis backend factories still receive the registered short name `"warehouse"`, never `"sales.warehouse"`.
 
-When a dataset has multiple time dimensions, choose one with top-level `time_dimension`:
-
-```python
-session.observe(
-    session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-07-01", "end": "2026-08-01"},
-    time_dimension=session.catalog.get("time_dimension.sales.orders.create_date"),
-)
-```
-
-Valid `AlignmentPolicy.kind` values are `window_bucket`, `dow_aligned`,
-`holiday_aligned`, and `holiday_and_dow_aligned`; there is no separate
-`ordinal` kind. `mv.window_bucket()` aligns by shared
-`bucket_start` when available. For same-grain WoW/YoY windows with no shared
-dates, it builds the expected buckets from each window, pairs them by ordinal
-position, preserves the baseline date as `bucket_start_b`, and treats sparse
-observed buckets as one-sided rows rather than failing compare. One-sided
-segmented and panel rows set the missing side to `0.0` for `delta` math and
-mark the row with `presence_status` (`matched`, `new`, or `churned`).
-
-Calendar-backed compare loads project-local files from
-`.marivo/calendar/<name>.json`. Calendar entries are objects with
-`date` and optional `holiday_id`; extra fields such as `name` or `label` are
-rejected. Use `holiday_id` to match the same business holiday across years:
-multi-period windows pair current and baseline periods by ordinal order.
-
-Calendar-backed `DeltaFrame` rows include `presence_status`, `align_key`,
-`align_quality`, `bucket_start_a`, and `bucket_start_b`. `align_key` is a compact JSON object
-string, not an array. For example, day-of-week matches look like
-`{"kind":"dow","iso_weekday":2,"period_week_offset":0}`, holiday matches
-look like `{"kind":"holiday","holiday_id":"labor-day","holiday_ordinal":1}`,
-workday matches look like `{"kind":"workday","workday_ordinal":1}`, and
-nearest-prior-workday fallbacks look like
-`{"kind":"fallback_workday","baseline_date":"2026-04-03"}`.
-
-```json
-{
-  "name": "cn_holidays",
-  "holidays": [
-    {"date": "2026-05-01", "holiday_id": "labor-day"}
-  ],
-  "adjusted_workdays": [
-    {"date": "2026-05-02"}
-  ]
-}
-```
+When a dataset has multiple time dimensions, use the catalog object for the
+chosen time dimension and confirm the exact `observe` argument shape with
+`mv.help("observe")`. Alignment helpers and calendar file shape are owned by
+`mv.help("alignment")` and `mv.help("calendar")`; inspect resulting delta rows
+with `.show()` or `.to_pandas()` only when you need row-level evidence.

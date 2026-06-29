@@ -110,14 +110,14 @@ def test_constraint_summary_is_l1_bounded() -> None:
         title="Summary rule.",
         why="This rationale is intentionally excluded from L1.",
         hint="Use the supported frame method.",
-        example="marivo/skills/marivo-analysis/references/examples/compare_panel.py",
+        example="marivo/skills/marivo-analysis/references/examples/02_compare_yoy.py",
     )
 
     assert constraint.to_summary_dict() == {
         "id": "summary_rule",
         "title": "Summary rule.",
         "hint": "Use the supported frame method.",
-        "example": "marivo/skills/marivo-analysis/references/examples/compare_panel.py",
+        "example": "marivo/skills/marivo-analysis/references/examples/02_compare_yoy.py",
     }
 
 
