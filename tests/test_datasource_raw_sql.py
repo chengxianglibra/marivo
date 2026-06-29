@@ -205,24 +205,21 @@ class _RawSqlService:
 
 
 def test_execute_readonly_transaction_sequence_per_backend() -> None:
-    # DuckDB/ClickHouse: connection already read-only, no transaction control.
+    # DuckDB/ClickHouse/Trino: no transaction control.
     duck = _FakeBackend()
     assert _execute_readonly(duck, "duckdb", "SELECT 1") == "SELECT 1"
     assert duck.calls == ["SELECT 1"]
     click = _FakeBackend()
     assert _execute_readonly(click, "clickhouse", "SELECT 1") == "SELECT 1"
     assert click.calls == ["SELECT 1"]
+    trino = _FakeBackend()
+    assert _execute_readonly(trino, "trino", "SELECT 1") == "SELECT 1"
+    assert trino.calls == ["SELECT 1"]
 
-    # Postgres: BEGIN READ ONLY ... COMMIT on success.
+    # Postgres/MySQL: BEGIN/START TRANSACTION READ ONLY ... COMMIT.
     pg = _FakeBackend()
     assert _execute_readonly(pg, "postgres", "SELECT 1") == "SELECT 1"
     assert pg.calls == ["BEGIN READ ONLY", "SELECT 1", "COMMIT"]
-
-    # Trino/MySQL: START TRANSACTION READ ONLY ... COMMIT.
-    trino = _FakeBackend()
-    _execute_readonly(trino, "trino", "SELECT 1")
-    assert trino.calls[0] == "START TRANSACTION READ ONLY"
-    assert trino.calls == ["START TRANSACTION READ ONLY", "SELECT 1", "COMMIT"]
     mysql = _FakeBackend()
     _execute_readonly(mysql, "mysql", "SELECT 1")
     assert mysql.calls[0] == "START TRANSACTION READ ONLY"
@@ -305,7 +302,7 @@ def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
     assert result.is_truncated is False
 
 
-def test_raw_sql_trino_select_keeps_readonly_transaction_and_subquery_wrap(
+def test_raw_sql_trino_select_uses_subquery_wrap_without_transaction(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -327,9 +324,7 @@ def test_raw_sql_trino_select_keeps_readonly_transaction_and_subquery_wrap(
         project_root=tmp_path,
     )
 
-    assert backend.calls[0] == "START TRANSACTION READ ONLY"
-    assert backend.calls[1] == (
+    assert backend.calls == [
         "SELECT * FROM (SELECT count(*) AS n FROM orders) AS marivo_raw_sql LIMIT 100"
-    )
-    assert backend.calls[2] == "COMMIT"
+    ]
     assert result.rows == ({"n": 2},)
