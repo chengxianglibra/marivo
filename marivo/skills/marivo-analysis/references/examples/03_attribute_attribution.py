@@ -8,24 +8,22 @@ columns.
 
 from __future__ import annotations
 
-from _fixtures.tiny_semantic import DERIVED_RATIO_METRIC_ID, METRIC_ID, ensure_loaded
+import marivo.analysis as mv
 
-# Setup: load the tiny semantic model and attach an examples session.
-ensure_loaded()
-
-import marivo.analysis as mv  # noqa: E402
-
-session = mv.session.current()
+session = mv.session.get_or_create(
+    name="examples",
+    default_calendar="cn_holidays",
+)
 created_at = session.catalog.get("time_dimension.sales.orders.created_at")
-region = session.catalog.get("dimension.sales.orders.region")
+revenue = session.catalog.get("metric.sales.revenue")
 cur = session.observe(
-    session.catalog.get(f"metric.{METRIC_ID}"),
+    revenue,
     timescope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="month",
 )
 base = session.observe(
-    session.catalog.get(f"metric.{METRIC_ID}"),
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    revenue,
+    timescope={"start": "2025-07-01", "end": "2025-10-01"},
     grain="month",
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
@@ -37,63 +35,3 @@ print(f"columns={attribution.columns!r}")
 
 # Expected output:
 # AttributionFrame show() card, then printed kind/row_count/columns lines.
-
-# Component-aware ratio metric: observe two windows and compare.
-ratio_cur = session.observe(
-    session.catalog.get(f"metric.{DERIVED_RATIO_METRIC_ID}"),
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
-)
-ratio_base = session.observe(
-    session.catalog.get(f"metric.{DERIVED_RATIO_METRIC_ID}"),
-    timescope={"start": "2025-07-01", "end": "2025-10-01"},
-)
-ratio_delta = session.compare(ratio_cur, ratio_base)
-ratio_components = ratio_delta.components()
-print(f"component_kind={ratio_components.meta.composition_kind!r}")
-print(f"component_columns={list(ratio_components.to_pandas().columns)!r}")
-
-# Component-aware time-series ratio metric: attribute change by bucket.
-ratio_cur_series = session.observe(
-    session.catalog.get(f"metric.{DERIVED_RATIO_METRIC_ID}"),
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    grain="month",
-)
-ratio_base_series = session.observe(
-    session.catalog.get(f"metric.{DERIVED_RATIO_METRIC_ID}"),
-    timescope={"start": "2025-07-01", "end": "2025-10-01"},
-    grain="month",
-)
-ratio_series_delta = session.compare(
-    ratio_cur_series,
-    ratio_base_series,
-    alignment=mv.window_bucket(),
-)
-ratio_bucket_attr = session.attribute(
-    ratio_series_delta,
-    axes=[created_at],
-)
-ratio_bucket_attr.show()
-
-# Component-aware panel ratio metric: attribute each bucket by segment.
-ratio_cur_panel = session.observe(
-    session.catalog.get(f"metric.{DERIVED_RATIO_METRIC_ID}"),
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
-    grain="month",
-    dimensions=[region],
-)
-ratio_base_panel = session.observe(
-    session.catalog.get(f"metric.{DERIVED_RATIO_METRIC_ID}"),
-    timescope={"start": "2025-07-01", "end": "2025-10-01"},
-    grain="month",
-    dimensions=[region],
-)
-ratio_panel_delta = session.compare(
-    ratio_cur_panel,
-    ratio_base_panel,
-    alignment=mv.window_bucket(),
-)
-ratio_panel_attr = session.attribute(
-    ratio_panel_delta,
-    axes=[region],
-)
-ratio_panel_attr.show()

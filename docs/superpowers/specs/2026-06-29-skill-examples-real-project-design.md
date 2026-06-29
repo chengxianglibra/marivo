@@ -172,7 +172,7 @@ Fixture code should live under internal support directories and be invoked by
 Semantic support:
 
 - module:
-  `marivo/skills/marivo-semantic/references/examples/_support/example_project.py`;
+  `marivo/skills/marivo-semantic/references/examples/_support/semantic_project.py`;
 - entrypoint: `semantic_examples_project()`;
 - return contract: a context manager whose value exposes `root`, `warehouse_ref`,
   `orders_table`, optional related table refs, and any pre-authored refs needed
@@ -184,7 +184,7 @@ Semantic support:
 Analysis support:
 
 - module:
-  `marivo/skills/marivo-analysis/references/examples/_support/example_project.py`;
+  `marivo/skills/marivo-analysis/references/examples/_support/analysis_project.py`;
 - entrypoint: `analysis_examples_project()`;
 - return contract: a context manager whose value exposes `root`, `session_name`,
   `metric_id`, `derived_metric_id`, and stable dimension/time-dimension ids;
@@ -199,9 +199,9 @@ Support code purpose must be explicit:
 - support helpers should return real project-facing objects, such as a current
   working directory, session, catalog, refs, or metric ids.
 
-The runner should reject public examples that import `_fixtures`,
-`_support.example_project`, or `_support` directly. It should allow those module
-paths only inside support files or inside the runner itself.
+The runner should reject public examples that import `_fixtures` or `_support`
+directly. It should allow support module paths only inside support files or
+inside the runner itself.
 
 ## Runner And Test Changes
 
