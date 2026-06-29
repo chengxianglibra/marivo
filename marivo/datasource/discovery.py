@@ -28,6 +28,12 @@ from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, RenderableResult
 TableSource = EntitySourceIR
 
 DiscoverySeverity = Literal["blocker", "warning", "info"]
+PartitionInspectionValueSource = Literal[
+    "metadata",
+    "system_catalog",
+    "bounded_sample_distinct",
+    "unavailable",
+]
 EvidenceValue = str | int | float | bool | None
 DiscoveryObjectKind = Literal[
     "entity",
@@ -739,7 +745,7 @@ class DimensionValueDiscoveryResult(RenderableResult):
 
 @dataclass(frozen=True, repr=False)
 class PartitionInspectionResult(RenderableResult):
-    """Bounded metadata-only partition value inspection result."""
+    """Bounded partition value inspection result."""
 
     datasource: DatasourceRef
     source: TableSource
@@ -748,6 +754,7 @@ class PartitionInspectionResult(RenderableResult):
     requested_limit: int
     is_truncated: bool
     warnings: tuple[str, ...]
+    value_source: PartitionInspectionValueSource = "metadata"
 
     def _repr_identity(self) -> str:
         return (
@@ -758,7 +765,7 @@ class PartitionInspectionResult(RenderableResult):
     def _card(self) -> Card:
         column_status = "none" if not self.partition_columns else str(len(self.partition_columns))
         status = (
-            f"metadata_only columns={column_status} "
+            f"source={self.value_source} columns={column_status} "
             f"returned={len(self.rows)} limit={self.requested_limit} "
             f"truncated={self.is_truncated} warnings={len(self.warnings)}"
         )

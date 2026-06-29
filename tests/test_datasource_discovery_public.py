@@ -302,7 +302,7 @@ def test_partitioned_table_discovery_requires_explicit_partition(
 
     message = str(exc_info.value)
     assert "The table is partitioned by: log_date, log_hour." in message
-    assert 'md.inspect_partitions(ds, md.table("orders"), limit=50).show()' in message
+    assert 'md.inspect_partitions(ds, md.table("orders")).show()' in message
     assert 'scope = md.partition({"log_date": "...", "log_hour": "..."})' in message
     assert sampled is False
 

@@ -430,6 +430,75 @@ def _nullable_from_clickhouse(is_nullable_value: object, type_str: str) -> bool 
 
 _CH_PARTITION_FUNC_RE = re.compile(r"^(\w+)\((\w+)\)$")
 _CH_PARTITION_BARE_RE = re.compile(r"^(\w+)$")
+_SIMPLE_PARTITION_COLUMN_RE = re.compile(r'^[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?$')
+
+
+def _split_top_level_expressions(text: str) -> tuple[str, ...]:
+    expressions: list[str] = []
+    depth = 0
+    quote: str | None = None
+    start = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == quote:
+                if index + 1 < len(text) and text[index + 1] == quote:
+                    index += 2
+                    continue
+                quote = None
+            index += 1
+            continue
+        if char in {'"', "`"}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")" and depth > 0:
+            depth -= 1
+        elif char == "," and depth == 0:
+            expressions.append(text[start:index].strip())
+            start = index + 1
+        index += 1
+    tail = text[start:].strip()
+    if tail:
+        expressions.append(tail)
+    return tuple(expressions)
+
+
+def _simple_partition_column(expression: object) -> str | None:
+    text = str(expression or "").strip()
+    if not text:
+        return None
+    match = _SIMPLE_PARTITION_COLUMN_RE.match(text)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _partition_columns_from_expression(expression: object) -> tuple[str, ...]:
+    text = str(expression or "").strip()
+    if not text:
+        return ()
+    simple = _simple_partition_column(text)
+    if simple is not None:
+        return (simple,)
+    for prefix in ("range", "list", "hash"):
+        wrapped = re.match(rf"^{prefix}\s*\((.*)\)$", text, re.IGNORECASE | re.DOTALL)
+        if not wrapped:
+            continue
+        columns: list[str] = []
+        for element in _split_top_level_expressions(wrapped.group(1)):
+            column = _simple_partition_column(element)
+            if column is None:
+                return ()
+            columns.append(column)
+        return tuple(columns)
+    return ()
+
+
+def _partition_column_from_expression(expression: object) -> str | None:
+    columns = _partition_columns_from_expression(expression)
+    return columns[0] if len(columns) == 1 else None
 
 
 def _parse_clickhouse_partition_key(
@@ -789,12 +858,40 @@ def _inspect_mysql(
         )
 
     if include_partitions:
-        warnings.append(
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message="mysql partition metadata is not exposed by this adapter",
-            )
+        partitions_by_name: dict[str, PartitionMetadata] = {}
+        partition_sql = (
+            "SELECT DISTINCT PARTITION_EXPRESSION FROM information_schema.PARTITIONS "
+            f"WHERE TABLE_NAME = {_quote_literal(table)} "
+            "AND PARTITION_NAME IS NOT NULL"
         )
+        if schema_name is not None:
+            partition_sql += f" AND TABLE_SCHEMA = {_quote_literal(schema_name)}"
+        try:
+            partition_rows = _query_rows(backend, partition_sql)
+            for row in partition_rows:
+                column_name = _partition_column_from_expression(row.get("PARTITION_EXPRESSION"))
+                column = catalog_columns.get(column_name or "")
+                if column is not None:
+                    partitions_by_name[column.name] = PartitionMetadata(
+                        name=column.name,
+                        type=column.type,
+                        transform=None,
+                        comment=None,
+                    )
+        except Exception as exc:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"mysql partition metadata query failed: {exc}",
+                )
+            )
+        if not partitions_by_name:
+            warnings.append(
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message="mysql partition metadata did not expose mappable column partitions",
+                )
+            )
 
     is_view = False
     view_definition: str | None = None
@@ -831,10 +928,121 @@ def _inspect_mysql(
         backend_type="mysql",
         comment=table_comment,
         columns=_merge_columns(schema_columns, catalog_columns),
-        partitions=(),
+        partitions=tuple(partitions_by_name.values()) if include_partitions else (),
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
+    )
+
+
+def _inspect_postgres(
+    *,
+    datasource: str,
+    backend: Any,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    table_expr: Any,
+    include_partitions: bool,
+    default_schema: str | None,
+) -> TableMetadata:
+    schema_columns = _schema_columns(table_expr)
+    schema_name = _database_label(database) or default_schema or "public"
+    warnings: list[MetadataWarning] = []
+    table_comment: str | None = None
+    catalog_columns: dict[str, ColumnMetadata] = {}
+
+    try:
+        table_rows = _query_rows(
+            backend,
+            "SELECT obj_description(to_regclass("
+            f"{_quote_literal(f'{schema_name}.{table}')}), 'pg_class') AS comment",
+        )
+        if table_rows:
+            table_comment = _empty_to_none(table_rows[0].get("comment"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"postgres table comment query failed: {exc}",
+            )
+        )
+
+    try:
+        column_rows = _query_rows(
+            backend,
+            "SELECT column_name, data_type, is_nullable, ordinal_position "
+            "FROM information_schema.columns "
+            f"WHERE table_schema = {_quote_literal(schema_name)} "
+            f"AND table_name = {_quote_literal(table)} "
+            "ORDER BY ordinal_position",
+        )
+        for row in column_rows:
+            name = str(row.get("column_name"))
+            ordinal = row.get("ordinal_position")
+            catalog_columns[name] = ColumnMetadata(
+                name=name,
+                type=str(row.get("data_type") or ""),
+                nullable=_bool_from_nullable(row.get("is_nullable")),
+                comment=None,
+                ordinal_position=int(str(ordinal)) if ordinal is not None else None,
+            )
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"postgres column metadata query failed: {exc}",
+            )
+        )
+
+    columns = _merge_columns(schema_columns, catalog_columns)
+    column_lookup = {column.name: column for column in columns}
+    partitions_by_name: dict[str, PartitionMetadata] = {}
+    if include_partitions:
+        try:
+            partition_rows = _query_rows(
+                backend,
+                "SELECT pg_get_partkeydef(c.oid) AS partition_key "
+                "FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                f"WHERE c.relname = {_quote_literal(table)} "
+                f"AND n.nspname = {_quote_literal(schema_name)} "
+                "LIMIT 1",
+            )
+            for row in partition_rows:
+                partition_key = str(row.get("partition_key") or "")
+                for column_name in _partition_columns_from_expression(partition_key):
+                    column = column_lookup.get(column_name or "")
+                    if column is not None:
+                        partitions_by_name[column.name] = PartitionMetadata(
+                            name=column.name,
+                            type=column.type,
+                            transform=None,
+                            comment=None,
+                        )
+        except Exception as exc:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"postgres partition metadata query failed: {exc}",
+                )
+            )
+        if not partitions_by_name:
+            warnings.append(
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message="postgres partition metadata did not expose mappable column partitions",
+                )
+            )
+
+    return TableMetadata(
+        datasource=datasource,
+        table=table,
+        database=database,
+        backend_type="postgres",
+        comment=table_comment,
+        columns=columns,
+        partitions=tuple(partitions_by_name.values()) if include_partitions else (),
+        warnings=tuple(warnings),
     )
 
 
@@ -1215,6 +1423,20 @@ def inspect_table(
                     table_expr=table_expr,
                     include_partitions=include_partitions,
                     catalog=str(datasource_ir.fields["catalog"]),
+                    default_schema=(
+                        str(datasource_ir.fields["schema"])
+                        if datasource_ir.fields.get("schema") is not None
+                        else None
+                    ),
+                )
+            elif datasource_ir.backend_type == "postgres":
+                metadata = _inspect_postgres(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
                     default_schema=(
                         str(datasource_ir.fields["schema"])
                         if datasource_ir.fields.get("schema") is not None

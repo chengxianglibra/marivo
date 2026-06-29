@@ -87,7 +87,7 @@ Inspect table metadata before discovery and use explicit scan scopes:
 
 ```python
 md.inspect_table(warehouse, orders).show()
-md.inspect_partitions(warehouse, orders, limit=50).show()
+md.inspect_partitions(warehouse, orders).show()
 
 scope = md.partition({"dt": "20260625"}, max_rows=1000)
 scope = md.unpruned(max_rows=1000)

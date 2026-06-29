@@ -436,6 +436,161 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
     assert any("SHOW FULL COLUMNS" in query for query in backend.queries)
 
 
+def test_public_inspect_partitions_mysql_discovers_field_and_uses_bounded_sample(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MYSQL_USER", "reader")
+    md.register(
+        _spec(
+            "mysql_wh",
+            backend_type="mysql",
+            host="localhost",
+            user_env="MYSQL_USER",
+            database="mart",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "dt": "string", "amount": "float64"},
+        {
+            "information_schema.tables": _FakeCursor(["TABLE_COMMENT"], [("Orders",)]),
+            "SHOW FULL COLUMNS": _FakeCursor(
+                ["Field", "Type", "Null", "Comment"],
+                [
+                    ("order_id", "bigint", "NO", "Unique order id"),
+                    ("dt", "varchar(8)", "NO", "Partition date"),
+                    ("amount", "double", "YES", "Gross amount"),
+                ],
+            ),
+            "information_schema.PARTITIONS": _FakeCursor(
+                ["PARTITION_EXPRESSION"],
+                [("`dt`",)],
+            ),
+            "partition_sample": _FakeCursor(["dt"], [("20260629",), ("20260628",)]),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.mysql_wh"),
+        md.table("orders"),
+        project_root=project_root,
+    )
+
+    rendered = result.render()
+    fallback_query = next(query for query in backend.queries if "partition_sample" in query)
+    assert "source=bounded_sample_distinct" in rendered
+    assert 'md.partition({"dt": "20260629"})' in rendered
+    assert "START TRANSACTION READ ONLY" in backend.queries
+    assert "WITH partition_sample AS" in fallback_query
+    assert fallback_query.index("LIMIT 100") < fallback_query.index("SELECT DISTINCT")
+
+
+def test_public_inspect_partitions_postgres_discovers_field_and_uses_bounded_sample(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PG_USER", "reader")
+    md.register(
+        _spec(
+            "pg_wh",
+            backend_type="postgres",
+            host="localhost",
+            user_env="PG_USER",
+            database="mart",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "dt": "string", "amount": "float64"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", 1),
+                    ("dt", "text", "NO", 2),
+                    ("amount", "double precision", "YES", 3),
+                ],
+            ),
+            "pg_get_partkeydef": _FakeCursor(["partition_key"], [("RANGE (dt)",)]),
+            "partition_sample": _FakeCursor(["dt"], [("20260629",), ("20260628",)]),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.pg_wh"),
+        md.table("orders", database="analytics"),
+        project_root=project_root,
+    )
+
+    rendered = result.render()
+    fallback_query = next(query for query in backend.queries if "partition_sample" in query)
+    assert "source=bounded_sample_distinct" in rendered
+    assert 'md.partition({"dt": "20260629"})' in rendered
+    assert "BEGIN READ ONLY" in backend.queries
+    assert "WITH partition_sample AS" in fallback_query
+    assert fallback_query.index("LIMIT 100") < fallback_query.index("SELECT DISTINCT")
+
+
+def test_public_inspect_partitions_postgres_discovers_multi_column_partition_key(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PG_USER", "reader")
+    md.register(
+        _spec(
+            "pg_wh",
+            backend_type="postgres",
+            host="localhost",
+            user_env="PG_USER",
+            database="mart",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "log_date": "string", "log_hour": "string"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", 1),
+                    ("log_date", "text", "NO", 2),
+                    ("log_hour", "text", "NO", 3),
+                ],
+            ),
+            "pg_get_partkeydef": _FakeCursor(
+                ["partition_key"],
+                [("RANGE (log_date, log_hour)",)],
+            ),
+            "partition_sample": _FakeCursor(
+                ["log_date", "log_hour"],
+                [("20260629", "15"), ("20260629", "14")],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.pg_wh"),
+        md.table("orders", database="analytics"),
+        project_root=project_root,
+    )
+
+    rendered = result.render()
+    assert "partition columns: log_date, log_hour" in rendered
+    assert 'md.partition({"log_date": "20260629", "log_hour": "15"})' in rendered
+
+
 def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -459,6 +614,7 @@ def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
                 ["Field", "Type", "Null", "Comment"],
                 [("order_id", "bigint", "NO", "Unique order id")],
             ),
+            _FakeCursor(["PARTITION_EXPRESSION"], []),
             _FakeCursor(["TABLE_TYPE"], [("VIEW",)]),
             _FakeCursor(["VIEW_DEFINITION"], [("select order_id from mart.orders",)]),
         ],
@@ -850,18 +1006,32 @@ def test_public_inspect_partitions_trino_lists_bounded_partition_tuples(
     result = md.inspect_partitions(
         md.ref("datasource.trino_wh"),
         md.table("orders"),
-        limit=2,
         project_root=project_root,
     )
 
     assert isinstance(result, md.DatasourceResult)
     rendered = result.render()
     assert "PartitionInspectionResult" in rendered
+    assert "source=metadata" in rendered
     assert "log_date=20260629" in rendered
     assert "log_hour=15" in rendered
     assert 'md.partition({"log_date": "20260629", "log_hour": "15"})' in rendered
-    assert "truncated" in rendered
     assert any("$partitions" in query for query in backend.queries)
+    assert any("LIMIT 100" in query for query in backend.queries)
+
+
+def test_public_inspect_partitions_does_not_accept_limit_parameter(
+    project_root: Path,
+) -> None:
+    md.register(_spec("trino_wh", backend_type="trino", host="trino.example", catalog="hive"))
+
+    with pytest.raises(TypeError, match="limit"):
+        md.inspect_partitions(  # type: ignore[call-arg]
+            md.ref("datasource.trino_wh"),
+            md.table("orders"),
+            limit=2,
+            project_root=project_root,
+        )
 
 
 def test_public_inspect_partitions_skips_incomplete_partition_tuples(
@@ -916,7 +1086,6 @@ def test_public_inspect_partitions_skips_incomplete_partition_tuples(
     result = md.inspect_partitions(
         md.ref("datasource.trino_wh"),
         md.table("orders"),
-        limit=2,
         project_root=project_root,
     )
 
@@ -924,6 +1093,76 @@ def test_public_inspect_partitions_skips_incomplete_partition_tuples(
     assert 'md.partition({"log_date": "20260629"})' not in rendered
     assert 'md.partition({"log_date": "20260629", "log_hour": "15"})' in rendered
     assert "incomplete partition rows omitted=1" in rendered
+
+
+def test_public_inspect_partitions_trino_fallback_limits_before_distinct(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "log_date": "string", "log_hour": "string"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", None, 1),
+                    ("log_date", "varchar", "NO", None, 2),
+                    ("log_hour", "varchar", "NO", None, 3),
+                ],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [
+                    (
+                        "CREATE TABLE hive.analytics.orders (\n"
+                        "   order_id bigint,\n"
+                        "   log_date varchar,\n"
+                        "   log_hour varchar\n"
+                        ")\nWITH (\n"
+                        "   partitioned_by = ARRAY['log_date', 'log_hour']\n"
+                        ")",
+                    )
+                ],
+            ),
+            "partition_sample": _FakeCursor(
+                ["log_date", "log_hour"],
+                [("20260629", "15"), ("20260629", "14")],
+            ),
+        },
+        raise_on_tokens=["$partitions"],
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.trino_wh"),
+        md.table("orders"),
+        project_root=project_root,
+    )
+
+    rendered = result.render()
+    assert "source=bounded_sample_distinct" in rendered, (rendered, backend.queries)
+    fallback_query = next((query for query in backend.queries if "partition_sample" in query), None)
+    assert fallback_query is not None, (rendered, backend.queries)
+    assert "SELECT DISTINCT" in fallback_query
+    assert "LIMIT 100" in fallback_query
+    assert fallback_query.index("LIMIT 100") < fallback_query.index("SELECT DISTINCT")
+    assert (
+        'SELECT DISTINCT "log_date", "log_hour" FROM "hive"."analytics"."orders"'
+        not in fallback_query
+    )
+    assert "sample of the first 100 rows" in rendered
 
 
 def test_public_inspect_partitions_clickhouse_transformed_partition_unavailable(
@@ -960,6 +1199,96 @@ def test_public_inspect_partitions_clickhouse_transformed_partition_unavailable(
     assert "without scanning data" in rendered
     assert "md.raw_sql" in rendered
     assert not any("system.parts" in query for query in backend.queries)
+
+
+def test_public_inspect_partitions_clickhouse_bare_partition_uses_system_parts(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("ch_wh", backend_type="clickhouse", host="ch.example", database="analytics"))
+    backend = _FakeBackend(
+        {"dt": "string", "value": "float64"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "dt", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("dt", "String", 0, "", 1), ("value", "Float64", 0, "", 2)],
+            ),
+            "system.parts": _FakeQueryResult(
+                ("dt",),
+                [("20260629",), ("20260628",)],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.ch_wh"),
+        md.table("events", database="analytics"),
+        project_root=project_root,
+    )
+
+    rendered = result.render()
+    assert "source=system_catalog" in rendered
+    assert 'md.partition({"dt": "20260629"})' in rendered
+    assert any("system.parts" in query for query in backend.queries)
+
+
+def test_public_inspect_partitions_clickhouse_distributed_uses_local_system_parts(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("ch_wh", backend_type="clickhouse", host="ch.example", database="analytics"))
+    backend = _FakeBackend(
+        {"dt": "string", "value": "float64"},
+        {
+            "WHERE name = 'events_dist'": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [
+                    (
+                        "Events",
+                        "",
+                        "Distributed",
+                        "Distributed('cluster', 'analytics', 'events_local', rand())",
+                    )
+                ],
+            ),
+            "WHERE name = 'events_local'": _FakeQueryResult(
+                ("partition_key",),
+                [("dt",)],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("dt", "String", 0, "", 1), ("value", "Float64", 0, "", 2)],
+            ),
+            "system.parts": _FakeQueryResult(
+                ("dt",),
+                [("20260629",), ("20260628",)],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    result = md.inspect_partitions(
+        md.ref("datasource.ch_wh"),
+        md.table("events_dist", database="analytics"),
+        project_root=project_root,
+    )
+
+    rendered = result.render()
+    parts_query = next(query for query in backend.queries if "system.parts" in query)
+    assert "source=system_catalog" in rendered
+    assert "table = 'events_local'" in parts_query
+    assert 'md.partition({"dt": "20260629"})' in rendered
 
 
 def test_inspect_table_trino_iceberg_partitioning_from_show_create(

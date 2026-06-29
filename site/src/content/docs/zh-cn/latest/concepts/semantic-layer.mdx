@@ -494,7 +494,7 @@ warehouse = md.ref("datasource.warehouse")
 orders = md.table("orders")
 
 md.inspect_table(warehouse, orders).show()
-md.inspect_partitions(warehouse, orders, limit=50).show()
+md.inspect_partitions(warehouse, orders).show()
 
 scope = md.partition({"dt": "20260629"})
 

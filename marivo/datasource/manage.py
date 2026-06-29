@@ -600,6 +600,73 @@ def _quote_metadata_identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
+_PARTITION_INSPECTION_LIMIT = 100
+_CH_DISTRIBUTED_ENGINE_RE = re.compile(r"^Distributed\('([^']+)',\s*'([^']+)',\s*'([^']+)'")
+
+
+def _quote_sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _quote_backend_identifier(value: str, backend_type: str) -> str:
+    if backend_type in {"mysql", "clickhouse"}:
+        return "`" + value.replace("`", "``") + "`"
+    return _quote_metadata_identifier(value)
+
+
+def _trino_namespace(source: TableSourceIR, datasource_ir: Any) -> tuple[str, str | None]:
+    database = source.database
+    catalog = str(datasource_ir.fields["catalog"])
+    if isinstance(database, tuple):
+        if len(database) >= 2:
+            return str(database[0]), str(database[1])
+        if len(database) == 1:
+            return catalog, str(database[0])
+        return catalog, None
+    if database is not None:
+        return catalog, str(database)
+    schema_value = datasource_ir.fields.get("schema")
+    return catalog, str(schema_value) if schema_value is not None else None
+
+
+def _clickhouse_database(source: TableSourceIR, datasource_ir: Any) -> str:
+    if source.database is not None and not isinstance(source.database, tuple):
+        return str(source.database)
+    database = datasource_ir.fields.get("database")
+    return str(database) if database is not None else "default"
+
+
+def _table_sql_ref(source: TableSourceIR, datasource_ir: Any, *, backend_type: str) -> str:
+    database = source.database
+    parts: builtins.list[str] = []
+    if backend_type == "trino":
+        catalog, schema_name = _trino_namespace(source, datasource_ir)
+        parts = (
+            [catalog, source.table] if schema_name is None else [catalog, schema_name, source.table]
+        )
+    elif backend_type == "mysql":
+        schema_name = (
+            str(database) if database is not None and not isinstance(database, tuple) else None
+        )
+        if schema_name is None:
+            schema_name = str(datasource_ir.fields["database"])
+        parts = [schema_name, source.table]
+    elif backend_type == "postgres":
+        schema_name = (
+            str(database) if database is not None and not isinstance(database, tuple) else None
+        )
+        if schema_name is None:
+            schema_value = datasource_ir.fields.get("schema")
+            schema_name = str(schema_value) if schema_value is not None else None
+        parts = [source.table] if schema_name is None else [schema_name, source.table]
+    elif backend_type == "clickhouse":
+        schema_name = _clickhouse_database(source, datasource_ir)
+        parts = [schema_name, source.table]
+    else:
+        parts = [source.table] if database is None else [str(database), source.table]
+    return ".".join(_quote_backend_identifier(part, backend_type) for part in parts)
+
+
 def _partition_values_unavailable(
     *,
     datasource: DatasourceRef,
@@ -621,6 +688,7 @@ def _partition_values_unavailable(
             "Use backend metadata SQL through md.raw_sql(...) or provide the partition values "
             f"from source knowledge. reason={reason}",
         ),
+        value_source="unavailable",
     )
 
 
@@ -641,19 +709,170 @@ def _no_partition_values_result(
             "No partition columns were exposed by metadata. Discovery does not "
             "require md.partition({...}) for this table.",
         ),
+        value_source="metadata",
     )
+
+
+def _partition_inspection_result(
+    *,
+    datasource: DatasourceRef,
+    source: EntitySourceIR,
+    partition_columns: tuple[str, ...],
+    raw_rows: tuple[dict[str, object], ...],
+    value_source: Literal["metadata", "system_catalog", "bounded_sample_distinct"],
+    warnings: Iterable[str] = (),
+) -> PartitionInspectionResult:
+    complete_rows: builtins.list[dict[str, str]] = []
+    omitted_incomplete = 0
+    for row in raw_rows[:_PARTITION_INSPECTION_LIMIT]:
+        if any(row.get(column) is None for column in partition_columns):
+            omitted_incomplete += 1
+            continue
+        complete_rows.append({column: str(row[column]) for column in partition_columns})
+    result_warnings = builtins.list(warnings)
+    if value_source == "bounded_sample_distinct":
+        result_warnings.append(
+            "Partition values are a distinct sample of the first 100 rows, not a full partition catalog."
+        )
+    if omitted_incomplete:
+        result_warnings.append(f"incomplete partition rows omitted={omitted_incomplete}")
+    return PartitionInspectionResult(
+        datasource=datasource,
+        source=source,
+        partition_columns=partition_columns,
+        rows=tuple(complete_rows),
+        requested_limit=_PARTITION_INSPECTION_LIMIT,
+        is_truncated=False,
+        warnings=tuple(result_warnings),
+        value_source=value_source,
+    )
+
+
+def _extract_partition_rows(cursor: Any) -> tuple[dict[str, object], ...]:
+    _, raw_rows, _ = _extract_raw_sql_frame(cursor, include_types=False)
+    return raw_rows
+
+
+def _inspect_trino_partition_values(
+    backend: Any,
+    datasource_ir: Any,
+    source: TableSourceIR,
+    partition_columns: tuple[str, ...],
+) -> tuple[tuple[dict[str, object], ...], str | None]:
+    catalog, schema_name = _trino_namespace(source, datasource_ir)
+    if schema_name is None:
+        return (), "trino partition inspection requires database= or datasource schema"
+    quoted_columns = ", ".join(_quote_metadata_identifier(column) for column in partition_columns)
+    table_ref = ".".join(
+        _quote_metadata_identifier(part)
+        for part in (catalog, schema_name, f"{source.table}$partitions")
+    )
+    order_by = ", ".join(
+        f"{_quote_metadata_identifier(column)} DESC" for column in partition_columns
+    )
+    sql = (
+        f"SELECT {quoted_columns} FROM {table_ref} "
+        f"ORDER BY {order_by} LIMIT {_PARTITION_INSPECTION_LIMIT}"
+    )
+    try:
+        return _extract_partition_rows(backend.raw_sql(sql)), None
+    except Exception as exc:
+        return (), str(exc)
+
+
+def _clickhouse_system_parts_target(
+    backend: Any,
+    datasource_ir: Any,
+    source: TableSourceIR,
+) -> tuple[str, str]:
+    database = _clickhouse_database(source, datasource_ir)
+    sql = (
+        "SELECT engine, engine_full FROM system.tables "
+        f"WHERE name = {_quote_sql_literal(source.table)} "
+        f"AND database = {_quote_sql_literal(database)} LIMIT 1"
+    )
+    try:
+        rows = _extract_partition_rows(backend.raw_sql(sql))
+    except Exception:
+        return database, source.table
+    if not rows:
+        return database, source.table
+    engine = str(rows[0].get("engine") or "")
+    if engine != "Distributed":
+        return database, source.table
+    engine_full = str(rows[0].get("engine_full") or "")
+    match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
+    if not match:
+        return database, source.table
+    return match.group(2), match.group(3)
+
+
+def _inspect_clickhouse_partition_values(
+    backend: Any,
+    datasource_ir: Any,
+    source: TableSourceIR,
+    partition_columns: tuple[str, ...],
+) -> tuple[tuple[dict[str, object], ...], str | None]:
+    if len(partition_columns) != 1:
+        return (), "clickhouse system.parts mapping only supports single bare partition columns"
+    column = partition_columns[0]
+    database, table = _clickhouse_system_parts_target(backend, datasource_ir, source)
+    sql = (
+        f"SELECT partition AS {_quote_backend_identifier(column, 'clickhouse')} "
+        "FROM system.parts "
+        "WHERE active "
+        f"AND database = {_quote_sql_literal(database)} "
+        f"AND table = {_quote_sql_literal(table)} "
+        "GROUP BY partition "
+        "ORDER BY partition DESC "
+        f"LIMIT {_PARTITION_INSPECTION_LIMIT}"
+    )
+    try:
+        return _extract_partition_rows(backend.raw_sql(sql)), None
+    except Exception as exc:
+        return (), str(exc)
+
+
+def _inspect_bounded_sample_partition_values(
+    backend: Any,
+    backend_type: str,
+    datasource_ir: Any,
+    source: TableSourceIR,
+    partition_columns: tuple[str, ...],
+) -> tuple[tuple[dict[str, object], ...], str | None]:
+    quoted_columns = ", ".join(
+        _quote_backend_identifier(column, backend_type) for column in partition_columns
+    )
+    table_ref = _table_sql_ref(source, datasource_ir, backend_type=backend_type)
+    null_predicate = " AND ".join(
+        f"{_quote_backend_identifier(column, backend_type)} IS NOT NULL"
+        for column in partition_columns
+    )
+    order_by = ", ".join(
+        f"{_quote_backend_identifier(column, backend_type)} DESC" for column in partition_columns
+    )
+    sql = (
+        "WITH partition_sample AS ("
+        f"SELECT {quoted_columns} FROM {table_ref} LIMIT {_PARTITION_INSPECTION_LIMIT}"
+        ") "
+        f"SELECT DISTINCT {quoted_columns} FROM partition_sample "
+        f"WHERE {null_predicate} "
+        f"ORDER BY {order_by} LIMIT {_PARTITION_INSPECTION_LIMIT}"
+    )
+    try:
+        cursor = _execute_readonly(backend, backend_type, sql)
+        return _extract_partition_rows(cursor), None
+    except Exception as exc:
+        return (), str(exc)
 
 
 def inspect_partitions(
     datasource: DatasourceRef,
     source: EntitySourceIR,
     *,
-    limit: int = 50,
     project_root: Path | None = None,
 ) -> DatasourceResult:
-    """Inspect bounded available partition values without scanning table data."""
-    if limit < 1:
-        raise ValueError("limit must be positive.")
+    """Inspect fixed-cap available partition values with the cheapest safe backend path."""
     if not isinstance(datasource, DatasourceRef):
         raise TypeError(
             f"datasource must be md.DatasourceRef from md.ref(...), got {type(datasource).__name__}."
@@ -670,14 +889,14 @@ def inspect_partitions(
         return _no_partition_values_result(
             datasource=datasource,
             source=source,
-            limit=limit,
+            limit=_PARTITION_INSPECTION_LIMIT,
         )
     if any(partition.transform for partition in metadata.partitions):
         return _partition_values_unavailable(
             datasource=datasource,
             source=source,
             partition_columns=partition_columns,
-            limit=limit,
+            limit=_PARTITION_INSPECTION_LIMIT,
             reason="transformed partition values cannot be mapped to md.partition({...}) safely",
         )
     if not isinstance(source, TableSourceIR):
@@ -685,7 +904,7 @@ def inspect_partitions(
             datasource=datasource,
             source=source,
             partition_columns=partition_columns,
-            limit=limit,
+            limit=_PARTITION_INSPECTION_LIMIT,
             reason="file source partition values are not exposed as backend metadata",
         )
 
@@ -695,62 +914,104 @@ def inspect_partitions(
             message=f"datasource {datasource_id!r} is not configured",
             details={"datasource": datasource_id, "available": _store.list_names(project_root)},
         )
-    if datasource_ir.backend_type != "trino":
-        return _partition_values_unavailable(
-            datasource=datasource,
-            source=source,
-            partition_columns=partition_columns,
-            limit=limit,
-            reason=f"{datasource_ir.backend_type} partition value metadata is not supported",
-        )
-
-    database = source.database
-    catalog = str(datasource_ir.fields["catalog"])
-    schema_name: str | None
-    if isinstance(database, tuple):
-        if len(database) >= 2:
-            catalog = str(database[0])
-            schema_name = str(database[1])
-        elif len(database) == 1:
-            schema_name = str(database[0])
-        else:
-            schema_name = None
-    elif database is not None:
-        schema_name = str(database)
-    else:
-        schema_value = datasource_ir.fields.get("schema")
-        schema_name = str(schema_value) if schema_value is not None else None
-    if schema_name is None:
-        return _partition_values_unavailable(
-            datasource=datasource,
-            source=source,
-            partition_columns=partition_columns,
-            limit=limit,
-            reason="trino partition inspection requires database= or datasource schema",
-        )
-
     backend: Any = None
+    backend_type = datasource_ir.backend_type
     try:
         backend = _backends.build_backend(datasource_ir)
-        quoted_columns = ", ".join(
-            _quote_metadata_identifier(column) for column in partition_columns
+        if backend_type == "trino":
+            raw_rows, metadata_error = _inspect_trino_partition_values(
+                backend,
+                datasource_ir,
+                source,
+                partition_columns,
+            )
+            if metadata_error is None:
+                return _partition_inspection_result(
+                    datasource=datasource,
+                    source=source,
+                    partition_columns=partition_columns,
+                    raw_rows=raw_rows,
+                    value_source="metadata",
+                )
+            raw_rows, fallback_error = _inspect_bounded_sample_partition_values(
+                backend,
+                backend_type,
+                datasource_ir,
+                source,
+                partition_columns,
+            )
+            if fallback_error is None:
+                return _partition_inspection_result(
+                    datasource=datasource,
+                    source=source,
+                    partition_columns=partition_columns,
+                    raw_rows=raw_rows,
+                    value_source="bounded_sample_distinct",
+                    warnings=(f"metadata partition value query failed: {metadata_error}",),
+                )
+            reason = f"{metadata_error}; bounded sample fallback failed: {fallback_error}"
+        elif backend_type == "clickhouse":
+            raw_rows, metadata_error = _inspect_clickhouse_partition_values(
+                backend,
+                datasource_ir,
+                source,
+                partition_columns,
+            )
+            if metadata_error is None:
+                return _partition_inspection_result(
+                    datasource=datasource,
+                    source=source,
+                    partition_columns=partition_columns,
+                    raw_rows=raw_rows,
+                    value_source="system_catalog",
+                )
+            raw_rows, fallback_error = _inspect_bounded_sample_partition_values(
+                backend,
+                backend_type,
+                datasource_ir,
+                source,
+                partition_columns,
+            )
+            if fallback_error is None:
+                return _partition_inspection_result(
+                    datasource=datasource,
+                    source=source,
+                    partition_columns=partition_columns,
+                    raw_rows=raw_rows,
+                    value_source="bounded_sample_distinct",
+                    warnings=(f"system.parts partition value query failed: {metadata_error}",),
+                )
+            reason = f"{metadata_error}; bounded sample fallback failed: {fallback_error}"
+        else:
+            raw_rows, fallback_error = _inspect_bounded_sample_partition_values(
+                backend,
+                backend_type,
+                datasource_ir,
+                source,
+                partition_columns,
+            )
+            if fallback_error is None:
+                return _partition_inspection_result(
+                    datasource=datasource,
+                    source=source,
+                    partition_columns=partition_columns,
+                    raw_rows=raw_rows,
+                    value_source="bounded_sample_distinct",
+                )
+            reason = fallback_error
+        return _partition_values_unavailable(
+            datasource=datasource,
+            source=source,
+            partition_columns=partition_columns,
+            limit=_PARTITION_INSPECTION_LIMIT,
+            reason=reason,
         )
-        table_ref = ".".join(
-            _quote_metadata_identifier(part)
-            for part in (catalog, schema_name, f"{source.table}$partitions")
-        )
-        order_by = ", ".join(
-            f"{_quote_metadata_identifier(column)} DESC" for column in partition_columns
-        )
-        sql = f"SELECT {quoted_columns} FROM {table_ref} ORDER BY {order_by} LIMIT {limit + 1}"
-        cursor = backend.raw_sql(sql)
-        _, raw_rows, _ = _extract_raw_sql_frame(cursor, include_types=False, limit=limit + 1)
     except Exception as exc:
         return _partition_values_unavailable(
             datasource=datasource,
             source=source,
             partition_columns=partition_columns,
-            limit=limit,
+            limit=_PARTITION_INSPECTION_LIMIT,
             reason=str(exc),
         )
     finally:
@@ -759,25 +1020,7 @@ def inspect_partitions(
             with suppress(Exception):
                 disconnect()
 
-    complete_rows: builtins.list[dict[str, str]] = []
-    omitted_incomplete = 0
-    for row in raw_rows[:limit]:
-        if any(row.get(column) is None for column in partition_columns):
-            omitted_incomplete += 1
-            continue
-        complete_rows.append({column: str(row[column]) for column in partition_columns})
-    warnings: builtins.list[str] = []
-    if omitted_incomplete:
-        warnings.append(f"incomplete partition rows omitted={omitted_incomplete}")
-    return PartitionInspectionResult(
-        datasource=datasource,
-        source=source,
-        partition_columns=partition_columns,
-        rows=tuple(complete_rows),
-        requested_limit=limit,
-        is_truncated=len(raw_rows) > limit,
-        warnings=tuple(warnings),
-    )
+    raise AssertionError("unreachable partition inspection path")
 
 
 def _inspect_columns(

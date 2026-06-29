@@ -73,7 +73,7 @@ def _require_discovery_partition_scope(
             "values cannot be expressed safely as md.partition({...}).\n\n"
             f"Transformed partition columns: {transformed_text}.\n"
             "Run:\n"
-            f"  md.inspect_partitions(ds, {_source_call(source)}, limit=50).show()\n\n"
+            f"  md.inspect_partitions(ds, {_source_call(source)}).show()\n\n"
             "Then provide explicit partition values from backend metadata or source knowledge."
         )
     if scope.partition is None:
@@ -84,7 +84,7 @@ def _require_discovery_partition_scope(
             f"The table is partitioned by: {columns_text}.\n"
             "Discovery refuses to scan partitioned tables without an explicit partition filter.\n\n"
             "Run:\n"
-            f"  md.inspect_partitions(ds, {_source_call(source)}, limit=50).show()\n\n"
+            f"  md.inspect_partitions(ds, {_source_call(source)}).show()\n\n"
             "Then call:\n"
             f"  scope = md.partition({literal})"
         )
