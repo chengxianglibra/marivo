@@ -91,7 +91,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Windows and timescopes must be explicit, parseable absolute ranges.",
         "Analysis persistence records concrete bucket ranges and cannot infer an ambiguous natural-language window.",
         'Pass timescope={"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} or an AbsoluteWindow.',
-        example=f"{_EXAMPLE_BASE}/observe_timescope.py",
+        example=f"{_EXAMPLE_BASE}/01_observe_single_window.py",
         docs_ref=_PITFALLS,
     ),
     ConstraintId.FRAME_KIND_COMPATIBLE: _constraint(
@@ -125,7 +125,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Discovery objectives need enough rows or buckets to rank candidates.",
         "Candidate scoring needs a minimum evidence set; too few observations make rankings misleading.",
         "Use a wider timescope or choose a discovery objective compatible with the source shape.",
-        example=f"{_EXAMPLE_BASE}/09_discover_period_shifts.py",
+        example=f"{_EXAMPLE_BASE}/04_discover_point_anomaly.py",
         docs_ref=_PITFALLS,
     ),
     ConstraintId.ALIGNMENT_POLICY_SHAPE: _constraint(
@@ -136,7 +136,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "AlignmentPolicy arguments must match the selected alignment kind.",
         "Calendar-backed variants require a calendar, while window_bucket uses request-window buckets without one.",
         "Use kind='window_bucket' without calendar, or pass calendar=mv.CalendarRef(...) for calendar-backed kinds.",
-        example=f"{_EXAMPLE_BASE}/compare_calendar.py",
+        example=f"{_EXAMPLE_BASE}/02_compare_yoy.py",
         docs_ref=_PITFALLS,
     ),
     ConstraintId.TRANSFORM_ARGUMENTS: _constraint(
@@ -147,7 +147,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Transform operators require their documented keyword arguments.",
         "Each transform op has a specific parameter contract; missing or contradictory kwargs produce ambiguous frames.",
         "Inspect mv.help('transform') and pass the required args for the selected op.",
-        example=f"{_EXAMPLE_BASE}/transform_topk_delta.py",
         docs_ref=_CHEATSHEET,
     ),
     ConstraintId.TRANSFORM_FRAME_SHAPE: _constraint(
@@ -158,7 +157,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Transform operators require compatible axes and value columns.",
         "Shape-changing transforms can only preserve lineage when the requested axes exist on the frame.",
         "Use frame.columns, frame.meta.axes, or mv.help('transform') before topk, rollup, slice, or rank.",
-        example=f"{_EXAMPLE_BASE}/transform_rollup_panel.py",
         docs_ref=_CHEATSHEET,
     ),
     ConstraintId.TRANSFORM_OPERATOR_SUPPORTED: _constraint(
@@ -169,7 +167,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Transform op names are limited to the supported v1 operator set.",
         "The runtime records transform lineage by stable op id; unknown ops cannot be replayed.",
         "Use filter, slice, rollup, topk, bottomk, rank, normalize, or window.",
-        example=f"{_EXAMPLE_BASE}/transform_slice.py",
         docs_ref=_CHEATSHEET,
     ),
     ConstraintId.FORECAST_INPUT_SHAPE: _constraint(
@@ -180,7 +177,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Forecast accepts MetricFrame time_series or panel inputs.",
         "Forecast models need ordered history buckets and cannot operate on scalar or segmented-only frames.",
         "Observe the metric with a grain and enough history before calling session.forecast(...).",
-        example=f"{_EXAMPLE_BASE}/06_forecast_horizon.py",
         docs_ref=_PITFALLS,
     ),
     ConstraintId.QUALITY_TARGET_SHAPE: _constraint(
@@ -191,7 +187,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Quality assessment v1 accepts MetricFrame targets.",
         "Quality checks are currently defined against observed metric frames and their metric metadata.",
         "Call session.assess_quality(metric_frame) on an observe result.",
-        example=f"{_EXAMPLE_BASE}/07_assess_metric_quality.py",
         docs_ref=_PITFALLS,
     ),
     ConstraintId.FRAME_IMMUTABLE: _constraint(

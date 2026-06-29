@@ -5,195 +5,66 @@ description: Use for any Marivo metric-centered analysis task: observe, compare,
 
 # marivo-analysis
 
-Use this skill when writing or running metric-centered workflows with
-`marivo.analysis` (imported as `mv`).
+Use this skill when running metric-centered workflows with `marivo.analysis`
+imported as `mv`.
 
-The `mv` top level is the core agent surface: constructor refs and policies,
-sessions, frames, frame metadata, lineage, and namespace entrypoints. Use
-submodules for domain DTOs and errors: `mv.evidence.*`, `md.*`,
-and `mv.errors.*`.
+Use `marivo-semantic` instead when the task is authoring semantic-layer objects.
+If an analysis exposes missing semantic-layer objects, capture that gap in the
+recap and route the authoring work to `marivo-semantic`; do not author semantic
+objects inside this skill.
 
-Use `marivo-semantic` instead when the task is authoring semantic models.
+## Ownership
+
+This skill owns workflow only: intent routing, session discipline, observation
+points, recovery discipline, and final report shape.
+
+`mv.help()` owns the static analysis contract: signatures, artifact families,
+constraints, return types, errors, and runnable examples. Start with
+`mv.help()` or `mv.help("agent_surface")`, then inspect the specific topic
+before calling it, such as `mv.help("observe")`, `mv.help("discover")`,
+`mv.help("alignment")`, or `mv.help("MetricFrame")`.
+
+Frames and results own dynamic guidance. Use `artifact.show()` to inspect the
+current state and `artifact.contract()` to inspect mechanically valid next actions.
+The contract is not a recommendation engine; agent judgment decides which valid
+action matters for the user's question.
 
 ## Python Environment
 
-Marivo is a pip-installed Python library in the current project environment;
-the current workspace is not expected to contain the Marivo package source. Do
-not rely on repo fixtures, `make`, or a fixed `.venv` path.
+For installed-project analysis, identify the project virtualenv first and use
+`<venv>/bin/python` for scripts. Do not use bare `python`, `python3`, `pip`, or
+`pip3`.
 
-Do not use bare `python`, `python3`, `pip`, or `pip3` commands. First identify
-the project virtualenv path, then use `<venv>/bin/python` and `<venv>/bin/pip`
-consistently for every install, check, and script run. If the project has no
-virtualenv yet, create or activate one before using this skill.
+Inside the Marivo repository, use repository entrypoints only:
 
-## How to start
-
-1. For a real project, start from
-   `references/examples/00_real_project_template.py`; it shows
-   `ms.load()` -> `mv.session.get_or_create(...)`
-   with `default_calendar`.
-2. For a specific intent pattern, adapt the closest runnable
-   `references/examples/NN_*.py`; those examples use a tiny fixture so they
-   can run in CI.
-3. Confirm metric ids: `import marivo.semantic as ms; catalog = ms.load(); catalog.list(kind=ms.SemanticKind.METRIC).show()`.
-4. Use runtime help as the authoritative per-object contract. Start with
-   `mv.help('agent_surface')`, then inspect the specific intent, frame, policy,
-   or topic you are about to use; examples:
-   `mv.help('observe')`, `mv.help('discover')`,
-   `mv.help('alignment')`, and
-   `mv.help('MetricFrame')`. The descriptor exposes signatures, bounded
-   constraints, methods, affordances, and drill-down ids. Consult it per object
-   when the contract matters; do not turn help into a blanket ritual for each
-   call.
-5. On errors, read the structured output — it includes a fix snippet and the
-   available ids when applicable.
-
-## 30-second overview
-
-Default agent-facing operators:
-
-- `session.observe(...)` -> `MetricFrame`
-- `session.compare(current_frame, baseline_frame, ...)` -> `DeltaFrame`
-- `session.attribute(delta_frame, axes=[...], mode="flat")` -> `AttributionFrame`
-- `session.discover.<objective>(...)` -> `CandidateSet`
-- `session.correlate(a_frame, b_frame, ...)` -> `AssociationResult`
-- `session.hypothesis_test(a_frame, b_frame, ...)` -> `HypothesisTestResult`
-- `session.forecast(history_frame, ...)` -> `ForecastFrame`
-- `session.derive_metric_frame(...)` -> `MetricFrame`
-- `session.assess_quality(artifact)` -> `QualityReport`
-
-```python
-import marivo.analysis as mv
-
-session = mv.session.get_or_create(name="investigation")
-axis = session.catalog.get("time_dimension.model.entity.time_dimension")
-
-series = session.observe(
-    session.catalog.get("metric.model.metric"),
-    timescope={"start": "2026-06-18", "end": "2026-06-25"},
-    grain="day",
-)
-baseline = session.observe(
-    session.catalog.get("metric.model.metric"),
-    timescope={"start": "2026-06-11", "end": "2026-06-18"},
-    grain="day",
-)
-delta = session.compare(series, baseline, alignment=mv.window_bucket())
-drivers = session.attribute(delta, axes=[axis], mode="flat")
-drivers.show()
+```bash
+make test
+make typecheck
+make lint
+make examples-check
 ```
 
-Every default operator returns a typed, immutable artifact directly. Stay in
-artifact world until you intentionally call `artifact.to_pandas()`.
+## Start Flow
 
-After each analysis step, read `artifact.show()` at deliberate observation
-points. Before composing another operator, read `artifact.contract()`.
-The affordances inside the contract are neutral machine data, not a
-recommendation surface.
+1. Verify the installed analysis surface:
+   `<venv>/bin/python -c 'import marivo.analysis as mv; mv.help()'`.
+2. Inspect the static contract for the task:
+   `mv.help("agent_surface")`, then the specific intent, policy, frame, or
+   topic.
+3. Load or inspect the semantic catalog and confirm the metric ids, dimensions,
+   and time dimensions the task needs.
+4. Create or reuse one stable task session:
+   `session = mv.session.get_or_create(name="revenue_drop_investigation")`.
+5. Stay in typed artifact flow until terminal analysis requires
+   `artifact.to_pandas()`.
 
-`mv.window_bucket()` compares time-series and panel windows
-by ordinal bucket position by default. Use
-`mv.window_bucket(mode="calendar_bucket")` only when the
-same absolute bucket key should be treated as the same row. Use
-`strict_lengths=True` only when unequal window bucket counts must fail.
+Examples are smoke tests and copyable starting points, not the analysis methodology.
+For exact callable contracts, use `mv.help("<topic>")`.
 
-## Where filter
+## Intent Routing
 
-`observe(where=...)` accepts Python-style structured predicates:
-`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `between`. Scalar shorthand uses `==`.
-SQL-style ops (`eq`, `ne`, `gte`, …) are **not** supported.
-`transform.slice(where=...)` uses shorthand forms only (scalar for `==`, list for
-`in`, tuple for `between`). For full value-shape details see `references/cheatsheet.md`.
-
-## When to call show()
-
-Call `show()` at deliberate observation points — not after every API call.
-Multi-step scripts are quiet until you explicitly inspect:
-
-```python
-session = mv.session.get_or_create(name="revenue_drop")
-cur = session.observe(
-    session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-06-18", "end": "2026-06-25"},
-)
-base = session.observe(
-    session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-06-11", "end": "2026-06-18"},
-)
-delta = session.compare(cur, base)
-delta.show()            # deliberate inspection point
-```
-
-Bounded `show()` output is a working observation, not the final user answer.
-Final reports must still be answer-first and source-backed.
-
-## Derived ratio and weighted-average components
-
-Derived ratio and weighted-average observations keep parent frames clean:
-`frame.to_pandas()` shows only axis columns plus the final metric value. Use
-`frame.components()` when you need the underlying component metric values
-(e.g., `failed_count`, `total_count` for a ratio).
-
-```python
-rate = session.observe(session.catalog.get("metric.sales.failure_rate"))
-components = rate.components()
-components.show()
-```
-
-When two compatible component-aware metric frames are compared, the returned
-DeltaFrame also supports `delta.components()`. For segmented, time-series, or
-panel ratio/weighted-average deltas, `session.attribute(delta, axes=[...])` emits
-value and mix effects with method `ratio_mix` or `weighted_mix`. Time-series
-deltas attribute by `bucket_start`; panel deltas attribute by the requested
-dimension within each bucket. Ordinal window-bucket deltas include
-`bucket_start_b` for the baseline bucket paired to each current bucket.
-
-## Evidence surfaces
-
-Every result exposes evidence fields on `frame.meta`:
-
-```python
-result.meta.artifact_id
-result.meta.evidence_status         # "complete" | "partial" | "unavailable"
-result.meta.blocking_issues
-result.meta.confidence_scope
-result.meta.quality_summary         # lightweight summary, not assess_quality output
-```
-
-There is no `result.evidence.*` wrapper. Read `result.meta` after each step to
-decide whether to continue, remediate quality, or inspect session knowledge.
-
-Use session knowledge when you need cross-step reasoning or recovery:
-
-```python
-session = mv.session.get_or_create(name="investigation")
-knowledge = session.knowledge()
-knowledge.facts(kind="change")
-knowledge.facts(kind="driver")
-knowledge.open_items(kind="anomaly")
-knowledge.next_steps(top=5)
-knowledge.blocked_followups()
-```
-
-Use Surface 3 audit calls only when you need raw evidence objects, all under
-the evidence namespace: `session.evidence.findings(...)`,
-`session.evidence.propositions(...)`, `session.evidence.assessments(...)`, and
-`session.evidence.trace(...)`.
-
-`result.meta.quality_summary` is a lightweight summary attached automatically.
-`session.assess_quality(result)` is an explicit auditable operator that creates a
-`QualityReport` and participates in lineage.
-
-## Final analysis report
-
-For any non-trivial close-out, read `references/final-report.md` before the
-final user response. Do not end with only `frame.show()`, `frame.head(n)`, or
-raw tables. Synthesize the answer, scope, evidence, caveats, source details, and
-agent-authored next steps into a clear Markdown report. Marivo exposes
-mechanical compatibility through `artifact.contract()`, but it does not
-recommend what the agent should do next.
-
-## Decision tree
+Use this routing map to pick the first operator, then read `mv.help` for the
+exact contract:
 
 ```text
 Value of a metric in one window?           -> observe
@@ -208,203 +79,115 @@ Custom Ibis calculation that must re-enter -> derive_metric_frame
 Raw pandas from a frame?                   -> artifact.to_pandas()
 ```
 
-Prefer default operators first. When Marivo does not directly support an
-analysis step but the result must re-enter the typed metric flow, use
-`session.derive_metric_frame(...)` — the governed escape hatch for custom Ibis
-queries whose output is validated and persisted as a `MetricFrame`. Use
-`artifact.to_pandas()` for terminal pandas analysis that does not need to feed
-typed intents.
+Default operator names are:
 
-`session.transform.*`, `CandidateSet.select(...)`, `session.evidence.*`, and
-`session.knowledge()` are advanced troubleshooting or audit references. Do not
-teach them beside the nine default operators in a first-pass script.
+- `session.observe(...)`
+- `session.compare(current_frame, baseline_frame, ...)`
+- `session.attribute(delta_frame, axes=[...], mode="flat")`
+- `session.discover.<objective>(...)`
+- `session.correlate(a_frame, b_frame, ...)`
+- `session.hypothesis_test(a_frame, b_frame, ...)`
+- `session.forecast(history_frame, ...)`
+- `session.derive_metric_frame(...)`
+- `session.assess_quality(artifact)`
 
-## Session
+Prefer these default operators first. Use `session.derive_metric_frame(...)`
+only when a custom Ibis calculation must re-enter the governed metric-frame
+flow. Use `artifact.to_pandas()` for terminal custom analysis that does not
+need to feed another typed Marivo intent.
 
-Default to one session per analysis task. Start the first script with
-`mv.session.get_or_create(name="<stable_task_name>")`, then reuse the same
-stable name or probe `mv.session.current()` in every follow-up script. Do not
-create new sessions for script splits, retries, or branch exploration: artifacts,
-artifacts, evidence facts, and job history are session-scoped.
+## Analysis Loop
 
-Create a new session only when the user explicitly starts an independent
-investigation, or when the existing session is polluted enough that restarting
-is the correct recovery. State that reason in the final output. When a session
-is beyond recovery, delete it with `mv.session.delete(name)`.
+Bundle a chain into one script only when the next operator is already known.
+Stop and inspect when the next step depends on values you have not seen.
+
+At each deliberate observation point:
 
 ```python
-mv.session.get_or_create(name="my_analysis")  # idempotent entry point; auto-loads project datasources
-mv.session.current()                          # None-safe probe; returns Session, not SessionSummary
-mv.session.list()                             # list sessions
-mv.session.delete(name="my_analysis")         # destructive cleanup; removes session and all data
-session.recent_jobs(limit=5)                   # recent job history
+artifact.show()
+contract = artifact.contract()
 ```
 
-Do not construct `backend_factory` for normal project analysis. Use it only as
-an explicit test/CI or runtime override; its signature is
-`backend_factory(datasource_name: str) -> ibis backend`.
+Read `show()` for bounded current-state evidence. Read `contract()` before
+composing the next operator. Do not pre-write speculative downstream steps just
+because they are mechanically possible.
 
-## Minimal templates
+Good split points:
 
-### Observe + compare + attribute
+- `discover.<objective>` -> choose the candidate worth selecting or drilling.
+- `correlate` -> decide which association deserves follow-up.
+- `attribute` -> decide which segment or time bucket needs finer inspection.
+- Any branch where `artifact.show()` or `artifact.contract()` changes the next
+  call.
 
-```python
-import marivo.analysis as mv
+## Session And Recovery
 
-cur = session.observe(session.catalog.get("metric.<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
-base = session.observe(session.catalog.get("metric.<metric_id>"), timescope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
-delta = session.compare(cur, base, alignment=mv.window_bucket())
-time_axis = session.catalog.get("time_dimension.<metric_time_dimension_id>")
-drivers = session.attribute(delta, axes=[time_axis])
-drivers.show()
-```
+Default to one session per analysis task. A script split is not a session
+split. Reuse the same stable session name for retries, follow-up scripts, and
+branch exploration so artifact refs, evidence facts, and job history remain
+available.
 
-### Discover + select
+Use a new session only when the user starts an independent investigation or the
+current session is polluted enough that restarting is the clearest recovery.
+State that reason in the final response.
 
-```python
-series = session.observe(session.catalog.get("metric.<metric_id>"), timescope={"start": "2026-07-01", "end": "2026-10-01"}, grain="day")
-candidates = session.discover.point_anomalies(series, threshold=1.0)
-window = candidates.select(rank=1, attribute="window")
-```
-
-### Correlate
+Recover prior artifacts from the session instead of re-running datasource work:
 
 ```python
-a = session.observe(session.catalog.get("metric.<metric_a>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
-b = session.observe(session.catalog.get("metric.<metric_b>"), timescope={"start": "2026-07-01", "end": "2026-09-30"})
-result = session.correlate(a, b, alignment=mv.window_bucket())
-result.show()
-```
-
-### Governed derive
-
-```python
-import marivo.datasource as md
-
-warehouse = md.ref("datasource.warehouse")
-custom = session.derive_metric_frame(
-    metric=session.catalog.get("metric.sales.revenue"),
-    query=mv.ibis_query(
-        datasource=warehouse,
-        build=lambda db, ctx: db.table("orders"),
-    ),
-    columns=mv.metric_columns(
-        value="value",
-        time=mv.time_column(
-            column="order_date",
-            ref=session.catalog.get("time_dimension.sales.orders.order_date"),
-        ),
-        dimensions=[
-            mv.dimension_column(
-                column="region",
-                ref=session.catalog.get("dimension.sales.orders.region"),
-            ),
-        ],
-    ),
-    timescope={"start": "2026-06-18", "end": "2026-06-25"},
-    grain="day",
-    label="custom_revenue_by_region",
-)
-custom.show()
-```
-
-## Cross-dataset observe
-
-For cross-dataset base metrics, use the normal `session.observe(...)` surface.
-Do not pass join policy or route arguments.
-
-Derived metrics (ratio, weighted-average) plan each component independently and
-enforce comparability across components. When planning fails, the raised error
-is the contract: read its structured fields (`schema_version`, `code`,
-`candidates`, `repair`) and apply the `repair` instruction. The `code`
-identifies which component and which check failed; do not rely on a transcribed
-list here — the error text is authoritative and current.
-
-## Standard workflow
-
-1. `<venv>/bin/python -c 'import marivo.analysis as mv; mv.help()'` — verify install.
-2. Confirm metric ids from the semantic layer.
-3. Start or attach the task session with
-   `mv.session.get_or_create(name="<stable_task_name>")`.
-4. Adapt the nearest `references/examples/NN_*.py` file.
-5. Run every follow-up script with the same session; on errors, read the
-   structured output and apply the fix.
-6. Use `frame.show()` for bounded inspection; `frame.head(n)` / `frame.to_pandas()` when you need full data.
-
-## When to split scripts
-
-Bundle a chain into one script when the path is fixed. Stop and run a new
-script when the next intent depends on values you have not seen yet. A split is
-only a script boundary; it is not a session boundary. Reuse the same session so
-artifact refs, evidence facts, and job history remain available.
-
-- **Bundle** (one script, end with `frame.show()`):
-  observe → compare → attribute with a pre-chosen axis; observe → forecast;
-  observe → assess_quality. The shape and the next call are decided before
-  you run.
-- **Split** (run, read, then write the next script):
-  - `discover` → which candidate to `select` and drill into.
-  - `correlate` → which of several associations is worth follow-up.
-  - `attribute` → which segment from the ranking to observe at finer grain.
-  - Any branch where `frame.show()` or `frame.contract()` is the input to your
-    decision.
-
-Rule of thumb: if you cannot write the next `mv.*` call without first reading
-the `show()` output, that is a split point. Do not pre-write speculative
-downstream steps "in case" — they waste compute and obscure the judgment. After
-the split, continue with the original task session instead of starting a fresh
-one.
-
-In the follow-up script, recover previously produced frames from disk instead
-of re-running observe:
-
-```python
-session = mv.session.get_or_create(name="my_analysis")
-# Discover available frames by metric_id:
+session = mv.session.get_or_create(name="revenue_drop_investigation")
 summaries = session.frame_summaries()
-# Load a frame by ref — zero datasource queries:
-prev = session.get_frame("<ref>")
+previous = session.get_frame("frame_ref_from_summaries")
 ```
 
-## Walkthrough
+On errors, read the structured output. Use fields such as `schema_version`,
+`code` or `kind`, `candidates`, and `repair` or fix snippets. Do not guess from
+a stale example when the error provides current repair guidance.
+
+## Evidence And Quality
+
+Frame and result metadata gives the lightweight status needed to decide whether
+to continue:
 
 ```python
-import marivo.analysis as ap
-
-session = ap.session.get_or_create(name="sales_weekly_revenue")
-region = session.catalog.get("dimension.sales.orders.region")
-
-current = session.observe(
-    metric=session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-05-01", "end": "2026-05-08"}, grain="day",
-    dimensions=[region],
-)
-baseline = session.observe(
-    metric=session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-04-24", "end": "2026-05-01"}, grain="day",
-    dimensions=[region],
-)
-delta = session.compare(current, baseline, alignment=ap.window_bucket())
-delta.show()
-
-for issue in delta.meta.blocking_issues:
-    print(issue.kind, issue.message)
-
-delta.meta.quality_summary   # lightweight quality snapshot
+artifact.meta.evidence_status
+artifact.meta.blocking_issues
+artifact.meta.confidence_scope
+artifact.meta.quality_summary
 ```
 
-## Further reading
+`artifact.meta.quality_summary` is a lightweight status attached to the result.
+`session.assess_quality(artifact)` is an explicit auditable operator that
+creates a `QualityReport` and participates in lineage.
 
-- `references/examples/*.py` — runnable templates (primary reference)
-- `references/final-report.md` — final user-facing report structure and QA
-- `references/cheatsheet.md` — intent/frame/discover/transform matrices
-- `references/pitfalls.md` — error recovery and common mistakes
-- `references/backend-setup.md` — datasource and backend wiring
-- `../marivo-semantic/references/datasource.md` — datasource definition
+Use `session.knowledge()` and `session.evidence.*` only when you need
+cross-step recovery, audit traces, or explicit evidence objects. They are not
+the default first-pass analysis surface.
 
-## On error
+## Closeout And Recap
 
-Errors are structured and teach the fix at raise time: read `schema_version`,
-`code`/`kind`, the available ids (`candidates`), and the `repair`/fix snippet,
-then apply it. For worked recovery patterns see `references/pitfalls.md`; for the
-runnable shape of any intent see the matching `references/examples/NN_*.py`.
+For any non-trivial closeout, read `references/final-report.md` before the
+final user response. Do not end with only `frame.show()`, `artifact.show()`,
+`frame.head(n)`, or raw tables.
+
+Final analysis reports should be answer-first and include:
+
+- conclusion and scope
+- key evidence from Marivo artifacts
+- caveats and assumptions
+- source details
+- quality or blocking issues
+- agent-authored next steps
+
+When the analysis exposes missing semantic-layer objects or metadata, name them
+in the recap and tell the user what to add through `marivo-semantic`. Common
+gaps include a missing metric, dimension, time dimension, entity relationship,
+unit, or business context. Keep the recap concrete: state which analysis step
+was blocked or weakened by the missing semantic object.
+
+## Further Reading
+
+- `references/final-report.md` — final user-facing report structure and QA.
+- `references/pitfalls.md` — structured error recovery and common mistakes.
+- `references/cheatsheet.md` — compact routing aid after runtime help.
+- `references/backend-setup.md` — datasource and backend wiring.
+- `references/examples/` — smoke tests and copyable starting points only.
