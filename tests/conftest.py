@@ -4,9 +4,28 @@ from __future__ import annotations
 
 import re
 
+import ibis
 import pytest
 
 from tests.shared_fixtures import sales_orders_template
+
+# Cap DuckDB to a single thread per connection. DuckDB defaults to
+# hardware_concurrency() threads; with one pytest-xdist worker per CPU that
+# oversubscribes cores (N workers x N threads) and inflates test wall time
+# roughly 10x via thread thrash. One thread per connection keeps the suite
+# CPU-bound and parallelizable across workers. Applied at import so every
+# ibis.duckdb.connect call site (marivo backends + tests) is covered before
+# any test runs.
+_original_duckdb_connect = ibis.duckdb.connect
+
+
+def _duckdb_connect_single_thread(*args: object, **kwargs: object) -> object:
+    backend = _original_duckdb_connect(*args, **kwargs)
+    backend.raw_sql("SET threads=1")
+    return backend
+
+
+ibis.duckdb.connect = _duckdb_connect_single_thread
 
 
 @pytest.fixture(autouse=True)

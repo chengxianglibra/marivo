@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import textwrap
@@ -143,12 +145,26 @@ def _make_semantic_example_tree(
 
 
 def _run_runner(root: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(RUNNER)],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
+    """Run the example runner in-process, reusing the loaded marivo import.
+
+    Invokes ``runner.main`` in the test process and returns a
+    ``CompletedProcess``-shaped object (returncode/stdout/stderr) so call
+    sites read identically to a real subprocess. In-process execution avoids
+    a fresh interpreter startup plus marivo re-import (~16s) per test; the
+    runner logic under test (failure detection, pitfall keywords, template
+    validation, SKILL.md caps) is pure Python and behaves the same here as
+    behind the CLI ``__main__`` entry covered by ``make examples-check``.
+    """
+    runner = _load_runner_module()
+    out = io.StringIO()
+    err = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        returncode = runner.main(["--root", str(root)])
+    return subprocess.CompletedProcess(
+        args=[str(RUNNER)],
+        returncode=returncode,
+        stdout=out.getvalue(),
+        stderr=err.getvalue(),
     )
 
 

@@ -9,7 +9,6 @@ from time import monotonic
 from typing import Any, Literal, cast
 
 import pandas as pd
-from scipy import stats
 
 from marivo.analysis.errors import (
     ForecastInputQualityError,
@@ -300,6 +299,11 @@ def _forecast_one(
     residual_stddev = float(pd.Series(residual).std(ddof=1)) if len(residual) > 1 else 0.0
     if pd.isna(residual_stddev):
         residual_stddev = 0.0
+    # Lazy import: scipy is heavy (~0.6s) and only needed for the
+    # prediction interval z-score. Importing here keeps `marivo.analysis`
+    # import cheap for workers/tests that never forecast.
+    from scipy import stats
+
     z = float(stats.norm.ppf((1 + interval_level) / 2))
     reason = "constant_history" if residual_stddev == 0 else "ok"
     rows = []
