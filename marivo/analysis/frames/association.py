@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 from pydantic import ConfigDict
 
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
-from marivo.analysis.frames.render import format_bounded_card
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, _display_column_names
+from marivo.render import Card
 
 
 class AssociationResultMeta(BaseFrameMeta):
@@ -37,19 +37,19 @@ class AssociationResult(BaseFrame):
             f"r={self.meta.correlation:.2f} rows={self.meta.row_count}"
         )
 
-    def render(self) -> str:
-        columns, preview_rows = self._preview_rows(limit=5)
+    def _card(self) -> Card:
+        columns = _display_column_names(self._df.columns)
         metric_ids = ",".join(self.meta.metric_ids)
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=(
+        return (
+            Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
+            .status(
                 f"method={self.meta.method} r={self.meta.correlation:.2f} "
                 f"aligned={self.meta.aligned_row_count} dropped={self.meta.dropped_row_count} "
                 f"metrics={metric_ids}"
-            ),
-            columns=columns,
-            rows=preview_rows,
-            row_count=len(self._df),
-            preview_truncation_hint="call .to_pandas() for terminal custom analysis",
-            available=self._AVAILABLE_ENTRIES,
+            )
+            .lazy_table(
+                columns=columns,
+                rows_provider=self._preview_rows_provider,
+                row_count=len(self._df),
+            )
         )

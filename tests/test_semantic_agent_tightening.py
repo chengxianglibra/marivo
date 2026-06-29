@@ -43,35 +43,49 @@ _EXAMPLE_PARAMS = [
 
 def test_semantic_skill_is_workflow_only_after_layering_simplification() -> None:
     skill = _read("marivo/skills/marivo-semantic/SKILL.md")
-    workflow = _read("marivo/skills/marivo-semantic/references/workflow.md")
     datasource = _read("marivo/skills/marivo-semantic/references/datasource.md")
     closeout = _read("marivo/skills/marivo-semantic/references/closeout.md")
     pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
-    combined = "\n".join((skill, workflow, datasource, closeout, pitfalls))
+    combined = "\n".join((skill, datasource, closeout, pitfalls))
+    references = "\n".join((datasource, closeout, pitfalls))
 
     assert "help -> discover -> settle/grill -> author -> verify" in skill
     for required in (
-        "ms.help(...) static contract",
-        "md.discover_* datasource evidence",
-        "grill the user for unresolved semantic decisions",
-        "author exactly one semantic object",
-        "ms.verify_object(...)",
+        "Evidence before questions",
+        "Wide discovery, narrow authoring",
+        "One active batch",
+        "One object then verify",
+        "One grill decision",
+        "Ref-only links",
+        "No contract transcription",
+        "## Process Flow",
+        "digraph marivo_semantic",
+        "Broad discovery pass",
+        "The broad discovery pass includes `md.inspect_table(...)`",
+        "`md.inspect_partitions(...)` when the table is partitioned",
+        "choose active batch",
+        "ms.verify_object(ref)",
     ):
         assert required in skill
 
-    assert "ms.help(...) owns static authoring contracts" in skill
-    assert "md.discover_* owns runtime datasource evidence" in skill
+    assert "`ms.help(...)` owns the static authoring contract" in skill
+    assert "`md.discover_*` owns datasource evidence" in skill
     assert "This skill owns workflow and routing only" in skill
-    assert "The canonical authoring flow lives in `SKILL.md`" in workflow
     assert "ms.readiness(" in closeout
     assert "md.help(" in datasource
     assert "md.test(" in datasource
+    assert "md.inspect_table(" in datasource
+    assert "md.inspect_partitions(" in datasource
+    assert "discovery_column_limit_truncated" in datasource
+    assert "broad domain- or table-group discovery pass" in datasource
+    assert "choose active batch" not in references
+    assert "A grill turn MUST ask exactly one unresolved semantic decision" not in references
 
     forbidden = (
         "judgment_targets",
         "md.inspect_columns",
-        "md.inspect_table",
         "md.probe_join_keys",
+        "md.latest_partition",
         'ms.help("datetime")',
         'ms.help("timestamp")',
         'ms.help("strptime")',
@@ -92,6 +106,7 @@ def test_semantic_skill_deleted_reference_files_stay_deleted() -> None:
         "marivo/skills/marivo-semantic/references/object-briefs.md",
         "marivo/skills/marivo-semantic/references/preview.md",
         "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
+        "marivo/skills/marivo-semantic/references/workflow.md",
     }
     for path in deleted:
         assert not (REPO_ROOT / path).exists(), f"{path} should not be recreated"
@@ -99,14 +114,20 @@ def test_semantic_skill_deleted_reference_files_stay_deleted() -> None:
 
 def test_semantic_skill_enforces_single_decision_grill_and_batch_scope() -> None:
     skill = _read("marivo/skills/marivo-semantic/SKILL.md")
-    workflow = _read("marivo/skills/marivo-semantic/references/workflow.md")
+    datasource = _read("marivo/skills/marivo-semantic/references/datasource.md")
+    closeout = _read("marivo/skills/marivo-semantic/references/closeout.md")
+    pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
     maintainer = _read(".agents/skills/marivo-skill-maintainer/SKILL.md")
+    references = "\n".join((datasource, closeout, pitfalls))
 
     for required in (
         "A grill turn MUST ask exactly one unresolved semantic decision",
         "Do not ask numbered lists of questions",
-        "Do not write or modify semantic code after asking a grill question",
-        "active batch",
+        "write semantic code after asking",
+        "choose active batch",
+        "Ask one grill decision and stop",
+        "Repair same object",
+        "Next batch or readiness handoff",
         "one entity plus one semantic kind",
         "Do not author a full domain in one pass",
         "author one object",
@@ -118,17 +139,18 @@ def test_semantic_skill_enforces_single_decision_grill_and_batch_scope() -> None
         "A grill turn MUST ask exactly one unresolved semantic decision",
         "Do not ask numbered lists of questions",
         "active batch = <domain> + <entity_ref> + <semantic_kind>",
-        "select active batch",
+        "choose active batch",
         "author one object",
         "repeat author/verify",
     ):
-        assert duplicated not in workflow
+        assert duplicated not in references
 
     for stale in (
         "marivo-semantic/references/object-briefs.md",
         "marivo-semantic/references/authoring-patterns.md",
         "marivo-semantic/references/evidence-and-ledger.md",
         "marivo-semantic/references/preview.md",
+        "marivo-semantic/references/workflow.md",
     ):
         assert stale not in maintainer
 
@@ -173,7 +195,6 @@ def test_semantic_skill_examples_are_datasource_and_complete_model_only() -> Non
 
     forbidden = (
         "md.inspect_columns",
-        "md.inspect_table",
         "md.probe_join_keys",
         "judgment_targets",
         "project.assess_authoring(",
@@ -280,7 +301,6 @@ def test_active_semantic_authoring_guidance_omits_prepare_stage() -> None:
         "docs/specs/semantic/stepwise-authoring-design.md",
         "docs/specs/semantic/python-semantic-layer.md",
         "marivo/skills/marivo-semantic/SKILL.md",
-        "marivo/skills/marivo-semantic/references/workflow.md",
     ]
     banned_patterns = [
         re.compile(r"prepare_\w+"),
@@ -333,8 +353,9 @@ def test_semantic_design_docs_teach_discovery_first_contract() -> None:
         "discover_measures",
         "discover_relationship",
         "discover_dimension_values",
+        "inspect_table",
+        "inspect_partitions",
         "raw_sql",
-        "latest_partition",
         "partition",
         "unpruned",
         "DatasourceRef",
@@ -343,10 +364,10 @@ def test_semantic_design_docs_teach_discovery_first_contract() -> None:
         assert required in combined, f"semantic docs missing {required!r}"
 
     forbidden = (
-        "md.inspect_table",
         "md.inspect_source",
         "md.inspect_columns",
         "md.probe_join_keys",
+        "md.latest_partition",
         "project.assess_authoring(",
         "check_authoring_inputs",
     )
@@ -373,16 +394,18 @@ def test_site_docs_cover_discovery_first_semantic_authoring() -> None:
             "md.discover_entity",
             "md.discover_dimensions",
             "md.discover_measures",
-            "md.latest_partition",
+            "md.inspect_table",
+            "md.inspect_partitions",
+            "md.partition",
             "ms.help",
             "ms.verify_object",
         ):
             assert required in text, f"{label} missing {required}"
         for forbidden in (
-            "md.inspect_table",
             "md.inspect_source",
             "md.inspect_columns",
             "md.probe_join_keys",
+            "md.latest_partition",
             "ColumnInspection",
             "JoinKeyProbe",
         ):

@@ -109,7 +109,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     time_dimension = (
         "@ms.time_dimension(entity=orders, granularity='day')\n"

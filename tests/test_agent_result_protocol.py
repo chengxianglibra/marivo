@@ -24,15 +24,18 @@ from marivo.datasource.manage import (
 )
 from marivo.datasource.scan import ScanReport
 from marivo.preview import PreviewResult
-from marivo.render import AgentResult, result_repr
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result_repr
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
+    VerifyResult,
 )
+from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
+from marivo.semantic.richness import RichnessReport
 
 REPR_MAX_LEN = 200
-RENDER_MAX_LINES = 40
-RENDER_MAX_CHARS = 2000
+RENDER_MAX_LINES = 1000
+RENDER_MAX_CHARS = _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def test_result_repr_wraps_identity_single_line() -> None:
@@ -67,9 +70,20 @@ def assert_conforms(obj: object) -> None:
     assert isinstance(rendered, str)
     assert not rendered.endswith("\n"), "render() must not end with newline"
     assert len(rendered.splitlines()) <= RENDER_MAX_LINES
-    assert len(rendered) <= RENDER_MAX_CHARS
+    assert len(rendered.encode("utf-8")) <= RENDER_MAX_CHARS, (
+        f"render() too large ({len(rendered.encode('utf-8'))} bytes)"
+    )
 
     assert obj.show() is None  # type: ignore[attr-defined]
+
+
+def test_session_results_byte_capped_and_uncapped() -> None:
+    job = _job_summary()
+    capped = job.render()
+    assert len(capped.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    full = job.render(max_output_bytes=None)
+    assert "truncated" not in full
+    assert full == capped  # small fixture fits both ways
 
 
 def _preview_result() -> PreviewResult:
@@ -180,6 +194,38 @@ def _authoring_assessment() -> AuthoringAssessment:
     return AuthoringAssessment(status="needs_input", issues=(issue,), questions=())
 
 
+def _verify_result() -> VerifyResult:
+    return VerifyResult(
+        status="passed",
+        ref="sales.orders",
+        kind="entity",
+        issues=(),
+        warnings=(),
+        scan=None,
+        auto_recorded=(),
+    )
+
+
+def _readiness_report() -> ReadinessReport:
+    return ReadinessReport(
+        status="ready",
+        analysis_ready_refs=("sales.revenue",),
+        blockers=(),
+        warnings=(),
+        input_summary=ReadinessInputSummary(
+            datasources=("warehouse",),
+            refs=("sales.revenue",),
+            tables=("sales.orders",),
+            decision_records=(),
+        ),
+        checked_at="2026-06-09T00:00:00Z",
+    )
+
+
+def _richness_report() -> RichnessReport:
+    return RichnessReport(gaps=(), checked_at="2026-06-09T00:00:00Z")
+
+
 TERMINAL_BUILDERS: list = [
     pytest.param(_preview_result, id="PreviewResult"),
     pytest.param(_datasource_description, id="DatasourceDescription"),
@@ -192,12 +238,145 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_frame_summary_entry, id="FrameSummaryEntry"),
     pytest.param(_session_summary, id="SessionSummary"),
     pytest.param(_authoring_assessment, id="AuthoringAssessment"),
+    pytest.param(_verify_result, id="VerifyResult"),
+    pytest.param(_readiness_report, id="ReadinessReport"),
+    pytest.param(_richness_report, id="RichnessReport"),
 ]
 
 
 @pytest.mark.parametrize("builder", TERMINAL_BUILDERS)
 def test_terminal_type_conforms(builder: Callable[[], object]) -> None:
     assert_conforms(builder())
+
+
+@pytest.mark.parametrize("builder", TERMINAL_BUILDERS)
+def test_terminal_type_byte_contract(builder: Callable[[], object]) -> None:
+    obj = builder()
+    capped = obj.render()  # type: ignore[attr-defined]
+    assert len(capped.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    full = obj.render(max_output_bytes=None)  # type: ignore[attr-defined]
+    assert "output truncated" not in full
+    with pytest.raises(ValueError):
+        obj.render(max_output_bytes=1)  # type: ignore[attr-defined]
+
+
+def test_preview_result_renders_shared_card_shape() -> None:
+    result = _preview_result()
+
+    assert result.render() == "\n".join(
+        [
+            "PreviewResult kind=semantic_dataset ref=sales.orders rows=1/50",
+            "status: truncated=False",
+            "columns: id | country",
+            "preview:",
+            "1 | US",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
+
+
+def test_datasource_management_results_render_shared_card_shape() -> None:
+    assert _datasource_summary().render() == "\n".join(
+        [
+            "DatasourceSummary name=wh backend=duckdb",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
+    assert _datasource_list().render() == "\n".join(
+        [
+            "DatasourceList count=1",
+            "columns: name | backend",
+            "preview:",
+            "wh | duckdb",
+            "available:",
+            "- .items",
+            "- .ids()",
+            "- .render()",
+            "- .show()",
+        ]
+    )
+    assert _datasource_description().render() == "\n".join(
+        [
+            "DatasourceDescription name=wh backend=trino fields=2 env_refs=1",
+            "columns: catalog | host | auth_env",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
+
+    failed = DatasourceTestResult(name="wh", ok=False, error="connection refused", latency_ms=None)
+    assert failed.render() == "\n".join(
+        [
+            "DatasourceTestResult name=wh ok=False latency=n/a",
+            "status: connection refused",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
+
+
+def test_datasource_description_render_includes_all_field_names() -> None:
+    literal_fields = {f"field_{index:02d}": index for index in range(10)}
+    env_refs = {f"secret_{index:02d}": f"SECRET_{index:02d}" for index in range(3)}
+    result = DatasourceDescription(
+        name="wh",
+        backend_type="trino",
+        literal_fields=literal_fields,
+        env_refs=env_refs,
+    )
+
+    assert "field_09" in result.render()
+    assert "secret_02_env" in result.render()
+
+
+def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
+    assert _authoring_assessment().render() == "\n".join(
+        [
+            "AuthoringAssessment status=needs_input issues=1 questions=0",
+            "columns: issue | severity",
+            "preview:",
+            "missing_evidence | warning",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
+    assert _verify_result().render() == "\n".join(
+        [
+            "VerifyResult status=passed ref=sales.orders kind=entity",
+            "status: passed",
+            "available:",
+            "- .issues",
+            "- .warnings",
+            "- .scan",
+        ]
+    )
+    assert _readiness_report().render() == "\n".join(
+        [
+            "ReadinessReport status=ready issues=0",
+            "analysis_ready: sales.revenue",
+            "checked_at: 2026-06-09T00:00:00Z",
+            "available:",
+            "- .render()",
+            "- .to_dict()",
+        ]
+    )
+    assert _richness_report().render() == "\n".join(
+        [
+            "RichnessReport gaps=0",
+            "gaps: none",
+            "checked_at: 2026-06-09T00:00:00Z",
+            "available:",
+            "- .render()",
+            "- .to_dict()",
+        ]
+    )
 
 
 def _walk_concrete_analysis_frame_classes() -> list[type[BaseFrame]]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import Card, RenderableResult
 from marivo.semantic.ir import (
     CsvSourceIR,
     EntitySourceIR,
@@ -98,7 +98,7 @@ class AuthoringQuestion:
 
 
 @dataclass(frozen=True, repr=False)
-class AuthoringAssessment:
+class AuthoringAssessment(RenderableResult):
     status: ReviewStatus
     issues: tuple[AssessmentIssue, ...]
     questions: tuple[AuthoringQuestion, ...]
@@ -109,22 +109,11 @@ class AuthoringAssessment:
             f"issues={len(self.issues)} questions={len(self.questions)}"
         )
 
-    def render(self) -> str:
+    def _card(self) -> Card:
         issue_rows = [[str(issue.kind), str(issue.severity)] for issue in self.issues]
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            columns=["issue", "severity"],
-            rows=issue_rows,
-            row_count=len(self.issues),
-            preview_truncation_hint="inspect .issues / .questions",
-            available=(".render()", ".show()"),
+        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).table(
+            columns=["issue", "severity"], rows=issue_rows, row_count=len(self.issues)
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
 
 def derive_status(
@@ -146,7 +135,7 @@ def derive_status(
 
 
 @dataclass(frozen=True, repr=False)
-class VerifyResult:
+class VerifyResult(RenderableResult):
     status: Literal["passed", "failed"]
     ref: str
     kind: AuthoringObjectKind
@@ -155,50 +144,29 @@ class VerifyResult:
     scan: ScanReport | None
     auto_recorded: tuple[str, ...]
 
-    _MAX_DETAIL_ITEMS = 5
+    def _repr_identity(self) -> str:
+        return f"VerifyResult status={self.status} ref={self.ref} kind={self.kind}"
 
-    def __repr__(self) -> str:
-        return result_repr(f"VerifyResult status={self.status} ref={self.ref} kind={self.kind}")
-
-    def render(self) -> str:
-        identity = f"VerifyResult status={self.status} ref={self.ref} kind={self.kind}"
-        if not self.issues and not self.warnings:
-            return format_bounded_card(
-                identity=identity,
-                status=self.status,
-                available=(".issues", ".warnings", ".scan"),
-            )
-        parts: list[str] = [identity]
-        issue_count = len(self.issues)
-        warning_count = len(self.warnings)
+    def _card(self) -> Card:
         status_parts: list[str] = [self.status]
-        if issue_count:
-            status_parts.append(f"{issue_count} issue{'s' if issue_count != 1 else ''}")
-        if warning_count:
-            status_parts.append(f"{warning_count} warning{'s' if warning_count != 1 else ''}")
-        parts.append(f"status: {', '.join(status_parts)}")
         if self.issues:
-            parts.append("issues:")
-            for issue in self.issues[: self._MAX_DETAIL_ITEMS]:
-                parts.append(f"  [{issue.severity}] {issue.kind}: {issue.message}")
-            if len(self.issues) > self._MAX_DETAIL_ITEMS:
-                parts.append(
-                    f"  ... {len(self.issues) - self._MAX_DETAIL_ITEMS} more issues; "
-                    "inspect .issues for all"
-                )
+            status_parts.append(f"{len(self.issues)} issue{'s' if len(self.issues) != 1 else ''}")
         if self.warnings:
-            parts.append("warnings:")
-            for warning in self.warnings[: self._MAX_DETAIL_ITEMS]:
-                parts.append(f"  [{warning.severity}] {warning.kind}: {warning.message}")
-            if len(self.warnings) > self._MAX_DETAIL_ITEMS:
-                parts.append(
-                    f"  ... {len(self.warnings) - self._MAX_DETAIL_ITEMS} more warnings; "
-                    "inspect .warnings for all"
-                )
-        parts.append("available:")
-        for entry in (".issues", ".warnings", ".scan"):
-            parts.append(f"- {entry}")
-        return "\n".join(parts)
-
-    def show(self) -> None:
-        print(self.render())
+            status_parts.append(
+                f"{len(self.warnings)} warning{'s' if len(self.warnings) != 1 else ''}"
+            )
+        card = Card(
+            identity=self._repr_identity(),
+            available=(".issues", ".warnings", ".scan"),
+        ).status(", ".join(status_parts))
+        if self.issues:
+            card = card.listing(
+                label="issues",
+                items=tuple(f"[{i.severity}] {i.kind}: {i.message}" for i in self.issues),
+            )
+        if self.warnings:
+            card = card.listing(
+                label="warnings",
+                items=tuple(f"[{w.severity}] {w.kind}: {w.message}" for w in self.warnings),
+            )
+        return card

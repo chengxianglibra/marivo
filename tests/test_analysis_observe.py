@@ -54,7 +54,7 @@ def _bootstrap_sales_with_country_dimension(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -102,7 +102,7 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -133,7 +133,7 @@ def _bootstrap_sales_with_default_time_field(tmp_path):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -175,7 +175,7 @@ def _bootstrap_sales_with_string_partition_time_field(tmp_path):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -213,7 +213,7 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -240,7 +240,7 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -300,7 +300,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
 
     semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/model.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
@@ -637,7 +637,7 @@ def _bootstrap_sales_with_out_of_scope_amount_dimension(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -804,7 +804,7 @@ def _bootstrap_failure_rate(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -932,7 +932,7 @@ def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -1002,7 +1002,7 @@ def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -1065,7 +1065,7 @@ def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)

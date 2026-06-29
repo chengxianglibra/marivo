@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.analysis.session._layout import PersistenceLayout, read_job_record
 from marivo.analysis.timezone import resolve_system_timezone
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
     from marivo.analysis.evidence import (
@@ -51,7 +51,7 @@ SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
 
 @dataclass(frozen=True, repr=False)
-class JobSummary:
+class JobSummary(RenderableResult):
     id: str
     intent: str
     status: str
@@ -62,22 +62,14 @@ class JobSummary:
     def _repr_identity(self) -> str:
         return f"JobSummary id={self.id} intent={self.intent} status={self.status}"
 
-    def render(self) -> str:
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=f"duration={self.duration_ms}ms frame={self.output_frame_ref}",
-            available=(".render()", ".show()"),
+    def _card(self) -> Card:
+        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            f"duration={self.duration_ms}ms frame={self.output_frame_ref}"
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
 
 @dataclass(frozen=True, repr=False)
-class FrameSummaryEntry:
+class FrameSummaryEntry(RenderableResult):
     ref: str
     kind: str
     metric_id: str | None
@@ -93,18 +85,10 @@ class FrameSummaryEntry:
             parts += f" metric={self.metric_id}"
         return parts
 
-    def render(self) -> str:
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=f"metric={self.metric_id} created={self.created_at}",
-            available=(".render()", ".show()"),
+    def _card(self) -> Card:
+        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            f"metric={self.metric_id} created={self.created_at}"
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
 
 @dataclass(frozen=True)

@@ -66,6 +66,8 @@ Discovery
    discover_measures
    discover_relationship
    discover_dimension_values
+   inspect_table
+   inspect_partitions
    raw_sql
 
 Scope helpers
@@ -75,7 +77,6 @@ Scope helpers
    :toctree: api/
    :nosignatures:
 
-   latest_partition
    partition
    unpruned
 
@@ -123,6 +124,5 @@ Results
 
    DatasourceTestResult
    PreviewResult
-   DiscoveryResult
-   RawSqlResult
+   DatasourceResult
    JoinSide

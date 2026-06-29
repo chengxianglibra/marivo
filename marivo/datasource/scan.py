@@ -14,10 +14,10 @@ from typing import Literal
 
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import Card, RenderableResult
 
-ScanPartition = Mapping[str, str] | Literal["latest"] | None
-PartitionResolution = Literal["explicit", "latest", "none", "unpruned"]
+ScanPartition = Mapping[str, str] | None
+PartitionResolution = Literal["explicit", "none", "unpruned"]
 
 # Public datasource-side alias for physical source values returned by
 # md.table(...), md.parquet(...), and md.csv(...). Named TableSource to avoid
@@ -35,14 +35,14 @@ class ScanScope:
     1000 rows, 100 columns, and a 30-second timeout.
 
     Attributes:
-        partition: Partition filter; ``"latest"`` (default), an explicit
-            mapping like ``{"dt": "20260612"}``, or ``None`` for unpruned.
+        partition: Partition filter; an explicit mapping like
+            ``{"dt": "20260612"}``, or ``None`` for unpruned.
         max_rows: Maximum rows returned from the scan.
         max_columns: Maximum columns returned from the scan.
         timeout_seconds: Scan timeout in seconds; ``None`` means no limit.
     """
 
-    partition: ScanPartition = "latest"
+    partition: ScanPartition = None
     max_rows: int = 1000
     max_columns: int = 100
     timeout_seconds: int | None = 30
@@ -57,7 +57,7 @@ class ScanScope:
 
 
 @dataclass(frozen=True, repr=False)
-class ScanReport:
+class ScanReport(RenderableResult):
     """Summary of a completed datasource scan.
 
     Attributes:
@@ -85,25 +85,21 @@ class ScanReport:
             f"partition={self.partition_resolution}"
         )
 
-    def render(self) -> str:
+    def _card(self) -> Card:
         partition = (
             "none"
             if self.partition_used is None
             else ", ".join(f"{key}={value}" for key, value in self.partition_used.items())
         )
-        warnings = "none" if not self.warnings else "; ".join(self.warnings[:3])
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=f"partition={partition} truncated={self.truncated} warnings={warnings}",
-            columns=list(self.columns_scanned),
-            available=(".render()", ".show()"),
+        warnings = "none" if not self.warnings else str(len(self.warnings))
+        card = (
+            Card(identity=self._repr_identity(), available=(".render()", ".show()"))
+            .status(f"partition={partition} truncated={self.truncated} warnings={warnings}")
+            .field(label="columns", value=" | ".join(self.columns_scanned))
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
+        if self.warnings:
+            card.listing(label="warnings", items=tuple(self.warnings))
+        return card
 
 
 def _format_profile_value(value: object | None) -> str:
@@ -122,7 +118,7 @@ def _format_ratio(value: float | None) -> str:
 
 
 @dataclass(frozen=True, repr=False)
-class ColumnProfile:
+class ColumnProfile(RenderableResult):
     """Statistical profile of a single column from a datasource scan.
 
     Attributes:
@@ -221,31 +217,22 @@ class ColumnProfile:
             )
         return rows
 
-    def render(self) -> str:
+    def _card(self) -> Card:
         status = (
             f"type={self.data_type} family={self.type_family} nullable={self.nullable} "
             f"nulls={self.null_count} empty={self.empty_count} "
             f"distinct={self.distinct_count} non_null={self.non_null_count}"
         )
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=status,
-            columns=["fact", "value"],
-            rows=self._fact_rows(),
-            row_count=len(self._fact_rows()),
-            preview_truncation_hint="inspect profile attributes for all facts",
-            available=(".render()", ".show()"),
+        fact_rows = self._fact_rows()
+        return (
+            Card(identity=self._repr_identity(), available=(".render()", ".show()"))
+            .status(status)
+            .table(columns=["fact", "value"], rows=fact_rows, row_count=len(fact_rows))
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
 
 @dataclass(frozen=True, repr=False)
-class ColumnInspection:
+class ColumnInspection(RenderableResult):
     """Column inspection result for a single datasource source.
 
     Attributes:
@@ -263,18 +250,11 @@ class ColumnInspection:
     def _repr_identity(self) -> str:
         return f"ColumnInspection datasource={self.datasource} columns={len(self.profiles)}"
 
-    def render(self) -> str:
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            columns=[profile.name for profile in self.profiles],
-            available=(".render()", ".show()"),
+    def _card(self) -> Card:
+        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).field(
+            label="columns",
+            value=" | ".join(profile.name for profile in self.profiles),
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
 
 @dataclass(frozen=True)
@@ -406,39 +386,6 @@ def csv(
         header=header,
         delimiter=delimiter,
         columns=_normalize_columns_input(columns, field_name="CsvSourceIR.columns"),
-    )
-
-
-def latest_partition(
-    *,
-    max_rows: int = 1000,
-    max_columns: int = 100,
-    timeout_seconds: int | None = 30,
-) -> ScanScope:
-    """Build a ScanScope that uses the latest available partition.
-
-    Args:
-        max_rows: Maximum rows returned from the scan.
-        max_columns: Maximum columns returned from the scan.
-        timeout_seconds: Scan timeout in seconds; ``None`` means no limit.
-
-    Returns:
-        A ``ScanScope`` with ``partition="latest"``.
-
-    Example:
-        >>> from marivo.datasource.scan import latest_partition
-        >>> latest_partition()
-        ScanScope(...)
-
-    Constraints:
-        When a source has no partition metadata, discovery resolves this to an
-        unpruned scan and emits ``discovery_unpruned_scan``.
-    """
-    return ScanScope(
-        partition="latest",
-        max_rows=max_rows,
-        max_columns=max_columns,
-        timeout_seconds=timeout_seconds,
     )
 
 

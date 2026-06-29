@@ -120,8 +120,8 @@ class PartitionResolutionOutcome:
     Attributes:
         resolution: How the partition was resolved.
         partition_used: The concrete partition mapping used, or ``None``.
-        unresolved: True when ``"latest"`` was requested but no concrete value
-            could be resolved within the available backend capability.
+        unresolved: Reserved for internal callers that need to model a failed
+            partition resolution.
         reason: Optional explanation when ``unresolved`` is True.
     """
 
@@ -138,9 +138,7 @@ def resolve_partition(
     """Classify how a scan scope's partition resolves against table metadata.
 
     This is a pure classification for rule emission; it does not execute a scan
-    or look up the latest partition value. When ``"latest"`` is requested and the
-    source has partition metadata, the outcome is marked unresolved because the
-    concrete latest value is not derivable without a backend query.
+    or look up partition values.
 
     Args:
         metadata: Table metadata, or ``None`` when no metadata is available.
@@ -151,15 +149,6 @@ def resolve_partition(
     """
     if scope.partition is None:
         return PartitionResolutionOutcome(resolution="unpruned", partition_used=None)
-    if scope.partition == "latest":
-        if metadata is None or not metadata.partitions:
-            return PartitionResolutionOutcome(resolution="unpruned", partition_used=None)
-        return PartitionResolutionOutcome(
-            resolution="latest",
-            partition_used=None,
-            unresolved=True,
-            reason="latest partition value not resolvable within scan budget",
-        )
     return PartitionResolutionOutcome(
         resolution="explicit",
         partition_used=dict(scope.partition),
@@ -197,20 +186,6 @@ def scan_rules(
                 subject="scan",
                 message="scan ran without partition pruning",
                 evidence=_ev(("partition", "none")),
-            )
-        )
-    if outcome is not None and outcome.unresolved:
-        issues.append(
-            DiscoveryIssue(
-                rule_id="discovery_latest_partition_unresolved",
-                kind="entity",
-                severity="warning",
-                subject="scan",
-                message="latest partition requested but could not be resolved to a concrete value",
-                evidence=_ev(
-                    ("resolution", outcome.resolution),
-                    ("reason", outcome.reason),
-                ),
             )
         )
     return tuple(issues)

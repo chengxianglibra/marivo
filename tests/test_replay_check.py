@@ -20,7 +20,7 @@ SALES_FILES = {
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     ),
     "sales/__init__.py": "",
-    "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+    "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
     "sales/datasets.py": (
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"

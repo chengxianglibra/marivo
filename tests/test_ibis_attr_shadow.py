@@ -74,7 +74,7 @@ def _bootstrap_schema_project(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='analytics')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='analytics', owner='Mina Zhang')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"

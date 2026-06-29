@@ -22,7 +22,7 @@ from marivo.semantic.refs import make_ref
 _DOMAIN_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
-ms.domain(name="sales", default=True)
+ms.domain(name="sales", owner='Mina Zhang', default=True)
 """
 
 _MODEL_PY = """\

@@ -36,7 +36,7 @@ from marivo.semantic.refs import make_ref
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
 _DATASETS_PY = textwrap.dedent("""\
@@ -76,7 +76,7 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _DATASETS_PY,
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
@@ -274,6 +274,7 @@ def test_discovery_domain_details_repr_is_single_line():
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
         **_common_details_kwargs(),
+        owner="Mina Zhang",
         default=True,
     )
     r = repr(d)
@@ -294,11 +295,13 @@ def test_discovery_domain_details_render_returns_str():
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
         **_common_details_kwargs(),
+        owner="Mina Zhang",
         default=True,
     )
     rendered = d.render()
     assert isinstance(rendered, str)
     assert "sales" in rendered
+    assert "owner: Mina Zhang" in rendered
     assert "children" in rendered
 
 
@@ -314,6 +317,7 @@ def test_discovery_domain_details_show_prints_output(capsys):
         children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
         dependents=(),
         **_common_details_kwargs(),
+        owner="Mina Zhang",
         default=True,
     )
     d.show()

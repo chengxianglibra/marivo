@@ -12,7 +12,7 @@ Public surface::
     sales = catalog.get("domain.sales")
     catalog.list(sales.ref, kind=ms.SemanticKind.METRIC).show()  # metrics in one domain
 
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner="Mina Zhang", default=True)
     warehouse = md.ref("datasource.warehouse")
     orders = ms.entity(name="orders", datasource=warehouse, source=ms.table("orders"))
     amount = ms.measure_column(

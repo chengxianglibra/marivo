@@ -52,7 +52,7 @@ _DEPTH_ENRICHED = (
 
 def _model(objects_src: str):
     return {
-        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
         "sales/objects.py": objects_src,
     }
 
@@ -301,7 +301,7 @@ def test_detect_depth_flags_missing_unit(semantic_project_factory):
     from marivo.semantic.richness import _detect_depth
 
     files = {
-        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
         "sales/objects.py": (
             "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
@@ -336,7 +336,7 @@ def test_detect_depth_count_metric_gets_count_hint(semantic_project_factory):
     from marivo.semantic.richness import _SUGGESTED_ACTION, _detect_depth
 
     files = {
-        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+        "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
         "sales/objects.py": (
             "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "

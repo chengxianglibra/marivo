@@ -81,7 +81,7 @@ def _clean_ctx():
 
 def test_model_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.domain(name="sales")
+        ms.domain(name="sales", owner="Mina Zhang")
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
 
@@ -143,11 +143,12 @@ def test_relationship_outside_context_raises() -> None:
 def test_model_creates_model_ir() -> None:
     ctx = _enter_ctx()
     try:
-        ms.domain(name="sales", default=True)
+        ms.domain(name="sales", owner="Mina Zhang", default=True)
         # Should have one pending object
         assert len(ctx.pending_objects) == 1
         ir, callable_ = ctx.pending_objects[0]
         assert ir.name == "sales"
+        assert ir.owner == "Mina Zhang"
         assert ir.default is True
         # model() is not a decorator — no callable
         assert callable_ is None
@@ -159,7 +160,7 @@ def test_model_sets_default_domain_on_context() -> None:
     ctx = _enter_ctx()
     try:
         assert ctx.default_domain is None
-        ms.domain(name="sales", default=True)
+        ms.domain(name="sales", owner="Mina Zhang", default=True)
         assert ctx.default_domain == "sales"
     finally:
         _exit_ctx()
@@ -168,7 +169,7 @@ def test_model_sets_default_domain_on_context() -> None:
 def test_model_default_false_does_not_set_context() -> None:
     ctx = _enter_ctx(default_domain="existing")
     try:
-        ms.domain(name="other", default=False)
+        ms.domain(name="other", owner="Alex Chen", default=False)
         assert ctx.default_domain == "existing"
     finally:
         _exit_ctx()
@@ -183,10 +184,43 @@ def test_model_requires_keyword_args() -> None:
         _exit_ctx()
 
 
+def test_model_requires_owner_keyword() -> None:
+    _enter_ctx()
+    try:
+        with pytest.raises(TypeError):
+            ms.domain(name="sales")  # type: ignore[call-arg]
+    finally:
+        _exit_ctx()
+
+
+@pytest.mark.parametrize("owner", [42, None])
+def test_model_owner_must_be_string(owner: object) -> None:
+    _enter_ctx()
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.domain(name="sales", owner=owner)  # type: ignore[arg-type]
+        assert exc_info.value.kind == ErrorKind.INVALID_DOMAIN_OWNER
+        assert "owner must be a non-empty string" in str(exc_info.value)
+    finally:
+        _exit_ctx()
+
+
+@pytest.mark.parametrize("owner", ["", "   "])
+def test_model_owner_must_be_non_empty(owner: str) -> None:
+    _enter_ctx()
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.domain(name="sales", owner=owner)
+        assert exc_info.value.kind == ErrorKind.INVALID_DOMAIN_OWNER
+        assert "owner must be a non-empty string" in str(exc_info.value)
+    finally:
+        _exit_ctx()
+
+
 def test_model_returns_model_ref() -> None:
     _enter_ctx()
     try:
-        ref = ms.domain(name="sales", default=True)
+        ref = ms.domain(name="sales", owner="Mina Zhang", default=True)
         assert isinstance(ref, ms.DomainRef)
         assert ref.id == "sales"
     finally:
@@ -196,7 +230,7 @@ def test_model_returns_model_ref() -> None:
 def test_field_accepts_model_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        sales_ref = ms.domain(name="sales", default=True)
+        sales_ref = ms.domain(name="sales", owner="Mina Zhang", default=True)
         ds = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),

@@ -36,6 +36,7 @@ class ConstraintId(StrEnum):
     METRIC_ENTITIES_REQUIRED = "metric_entities_required"
     METRIC_COMPONENT_SCOPE = "metric_component_scope"
     AI_CONTEXT_SCHEMA = "ai_context_schema"
+    DOMAIN_OWNER_REQUIRED = "domain_owner_required"
     AST_SINGLE_RETURN = "ast_single_return"
     AST_FORBIDDEN_STATEMENT = "ast_forbidden_statement"
     AST_SQL_ESCAPE_HATCH = "ast_sql_escape_hatch"
@@ -156,7 +157,7 @@ def _constraint(
 
 _EXAMPLE_BASE = "marivo/skills/marivo-semantic/references/examples"
 _SEMANTIC_MODEL_EXAMPLE = f"{_EXAMPLE_BASE}/02_semantic_model.py"
-_SEMANTIC_WORKFLOW_REF = "marivo/skills/marivo-semantic/references/workflow.md"
+_SEMANTIC_WORKFLOW_REF = "marivo/skills/marivo-semantic/SKILL.md"
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
     ConstraintId.ACTIVE_LOADER_CONTEXT: _constraint(
@@ -184,7 +185,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric", "derived_metric", "relationship"),
         "Declarations need a domain namespace.",
         "Every semantic object is stored as <domain>.<name>.",
-        "Call ms.domain(name=...) in _domain.py or pass domain=... explicitly.",
+        "Call ms.domain(name=..., owner=...) in _domain.py or pass domain=... explicitly.",
         example=_SEMANTIC_MODEL_EXAMPLE,
     ),
     ConstraintId.UNIQUE_SEMANTIC_NAME: _constraint(
@@ -256,6 +257,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Use business_definition, guardrails, synonyms, examples, instructions, and owner_notes.",
         docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
+    ConstraintId.DOMAIN_OWNER_REQUIRED: _constraint(
+        ConstraintId.DOMAIN_OWNER_REQUIRED,
+        "invalid_domain_owner",
+        "decorator",
+        ("domain",),
+        "Domains require a named human owner.",
+        "Domain owners are accountable for semantic correctness and quality.",
+        'Pass owner="Mina Zhang" to ms.domain(...).',
+        example=_SEMANTIC_MODEL_EXAMPLE,
+    ),
     ConstraintId.AST_SINGLE_RETURN: _constraint(
         ConstraintId.AST_SINGLE_RETURN,
         "metric_body_not_single_return",
@@ -311,7 +322,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("ms.load()",),
         "Each domain directory needs a _domain.py file that calls ms.domain().",
         "The loader uses _domain.py to establish the domain namespace.",
-        "Create models/semantic/<domain>/_domain.py with ms.domain(name='<domain>').",
+        'Create models/semantic/<domain>/_domain.py with ms.domain(name="<domain>", owner="Mina Zhang").',
         example=_SEMANTIC_MODEL_EXAMPLE,
     ),
     ConstraintId.DOMAIN_FILE_MATCHES_DIRECTORY: _constraint(

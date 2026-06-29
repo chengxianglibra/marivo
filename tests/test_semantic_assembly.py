@@ -58,6 +58,7 @@ def _make_registry(**overrides: object) -> Registry:
     registry = Registry()
     registry.domains["sales"] = DomainIR(
         name="sales",
+        owner="Mina Zhang",
         default=True,
         ai_context=AiContextIR(),
         location=_LOC,
@@ -614,7 +615,7 @@ def semantic_project_factory(tmp_path):
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
 

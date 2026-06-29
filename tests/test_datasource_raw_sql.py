@@ -53,7 +53,7 @@ def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    assert isinstance(result, md.RawSqlResult)
+    assert isinstance(result, md.DatasourceResult)
     assert result.datasource == md.ref("datasource.warehouse")
     assert result.reason == "diagnose order amount sample"
     assert result.returned_row_count == 1

@@ -17,11 +17,8 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.followups import BlockingIssue, ConfidenceScope
-from marivo.analysis.frames.render import format_bounded_card
 from marivo.analysis.lineage import Lineage
-
-_RENDER_PREVIEW_ROWS = 5
-_RENDER_MAX_COLUMNS = 8
+from marivo.render import Card, RenderableResult
 
 
 def _display_column_names(columns: pd.Index) -> list[str]:
@@ -231,7 +228,7 @@ def _column_role(column_name: str) -> ArtifactColumnRole:
 
 
 @dataclass(repr=False)
-class BaseFrame:
+class BaseFrame(RenderableResult):
     _df: pd.DataFrame
     meta: BaseFrameMeta
 
@@ -377,13 +374,10 @@ class BaseFrame:
             message="frame arithmetic is blocked; call .to_pandas() first",
         )
 
-    def _preview_rows(self, *, limit: int) -> tuple[list[str], list[list[str]]]:
+    def _preview_rows_provider(self) -> Iterator[tuple[str, ...]]:
         columns = _display_column_names(self._df.columns)
-        visible_columns = columns[:_RENDER_MAX_COLUMNS]
-        rows: list[list[str]] = []
-        for row in self._df.head(limit).itertuples(index=False, name=None):
-            rows.append([str(_preview_cell(v)) for v in row[:_RENDER_MAX_COLUMNS]])
-        return visible_columns, rows
+        for row in self._df.itertuples(index=False, name=None):
+            yield tuple(str(_preview_cell(value)) for value in row[: len(columns)])
 
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} ref={self.meta.ref} rows={self.meta.row_count}"
@@ -398,42 +392,17 @@ class BaseFrame:
                 parts.append(f"quality={compat}")
         return " ".join(parts) if parts else None
 
-    def __repr__(self) -> str:
-        return f"<{self._repr_identity()}; call .show() to inspect>"
-
     def _repr_html_(self) -> None:
         return None
 
-    def render(self) -> str:
-        """Return bounded plain-text result card without a trailing newline.
-
-        Returns:
-            Bounded plain text suitable for terminal/agent inspection.
-
-        Example:
-            >>> print(frame.render())
-            MetricFrame ref=frame_ab12 metric=sales.revenue shape=time_series rows=7
-            ...
-        """
-        columns, preview_rows = self._preview_rows(limit=_RENDER_PREVIEW_ROWS)
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=self._render_status(),
+    def _card(self) -> Card:
+        columns = _display_column_names(self._df.columns)
+        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
+        status = self._render_status()
+        if status is not None:
+            card.status(status)
+        return card.lazy_table(
             columns=columns,
-            rows=preview_rows,
+            rows_provider=self._preview_rows_provider,
             row_count=len(self._df),
-            preview_truncation_hint="call .to_pandas() for terminal custom analysis",
-            available=self._AVAILABLE_ENTRIES,
         )
-
-    def show(self) -> None:
-        """Print render() output followed by a trailing newline and return None.
-
-        Returns:
-            None
-
-        Example:
-            >>> frame.show()
-            MetricFrame ref=frame_ab12 ...
-        """
-        print(self.render())

@@ -63,7 +63,8 @@ def test_scan_truncated_emits_warning() -> None:
     issues = scan_rules(_scan(truncated=True), ScanScope())
     ids = [i.rule_id for i in issues]
     assert "discovery_scan_truncated" in ids
-    assert all(i.severity == "warning" for i in issues)
+    truncated = next(i for i in issues if i.rule_id == "discovery_scan_truncated")
+    assert truncated.severity == "warning"
 
 
 def test_unpruned_scope_emits_info_issue() -> None:
@@ -213,61 +214,27 @@ def test_measure_result_full_render_lists_all_wide_table_columns() -> None:
     assert "... 60 more" not in rendered
 
 
-def test_resolve_partition_explicit_unpruned_and_unresolved() -> None:
+def test_resolve_partition_explicit_and_unpruned() -> None:
     from marivo.datasource.discovery_rules import resolve_partition
-    from marivo.datasource.metadata import PartitionMetadata, TableMetadata
 
     assert resolve_partition(None, ScanScope(partition=None)).resolution == "unpruned"
     assert resolve_partition(None, ScanScope(partition=None)).unresolved is False
-    # latest with no partition metadata falls back to unpruned, not unresolved
     assert resolve_partition(None, ScanScope()).resolution == "unpruned"
     assert resolve_partition(None, ScanScope()).unresolved is False
     explicit = resolve_partition(None, ScanScope(partition={"dt": "20260101"}))
     assert explicit.resolution == "explicit"
     assert explicit.partition_used == {"dt": "20260101"}
-    # latest with partition metadata that cannot be resolved is unresolved
-    metadata = TableMetadata(
-        datasource="wh",
-        table="events",
-        database=None,
-        backend_type="clickhouse",
-        comment=None,
-        columns=(),
-        partitions=(PartitionMetadata(name="dt"),),
-        warnings=(),
-    )
-    outcome = resolve_partition(metadata, ScanScope())
-    assert outcome.resolution == "latest"
-    assert outcome.unresolved is True
-
-
-def test_scan_rules_emit_latest_partition_unresolved() -> None:
-    from marivo.datasource.discovery_rules import resolve_partition
-    from marivo.datasource.metadata import PartitionMetadata, TableMetadata
-
-    metadata = TableMetadata(
-        datasource="wh",
-        table="events",
-        database=None,
-        backend_type="clickhouse",
-        comment=None,
-        columns=(),
-        partitions=(PartitionMetadata(name="dt"),),
-        warnings=(),
-    )
-    outcome = resolve_partition(metadata, ScanScope())
-    issues = scan_rules(_scan(), ScanScope(), outcome=outcome)
-    ids = [i.rule_id for i in issues]
-    assert "discovery_latest_partition_unresolved" in ids
-    unresolved = next(i for i in issues if i.rule_id == "discovery_latest_partition_unresolved")
-    assert unresolved.severity == "warning"
 
 
 def test_scan_rules_without_outcome_preserves_phase1_behavior() -> None:
-    # No outcome passed: only scan-truncated and unpruned-scan fire as in Plan 1.
     truncated = scan_rules(_scan(truncated=True), ScanScope())
-    assert [i.rule_id for i in truncated] == ["discovery_scan_truncated"]
-    assert all(i.severity == "warning" for i in truncated)
+    assert [i.rule_id for i in truncated] == [
+        "discovery_scan_truncated",
+        "discovery_unpruned_scan",
+    ]
+    assert (
+        next(i for i in truncated if i.rule_id == "discovery_scan_truncated").severity == "warning"
+    )
     unpruned = scan_rules(_scan(), ScanScope(partition=None))
     assert "discovery_unpruned_scan" in [i.rule_id for i in unpruned]
 

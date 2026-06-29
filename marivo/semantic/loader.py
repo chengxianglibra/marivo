@@ -73,7 +73,7 @@ class LoaderContextManager:
 
         ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
         with LoaderContextManager(ctx):
-            sales = ms.domain(name="sales", default=True)
+            sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
             ...
     """
 
@@ -338,11 +338,14 @@ def _load_model_dir(
         sibling_files.append(child)
 
     for sibling in sibling_files:
+        module_name = f"{model_package}.{sibling.stem}"
+        if module_name in sys.modules:
+            continue
         _execute_file(
             sibling,
             ctx,
             errors,
-            module_name=f"{model_package}.{sibling.stem}",
+            module_name=module_name,
             package_name=model_package,
         )
 

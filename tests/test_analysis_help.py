@@ -419,7 +419,7 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
 
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "import marivo.datasource as md\n"
@@ -483,7 +483,7 @@ def test_help_top_level_all_entries_have_summaries() -> None:
 def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n",
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "import marivo.datasource as md\n"

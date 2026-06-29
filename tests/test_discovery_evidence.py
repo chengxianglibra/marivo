@@ -18,7 +18,9 @@ from marivo.datasource.discovery import (
     FormatCandidate,
     KeyTypeEvidence,
     MeasureDiscoveryResult,
+    PartitionInspectionResult,
     PrimaryKeyCandidate,
+    RawSqlResult,
     RelationshipDiscoveryEvidence,
     RelationshipDiscoveryResult,
     TimeColumnDiscovery,
@@ -29,14 +31,12 @@ from marivo.datasource.scan import (
     ColumnProfile,
     JoinSide,
     ScanReport,
-    ScanScope,
     TableSource,
-    latest_partition,
     partition,
     table,
     unpruned,
 )
-from marivo.render import AgentResult
+from marivo.render import AgentResult, RenderableResult
 
 
 def test_table_source_is_entity_source_union() -> None:
@@ -46,15 +46,6 @@ def test_table_source_is_entity_source_union() -> None:
     # at runtime (isinstance checks against the alias are not valid, but the
     # alias must equal the union type object).
     assert TableSource == TableSourceIR | ParquetSourceIR | CsvSourceIR
-
-
-def test_latest_partition_defaults_to_latest_partition() -> None:
-    scope = latest_partition()
-    assert isinstance(scope, ScanScope)
-    assert scope.partition == "latest"
-    assert scope.max_rows == 1000
-    assert scope.max_columns == 100
-    assert scope.timeout_seconds == 30
 
 
 def test_partition_records_explicit_values() -> None:
@@ -522,6 +513,94 @@ def test_format_candidate_carries_match_metadata() -> None:
     assert fmt.kind == "string"
     assert fmt.matched_count == 8
     assert fmt.ambiguous is False
+
+
+def test_discovery_results_byte_capped_and_uncapped() -> None:
+    fc = FormatCandidate(format="%Y-%m-%d", kind="string", matched_count=3, ambiguous=False)
+
+    assert isinstance(fc, RenderableResult)
+    capped = fc.render()
+    assert len(capped.encode("utf-8")) <= 8192
+    full = fc.render(max_output_bytes=None)
+    assert "truncated" not in full
+    assert "FormatCandidate" in repr(fc)
+
+
+def test_raw_sql_result_full_render_lists_all_returned_rows() -> None:
+    result = RawSqlResult(
+        datasource=ref("warehouse"),
+        backend_type="duckdb",
+        sql="SELECT n FROM numbers",
+        reason="inspect sample",
+        columns=("n",),
+        types={"n": "INTEGER"},
+        rows=tuple({"n": i} for i in range(1, 13)),
+        requested_limit=12,
+        returned_row_count=12,
+        is_truncated=False,
+        warnings=(),
+    )
+
+    rendered = result.render(max_output_bytes=None)
+
+    assert "RawSqlResult" in rendered
+    assert "9" in rendered.splitlines()
+    assert "12" in rendered.splitlines()
+
+
+def test_long_format_candidate_default_render_stays_bounded() -> None:
+    result = FormatCandidate(
+        format="%" + ("Y" * 20_000), kind="string", matched_count=3, ambiguous=False
+    )
+
+    rendered = result.render()
+
+    assert len(rendered.encode("utf-8")) <= 8192
+    assert "FormatCandidate" in rendered
+
+
+def test_long_partition_columns_default_render_stays_bounded() -> None:
+    long_column = "partition_" + ("x" * 20_000)
+    result = PartitionInspectionResult(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        partition_columns=(long_column,),
+        rows=(),
+        requested_limit=10,
+        is_truncated=False,
+        warnings=(),
+    )
+
+    rendered = result.render()
+    full = result.render(max_output_bytes=None)
+
+    assert len(rendered.encode("utf-8")) <= 8192
+    assert "PartitionInspectionResult" in rendered
+    assert long_column in full
+
+
+def test_long_raw_sql_reason_default_render_stays_bounded() -> None:
+    long_reason = "diagnose " + ("join path " * 3000)
+    result = RawSqlResult(
+        datasource=ref("warehouse"),
+        backend_type="duckdb",
+        sql="SELECT 1 AS ok",
+        reason=long_reason,
+        columns=("ok",),
+        types={"ok": "INTEGER"},
+        rows=({"ok": 1},),
+        requested_limit=1,
+        returned_row_count=1,
+        is_truncated=False,
+        warnings=(),
+    )
+
+    rendered = result.render()
+    full = result.render(max_output_bytes=None)
+
+    assert len(rendered.encode("utf-8")) <= 8192
+    assert "RawSqlResult" in rendered
+    assert long_reason in full
 
 
 def test_key_type_evidence_is_frozen_typed() -> None:

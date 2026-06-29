@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.datasource.authoring import DatasourceRef
+from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -61,8 +62,8 @@ class ReadinessInputSummary:
         }
 
 
-@dataclass(frozen=True)
-class ReadinessReport:
+@dataclass(frozen=True, repr=False)
+class ReadinessReport(RenderableResult):
     status: ReadinessStatus
     analysis_ready_refs: tuple[str, ...]
     blockers: tuple[ReadinessIssue, ...]
@@ -71,48 +72,31 @@ class ReadinessReport:
     checked_at: str
     abandoned: tuple[Any, ...] = ()
 
-    def __repr__(self) -> str:
-        issues = len(self.blockers) + len(self.warnings)
-        return f"<ReadinessReport status={self.status} issues={issues}; call .show() to inspect>"
+    def _repr_identity(self) -> str:
+        return (
+            f"ReadinessReport status={self.status} issues={len(self.blockers) + len(self.warnings)}"
+        )
 
-    def render(self) -> str:
-        """Return bounded plain-text inspection card without a trailing newline."""
-        lines: list[str] = [
-            f"ReadinessReport status={self.status}",
-        ]
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".render()", ".to_dict()"))
         if self.blockers:
-            lines.append(f"blockers ({len(self.blockers)}):")
-            for issue in self.blockers[:3]:
-                lines.append(f"  - {issue.kind}: {issue.message}")
-            if len(self.blockers) > 3:
-                lines.append(f"  ... {len(self.blockers) - 3} more; call .to_dict() for full list")
+            card = card.listing(
+                label=f"blockers ({len(self.blockers)})",
+                items=tuple(f"{i.kind}: {i.message}" for i in self.blockers),
+            )
         if self.warnings:
-            lines.append(f"warnings ({len(self.warnings)}):")
-            for issue in self.warnings[:3]:
-                lines.append(f"  - {issue.kind}: {issue.message}")
-            if len(self.warnings) > 3:
-                lines.append(f"  ... {len(self.warnings) - 3} more; call .to_dict() for full list")
-        ready = list(self.analysis_ready_refs)
-        if ready:
-            shown = ready[:5]
-            lines.append(f"analysis_ready: {', '.join(shown)}")
-            if len(ready) > 5:
-                lines.append(f"  ... {len(ready) - 5} more")
+            card = card.listing(
+                label=f"warnings ({len(self.warnings)})",
+                items=tuple(f"{i.kind}: {i.message}" for i in self.warnings),
+            )
+        if self.analysis_ready_refs:
+            card = card.field(label="analysis_ready", value=", ".join(self.analysis_ready_refs))
         if self.abandoned:
-            lines.append(f"abandoned ({len(self.abandoned)}):")
-            for candidate in self.abandoned[:3]:
-                lines.append(f"  - {candidate.candidate}")
-            if len(self.abandoned) > 3:
-                lines.append(f"  ... {len(self.abandoned) - 3} more; call .to_dict() for full list")
-        lines.append(f"checked_at: {self.checked_at}")
-        lines.append("available:")
-        for entry in (".render()", ".to_dict()"):
-            lines.append(f"- {entry}")
-        return "\n".join(lines)
-
-    def show(self) -> None:
-        """Print render() output followed by a trailing newline and return None."""
-        print(self.render())
+            card = card.listing(
+                label=f"abandoned ({len(self.abandoned)})",
+                items=tuple(str(c.candidate) for c in self.abandoned),
+            )
+        return card.field(label="checked_at", value=self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
         return {

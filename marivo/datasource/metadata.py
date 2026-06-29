@@ -19,7 +19,7 @@ from marivo.datasource.ir import (
     TableSourceIR,
     source_name,
 )
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import Card, RenderableResult
 
 MetadataWarningKind = Literal[
     "comments_unavailable",
@@ -105,7 +105,7 @@ class UniqueConstraintMetadata:
 
 
 @dataclass(frozen=True, repr=False)
-class TableMetadata:
+class TableMetadata(RenderableResult):
     datasource: str
     table: str
     database: str | tuple[str, ...] | None
@@ -140,39 +140,33 @@ class TableMetadata:
             f"TableMetadata ref={self.ref} backend={self.backend_type} columns={len(self.columns)}"
         )
 
-    def render(self) -> str:
-        col_rows = [
-            [
-                c.name,
-                c.type,
-                "Y" if c.nullable else ("N" if c.nullable is False else "?"),
-            ]
-            for c in self.columns[:8]
-        ]
+    def _card(self) -> Card:
+        def column_rows() -> Iterable[Sequence[str]]:
+            for c in self.columns:
+                yield [
+                    c.name,
+                    c.type,
+                    "Y" if c.nullable else ("N" if c.nullable is False else "?"),
+                    c.comment or "",
+                ]
+
         parts: list[str] = []
-        if self.comment:
-            parts.append(f"comment={self.comment}")
         if self.is_view:
             parts.append("view=yes")
         if self.warnings:
             parts.append(f"warnings={len(self.warnings)}")
         if self.partitions:
             parts.append(f"partitions={len(self.partitions)}")
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=" ".join(parts) if parts else None,
-            columns=["column", "type", "nullable"],
-            rows=col_rows,
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()"))
+        if parts:
+            card.status(" ".join(parts))
+        if self.comment:
+            card.field(label="comment", value=self.comment)
+        return card.lazy_table(
+            columns=["column", "type", "nullable", "comment"],
+            rows_provider=column_rows,
             row_count=len(self.columns),
-            preview_truncation_hint="inspect .columns for all columns",
-            available=(".render()", ".show()"),
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
     def to_dict(self) -> dict[str, object]:
         database: str | list[str] | None = (

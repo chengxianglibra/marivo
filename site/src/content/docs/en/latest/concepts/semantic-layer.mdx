@@ -44,7 +44,7 @@ your-project/
       warehouse.py          # md.duckdb(name="warehouse", ...)
     semantic/
       sales/
-        _domain.py          # ms.domain(name="sales") + entities, metrics, ...
+        _domain.py          # ms.domain(name="sales", owner="Mina Zhang") + entities, metrics, ...
 ```
 
 ## Semantic refs
@@ -206,13 +206,14 @@ declared in a sibling file.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Domain namespace, e.g. `"sales"`. Objects become `<name>.<object>`. |
+| `owner` | `str` | Yes | — | Human owner accountable for semantic correctness and quality, e.g. `"Mina Zhang"`. |
 | `default` | `bool` | No | `True` | When `True`, decorators in this file resolve to this domain unless `domain=` is passed. |
 | `ai_context` | `AiContextValue` | No | `None` | Agent-facing context, via `ms.ai_context(...)`. |
 
 ```python
 import marivo.semantic as ms
 
-ms.domain(name="sales")
+ms.domain(name="sales", owner="Mina Zhang")
 ```
 
 ## Entity
@@ -511,7 +512,11 @@ For datasource-backed authoring, start with bounded datasource discovery:
 ```python
 warehouse = md.ref("datasource.warehouse")
 orders = md.table("orders")
-scope = md.latest_partition()
+
+md.inspect_table(warehouse, orders).show()
+md.inspect_partitions(warehouse, orders, limit=50).show()
+
+scope = md.partition({"dt": "20260629"})
 
 entity_evidence = md.discover_entity(warehouse, orders, scope=scope)
 dimension_evidence = md.discover_dimensions(
@@ -547,7 +552,7 @@ Path("entity_discovery.txt").write_text(full_text)
 
 The output byte limit is separate from scan coverage. If discovery reports
 `discovery_column_limit_truncated`, increase the scan column budget, for example
-`md.latest_partition(max_columns=300)`, then render with
+`md.partition({"dt": "20260629"}, max_columns=300)`, then render with
 `max_output_bytes=None` when the agent needs the complete schema/profile text.
 `ms.help(...)` tells the agent which parameters must be settled (the static
 authoring contract); discovery supplies the runtime evidence. Author exactly

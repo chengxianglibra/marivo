@@ -18,7 +18,7 @@ def _help_json(symbol: str) -> dict[str, Any]:
 EXPECTED_CONTRACTS: dict[str, dict[str, object]] = {
     "domain": {
         "constructor": "ms.domain",
-        "required": ["name"],
+        "required": ["name", "owner"],
         "optional": ["ai_context"],
         "discover": None,
     },

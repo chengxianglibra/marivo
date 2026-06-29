@@ -113,7 +113,7 @@ def _patch_project_backends(project, backend_factory):
 _DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    ms.domain(name="sales", default=True)
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
 """)
 
 _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\

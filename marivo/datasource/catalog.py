@@ -21,7 +21,7 @@ from marivo.datasource.manage import (
     test,
 )
 from marivo.preview import PreviewResult
-from marivo.render import result_repr
+from marivo.render import Card, RenderableResult
 
 
 def _summary_list(project_root: Path) -> DatasourceList:
@@ -63,7 +63,7 @@ def _ai_context_lines(context: AiContextIR) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True, repr=False)
-class DatasourceCatalog:
+class DatasourceCatalog(RenderableResult):
     """Read-only catalog over configured project datasources.
 
     Provides browsing methods that delegate to the existing ``md.*``
@@ -222,38 +222,36 @@ class DatasourceCatalog:
         count = len(_store.load_all(self.workspace_dir))
         return f"DatasourceCatalog datasources={count}"
 
-    def render(self) -> str:
+    def _card(self) -> Card:
         datasources = sorted(
             _store.load_all(self.workspace_dir).values(),
             key=lambda item: item.name,
         )
-        lines = [self._repr_identity()]
+        card = Card(
+            identity=self._repr_identity(),
+            available=(
+                ".list()",
+                ".get(name)",
+                ".describe(name)",
+                ".test(name)",
+                ".preview(...)",
+                ".render()",
+                ".show()",
+            ),
+        )
         if not datasources:
-            lines.append("datasources: (none)")
-        for datasource in datasources[:5]:
-            lines.append(f"- name: {datasource.name}")
-            lines.append(f"  backend_type: {datasource.backend_type}")
-            lines.append(f"  fields: {_format_mapping(datasource.fields)}")
-            lines.append(f"  env_refs: {_format_env_refs(datasource.env_refs)}")
-            for line in _ai_context_lines(datasource.ai_context):
-                lines.append(f"  {line}")
-        if len(datasources) > 5:
-            lines.append(f"... {len(datasources) - 5} more datasources; inspect md.list().items")
-        lines.append("available:")
-        lines.append("- .list()")
-        lines.append("- .get(name)")
-        lines.append("- .describe(name)")
-        lines.append("- .test(name)")
-        lines.append("- .preview(...)")
-        lines.append("- .render()")
-        lines.append("- .show()")
-        return "\n".join(lines)
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
+            card = card.field(label="datasources", value="none")
+        for datasource in datasources:
+            card = card.listing(
+                label=datasource.name,
+                items=(
+                    f"backend_type={datasource.backend_type}",
+                    f"fields={_format_mapping(datasource.fields)}",
+                    f"env_refs={_format_env_refs(datasource.env_refs)}",
+                    *_ai_context_lines(datasource.ai_context),
+                ),
+            )
+        return card
 
 
 def load(

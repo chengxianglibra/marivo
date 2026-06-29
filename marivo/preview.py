@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import Card, RenderableResult
 
 PreviewKind = Literal[
     "datasource_table",
@@ -81,7 +81,7 @@ class PreviewSamplePolicy:
 
 
 @dataclass(frozen=True, repr=False)
-class PreviewResult:
+class PreviewResult(RenderableResult):
     kind: PreviewKind
     ref: str
     columns: tuple[str, ...]
@@ -105,8 +105,8 @@ class PreviewResult:
             f"rows={self.returned_row_count}/{self.requested_limit}"
         )
 
-    def render(self) -> str:
-        preview_rows = [[str(row.get(col, "")) for col in self.columns] for row in self.rows]
+    def _card(self) -> Card:
+        preview_rows = [tuple(str(row.get(col, "")) for col in self.columns) for row in self.rows]
         status_parts = [f"truncated={self.is_truncated}"]
         if self.timezones:
             labels = [
@@ -114,21 +114,15 @@ class PreviewResult:
                 for column, info in sorted(self.timezones.items())
             ]
             status_parts.append("; ".join(labels))
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=" ".join(status_parts),
-            columns=list(self.columns),
-            rows=preview_rows,
-            row_count=self.returned_row_count,
-            preview_truncation_hint="call preview(limit=...)",
-            available=(".render()", ".show()"),
+        return (
+            Card(identity=self._repr_identity(), available=(".render()", ".show()"))
+            .status(" ".join(status_parts))
+            .table(
+                columns=list(self.columns),
+                rows=preview_rows,
+                row_count=self.returned_row_count,
+            )
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
 
 def validate_preview_limit(

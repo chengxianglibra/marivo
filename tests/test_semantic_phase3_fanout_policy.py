@@ -22,7 +22,7 @@ def test_metric_authoring_accepts_fanout_policy(tmp_path, monkeypatch):
     semantic_dir.mkdir(parents=True)
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
@@ -73,7 +73,7 @@ def _bootstrap_min(tmp_path):
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     return semantic_dir
 

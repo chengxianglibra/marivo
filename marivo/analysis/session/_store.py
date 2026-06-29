@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from marivo.project import resolve_project_root
-from marivo.render import format_bounded_card, result_repr
+from marivo.render import Card, RenderableResult
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS reports (
 
 
 @dataclass(frozen=True, repr=False)
-class SessionSummary:
+class SessionSummary(RenderableResult):
     """Lightweight session metadata returned by list_sessions."""
 
     id: str
@@ -90,21 +90,11 @@ class SessionSummary:
     def _repr_identity(self) -> str:
         return f"SessionSummary id={self.id} name={self.name}"
 
-    def render(self) -> str:
-        return format_bounded_card(
-            identity=self._repr_identity(),
-            status=(
-                f"jobs={self.job_count} frames={self.frame_count} "
-                f"reports={self.report_count} updated={self.updated_at}"
-            ),
-            available=(".render()", ".show()"),
+    def _card(self) -> Card:
+        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+            f"jobs={self.job_count} frames={self.frame_count} "
+            f"reports={self.report_count} updated={self.updated_at}"
         )
-
-    def __repr__(self) -> str:
-        return result_repr(self._repr_identity())
-
-    def show(self) -> None:
-        print(self.render())
 
 
 def _gen_session_id() -> str:

@@ -42,6 +42,7 @@ import marivo.semantic as ms
 
 ms.domain(
     name="sales",
+    owner="Mina Zhang",
     ai_context=ms.ai_context(
         business_definition="Sales order analysis domain.",
         guardrails=["Revenue metrics should only use completed orders."],
@@ -137,7 +138,11 @@ import marivo.semantic as ms
 
 warehouse = md.ref("datasource.warehouse")
 orders_source = md.table("orders")
-scope = md.latest_partition()
+
+md.inspect_table(warehouse, orders_source).show()
+md.inspect_partitions(warehouse, orders_source, limit=50).show()
+
+scope = md.partition({"dt": "20260629"})
 
 md.discover_entity(warehouse, orders_source, scope=scope).show()
 ms.help("entity")

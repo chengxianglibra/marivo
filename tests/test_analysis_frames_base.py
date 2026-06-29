@@ -222,7 +222,7 @@ def test_show_returns_none():
     assert f.show() is None
 
 
-def test_render_preview_bounded_at_five_rows():
+def test_render_includes_all_small_rows_under_default_byte_budget():
     df = pd.DataFrame({"x": list(range(20))})
     f = BaseFrame(_df=df, meta=_meta(row_count=20))
     rendered = f.render()
@@ -234,14 +234,28 @@ def test_render_preview_bounded_at_five_rows():
             ("BaseFrame", "status:", "columns:", "preview:", "available:", "-", "...")
         )
     ]
-    assert len(preview_lines) <= 5
+    assert preview_lines == [str(value) for value in range(20)]
+    assert "output truncated" not in rendered
+    assert "more rows" not in rendered
 
 
-def test_render_truncation_line_actionable():
-    df = pd.DataFrame({"x": list(range(20))})
-    f = BaseFrame(_df=df, meta=_meta(row_count=20))
-    rendered = f.render()
-    assert "more rows" in rendered
+def test_render_truncation_line_uses_byte_budget_marker():
+    cap = 260
+    df = pd.DataFrame(
+        {
+            "name": [f"row-{idx}" for idx in range(40)],
+            "payload": ["payload-" + ("x" * 30) for _ in range(40)],
+        }
+    )
+    f = BaseFrame(_df=df, meta=_meta(row_count=40))
+    rendered = f.render(max_output_bytes=cap)
+    assert len(rendered.encode()) <= cap
+    assert f"output truncated at {cap} bytes" in rendered
+    assert "omitted:" in rendered
+    assert "preview" in rendered
+    assert "rows" in rendered
+    assert "pass max_output_bytes=None for full output" in rendered
+    assert "more rows" not in rendered
     assert ".to_pandas()" in rendered
 
 

@@ -37,7 +37,7 @@ Authoring guidance is split across three layers, each with one job:
   object. Help tells the agent what parameters must be settled; it carries no
   runtime data and no fixed parameter-value source labels.
 - **`md.discover_*` — runtime datasource evidence.** Bounded, evidence-only
-  `DiscoveryResult` objects whose public contract is `.show()` / `.render()`.
+  `DatasourceResult` objects whose public contract is `.show()` / `.render()`.
   Discovery supplies the physical facts an agent needs to settle constructor
   values, but concrete result classes and internal evidence fields are not
   public authoring inputs. Discovery does not author objects, infer business
@@ -76,7 +76,11 @@ md.duckdb(
 import marivo.datasource as md
 import marivo.semantic as ms
 
-ms.domain(name="sales", ai_context=ms.ai_context(business_definition="Sales analytics"))
+ms.domain(
+    name="sales",
+    owner="Mina Zhang",
+    ai_context=ms.ai_context(business_definition="Sales analytics"),
+)
 warehouse = md.ref("datasource.warehouse")
 
 orders = ms.entity(
@@ -151,7 +155,7 @@ authoring pipeline 的组织建议。
 
 目标态 loader 规则是：
 
-- 每个 model 必须在 `<root>/<model>/_domain.py` 中调用一次 `ms.domain(name="<model>", ...)`。
+- 每个 model 必须在 `<root>/<model>/_domain.py` 中调用一次 `ms.domain(name="<model>", owner="<person>", ...)`。`owner` 必填，使用负责该 domain 语义正确性与质量的人名，例如 `"Mina Zhang"`。
 - `_domain.py` 是该 domain 的 entrypoint，可以只声明 domain metadata，也可以承载 single-file 快速路径中的 datasource、entity、dimension、metric 和 relationship；但不能声明多个 domain，也不能用与目录名不同的 `name`。
 - `ms.domain(default=...)` 缺省为 `True`。默认场景下，同目录 sibling files 里的对象可以省略重复 `domain=`（`DomainRef`）；如果项目希望 review 时强制每个对象显式写 `domain=`，可在 `_domain.py` 里传 `default=False`。
 - default domain 作用域仅限当前 domain 目录的顶层 sibling files，不向子目录传播。`sales/subdomain/*.py` 不继承 `sales/_domain.py` 的 default；子目录若要被加载，应作为独立 domain 域或由项目明确扩展 loader 规则。
@@ -716,7 +720,7 @@ relationship 描述 entity 之间的连接路径：
 # models/semantic/sales/_domain.py
 import marivo.semantic as ms
 
-ms.domain(name="sales")
+ms.domain(name="sales", owner="Mina Zhang")
 
 # orders, customers, order_customer_id, and customer_id are declared earlier
 # in this _domain.py.
@@ -1042,7 +1046,7 @@ typed frames + session persistence + lineage
 以下目标应作为下一轮实现的破坏性契约调整，而不是长期后续愿望：
 
 - 所有语义对象使用显式 `domain=` 或显式 default domain；文件位置只做 discovery 和组织校验。
-- `ms.domain(...)` 只能出现在 `<root>/<domain>/_domain.py`，且 `name` 必须等于目录名；`default` 缺省为 `True`，允许同目录对象省略重复 `domain=`。
+- `ms.domain(...)` 只能出现在 `<root>/<domain>/_domain.py`，且 `name` 必须等于目录名；`owner` 必填并记录负责人姓名；`default` 缺省为 `True`，允许同目录对象省略重复 `domain=`。
 - 标准 agent authoring pipeline 使用 `_domain.py` 单文件；对象变多时仍按依赖顺序在
   `_domain.py` 内维护。feature-oriented sibling files 只能作为另行设计的多文件
   authoring 模式。

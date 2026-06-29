@@ -91,10 +91,9 @@ def test_datasource_fold_partition() -> None:
     assert fams["References"] == ["DatasourceRef"]
     assert "Internal IR types" not in fams
     assert set(fams["Results"]) == {
+        "DatasourceResult",
         "DatasourceTestResult",
-        "DiscoveryResult",
         "PreviewResult",
-        "RawSqlResult",
     }
     assert fams["Metadata types"] == ["TableMetadata"]
     assert set(fams["Other types"]) == {

@@ -228,8 +228,16 @@ def test_verify_result_is_public_result_object() -> None:
         == "<VerifyResult status=passed ref=sales.orders kind=entity; call .show() to inspect>"
     )
     rendered = result.render()
-    assert "VerifyResult status=passed" in rendered
-    assert "available:" in rendered
+    assert rendered == "\n".join(
+        [
+            "VerifyResult status=passed ref=sales.orders kind=entity",
+            "status: passed",
+            "available:",
+            "- .issues",
+            "- .warnings",
+            "- .scan",
+        ]
+    )
     assert ms.VerifyResult is VerifyResult
 
 
@@ -254,11 +262,18 @@ def test_verify_result_render_shows_issue_details() -> None:
     )
 
     rendered = result.render()
-    assert "status: failed, 1 issue" in rendered
-    assert "issues:" in rendered
-    assert "[blocker] project_load_failed" in rendered
-    assert "Cannot verify 'trino_query': project failed to load." in rendered
-    assert "available:" in rendered
+    assert rendered == "\n".join(
+        [
+            "VerifyResult status=failed ref=trino_query kind=entity",
+            "status: failed, 1 issue",
+            "issues:",
+            "- [blocker] project_load_failed: Cannot verify 'trino_query': project failed to load.",
+            "available:",
+            "- .issues",
+            "- .warnings",
+            "- .scan",
+        ]
+    )
 
 
 def test_verify_result_render_shows_warning_details() -> None:
@@ -282,13 +297,21 @@ def test_verify_result_render_shows_warning_details() -> None:
     )
 
     rendered = result.render()
-    assert "1 warning" in rendered
-    assert "warnings:" in rendered
-    assert "[warning] missing_evidence" in rendered
-    assert "No evidence recorded for this object." in rendered
+    assert rendered == "\n".join(
+        [
+            "VerifyResult status=passed ref=sales.orders kind=entity",
+            "status: passed, 1 warning",
+            "warnings:",
+            "- [warning] missing_evidence: No evidence recorded for this object.",
+            "available:",
+            "- .issues",
+            "- .warnings",
+            "- .scan",
+        ]
+    )
 
 
-def test_verify_result_render_truncates_many_issues() -> None:
+def test_verify_result_render_lists_many_issues_as_omittable_card_section() -> None:
     from marivo.semantic.dtos import AssessmentIssue, VerifyResult
 
     issues = tuple(
@@ -315,5 +338,6 @@ def test_verify_result_render_truncates_many_issues() -> None:
     assert "7 issues" in rendered
     assert "Issue 0" in rendered
     assert "Issue 4" in rendered
-    assert "Issue 5" not in rendered
-    assert "2 more issues" in rendered
+    assert "Issue 5" in rendered
+    assert "Issue 6" in rendered
+    assert "more issues" not in rendered

@@ -9,7 +9,7 @@ from marivo.semantic.errors import SemanticLoadFailed
 def test_minute_granularity_timestamp_is_valid(semantic_project_factory):
     semantic_project_factory(
         {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
@@ -25,7 +25,7 @@ def test_second_granularity_on_date_parse_is_rejected(semantic_project_factory):
     """DateParse with second granularity is rejected at decorator time."""
     project = semantic_project_factory(
         {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "from marivo.semantic.ir import DateParse\n"
@@ -49,7 +49,7 @@ def test_minute_granularity_on_date_parse_is_rejected(semantic_project_factory):
     """DateParse with minute granularity is rejected at decorator time."""
     project = semantic_project_factory(
         {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "from marivo.semantic.ir import DateParse\n"
@@ -73,7 +73,7 @@ def test_hour_granularity_on_date_parse_is_rejected(semantic_project_factory):
     """Hour on DateParse IS rejected because hour is a sub-day granularity."""
     project = semantic_project_factory(
         {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "from marivo.semantic.ir import DateParse\n"
@@ -96,7 +96,7 @@ def test_hour_granularity_on_date_parse_is_rejected(semantic_project_factory):
 def test_second_granularity_datetime_is_valid(semantic_project_factory):
     semantic_project_factory(
         {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
@@ -112,7 +112,7 @@ def test_minute_granularity_string_with_time_format_is_valid(semantic_project_fa
     """String with a time-bearing format like yyyymmddhhmm should be accepted."""
     semantic_project_factory(
         {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"
@@ -129,7 +129,7 @@ def test_minute_granularity_string_without_time_format_is_rejected(semantic_proj
     """String with a date-only format should be rejected for minute granularity."""
     project = semantic_project_factory(
         {
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops')\n",
+            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=ms.table('events'))\n"

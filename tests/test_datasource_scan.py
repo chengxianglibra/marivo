@@ -15,16 +15,17 @@ from marivo.datasource.manage import (
     _inspect_columns,
     _probe_join_keys,
 )
-from marivo.datasource.manage import (
-    inspect_table as _inspect_table,
+from marivo.datasource.metadata import (
+    _inspect_source,
 )
-from marivo.datasource.scan import ScanReport
+from marivo.datasource.scan import ColumnInspection, ColumnProfile, ScanReport
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 
 
 def test_scan_scope_defaults_are_agent_safe() -> None:
     scope = md.ScanScope()
 
-    assert scope.partition == "latest"
+    assert scope.partition is None
     assert scope.max_rows == 1000
     assert scope.max_columns == 100
     assert scope.timeout_seconds == 30
@@ -59,7 +60,101 @@ def test_scan_report_render_is_bounded() -> None:
     assert repr(report) == (
         "<ScanReport rows=20 columns=2 partition=explicit; call .show() to inspect>"
     )
-    assert "dt=20260612" in report.render()
+    assert report.render() == "\n".join(
+        [
+            "ScanReport rows=20 columns=2 partition=explicit",
+            "status: partition=dt=20260612 truncated=False warnings=none",
+            "columns: status | amount",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
+
+
+def test_scan_report_long_warnings_default_render_is_bounded() -> None:
+    report = ScanReport(
+        partition_used=None,
+        partition_resolution="none",
+        rows_scanned=10,
+        columns_scanned=("status",),
+        truncated=False,
+        elapsed_seconds=0.02,
+        warnings=tuple(f"warning {index}: {'x' * 1000}" for index in range(20)),
+    )
+
+    rendered = report.render()
+
+    assert len(rendered.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert "status: partition=none truncated=False warnings=20" in rendered
+    assert "output truncated" in rendered
+    assert "available:" in rendered
+
+
+def test_column_profile_and_inspection_render_shared_card_shape() -> None:
+    profile = ColumnProfile(
+        name="status",
+        data_type="string",
+        nullable=True,
+        comment="Order status",
+        null_count=1,
+        empty_count=0,
+        distinct_count=2,
+        top_values=(("paid", 2),),
+        sample_values=("paid", "void"),
+        min_value=None,
+        max_value=None,
+        non_null_count=3,
+        distinct_ratio=0.67,
+        top_value_concentration=0.67,
+        type_family="string",
+    )
+
+    assert profile.render() == "\n".join(
+        [
+            "ColumnProfile column=status type=string family=string",
+            (
+                "status: type=string family=string nullable=True nulls=1 empty=0 "
+                "distinct=2 non_null=3"
+            ),
+            "columns: fact | value",
+            "preview:",
+            "comment | Order status",
+            "range | none..none",
+            "top_values | paid:2",
+            "sample_values | paid, void",
+            "distinct_ratio | 0.67",
+            "top_value_concentration | 0.67",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
+
+    inspection = ColumnInspection(
+        datasource="warehouse",
+        source=md.table("orders"),
+        profiles=(profile,),
+        scan=ScanReport(
+            partition_used=None,
+            partition_resolution="none",
+            rows_scanned=3,
+            columns_scanned=("status",),
+            truncated=False,
+            elapsed_seconds=0.01,
+            warnings=(),
+        ),
+    )
+
+    assert inspection.render() == "\n".join(
+        [
+            "ColumnInspection datasource=warehouse columns=1",
+            "columns: status",
+            "available:",
+            "- .render()",
+            "- .show()",
+        ]
+    )
 
 
 def test_inspect_table_accepts_structured_source(tmp_path: Path) -> None:
@@ -75,7 +170,7 @@ def test_inspect_table_accepts_structured_source(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    metadata = _inspect_table("warehouse", md.table("orders"), project_root=tmp_path)
+    metadata = _inspect_source("warehouse", source=md.table("orders"), project_root=tmp_path)
 
     assert metadata.table == "orders"
     assert [column.name for column in metadata.columns] == ["id", "status"]

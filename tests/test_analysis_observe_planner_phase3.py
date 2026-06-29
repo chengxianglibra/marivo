@@ -34,7 +34,7 @@ def _bootstrap_one_to_many(tmp_path: Path, *, fanout_policy: str = "block") -> N
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales')\n"
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
