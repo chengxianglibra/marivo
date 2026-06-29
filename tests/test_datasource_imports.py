@@ -2,49 +2,70 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 
-def test_datasource_import_does_not_load_semantic_or_analysis() -> None:
-    code = """
-import sys
+# A fresh interpreter is required for import-isolation checks: the test worker
+# already has marivo.semantic/analysis loaded via conftest, so the probe cannot
+# run in-process. Both isolation assertions share this single subprocess to
+# avoid paying the marivo.datasource import (~4s) twice.
+_ISOLATION_PROBE_CODE = """
+import json, sys
 for name in list(sys.modules):
-    if name == "marivo.datasource" or name.startswith("marivo.datasource."):
-        del sys.modules[name]
-    if name == "marivo.semantic" or name.startswith("marivo.semantic."):
-        del sys.modules[name]
-    if name == "marivo.analysis" or name.startswith("marivo.analysis."):
+    if (name == "marivo.datasource" or name.startswith("marivo.datasource.")
+            or name == "marivo.semantic" or name.startswith("marivo.semantic.")
+            or name == "marivo.analysis" or name.startswith("marivo.analysis.")):
         del sys.modules[name]
 
 import marivo.datasource as md
 
-assert md.duckdb is not None
-assert "marivo.semantic" not in sys.modules
-assert "marivo.analysis" not in sys.modules
+after_import = {
+    "duckdb_present": md.duckdb is not None,
+    "semantic_loaded": "marivo.semantic" in sys.modules,
+    "analysis_loaded": "marivo.analysis" in sys.modules,
+}
+help_text = md.help_text()
+after_help = {
+    "help_mentions_datasource": "marivo.datasource" in help_text,
+    "semantic_loaded": "marivo.semantic" in sys.modules,
+    "analysis_loaded": "marivo.analysis" in sys.modules,
+}
+print(json.dumps({"after_import": after_import, "after_help": after_help}))
 """
-    subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_datasource_help_import_does_not_load_semantic_or_analysis() -> None:
-    code = """
-import sys
-for name in list(sys.modules):
-    if name == "marivo.datasource" or name.startswith("marivo.datasource."):
-        del sys.modules[name]
-    if name == "marivo.semantic" or name.startswith("marivo.semantic."):
-        del sys.modules[name]
-    if name == "marivo.analysis" or name.startswith("marivo.analysis."):
-        del sys.modules[name]
+@pytest.fixture(scope="module")
+def _datasource_isolation_probe() -> dict:
+    """Fresh-process probe of marivo.datasource import isolation (shared)."""
+    proc = subprocess.run(
+        [sys.executable, "-c", _ISOLATION_PROBE_CODE],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(proc.stdout)
 
-import marivo.datasource as md
 
-assert "marivo.datasource" in md.help_text()
-assert "marivo.semantic" not in sys.modules
-assert "marivo.analysis" not in sys.modules
-"""
-    subprocess.run([sys.executable, "-c", code], check=True)
+def test_datasource_import_does_not_load_semantic_or_analysis(
+    _datasource_isolation_probe: dict,
+) -> None:
+    probe = _datasource_isolation_probe["after_import"]
+    assert probe["duckdb_present"]
+    assert not probe["semantic_loaded"]
+    assert not probe["analysis_loaded"]
+
+
+def test_datasource_help_import_does_not_load_semantic_or_analysis(
+    _datasource_isolation_probe: dict,
+) -> None:
+    probe = _datasource_isolation_probe["after_help"]
+    assert probe["help_mentions_datasource"]
+    assert not probe["semantic_loaded"]
+    assert not probe["analysis_loaded"]
 
 
 def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:
