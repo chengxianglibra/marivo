@@ -77,8 +77,8 @@ def test_frame_contract_embeds_schema() -> None:
     contract = frame.contract()
     assert contract.kind == frame.kind
     assert contract.ref == frame.ref
-    assert contract.schema.semantic_shape == frame.meta.semantic_kind
-    assert [column.name for column in contract.schema.columns] == list(frame.columns)
-    assert {column.role for column in contract.schema.columns}
-    assert not hasattr(contract.schema, "kind")
-    assert not hasattr(contract.schema, "ref")
+    assert contract.artifact_schema.semantic_shape == frame.meta.semantic_kind
+    assert [column.name for column in contract.artifact_schema.columns] == list(frame.columns)
+    assert {column.role for column in contract.artifact_schema.columns}
+    assert not hasattr(contract.artifact_schema, "kind")
+    assert not hasattr(contract.artifact_schema, "ref")

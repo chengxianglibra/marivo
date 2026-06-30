@@ -1,5 +1,7 @@
 """BaseFrameMeta + BaseFrame: thin pandas wrapper with explicit boundaries."""
 
+import subprocess
+import sys
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -288,11 +290,23 @@ def test_base_frame_exposes_phase1_artifact_protocol() -> None:
     assert contract.is_canonical is True
     assert contract.blocking_issues == []
     assert contract.affordances == []
-    assert [(column.name, column.role) for column in contract.schema.columns] == [
+    assert [(column.name, column.role) for column in contract.artifact_schema.columns] == [
         ("bucket_start", "time"),
         ("country", "dimension"),
         ("value", "value"),
     ]
+
+
+def test_analysis_import_does_not_emit_artifact_contract_schema_shadow_warning() -> None:
+    completed = subprocess.run(
+        [sys.executable, "-W", "default", "-c", "import marivo.analysis"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert 'Field name "schema" in "ArtifactContract"' not in completed.stderr
 
 
 def test_phase1_protocol_objects_are_closed_models() -> None:
@@ -346,7 +360,7 @@ def test_phase1_protocol_objects_are_closed_models() -> None:
                 "kind": "metric_frame",
                 "ref": "frame_x",
                 "is_canonical": True,
-                "schema": ArtifactSchema(columns=[]),
+                "artifact_schema": ArtifactSchema(columns=[]),
                 "blocking_issues": [],
                 "affordances": [],
             },

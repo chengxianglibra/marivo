@@ -126,7 +126,7 @@ _SUMMARIES: dict[str, str] = {
     "ArtifactContract": "mechanical consumption contract returned by artifact.contract()",
     "ArtifactParamTemplate": "parameter template for an affordance entry",
     "ArtifactPrecondition": "precondition pass/fail entry within an affordance",
-    "ArtifactSchema": "schema descriptor embedded in artifact.contract().schema",
+    "ArtifactSchema": "schema descriptor embedded in artifact.contract().artifact_schema",
     "ArtifactState": "baseline materialization and content hash facts",
     "BlockingIssue": "blocking issue attached to frame meta",
     "CalendarPolicy": "calendar provider policy for calendar-backed alignment",

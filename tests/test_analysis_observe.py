@@ -865,7 +865,7 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
         },
     }
     assert set(frame.to_pandas().columns) == {"value"}
-    assert "failed_count" not in [c.name for c in frame.contract().schema.columns]
+    assert "failed_count" not in [c.name for c in frame.contract().artifact_schema.columns]
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
     assert components.meta.parent_kind == "metric_frame"

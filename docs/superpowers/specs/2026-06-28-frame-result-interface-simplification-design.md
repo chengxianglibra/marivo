@@ -150,7 +150,7 @@ private helpers such as `_build_summary()` or internal DTOs that are not taught
 in help, skills, examples, or top-level public exports.
 
 `schema()` is removed from the public frame/result API. Its information moves
-to `artifact.contract().schema`.
+to `artifact.contract().artifact_schema`.
 
 `preview()` is removed from the public frame/result API. Existing bounded row
 projection logic may remain as private render helpers for `show()`.
@@ -239,7 +239,7 @@ Required focused checks:
   `JobSummary`, and `FrameSummaryEntry` are out of scope for this assertion.
 - A protocol test asserts public analysis artifacts expose `show()` and
   `contract()` as the primary agent exits.
-- A contract test asserts `artifact.contract().schema` contains column names,
+- A contract test asserts `artifact.contract().artifact_schema` contains column names,
   dtypes, nullability, and semantic roles.
 - A contract test asserts `artifact.contract().affordances` remains unranked
   mechanical metadata and contains no recommendation wording.
@@ -269,7 +269,7 @@ make typecheck
 - `summary()` is not public on analysis frame/result objects and is absent from
   public help, skills, examples, and top-level exports.
 - `schema()` is not public on analysis frame/result objects; schema facts are
-  available through `contract().schema`.
+  available through `contract().artifact_schema`.
 - `preview()` and `next_intents()` are not public on analysis frame/result
   objects.
 - Error repair text, constraint guidance, and render truncation hints do not
