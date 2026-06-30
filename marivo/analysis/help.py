@@ -163,6 +163,32 @@ _SEE_ALSO: dict[str, tuple[str, ...]] = {
     "AlignmentPolicy": ("mv.help('alignment')", "mv.help('calendar')"),
 }
 
+_SESSION_INTENT_HELP_TARGETS: tuple[str, ...] = (
+    "observe",
+    "compare",
+    "attribute",
+    "correlate",
+    "forecast",
+    "assess_quality",
+    "hypothesis_test",
+    "derive_metric_frame",
+)
+
+_SESSION_NAMESPACE_HELP_TARGETS: tuple[str, ...] = (
+    "discover",
+    "transform",
+)
+
+_SESSION_HELP_ALIASES: dict[str, str] = {
+    alias: target
+    for target in (*_SESSION_INTENT_HELP_TARGETS, *_SESSION_NAMESPACE_HELP_TARGETS)
+    for alias in (
+        f"mv.Session.{target}",
+        f"session.{target}",
+        f"mv.session.{target}",
+    )
+}
+
 
 def _discover_content() -> dict[str, object]:
     from marivo.analysis.intents.discover import (
@@ -702,15 +728,19 @@ def _topic(
     doc: str,
     *,
     constraints: tuple[Constraint, ...] = (),
+    signature: str | None = None,
+    method_doc: str | None = None,
 ) -> Descriptor:
+    full_doc = f"{method_doc}\n\n{doc}" if method_doc else doc
     return Descriptor(
         surface="marivo.analysis",
         kind="topic",
         symbol=symbol,
         summary=cast("str", content["summary"]),
         content=content,
-        doc=doc,
+        doc=full_doc,
         constraints=constraints,
+        signature=signature,
     )
 
 
@@ -769,6 +799,15 @@ def _resolve(symbol: str) -> object | None:
     return None
 
 
+def _intent_method_info(symbol: str) -> tuple[str | None, str | None]:
+    obj = _resolve(symbol)
+    if obj is None or not callable(obj):
+        return None, None
+    from marivo.introspection.describe import own_doc, signature_for
+
+    return signature_for(symbol, obj), own_doc(obj) or None
+
+
 @lru_cache(maxsize=1)
 def _surface() -> Surface:
     import marivo.analysis as mv
@@ -783,6 +822,9 @@ def _surface() -> Surface:
     calendar_content = _calendar_content()
     agent_surface_content = _agent_surface_content()
     observe_content = _observe_content()
+    observe_sig, observe_doc = _intent_method_info("observe")
+    select_sig, select_doc = _intent_method_info("select")
+    transform_sig, transform_doc = _intent_method_info("transform")
     session_constraints = constraints_for_symbol("session")
     session_content = _session_content(session_constraints)
     return Surface(
@@ -797,13 +839,27 @@ def _surface() -> Surface:
                 agent_surface_content,
                 _agent_surface_text(agent_surface_content),
             ),
-            "observe": _topic("observe", observe_content, _observe_text(observe_content)),
+            "observe": _topic(
+                "observe",
+                observe_content,
+                _observe_text(observe_content),
+                signature=observe_sig,
+                method_doc=observe_doc,
+            ),
             "discover": _topic("discover", discover_content, _discover_text(discover_content)),
-            "select": _topic("select", select_content, _select_text(select_content)),
+            "select": _topic(
+                "select",
+                select_content,
+                _select_text(select_content),
+                signature=select_sig,
+                method_doc=select_doc,
+            ),
             "transform": _topic(
                 "transform",
                 transform_content,
                 _transform_text(transform_content),
+                signature=transform_sig,
+                method_doc=transform_doc,
             ),
             "alignment": _topic(
                 "alignment",
@@ -822,6 +878,7 @@ def _surface() -> Surface:
         type_aliases=_TYPE_ALIASES,
         constructed_by=_CONSTRUCTED_BY,
         see_also=_SEE_ALSO,
+        aliases=_SESSION_HELP_ALIASES,
         pinned_entries=("Session",),
     )
 

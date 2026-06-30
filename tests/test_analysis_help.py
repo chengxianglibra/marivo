@@ -90,11 +90,56 @@ def test_execution_operators_remain_help_only() -> None:
 
 
 def test_help_for_intent_includes_signature_and_docstring() -> None:
-    out = _capture("compare")
-    assert "compare(" in out
-    first_doc_line = (inspect.getdoc(Session.compare) or "").strip().splitlines()[0]
-    assert first_doc_line, "Session.compare should have a non-empty docstring"
-    assert first_doc_line in out
+    from marivo.analysis.intents.select import select as select_fn
+
+    cases = [
+        ("compare", Session.compare),
+        ("observe", Session.observe),
+        ("select", select_fn),
+    ]
+    for symbol, callable_obj in cases:
+        out = _capture(symbol)
+        assert "Signature:" in out, f"{symbol} help should include signature"
+        assert f"{symbol}(" in out, f"{symbol} help should include callable name in signature"
+        first_doc_line = (inspect.getdoc(callable_obj) or "").strip().splitlines()[0]
+        assert first_doc_line, f"{symbol} callable should have a non-empty docstring"
+        assert first_doc_line in out, f"{symbol} help should include first docstring line"
+
+
+def test_help_for_session_intent_aliases_matches_canonical_target() -> None:
+    intents = (
+        "observe",
+        "compare",
+        "attribute",
+        "correlate",
+        "forecast",
+        "assess_quality",
+        "hypothesis_test",
+        "derive_metric_frame",
+    )
+
+    for intent in intents:
+        expected = _capture(intent)
+        for alias in (
+            f"mv.Session.{intent}",
+            f"session.{intent}",
+            f"mv.session.{intent}",
+        ):
+            out = _capture(alias)
+            assert out == expected, alias
+            assert "Unknown help target" not in out, alias
+            assert "Signature:" in out, alias
+
+
+def test_help_for_session_namespace_aliases_matches_canonical_target() -> None:
+    for topic in ("discover", "transform"):
+        expected = _capture(topic)
+        for alias in (
+            f"mv.Session.{topic}",
+            f"session.{topic}",
+            f"mv.session.{topic}",
+        ):
+            assert _capture(alias) == expected, alias
 
 
 def test_help_for_observe_documents_empty_dimensions_as_no_axes() -> None:

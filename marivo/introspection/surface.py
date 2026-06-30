@@ -97,6 +97,7 @@ class Surface:
     type_aliases: set[str] = field(default_factory=set)
     constructed_by: Mapping[str, str] = field(default_factory=dict)
     see_also: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    aliases: Mapping[str, str] = field(default_factory=dict)
     pinned_entries: tuple[str, ...] = ()
     family_suffixes: tuple[tuple[str, str], ...] = ()
     hidden_names: frozenset[str] = frozenset()
@@ -259,6 +260,7 @@ def _type_alias_descriptor(surface: Surface, symbol: str) -> Descriptor:
 def _resolve_descriptor(surface: Surface, symbol: str | None) -> Descriptor:
     if symbol is None:
         return _top_level_descriptor(surface)
+    symbol = surface.aliases.get(symbol, symbol)
     if symbol in surface.topics:
         return _topic_descriptor(surface, symbol)
 
