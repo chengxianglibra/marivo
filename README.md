@@ -48,6 +48,7 @@ variables referenced by `*_env` fields. There is no separate server.
 Scaffold a project with the CLI:
 
 ```bash
+marivo --version
 marivo init
 ```
 

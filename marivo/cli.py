@@ -10,6 +10,7 @@ from pathlib import Path
 
 import tomli_w
 
+from marivo import __version__
 from marivo.config import (
     AUTHORED_DIR,
     CLAUDE_SKILLS_DIR,
@@ -161,6 +162,7 @@ def main(argv: list[str] | None = None) -> None:
         prog="marivo",
         description="Marivo project tooling",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
     init_parser = subparsers.add_parser("init", help="Initialize a Marivo project")
