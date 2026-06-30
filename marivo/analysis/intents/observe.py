@@ -538,17 +538,6 @@ def _resolve_timescope(
 def _validate_dimension_ids(dimensions: list[str] | None) -> list[str]:
     if dimensions is None:
         return []
-    if len(dimensions) == 0:
-        raise SemanticKindMismatchError(
-            message=(
-                "For time-series observations, omit dimensions or pass None; "
-                "segmented observations require at least one dimension."
-            ),
-            details={
-                "expected_kind": "list[DimensionInput] | None",
-                "got_kind": "list[]",
-            },
-        )
 
     seen: set[str] = set()
     duplicate_ids: set[str] = set()

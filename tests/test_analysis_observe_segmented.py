@@ -263,18 +263,18 @@ def test_observe_derived_metric_dimension_via_relationship(tmp_path):
     assert by_tier == {"gold": pytest.approx(1 / 3), "silver": pytest.approx(1.0)}
 
 
-def test_observe_empty_dimensions_list_is_rejected(tmp_path):
-    from marivo.analysis.errors import SemanticKindMismatchError
-
+def test_observe_empty_dimensions_list_returns_scalar_frame(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
 
-    with pytest.raises(SemanticKindMismatchError) as exc_info:
-        observe(make_ref("sales.revenue", SemanticKind.METRIC), dimensions=[], session=s)
+    frame = observe(make_ref("sales.revenue", SemanticKind.METRIC), dimensions=[], session=s)
 
-    assert "For time-series observations, omit dimensions or pass None" in str(exc_info.value)
+    assert frame.meta.semantic_kind == "scalar"
+    df = frame.to_pandas()
+    assert set(df.columns) == {"value"}
+    assert df.iloc[0, 0] == pytest.approx(100.0)
 
 
 def test_observe_duplicate_dimensions_are_rejected(tmp_path):

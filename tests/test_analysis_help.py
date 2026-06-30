@@ -97,6 +97,12 @@ def test_help_for_intent_includes_signature_and_docstring() -> None:
     assert first_doc_line in out
 
 
+def test_help_for_observe_documents_empty_dimensions_as_no_axes() -> None:
+    out = _capture("observe")
+
+    assert "dimensions=None or dimensions=[] means no segment axes" in out
+
+
 def test_help_for_transform_and_discover_lists_namespace_methods() -> None:
     transform_out = _capture("transform")
     assert "session.transform op helper matrix" in transform_out
