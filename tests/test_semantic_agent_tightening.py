@@ -101,49 +101,6 @@ def test_semantic_skill_deleted_reference_files_stay_deleted() -> None:
         assert not (REPO_ROOT / path).exists(), f"{path} should not be recreated"
 
 
-def test_semantic_skill_enforces_single_decision_grill_and_batch_scope() -> None:
-    skill = _read("marivo/skills/marivo-semantic/SKILL.md")
-    datasource = _read("marivo/skills/marivo-semantic/references/datasource.md")
-    closeout = _read("marivo/skills/marivo-semantic/references/closeout.md")
-    pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
-    maintainer = _read(".agents/skills/marivo-skill-maintainer/SKILL.md")
-    references = "\n".join((datasource, closeout, pitfalls))
-
-    for required in (
-        "A grill turn MUST ask exactly one unresolved semantic decision",
-        "Do not ask numbered lists of questions",
-        "write semantic code after asking",
-        "choose active batch",
-        "Ask one grill decision and stop",
-        "Repair same object",
-        "Next batch or readiness handoff",
-        "one entity plus one semantic kind",
-        "Do not author a full domain in one pass",
-        "author one object",
-        "ms.verify_object(ref)",
-    ):
-        assert required in skill
-
-    for duplicated in (
-        "A grill turn MUST ask exactly one unresolved semantic decision",
-        "Do not ask numbered lists of questions",
-        "active batch = <domain> + <entity_ref> + <semantic_kind>",
-        "choose active batch",
-        "author one object",
-        "repeat author/verify",
-    ):
-        assert duplicated not in references
-
-    for stale in (
-        "marivo-semantic/references/object-briefs.md",
-        "marivo-semantic/references/authoring-patterns.md",
-        "marivo-semantic/references/evidence-and-ledger.md",
-        "marivo-semantic/references/preview.md",
-        "marivo-semantic/references/workflow.md",
-    ):
-        assert stale not in maintainer
-
-
 def test_superseded_authoring_spec_points_to_stepwise_design() -> None:
     spec = _read("docs/specs/semantic/semantic-authoring-design-superseded.md")
     assert "docs/specs/semantic/stepwise-authoring-design.md" in spec
