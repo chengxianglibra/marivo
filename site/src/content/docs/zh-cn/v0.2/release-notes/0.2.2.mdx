@@ -1,0 +1,93 @@
+---
+slug: zh-cn/v0.2/release-notes/0.2.2
+title: Marivo 0.2.2
+description: Marivo 0.2.2 发布说明。
+---
+
+Marivo 0.2.2 是 v0.2 系列的 patch release。这个版本完成了 v0.2 系列中面向
+agent 的 datasource、semantic 与 analysis surface 清理，增加更丰富的
+datasource discovery evidence，收紧 semantic authoring contract，并让 analysis
+结果通过明确的 artifact 和 display contract 交付。
+
+## 重点
+
+- 增加 public datasource discovery surface，覆盖 table、column、dimension、
+  measure、time 与 relationship evidence，并提供 `md.raw_sql(...)` 用于诊断。
+- 围绕 explicit refs 和更清晰的 help output 收紧 semantic authoring，让 agent
+  只沿着一条 discovery-to-authoring 路径工作，不再混用 prepare-era API。
+- 围绕 artifact contracts、`show(...)` 与 compact frame summaries 统一
+  analysis result display。
+- 将 `derive_metric_frame(...)` 重新定位为 metadata-attachment helper，并保留
+  unbound columns 供后续 analysis 使用。
+- 用更小的 real-project examples 和 workflow-only guidance 更新打包的 Marivo
+  semantic 与 analysis skills。
+
+## 变更
+
+- Datasource connections 现在可以作为 context managers 使用。
+- Datasource metadata 与 scanning 会收集更丰富的 profile、join-key、partition
+  和 warning evidence。
+- Semantic catalog browsing、help text、readiness reports 与 richness checks
+  现在暴露更窄的 agent-facing contract。
+- Analysis frames 现在携带 content hashes 和 explicit display protocols，便于稳定
+  artifact handoff。
+- 本地质量工具链现在通过 repository entrypoints 与统一的 pre-commit 配置执行。
+
+## 修复
+
+- `md.raw_sql(...)` 不再要求 Trino 为 SELECT diagnostics 开启 read-only
+  transaction。
+- Datasource raw SQL diagnostics 现在会可靠地执行 read-only 检查并释放
+  inspection handles。
+- Discovery output 在请求时可以返回完整 evidence payload。
+- Trino comment metadata warnings 与硬 metadata errors 现在会清晰分离。
+- Catalog browse hints、unreadable measure-column classification、percentile
+  aggregation help 与 quantile folding 更清晰。
+- Empty observe dimension selections 现在可以被接受。
+- Artifact contract output 使用修正后的 schema field name。
+- Typed semantic refs 现在会在 verification 和 hour-prefix helpers 中一致要求。
+
+## 文档
+
+- 刷新 `latest` 与 `v0.2` 的 quick start、semantic-layer、analysis workflow、
+  readiness 与 evidence 页面，以匹配新的 discovery 和 analysis contracts。
+- 增加 datasource discovery、semantic skill layering、frame result
+  simplification 与 analysis guidance layering 的设计说明。
+- 围绕小型可运行 real-project fixtures 重写打包 skill examples。
+
+## 破坏性变更
+
+- Semantic prepare authoring stage 与 legacy prepare-oriented public APIs 已从
+  agent-facing surface 移除。
+- Semantic authoring 与 verification 现在要求 typed refs，不再接受 bare string
+  locators。
+- Concrete datasource discovery result types 现在隐藏在 public discovery helpers
+  之后。
+- Analysis frame/result exits 简化为围绕 `show(...)`、artifact contracts 与当前
+  core operators 工作；旧的 result-summary paths 已移除或重命名。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.2 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.2/installation/)
+- [快速开始](/zh-cn/v0.2/quick-start/)
+- [语义层](/zh-cn/v0.2/concepts/semantic-layer/)
+- [分析流程](/zh-cn/v0.2/concepts/analysis-workflow/)

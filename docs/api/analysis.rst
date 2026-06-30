@@ -82,8 +82,6 @@ only; it is not ranked and is not a recommendation.
    CoverageFrame
    AttributionFrame
    ForecastFrame
-   FramePreview
-   FrameSummary
    FrameSummaryEntry
    ArtifactAffordance
    ArtifactColumn
