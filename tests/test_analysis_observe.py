@@ -927,6 +927,23 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     assert by_bucket["2026-07-02"].failure_rate == pytest.approx(0.0)
 
 
+def test_observe_time_series_with_empty_dimensions_list(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+
+    frame = observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        timescope={"start": "2026-07-01", "end": "2026-10-01"},
+        grain="day",
+        dimensions=[],
+        session=s,
+    )
+
+    assert frame.meta.semantic_kind == "time_series"
+    assert set(frame.to_pandas().columns) == {"bucket_start", "value"}
+
+
 def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)

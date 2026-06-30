@@ -653,8 +653,9 @@ class Session:
                 means data from August 1 is **not** included.
             grain: Optional time bucket grain. When present, observe returns a time
                 series or panel depending on ``dimensions``.
-            dimensions: Segment axes. In v1 all dimensions must resolve to the same
-                entity as ``metric``.
+            dimensions: Segment axes. Omit, pass ``None``, or pass ``[]`` for no
+                segment axes. In v1 all non-empty dimension lists must resolve to
+                the same entity as ``metric``.
             where: Pre-aggregation row filter. Keys are catalog dimension objects/refs for
                 the filtered dimension; values are either a scalar (``==``), a list
                 (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of

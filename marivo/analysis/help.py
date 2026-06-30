@@ -451,6 +451,8 @@ def _observe_content() -> dict[str, object]:
             "reaggregation": "re-run observe rather than rolling up sampled folded frames",
         },
         "notes": [
+            "dimensions=None or dimensions=[] means no segment axes; with grain "
+            "observe returns a time_series, without grain it returns a scalar.",
             "Sampled semi-additive metrics use their bound sampled time axis, return "
             "coverage through frame.coverage(), and should be re-observed rather than "
             "rolled up.",
