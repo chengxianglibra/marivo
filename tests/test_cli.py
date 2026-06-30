@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from marivo import __version__
 from marivo.cli import init_project, main
 
 # ---------------------------------------------------------------------------
@@ -206,3 +207,11 @@ def test_no_args_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
     assert "Marivo" in captured.out or "marivo" in captured.out
+
+
+def test_version_flag_prints_package_version(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == f"marivo {__version__}"
