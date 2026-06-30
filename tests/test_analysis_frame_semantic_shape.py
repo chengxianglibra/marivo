@@ -149,7 +149,7 @@ def test_delta_frame_semantic_shape_and_accessor():
 
 def test_summary_exposes_semantic_shape_for_metric_frame():
     mf = MetricFrame(_df=pd.DataFrame({"v": [1.0]}), meta=_metric_meta("segmented"))
-    assert mf.contract().schema.semantic_shape == "segmented"
+    assert mf.contract().artifact_schema.semantic_shape == "segmented"
 
 
 def test_summary_semantic_shape_is_none_for_base_frame():
@@ -167,7 +167,7 @@ def test_summary_semantic_shape_is_none_for_base_frame():
         lineage=Lineage(),
     )
     frame = BaseFrame(_df=pd.DataFrame({"v": [1.0]}), meta=meta)
-    assert frame.contract().schema.semantic_shape is None
+    assert frame.contract().artifact_schema.semantic_shape is None
 
 
 def test_repr_identity_includes_semantic_shape_for_metric_frame():

@@ -188,8 +188,10 @@ def test_public_artifact_families_share_phase1_protocol() -> None:
         assert artifact.to_pandas() is not artifact._df, f"{tag}: to_pandas not isolated"
 
         contract = artifact.contract()
-        assert isinstance(contract.schema, ArtifactSchema), f"{tag}: contract().schema type"
-        assert contract.schema.columns, f"{tag}: contract().schema columns empty"
+        assert isinstance(contract.artifact_schema, ArtifactSchema), (
+            f"{tag}: contract().artifact_schema type"
+        )
+        assert contract.artifact_schema.columns, f"{tag}: contract().artifact_schema columns empty"
 
         payload = {
             "contract": contract.model_dump(mode="json"),

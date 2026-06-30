@@ -161,9 +161,7 @@ class ArtifactContract(BaseModel):
     kind: str
     ref: str
     is_canonical: bool
-    # Shadows the deprecated BaseModel.schema() classmethod; required by the
-    # design contract that embeds schema facts directly on ArtifactContract.
-    schema: ArtifactSchema  # type: ignore[assignment]
+    artifact_schema: ArtifactSchema
     blocking_issues: list[BlockingIssue] = Field(default_factory=list)
     affordances: list[ArtifactAffordance] = Field(default_factory=list)
 
@@ -292,11 +290,11 @@ class BaseFrame(RenderableResult):
         ``_NEXT_INTENTS``, not recommendations.
 
         Returns:
-            ArtifactContract listing schema, blocking issues, and affordances.
+            ArtifactContract listing artifact_schema, blocking issues, and affordances.
 
         Example:
-            >>> frame.contract()
-            ArtifactContract(kind='metric_frame', ref=...)
+            >>> frame.contract().artifact_schema.columns
+            [ArtifactColumn(name='bucket_start', ...)]
 
         Constraints:
             Does not materialize a data copy.
@@ -317,7 +315,7 @@ class BaseFrame(RenderableResult):
             kind=self.meta.kind,
             ref=self.meta.ref,
             is_canonical=self.meta.kind != "exploration_result",
-            schema=self._build_schema(),
+            artifact_schema=self._build_schema(),
             blocking_issues=list(self.meta.blocking_issues),
             affordances=affordances,
         )
