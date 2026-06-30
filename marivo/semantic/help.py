@@ -565,7 +565,8 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                 "agg": _param(
                     "AggKind",
                     "aggregation function; ('percentile', q) is the q-th percentile "
-                    "across rows in each query group",
+                    "across rows in each query group; Trino uses approximate "
+                    "percentile semantics via APPROX_PERCENTILE",
                     allowed_values=[
                         "sum",
                         "count",

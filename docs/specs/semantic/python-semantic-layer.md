@@ -571,6 +571,10 @@ is no measure to derive from, so `unit=` is the direct declaration.
 | `sum` / `min` / `max` / `mean` / `median` / `percentile` | `measure.unit` (preserved) |
 | `count` / `count_distinct` | `None` (counted noun is content-specific; author declares `{order}` explicitly) |
 
+For `ms.aggregate(..., agg=("percentile", q))`, backend compilation follows
+available Ibis support. Trino materializes this aggregation with approximate
+percentile semantics (`APPROX_PERCENTILE`) rather than exact quantile SQL.
+
 **Derived derivation (from components):**
 
 | composition | rule | on failure |

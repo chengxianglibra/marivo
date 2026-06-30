@@ -317,6 +317,88 @@ def test_metric_materialize_sum(semantic_project_factory, backend_factory) -> No
     assert result == pytest.approx(300.0)
 
 
+def test_trino_percentile_aggregate_uses_approx_quantile(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\n"
+                "md.trino(name='warehouse', host='trino.example', catalog='hive')\n"
+            ),
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/latency.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "queries = ms.entity(\n"
+                "    name='queries',\n"
+                "    datasource=md.ref('datasource.warehouse'),\n"
+                "    source=ms.table('query_info'),\n"
+                ")\n"
+                "elapsed_time = ms.measure_column(\n"
+                "    name='elapsed_time',\n"
+                "    entity=queries,\n"
+                "    column='elapsed_time',\n"
+                "    additivity='non_additive',\n"
+                "    unit='s',\n"
+                ")\n"
+                "p95_elapsed_time = ms.aggregate(\n"
+                "    name='p95_elapsed_time',\n"
+                "    measure=elapsed_time,\n"
+                "    agg=('percentile', 0.95),\n"
+                "    unit='s',\n"
+                ")\n"
+            ),
+        }
+    )
+
+    class _TrinoCompileBackend:
+        def table(self, name, /, *, database=None):
+            assert name == "query_info"
+            assert database is None
+            return ibis.table({"elapsed_time": "float64"}, name=name)
+
+    with _patch_connection_service(project, lambda _: _TrinoCompileBackend()):
+        metric_expr = _materialize_metric(project, "sales.p95_elapsed_time")
+
+    sql = ibis.trino.compile(metric_expr)
+    assert "APPROX_PERCENTILE" in sql.upper()
+
+
+def test_duckdb_percentile_aggregate_keeps_exact_quantile(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/latency.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(\n"
+                "    name='orders',\n"
+                "    datasource=md.ref('datasource.warehouse'),\n"
+                "    source=ms.table('orders'),\n"
+                ")\n"
+                "amount = ms.measure_column(\n"
+                "    name='amount',\n"
+                "    entity=orders,\n"
+                "    column='amount',\n"
+                "    additivity='non_additive',\n"
+                "    unit='USD',\n"
+                ")\n"
+                "p95_amount = ms.aggregate(\n"
+                "    name='p95_amount',\n"
+                "    measure=amount,\n"
+                "    agg=('percentile', 0.95),\n"
+                "    unit='USD',\n"
+                ")\n"
+            ),
+        }
+    )
+
+    with _patch_connection_service(project, backend_factory):
+        metric_expr = _materialize_metric(project, "sales.p95_amount")
+
+    assert metric_expr.op().__class__.__name__ == "Quantile"
+    assert metric_expr.to_pandas() == pytest.approx(195.0)
+
+
 # ---------------------------------------------------------------------------
 # Column helper parity
 # ---------------------------------------------------------------------------

@@ -398,12 +398,18 @@ class Materializer:
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
-        self._check_single_datasource(metric_ir, registry)
+        datasource_id = self._resolve_single_datasource(metric_ir, registry)
+        backend_type = self._backend_type_for_datasource(datasource_id, registry)
         if target_kind == "entity":
             return self.entity(target_id).count()
         if target_kind == "measure":
             column = self.measure(target_id)
-            return self._apply_agg(semantic_id, column, metric_ir.aggregation)
+            return self._apply_agg(
+                semantic_id,
+                column,
+                metric_ir.aggregation,
+                backend_type=backend_type,
+            )
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
             f"Tier-1 metric {semantic_id!r} has unsupported target kind {target_kind!r}.",
@@ -411,7 +417,14 @@ class Materializer:
             refs=(semantic_id,),
         )
 
-    def _apply_agg(self, semantic_id: str, column: ir.Value, agg: Any) -> ir.Value:
+    def _apply_agg(
+        self,
+        semantic_id: str,
+        column: ir.Value,
+        agg: Any,
+        *,
+        backend_type: str | None = None,
+    ) -> ir.Value:
         agg_name = agg[0] if isinstance(agg, tuple) else agg
         if agg_name == "sum":
             return column.sum()
@@ -428,6 +441,8 @@ class Materializer:
         if agg_name == "median":
             return column.median()
         if agg_name == "percentile":
+            if backend_type == "trino":
+                return column.approx_quantile(agg[1])
             return column.quantile(agg[1])
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
@@ -496,6 +511,8 @@ class Materializer:
                 },
             )
         if metric_ir.aggregation is not None:
+            datasource_id = self._resolve_single_datasource(metric_ir, registry)
+            backend_type = self._backend_type_for_datasource(datasource_id, registry)
             target_kind = metric_ir.aggregation_target_kind or (
                 "measure" if metric_ir.measure is not None else None
             )
@@ -528,7 +545,12 @@ class Materializer:
             column = self._call_field_callable(
                 target_id, measure_ir.name, measure_callable, tables[0]
             )
-            return self._apply_agg(semantic_id, column, metric_ir.aggregation)
+            return self._apply_agg(
+                semantic_id,
+                column,
+                metric_ir.aggregation,
+                backend_type=backend_type,
+            )
         callable_ = sidecar.get(semantic_id)
         if callable_ is None:
             _raise(
@@ -613,16 +635,16 @@ class Materializer:
             refs=(semantic_id,),
         )
 
-    def _check_single_datasource(self, metric_ir: MetricIR, registry: Any) -> None:
-        """All entities in a base metric must share the same datasource."""
+    def _resolve_single_datasource(self, metric_ir: MetricIR, registry: Registry) -> str | None:
+        """Return the metric datasource id, preserving cross-datasource enforcement."""
         if not metric_ir.entities:
-            return
+            return None
 
         datasource_ids: set[str] = set()
-        for ds_ref in metric_ir.entities:
-            ds_ir = registry.entities.get(ds_ref)
-            if ds_ir is not None:
-                datasource_ids.add(ds_ir.datasource)
+        for entity_id in metric_ir.entities:
+            entity_ir = registry.entities.get(entity_id)
+            if entity_ir is not None:
+                datasource_ids.add(entity_ir.datasource)
 
         if len(datasource_ids) > 1:
             _raise(
@@ -633,3 +655,18 @@ class Materializer:
                 cls=SemanticRuntimeError,
                 refs=(metric_ir.semantic_id,),
             )
+        return next(iter(datasource_ids), None)
+
+    def _backend_type_for_datasource(
+        self, datasource_id: str | None, registry: Registry
+    ) -> str | None:
+        if datasource_id is None:
+            return None
+        datasource_ir = registry.datasources.get(datasource_id)
+        if datasource_ir is None:
+            return None
+        return datasource_ir.backend_type
+
+    def _check_single_datasource(self, metric_ir: MetricIR, registry: Registry) -> None:
+        """All entities in a base metric must share the same datasource."""
+        self._resolve_single_datasource(metric_ir, registry)
