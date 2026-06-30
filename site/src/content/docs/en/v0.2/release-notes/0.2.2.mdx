@@ -1,0 +1,101 @@
+---
+slug: en/v0.2/release-notes/0.2.2
+title: Marivo 0.2.2
+description: Release notes for Marivo 0.2.2.
+---
+
+Marivo 0.2.2 is a v0.2 patch release that finishes the agent-facing datasource,
+semantic, and analysis surface cleanup started in the 0.2 line. It adds richer
+datasource discovery evidence, tightens semantic authoring contracts, and
+simplifies analysis result handoff around explicit artifacts and display
+contracts.
+
+## Highlights
+
+- Added the public datasource discovery surface for table, column, dimension,
+  measure, time, and relationship evidence, plus `md.raw_sql(...)` for
+  diagnostics.
+- Tightened semantic authoring around explicit refs and clearer help output, so
+  agents follow one discovery-to-authoring path instead of mixing prepare-era
+  APIs.
+- Unified analysis result display around artifact contracts, `show(...)`, and
+  compact frame summaries.
+- Repositioned `derive_metric_frame(...)` as a metadata-attachment helper that
+  keeps unbound columns available for downstream analysis.
+- Updated the packaged Marivo semantic and analysis skills with smaller
+  real-project examples and workflow-only guidance.
+
+## Changed
+
+- Datasource connections can now be used as context managers.
+- Datasource metadata and scanning collect richer profile, join-key, partition,
+  and warning evidence.
+- Semantic catalog browsing, help text, readiness reports, and richness checks
+  now expose a narrower agent-facing contract.
+- Analysis frames now carry content hashes and explicit display protocols for
+  stable artifact handoff.
+- Local quality tooling now routes through repository entrypoints and aligned
+  pre-commit configuration.
+
+## Fixed
+
+- `md.raw_sql(...)` no longer asks Trino to open a read-only transaction for
+  SELECT diagnostics.
+- Datasource raw SQL diagnostics now enforce read-only execution and release
+  inspection handles reliably.
+- Discovery output can return the full evidence payload when requested.
+- Trino comment metadata warnings are split cleanly from hard metadata errors.
+- Catalog browse hints, unreadable measure-column classification, percentile
+  aggregation help, and quantile folding are clearer.
+- Empty observe dimension selections are now accepted.
+- Artifact contract output uses the corrected schema field name.
+- Typed semantic refs are required consistently for verification and hour-prefix
+  helpers.
+
+## Documentation
+
+- Refreshed the `latest` and `v0.2` quick start, semantic-layer, analysis
+  workflow, readiness, and evidence pages for the new discovery and analysis
+  contracts.
+- Added design notes for datasource discovery, semantic skill layering, frame
+  result simplification, and analysis guidance layering.
+- Reworked packaged skill examples around small, runnable real-project
+  fixtures.
+
+## Breaking changes
+
+- The semantic prepare authoring stage and legacy prepare-oriented public APIs
+  are removed from the agent-facing surface.
+- Semantic authoring and verification now require typed refs instead of bare
+  string locators.
+- Concrete datasource discovery result types are hidden behind the public
+  discovery helpers.
+- Analysis frame/result exits are simplified around `show(...)`, artifact
+  contracts, and current core operators; older result-summary paths are removed
+  or renamed.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.2 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/v0.2/installation/)
+- [Quick Start](/en/v0.2/quick-start/)
+- [Semantic Layer](/en/v0.2/concepts/semantic-layer/)
+- [Analysis Workflow](/en/v0.2/concepts/analysis-workflow/)
