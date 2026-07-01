@@ -11,7 +11,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.intents.observe_errors import raise_observe_planning_error
 from marivo.analysis.windows.grain import Grain
 
-FoldKind = Literal["mean", "min", "max", "first", "last", "quantile"]
+FoldKind = Literal["mean", "min", "max", "first", "last", "percentile"]
 
 
 @dataclass(frozen=True)
@@ -168,7 +168,7 @@ def compile_fold(value: Any, sample_point: Any, time_fold: Any) -> Any:
         return value.argmin(sample_point)
     if kind == "last":
         return value.argmax(sample_point)
-    if kind == "quantile":
+    if kind == "percentile":
         return value.quantile(time_fold.q)
     raise AnalysisError(message=f"unsupported time_fold kind {kind!r}")
 

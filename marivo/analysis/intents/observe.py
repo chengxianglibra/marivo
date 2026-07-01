@@ -1982,19 +1982,19 @@ def observe(
     _captured_queries = session._connection_runtime.take_captured_queries()
     finished_at = datetime.now(UTC)
 
-    # Resolve quantile capability for quantile-folded metrics
+    # Resolve quantile capability for percentile-folded metrics
     _capability = None
     _time_fold = getattr(metric_ir, "time_fold", None)
-    if _time_fold is not None and _time_fold.kind == "quantile":
+    if _time_fold is not None and _time_fold.kind == "percentile":
         if primary_datasource is None:
             raise AnalysisError(
-                message="quantile sampled fold requires a primary datasource to resolve backend type.",
+                message="percentile sampled fold requires a primary datasource to resolve backend type.",
                 details={"metric": metric_ir.semantic_id},
             )
         backend_type = _resolve_backend_type(primary_datasource, str(session.project_root))
         if backend_type is None:
             raise AnalysisError(
-                message="quantile sampled fold could not resolve backend_type for the primary datasource.",
+                message="percentile sampled fold could not resolve backend_type for the primary datasource.",
                 details={"metric": metric_ir.semantic_id, "datasource": primary_datasource},
             )
         _capability = quantile_capability(backend_type)

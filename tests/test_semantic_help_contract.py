@@ -163,8 +163,16 @@ def test_measure_help_contract_inlines_additivity_shapes() -> None:
 
     assert additivity["allowed_values"] == ["additive", "non_additive", "ms.semi_additive(...)"]
     assert additivity["semi_additive"]["form"] == (
-        "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('quantile', q))"
+        "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('percentile', q))"
     )
+    assert additivity["semi_additive"]["fold_allowed_values"] == [
+        "mean",
+        "min",
+        "max",
+        "first",
+        "last",
+        "('percentile', q)",
+    ]
 
 
 def test_specific_metric_constructor_help_remains_available() -> None:

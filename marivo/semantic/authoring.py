@@ -506,15 +506,15 @@ def _normalize_time_fold(
             )
         return TimeFoldIR(kind=time_fold)  # type: ignore[arg-type]
     kind, q = time_fold
-    if kind != "quantile" or not isinstance(q, (float, int)) or not 0 < float(q) < 1:
+    if kind != "percentile" or not isinstance(q, (float, int)) or not 0 < float(q) < 1:
         _raise(
             ErrorKind.INVALID_TIME_FOLD,
-            "quantile time_fold must be ('quantile', q) with 0 < q < 1.",
+            "percentile time_fold must be ('percentile', q) with 0 < q < 1.",
             refs=(semantic_id,),
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.TIME_FOLD_VALID,
         )
-    return TimeFoldIR(kind="quantile", q=float(q))
+    return TimeFoldIR(kind="percentile", q=float(q))
 
 
 def _normalize_additivity(additivity: Additivity, *, semantic_id: str) -> Additivity:
@@ -736,7 +736,7 @@ def aggregate(
     name: str,
     measure: MeasureRef,
     agg: AggKind,
-    fold: str | tuple[Literal["quantile"], float] | None = None,
+    fold: str | tuple[Literal["percentile"], float] | None = None,
     unit: str | None = None,
     domain: DomainRef | None = None,
     ai_context: AiContextValue | None = None,
@@ -755,7 +755,7 @@ def aggregate(
             query group.
         fold: Time-axis fold override for semi-additive measures:
             ``"mean"``, ``"min"``, ``"max"``, ``"first"``, ``"last"``, or
-            ``("quantile", q)``. Same fold as ``ms.semi_additive(over, fold)``;
+            ``("percentile", q)``. Same fold as ``ms.semi_additive(over, fold)``;
             collapses the ``over`` time axis. Distinct from
             ``agg=("percentile", q)``, which aggregates across rows in each
             query group rather than along the time axis.
@@ -1852,7 +1852,7 @@ def validity(
 def semi_additive(
     *,
     over: TimeDimensionRef,
-    fold: str | tuple[Literal["quantile"], float],
+    fold: str | tuple[Literal["percentile"], float],
 ) -> SemiAdditive:
     """Declare a semi-additive nature: additive off the ``over`` time axis, folded by ``fold``.
 
@@ -1878,7 +1878,7 @@ def semi_additive(
     if fold_ir is None:
         _raise(
             ErrorKind.INVALID_REF,
-            "ms.semi_additive(...) requires a fold (e.g. 'last', 'max', ('quantile', 0.9)).",
+            "ms.semi_additive(...) requires a fold (e.g. 'last', 'max', ('percentile', 0.9)).",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )

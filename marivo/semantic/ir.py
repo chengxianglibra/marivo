@@ -402,17 +402,17 @@ class JoinKey:
 class TimeFoldIR:
     """Time folding declaration for sampled semi-additive metrics."""
 
-    kind: Literal["mean", "min", "max", "first", "last", "quantile"]
+    kind: Literal["mean", "min", "max", "first", "last", "percentile"]
     q: float | None = None
 
     def __post_init__(self) -> None:
-        if self.kind == "quantile" and self.q is None:
-            msg = "TimeFoldIR(kind='quantile') requires q to be set"
+        if self.kind == "percentile" and self.q is None:
+            msg = "TimeFoldIR(kind='percentile') requires q to be set"
             raise ValueError(msg)
 
     def label(self) -> str:
-        if self.kind == "quantile":
-            return f"quantile({self.q})"
+        if self.kind == "percentile":
+            return f"percentile({self.q})"
         return self.kind
 
 

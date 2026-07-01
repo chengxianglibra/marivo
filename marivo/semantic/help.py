@@ -124,7 +124,15 @@ def _additivity_content() -> dict[str, object]:
                 "use": "Summable except along a status time axis; requires fold and over.",
             },
         ],
-        "semi_additive_form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('quantile', q))",
+        "semi_additive_form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('percentile', q))",
+        "semi_additive_fold_values": [
+            "mean",
+            "min",
+            "max",
+            "first",
+            "last",
+            "('percentile', q)",
+        ],
         "rules": [
             "semi_additive requires over to be a declared @ms.time_dimension(...) ref",
             "fold is a metric definition choice, not an observe parameter",
@@ -158,6 +166,10 @@ def _additivity_text(content: dict[str, object]) -> str:
     )
     lines.extend(("", "Semi-additive form:"))
     lines.append(f"  {content['semi_additive_form']}")
+    fold_values = cast("list[str]", content["semi_additive_fold_values"])
+    lines.extend(("", "Semi-additive fold kinds:"))
+    for value in fold_values:
+        lines.append(f"  - {value}")
     lines.extend(("", "Rules:"))
     for rule in rules:
         lines.append(f"  - {rule}")
@@ -249,7 +261,15 @@ def _additivity_contract() -> dict[str, object]:
     return {
         "allowed_values": ["additive", "non_additive", "ms.semi_additive(...)"],
         "semi_additive": {
-            "form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('quantile', q))",
+            "form": "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('percentile', q))",
+            "fold_allowed_values": [
+                "mean",
+                "min",
+                "max",
+                "first",
+                "last",
+                "('percentile', q)",
+            ],
             "when": "measure or metric is additive except along one time axis",
         },
     }
@@ -579,9 +599,9 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                     ],
                 ),
                 "fold": _param(
-                    "str | ('quantile', float) | None",
-                    "time-axis fold override for semi-additive measures; ('quantile', q) "
-                    "collapses the over time axis to its q-th quantile (the same fold used "
+                    "str | ('percentile', float) | None",
+                    "time-axis fold override for semi-additive measures; ('percentile', q) "
+                    "collapses the over time axis to its q-th percentile (the same fold used "
                     "by ms.semi_additive(over, fold)); distinct from agg=('percentile', q), "
                     "which aggregates across rows in each query group rather than along the "
                     "time axis",
@@ -592,7 +612,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                         "max",
                         "first",
                         "last",
-                        "('quantile', q)",
+                        "('percentile', q)",
                     ],
                 ),
                 "unit": _param(
