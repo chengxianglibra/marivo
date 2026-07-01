@@ -190,3 +190,16 @@ def validate_decompose_columns(
                 )
             ]
     return []
+
+
+def validate_decompose_axes_columns(
+    frame: DeltaFrame,
+    axis_ids: list[str],
+    *,
+    source_df: pd.DataFrame,
+) -> list[AnalysisError]:
+    """Column-level decompose checks for multiple axes (aggregates per-axis issues)."""
+    errors: list[AnalysisError] = []
+    for axis_id in axis_ids:
+        errors.extend(validate_decompose_columns(frame, axis_id, source_df=source_df))
+    return errors

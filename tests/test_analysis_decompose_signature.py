@@ -10,6 +10,6 @@ def test_decompose_signature_has_no_triggered_by():
     assert "_triggered_by" not in params
 
 
-def test_decompose_signature_is_frame_axis_session_with_internal_kwargs():
+def test_decompose_signature_is_frame_axes_axis_session_with_internal_kwargs():
     params = list(inspect.signature(decompose).parameters)
-    assert params == ["frame", "axis", "session", "_intent", "_params_extra"]
+    assert params == ["frame", "axes", "axis", "session", "_intent", "_params_extra"]

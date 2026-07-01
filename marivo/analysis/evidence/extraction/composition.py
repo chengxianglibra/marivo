@@ -8,7 +8,6 @@ from typing import Any
 
 import pandas as pd
 
-from marivo.analysis.errors import FindingExtractionFailedError
 from marivo.analysis.evidence.identity import make_finding_id
 from marivo.analysis.evidence.types import Finding, Subject
 
@@ -63,10 +62,7 @@ def extract_decomposition_findings(
 ) -> list[Finding]:
     """Extract one finding per contribution row."""
     if df.empty:
-        raise FindingExtractionFailedError(
-            message="decomposition extraction requires at least one contribution row",
-            details={"artifact_id": artifact_id},
-        )
+        return []
 
     findings: list[Finding] = []
     for _, row in df.iterrows():

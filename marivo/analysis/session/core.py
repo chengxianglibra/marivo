@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.intents._shape import SemanticShape
     from marivo.analysis.intents._types import SliceValue
-    from marivo.analysis.intents.attribute import AttributeMode
     from marivo.analysis.intents.transform import NormalizeKind
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.publish.publish_targets import PublishTarget
@@ -787,14 +786,14 @@ class Session:
         frame: DeltaFrame,
         *,
         axes: list[DimensionInput],
-        mode: AttributeMode = "flat",
     ) -> AttributionFrame:
         """Attribute a DeltaFrame's movement over explicit deterministic axes.
 
-        When to use: compute deterministic contribution rows for a compared metric.
-        This operator does not explain business causes and does not choose axes
-        for the agent. Pass explicit axes selected from the catalog or from a
-        CandidateSet.
+        When to use: after observe -> compare, compute deterministic
+        contribution rows for explicit axes selected by the caller. If a
+        requested axis is missing from the input DeltaFrame, Marivo attempts to
+        replay the source observe/compare lineage with the extra axis and fails
+        closed when replay is not recoverable.
         Component-aware ratio and weighted-average deltas use mix attribution.
         Plain non-linear sampled folds such as percentile, min, max, first, or
         last cannot be summed by axis and remain unsupported unless they are
@@ -803,12 +802,12 @@ class Session:
         Args:
             frame: A DeltaFrame produced by ``session.compare``.
             axes: One or more catalog dimension refs/objects to attribute over.
-            mode: ``"flat"`` for a single-axis attribution, ``"nested"`` or
-                ``"recursive"`` for flattened hierarchy rows over multiple axes.
 
         Raises:
             SemanticKindMismatchError: ``frame`` is not a DeltaFrame, axes are
-                missing, an axis is not present in the frame, or mode is unsupported.
+                missing, or axes contain duplicates.
+            AttributionMaterializationError: A requested axis is missing from
+                the DeltaFrame and replay is not recoverable.
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:
@@ -818,7 +817,7 @@ class Session:
         """
         from marivo.analysis.intents.attribute import attribute
 
-        return attribute(frame, axes=axes, mode=mode, session=self)
+        return attribute(frame, axes=axes, session=self)
 
     def correlate(
         self,

@@ -348,7 +348,7 @@ def test_select_axis_returns_catalog_ref_for_discovered_driver_axis(tmp_path):
 
     drivers = session.attribute(src, axes=[selected_axis])
     assert drivers.meta.kind == "attribution_frame"
-    assert drivers.meta.driver_field == "region"
+    assert drivers.meta.driver_field == "path"
 
 
 def test_select_window_feeds_transform_window():

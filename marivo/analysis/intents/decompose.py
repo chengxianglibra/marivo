@@ -5,6 +5,7 @@ from __future__ import annotations
 # mypy: disable-error-code=import-untyped
 from datetime import UTC, datetime
 from time import monotonic
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,7 +27,11 @@ from marivo.analysis.intents._derived import (
     require_numeric_column,
     resolve_session,
 )
-from marivo.analysis.intents._validate import raise_first, validate_decompose_columns
+from marivo.analysis.intents._validate import (
+    raise_first,
+    validate_decompose_axes_columns,
+    validate_decompose_columns,
+)
 from marivo.analysis.semantic_inputs import DimensionInput, normalize_dimension_boundary
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.core import Session, ensure_session_writable
@@ -426,10 +431,112 @@ def _component_mix_output(
     return pd.concat(pieces, ignore_index=True)
 
 
+def _normalize_axes_boundary(
+    session: Session,
+    axes: list[DimensionInput] | None,
+    axis: DimensionInput | None,
+) -> list[str]:
+    if axes is None and axis is not None:
+        axes = [axis]
+    if not axes:
+        raise SemanticKindMismatchError(
+            message="decompose requires at least one axis",
+            details={"argument": "axes"},
+        )
+    axis_ids = [_normalize_axis_boundary(session, item) for item in axes]
+    if len(set(axis_ids)) != len(axis_ids):
+        raise SemanticKindMismatchError(
+            message="decompose axes must be distinct",
+            details={"argument": "axes", "reason": "duplicate_axes", "axes": axis_ids},
+        )
+    return axis_ids
+
+
+def _axis_columns_for_delta(
+    frame: DeltaFrame,
+    axis_ids: list[str],
+    *,
+    source_df: pd.DataFrame,
+) -> list[str]:
+    available_columns = [str(column) for column in source_df.columns]
+    axis_columns: list[str] = []
+    for axis_id in axis_ids:
+        axis_column = _effective_component_axis_column(frame, axis_id, available_columns)
+        if axis_column is None:
+            raise_first(validate_decompose_columns(frame, axis_id, source_df=source_df))
+        assert axis_column is not None  # validated above; needed for type narrowing
+        axis_columns.append(axis_column)
+    if len(set(axis_columns)) != len(axis_columns):
+        raise SemanticKindMismatchError(
+            message="decompose axes must resolve to distinct columns",
+            details={
+                "argument": "axes",
+                "reason": "duplicate_axis_columns",
+                "axis_columns": axis_columns,
+            },
+        )
+    return axis_columns
+
+
+def _ordered_hierarchy_output(
+    df: pd.DataFrame,
+    *,
+    axis_columns: list[str],
+    value_column: str,
+    bucket_column: str | None = None,
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    bucket_values: list[object] = [None]
+    if bucket_column is not None:
+        bucket_values = list(df[bucket_column].drop_duplicates())
+
+    for bucket_value in bucket_values:
+        bucket_df = df if bucket_column is None else df[df[bucket_column] == bucket_value]
+        denominator = float(bucket_df[value_column].sum())
+        for level in range(1, len(axis_columns) + 1):
+            group_columns = axis_columns[:level]
+            grouped = (
+                bucket_df.groupby(group_columns, dropna=False)[value_column]
+                .sum()
+                .reset_index()
+                .rename(columns={value_column: "contribution"})
+            )
+            grouped["_abs_contribution"] = grouped["contribution"].abs()
+            grouped = grouped.sort_values(
+                "_abs_contribution",
+                ascending=False,
+                kind="mergesort",
+            ).reset_index(drop=True)
+            for rank_val, (_, row) in enumerate(grouped.iterrows(), start=1):
+                path_parts = [str(row[column]) for column in group_columns]
+                contribution = float(row["contribution"])
+                output_row: dict[str, object] = {
+                    "level": level,
+                    "axis": axis_columns[level - 1],
+                    "driver": row[axis_columns[level - 1]],
+                    "path": " > ".join(path_parts),
+                    "contribution": contribution,
+                    "pct_contribution": contribution / denominator if denominator != 0 else np.nan,
+                    "rank": rank_val,
+                }
+                if bucket_column is not None:
+                    output_row[bucket_column] = bucket_value
+                rows.append(output_row)
+
+    columns = ["level", "axis", "driver", "path", "contribution", "pct_contribution", "rank"]
+    if bucket_column is not None:
+        columns = [bucket_column, *columns]
+    output = pd.DataFrame(rows)
+    if output.empty:
+        output = pd.DataFrame(columns=columns)
+    return output[columns]
+
+
 def decompose(
     frame: DeltaFrame,
     *,
-    axis: DimensionInput,
+    axes: list[DimensionInput] | None = None,
+    axis: DimensionInput | None = None,
     session: Session | None = None,
     _intent: str = "decompose",
     _params_extra: dict[str, object] | None = None,
@@ -438,7 +545,7 @@ def decompose(
     ensure_session_writable(session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="decompose requires a DeltaFrame input")
-    axis_id = _normalize_axis_boundary(session, axis)
+    axis_ids = _normalize_axes_boundary(session, axes, axis)
     params_extra = dict(_params_extra or {})
     ensure_frame_in_session(frame, session=session, label="decompose frame")
     if frame.meta.semantic_kind not in {"scalar", "time_series", "segmented", "panel"}:
@@ -454,18 +561,24 @@ def decompose(
     started_at = datetime.now(UTC)
     started = monotonic()
     source_df = frame.to_pandas()
-    raise_first(validate_decompose_columns(frame, axis_id, source_df=source_df))
     value_column = require_numeric_column(source_df, "delta", purpose="decompose")
-    available_columns = [str(column) for column in source_df.columns]
-    axis_column = _effective_component_axis_column(frame, axis_id, available_columns)
-
-    if axis_column is None:
-        raise_first(validate_decompose_columns(frame, axis_id, source_df=source_df))
-
-    assert axis_column is not None  # validated above; needed for type narrowing
+    raise_first(validate_decompose_axes_columns(frame, axis_ids, source_df=source_df))
+    axis_columns = _axis_columns_for_delta(frame, axis_ids, source_df=source_df)
 
     # Component-aware path: ratio/weighted mix or linear additive attribution.
     if component is not None:
+        if len(axis_ids) != 1:
+            raise ComponentDecompositionError(
+                message="component-aware decompose currently supports exactly one axis",
+                details={
+                    "delta_ref": frame.ref,
+                    "axis_count": len(axis_ids),
+                    "axes": axis_ids,
+                    "reason": "component_multi_axis_not_supported",
+                },
+            )
+        axis_id = axis_ids[0]
+        axis_column = axis_columns[0]
         component_columns = [str(column) for column in component.to_pandas().columns]
         component_axis_column = _effective_component_axis_column(frame, axis_id, component_columns)
         if component_axis_column is None:
@@ -493,18 +606,19 @@ def decompose(
             )
             method = _component_method(component)
         axis_column = component_axis_column
-        params = {
+        # Component-aware decompose uses the raw axis column as driver_field; its output schema is not the ordered-hierarchy format.
+        params: dict[str, Any] = {
             "source_ref": frame.ref,
             "component_ref": component.ref,
-            "axis": {"semantic_id": axis_id},
+            "axes": axis_ids,
+            "axis_columns": [axis_column],
             "measure_column": "delta",
             "driver_field": axis_column,
             "value_column": "delta",
             "contribution_column": "contribution",
             "method": method,
-            "mode": params_extra.get("mode", "flat"),
-            "axes": params_extra.get("axes", [axis_id]),
         }
+        params.update(params_extra)
         return persist_attribution_frame(
             session=session,
             df=output,
@@ -525,39 +639,24 @@ def decompose(
 
     if frame.meta.semantic_kind == "panel":
         bucket_column = _bucket_column_for_panel(frame)
-
-        grouped = (
-            source_df.groupby([bucket_column, axis_column], dropna=False)[value_column]
-            .sum()
-            .reset_index()
-            .rename(columns={value_column: "contribution"})
+        output = _ordered_hierarchy_output(
+            source_df,
+            axis_columns=axis_columns,
+            value_column=value_column,
+            bucket_column=bucket_column,
         )
-        bucket_total = grouped.groupby(bucket_column, dropna=False)["contribution"].transform("sum")
-        grouped["pct_contribution"] = np.where(
-            bucket_total != 0,
-            grouped["contribution"] / bucket_total,
-            np.nan,
-        )
-        grouped["_abs_contribution"] = grouped["contribution"].abs()
-        grouped = grouped.sort_values(
-            [bucket_column, "_abs_contribution"],
-            ascending=[True, False],
-            kind="mergesort",
-        ).reset_index(drop=True)
-        grouped["rank"] = grouped.groupby(bucket_column, dropna=False).cumcount() + 1
-        output = grouped[[bucket_column, axis_column, "contribution", "pct_contribution", "rank"]]
         params = {
             "source_ref": frame.ref,
-            "axis": {"semantic_id": axis_id},
+            "axes": axis_ids,
+            "axis_columns": axis_columns,
             "measure_column": value_column,
             "bucket_column": bucket_column,
-            "driver_field": axis_column,
+            "driver_field": "path",
             "value_column": value_column,
             "contribution_column": "contribution",
-            "method": "sum",
-            "mode": params_extra.get("mode", "flat"),
-            "axes": params_extra.get("axes", [axis_id]),
+            "method": "ordered_hierarchy_sum",
         }
+        params.update(params_extra)
         return persist_attribution_frame(
             session=session,
             df=output,
@@ -566,38 +665,32 @@ def decompose(
             sources=[frame],
             metric_ids=[frame.meta.metric_id],
             attribution_kind="decomposition",
-            driver_field=axis_column,
+            driver_field="path",
             value_column=value_column,
             contribution_column="contribution",
-            method="sum",
+            method="ordered_hierarchy_sum",
             semantic_kind=frame.meta.semantic_kind,
             semantic_model=frame.meta.semantic_model,
             started_at=started_at,
             started_monotonic=started,
         )
 
-    grouped = source_df.groupby(axis_column, dropna=False)[value_column].sum().reset_index()
-    grouped["contribution"] = grouped[value_column]
-    total = float(grouped["contribution"].sum())
-    grouped["pct_contribution"] = np.where(
-        total != 0,
-        grouped["contribution"] / total,
-        np.nan,
+    output = _ordered_hierarchy_output(
+        source_df,
+        axis_columns=axis_columns,
+        value_column=value_column,
     )
-    grouped = grouped.reindex(
-        grouped["contribution"].abs().sort_values(ascending=False).index
-    ).reset_index(drop=True)
-    grouped["rank"] = range(1, len(grouped) + 1)
-    output = grouped
-    driver_field = axis_column
-
     params = {
         "source_ref": frame.ref,
-        "axis": {"semantic_id": axis_id},
+        "axes": axis_ids,
+        "axis_columns": axis_columns,
         "measure_column": value_column,
-        "mode": params_extra.get("mode", "flat"),
-        "axes": params_extra.get("axes", [axis_id]),
+        "driver_field": "path",
+        "value_column": value_column,
+        "contribution_column": "contribution",
+        "method": "ordered_hierarchy_sum",
     }
+    params.update(params_extra)
     return persist_attribution_frame(
         session=session,
         df=output,
@@ -606,10 +699,10 @@ def decompose(
         sources=[frame],
         metric_ids=[frame.meta.metric_id],
         attribution_kind="decomposition",
-        driver_field=driver_field,
+        driver_field="path",
         value_column=value_column,
         contribution_column="contribution",
-        method="sum",
+        method="ordered_hierarchy_sum",
         semantic_kind=frame.meta.semantic_kind,
         semantic_model=frame.meta.semantic_model,
         started_at=started_at,

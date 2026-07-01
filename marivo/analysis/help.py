@@ -75,7 +75,7 @@ _SUMMARIES: dict[str, str] = {
     "frames": "analysis frame and frame metadata types",
     "observe": "build a MetricFrame from a metric and window",
     "compare": "compare two MetricFrames into a DeltaFrame",
-    "attribute": "attribute a DeltaFrame into an AttributionFrame over explicit axes",
+    "attribute": "attribute a DeltaFrame into an AttributionFrame over explicit axes; missing axes are materialized from recoverable lineage",
     "discover": "discover deterministic candidate sets from analysis artifacts",
     "transform": "family-preserving reshape of a MetricFrame or DeltaFrame",
     "correlate": "correlate compatible analysis frames",
@@ -340,7 +340,7 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
     {
         "name": "attribute",
         "group": "intents",
-        "summary": "attribute a DeltaFrame over explicit deterministic axes",
+        "summary": "attribute a DeltaFrame over explicit axes, materializing missing axes when replay is recoverable",
     },
     {
         "name": "correlate",

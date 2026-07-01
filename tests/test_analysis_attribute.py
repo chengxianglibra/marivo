@@ -9,7 +9,10 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import SemanticKindMismatchError
+from marivo.analysis.errors import (
+    AttributionMaterializationError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -94,13 +97,12 @@ def test_attribute_single_axis_returns_attribution_frame_with_public_lineage() -
     assert isinstance(out, AttributionFrame)
     assert out.meta.kind == "attribution_frame"
     assert out.lineage.steps[-1].intent == "attribute"
-    assert out.meta.method == "sum"
-    assert out.meta.params["mode"] == "flat"
+    assert out.meta.method == "ordered_hierarchy_sum"
     assert out.meta.params["axes"] == ["sales.orders.region"]
-    assert out.meta.driver_field == "region"
-    assert out.to_pandas()[["region", "contribution"]].to_dict("records") == [
-        {"region": "US", "contribution": 14.0},
-        {"region": "CN", "contribution": -2.0},
+    assert out.meta.driver_field == "path"
+    assert out.to_pandas()[["driver", "contribution"]].to_dict("records") == [
+        {"driver": "US", "contribution": 14.0},
+        {"driver": "CN", "contribution": -2.0},
     ]
 
 
@@ -123,11 +125,10 @@ def test_attribute_nested_axes_returns_flattened_hierarchy_rows() -> None:
             make_ref("sales.orders.region", SemanticKind.DIMENSION),
             make_ref("sales.orders.platform", SemanticKind.DIMENSION),
         ],
-        mode="nested",
     )
 
     rows = out.to_pandas().to_dict("records")
-    assert out.meta.method == "nested_sum"
+    assert out.meta.method == "ordered_hierarchy_sum"
     assert out.meta.driver_field == "path"
     assert rows == [
         {
@@ -195,13 +196,122 @@ def test_attribute_requires_explicit_axes() -> None:
         session.attribute(frame, axes=[])
 
 
-def test_attribute_rejects_unknown_mode() -> None:
+def test_attribute_present_axes_delegates_to_decompose_without_materialization() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US", "CN", "US"],
+                "delta": [10.0, -2.0, 4.0],
+            }
+        ),
+    )
+
+    out = session.attribute(
+        frame,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+    )
+
+    assert isinstance(out, AttributionFrame)
+    assert out.lineage.steps[-1].intent == "attribute"
+    assert out.meta.params["materialization_status"] == "not_required"
+    assert out.meta.params["source_ref"] == "frame_delta"
+    assert out.meta.params["axes"] == ["sales.orders.region"]
+    assert "mode" not in out.meta.params
+
+
+def test_attribute_rejects_duplicate_axes() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"region": ["US"], "delta": [10.0]}))
 
-    with pytest.raises(SemanticKindMismatchError, match="unsupported attribute mode"):
-        session.attribute(  # type: ignore[arg-type]
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        session.attribute(
             frame,
-            axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
-            mode="magic",
+            axes=[
+                make_ref("sales.orders.region", SemanticKind.DIMENSION),
+                make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            ],
         )
+
+    assert exc_info.value.details["reason"] == "duplicate_axes"
+
+
+def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_factory) -> None:
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+            ),
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+            ),
+            "sales/datasets.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "warehouse = md.ref('datasource.warehouse')\n"
+                "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day')\n"
+                "def created_at(orders):\n"
+                "    return orders.created_at.cast('date')\n"
+                "@ms.dimension(entity=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region\n"
+                "@ms.metric(entities=[orders], additivity='additive', name='revenue')\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    import ibis
+
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE orders (id INTEGER, created_at DATE, region VARCHAR, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 'US', 100.0),"
+        "(2, DATE '2026-07-02', 'CN', 20.0),"
+        "(3, DATE '2025-07-01', 'US', 70.0),"
+        "(4, DATE '2025-07-02', 'CN', 30.0)"
+    )
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
+    revenue = session.catalog.get("metric.sales.revenue")
+    region = session.catalog.get("dimension.sales.orders.region").ref
+    cur = session.observe(
+        revenue,
+        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+    )
+    base = session.observe(
+        revenue,
+        time_scope={"start": "2025-07-01", "end": "2025-08-01"},
+    )
+    delta = session.compare(cur, base)
+
+    out = session.attribute(delta, axes=[region])
+
+    assert isinstance(out, AttributionFrame)
+    assert out.meta.params["materialization_status"] == "expanded"
+    assert out.meta.params["original_delta_ref"] == delta.ref
+    assert out.meta.params["missing_axes"] == ["sales.orders.region"]
+    assert out.meta.params["expanded_delta_ref"]
+    assert out.to_pandas()[["driver", "contribution"]].to_dict("records") == [
+        {"driver": "US", "contribution": 30.0},
+        {"driver": "CN", "contribution": -10.0},
+    ]
+    assert [job.intent for job in session.jobs()].count("observe") == 4
+    assert [job.intent for job in session.jobs()].count("compare") == 2
+
+
+def test_attribute_missing_axis_without_replayable_sources_fails_closed() -> None:
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(session, pd.DataFrame({"delta": [10.0]}))
+
+    with pytest.raises(AttributionMaterializationError) as exc_info:
+        session.attribute(frame, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
+
+    assert exc_info.value.details["delta_ref"] == "frame_delta"
+    assert exc_info.value.details["missing_axes"] == ["sales.orders.region"]
+    assert exc_info.value.details["recoverability_status"] in {
+        "source_frame_missing",
+        "observe_params_missing",
+    }
