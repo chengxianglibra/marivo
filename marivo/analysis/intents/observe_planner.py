@@ -47,7 +47,6 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
-from marivo.semantic.refs import make_ref
 
 
 class JoinSafety(StrEnum):
@@ -346,7 +345,7 @@ def _metric(catalog: SemanticCatalog, ref: str) -> MetricDetails:
 def _fields_for_entity(catalog: SemanticCatalog, entity_ref: str) -> list[FieldDetails]:
     fields: list[FieldDetails] = []
     for kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-        for obj in catalog.list(make_ref(entity_ref, SemanticKind.ENTITY), kind=kind):
+        for obj in catalog.list(f"entity.{entity_ref}", kind=kind):
             details = obj.details()
             if isinstance(details, (DimensionDetails, TimeDimensionDetails)):
                 fields.append(details)
@@ -458,7 +457,7 @@ def _resolve_field_ref(
         else {
             obj.ref.id
             for domain in catalog.list(kind=SemanticKind.DOMAIN)
-            for obj in catalog.list(domain.ref, kind=SemanticKind.ENTITY)
+            for obj in catalog.list(f"domain.{domain.ref.id}", kind=SemanticKind.ENTITY)
         },
     )
     if "." in ref_id:
@@ -611,9 +610,7 @@ def _relationship_neighbors(
 ) -> list[tuple[str, RelationshipInfo]]:
     neighbors: list[tuple[str, RelationshipInfo]] = []
     relationships: list[RelationshipInfo] = []
-    for obj in catalog.list(
-        make_ref(dataset_id, SemanticKind.ENTITY), kind=SemanticKind.RELATIONSHIP
-    ):
+    for obj in catalog.list(f"entity.{dataset_id}", kind=SemanticKind.RELATIONSHIP):
         details = obj.details()
         if isinstance(details, RelationshipDetails):
             relationships.append(_planned_relationship(details))

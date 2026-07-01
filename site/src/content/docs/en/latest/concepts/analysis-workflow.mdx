@@ -37,8 +37,8 @@ can recover it by ref without re-querying the datasource.
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("sales.revenue")           # a metric object
-region = catalog.get("sales.orders.region")      # a dimension object
+revenue = catalog.get("metric.sales.revenue")           # a metric object
+region = catalog.get("dimension.sales.orders.region")      # a dimension object
 ```
 
 `get_or_create` is idempotent: it attaches to an existing session of that name or
@@ -58,8 +58,8 @@ across almost every intent:
 
 | Value | Shape | Meaning |
 | --- | --- | --- |
-| metric input | `catalog.get("sales.revenue")` | A semantic-id string, catalog metric object, or `MetricRef`. Authoring refs from `ms.aggregate(...)` also work; ref-only enforcement applies to semantic authoring parameters, not analysis consumption inputs. |
-| dimension input | `catalog.get("sales.orders.region")` | A semantic-id string, catalog dimension object, or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
+| metric input | `catalog.get("metric.sales.revenue")` | A semantic-id string, catalog metric object, or `MetricRef`. Authoring refs from `ms.aggregate(...)` also work; ref-only enforcement applies to semantic authoring parameters, not analysis consumption inputs. |
+| dimension input | `catalog.get("dimension.sales.orders.region")` | A semantic-id string, catalog dimension object, or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
 | `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
@@ -251,7 +251,7 @@ import marivo.datasource as md
 
 warehouse = md.ref("datasource.warehouse")
 custom = session.derive_metric_frame(
-    metric=session.catalog.get("sales.revenue"),
+    metric=session.catalog.get("metric.sales.revenue"),
     query=mv.ibis_query(
         datasource=warehouse,
         build=lambda db, ctx: db.table("orders"),
@@ -260,12 +260,12 @@ custom = session.derive_metric_frame(
         value="value",
         time=mv.time_column(
             column="order_date",
-            ref=session.catalog.get("sales.orders.order_date"),
+            ref=session.catalog.get("time_dimension.sales.orders.order_date"),
         ),
         dimensions=[
             mv.dimension_column(
                 column="region",
-                ref=session.catalog.get("sales.orders.region"),
+                ref=session.catalog.get("dimension.sales.orders.region"),
             ),
         ],
     ),
@@ -328,8 +328,8 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("sales.revenue")
-region = catalog.get("sales.orders.region")
+revenue = catalog.get("metric.sales.revenue")
+region = catalog.get("dimension.sales.orders.region")
 
 current = session.observe(
     revenue,

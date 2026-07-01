@@ -143,6 +143,7 @@ Use `ms.load()` for current semantic state:
 ```python
 catalog = ms.load()
 catalog.list().show()
+catalog.list("domain.sales", kind=ms.SemanticKind.METRIC).show()
 catalog.list(kind=ms.SemanticKind.METRIC).show()
 catalog.get("metric.sales.revenue").details().show()
 ```

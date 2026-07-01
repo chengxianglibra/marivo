@@ -96,7 +96,6 @@ from marivo.semantic.catalog import (
     TimeDimensionDetails,
 )
 from marivo.semantic.ir import HourPrefixParse
-from marivo.semantic.refs import make_ref
 
 # ---------------------------------------------------------------------------
 # catalog-details -> runner adapter types
@@ -172,10 +171,6 @@ class _EntityIRAdapter:
         self.fields = fields
 
 
-def catalog_ref(ref: str, kind: SemanticKind) -> SemanticRef:
-    return make_ref(ref, kind)
-
-
 def _catalog_id(ref: str, kind: SemanticKind) -> str:
     return f"{kind.value}.{ref}"
 
@@ -216,7 +211,7 @@ def _fields_for_entity(
 ) -> list[DimensionDetails | TimeDimensionDetails]:
     fields: list[DimensionDetails | TimeDimensionDetails] = []
     for kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-        for obj in catalog.list(catalog_ref(entity_ref, SemanticKind.ENTITY), kind=kind):
+        for obj in catalog.list(f"entity.{entity_ref}", kind=kind):
             details = obj.details()
             if isinstance(details, (DimensionDetails, TimeDimensionDetails)):
                 fields.append(details)
@@ -1730,7 +1725,7 @@ def observe(
         all_entity_refs = {
             obj.ref.id
             for domain in catalog.list(kind=SemanticKind.DOMAIN)
-            for obj in catalog.list(domain.ref, kind=SemanticKind.ENTITY)
+            for obj in catalog.list(f"domain.{domain.ref.id}", kind=SemanticKind.ENTITY)
         }
         _, _, all_dataset_irs, all_dataset_fns = _entity_adapter_maps(
             catalog=catalog,
