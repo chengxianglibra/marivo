@@ -1,0 +1,56 @@
+---
+slug: en/latest/release-notes/0.2.4
+title: Marivo 0.2.4
+description: Release notes for Marivo 0.2.4.
+---
+
+Marivo 0.2.4 is a v0.2 patch release for the static artifact publishing path.
+It makes S3-hosted HTML reports easier to serve correctly and easier for agents
+to hand off after `marivo publish`.
+
+## Highlights
+
+- S3 publishing now uploads HTML artifacts with an explicit `text/html;
+  charset=utf-8` content type.
+- Static publish results now expose the reader-facing URL that should be opened
+  after a publish succeeds.
+- The `marivo publish` CLI now includes the published reader URL in its success
+  output.
+
+## Fixed
+
+- HTML report artifacts published to S3 no longer rely on storage defaults for
+  their content type.
+- Agent final-report guidance now points to the publish result's reader URL
+  instead of requiring callers to reconstruct it.
+
+## Documentation
+
+- Updated installation and publishing guidance with the S3 HTML content type
+  behavior and reader URL handoff.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.4 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/latest/installation/)
+- [Quick Start](/en/latest/quick-start/)
+- [Semantic Layer](/en/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/)

@@ -19,6 +19,7 @@ const commonDocs = [
 const docsByVersion = {
   latest: [
     ...commonDocs,
+    'release-notes/0.2.4.mdx',
     'release-notes/0.2.3.mdx',
     'release-notes/0.2.2.mdx',
     'release-notes/0.2.1.mdx',
@@ -27,6 +28,7 @@ const docsByVersion = {
   ],
   'v0.2': [
     ...commonDocs,
+    'release-notes/0.2.4.mdx',
     'release-notes/0.2.3.mdx',
     'release-notes/0.2.2.mdx',
     'release-notes/0.2.1.mdx',

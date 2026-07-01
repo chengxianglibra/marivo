@@ -1,0 +1,53 @@
+---
+slug: zh-cn/v0.2/release-notes/0.2.4
+title: Marivo 0.2.4
+description: Marivo 0.2.4 发布说明。
+---
+
+Marivo 0.2.4 是 v0.2 系列的 patch release，聚焦 static artifact publishing
+path。这个版本让发布到 S3 的 HTML reports 更容易被正确托管，也让 agents 在
+`marivo publish` 成功后更容易交付可打开的 reader-facing URL。
+
+## 重点
+
+- S3 publishing 现在会为 HTML artifacts 显式上传 `text/html; charset=utf-8`
+  content type。
+- Static publish results 现在暴露 publish 成功后应该打开的 reader-facing URL。
+- `marivo publish` CLI 现在会在成功输出中包含已发布的 reader URL。
+
+## 修复
+
+- 发布到 S3 的 HTML report artifacts 不再依赖 storage defaults 来推断 content type。
+- Agent final-report guidance 现在指向 publish result 中的 reader URL，不再要求调用方
+  自行重建 URL。
+
+## 文档
+
+- 更新 installation 与 publishing guidance，说明 S3 HTML content type 行为和 reader
+  URL handoff。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.4 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.2/installation/)
+- [快速开始](/zh-cn/v0.2/quick-start/)
+- [语义层](/zh-cn/v0.2/concepts/semantic-layer/)
+- [分析流程](/zh-cn/v0.2/concepts/analysis-workflow/)
