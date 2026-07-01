@@ -28,7 +28,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 | --- | --- | --- |
 | `session.observe` | You need a metric-backed frame from catalog evidence. | Read `mv.help("observe")` before authoring filters, windows, grain, or time-dimension arguments. |
 | `session.compare` | You have comparable observed metric frames and need a delta artifact. | Read `mv.help("compare")` and `mv.help("alignment")`; keep comparing frames, not already-derived deltas. |
-| `session.attribute` | You have a delta artifact and need driver attribution by catalog axes. | Use catalog objects at public boundaries; inspect the artifact contract before chaining. |
+| `session.attribute` | You have a delta artifact and need driver attribution by explicit catalog axes. | Pass catalog refs/objects; Marivo can materialize missing axes only when the source observe/compare lineage is recoverable. |
 | `session.discover.<objective>` | You need candidate windows, slices, axes, or anomalies from a frame. | Read `mv.help("discover")` for objective compatibility and required kwargs; inspect `CandidateSet.show()` and `CandidateSet.contract()` before selecting. |
 | `candidates.select(...)` | You need to carry one candidate value into the next step. | Use the selector contract from `mv.help("discover")` and the concrete candidate artifact. |
 | `session.correlate` | You need association evidence between metric frames. | Read `mv.help("correlate")` and use public alignment helpers. |

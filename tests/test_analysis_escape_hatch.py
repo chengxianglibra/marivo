@@ -980,7 +980,7 @@ def test_promoted_segmented_delta_alignment_includes_axes_for_decompose():
     assert delta.meta.alignment["axes"] == current.meta.axes
     assert "country" in delta.to_pandas().columns
     attribution = session.attribute(delta, axes=[make_ref("country", SemanticKind.DIMENSION)])
-    assert attribution.meta.driver_field == "country"
+    assert attribution.meta.driver_field == "path"
     assert attribution.to_pandas().iloc[0]["contribution"] == 10.0
 
 

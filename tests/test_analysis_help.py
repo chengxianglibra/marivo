@@ -89,6 +89,23 @@ def test_execution_operators_remain_help_only() -> None:
     assert "mv.compare" not in out
 
 
+def test_help_attribute_mentions_missing_axis_materialization_without_mode() -> None:
+    out = _capture("attribute").lower()
+
+    assert "missing" in out
+    assert "materialize" in out
+    assert "explicit" in out
+    assert "mode=" not in out
+    assert "recursive" not in out
+
+
+def test_help_decompose_is_not_top_level_agent_default() -> None:
+    out = _capture().lower()
+
+    assert "attribute" in out
+    assert "decompose" not in out
+
+
 def test_help_for_intent_includes_signature_and_docstring() -> None:
     from marivo.analysis.intents.select import select as select_fn
 

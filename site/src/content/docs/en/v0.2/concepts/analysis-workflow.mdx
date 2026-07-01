@@ -60,7 +60,7 @@ across almost every intent:
 | Value | Shape | Meaning |
 | --- | --- | --- |
 | metric input | `catalog.get("sales.revenue")` | A catalog metric object or its `SemanticRef` subclass (e.g. `MetricRef`). Authoring refs from `ms.aggregate(...)` also work. Bare strings are rejected. |
-| dimension input | `catalog.get("sales.orders.region")` | A catalog dimension object or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/v0.2/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `where` keys, and `axis`. |
+| dimension input | `catalog.get("sales.orders.region")` | A catalog dimension object or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/v0.2/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `where` keys, and `axes`. |
 | `timescope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
@@ -139,16 +139,17 @@ override — `mv.dow_aligned()`, `mv.holiday_aligned()`, or
 ### `attribute` → `AttributionFrame`
 
 Attribute a delta's movement across explicit axes. This is the default public
-entry point for "why did it change?" analysis.
+entry point for "why did it change?" analysis. If a requested axis is missing
+from the delta and the source observe/compare lineage is replayable, Marivo
+materializes the expanded delta before decomposing it.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | Yes | — | The delta to attribute. |
 | `axes` | `list[dimension]` | Yes | — | Segment or time axes to attribute over. |
-| `mode` | `"flat" \| "nested" \| "recursive"` | No | `"flat"` | Hierarchy expansion mode; output remains an `AttributionFrame`. |
 
 ```python
-attribution = session.attribute(delta, axes=[region], mode="flat")
+attribution = session.attribute(delta, axes=[region])
 attribution.show()
 ```
 

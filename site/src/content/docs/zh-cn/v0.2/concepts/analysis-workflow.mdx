@@ -52,7 +52,7 @@ Operators 接受 catalog 对象和若干共享的值对象。几乎每个 intent
 | 值 | 形态 | 含义 |
 | --- | --- | --- |
 | metric 输入 | `catalog.get("sales.revenue")` | 一个 catalog metric 对象或其 `SemanticRef` 子类（如 `MetricRef`）。来自 `ms.aggregate(...)` 的 authoring ref 也可用。裸字符串会被拒绝。 |
-| dimension 输入 | `catalog.get("sales.orders.region")` | 一个 catalog dimension 对象，或其 `DimensionRef` / `TimeDimensionRef`（见 [Semantic refs](/zh-cn/v0.2/concepts/semantic-layer/#semantic-refs)）。用于 `dimensions`、`where` 的 key 和 `axis`。 |
+| dimension 输入 | `catalog.get("sales.orders.region")` | 一个 catalog dimension 对象，或其 `DimensionRef` / `TimeDimensionRef`（见 [Semantic refs](/zh-cn/v0.2/concepts/semantic-layer/#semantic-refs)）。用于 `dimensions`、`where` 的 key 和 `axes`。 |
 | `timescope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | 半开时间区间 —— `start` 含、`end` 不含。 |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | 时间桶大小。存在 ⇒ time series 或 panel。 |
 | `dimensions` | `[region, country]` | 分段轴。v1 中全部必须解析到 metric 所属 entity。 |
@@ -128,15 +128,16 @@ delta = session.compare(current, baseline)
 ### `attribute` → `AttributionFrame`
 
 把 delta 的变动归因到显式 axes 上。这是“为什么变了？”分析的默认 public 入口。
+如果请求的 axis 在 delta 中缺失，且源 observe/compare 的 lineage 可重放，Marivo 会在
+分解之前先物化扩展后的 delta。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | 是 | — | 要归因的 delta。 |
 | `axes` | `list[dimension]` | 是 | — | 进行归因的分段轴或时间轴。 |
-| `mode` | `"flat" \| "nested" \| "recursive"` | 否 | `"flat"` | 层级展开方式；输出仍然是 `AttributionFrame`。 |
 
 ```python
-attribution = session.attribute(delta, axes=[region], mode="flat")
+attribution = session.attribute(delta, axes=[region])
 attribution.show()
 ```
 

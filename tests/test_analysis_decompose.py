@@ -110,10 +110,10 @@ def test_decompose_time_series_uses_axis_ref():
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.attribution_kind == "decomposition"
-    assert out.meta.driver_field == "bucket"
+    assert out.meta.driver_field == "path"
     assert out.meta.metric_ids == ["sales.revenue"]
     df = out.to_pandas()
-    assert list(df["bucket"]) == ["2026-07-01", "2026-07-03", "2026-07-02"]
+    assert list(df["driver"]) == ["2026-07-01", "2026-07-03", "2026-07-02"]
     assert list(df["rank"]) == [1, 2, 3]
     assert df.iloc[0]["contribution"] == pytest.approx(10.0)
 
@@ -134,9 +134,155 @@ def test_decompose_segmented_uses_axis_ref():
     out = decompose(frame, axis=make_ref("region", SemanticKind.DIMENSION), session=session)
 
     df = out.to_pandas()
-    assert list(df["region"]) == ["north", "south"]
+    assert list(df["driver"]) == ["north", "south"]
     assert list(df["contribution"]) == [pytest.approx(15.0), pytest.approx(-3.0)]
     assert list(df["rank"]) == [1, 2]
+
+
+def test_decompose_axes_single_axis_returns_level_one_hierarchy_rows():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["north", "north", "south"],
+                "delta": [10.0, 5.0, -3.0],
+            }
+        ),
+        semantic_kind="segmented",
+    )
+
+    out = decompose(frame, axes=[make_ref("region", SemanticKind.DIMENSION)], session=session)
+
+    assert out.meta.driver_field == "path"
+    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.params["axes"] == ["region"]
+    assert "mode" not in out.meta.params
+    assert out.to_pandas().to_dict("records") == [
+        {
+            "level": 1,
+            "axis": "region",
+            "driver": "north",
+            "path": "north",
+            "contribution": 15.0,
+            "pct_contribution": 1.25,
+            "rank": 1,
+        },
+        {
+            "level": 1,
+            "axis": "region",
+            "driver": "south",
+            "path": "south",
+            "contribution": -3.0,
+            "pct_contribution": -0.25,
+            "rank": 2,
+        },
+    ]
+
+
+def test_decompose_axes_multi_axis_returns_ordered_hierarchy_rows():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US", "US", "CN", "CN"],
+                "platform": ["ios", "android", "ios", "android"],
+                "delta": [6.0, 4.0, -3.0, 1.0],
+            }
+        ),
+        semantic_kind="segmented",
+    )
+
+    out = decompose(
+        frame,
+        axes=[
+            make_ref("region", SemanticKind.DIMENSION),
+            make_ref("platform", SemanticKind.DIMENSION),
+        ],
+        session=session,
+    )
+
+    assert out.meta.driver_field == "path"
+    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.meta.params["axis_columns"] == ["region", "platform"]
+    assert out.to_pandas().to_dict("records") == [
+        {
+            "level": 1,
+            "axis": "region",
+            "driver": "US",
+            "path": "US",
+            "contribution": 10.0,
+            "pct_contribution": 1.25,
+            "rank": 1,
+        },
+        {
+            "level": 1,
+            "axis": "region",
+            "driver": "CN",
+            "path": "CN",
+            "contribution": -2.0,
+            "pct_contribution": -0.25,
+            "rank": 2,
+        },
+        {
+            "level": 2,
+            "axis": "platform",
+            "driver": "ios",
+            "path": "US > ios",
+            "contribution": 6.0,
+            "pct_contribution": 0.75,
+            "rank": 1,
+        },
+        {
+            "level": 2,
+            "axis": "platform",
+            "driver": "android",
+            "path": "US > android",
+            "contribution": 4.0,
+            "pct_contribution": 0.5,
+            "rank": 2,
+        },
+        {
+            "level": 2,
+            "axis": "platform",
+            "driver": "ios",
+            "path": "CN > ios",
+            "contribution": -3.0,
+            "pct_contribution": -0.375,
+            "rank": 3,
+        },
+        {
+            "level": 2,
+            "axis": "platform",
+            "driver": "android",
+            "path": "CN > android",
+            "contribution": 1.0,
+            "pct_contribution": 0.125,
+            "rank": 4,
+        },
+    ]
+
+
+def test_decompose_rejects_duplicate_axes():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["north"], "delta": [1.0]}),
+        semantic_kind="segmented",
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        decompose(
+            frame,
+            axes=[
+                make_ref("region", SemanticKind.DIMENSION),
+                make_ref("region", SemanticKind.DIMENSION),
+            ],
+            session=session,
+        )
+
+    assert exc_info.value.details["reason"] == "duplicate_axes"
 
 
 def test_decompose_accepts_model_prefixed_axis_ref():
@@ -156,9 +302,9 @@ def test_decompose_accepts_model_prefixed_axis_ref():
         frame, axis=make_ref("trino_query.department", SemanticKind.DIMENSION), session=session
     )
 
-    assert out.meta.driver_field == "department"
+    assert out.meta.driver_field == "path"
     df = out.to_pandas()
-    assert list(df["department"]) == ["analytics", "search"]
+    assert list(df["driver"]) == ["analytics", "search"]
     assert list(df["contribution"]) == [pytest.approx(14.0), pytest.approx(-3.0)]
 
 
@@ -179,7 +325,7 @@ def test_decompose_accepts_catalog_dimension_ref(tmp_path):
 
     out = decompose(frame, axis=axis, session=session)
 
-    assert out.meta.driver_field == "region"
+    assert out.meta.driver_field == "path"
 
 
 def test_decompose_rejects_unmatched_legacy_dimension_when_catalog_exists(tmp_path):
@@ -218,7 +364,7 @@ def test_decompose_requires_axis_argument():
         semantic_kind="segmented",
     )
 
-    with pytest.raises(TypeError):
+    with pytest.raises(SemanticKindMismatchError):
         decompose(frame, session=session)
 
 
@@ -342,7 +488,7 @@ def test_decompose_time_series_bucket_start_axis_still_works():
     out = decompose(frame, axis=make_ref("bucket_start", SemanticKind.DIMENSION), session=session)
 
     assert isinstance(out, AttributionFrame)
-    assert out.meta.driver_field == "bucket_start"
+    assert out.meta.driver_field == "path"
     df = out.to_pandas()
     assert len(df) == 3
 
@@ -508,3 +654,73 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_for_decompose
         )
 
     assert exc_info.value.details["reason"] == "non_linear_time_fold"
+
+
+def test_decompose_axes_empty_delta_returns_empty_hierarchy():
+    """An empty DeltaFrame (zero rows) must produce an empty AttributionFrame
+    with the correct hierarchy columns, not a KeyError."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": pd.Series([], dtype="object"),
+                "delta": pd.Series([], dtype="float64"),
+            }
+        ),
+        semantic_kind="segmented",
+    )
+
+    out = decompose(frame, axes=[make_ref("region", SemanticKind.DIMENSION)], session=session)
+
+    assert isinstance(out, AttributionFrame)
+    assert out.meta.driver_field == "path"
+    assert out.meta.method == "ordered_hierarchy_sum"
+    df = out.to_pandas()
+    assert df.empty
+    assert list(df.columns) == [
+        "level",
+        "axis",
+        "driver",
+        "path",
+        "contribution",
+        "pct_contribution",
+        "rank",
+    ]
+
+
+def test_decompose_axes_multi_axis_handles_nan_in_level_two():
+    """A level-2 axis with NaN values must be included in the hierarchy output
+    (groupby dropna=False). The path for a NaN group is 'CN > nan'."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US", "US", "CN"],
+                "platform": ["ios", "android", None],
+                "delta": [6.0, 4.0, -3.0],
+            }
+        ),
+        semantic_kind="segmented",
+    )
+
+    out = decompose(
+        frame,
+        axes=[
+            make_ref("region", SemanticKind.DIMENSION),
+            make_ref("platform", SemanticKind.DIMENSION),
+        ],
+        session=session,
+    )
+
+    assert isinstance(out, AttributionFrame)
+    assert out.meta.driver_field == "path"
+    assert out.meta.method == "ordered_hierarchy_sum"
+    df = out.to_pandas()
+    level2 = df[df["level"] == 2]
+    nan_rows = level2[level2["path"] == "CN > nan"]
+    assert len(nan_rows) == 1
+    assert nan_rows.iloc[0]["contribution"] == pytest.approx(-3.0)
+    assert nan_rows.iloc[0]["axis"] == "platform"
+    assert nan_rows.iloc[0]["rank"] == 3

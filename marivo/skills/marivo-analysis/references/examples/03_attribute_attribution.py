@@ -1,9 +1,9 @@
-"""Pattern: attribute a time-series delta by bucket.
+"""Pattern: attribute a compared metric delta by an explicit axis.
 
-When to use: you need a runnable attribution frame that ranks which time
-buckets contributed most to a bucket-aligned metric delta.
-Output shape: an AttributionFrame with one row per bucket and contribution
-columns.
+When to use: after observe -> compare, ask which explicit catalog axis
+contributed most. If the axis is absent from the input delta and the source
+observe/compare lineage is replayable, session.attribute materializes the
+expanded delta before decomposing it.
 """
 
 from __future__ import annotations

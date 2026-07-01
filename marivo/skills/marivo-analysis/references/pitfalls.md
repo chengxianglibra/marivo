@@ -363,6 +363,31 @@ created_at = session.catalog.get("time_dimension.sales.orders.created_at")
 drivers = session.attribute(delta, axes=[created_at])
 ```
 
+## Attribute cannot materialize a missing axis
+
+**Symptom:** `AttributionMaterializationError` (message varies by failure path;
+e.g., "attribute could not load current source frame", "MetricFrame does not
+carry recoverable observe params", or "DeltaFrame alignment policy is not
+replayable"). The stable `Cause:` line reads: "attribute could not materialize
+missing axes (...) from the input DeltaFrame lineage without guessing."
+
+**Action:** If `session.attribute(delta, axes=[axis])` cannot recover the source observe and compare lineage, re-run current and baseline `observe(..., dimensions=[axis])`, then `compare`, then `attribute` the expanded delta.
+
+```python
+cur = session.observe(
+    revenue,
+    time_scope={"start": "2026-07-01", "end": "2026-10-01"},
+    dimensions=[axis],
+)
+base = session.observe(
+    revenue,
+    time_scope={"start": "2025-07-01", "end": "2025-10-01"},
+    dimensions=[axis],
+)
+delta = session.compare(cur, base, alignment=mv.window_bucket())
+attribution = session.attribute(delta, axes=[axis])
+```
+
 ## test / forecast / assess_quality
 
 - `session.hypothesis_test(cur, base)` v1 supports only `hypothesis="mean_changed"` and paired MetricFrames with matching `semantic_kind` and `semantic_model`; scalar MetricFrames are rejected because they do not contain paired samples.

@@ -83,7 +83,7 @@ Default operator names are:
 
 - `session.observe(...)`
 - `session.compare(current_frame, baseline_frame, ...)`
-- `session.attribute(delta_frame, axes=[...], mode="flat")`
+- `session.attribute(delta_frame, axes=[...])`
 - `session.discover.<objective>(...)`
 - `session.correlate(a_frame, b_frame, ...)`
 - `session.hypothesis_test(a_frame, b_frame, ...)`

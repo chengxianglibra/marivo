@@ -1,9 +1,7 @@
 from datetime import UTC, datetime
 
 import pandas as pd
-import pytest
 
-from marivo.analysis.errors import FindingExtractionFailedError
 from marivo.analysis.evidence.extraction.composition import (
     extract_decomposition_findings,
 )
@@ -50,15 +48,16 @@ def test_decomposition_findings_one_per_row() -> None:
     assert findings[0].payload["contribution_share"] == 0.6
 
 
-def test_decomposition_findings_empty_df_raises() -> None:
+def test_decomposition_findings_empty_df_returns_empty() -> None:
     subject = Subject(metric="dau", analysis_axis="decomposition")
 
-    with pytest.raises(FindingExtractionFailedError):
-        extract_decomposition_findings(
-            df=pd.DataFrame(columns=["dimension", "contribution_value"]),
-            artifact_id="art_decomp_empty",
-            session_id="sess_1",
-            subject=subject,
-            committed_at=datetime.now(UTC),
-            scope_delta_ref="art_delta_parent",
-        )
+    findings = extract_decomposition_findings(
+        df=pd.DataFrame(columns=["dimension", "contribution_value"]),
+        artifact_id="art_decomp_empty",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+        scope_delta_ref="art_delta_parent",
+    )
+
+    assert findings == []

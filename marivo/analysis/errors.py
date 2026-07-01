@@ -940,3 +940,26 @@ class ComponentFrameMismatchError(AnalysisError):
 
 class ComponentDecompositionError(AnalysisError):
     pass
+
+
+class AttributionMaterializationError(AnalysisError):
+    def _template_fields(self) -> dict[str, str]:
+        missing_axes = self.details.get("missing_axes")
+        if isinstance(missing_axes, list) and missing_axes:
+            axis_text = ", ".join(str(axis) for axis in missing_axes)
+        else:
+            axis_text = "<requested axes>"
+        return {
+            "location": "session.attribute missing-axis materialization",
+            "cause": (
+                f"attribute could not materialize missing axes ({axis_text}) from "
+                "the input DeltaFrame lineage without guessing."
+            ),
+            "fix_snippet": (
+                "cur = session.observe(metric, time_scope=current_window, dimensions=[axis])\n"
+                "base = session.observe(metric, time_scope=baseline_window, dimensions=[axis])\n"
+                "delta = session.compare(cur, base)\n"
+                "drivers = session.attribute(delta, axes=[axis])"
+            ),
+            "doc": "docs/superpowers/specs/2026-07-01-attribution-composite-materialization-design.md",
+        }
