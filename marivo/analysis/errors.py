@@ -76,26 +76,6 @@ class AnalysisError(Exception):
         return "\n".join(lines)
 
 
-class ReportPublishError(AnalysisError):
-    """Base class for report publishing failures."""
-
-
-class ReportPublishConfigError(ReportPublishError):
-    """No publish target could be resolved from arguments, env, or config files."""
-
-
-class ReportPublishValidationError(ReportPublishError):
-    """A staged report package failed publish-time validation."""
-
-
-class ReportPublishTargetExistsError(ReportPublishError):
-    """The publish destination already has a completed manifest."""
-
-
-class ReportPublishAttributionError(ReportPublishError):
-    """Exporter attribution is missing or does not match the publish path."""
-
-
 class GrainUnsupportedError(AnalysisError):
     """A requested analysis grain is incompatible with the time field base granularity."""
 

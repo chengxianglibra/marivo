@@ -70,7 +70,6 @@ build-backend = "setuptools.build_meta"
 include = ["marivo*"]
 
 [tool.setuptools.package-data]
-"marivo.analysis.publish" = ["locales/*.json"]
 "marivo.skills" = ["**/*"]
 
 [tool.ruff]

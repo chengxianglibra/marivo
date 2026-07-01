@@ -192,12 +192,11 @@ the Submodules list. The standalone callable surface is small.
 - Scopes & windows: `TimeScope`, `ConfidenceScope`, `AbsoluteWindow`
 - Policies: `AlignmentPolicy`, `AlignmentKind`, `CalendarPolicy`,
   `SamplingPolicy`, `PromotionPolicy`, `PromotionSemanticAnchors`
-- Refs & lineage: `ArtifactRef`, `CalendarRef`, `Lineage`, `LineageStep`,
-  `ReportRegistration`
+- Refs & lineage: `ArtifactRef`, `CalendarRef`, `Lineage`, `LineageStep`
 - Session & jobs: `Session`, `SessionSummary`, `JobSummary`, `FollowupAction`,
   `BlockingIssue`, `CandidateObjective`, `DiscoverSensitivity`
 - Slices: `SlicePredicate`, `SlicePredicateOp`
-- Submodules: `errors`, `evidence`, `frames`, `publish`, `session`
+- Submodules: `errors`, `evidence`, `frames`, `session`
 - Type aliases: `SliceScalar`, `SliceValue`, `TimeScopeInput`
 
 ## Index Page

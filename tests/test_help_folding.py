@@ -164,7 +164,6 @@ def test_analysis_fold_partition() -> None:
         "MetricColumnBinding",
         "MetricColumns",
         "QualityReport",
-        "ReportRegistration",
         "SamplingPolicy",
         "SemanticObject",
         "SessionSummary",
@@ -177,38 +176,3 @@ def test_analysis_fold_partition() -> None:
     enumerated = _enumerated(surface)
     assert "Session" in enumerated
     _assert_no_value_family_leaks(enumerated)
-
-
-def test_publish_fold_partition() -> None:
-    from marivo.analysis.publish.help import _surface
-
-    surface = _surface()
-    fams = _families(surface)
-    assert fams["Metadata types"] == ["DatasetMetadata", "McpAdapterMetadata"]
-    assert set(fams["Other types"]) == {
-        "DataPolicy",
-        "Dataset",
-        "Flow",
-        "FlowStep",
-        "GroundedClaim",
-        "Grounding",
-        "LocalFilesystemTarget",
-        "MarivoReportArtifact",
-        "PublishConfig",
-        "PublishReportResult",
-        "PublishTarget",
-        "ReplayCheckIssue",
-        "ReplayCheckResult",
-        "ReportBlock",
-        "ReportChartSpec",
-        "ReportColumn",
-        "ReportManifest",
-        "ReportMetric",
-        "ReportPackageValidationIssue",
-        "ReportPackageValidationResult",
-        "ReportSection",
-        "ReportSpec",
-        "SecretScanIssue",
-        "SourceProvenance",
-    }
-    _assert_no_value_family_leaks(_enumerated(surface))

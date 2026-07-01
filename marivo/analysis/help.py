@@ -97,7 +97,6 @@ _SUMMARIES: dict[str, str] = {
     "Session": "live analysis session object with execution and artifact methods",
     "SessionSummary": "lightweight row returned by mv.session.list()",
     "JobSummary": "lightweight row returned by Session.jobs() and recent_jobs()",
-    "ReportRegistration": "immutable result of Session.save_report() with report id, path, entrypoint, and hash",
     "BaseFrame": "base immutable analysis artifact protocol: ref, kind, show(), contract(), state, to_pandas()",
     "BaseFrameMeta": "shared metadata model available as frame.meta",
     "FrameSummaryEntry": "rich persisted frame metadata returned by Session.frame_summaries()",
@@ -143,7 +142,6 @@ _SUMMARIES: dict[str, str] = {
     "SliceValue": "accepted value types for transform slice",
     "TimeScope": "half-open time interval model for observe",
     "TimeScopeInput": "accepted time_scope input types",
-    "publish": "report packaging and publishing sub-surface",
 }
 
 _TYPE_ALIASES: set[str] = {

@@ -130,7 +130,6 @@ ANALYSIS_PUBLIC = {
     "MetricColumns",
     "MetricFrame",
     "QualityReport",
-    "ReportRegistration",
     "SamplingPolicy",
     "SemanticObject",
     "SemanticRef",
@@ -155,7 +154,6 @@ ANALYSIS_PUBLIC = {
     "frames",
     "help",
     "help_text",
-    "publish",
     "session",
 }
 
