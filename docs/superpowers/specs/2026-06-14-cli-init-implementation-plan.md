@@ -148,7 +148,6 @@ Update the `[tool.setuptools.package-data]` section to include the skills packag
 
 ```toml
 [tool.setuptools.package-data]
-"marivo.analysis.publish" = ["locales/*.json"]
 "marivo.skills" = ["**/*"]
 ```
 

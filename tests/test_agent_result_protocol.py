@@ -179,7 +179,6 @@ def _session_summary() -> SessionSummary:
         updated_at="2026-06-13T00:00:00Z",
         job_count=1,
         frame_count=2,
-        report_count=0,
     )
 
 

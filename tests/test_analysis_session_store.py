@@ -154,7 +154,6 @@ def test_list_sessions_returns_session_summary(store: SessionStore, project_root
     assert s.question == "q"
     assert s.job_count == 0
     assert s.frame_count == 0
-    assert s.report_count == 0
 
 
 def test_list_sessions_job_count(store: SessionStore, project_root: Path) -> None:
@@ -192,22 +191,6 @@ def test_list_sessions_frame_count(store: SessionStore, project_root: Path) -> N
     )
     summaries = store.list_sessions()
     assert summaries[0].frame_count == 1
-
-
-def test_list_sessions_report_count(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
-    sid = row["id"]
-    store.record_report(
-        session_id=sid,
-        report_id="r1",
-        package_dir="reports/r1",
-        entrypoint="index.html",
-        package_hash="abc123",
-    )
-    summaries = store.list_sessions()
-    assert summaries[0].report_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -264,13 +247,6 @@ def test_delete_session_rows_removes_session_and_related(
         finished_at=None,
         output_artifact_id=None,
         record_path="jobs/j1.json",
-    )
-    store.record_report(
-        session_id=sid,
-        report_id="r1",
-        package_dir="reports/r1",
-        entrypoint="index.html",
-        package_hash="abc123",
     )
     result = store.delete_session_rows(name="s")
     assert result is not None
@@ -488,52 +464,17 @@ def test_list_jobs(store: SessionStore, project_root: Path) -> None:
     assert ids == {"j1", "j2"}
 
 
-# ---------------------------------------------------------------------------
-# Report helpers
-# ---------------------------------------------------------------------------
-
-
-def test_record_and_get_report(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
-    sid = row["id"]
-    store.record_report(
-        session_id=sid,
-        report_id="r1",
-        package_dir="reports/r1",
-        entrypoint="index.html",
-        package_hash="abc123",
-    )
-    report = store.get_report(sid, "r1")
-    assert report is not None
-    assert report["package_hash"] == "abc123"
-    assert report["published_url"] is None
-
-
-def test_get_report_missing(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
-    assert store.get_report(row["id"], "nope") is None
-
-
-def test_update_report_published_url(store: SessionStore, project_root: Path) -> None:
-    row = store.get_or_insert_session(
-        name="s", question="q", cwd=project_root, default_calendar=None
-    )
-    sid = row["id"]
-    store.record_report(
-        session_id=sid,
-        report_id="r1",
-        package_dir="reports/r1",
-        entrypoint="index.html",
-        package_hash="abc123",
-    )
-    store.update_report_published_url(sid, "r1", "https://example.com/report")
-    report = store.get_report(sid, "r1")
-    assert report is not None
-    assert report["published_url"] == "https://example.com/report"
+def test_store_does_not_create_report_table_or_helpers(
+    store: SessionStore, project_root: Path
+) -> None:
+    assert not hasattr(store, "record_report")
+    assert not hasattr(store, "get_report")
+    assert not hasattr(store, "update_report_published_url")
+    with store._connect() as conn:
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'reports'"
+        ).fetchone()
+    assert table is None
 
 
 def test_record_artifact_preserves_content_hash(store: SessionStore, project_root: Path) -> None:

@@ -3,7 +3,6 @@
 from datetime import UTC, datetime
 
 import pandas as pd
-import pytest
 
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
@@ -12,7 +11,6 @@ from marivo.analysis.session._layout import (
     _atomic_write_text,
     read_frame_from_disk,
     read_job_record,
-    report_dir,
     write_frame_to_disk,
     write_job_record,
 )
@@ -35,7 +33,6 @@ def test_layout_paths(tmp_path):
     assert layout.jobs_dir == layout.session_dir / "jobs"
     assert layout.frames_dir == layout.session_dir / "frames"
     assert layout.scripts_dir == layout.session_dir / "scripts"
-    assert layout.reports_dir == layout.session_dir / "reports"
 
 
 def test_layout_store_db(tmp_path):
@@ -114,45 +111,6 @@ def test_write_and_read_frame(tmp_path):
     df_back, meta_back = read_frame_from_disk(layout, "frame_pq789012")
     assert list(df_back["x"]) == [1, 2, 3]
     assert meta_back["kind"] == "metric_frame"
-
-
-# -- report_dir --
-
-
-def test_report_dir_returns_layout_reports_dir_subdir(tmp_path):
-    layout = _layout(tmp_path)
-    result = report_dir(layout, "rpt_abc")
-    assert result == layout.reports_dir / "rpt_abc"
-
-
-def test_report_dir_rejects_empty_id(tmp_path):
-    layout = _layout(tmp_path)
-    with pytest.raises(ValueError):
-        report_dir(layout, "")
-
-
-def test_report_dir_rejects_dot(tmp_path):
-    layout = _layout(tmp_path)
-    with pytest.raises(ValueError):
-        report_dir(layout, ".")
-
-
-def test_report_dir_rejects_dotdot(tmp_path):
-    layout = _layout(tmp_path)
-    with pytest.raises(ValueError):
-        report_dir(layout, "..")
-
-
-def test_report_dir_rejects_slash(tmp_path):
-    layout = _layout(tmp_path)
-    with pytest.raises(ValueError):
-        report_dir(layout, "a/b")
-
-
-def test_report_dir_rejects_backslash(tmp_path):
-    layout = _layout(tmp_path)
-    with pytest.raises(ValueError):
-        report_dir(layout, "a\\b")
 
 
 # -- Module does not export session meta functions --

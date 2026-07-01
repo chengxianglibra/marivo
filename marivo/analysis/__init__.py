@@ -63,7 +63,7 @@ from marivo.analysis.policies import (
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef
 from marivo.analysis.session._store import SessionSummary
-from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, ReportRegistration, Session
+from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, Session
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     TimeScope,
@@ -82,10 +82,6 @@ def __getattr__(name: str) -> _Any:
         from importlib import import_module
 
         return import_module("marivo.analysis.frames")
-    if name == "publish":
-        from importlib import import_module
-
-        return import_module("marivo.analysis.publish")
     if name == "SemanticKind":
         from marivo.semantic.catalog import SemanticKind
 
@@ -131,7 +127,6 @@ __all__ = [
     "MetricColumns",
     "MetricFrame",
     "QualityReport",
-    "ReportRegistration",
     "SamplingPolicy",
     "SemanticObject",
     "SemanticRef",
@@ -154,7 +149,6 @@ __all__ = [
     "holiday_and_dow_aligned",
     "ibis_query",
     "metric_columns",
-    "publish",
     "session",
     "time_column",
     "window_bucket",

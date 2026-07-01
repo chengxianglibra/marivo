@@ -79,6 +79,7 @@ def test_analysis_skill_does_not_make_examples_the_methodology() -> None:
 
 def test_final_report_guidance_contains_required_contract() -> None:
     text = FINAL_REPORT_PATH.read_text()
+    normalized_text = " ".join(text.split())
     required_terms = [
         "Executive Summary",
         "结论摘要",
@@ -92,31 +93,35 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "result.meta.confidence_scope",
         "artifact.contract()",
         "session.assess_quality",
+        "narrative layer",
+        "evidence-backed",
+        "adjacent to each important chart or table",
+        "session.jobs()",
+        "session.job(id)",
+        "session.frame_summaries()",
+        "session.get_frame(ref)",
+        "session.knowledge()",
+        "session.evidence",
+        "Marivo does not generate or publish reports",
+        "Do not look for Marivo report package APIs",
+    ]
+    forbidden_terms = [
         "MarivoReportArtifact",
+        "ReportRegistration",
+        "session.save_report",
+        "session.publish_report",
+        "validate_report_artifact",
+        "to_mcp_artifact_payload",
+        "MCP adapter",
+        "Publishing handoff",
         "grounding.json",
         "value_refs",
-        "narrative layer",
-        "artifact-backed",
-        "adjacent to each important chart or table",
-        "to_mcp_artifact_payload",
-        'session.save_report(artifact, adapter="mcp")',
-        "validate_artifact",
-        "render_artifact",
-        "MCP adapter",
-        "Codex/Data Analytics environments",
-        "first visible `render_artifact` call",
-        "must not connect to live datasources",
-        "recompute main claims",
-        "replace `grounding.json` / `flow.json`",
-        "Publishing handoff",
-        "session.publish_report(report_id",
-        "exported_by",
-        "content hash",
-        "immutable by default",
     ]
 
-    missing = [term for term in required_terms if term not in text]
+    missing = [term for term in required_terms if term not in normalized_text]
+    present = [term for term in forbidden_terms if term in normalized_text]
     assert missing == []
+    assert present == []
 
 
 def test_final_report_guidance_covers_cdn_review_patterns() -> None:

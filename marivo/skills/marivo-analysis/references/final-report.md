@@ -7,8 +7,9 @@ answer is a user-facing synthesis, not a dump of intermediate frame previews.
 
 The report should make the conclusion easy to read, show the evidence that
 supports it, and preserve the limits of the analysis. Write Markdown by default.
-Only build an HTML or MCP artifact when the user explicitly asks for that
-delivery surface.
+Only build an HTML, MCP, PDF, slide, or notebook deliverable when the user
+explicitly asks for that delivery surface. Marivo does not generate or publish
+reports; the agent authors the deliverable from persisted Marivo evidence.
 
 ## Required structure
 
@@ -67,162 +68,66 @@ Use the shape below unless the user's requested format is more specific.
 - Use `frame.show()` or bounded `to_pandas()`
   output to inspect evidence, but turn that evidence into a report narrative.
 
-## Interactive report artifact close-out
+## Agent-authored deliverables
 
-When the user asks for an interactive analysis report or a durable report
-package, assemble a `MarivoReportArtifact` instead of treating Markdown as the
-only output. The report remains narrative-first and artifact-backed:
+When the user asks for an interactive analysis report or any durable
+deliverable, the agent builds it directly. Marivo provides persisted analysis
+state; it does not provide report schemas, adapters, renderers, validators, or
+publish targets.
+
+Use these Marivo surfaces as the evidence source:
+
+- `session.jobs()` and `session.job(id)` for executed steps and parameters.
+- `session.frame_summaries()` to discover persisted frames worth citing.
+- `session.get_frame(ref)` to reload a frame for `show()`, `contract()`, or a
+  bounded `to_pandas()` extraction.
+- `artifact.meta` for evidence status, blocking issues, confidence scope,
+  lineage, quality summary, metric ids, semantic refs, and row counts.
+- `session.knowledge()` and `session.evidence` when explicit evidence objects,
+  findings, open issues, or cross-step audit facts matter.
+
+For HTML, MCP, PDF, slides, or notebook deliverables, create the file or hosted
+artifact with the available agent/runtime tools. Keep the output self-contained
+when that is the requested format, and perform delivery-surface QA in that
+tooling. Do not look for Marivo report package APIs; they are intentionally not
+part of the library contract.
+
+For HTML analysis documents, prefer a compact GitHub-dark weekly-report style:
+centered max-width page, dark canvas, blue section accents, dense stat
+cards/tables, lightweight filters or collapsible sections when useful, and
+minimal ornamentation.
+
+The deliverable should remain narrative-first and evidence-backed:
 
 - The narrative layer owns the title, executive summary, finding takeaways,
   caveats, and recommendations.
 - The evidence layer owns KPI strips, charts, compact tables, candidate reviews,
-  and driver views.
-- The audit layer owns `grounding.json`, flow steps, source provenance, semantic
-  refs, SQL or intent details, scripts, replay metadata, and evidence status.
+  and driver views derived from bounded Marivo frames.
+- The audit layer owns cited frame refs, job ids, semantic refs, source/query
+  summaries, lineage, evidence status, and caveats.
 
 Keep readable interpretation adjacent to each important chart or table. Do not
 make the user infer the conclusion from raw rows or a chart alone.
 
 Every reader-facing number in a claim, KPI, chart label, or numeric callout
-should resolve through `value_refs` to a bounded dataset cell or to an
-artifact/evidence field. Do not restate the same number as a second source of
-truth in prose or adapter manifests.
+should be traceable to a bounded frame extract, `artifact.show()` output, or
+evidence object. Avoid maintaining a second hidden source of truth in the
+deliverable.
 
-Value formats: the `percent` format expects values already expressed in
-percentage points (store `89.8` for `89.8%`, not `0.898`). Use `number` or
-`compact` for raw counts and `currency` for monetary values.
+When choosing formats and value suffixes, consult the semantic metric's `unit`
+through runtime help or catalog details. `%` means values are percentage points;
+a bare ISO 4217 code is a currency suffix; `1` means dimensionless fractions.
+Never rescale values just to match display formatting.
 
-When choosing `format` and value suffixes for report metrics, consult the
-semantic metric's `unit` (via `mv.help(ref)` or catalog details): `%` means
-values are percentage points (use percent format); a bare ISO 4217 code is a
-currency suffix; `1` means dimensionless fractions. Never rescale values to
-match a unit.
+Charts must use coherent data grain. Never feed a decomposition extract that
+mixes dimensions (for example `query_type` and `source` rows sharing one
+timestamp) into a single x/y chart; filter to one dimension, split into
+separate charts, or visibly encode the grouping dimension.
 
-Charts must be single-series: a chart block's dataset needs one value per x
-position, or it must declare a `series` channel
-(`fields={"x": ..., "y": ..., "series": ...}`) so a bar chart can group bars by
-series. Never feed a decomposition dataset that mixes dimensions (for example
-`query_type` and `source` rows sharing one timestamp) into a single x/y chart;
-filter to one dimension or split into separate charts.
-
-Output locations: agent-generated analysis scripts and rendered reports
-belong under the session directory, not at the project root. Use
-`session.save_report(artifact)` to persist and register a
-report package in one call. The package bytes live under the session directory
-at `<project_root>/.marivo/analysis/sessions/<session_id>/reports/<report_id>/`.
-To publish a registered report outside the workspace, call
-`session.publish_report(report_id, target=...)`.
-
-```python
-import marivo.analysis as mv
-
-session = mv.session.get_or_create(name="investigation")
-
-# Persist and register the report package in the session store.
-registration = session.save_report(artifact)
-# registration.report_id  -> e.g. "rpt_abc123"
-# registration.package_dir -> absolute path to the on-disk package
-
-# Publish outside the workspace (optional).
-result = session.publish_report(registration.report_id, target="/published")
-```
-
-Paths in `script_refs` stay relative (e.g.
-`"scripts/step_observe.py"`); they resolve against
-`session.layout.session_dir` for validation (see below).
-
-Script references: `FlowStep.script_refs` and `SourceProvenance.script_refs`
-must list every real script path — one entry per file that exists on disk.
-Never invent a range-style filename like `"scripts/step1-7.py"` or
-`"scripts/step4-6.py"` to stand in for several files; those files do not
-exist, and the Audit Trail will publish broken links that readers cannot open.
-Enumerate each path explicitly.
-
-Wrong:
-
-```python
-# One fabricated filename pretending to cover steps 1 through 7.
-script_refs=("scripts/trino_anomaly_step1-7.py",)
-```
-
-Right:
-
-```python
-script_refs=(
-    "scripts/trino_anomaly_step1.py",
-    "scripts/trino_anomaly_step2.py",
-    "scripts/trino_anomaly_step3.py",
-    "scripts/trino_anomaly_step4.py",
-    "scripts/trino_anomaly_step5.py",
-    "scripts/trino_anomaly_step6.py",
-    "scripts/trino_anomaly_step7.py",
-)
-```
-
-The Audit Trail renders each entry as its own clickable link, so a real
-per-file list is both correct and more useful to readers. The same rule
-applies to `FlowStep.script_refs` for individual steps: if a step is
-implemented by `step4.py`, `step5.py`, and `step6.py`, list all three — not
-the invented aggregate `"scripts/step4-6.py"`.
-
-Before rendering, call
-`validate_report_artifact(artifact, script_root=session.layout.session_dir)`
-so every `script_refs` entry is checked against the session directory the
-relative paths resolve against. The validator emits one `script_ref_missing`
-issue per path that does not exist on disk, so a fabricated
-`"scripts/step1-7.py"` is caught regardless of filename shape — the check is
-existence, not pattern matching.
-
-Before rendering or publishing, validate that `grounding.json` resolves every
-executive-summary claim, partial evidence is visible, source provenance matches
-the step kind, and source/audit details do not crowd out the main reading path.
-
-## MCP adapter handoff
-
-When the selected delivery surface is a Data Analytics MCP report app, use the
-Marivo MCP adapter after the core report artifact validates:
-
-1. Build and validate the `MarivoReportArtifact`.
-2. Call `session.save_report(artifact, adapter="mcp")` to persist the package
-   with MCP adapter files and register it in the session store.
-   Internally this uses `to_mcp_artifact_payload(artifact)` for the MCP manifest
-   and writes the adapter files to the session report directory.
-3. In Codex/Data Analytics environments, call MCP `validate_artifact` before the
-   first visible `render_artifact` call. Iterate on validator errors with the
-   validator, not by repeatedly rendering visible broken artifacts.
-
-The MCP adapter is a bounded report surface. It should expose the same frozen
-datasets, source provenance, visual blocks, caveats, and narrative path as the
-Marivo report package. It must not connect to live datasources. It must not
-recompute main claims. It must not replace `grounding.json` / `flow.json` as the
-audit source of truth.
-
-## Publishing handoff
-
-When the report package should be shared outside the local workspace, use
-session-scoped publish after the artifact validates and has been saved as a
-package:
-
-1. Build and validate the `MarivoReportArtifact`.
-2. Call `session.save_report(artifact)` to persist the package
-   directory and register it in the session store. The returned
-   `ReportRegistration` contains `report_id` and `package_dir`.
-3. Call `session.publish_report(report_id, exported_by=..., target=...)` to
-   publish the registered package. The publish method re-validates, scans for
-   secrets, and writes the manifest last.
-4. The helper loads and re-validates the package, scans packaged text files for
-   secrets, computes a deterministic content hash (excluding `manifest.json`),
-   and stamps `exported_by`, `exported_at`, and `content_hash` into the published
-   manifest.
-5. Content files upload first and `manifest.json` is written last, so a partial
-   upload is never mistaken for a completed publish.
-
-The publish destination is user-scoped: the resolved path must include the
-`exported_by` segment, and existing targets are immutable by default (pass
-`overwrite=True` to replace one). The library never publishes secrets,
-credentials, or row-level frames that the manifest data policy omits. Publishing
-is deterministic and library-owned; it does not author narrative or
-replay scripts.
+Agent-generated analysis scripts and deliverables belong under the session
+directory or another user-approved output location, not as new Marivo library
+state. If you publish or upload the final deliverable, use the environment's
+available file/S3/MCP/browser tooling and verify the resulting artifact there.
 
 ## Discovery and anomaly reports
 

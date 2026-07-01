@@ -137,7 +137,6 @@ Refs & lineage
    CalendarRef
    Lineage
    LineageStep
-   ReportRegistration
 
 Session & jobs
 --------------
@@ -176,8 +175,6 @@ Submodules
      - Evidence facts, findings, and open-item types for investigations.
    * - ``marivo.analysis.frames``
      - Frame classes and their metadata companions.
-   * - ``marivo.analysis.publish``
-     - Report artifact, manifest, and publishing configuration types.
    * - ``marivo.analysis.session``
      - Session lifecycle helpers (``get_or_create``, ``current``, ``list``, ``delete``).
 

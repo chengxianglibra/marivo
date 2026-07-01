@@ -1,7 +1,7 @@
 """SQLite-backed session store for the redesigned analysis session model.
 
-Manages the session index, current-pointer, artifacts, jobs, and reports
-in a single WAL-mode database at ``.marivo/analysis/session_store.db``.
+Manages the session index, current-pointer, artifacts, and jobs in a single
+WAL-mode database at ``.marivo/analysis/session_store.db``.
 """
 
 from __future__ import annotations
@@ -60,17 +60,6 @@ CREATE TABLE IF NOT EXISTS jobs (
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS reports (
-    session_id TEXT NOT NULL,
-    report_id TEXT NOT NULL,
-    package_dir TEXT NOT NULL,
-    entrypoint TEXT NOT NULL,
-    package_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    published_url TEXT,
-    PRIMARY KEY (session_id, report_id),
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
 """
 
 
@@ -85,15 +74,13 @@ class SessionSummary(RenderableResult):
     updated_at: str
     job_count: int
     frame_count: int
-    report_count: int
 
     def _repr_identity(self) -> str:
         return f"SessionSummary id={self.id} name={self.name}"
 
     def _card(self) -> Card:
         return Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
-            f"jobs={self.job_count} frames={self.frame_count} "
-            f"reports={self.report_count} updated={self.updated_at}"
+            f"jobs={self.job_count} frames={self.frame_count} updated={self.updated_at}"
         )
 
 
@@ -278,8 +265,8 @@ class SessionStore:
     def list_sessions(self) -> list[SessionSummary]:
         """Return summaries for all sessions, including live counts.
 
-        ``job_count``, ``frame_count``, and ``report_count`` are computed
-        from the ``jobs``, ``artifacts``, and ``reports`` tables at list time.
+        ``job_count`` and ``frame_count`` are computed from the ``jobs`` and
+        ``artifacts`` tables at list time.
 
         Returns:
             A list of :class:`SessionSummary` instances.
@@ -295,9 +282,6 @@ class SessionStore:
                 frame_count = conn.execute(
                     "SELECT COUNT(*) FROM artifacts WHERE session_id = ?", (sid,)
                 ).fetchone()[0]
-                report_count = conn.execute(
-                    "SELECT COUNT(*) FROM reports WHERE session_id = ?", (sid,)
-                ).fetchone()[0]
                 summaries.append(
                     SessionSummary(
                         id=sid,
@@ -307,7 +291,6 @@ class SessionStore:
                         updated_at=row["updated_at"],
                         job_count=job_count,
                         frame_count=frame_count,
-                        report_count=report_count,
                     )
                 )
             return summaries
@@ -383,8 +366,8 @@ class SessionStore:
     def delete_session_rows(self, name: str) -> sqlite3.Row | None:
         """Delete a session and its related rows by name.
 
-        Removes rows from ``sessions``, ``artifacts``, ``jobs``, and
-        ``reports``. Does **not** remove any files on disk.
+        Removes rows from ``sessions``, ``artifacts``, and ``jobs``. Does
+        **not** remove any files on disk.
 
         Args:
             name: The session name to delete.
@@ -398,7 +381,6 @@ class SessionStore:
                 return None
             sid = row["id"]
             # Explicit child-table deletes before parent; CASCADE is defense-in-depth.
-            conn.execute("DELETE FROM reports WHERE session_id = ?", (sid,))
             conn.execute("DELETE FROM jobs WHERE session_id = ?", (sid,))
             conn.execute("DELETE FROM artifacts WHERE session_id = ?", (sid,))
             conn.execute("DELETE FROM sessions WHERE id = ?", (sid,))
@@ -556,67 +538,4 @@ class SessionStore:
                 conn,
                 "SELECT * FROM jobs WHERE session_id = ? ORDER BY started_at",
                 (session_id,),
-            )
-
-    # ------------------------------------------------------------------
-    # Reports
-    # ------------------------------------------------------------------
-
-    def record_report(
-        self,
-        *,
-        session_id: str,
-        report_id: str,
-        package_dir: str,
-        entrypoint: str,
-        package_hash: str,
-    ) -> None:
-        """Insert a report row.
-
-        Args:
-            session_id: Owning session.
-            report_id: Unique report identifier within the session.
-            package_dir: Project-relative path to the report package directory.
-            entrypoint: Entrypoint file name within the package.
-            package_hash: Content hash of the report package.
-        """
-        now = _now_iso()
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO reports (session_id, report_id, package_dir, entrypoint, "
-                "package_hash, created_at, published_url) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (session_id, report_id, package_dir, entrypoint, package_hash, now, None),
-            )
-
-    def get_report(self, session_id: str, report_id: str) -> sqlite3.Row | None:
-        """Look up a report by session and report id.
-
-        Args:
-            session_id: Owning session.
-            report_id: Report identifier.
-
-        Returns:
-            The matching row, or ``None`` when not found.
-        """
-        with self._connect() as conn:
-            return self._fetchone(
-                conn,
-                "SELECT * FROM reports WHERE session_id = ? AND report_id = ?",
-                (session_id, report_id),
-            )
-
-    def update_report_published_url(
-        self, session_id: str, report_id: str, published_url: str
-    ) -> None:
-        """Set the published URL for a report.
-
-        Args:
-            session_id: Owning session.
-            report_id: Report identifier.
-            published_url: The URL where the report is published.
-        """
-        with self._connect() as conn:
-            conn.execute(
-                "UPDATE reports SET published_url = ? WHERE session_id = ? AND report_id = ?",
-                (published_url, session_id, report_id),
             )

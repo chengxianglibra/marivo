@@ -129,7 +129,6 @@ def test_list_returns_count_fields_and_no_state_field(
     # Must have count fields
     assert hasattr(s, "job_count")
     assert hasattr(s, "frame_count")
-    assert hasattr(s, "report_count")
     # Must NOT have state field
     assert not hasattr(s, "state")
 
