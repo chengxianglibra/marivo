@@ -33,10 +33,18 @@ def publish_path(
     if source.is_file():
         for file_path in files:
             uploader.put_file(file_path.name, file_path.read_bytes())
-        return PublishResult(uri=uploader.uri(source.name), file_count=len(files))
+        return PublishResult(
+            uri=uploader.uri(source.name),
+            url=uploader.url(source.name),
+            file_count=len(files),
+        )
 
     root_name = source.name
     for file_path in files:
         rel = file_path.relative_to(source).as_posix()
         uploader.put_file(f"{root_name}/{rel}", file_path.read_bytes())
-    return PublishResult(uri=uploader.uri(root_name), file_count=len(files))
+    return PublishResult(
+        uri=uploader.uri(root_name),
+        url=uploader.url(root_name),
+        file_count=len(files),
+    )

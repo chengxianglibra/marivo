@@ -79,6 +79,9 @@ S3_BUCKET_PATH = "s3://bucket/base/prefix"
 AWS_ENDPOINT_URL_S3 = "https://s3.example.com"
 ```
 
+Marivo 使用 path-style 规则生成发布链接。按上面的配置，上传 `report.html` 后会展示
+`https://s3.example.com/bucket/base/prefix/report.html`。
+
 对应的 S3 credentials 放在 user-global secret 文件：
 
 ```toml
@@ -93,6 +96,14 @@ AWS_SECRET_ACCESS_KEY = "..."
 ```bash
 marivo publish ./report.html
 marivo publish ./output-dir
+```
+
+输出示例：
+
+```text
+Uploaded 1 file
+URL: https://s3.example.com/bucket/base/prefix/report.html
+S3: s3://bucket/base/prefix/report.html
 ```
 
 `marivo publish` 只是一个简单上传工具：它不会 validate、package 或 inspect 内容。文件会上传到

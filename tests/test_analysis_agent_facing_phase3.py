@@ -184,3 +184,20 @@ def test_final_report_guidance_marks_next_steps_as_agent_authored() -> None:
     assert "Marivo affordances are mechanical compatibility facts" in text
     assert "artifact.contract()" in text
     assert "not recommendations from Marivo" in text
+
+
+def test_final_report_guidance_requires_rich_html_deliverables() -> None:
+    text = _read(REPO_ROOT / "marivo/skills/marivo-analysis/references/final-report.md")
+
+    required = (
+        "HTML reports must not be dashboard-only",
+        "Conclusion summary",
+        "Scope and metric basis",
+        "Key findings with interpretation",
+        "Caveats and assumptions",
+        "Agent-authored next steps",
+        "Source and reproducibility details",
+        "reader-facing HTTP URL",
+    )
+    missing = [phrase for phrase in required if phrase not in text]
+    assert missing == []

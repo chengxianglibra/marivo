@@ -80,6 +80,10 @@ S3_BUCKET_PATH = "s3://bucket/base/prefix"
 AWS_ENDPOINT_URL_S3 = "https://s3.example.com"
 ```
 
+Marivo uses path-style addressing for the published link. With the configuration
+above, a file uploaded as `report.html` is reported as
+`https://s3.example.com/bucket/base/prefix/report.html`.
+
 Store the matching S3 credentials in the user-global secret file:
 
 ```toml
@@ -94,6 +98,14 @@ Then upload any finished file or directory:
 ```bash
 marivo publish ./report.html
 marivo publish ./output-dir
+```
+
+Example output:
+
+```text
+Uploaded 1 file
+URL: https://s3.example.com/bucket/base/prefix/report.html
+S3: s3://bucket/base/prefix/report.html
 ```
 
 `marivo publish` is a simple uploader: it does not validate, package, or inspect
