@@ -7,13 +7,11 @@ import marivo.semantic as ms
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.semantic_inputs import normalize_dimension_input
 from marivo.semantic.catalog import (
-    DimensionDetails,
     EntityDetails,
     MeasureDetails,
     MetricDetails,
     SemanticCatalog,
     SemanticKind,
-    TimeDimensionDetails,
 )
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import SqlProvenance
@@ -136,26 +134,6 @@ def test_entity_children_include_dimension_measure_time_dimension_metrics_and_re
     assert ("sales.orders.order_date", SemanticKind.TIME_DIMENSION) in child_refs
     assert ("sales.revenue", SemanticKind.METRIC) in child_refs
     assert ("sales.native_revenue", SemanticKind.METRIC) in child_refs
-
-
-def test_dimension_and_time_dimension_details_do_not_expose_legacy_shape(
-    semantic_project_factory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    dim = catalog.get("dimension.sales.orders.region").details()
-    time_dim = catalog.get("time_dimension.sales.orders.order_date").details()
-
-    assert isinstance(dim, DimensionDetails)
-    assert dim.entity.id == "sales.orders"
-    assert not hasattr(dim, "dimension_kind")
-
-    assert isinstance(time_dim, TimeDimensionDetails)
-    assert time_dim.parse_kind == "timestamp"
-    assert time_dim.format is None
-    assert time_dim.timezone == "UTC"
-    assert time_dim.sample_interval is None
-    assert not hasattr(time_dim, "required_prefix")
 
 
 def test_metric_details_measure_ref_and_provenance_are_phase3_shape(

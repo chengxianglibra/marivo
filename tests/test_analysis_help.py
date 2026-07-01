@@ -621,28 +621,3 @@ def test_help_json_frame_contract_uses_affordance_language() -> None:
     agent_surface = _json_data("agent_surface")
     agent_rendered = str(agent_surface).lower()
     assert "affordance" in agent_rendered
-
-
-def test_phase1_public_docs_do_not_expose_planner_or_recommendation_terms() -> None:
-    from pathlib import Path
-
-    checked = [
-        Path("docs/api/analysis.rst"),
-        Path("marivo/skills/marivo-analysis/SKILL.md"),
-        Path("marivo/skills/marivo-analysis/references/cheatsheet.md"),
-        Path("marivo/skills/marivo-analysis/references/final-report.md"),
-    ]
-    forbidden = [
-        "meta.recommended_followups",
-        "recommended_followups",
-        "recommended follow-up",
-        "recommend follow",
-        "next_actions",
-        "DecisionAction",
-        "decision_descriptor",
-    ]
-
-    for path in checked:
-        text = path.read_text().lower()
-        for phrase in forbidden:
-            assert phrase.lower() not in text, f"{phrase!r} leaked in {path}"

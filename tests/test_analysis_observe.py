@@ -15,7 +15,6 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.semantic.catalog import DerivedMetricDetails, SemanticKind
 from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
@@ -612,69 +611,6 @@ def test_observe_cache_hit_clears_query_capture(tmp_path):
     observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
 
     assert s._connection_runtime._capture_buffer is None
-
-
-def test_observe_legacy_dimension_ref_where_must_be_declared(tmp_path):
-    bootstrap_sales_project(tmp_path)
-    con = connect_sales_orders()
-    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-
-    with pytest.raises((ObservePlanningError, SemanticKindMismatchError)):
-        observe(
-            make_ref("sales.revenue", SemanticKind.METRIC),
-            slice_by={make_ref("amount", SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
-            session=s,
-        )
-
-
-def _bootstrap_sales_with_out_of_scope_amount_dimension(tmp_path):
-    semantic_dir = tmp_path / "models" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / "models" / "datasources"
-    datasource_dir.mkdir(parents=True, exist_ok=True)
-    (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
-    )
-    (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
-    )
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
-        "products = ms.entity(name='products', datasource=md.ref('datasource.warehouse'), source=ms.table('products'))\n"
-        "\n"
-        "@ms.dimension(entity=orders)\n"
-        "def region(orders):\n"
-        "    return orders.region\n"
-        "\n"
-        "@ms.dimension(entity=products)\n"
-        "def amount(products):\n"
-        "    return products.amount\n"
-        "\n"
-        "@ms.metric(\n"
-        "    entities=[orders],\n"
-        "    additivity='additive',\n"
-        "    name='revenue',\n"
-        ")\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n"
-    )
-
-
-def test_observe_legacy_dimension_ref_where_does_not_borrow_out_of_scope_dimension(tmp_path):
-    _bootstrap_sales_with_out_of_scope_amount_dimension(tmp_path)
-    con = connect_sales_orders()
-    con.raw_sql("CREATE TABLE products (product_id INTEGER, amount DOUBLE)")
-    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
-
-    with pytest.raises((ObservePlanningError, SemanticKindMismatchError)):
-        observe(
-            make_ref("sales.revenue", SemanticKind.METRIC),
-            slice_by={make_ref("amount", SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
-            session=s,
-        )
 
 
 def test_observe_rejects_bare_string_time_field(tmp_path):

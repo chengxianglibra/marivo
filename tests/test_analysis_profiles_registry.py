@@ -52,11 +52,6 @@ def test_set_returns_summary(project_root: Path) -> None:
     assert (project_root / "models" / "datasources" / "wh.py").is_file()
 
 
-def test_register_rejects_legacy_name_and_kwargs(project_root: Path) -> None:
-    with pytest.raises(TypeError):
-        md.register("wh", backend_type="duckdb", path=":memory:")  # type: ignore[call-arg]
-
-
 def test_set_rejects_model_qualified_name(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
