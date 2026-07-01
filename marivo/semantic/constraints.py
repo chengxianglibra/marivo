@@ -726,7 +726,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "time_fold must be a supported fold kind with valid parameters.",
         "Fold kinds define how sampled time series are compressed into a single representative value.",
-        "Use time_fold='mean', 'min', 'max', 'first', 'last', or ('quantile', q) with 0 < q < 1.",
+        "Use time_fold='mean', 'min', 'max', 'first', 'last', or ('percentile', q) with 0 < q < 1.",
     ),
     ConstraintId.TIME_FOLD_SEMI_ADDITIVE: _constraint(
         ConstraintId.TIME_FOLD_SEMI_ADDITIVE,

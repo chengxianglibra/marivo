@@ -160,7 +160,7 @@ def _bootstrap_bandwidth(
         "@ms.metric(\n"
         "    name='upstream_bw_p95',\n"
         "    entities=[bandwidth_samples],\n"
-        "    additivity=ms.semi_additive(over=sample_ts, fold=('quantile', 0.95)),\n"
+        "    additivity=ms.semi_additive(over=sample_ts, fold=('percentile', 0.95)),\n"
         ")\n"
         "def upstream_bw_p95(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"
@@ -297,7 +297,7 @@ def test_sampled_fold_rejects_grain_finer_than_effective_floor(sampled_bandwidth
         ("sales.upstream_bw_last", 120.0),
     ],
 )
-def test_sampled_non_quantile_folds(
+def test_sampled_non_percentile_folds(
     metric_ref: str, expected: float, sampled_bandwidth_project
 ) -> None:
     frame = sampled_bandwidth_project.observe(
@@ -335,7 +335,7 @@ def test_sampled_fold_persists_time_slot_coverage_sidecar(sampled_bandwidth_proj
     assert frame.meta.quality_summary.sample_coverage_min == 1.0
 
 
-def test_sampled_quantile_fold_uses_space_aggregated_series(sampled_bandwidth_project) -> None:
+def test_sampled_percentile_fold_uses_space_aggregated_series(sampled_bandwidth_project) -> None:
     session = sampled_bandwidth_project
 
     frame = session.observe(

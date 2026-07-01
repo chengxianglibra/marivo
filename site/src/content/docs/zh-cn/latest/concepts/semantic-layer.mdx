@@ -442,7 +442,7 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 - `ms.semi_additive(over, fold)` —— 用于在大多数轴上可加、但需要在某个时间轴上折叠的
   snapshot/status 事实。`over` 必须是 `@ms.time_dimension(...)` 返回的状态时间
   dimension ref；`fold` 为 `"last"`、`"first"`、`"mean"`、`"max"` 或
-  `("quantile", 0.95)`。
+  `("percentile", 0.95)`。
 - `ms.from_sql(sql, dialect)` —— 把 SQL 作为**仅 provenance** 附加，用于启用
   `ms.parity_check(...)`。它永远不会作为 metric body 执行。
 

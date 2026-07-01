@@ -668,7 +668,7 @@ def upstream_bw(bw_samples):
     return bw_samples.upstream_kbps.sum()
 ```
 
-The metric body expresses the spatial aggregate inside one sample point. `status_time_dimension` binds the metric's business as-of/status time axis. `sample_interval` on that time dimension means the axis is a fixed-cadence sampled series, and `time_fold` expresses how the sample-point series is reduced to the requested observe grain. P95-style folds use `time_fold=("quantile", 0.95)` and are always recomputed from base samples for the requested grain.
+The metric body expresses the spatial aggregate inside one sample point. `status_time_dimension` binds the metric's business as-of/status time axis. `sample_interval` on that time dimension means the axis is a fixed-cadence sampled series, and `time_fold` expresses how the sample-point series is reduced to the requested observe grain. P95-style folds use `time_fold=("percentile", 0.95)` and are always recomputed from base samples for the requested grain.
 
 Not every semi-additive metric is sampled. Already-summarized snapshot or
 status facts, such as daily inventory, omit `time_fold` but must still declare

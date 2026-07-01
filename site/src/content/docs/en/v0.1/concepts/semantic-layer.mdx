@@ -451,7 +451,7 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 - `ms.semi_additive(over, fold)` — for snapshot/status facts that are additive
   across most axes but folded over a time axis. `over` is the status time
   dimension ref returned by `@ms.time_dimension(...)`; `fold` is `"last"`,
-  `"first"`, `"mean"`, `"max"`, or `("quantile", 0.95)`.
+  `"first"`, `"mean"`, `"max"`, or `("percentile", 0.95)`.
 - `ms.from_sql(sql, dialect)` — attaches SQL as **provenance only**, enabling
   `ms.parity_check(...)`. It is never executed as the metric body.
 

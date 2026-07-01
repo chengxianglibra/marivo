@@ -185,10 +185,10 @@ def test_semi_additive_builder_normalizes_fold():
     assert sa.fold.kind == "last"
 
 
-def test_semi_additive_builder_quantile():
+def test_semi_additive_builder_percentile():
     t = TimeDimensionRef("d.e.t")
-    sa = authoring.semi_additive(over=t, fold=("quantile", 0.9))
-    assert sa.fold.kind == "quantile" and sa.fold.q == 0.9
+    sa = authoring.semi_additive(over=t, fold=("percentile", 0.9))
+    assert sa.fold.kind == "percentile" and sa.fold.q == 0.9
 
 
 def test_semi_additive_builder_rejects_string_over():

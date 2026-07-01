@@ -1539,7 +1539,7 @@ def _bootstrap_bandwidth_for_rollup(tmp_path):
         "@ms.metric(\n"
         "    name='upstream_bw_p95',\n"
         "    entities=[bandwidth_samples],\n"
-        "    additivity=ms.semi_additive(over=sample_ts, fold=('quantile', 0.95)),\n"
+        "    additivity=ms.semi_additive(over=sample_ts, fold=('percentile', 0.95)),\n"
         ")\n"
         "def upstream_bw_p95(bandwidth_samples):\n"
         "    return bandwidth_samples.upstream_bw_var.sum()\n"

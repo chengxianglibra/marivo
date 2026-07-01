@@ -274,15 +274,15 @@ class _TimeFoldDetailsAdapter:
 
     @property
     def kind(self) -> str:
-        if self.value.startswith("quantile("):
-            return "quantile"
+        if self.value.startswith("percentile("):
+            return "percentile"
         return self.value
 
     @property
     def q(self) -> float | None:
-        if not self.value.startswith("quantile("):
+        if not self.value.startswith("percentile("):
             return None
-        return float(self.value.removeprefix("quantile(").removesuffix(")"))
+        return float(self.value.removeprefix("percentile(").removesuffix(")"))
 
     def label(self) -> str:
         return self.value
