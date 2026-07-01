@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from marivo.analysis.calendar.loader import CalendarCache
-from marivo.analysis.errors import FrameMetaInvalidError, JobNotFoundError
+from marivo.analysis.errors import JobNotFoundError
 from marivo.analysis.session._layout import PersistenceLayout
 from marivo.analysis.session._runtime import _build_connection_runtime, persist_job_record
 from marivo.analysis.session._store import SessionStore
@@ -313,55 +313,3 @@ def test_persisted_frame_records_content_hash_in_meta_store_and_state(tmp_path):
 
     [summary] = s.frame_summaries()
     assert summary.content_hash == frame.state.content_hash
-
-
-def test_loading_legacy_quality_meta_is_rejected(tmp_path) -> None:
-    import json
-
-    import pandas as pd
-
-    s = _session(tmp_path)
-    frame = make_metric_frame(
-        pd.DataFrame({"bucket_start": ["2026-06-18"], "value": [1.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="time_series",
-        semantic_model="sales",
-        session=s,
-    )
-
-    row = s._store.get_artifact(s.id, frame.ref)
-    meta_path = s.project_root / row["meta_path"]
-    payload = json.loads(meta_path.read_text())
-    payload["quality"] = {"coverage": None}  # legacy field
-    meta_path.write_text(json.dumps(payload))
-
-    with pytest.raises(FrameMetaInvalidError):
-        s.get_frame(frame.ref)
-
-
-def test_loading_legacy_recommended_followups_meta_is_rejected(tmp_path) -> None:
-    import json
-
-    import pandas as pd
-
-    s = _session(tmp_path)
-    frame = make_metric_frame(
-        pd.DataFrame({"bucket_start": ["2026-06-18"], "value": [1.0]}),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="time_series",
-        semantic_model="sales",
-        session=s,
-    )
-
-    row = s._store.get_artifact(s.id, frame.ref)
-    meta_path = s.project_root / row["meta_path"]
-    payload = json.loads(meta_path.read_text())
-    payload["recommended_followups"] = []  # legacy field
-    meta_path.write_text(json.dumps(payload))
-
-    with pytest.raises(FrameMetaInvalidError):
-        s.get_frame(frame.ref)

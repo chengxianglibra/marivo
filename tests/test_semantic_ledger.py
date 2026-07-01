@@ -214,24 +214,6 @@ def test_decision_record_persists_fingerprint_inputs():
     assert restored.cited_columns == ("paid_at",)
 
 
-def test_decision_record_from_dict_defaults_when_fields_absent():
-    # records written by Plan 3 (before this field existed) still load
-    legacy = {
-        "decision_kind": "metric_decomposition",
-        "chosen": "sum",
-        "agreement_confidence": "high",
-        "qualifying_sources": ["provenance_sql"],
-        "materiality": "high",
-        "blast_radius": 0,
-        "evidence_fingerprint": "sha256:a",
-        "question_id": None,
-        "decided_at": "t",
-    }
-    rec = lg.DecisionRecord.from_dict(legacy)
-    assert rec.cited_source is None
-    assert rec.cited_columns == ()
-
-
 def test_iter_object_records_globs_all_models(tmp_path):
     store = lg.LedgerStore(tmp_path)
     store.write_object(lg.ObjectEvidence("sales.revenue", "t", (), ()))

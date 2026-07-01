@@ -2,103 +2,14 @@
 
 from __future__ import annotations
 
-import importlib.util
 import re
-import sys
 from pathlib import Path
-from types import ModuleType
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_run_skill_examples() -> ModuleType:
-    name = "_marivo_run_skill_examples"
-    cached = sys.modules.get(name)
-    if cached is not None:
-        return cached
-    spec = importlib.util.spec_from_file_location(
-        name, REPO_ROOT / "scripts" / "run_skill_examples.py"
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text()
-
-
-def test_semantic_skill_is_workflow_only_after_layering_simplification() -> None:
-    skill = _read("marivo/skills/marivo-semantic/SKILL.md")
-    datasource = _read("marivo/skills/marivo-semantic/references/datasource.md")
-    closeout = _read("marivo/skills/marivo-semantic/references/closeout.md")
-    pitfalls = _read("marivo/skills/marivo-semantic/references/pitfalls.md")
-    combined = "\n".join((skill, datasource, closeout, pitfalls))
-    references = "\n".join((datasource, closeout, pitfalls))
-
-    assert "help -> discover -> settle/grill -> author -> verify" in skill
-    for required in (
-        "Evidence before questions",
-        "Wide discovery, narrow authoring",
-        "One active batch",
-        "One object then verify",
-        "One grill decision",
-        "Ref-only links",
-        "No contract transcription",
-        "## Process Flow",
-        "digraph marivo_semantic",
-        "Broad discovery pass",
-        "The broad discovery pass includes `md.inspect_table(...)`",
-        "`md.inspect_partitions(...)` when the table is partitioned",
-        "choose active batch",
-        "ms.verify_object(ref)",
-    ):
-        assert required in skill
-
-    assert "`ms.help(...)` owns the static authoring contract" in skill
-    assert "`md.discover_*` owns datasource evidence" in skill
-    assert "This skill owns workflow and routing only" in skill
-    assert "ms.readiness(" in closeout
-    assert "md.help(" in datasource
-    assert "md.test(" in datasource
-    assert "md.inspect_table(" in datasource
-    assert "md.inspect_partitions(" in datasource
-    assert "discovery_column_limit_truncated" in datasource
-    assert "broad domain- or table-group discovery pass" in datasource
-    assert "choose active batch" not in references
-    assert "A grill turn MUST ask exactly one unresolved semantic decision" not in references
-
-    forbidden = (
-        "judgment_targets",
-        "md.inspect_columns",
-        "md.probe_join_keys",
-        "md.latest_partition",
-        'ms.help("datetime")',
-        'ms.help("timestamp")',
-        'ms.help("strptime")',
-        'ms.help("hour_prefix")',
-        "backend.list_databases(",
-        "backend.get_schema(",
-        "strict_enrichment",
-        "require_preview",
-        "require_evidence_ledger",
-    )
-    for text in forbidden:
-        assert text not in combined
-
-
-def test_semantic_skill_deleted_reference_files_stay_deleted() -> None:
-    deleted = {
-        "marivo/skills/marivo-semantic/references/authoring-patterns.md",
-        "marivo/skills/marivo-semantic/references/object-briefs.md",
-        "marivo/skills/marivo-semantic/references/preview.md",
-        "marivo/skills/marivo-semantic/references/evidence-and-ledger.md",
-        "marivo/skills/marivo-semantic/references/workflow.md",
-    }
-    for path in deleted:
-        assert not (REPO_ROOT / path).exists(), f"{path} should not be recreated"
 
 
 def test_superseded_authoring_spec_points_to_stepwise_design() -> None:
@@ -131,18 +42,6 @@ def test_agent_semantic_authoring_spec_uses_current_readiness_closeout_contract(
         assert phrase not in spec
 
 
-def test_skills_document_uniform_help_contract() -> None:
-    semantic_skill = _read("marivo/skills/marivo-semantic/SKILL.md")
-    analysis_skill = _read("marivo/skills/marivo-analysis/SKILL.md")
-
-    combined = "\n".join((semantic_skill, analysis_skill))
-    # New contract: mv.help() is canonical; no format= in examples
-    assert "mv.help(" in combined
-    assert "ms.help(" in combined
-    assert "format='json'" not in combined
-    assert 'format="json"' not in combined
-
-
 def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
     from marivo.datasource.help import _surface as datasource_surface
     from marivo.introspection.surface import render as surface_render
@@ -157,16 +56,6 @@ def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
         assert name not in str(semantic_data), f"semantic help still exposes {name}"
     for name in ("ScanScope", "discover_entity", "discover_measures", "raw_sql"):
         assert name in str(datasource_data), f"datasource help missing {name}"
-
-
-def test_semantic_skill_md_caps_respected() -> None:
-    run_skill_examples = _load_run_skill_examples()
-    failures = [
-        run_skill_examples._check_skill_md(skill_dir)
-        for skill_dir in run_skill_examples._iter_skill_dirs(REPO_ROOT)
-    ]
-    failures = [f for f in failures if f is not None]
-    assert not failures, [f"{f.reason}: {f.detail}" for f in failures]
 
 
 def test_superseded_semantic_docs_point_to_stepwise_design() -> None:

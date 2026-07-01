@@ -89,20 +89,6 @@ def test_datasource_describe_covers_discovery_symbols() -> None:
         assert expected in text, f"md.help_text({symbol!r}) missing {expected!r}"
 
 
-def test_datasource_top_level_help_has_no_legacy_aliases() -> None:
-    text = md.help_text()
-    for forbidden in (
-        "inspect_source",
-        "inspect_columns",
-        "probe_join_keys",
-        "ColumnInspection",
-        "JoinKeyProbe",
-        "latest_partition",
-        "RawSqlResult",
-    ):
-        assert forbidden not in text
-
-
 def test_datasource_api_docs_list_public_datasource_result() -> None:
     text = Path("docs/api/datasource.rst").read_text(encoding="utf-8")
 

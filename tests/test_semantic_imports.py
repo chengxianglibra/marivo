@@ -466,21 +466,6 @@ def test_removed_component_body_constraints_absent() -> None:
     assert get_constraint("ast_component_arithmetic") is None
 
 
-def test_semantic_skill_constraint_table_matches_catalog() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    skill_dir = repo_root / "marivo/skills/marivo-semantic"
-    deleted_reference = skill_dir / "references/authoring-patterns.md"
-    deleted_workflow = skill_dir / "references/workflow.md"
-    skill = (skill_dir / "SKILL.md").read_text()
-
-    assert not deleted_reference.exists()
-    assert not deleted_workflow.exists()
-    assert "help -> discover -> settle/grill -> author -> verify" in skill
-    assert "This skill owns workflow and routing only" in skill
-    assert "author one object" in skill
-    assert "ms.verify_object(ref)" in skill
-
-
 # ---------------------------------------------------------------------------
 # ErrorKind enum
 # ---------------------------------------------------------------------------

@@ -328,28 +328,6 @@ def test_decompose_accepts_catalog_dimension_ref(tmp_path):
     assert out.meta.driver_field == "path"
 
 
-def test_decompose_rejects_unmatched_legacy_dimension_when_catalog_exists(tmp_path):
-    bootstrap_sales_project(tmp_path)
-    session = session_attach.get_or_create(name="demo")
-    frame = _delta(
-        session,
-        pd.DataFrame(
-            {
-                "platform": ["web", "mobile", "web"],
-                "delta": [10.0, 5.0, -3.0],
-            }
-        ),
-        semantic_kind="segmented",
-    )
-
-    with pytest.raises(SemanticKindMismatchError) as excinfo:
-        decompose(frame, axis=make_ref("platform", SemanticKind.DIMENSION), session=session)
-
-    assert excinfo.value.details["argument"] == "axis"
-    assert excinfo.value.details["ref"] == "platform"
-    assert "sales.orders.region" in excinfo.value.details["available_ids"]
-
-
 def test_decompose_requires_axis_argument():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(

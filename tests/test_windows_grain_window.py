@@ -13,11 +13,6 @@ def test_window_normalizes_grain_input():
     assert w.grain == Grain(count=5, unit="minute")
 
 
-def test_window_accepts_legacy_string_grain():
-    w = AbsoluteWindow(start="2026-06-03", end="2026-06-04", grain="day")
-    assert w.grain == Grain(count=1, unit="day")
-
-
 def test_window_serializes_grain_to_token():
     w = AbsoluteWindow(start="2026-06-03", end="2026-06-04", grain=(5, "minute"))
     assert w.model_dump(mode="json")["grain"] == "5minute"

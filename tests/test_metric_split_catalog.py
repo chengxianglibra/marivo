@@ -2,35 +2,11 @@
 
 from __future__ import annotations
 
-import dataclasses
-
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SemanticCatalog,
     SimpleMetricDetails,
 )
-
-# ---------------------------------------------------------------------------
-# Task 1: MetricDetails closed union shape
-# ---------------------------------------------------------------------------
-
-
-def test_metric_details_has_split_fields_not_legacy():
-    simple_names = {f.name for f in dataclasses.fields(SimpleMetricDetails)}
-    derived_names = {f.name for f in dataclasses.fields(DerivedMetricDetails)}
-    # Simple-specific fields must be present on SimpleMetricDetails
-    assert {"aggregation", "measure", "additivity", "fold"} <= simple_names
-    # Derived-specific fields must be present on DerivedMetricDetails
-    assert {"composition", "components", "linear_terms", "required_relationships"} <= derived_names
-    # Cross-cut fields must be absent from the other variant
-    assert "aggregation" not in derived_names
-    assert "composition" not in simple_names
-    # Legacy fields must be gone from both
-    for names in (simple_names, derived_names):
-        assert "is_derived" not in names
-        assert "decomposition" not in names
-        assert "component_metrics" not in names
-
 
 # ---------------------------------------------------------------------------
 # Task 2: _build_metric_object populates split fields

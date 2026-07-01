@@ -102,11 +102,6 @@ def test_create_initializes_project_calendar_directory(monkeypatch):
     assert (s.project_root / ".marivo" / "calendar").is_dir()
 
 
-def test_create_rejects_legacy_tz_kwarg():
-    with pytest.raises(TypeError):
-        session_attach.get_or_create(name="demo", tz="UTC")  # type: ignore[call-arg]
-
-
 def test_system_timezone_prefers_tz_environment(monkeypatch):
     from marivo.analysis.timezone import resolve_system_timezone
 

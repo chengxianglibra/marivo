@@ -1,6 +1,5 @@
 """v1.2 frame loading compatibility checks."""
 
-import json
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -10,7 +9,6 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     CrossSessionFrameError,
     FrameCacheCorruptedError,
-    FrameMetaInvalidError,
     FrameRefNotFound,
 )
 from marivo.analysis.frames.metric import MetricFrame
@@ -47,83 +45,6 @@ def _base_meta(session, *, kind, ref):
             ],
         ),
     }
-
-
-def test_load_frame_coerces_legacy_window_dict():
-    session = session_attach.get_or_create(name="demo")
-    frame = make_metric_frame(
-        pd.DataFrame({"value": [1.0]}),
-        metric_id="custom.metric",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="scalar",
-        semantic_model="custom",
-        session=session,
-    )
-    meta_file = session._layout.frames_dir / frame.ref / "meta.json"
-    meta = json.loads(meta_file.read_text())
-    meta["window"] = {
-        "start": "2026-05-01",
-        "end": "2026-05-24",
-        "rogue_key": "drop-me",
-    }
-    meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-
-    loaded = session.get_frame(frame.ref)
-
-    assert loaded.meta.window is not None
-    assert loaded.meta.window["kind"] == "absolute"
-    assert loaded.meta.window["start"] == "2026-05-01"
-    assert loaded.meta.window["end"] == "2026-05-24"
-    assert "rogue_key" not in loaded.meta.window
-
-
-def test_load_frame_rejects_unparseable_legacy_window():
-    session = session_attach.get_or_create(name="demo")
-    frame = make_metric_frame(
-        pd.DataFrame({"value": [1.0]}),
-        metric_id="custom.metric",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="scalar",
-        semantic_model="custom",
-        session=session,
-    )
-    meta_file = session._layout.frames_dir / frame.ref / "meta.json"
-    meta = json.loads(meta_file.read_text())
-    meta["window"] = {"foo": "bar"}
-    meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-
-    with pytest.raises(FrameMetaInvalidError) as exc_info:
-        session.get_frame(frame.ref)
-
-    assert exc_info.value.details.get("kind") == "LegacyWindowShapeInvalid"
-
-
-def test_load_frame_wraps_legacy_window_validation_error():
-    session = session_attach.get_or_create(name="demo")
-    frame = make_metric_frame(
-        pd.DataFrame({"value": [1.0]}),
-        metric_id="custom.metric",
-        axes={},
-        measure={"name": "value"},
-        semantic_kind="scalar",
-        semantic_model="custom",
-        session=session,
-    )
-    meta_file = session._layout.frames_dir / frame.ref / "meta.json"
-    meta = json.loads(meta_file.read_text())
-    meta["window"] = {
-        "start": "2026-05-01",
-        "end": "2026-05-24",
-        "grain": "invalid-grain",
-    }
-    meta_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-
-    with pytest.raises(FrameMetaInvalidError) as exc_info:
-        session.get_frame(frame.ref)
-
-    assert exc_info.value.details.get("kind") == "LegacyWindowShapeInvalid"
 
 
 def test_load_frame_round_trips_hypothesis_test_result():

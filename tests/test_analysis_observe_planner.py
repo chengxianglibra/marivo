@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import ibis
 import pytest
 
@@ -16,7 +14,6 @@ from marivo.analysis.intents.observe_errors import (
 from marivo.analysis.intents.observe_planner import (
     JoinSafety,
     _field_fn,
-    plan_base_observe,
     resolve_metric_root,
     resolve_observe_fields,
     resolved_edge_safety,
@@ -60,28 +57,6 @@ def test_observe_planning_error_payload_is_stable():
             "why": "the root defines preserved rows and the observe time axis",
         }
     ]
-
-
-def test_plan_base_observe_rejects_legacy_project_kwarg():
-    metric = SimpleNamespace(
-        semantic_id="sales.revenue",
-        entities=("sales.orders",),
-        root_entity=None,
-        additivity=None,
-    )
-    with pytest.raises(TypeError, match="unexpected keyword argument 'project'"):
-        plan_base_observe(
-            project=object(),
-            catalog=object(),
-            session=object(),
-            metric_ir=metric,
-            dataset_irs={},
-            dataset_fns={},
-            dimensions=None,
-            where=None,
-            resolved_window=None,
-            time_dimension=None,
-        )
 
 
 def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):

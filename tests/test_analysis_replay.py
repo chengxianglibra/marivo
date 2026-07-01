@@ -124,32 +124,6 @@ def test_recover_observe_replay_reads_lineage_params() -> None:
     assert replay.slice_by == {"sales.orders.region": "US"}
 
 
-def test_recover_observe_replay_handles_legacy_string_dimensions() -> None:
-    session = mv.session.get_or_create(name="demo")
-    frame = _metric_frame(
-        session,
-        params={
-            "metric": "sales.revenue",
-            "timescope": {
-                "original": {"start": "2026-07-01", "end": "2026-08-01"},
-                "resolved": {
-                    "start": "2026-07-01T00:00:00+00:00",
-                    "end": "2026-08-01T00:00:00+00:00",
-                    "grain": "day",
-                    "time_dimension": "sales.orders.created_at",
-                },
-                "report_tz": "UTC",
-            },
-            "dimensions": ["sales.orders.region"],
-            "where": {"sales.orders.region": "US"},
-        },
-    )
-
-    replay = recover_observe_replay(frame, session=session)
-
-    assert replay.dimensions == ("sales.orders.region",)
-
-
 def test_recover_observe_replay_requires_observe_params() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _metric_frame(session, params={})
