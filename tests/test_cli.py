@@ -225,8 +225,11 @@ def test_publish_file_command_uploads_and_prints_uri(
     main(["publish", str(source)])
 
     captured = capsys.readouterr()
-    assert "s3://bucket/base/report.html" in captured.out
-    assert "Uploaded 1 file" in captured.out
+    assert captured.out.splitlines() == [
+        "Uploaded 1 file",
+        "URL: https://s3.example.com/bucket/base/report.html",
+        "S3: s3://bucket/base/report.html",
+    ]
     assert factory.client.puts[0]["Key"] == "base/report.html"
 
 

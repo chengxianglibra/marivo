@@ -195,4 +195,6 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Error: {exc}", file=sys.stderr)
             raise SystemExit(1) from None
         suffix = "file" if result.file_count == 1 else "files"
-        print(f"Uploaded {result.file_count} {suffix} to {result.uri}")
+        print(f"Uploaded {result.file_count} {suffix}")
+        print(f"URL: {result.url}")
+        print(f"S3: {result.uri}")

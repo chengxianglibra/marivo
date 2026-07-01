@@ -17,6 +17,7 @@ class S3Client(Protocol):
 @dataclass(frozen=True)
 class PublishResult:
     uri: str
+    url: str
     file_count: int
 
 
@@ -85,6 +86,9 @@ class S3Uploader:
 
     def uri(self, rel_path: str) -> str:
         return f"s3://{self._config.bucket}/{self._key(rel_path)}"
+
+    def url(self, rel_path: str) -> str:
+        return self._config.url(rel_path)
 
     def put_file(self, rel_path: str, data: bytes) -> str:
         key = self._key(rel_path)

@@ -42,13 +42,17 @@ class _FakeClientFactory:
         return self.client
 
 
-def _write_project_config(root: Path, bucket_path: str = "s3://bucket/base") -> None:
+def _write_project_config(
+    root: Path,
+    bucket_path: str = "s3://bucket/base",
+    endpoint_url: str = "https://s3.example.com",
+) -> None:
     (root / "marivo.toml").write_text(
         "[project]\n"
         'name = "demo"\n\n'
         "[publish.s3]\n"
         f'S3_BUCKET_PATH = "{bucket_path}"\n'
-        'AWS_ENDPOINT_URL_S3 = "https://s3.example.com"\n',
+        f'AWS_ENDPOINT_URL_S3 = "{endpoint_url}"\n',
         encoding="utf-8",
     )
 
@@ -83,6 +87,29 @@ def test_resolves_s3_publish_config_from_project_and_user_secret(
     assert config.endpoint_url == "https://s3.example.com"
     assert config.aws_access_key_id == "ak"
     assert config.aws_secret_access_key == "sk"
+
+
+def test_publish_config_derives_reader_url_from_endpoint_bucket_and_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo._publish.config import resolve_s3_publish_config
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    _write_project_config(
+        tmp_path,
+        bucket_path="s3://marivo",
+        endpoint_url="https://jssz-inner-boss.bilibili.co/",
+    )
+    _write_secret_config(home)
+
+    config = resolve_s3_publish_config(project_root=tmp_path)
+
+    assert (
+        config.url("trino_query_volume_20260630.html")
+        == "https://jssz-inner-boss.bilibili.co/marivo/trino_query_volume_20260630.html"
+    )
 
 
 def test_missing_config_error_names_key_and_file(
@@ -174,6 +201,7 @@ def test_publish_file_uploads_basename_and_content_length(
     result = publish_path(source, project_root=tmp_path, client_factory=factory)
 
     assert result.uri == "s3://bucket/base/report.html"
+    assert result.url == "https://s3.example.com/bucket/base/report.html"
     assert result.file_count == 1
     assert factory.calls[0]["service_name"] == "s3"
     assert factory.calls[0]["endpoint_url"] == "https://s3.example.com"
@@ -204,6 +232,7 @@ def test_publish_directory_preserves_nested_relative_paths(
     result = publish_path(source, project_root=tmp_path, client_factory=factory)
 
     assert result.uri == "s3://bucket/base/output"
+    assert result.url == "https://s3.example.com/bucket/base/output"
     assert result.file_count == 2
     keys = sorted(put["Key"] for put in factory.client.puts)
     assert keys == ["base/output/assets/app.js", "base/output/index.html"]

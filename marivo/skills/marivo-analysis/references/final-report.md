@@ -97,6 +97,22 @@ centered max-width page, dark canvas, blue section accents, dense stat
 cards/tables, lightweight filters or collapsible sections when useful, and
 minimal ornamentation.
 
+HTML reports must not be dashboard-only. A generated HTML report needs the same
+narrative structure as the final Markdown report, with reader-facing sections
+for:
+
+- Conclusion summary
+- Scope and metric basis
+- Key findings with interpretation
+- Caveats and assumptions
+- Agent-authored next steps
+- Source and reproducibility details
+
+KPI cards, charts, and tables are evidence blocks inside that report, not a
+substitute for the report. Put a concise conclusion near the top of the HTML,
+place interpretation next to the relevant visual or table, and include skipped
+or weakened analysis steps in the caveats when they affect the answer.
+
 The deliverable should remain narrative-first and evidence-backed:
 
 - The narrative layer owns the title, executive summary, finding takeaways,
@@ -129,6 +145,9 @@ directory or another user-approved output location, not as new Marivo library
 state. After the requested deliverable has been created and QA-checked, use
 `marivo publish <path>` to upload a file or directory when the project has S3
 publish configuration. Verify the resulting artifact in the delivery surface.
+When publish prints both a reader-facing HTTP URL and an S3 URI, cite the
+reader-facing HTTP URL as the report link and keep the S3 URI only as object
+location metadata.
 
 ## Discovery and anomaly reports
 

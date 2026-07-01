@@ -38,6 +38,15 @@ class PublishConfig:
         suffix = f"/{self.prefix}" if self.prefix else ""
         return f"s3://{self.bucket}{suffix}"
 
+    def url(self, rel_path: str) -> str:
+        clean_rel = rel_path.replace("\\", "/").strip("/")
+        parts = [part for part in clean_rel.split("/") if part]
+        if not parts or any(part in {".", ".."} for part in parts):
+            raise ValueError(f"publish path is not a safe relative object path: {rel_path!r}")
+        prefix = self.prefix.strip("/")
+        key = "/".join([prefix, *parts]) if prefix else "/".join(parts)
+        return f"{self.endpoint_url.rstrip('/')}/{self.bucket}/{key}"
+
 
 def _missing_message(display_path: str, actual_path: Path, key: str) -> str:
     return f"missing required configuration {display_path} {_S3_SECTION} {key} at {actual_path}"
