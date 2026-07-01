@@ -490,12 +490,12 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_for_decompose
 
     cur = sampled_bandwidth_for_decompose.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        timescope={"start": "2026-01-02", "end": "2026-01-03"},
+        time_scope={"start": "2026-01-02", "end": "2026-01-03"},
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
     base = sampled_bandwidth_for_decompose.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
     delta = sampled_bandwidth_for_decompose.compare(cur, base)

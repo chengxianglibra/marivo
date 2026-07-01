@@ -1588,7 +1588,7 @@ def _normalize_where_boundary(
         _normalize_dimension_boundary(
             catalog,
             key,
-            argument="where",
+            argument="slice_by",
             scoped_entity_refs=scoped_entity_refs,
         ): value
         for key, value in where.items()
@@ -1617,10 +1617,10 @@ def _metric_planner_scope(catalog: Any, metric_ir: Any) -> set[str]:
 def observe(
     metric: MetricInput,
     *,
-    timescope: TimeScopeInput = None,
+    time_scope: TimeScopeInput = None,
     grain: GrainInput = None,
     dimensions: list[DimensionInput] | None = None,
-    where: dict[DimensionInput, SliceValue] | None = None,
+    slice_by: dict[DimensionInput, SliceValue] | None = None,
     time_dimension: DimensionInput | None = None,
     expect_shape: SemanticShape | None = None,
     session: Session | None = None,
@@ -1646,7 +1646,7 @@ def observe(
         if time_dimension is not None
         else None
     )
-    where_by_id = _normalize_where_boundary(catalog, where, scoped_entity_refs=planner_scope)
+    where_by_id = _normalize_where_boundary(catalog, slice_by, scoped_entity_refs=planner_scope)
     dimension_ids = _normalize_dimension_list_boundary(
         catalog,
         dimensions,
@@ -1654,7 +1654,7 @@ def observe(
     )
     resolver = catalog._resolver(connections=session._connection_runtime)
     resolved_window, original_timescope = _resolve_timescope(
-        timescope,
+        time_scope,
         grain=grain,
         time_dimension=time_dimension_id,
     )
@@ -1670,7 +1670,7 @@ def observe(
         and resolved_window.time_dimension is None
     ):
         resolved_window, original_timescope = _resolve_timescope(
-            timescope,
+            time_scope,
             grain=grain,
             time_dimension=metric_ir.status_time_dimension,
         )
@@ -1692,7 +1692,7 @@ def observe(
                 and getattr(_comp_ir, "status_time_dimension", None) is not None
             ):
                 resolved_window, original_timescope = _resolve_timescope(
-                    timescope,
+                    time_scope,
                     grain=grain,
                     time_dimension=_comp_ir.status_time_dimension,
                 )

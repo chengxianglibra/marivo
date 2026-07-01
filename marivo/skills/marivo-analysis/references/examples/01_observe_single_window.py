@@ -17,7 +17,7 @@ session = mv.session.get_or_create(
 metric = session.catalog.get("metric.sales.revenue")
 cur = session.observe(
     metric,
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    time_scope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 cur.show()
 contract = cur.contract()

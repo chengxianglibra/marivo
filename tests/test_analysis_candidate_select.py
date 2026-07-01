@@ -391,7 +391,7 @@ def test_select_selector_feeds_transform_slice(tmp_path):
     assert selector == {
         make_ref("sales.orders.region", SemanticKind.DIMENSION): "US",
     }
-    focus = session.transform.slice(src, where=selector)
+    focus = session.transform.slice(src, slice_by=selector)
     assert focus.meta.kind == "delta_frame"
 
 
@@ -416,7 +416,7 @@ def test_select_selector_without_search_space_returns_catalog_ref(tmp_path):
     assert selector == {
         make_ref("sales.orders.region", SemanticKind.DIMENSION): "US",
     }
-    focus = session.transform.slice(src, where=selector)
+    focus = session.transform.slice(src, slice_by=selector)
     assert focus.meta.kind == "delta_frame"
 
 

@@ -116,10 +116,10 @@ def test_semantic_kind_mismatch_has_compare_fix_template():
     assert "Fix:" in rendered
     assert 'revenue = session.catalog.get("metric.sales.revenue")' in rendered
     assert (
-        'cur  = session.observe(revenue, timescope={"start": "2026-07-01", "end": "2026-10-01"})'
+        'cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert (
-        'base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-10-01"})'
+        'base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})'
     ) in rendered
     assert "  delta = session.compare(cur, base, alignment=mv.window_bucket())" in rendered
     assert 'session.observe("revenue"' not in rendered
@@ -160,7 +160,7 @@ def test_window_invalid_has_window_fix_template():
     assert "Fix:" in rendered
     assert (
         '  session.observe(session.catalog.get("metric.sales.revenue"), '
-        'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
+        'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert 'session.observe("revenue", window=' not in rendered
 
@@ -178,7 +178,7 @@ def test_metric_not_found_has_list_metrics_fix_template():
     assert "  catalog.list(kind=ms.SemanticKind.METRIC)  # confirm the exact id" in rendered
     assert (
         'session.observe(catalog.get("metric.<registered_metric_id>"), '
-        'timescope={"start": "2026-07-01", "end": "2026-10-01"})'
+        'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
     ) in rendered
     assert 'session.observe("<registered_metric_id>", window=' not in rendered
 

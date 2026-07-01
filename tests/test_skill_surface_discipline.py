@@ -36,10 +36,10 @@ PHASE2_BANNED_ANALYSIS_SURFACE = (
     "session.promote_delta_frame(",
     "session.promote_attribution_frame(",
     "session.decompose(",
-    'timescope="last_7d"',
-    "timescope='last_7d'",
-    'timescope="previous_7d"',
-    "timescope='previous_7d'",
+    'time_scope="last_7d"',
+    "time_scope='last_7d'",
+    'time_scope="previous_7d"',
+    "time_scope='previous_7d'",
 )
 
 # (relative_md_path, type_or_marker) pairs that are intentionally allowed.

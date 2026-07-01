@@ -90,7 +90,7 @@ your-project/
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 # revenue 是一个 MetricRef——直接传给 observe：
-frame = session.observe(revenue, timescope={...})
+frame = session.observe(revenue, time_scope={...})
 ```
 
 Catalog 的 `catalog.get("sales.revenue").ref` 返回同一个 `MetricRef` 子类。不存在

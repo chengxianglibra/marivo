@@ -673,7 +673,7 @@ def promote_metric_frame(
     time_axis: str | DimensionAnchorInput | None = None,
     semantic_model: str | None = None,
     window: object | None = None,
-    where: dict[str, Any] | None = None,
+    slice_by: dict[str, Any] | None = None,
 ) -> MetricFrame:
     resolved_session = _resolve_session(session)
     ensure_session_writable(resolved_session)
@@ -781,7 +781,7 @@ def promote_metric_frame(
         if time_axis_meta is not None
         else None,
         "window": dump_window(resolved_window),
-        "where": where or {},
+        "where": slice_by or {},
     }
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -808,7 +808,7 @@ def promote_metric_frame(
         axes=resolved_axes,
         measure={"name": measure_column},
         window=dump_window(resolved_window),
-        where=where or {},
+        where=slice_by or {},
         semantic_kind=semantic_kind,
         semantic_model=semantic_model,
     )

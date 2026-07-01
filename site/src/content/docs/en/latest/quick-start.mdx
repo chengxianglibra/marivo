@@ -182,13 +182,13 @@ region = catalog.get("sales.orders.region")
 
 current = session.observe(
     revenue,
-    timescope={"start": "2026-10-01", "end": "2027-01-01"},
+    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
     dimensions=[region],
 )
 baseline = session.observe(
     revenue,
-    timescope={"start": "2025-10-01", "end": "2026-01-01"},
+    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
     grain="month",
     dimensions=[region],
 )

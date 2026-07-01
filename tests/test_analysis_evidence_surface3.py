@@ -46,11 +46,11 @@ def _compare(session):
 
     cur = session.observe(
         metric=make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-05-01", "end": "2026-05-07"},
+        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
     )
     bas = session.observe(
         metric=make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-24", "end": "2026-04-30"},
+        time_scope={"start": "2026-04-24", "end": "2026-04-30"},
     )
     return session.compare(cur, bas)
 

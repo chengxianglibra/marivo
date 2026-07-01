@@ -332,20 +332,20 @@ def _check_frame_vars(tree: ast.Module) -> list[ReplayCheckIssue]:
 
 
 def _check_timescope(tree: ast.Module) -> list[ReplayCheckIssue]:
-    """Flag timescope values that are not absolute {start, end} dict literals."""
+    """Flag time_scope values that are not absolute {start, end} dict literals."""
     issues: list[ReplayCheckIssue] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         for kw in node.keywords:
-            if kw.arg != "timescope":
+            if kw.arg != "time_scope":
                 continue
             value = kw.value
             if not isinstance(value, ast.Dict):
                 issues.append(
                     ReplayCheckIssue(
-                        "timescope",
-                        "timescope must be an absolute {start, end} dict literal",
+                        "time_scope",
+                        "time_scope must be an absolute {start, end} dict literal",
                         node.lineno,
                     )
                 )
@@ -354,8 +354,8 @@ def _check_timescope(tree: ast.Module) -> list[ReplayCheckIssue]:
             if not {"start", "end"}.issubset(keys):
                 issues.append(
                     ReplayCheckIssue(
-                        "timescope",
-                        "timescope dict must pin absolute 'start' and 'end'",
+                        "time_scope",
+                        "time_scope dict must pin absolute 'start' and 'end'",
                         node.lineno,
                     )
                 )

@@ -84,7 +84,7 @@ def test_derive_metric_frame_materializes_metric_frame_with_governed_contract(
                 mv.dimension_column(column="region", ref=region),
             ],
         ),
-        timescope={"start": "2026-06-18", "end": "2026-06-25"},
+        time_scope={"start": "2026-06-18", "end": "2026-06-25"},
         grain="day",
         label="revenue_by_region",
     )
@@ -137,7 +137,7 @@ def test_derive_metric_frame_rejects_non_metric_anchor(tmp_path, monkeypatch) ->
                 build=lambda db, ctx: _Expr(),
             ),
             columns=mv.metric_columns(value="value"),
-            timescope={"start": "2026-06-18", "end": "2026-06-25"},
+            time_scope={"start": "2026-06-18", "end": "2026-06-25"},
             grain=None,
         )
 
@@ -157,7 +157,7 @@ def test_derive_metric_frame_rejects_missing_output_columns(tmp_path, monkeypatc
                 build=lambda db, ctx: _Expr(),
             ),
             columns=mv.metric_columns(value="value"),
-            timescope={"start": "2026-06-18", "end": "2026-06-25"},
+            time_scope={"start": "2026-06-18", "end": "2026-06-25"},
             grain=None,
         )
 
@@ -231,7 +231,7 @@ def test_derive_metric_frame_grain_token_consistent_for_non_string_grain(
                 mv.dimension_column(column="region", ref=region),
             ],
         ),
-        timescope={"start": "2026-06-18", "end": "2026-06-25"},
+        time_scope={"start": "2026-06-18", "end": "2026-06-25"},
         grain=(2, "hour"),
         label="revenue_by_region_hour",
     )
@@ -275,7 +275,7 @@ def test_derive_metric_frame_grain_does_not_aggregate(tmp_path, monkeypatch) -> 
                 mv.dimension_column(column="region", ref=region),
             ],
         ),
-        timescope={"start": "2026-06-01", "end": "2026-07-01"},
+        time_scope={"start": "2026-06-01", "end": "2026-07-01"},
         grain="month",
         label="revenue_by_month",
     )
@@ -314,7 +314,7 @@ def test_derive_metric_frame_retains_unbound_columns_with_grain(tmp_path, monkey
                 mv.dimension_column(column="region", ref=region),
             ],
         ),
-        timescope={"start": "2026-06-01", "end": "2026-07-01"},
+        time_scope={"start": "2026-06-01", "end": "2026-07-01"},
         grain="month",
     )
 
@@ -324,7 +324,7 @@ def test_derive_metric_frame_retains_unbound_columns_with_grain(tmp_path, monkey
 
 
 def test_derive_metric_frame_optional_timescope_without_time_column(tmp_path, monkeypatch) -> None:
-    """timescope=None produces a frame with no window (scalar kind)."""
+    """time_scope=None produces a frame with no window (scalar kind)."""
     session = _session_with_fake_backend(
         tmp_path,
         monkeypatch,
@@ -338,7 +338,7 @@ def test_derive_metric_frame_optional_timescope_without_time_column(tmp_path, mo
             build=lambda db, ctx: _Expr(),
         ),
         columns=mv.metric_columns(value="value"),
-        timescope=None,
+        time_scope=None,
     )
 
     assert isinstance(frame, mv.MetricFrame)

@@ -77,7 +77,7 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="day",
         dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=s,
@@ -102,7 +102,7 @@ def test_observe_panel_multi_dimension(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="day",
         dimensions=[
             make_ref("region", SemanticKind.DIMENSION),
@@ -199,7 +199,7 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
 
     frame = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=session,
@@ -235,7 +235,7 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
 
     frame = observe(
         make_ref("sales.weighted_failure_rate", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=session,

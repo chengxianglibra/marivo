@@ -57,7 +57,7 @@ GOOD_SCRIPT = (
     "catalog = session.catalog\n"
     "cur = session.observe(\n"
     '    catalog.get("metric.sales.revenue"),\n'
-    '    timescope={"start": "2026-05-01", "end": "2026-05-08"},\n'
+    '    time_scope={"start": "2026-05-01", "end": "2026-05-08"},\n'
     ")\n"
     "cur.show()\n"
 )
@@ -202,7 +202,7 @@ def test_dimension_catalog_get_is_not_checked_as_metric_ref(tmp_path, semantic_p
     semantic_project_factory(SALES_FILES)
     src = GOOD_SCRIPT + (
         'base = session.observe(catalog.get("metric.sales.revenue"), '
-        'timescope={"start": "2026-04-24", "end": "2026-05-01"})\n'
+        'time_scope={"start": "2026-04-24", "end": "2026-05-01"})\n'
         "delta = session.compare(cur, base)\n"
         'axis = catalog.get("dimension.sales.orders.region").ref\n'
         "drivers = session.attribute(delta, axes=[axis])\n"
@@ -237,7 +237,7 @@ def test_defined_frame_variable_passes(tmp_path, semantic_project_factory):
     ok_src = GOOD_SCRIPT + (
         "base = session.observe(\n"
         '    catalog.get("metric.sales.revenue"),\n'
-        '    timescope={"start": "2026-04-24", "end": "2026-05-01"},\n'
+        '    time_scope={"start": "2026-04-24", "end": "2026-05-01"},\n'
         ")\n"
         "delta = session.compare(cur, base)\n"
     )
@@ -248,22 +248,22 @@ def test_defined_frame_variable_passes(tmp_path, semantic_project_factory):
 def test_relative_timescope_string_is_flagged(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     bad = GOOD_SCRIPT.replace(
-        '    timescope={"start": "2026-05-01", "end": "2026-05-08"},\n',
-        '    timescope="last_month",\n',
+        '    time_scope={"start": "2026-05-01", "end": "2026-05-08"},\n',
+        '    time_scope="last_month",\n',
     )
     result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
     assert result.ok is False
-    assert any(i.check == "timescope" for i in result.issues)
+    assert any(i.check == "time_scope" for i in result.issues)
 
 
 def test_timescope_missing_start_end_is_flagged(tmp_path, semantic_project_factory):
     semantic_project_factory(SALES_FILES)
     bad = GOOD_SCRIPT.replace(
-        '    timescope={"start": "2026-05-01", "end": "2026-05-08"},\n',
-        '    timescope={"grain": "day"},\n',
+        '    time_scope={"start": "2026-05-01", "end": "2026-05-08"},\n',
+        '    time_scope={"grain": "day"},\n',
     )
     result = static_check_replay(_write(tmp_path, bad), workspace_dir=_workspace_dir(tmp_path))
-    assert any(i.check == "timescope" for i in result.issues)
+    assert any(i.check == "time_scope" for i in result.issues)
 
 
 def test_hardcoded_secret_is_flagged(tmp_path, semantic_project_factory):
@@ -293,7 +293,7 @@ def test_multiple_issues_are_reported_together(tmp_path, semantic_project_factor
         "catalog = session.catalog\n"
         "cur = session.observe(\n"
         '    catalog.get("metric.sales.unknown"),\n'  # unresolved metric
-        '    timescope="last_month",\n'  # relative timescope
+        '    time_scope="last_month",\n'  # relative timescope
         ")\n"
         "delta = session.compare(ghost, cur)\n"  # undefined frame var
     )
@@ -301,4 +301,4 @@ def test_multiple_issues_are_reported_together(tmp_path, semantic_project_factor
     assert result.ok is False
     assert result.validation == "failed"
     checks = {i.check for i in result.issues}
-    assert {"imports", "metric_ref", "timescope", "frame_var"} <= checks
+    assert {"imports", "metric_ref", "time_scope", "frame_var"} <= checks

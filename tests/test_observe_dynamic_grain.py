@@ -60,7 +60,7 @@ def test_observe_five_minute_grain(tmp_path):
 
     frame = observe(
         make_ref("ops.hits", SemanticKind.METRIC),
-        timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
+        time_scope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
         grain=(5, "minute"),
         session=s,
     )
@@ -83,7 +83,7 @@ def test_observe_grain_finer_than_base_rejected(tmp_path):
     with pytest.raises(GrainUnsupportedError):
         observe(
             make_ref("ops.hits", SemanticKind.METRIC),
-            timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
+            time_scope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
             grain=(30, "second"),
             session=s,
         )
@@ -99,7 +99,7 @@ def test_resolved_window_and_promotion_store_grain_token(tmp_path):
 
     observe(
         make_ref("ops.hits", SemanticKind.METRIC),
-        timescope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
+        time_scope={"start": "2026-06-03 00:00:00", "end": "2026-06-03 01:00:00"},
         grain=(5, "minute"),
         session=s,
     )

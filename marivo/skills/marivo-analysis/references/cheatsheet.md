@@ -39,7 +39,7 @@ mv.help('MetricFrame.components')        # method signature and doc
 
 ## Predicate Routing
 
-`where` and transform predicate value shapes are runtime API contracts. Before
+`slice_by` and transform predicate value shapes are runtime API contracts. Before
 authoring them, read `mv.help("observe")` and `mv.help("transform")`. Use
 Python-style operators such as `==`, `!=`, `>`, `>=`, `<`, and `<=`; do not
 invent SQL-style mnemonic names such as `"eq"`, `"ne"`, or `"gte"`.
@@ -78,11 +78,11 @@ import marivo.analysis as mv
 
 cur = session.observe(
     session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    time_scope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 base = session.observe(
     session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2025-07-01", "end": "2025-10-01"},
+    time_scope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("time_dimension.sales.orders.created_at")
@@ -147,7 +147,7 @@ semantic project.
 
 For cross-dataset base metrics (datasets cover multiple datasets with an explicit
 `root_dataset`), call `session.observe(...)` with the normal arguments.
-`dimensions=` and `where=` may target joined datasets; root predicates push
+`dimensions=` and `slice_by=` may target joined datasets; root predicates push
 before widening, joined predicates apply after. Do not pass join policy or
 route arguments. If planning fails, the repair error includes
 `schema_version`, `code`, `candidates`, and `repair`.

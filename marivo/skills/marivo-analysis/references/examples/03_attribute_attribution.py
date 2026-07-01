@@ -18,12 +18,12 @@ created_at = session.catalog.get("time_dimension.sales.orders.created_at")
 revenue = session.catalog.get("metric.sales.revenue")
 cur = session.observe(
     revenue,
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    time_scope={"start": "2026-07-01", "end": "2026-10-01"},
     grain="month",
 )
 base = session.observe(
     revenue,
-    timescope={"start": "2025-07-01", "end": "2025-10-01"},
+    time_scope={"start": "2025-07-01", "end": "2025-10-01"},
     grain="month",
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())

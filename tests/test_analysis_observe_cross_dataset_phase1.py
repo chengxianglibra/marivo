@@ -122,7 +122,7 @@ def test_cross_dataset_where_filters_after_left_join(tmp_path):
     _seed(con)
     frame = observe(
         make_ref("sales.revenue_by_user", SemanticKind.METRIC),
-        where={make_ref("sales.users.country", SemanticKind.DIMENSION): "US"},
+        slice_by={make_ref("sales.users.country", SemanticKind.DIMENSION): "US"},
         session=_session(con),
     )
 
@@ -138,7 +138,7 @@ def test_panel_cross_dataset_dimension_uses_root_time_axis(tmp_path):
     _seed(con)
     frame = observe(
         make_ref("sales.revenue_by_user", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-05"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-05"},
         grain="day",
         dimensions=[make_ref("sales.users.tier", SemanticKind.DIMENSION)],
         session=_session(con),
@@ -309,7 +309,7 @@ def test_snapshot_as_of_root_time_per_row_partition(tmp_path):
     _seed_snapshot(con)
     frame = observe(
         make_ref("sales.revenue_by_profile", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         dimensions=[make_ref("sales.user_profile_daily.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
