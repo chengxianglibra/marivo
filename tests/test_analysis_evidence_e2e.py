@@ -30,12 +30,12 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
 
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-09-01", "end": "2026-09-30"},
+        time_scope={"start": "2026-09-01", "end": "2026-09-30"},
         session=session,
     )
     base = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-08-01", "end": "2026-08-31"},
+        time_scope={"start": "2026-08-01", "end": "2026-08-31"},
         session=session,
     )
     delta = compare(cur, base, session=session)
@@ -67,12 +67,12 @@ def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
     )
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=session,
     )
     cur2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=session,
     )
     assert cur.meta.artifact_id == cur2.meta.artifact_id
@@ -87,7 +87,7 @@ def test_e2e_observe_populates_quality_and_confidence_scope(tmp_path) -> None:
 
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-09-01", "end": "2026-09-30"},
+        time_scope={"start": "2026-09-01", "end": "2026-09-30"},
         session=session,
     )
 
@@ -112,12 +112,12 @@ def test_e2e_compare_populates_quality_and_confidence_scope(tmp_path) -> None:
 
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-09-01", "end": "2026-09-30"},
+        time_scope={"start": "2026-09-01", "end": "2026-09-30"},
         session=session,
     )
     base = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-08-01", "end": "2026-08-31"},
+        time_scope={"start": "2026-08-01", "end": "2026-08-31"},
         session=session,
     )
     delta = compare(cur, base, session=session)
@@ -137,7 +137,7 @@ def test_e2e_observe_time_series_coverage(tmp_path) -> None:
 
     series = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="month",
         session=session,
     )

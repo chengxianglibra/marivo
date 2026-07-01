@@ -197,7 +197,7 @@ def test_normalize_where_inputs_unknown_key_raises_analysis_error(
             {make_ref("sales.orders.missing", SemanticKind.DIMENSION): "US"},
         )
 
-    assert exc.value.details["argument"] == "where"
+    assert exc.value.details["argument"] == "slice_by"
     assert exc.value.details["ref"] == "sales.orders.missing"
     assert exc.value.details["expected_kind"] == "dimension"
     assert exc.value.details["actual_kind"] == "not_found"

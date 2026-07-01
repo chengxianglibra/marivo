@@ -189,7 +189,7 @@ def derive_metric_frame(
     metric: MetricInput,
     query: IbisQuerySpec,
     columns: MetricColumns,
-    timescope: TimeScopeInput = None,
+    time_scope: TimeScopeInput = None,
     grain: GrainInput = None,
     label: str | None = None,
     session: Session | None = None,
@@ -199,7 +199,7 @@ def derive_metric_frame(
     resolved_session = session if session is not None else require_current_session()
     ensure_session_writable(resolved_session)
     metric_id = normalize_metric_input(resolved_session.catalog, metric)
-    scope = normalize_timescope_input(timescope)
+    scope = normalize_timescope_input(time_scope)
     resolved_window = make_absolute_window(
         scope,
         grain=grain,

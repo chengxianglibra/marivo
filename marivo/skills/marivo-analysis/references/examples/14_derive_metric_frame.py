@@ -44,7 +44,7 @@ frame = session.derive_metric_frame(
         time=mv.time_column(column="created_at", ref=created_at),
         dimensions=[mv.dimension_column(column="region", ref=region)],
     ),
-    timescope={"start": "2025-07-01", "end": "2026-09-30"},
+    time_scope={"start": "2025-07-01", "end": "2026-09-30"},
     grain="day",
     label="custom_revenue_by_day_region",
 )

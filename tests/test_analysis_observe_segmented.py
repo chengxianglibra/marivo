@@ -194,7 +194,7 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
     )
     windowed = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        timescope={"start": "2026-07-02", "end": "2026-08-02"},
+        time_scope={"start": "2026-07-02", "end": "2026-08-02"},
         dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=s,
     )

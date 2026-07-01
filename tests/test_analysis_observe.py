@@ -457,7 +457,7 @@ def test_observe_applies_window(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(30.0)
@@ -471,7 +471,7 @@ def test_observe_string_partition_window_keeps_closed_result_semantics(tmp_path)
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2024-10-11", "end": "2025-08-01"},
+        time_scope={"start": "2024-10-11", "end": "2025-08-01"},
         session=s,
     )
 
@@ -489,7 +489,7 @@ def test_observe_single_hour_partition_window_keeps_closed_result_semantics(tmp_
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
+        time_scope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
         session=s,
     )
 
@@ -507,7 +507,7 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
+        time_scope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
         time_dimension=make_ref("log_hour", SemanticKind.DIMENSION),
         session=s,
     )
@@ -528,7 +528,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     with pytest.raises(WindowInvalidError) as exc_info:
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            timescope={"start": "2026-07-01", "end": "2026-07-31"},
+            time_scope={"start": "2026-07-01", "end": "2026-07-31"},
             session=s,
         )
 
@@ -551,7 +551,7 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         time_dimension=make_ref("create_date", SemanticKind.DIMENSION),
         session=s,
     )
@@ -567,7 +567,7 @@ def test_observe_uses_default_time_field_when_not_specified(tmp_path):
 
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
 
@@ -583,7 +583,7 @@ def test_observe_multiple_time_fields_no_default_error_mentions_is_default(tmp_p
     with pytest.raises(WindowInvalidError) as exc_info:
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            timescope={"start": "2026-07-01", "end": "2026-07-31"},
+            time_scope={"start": "2026-07-01", "end": "2026-07-31"},
             session=s,
         )
 
@@ -597,7 +597,7 @@ def test_observe_applies_slice(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        where={make_ref("region", SemanticKind.DIMENSION): "NORTH"},
+        slice_by={make_ref("region", SemanticKind.DIMENSION): "NORTH"},
         session=s,
     )
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(70.0)
@@ -622,7 +622,7 @@ def test_observe_legacy_dimension_ref_where_must_be_declared(tmp_path):
     with pytest.raises((ObservePlanningError, SemanticKindMismatchError)):
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            where={make_ref("amount", SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
+            slice_by={make_ref("amount", SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
             session=s,
         )
 
@@ -672,7 +672,7 @@ def test_observe_legacy_dimension_ref_where_does_not_borrow_out_of_scope_dimensi
     with pytest.raises((ObservePlanningError, SemanticKindMismatchError)):
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            where={make_ref("amount", SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
+            slice_by={make_ref("amount", SemanticKind.DIMENSION): {"op": ">=", "value": 30}},
             session=s,
         )
 
@@ -697,7 +697,7 @@ def test_observe_rejects_bare_string_where_key(tmp_path):
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            where={"region": "NORTH"},
+            slice_by={"region": "NORTH"},
             session=s,
         )
     assert exc_info.value.details["expected_kind"] == "dimension"
@@ -897,7 +897,7 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
 
     frame = observe(
         make_ref("sales.failure_rate", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-04"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
         grain="day",
         session=session,
     )
@@ -934,7 +934,7 @@ def test_observe_time_series_with_empty_dimensions_list(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-10-01"},
+        time_scope={"start": "2026-07-01", "end": "2026-10-01"},
         grain="day",
         dimensions=[],
         session=s,
@@ -989,7 +989,7 @@ def test_observe_strptime_day_format_filters_correctly(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2024-10-11", "end": "2025-08-01"},
+        time_scope={"start": "2024-10-11", "end": "2025-08-01"},
         session=s,
     )
     df = frame.to_pandas()
@@ -1004,7 +1004,7 @@ def test_observe_strptime_day_format_time_series(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2024-10-10", "end": "2025-08-02"},
+        time_scope={"start": "2024-10-10", "end": "2025-08-02"},
         grain="day",
         session=s,
     )
@@ -1060,7 +1060,7 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-05-01", "end": "2026-05-02"},
+        time_scope={"start": "2026-05-01", "end": "2026-05-02"},
         grain=(30, "minute"),
         time_dimension=make_ref("create_time", SemanticKind.DIMENSION),
         session=s,
@@ -1122,7 +1122,7 @@ def test_observe_strptime_integer_format_filters_correctly(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=_backends(con))
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2024-10-11", "end": "2025-08-01"},
+        time_scope={"start": "2024-10-11", "end": "2025-08-01"},
         session=s,
     )
     df = frame.to_pandas()

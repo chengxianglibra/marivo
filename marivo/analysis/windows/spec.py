@@ -86,15 +86,15 @@ def _raise_timescope_model_invalid(
     hint = None
     if misplaced:
         hint = (
-            f"timescope holds only start/end; pass {', '.join(misplaced)} as "
-            "observe(..., grain=..., time_dimension=...) arguments, not inside timescope."
+            f"time_scope holds only start/end; pass {', '.join(misplaced)} as "
+            "observe(..., grain=..., time_dimension=...) arguments, not inside time_scope."
         )
     raise WindowInvalidError(
-        message="timescope form is invalid",
+        message="time_scope form is invalid",
         hint=hint,
         details={
             "kind": "TimeScopeModelInvalid",
-            "timescope": dict(raw),
+            "time_scope": dict(raw),
             "validation_errors": error.errors(),
         },
     ) from error
@@ -109,7 +109,7 @@ def normalize_timescope_input(raw: object) -> TimeScope | None:
         # Internal callers (e.g. discover window candidates fed to
         # transform.window) still pass a resolved AbsoluteWindow; reduce it to
         # its period. AbsoluteWindow is intentionally absent from the public
-        # TimeScopeInput type so observe callers use timescope + grain/time_dimension.
+        # TimeScopeInput type so observe callers use time_scope + grain/time_dimension.
         return TimeScope(start=raw.start, end=raw.end)
     if isinstance(raw, dict):
         try:
@@ -117,8 +117,8 @@ def normalize_timescope_input(raw: object) -> TimeScope | None:
         except ValidationError as exc:
             _raise_timescope_model_invalid(raw=raw, error=exc)
     raise WindowInvalidError(
-        message=f"unsupported timescope input type {type(raw).__name__}",
-        details={"kind": "TimeScopeTypeInvalid", "timescope": repr(raw)},
+        message=f"unsupported time_scope input type {type(raw).__name__}",
+        details={"kind": "TimeScopeTypeInvalid", "time_scope": repr(raw)},
     )
 
 
@@ -157,8 +157,8 @@ def make_absolute_window(
         if grain is None and time_dimension is None:
             return None
         raise WindowInvalidError(
-            message="timescope is required when grain or time_dimension is provided",
-            hint='Pass timescope={"start": "2026-07-01", "end": "2026-08-01"}.',
+            message="time_scope is required when grain or time_dimension is provided",
+            hint='Pass time_scope={"start": "2026-07-01", "end": "2026-08-01"}.',
             details={"kind": "TimeScopeRequired"},
         )
     resolved_grain = normalize_grain(grain)

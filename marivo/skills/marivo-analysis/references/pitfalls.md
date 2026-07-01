@@ -36,8 +36,8 @@ Location: session.compare call
 Cause: got kind delta_frame, expected metric_frame; this usually means passing a compare result where an observe result is required.
 
 Fix:
-  cur  = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
-  base = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
+  cur  = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2026-07-01", "end": "2026-10-01"})
+  base = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2025-07-01", "end": "2025-10-01"})
   delta = session.compare(cur, base, alignment=mv.window_bucket())
 
 Docs: marivo/skills/marivo-analysis/references/pitfalls.md
@@ -47,8 +47,8 @@ Docs: marivo/skills/marivo-analysis/references/pitfalls.md
 `DeltaFrame` to `session.attribute`.
 
 ```python
-cur = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
-base = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2025-07-01", "end": "2025-10-01"})
+cur = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2026-07-01", "end": "2026-10-01"})
+base = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2025-07-01", "end": "2025-10-01"})
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 created_at = session.catalog.get("time_dimension.sales.orders.created_at")
 attribution = session.attribute(delta, axes=[created_at])
@@ -111,7 +111,7 @@ frame = session.derive_metric_frame(
             ),
         ],
     ),
-    timescope={"start": "2025-07-01", "end": "2026-09-30"},
+    time_scope={"start": "2025-07-01", "end": "2026-09-30"},
     grain="day",
     label="custom_revenue_by_region",
 )
@@ -242,17 +242,17 @@ import marivo.semantic as ms
 
 catalog = ms.load()
 catalog.list(kind=ms.SemanticKind.METRIC)
-cur = session.observe(session.catalog.get("metric.sales.revenue"), timescope={"start": "2026-07-01", "end": "2026-10-01"})
+cur = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2026-07-01", "end": "2026-10-01"})
 ```
 
 Metric ids are case-sensitive strings in `<model>.<metric>` form.
 
 ## Timescope end is exclusive
 
-**Symptom:** `timescope={"start": "2026-07-01", "end": "2026-07-31"}` returns data
+**Symptom:** `time_scope={"start": "2026-07-01", "end": "2026-07-31"}` returns data
 only through July 30; July 31 rows are missing.
 
-**Cause:** timescope uses half-open `[start, end)` semantics — `end` is exclusive.
+**Cause:** time_scope uses half-open `[start, end)` semantics — `end` is exclusive.
 `"end": "2026-07-31"` means "up to but not including July 31".
 
 **Action:** advance the end by one day to include the final day:
@@ -260,7 +260,7 @@ only through July 30; July 31 rows are missing.
 ```python
 session.observe(
     session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-07-01", "end": "2026-08-01"},  # includes all of July
+    time_scope={"start": "2026-07-01", "end": "2026-08-01"},  # includes all of July
 )
 ```
 
@@ -279,12 +279,12 @@ or a slice validation error while applying filters.
 ```python
 session.observe(
     session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    time_scope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 
 session.observe(
     session.catalog.get("metric.sales.revenue"),
-    where={session.catalog.get("time_dimension.sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
+    slice_by={session.catalog.get("time_dimension.sales.orders.created_at"): {"op": "between", "value": ["2026-07-01", "2026-09-30"]}},
 )
 ```
 
@@ -299,18 +299,18 @@ content. Resolve metric ids with `session.catalog.get("metric.<metric_id>")`.
 SliceInvalidError: unsupported slice predicate op 'eq'; supported ops: ['!=', '<', '<=', '==', '>', '>=', 'between', 'in']
 ```
 
-**Action:** use Python-style operators in `where` structured predicates. The supported
+**Action:** use Python-style operators in `slice_by` structured predicates. The supported
 ops are `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `between` — not `eq`, `ne`, `gte`, etc.
 
 ```python
 # Wrong — SQL-style
-where={region: {"op": "eq", "value": "US"}}
+slice_by={region: {"op": "eq", "value": "US"}}
 
 # Right — Python-style
-where={region: {"op": "==", "value": "US"}}
+slice_by={region: {"op": "==", "value": "US"}}
 
 # Right — scalar shorthand (implies ==)
-where={region: "US"}
+slice_by={region: "US"}
 ```
 
 ## Discover returns CandidateSet

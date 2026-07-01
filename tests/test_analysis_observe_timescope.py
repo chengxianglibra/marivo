@@ -59,7 +59,7 @@ def _seed_sales_orders(con):
 
 def test_observe_time_type_hints_match_supported_input_forms():
     hints = get_type_hints(observe)
-    assert hints["timescope"] == TimeScopeInput
+    assert hints["time_scope"] == TimeScopeInput
     assert hints["grain"] == GrainInput
 
 
@@ -146,7 +146,7 @@ def test_timescope_without_grain_stays_scalar(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-05-01", "end": "2026-05-25"},
+        time_scope={"start": "2026-05-01", "end": "2026-05-25"},
         session=s,
     )
 
@@ -176,7 +176,7 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-05-01", "end": "2026-05-25"},
+        time_scope={"start": "2026-05-01", "end": "2026-05-25"},
         grain="day",
         session=s,
     )
@@ -207,7 +207,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             make_ref("sales.net", SemanticKind.METRIC),
-            timescope={"start": "2026-05-01", "end": "2026-05-24"},
+            time_scope={"start": "2026-05-01", "end": "2026-05-24"},
             grain="day",
             session=s,
         )
@@ -228,7 +228,7 @@ def test_absolute_window_with_grain_persists_resolved_window_contract(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-05-01", "end": "2026-05-25"},
+        time_scope={"start": "2026-05-01", "end": "2026-05-25"},
         grain="day",
         session=s,
     )
@@ -258,7 +258,7 @@ def test_date_time_series_day_bucket_respects_report_tz(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-05-01", "end": "2026-05-02"},
+        time_scope={"start": "2026-05-01", "end": "2026-05-02"},
         grain="day",
         session=s,
     )

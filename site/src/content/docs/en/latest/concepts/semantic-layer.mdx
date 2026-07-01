@@ -96,7 +96,7 @@ an authoring ref directly to an analysis intent without wrapping it:
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 # revenue is a MetricRef — pass it directly to observe:
-frame = session.observe(revenue, timescope={...})
+frame = session.observe(revenue, time_scope={...})
 ```
 
 The catalog's `catalog.get("sales.revenue").ref` returns the same `MetricRef`

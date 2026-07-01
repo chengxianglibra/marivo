@@ -267,12 +267,12 @@ def _normalize_where_boundary(
     for key in where:
         if isinstance(key, str):
             raise TransformArgError(
-                message="transform slice(where=...) requires catalog dimension refs",
-                hint="Pass where={session.catalog.get('dimension.sales.orders.country').ref: 'US'}.",
+                message="transform slice(slice_by=...) requires catalog dimension refs",
+                hint="Pass slice_by={session.catalog.get('dimension.sales.orders.country').ref: 'US'}.",
                 details={"expected_kind": "DimensionInput", "got_kind": "str"},
             )
     return {
-        _normalize_dimension_boundary(session, key, argument="where"): value
+        _normalize_dimension_boundary(session, key, argument="slice_by"): value
         for key, value in where.items()
     }
 
@@ -311,11 +311,11 @@ class TransformAPI:
         self,
         frame: object,
         *,
-        where: dict[DimensionInput, Any],
+        slice_by: dict[DimensionInput, Any],
         session: Session | None = None,
     ) -> MetricFrame | DeltaFrame:
         resolved_session = session if session is not None else require_current_session()
-        where_by_id = _normalize_where_boundary(resolved_session, where)
+        where_by_id = _normalize_where_boundary(resolved_session, slice_by)
         return _transform_dispatch(frame, op="slice", where=where_by_id, session=resolved_session)
 
     def rollup(
@@ -1395,10 +1395,10 @@ def _resolve_slice_column(
             )
         return key, dimension_key_id
     raise TransformArgError(
-        message="transform(op='slice') where keys must be catalog dimension refs or str",
+        message="transform(op='slice') slice_by keys must be catalog dimension refs or str",
         hint=(
-            'Use where={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
-            "or where={'value': (10, 20)}."
+            'Use slice_by={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
+            "or slice_by={'value': (10, 20)}."
         ),
         details={"op": "slice", "actual_key_type": type(key).__name__},
     )
@@ -1438,7 +1438,7 @@ def _op_filter(
                 "transform(op='filter') received unsupported kwargs: "
                 f"{', '.join(unsupported_kwargs)}"
             ),
-            hint="Use predicate=... with filter; where belongs to op='slice'.",
+            hint="Use predicate=... with filter; slice_by belongs to op='slice'.",
             details={"op": "filter", "unsupported_kwargs": unsupported_kwargs},
         )
 
@@ -1800,19 +1800,19 @@ def _op_slice(
                 "transform(op='slice') received unsupported kwargs: "
                 f"{', '.join(unsupported_kwargs)}"
             ),
-            hint="Use where=... with slice; predicate belongs to op='filter'.",
+            hint="Use slice_by=... with slice; predicate belongs to op='filter'.",
             details={"op": "slice", "unsupported_kwargs": unsupported_kwargs},
         )
 
     where = params.where
     if not isinstance(where, dict) or not where:
         raise TransformArgError(
-            message="transform(op='slice') requires a non-empty where dict",
+            message="transform(op='slice') requires a non-empty slice_by dict",
             hint=(
-                'Pass where={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
-                "or where={'value': (10, 20)}."
+                'Pass slice_by={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
+                "or slice_by={'value': (10, 20)}."
             ),
-            details={"op": "slice", "argument": "where"},
+            details={"op": "slice", "argument": "slice_by"},
         )
 
     df = frame.to_pandas()
@@ -1859,7 +1859,7 @@ def _op_slice(
             )
         elif isinstance(value, dict):
             raise TransformArgError(
-                message="transform(op='slice') where values must be scalar, list, or range tuple",
+                message="transform(op='slice') slice_by values must be scalar, list, or range tuple",
                 hint="Use a scalar for equality, a list for membership, or a (lo, hi) tuple range.",
                 details={
                     "op": "slice",

@@ -88,7 +88,7 @@ def _session(tmp_path):
 def _panel(session, *, start: str, end: str, grain: str = "day"):
     return observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": start, "end": end},
+        time_scope={"start": start, "end": end},
         grain=grain,
         dimensions=[make_ref("region", SemanticKind.DIMENSION)],
         session=session,

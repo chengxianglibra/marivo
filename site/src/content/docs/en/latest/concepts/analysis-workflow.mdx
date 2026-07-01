@@ -59,18 +59,18 @@ across almost every intent:
 | Value | Shape | Meaning |
 | --- | --- | --- |
 | metric input | `catalog.get("sales.revenue")` | A semantic-id string, catalog metric object, or `MetricRef`. Authoring refs from `ms.aggregate(...)` also work; ref-only enforcement applies to semantic authoring parameters, not analysis consumption inputs. |
-| dimension input | `catalog.get("sales.orders.region")` | A semantic-id string, catalog dimension object, or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `where` keys, and `axis`. |
-| `timescope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
+| dimension input | `catalog.get("sales.orders.region")` | A semantic-id string, catalog dimension object, or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
+| `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
-| `where` | `{region: "US"}` or `{amount: {"op": ">", "value": 100}}` | Pre-aggregation row filter (see ops below). |
+| `slice_by` | `{region: "US"}` or `{amount: {"op": ">", "value": 100}}` | Pre-aggregation row filter (see ops below). |
 | `AlignmentPolicy` | `mv.window_bucket()` | How two windows are paired for `compare` / `correlate`. |
 
 The result's **semantic kind** follows from `grain` and `dimensions`: `scalar`
 (neither), `time_series` (grain only), `segmented` (dimensions only), or `panel`
 (both).
 
-### `where` predicate operators
+### `slice_by` predicate operators
 
 Keys are catalog dimensions; values are a scalar (`==`), a list (`in`), or a
 structured `{"op": ..., "value": ...}` form:
@@ -93,17 +93,17 @@ segments.
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `metric` | metric object / ref | Yes | — | The metric to materialize. |
-| `timescope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
+| `time_scope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
 | `grain` | grain | No | `None` | Time bucket; present ⇒ time series or panel. |
 | `dimensions` | `list[ref]` | No | `None` | Segment axes. |
-| `where` | dict | No | `None` | Pre-aggregation row filter. |
+| `slice_by` | dict | No | `None` | Pre-aggregation row filter. |
 | `time_dimension` | ref | No | entity default | Pick the time axis when the entity declares several. |
 | `expect_shape` | shape | No | `None` | Guard; raises before backend work if the predicted shape differs. |
 
 ```python
 current = session.observe(
     revenue,
-    timescope={"start": "2026-10-01", "end": "2027-01-01"},
+    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
     dimensions=[region],
 )
@@ -123,7 +123,7 @@ must share metric and semantic kind.
 ```python
 baseline = session.observe(
     revenue,
-    timescope={"start": "2025-10-01", "end": "2026-01-01"},
+    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
     grain="month",
     dimensions=[region],
 )
@@ -176,7 +176,7 @@ Project a time series or panel forward.
 | `measure_column` | `str` | No | frame measure | Column to forecast. |
 
 ```python
-history = session.observe(revenue, timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+history = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
 projection = session.forecast(history, horizon=30)
 ```
 
@@ -219,7 +219,7 @@ a recommendation from Marivo.
 | `cross_sectional_outliers` | `MetricFrame` segmented/panel | — | `peer_scope`, `value`, `threshold=3.0` |
 
 ```python
-series = session.observe(revenue, timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
+series = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 ```
@@ -232,7 +232,7 @@ Transforms reshape a frame while preserving its family (`MetricFrame` →
 | Transform | Key parameters | Effect |
 | --- | --- | --- |
 | `filter` | `predicate` (callable) | Keep rows where the predicate returns true. |
-| `slice` | `where` (axis → value/list/range) | Keep rows matching exact axis values. |
+| `slice` | `slice_by` (axis → value/list/range) | Keep rows matching exact axis values. |
 | `rollup` | `drop_axes` | Drop axes and re-aggregate measures. |
 | `topk` | `by`, `limit`, `order` | Keep the top N rows by a measure (`order="decrease"` default). |
 | `bottomk` | `by`, `limit` | Keep the bottom N rows. |
@@ -269,7 +269,7 @@ custom = session.derive_metric_frame(
             ),
         ],
     ),
-    timescope={"start": "2026-06-18", "end": "2026-06-25"},
+    time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
     label="custom_revenue_by_region",
 )
@@ -277,7 +277,7 @@ custom.show()
 ```
 
 Unlike `observe`, `derive_metric_frame` does not filter or aggregate the `build`
-output — `timescope` and `grain` annotate the frame's window metadata and are
+output — `time_scope` and `grain` annotate the frame's window metadata and are
 passed to `build` via `ctx`. Use `ctx.bucket(time_expr)` inside `build()` to
 truncate timestamps to grain boundaries.
 
@@ -333,13 +333,13 @@ region = catalog.get("sales.orders.region")
 
 current = session.observe(
     revenue,
-    timescope={"start": "2026-10-01", "end": "2027-01-01"},
+    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
     dimensions=[region],
 )
 baseline = session.observe(
     revenue,
-    timescope={"start": "2025-10-01", "end": "2026-01-01"},
+    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
     grain="month",
     dimensions=[region],
 )

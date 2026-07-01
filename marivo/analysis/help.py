@@ -113,7 +113,7 @@ _SUMMARIES: dict[str, str] = {
     "ComponentFrame": "component values linked to component-aware derived metric frames",
     "CoverageFrame": "sampled metric time-slot coverage linked from a MetricFrame",
     "HypothesisTestResult": "statistical test result frame",
-    "AbsoluteWindow": "half-open time interval [start, end) for observe timescope",
+    "AbsoluteWindow": "half-open time interval [start, end) for observe time_scope",
     "AlignmentKind": "literal values for AlignmentPolicy.kind",
     "AlignmentPolicy": "alignment strategy for compare and correlate",
     "window_bucket": "construct window-bucket AlignmentPolicy",
@@ -142,7 +142,7 @@ _SUMMARIES: dict[str, str] = {
     "SliceScalar": "scalar types allowed in slice values",
     "SliceValue": "accepted value types for transform slice",
     "TimeScope": "half-open time interval model for observe",
-    "TimeScopeInput": "accepted timescope input types",
+    "TimeScopeInput": "accepted time_scope input types",
     "publish": "report packaging and publishing sub-surface",
 }
 
@@ -287,7 +287,7 @@ def _transform_content() -> dict[str, object]:
 
     required_args: dict[str, tuple[str, ...]] = {
         "filter": ("predicate",),
-        "slice": ("where",),
+        "slice": ("slice_by",),
         "rollup": ("drop_axes",),
         "topk": ("by", "limit"),
         "bottomk": ("by", "limit"),
@@ -443,7 +443,7 @@ def _session_content(constraints: tuple[Constraint, ...]) -> dict[str, object]:
             "session = mv.session.get_or_create(name='analysis')\n"
             "revenue = session.catalog.get('metric.orders.revenue')\n"
             "metric = session.observe(revenue, "
-            "timescope={'start': '2026-01-01', 'end': '2026-01-31'})"
+            "time_scope={'start': '2026-01-01', 'end': '2026-01-31'})"
         ),
     }
 

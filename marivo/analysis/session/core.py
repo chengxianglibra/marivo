@@ -630,10 +630,10 @@ class Session:
         self,
         metric: MetricInput,
         *,
-        timescope: TimeScopeInput = None,
+        time_scope: TimeScopeInput = None,
         grain: GrainInput = None,
         dimensions: list[DimensionInput] | None = None,
-        where: dict[DimensionInput, SliceValue] | None = None,
+        slice_by: dict[DimensionInput, SliceValue] | None = None,
         time_dimension: DimensionInput | None = None,
         expect_shape: SemanticShape | None = None,
     ) -> MetricFrame:
@@ -642,13 +642,13 @@ class Session:
         When to use: starting point for any metric analysis workflow.
 
         Resolves ``metric`` against the active semantic catalog, applies the
-        optional ``timescope`` / ``grain`` / ``dimensions`` / ``where`` filters, executes against
+        optional ``time_scope`` / ``grain`` / ``dimensions`` / ``slice_by`` filters, executes against
         the session's backend, and persists the result as a MetricFrame on disk.
 
         Args:
             metric: Catalog metric object or ``SemanticRef`` from ``session.catalog``.
                 Bare strings are rejected.
-            timescope: Half-open time range ``{"start": ..., "end": ...}`` — start is
+            time_scope: Half-open time range ``{"start": ..., "end": ...}`` — start is
                 inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
                 means data from August 1 is **not** included.
             grain: Optional time bucket grain. When present, observe returns a time
@@ -656,7 +656,7 @@ class Session:
             dimensions: Segment axes. Omit, pass ``None``, or pass ``[]`` for no
                 segment axes. In v1 all non-empty dimension lists must resolve to
                 the same entity as ``metric``.
-            where: Pre-aggregation row filter. Keys are catalog dimension objects/refs for
+            slice_by: Pre-aggregation row filter. Keys are catalog dimension objects/refs for
                 the filtered dimension; values are either a scalar (``==``), a list
                 (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
                 ``==, !=, in, >, >=, <, <=, between``.
@@ -671,7 +671,7 @@ class Session:
         Raises:
             MetricNotFoundError: The metric id is unknown or not ``<domain>.<metric>``.
             SemanticKindMismatchError: ``metric`` is not a catalog metric object/ref,
-                ``time_dimension`` is not a catalog dimension object/ref, or a ``where``
+                ``time_dimension`` is not a catalog dimension object/ref, or a ``slice_by``
                 key is not a catalog dimension object/ref.
             ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
                 path, ambiguous dimension). Check ``details["code"]`` for the specific
@@ -683,7 +683,7 @@ class Session:
             >>> country = catalog.get("dimension.sales.orders.country").ref
             >>> frame = session.observe(
             ...     revenue,
-            ...     timescope={"start": "2026-07-01", "end": "2026-10-01"},
+            ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
             ...     grain="day",
             ...     dimensions=[country],
             ... )
@@ -693,10 +693,10 @@ class Session:
 
         return observe(
             metric,
-            timescope=timescope,
+            time_scope=time_scope,
             grain=grain,
             dimensions=dimensions,
-            where=where,
+            slice_by=slice_by,
             time_dimension=time_dimension,
             expect_shape=expect_shape,
             session=self,
@@ -708,7 +708,7 @@ class Session:
         metric: MetricInput,
         query: IbisQuerySpec,
         columns: MetricColumns,
-        timescope: TimeScopeInput = None,
+        time_scope: TimeScopeInput = None,
         grain: GrainInput = None,
         label: str | None = None,
     ) -> MetricFrame:
@@ -719,13 +719,13 @@ class Session:
         bindings; query output columns are always plain strings.
 
         Unlike ``observe``, this method does not compute, filter, or aggregate
-        data -- the ``build`` callback owns the query output. ``timescope`` and
+        data -- the ``build`` callback owns the query output. ``time_scope`` and
         ``grain`` annotate the frame's window metadata and are passed to ``build``
         via ``ctx`` for convenience (e.g., ``ctx.bucket()`` for time truncation).
         The query output is used verbatim. Unbound columns in the build output
         are retained as-is; project within build to limit the column set.
 
-        ``timescope`` defaults to ``None`` (no window) for frames without a time
+        ``time_scope`` defaults to ``None`` (no window) for frames without a time
         axis.
         """
         from marivo.analysis.derive import IbisQuerySpec, MetricColumns, derive_metric_frame
@@ -738,7 +738,7 @@ class Session:
             metric=metric,
             query=query,
             columns=columns,
-            timescope=timescope,
+            time_scope=time_scope,
             grain=grain,
             label=label,
             session=self,
@@ -774,8 +774,8 @@ class Session:
 
         Example:
             >>> revenue = session.catalog.get("metric.sales.revenue")
-            >>> cur  = session.observe(revenue, timescope={"start": "2026-07-01", "end": "2026-10-01"})
-            >>> base = session.observe(revenue, timescope={"start": "2025-07-01", "end": "2025-10-01"})
+            >>> cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})
+            >>> base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})
             >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
         """
         from marivo.analysis.intents.compare import compare
@@ -904,7 +904,7 @@ class Session:
         Example:
             >>> history = session.observe(
             ...     session.catalog.get("metric.sales.revenue"),
-            ...     timescope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
+            ...     time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
             ... )
             >>> forecast = session.forecast(history, horizon=30)
             >>> forecast.show()
@@ -1189,15 +1189,17 @@ class SessionTransformNamespace:
 
         return transform.filter(frame, predicate=predicate, session=self._session)
 
-    def slice(self, frame: object, *, where: dict[DimensionInput, Any]) -> MetricFrame | DeltaFrame:
+    def slice(
+        self, frame: object, *, slice_by: dict[DimensionInput, Any]
+    ) -> MetricFrame | DeltaFrame:
         """Filter rows by exact axis values.
 
-        ``where`` maps catalog dimension refs/objects to the value(s) to keep.
+        ``slice_by`` maps catalog dimension refs/objects to the value(s) to keep.
         Unlike ``filter``, operates on raw axis values without a callable.
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.slice(frame, where=where, session=self._session)
+        return transform.slice(frame, slice_by=slice_by, session=self._session)
 
     def rollup(self, frame: object, *, drop_axes: list[DimensionInput]) -> MetricFrame | DeltaFrame:
         """Aggregate to coarser segments by dropping axes.

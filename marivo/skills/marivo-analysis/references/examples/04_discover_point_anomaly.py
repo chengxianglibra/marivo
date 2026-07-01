@@ -18,7 +18,7 @@ session = mv.session.get_or_create(
 )
 series = session.observe(
     session.catalog.get("metric.sales.revenue"),
-    timescope={"start": "2026-04-01", "end": "2026-10-01"},
+    time_scope={"start": "2026-04-01", "end": "2026-10-01"},
     grain="month",
 )
 candidates = session.discover.point_anomalies(series, threshold=1.0)

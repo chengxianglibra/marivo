@@ -41,7 +41,7 @@ REMOVED_AGENT_SURFACE_PATTERNS = (
 )
 
 RELATIVE_TIMESCOPE_PATTERNS = (
-    re.compile(r'timescope\s*=\s*["\'](?:last|previous|prior)_\d+[dwmy]["\']'),
+    re.compile(r'time_scope\s*=\s*["\'](?:last|previous|prior)_\d+[dwmy]["\']'),
     re.compile(r'mv\.window\(["\'](?:last|previous|prior)_\d+[dwmy]["\']\)'),
 )
 

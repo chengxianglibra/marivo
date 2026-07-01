@@ -106,7 +106,7 @@ def test_snapshot_as_of_root_time_picks_per_row_partition(tmp_path):
     _seed_snapshot_as_of(con)
     frame = observe(
         make_ref("sales.revenue_by_profile", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-06"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
         dimensions=[make_ref("sales.user_profile_daily.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
@@ -129,7 +129,7 @@ def test_snapshot_as_of_root_time_job_queries_include_planning_sql(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue_by_profile", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-06"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
         dimensions=[make_ref("sales.user_profile_daily.tier", SemanticKind.DIMENSION)],
         session=session,
     )
@@ -148,7 +148,7 @@ def test_snapshot_as_of_root_time_partition_missing(tmp_path):
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             make_ref("sales.revenue_by_profile", SemanticKind.METRIC),
-            timescope={"start": "2026-07-01", "end": "2026-07-06"},
+            time_scope={"start": "2026-07-01", "end": "2026-07-06"},
             dimensions=[make_ref("sales.user_profile_daily.tier", SemanticKind.DIMENSION)],
             session=_session(con),
         )
@@ -368,7 +368,7 @@ def test_validity_as_of_root_time_closed_open_boundary(tmp_path):
     _seed_validity(con)
     frame = observe(
         make_ref("sales.revenue_by_tier", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-06"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
         dimensions=[make_ref("sales.user_history.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
@@ -462,7 +462,7 @@ def test_validity_as_of_root_time_closed_closed_boundary(tmp_path):
 
     frame = observe(
         make_ref("sales.revenue_by_tier", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-06"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-06"},
         dimensions=[make_ref("sales.user_history.tier", SemanticKind.DIMENSION)],
         session=_session(con),
     )
@@ -625,7 +625,7 @@ def test_component_filter_unreachable_raises(tmp_path):
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             make_ref("sales.gmv_per_session", SemanticKind.METRIC),
-            where={make_ref("sales.users.country", SemanticKind.DIMENSION): "US"},
+            slice_by={make_ref("sales.users.country", SemanticKind.DIMENSION): "US"},
             session=_session(con),
         )
     details = exc_info.value.details
@@ -710,7 +710,7 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
     with pytest.raises(ObservePlanningError) as exc_info:
         observe(
             make_ref("sales.gmv_per_session", SemanticKind.METRIC),
-            timescope={"start": "2026-07-01", "end": "2026-07-05"},
+            time_scope={"start": "2026-07-01", "end": "2026-07-05"},
             dimensions=[make_ref("sales.user_profile_daily.tier", SemanticKind.DIMENSION)],
             session=_session(con),
         )

@@ -17,11 +17,11 @@ session = mv.session.get_or_create(
 metric = session.catalog.get("metric.sales.revenue")
 cur = session.observe(
     metric,
-    timescope={"start": "2026-07-01", "end": "2026-10-01"},
+    time_scope={"start": "2026-07-01", "end": "2026-10-01"},
 )
 base = session.observe(
     metric,
-    timescope={"start": "2025-07-01", "end": "2025-10-01"},
+    time_scope={"start": "2025-07-01", "end": "2025-10-01"},
 )
 delta = session.compare(cur, base, alignment=mv.window_bucket())
 delta.show()

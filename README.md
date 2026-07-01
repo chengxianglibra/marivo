@@ -71,8 +71,8 @@ session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 dr
 revenue = session.catalog.get("sales.revenue")
 region = session.catalog.get("sales.orders.region")
 
-current = session.observe(revenue, timescope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
-baseline = session.observe(revenue, timescope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
+current = session.observe(revenue, time_scope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
+baseline = session.observe(revenue, time_scope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
 
 delta = session.compare(current, baseline)
 session.decompose(delta, axis=region).show()

@@ -224,7 +224,7 @@ def test_folded_metric_rejects_observe_with_different_time_dimension(
     with pytest.raises(ObservePlanningError) as exc_info:
         session.observe(
             make_ref("sales.upstream_bw", SemanticKind.METRIC),
-            timescope={"start": "2026-01-01", "end": "2026-01-02"},
+            time_scope={"start": "2026-01-01", "end": "2026-01-02"},
             grain="day",
             time_dimension=make_ref("sales.bandwidth_samples.dt", SemanticKind.DIMENSION),
         )
@@ -237,7 +237,7 @@ def test_sampled_mean_fold_aggregates_space_then_time(sampled_bandwidth_project)
 
     frame = session.observe(
         make_ref("sales.upstream_bw", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
         grain="hour",
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
@@ -259,7 +259,7 @@ def test_sampled_mean_fold_accepts_strptime_time_dimension(
 
     frame = session.observe(
         make_ref("sales.upstream_bw", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
         grain="hour",
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
@@ -280,7 +280,7 @@ def test_sampled_fold_rejects_grain_finer_than_effective_floor(sampled_bandwidth
     with pytest.raises(ObservePlanningError) as exc_info:
         session.observe(
             make_ref("sales.upstream_bw", SemanticKind.METRIC),
-            timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+            time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
             grain=(1, "minute"),
             dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
         )
@@ -302,7 +302,7 @@ def test_sampled_non_quantile_folds(
 ) -> None:
     frame = sampled_bandwidth_project.observe(
         make_ref(metric_ref, SemanticKind.METRIC),
-        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
         grain="hour",
     )
     df = frame.to_pandas()
@@ -312,7 +312,7 @@ def test_sampled_non_quantile_folds(
 def test_sampled_fold_persists_time_slot_coverage_sidecar(sampled_bandwidth_project) -> None:
     frame = sampled_bandwidth_project.observe(
         make_ref("sales.upstream_bw", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
         grain="hour",
     )
 
@@ -340,7 +340,7 @@ def test_sampled_quantile_fold_uses_space_aggregated_series(sampled_bandwidth_pr
 
     frame = session.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
         grain="hour",
     )
 
@@ -353,7 +353,7 @@ def test_sampled_quantile_fold_uses_space_aggregated_series(sampled_bandwidth_pr
 def test_sampled_ratio_uses_folded_components_and_min_coverage(sampled_bandwidth_project) -> None:
     frame = sampled_bandwidth_project.observe(
         make_ref("sales.p95_utilization", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
         grain="hour",
     )
 
@@ -371,12 +371,12 @@ def test_compare_folded_ratio_persists_component_delta(sampled_bandwidth_project
 
     cur = sampled_bandwidth_project.observe(
         make_ref("sales.p95_utilization", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
         grain="hour",
     )
     base = sampled_bandwidth_project.observe(
         make_ref("sales.p95_utilization", SemanticKind.METRIC),
-        timescope={"start": "2026-01-02T00:00:00", "end": "2026-01-02T01:00:00"},
+        time_scope={"start": "2026-01-02T00:00:00", "end": "2026-01-02T01:00:00"},
         grain="hour",
     )
     delta = sampled_bandwidth_project.compare(cur, base)
@@ -389,7 +389,7 @@ def test_rollup_rejects_non_reaggregatable_folded_frame(sampled_bandwidth_projec
 
     frame = sampled_bandwidth_project.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
         grain="hour",
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
@@ -409,12 +409,12 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_project) -> N
 
     cur = sampled_bandwidth_project.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        timescope={"start": "2026-01-02", "end": "2026-01-03"},
+        time_scope={"start": "2026-01-02", "end": "2026-01-03"},
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
     base = sampled_bandwidth_project.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
     delta = sampled_bandwidth_project.compare(cur, base)
@@ -430,12 +430,12 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_project) -> N
 def test_decompose_allows_mean_fold_delta(sampled_bandwidth_project) -> None:
     cur = sampled_bandwidth_project.observe(
         make_ref("sales.upstream_bw", SemanticKind.METRIC),
-        timescope={"start": "2026-01-02", "end": "2026-01-03"},
+        time_scope={"start": "2026-01-02", "end": "2026-01-03"},
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
     base = sampled_bandwidth_project.observe(
         make_ref("sales.upstream_bw", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
     delta = sampled_bandwidth_project.compare(cur, base)
@@ -571,7 +571,7 @@ def test_hour_prefix_sampled_fold_aggregates_space_then_time(hour_prefix_bandwid
 
     frame = session.observe(
         make_ref("sales.upstream_bw", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
         grain="day",
         dimensions=[make_ref("sales.hourly_bandwidth.province", SemanticKind.DIMENSION)],
     )
@@ -602,7 +602,7 @@ def test_hour_prefix_non_mean_folds_with_varying_values(
 
     frame = session.observe(
         make_ref(metric_ref, SemanticKind.METRIC),
-        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
         grain="day",
     )
 

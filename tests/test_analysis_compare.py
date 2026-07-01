@@ -49,12 +49,12 @@ def test_compare_returns_delta_frame(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
     d = compare(q3, q2, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
@@ -76,12 +76,12 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
     d = compare(q3, q2, session=s)
@@ -95,12 +95,12 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
     delta = compare(q3, q2, session=s)
@@ -127,7 +127,7 @@ def test_compare_semantic_kind_mismatch_raises(tmp_path):
     a = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     b = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         grain="day",
         session=s,
     )
@@ -157,12 +157,12 @@ def test_compare_rejects_loose_align_parameter(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
 
@@ -177,13 +177,13 @@ def test_window_bucket_aligns_equal_length_time_series_by_ordinal_bucket(tmp_pat
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         session=s,
     )
     base = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-01", "end": "2026-04-03"},
+        time_scope={"start": "2026-04-01", "end": "2026-04-03"},
         grain="day",
         session=s,
     )
@@ -238,13 +238,13 @@ def test_window_bucket_no_overlap_different_expected_counts_uses_outer_ordinal_u
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         session=s,
     )
     base = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-01", "end": "2026-04-02"},
+        time_scope={"start": "2026-04-01", "end": "2026-04-02"},
         grain="day",
         session=s,
     )
@@ -272,13 +272,13 @@ def test_window_bucket_strict_lengths_rejects_different_expected_counts(tmp_path
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     cur = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-02"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-02"},
         grain="day",
         session=s,
     )
     base = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-01", "end": "2026-04-01"},
+        time_scope={"start": "2026-04-01", "end": "2026-04-01"},
         grain="day",
         session=s,
     )
@@ -803,13 +803,13 @@ def test_compare_propagates_metric_unit_to_delta_meta(tmp_path):
     s = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     q3 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-31"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-31"},
         session=s,
     )
     assert q3.meta.unit == "CNY"
     q2 = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-04-01", "end": "2026-04-30"},
+        time_scope={"start": "2026-04-01", "end": "2026-04-30"},
         session=s,
     )
     d = compare(q3, q2, session=s)

@@ -111,7 +111,7 @@ def _make_time_series(tmp_path) -> MetricFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
     )
 
@@ -123,7 +123,7 @@ def _make_panel(tmp_path) -> MetricFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
         dimensions=[make_ref("country", SemanticKind.DIMENSION)],
     )
@@ -147,12 +147,12 @@ def _make_delta_time_series(tmp_path) -> DeltaFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
     )
     baseline = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2025-07-01", "end": "2025-07-03"},
+        time_scope={"start": "2025-07-01", "end": "2025-07-03"},
         grain="day",
     )
     return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
@@ -242,13 +242,13 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     current = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-04"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-04"},
         grain="day",
         dimensions=[make_ref("country", SemanticKind.DIMENSION)],
     )
     baseline = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2025-07-01", "end": "2025-07-04"},
+        time_scope={"start": "2025-07-01", "end": "2025-07-04"},
         grain="day",
         dimensions=[make_ref("country", SemanticKind.DIMENSION)],
     )
@@ -276,7 +276,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     series = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-03"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
     )
     filtered = session.transform.filter(series, predicate=lambda d: d["value"] > 10)
@@ -331,7 +331,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
     assert "country" not in rolled.to_pandas().columns
 
     sliced = session.transform.slice(
-        panel, where={make_ref("country", SemanticKind.DIMENSION): "US"}
+        panel, slice_by={make_ref("country", SemanticKind.DIMENSION): "US"}
     )
     assert sliced.meta.semantic_kind == "time_series"
     assert "country" not in sliced.to_pandas().columns
@@ -1005,7 +1005,7 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        where={make_ref("event_date", SemanticKind.DIMENSION): np.datetime64("2026-07-01")},
+        slice_by={make_ref("event_date", SemanticKind.DIMENSION): np.datetime64("2026-07-01")},
     )
 
     assert sliced.meta.row_count == 1
@@ -1091,11 +1091,11 @@ def test_transform_filter_rejects_unsupported_kwargs(tmp_path):
         _active_transform(
             frame,
             op="filter",
-            where={"value": 10},
+            slice_by={"value": 10},
             predicate=lambda d: d["value"] > 0,
         )
     message = str(excinfo.value)
-    assert "where" in message
+    assert "slice_by" in message
 
 
 @pytest.mark.parametrize(
@@ -1318,7 +1318,7 @@ def test_transform_slice_keeps_segmented_when_multi_value(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        where={make_ref("country", SemanticKind.DIMENSION): ["US", "CA"]},
+        slice_by={make_ref("country", SemanticKind.DIMENSION): ["US", "CA"]},
     )
     assert isinstance(sliced, MetricFrame)
     assert sliced.meta.semantic_kind == "segmented"
@@ -1330,7 +1330,7 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        where={make_ref("country", SemanticKind.DIMENSION): "US"},
+        slice_by={make_ref("country", SemanticKind.DIMENSION): "US"},
     )
     assert sliced.meta.semantic_kind == "scalar"
     assert "country" not in sliced.meta.axes
@@ -1341,7 +1341,7 @@ def test_transform_slice_accepts_catalog_dimension_ref(tmp_path):
     frame = _make_segmented(tmp_path)
     country = session_attach.current().catalog.get("dimension.sales.orders.country").ref
 
-    sliced = _active_transform(frame, op="slice", where={country: "US"})
+    sliced = _active_transform(frame, op="slice", slice_by={country: "US"})
 
     assert sliced.meta.where == {"sales.orders.country": "US"}
 
@@ -1351,13 +1351,13 @@ def test_transform_slice_requires_dimension_ref_keys(tmp_path):
 
     frame = _make_segmented(tmp_path)
     with pytest.raises(TransformArgError):
-        _active_transform(frame, op="slice", where={"country": "US"})
+        _active_transform(frame, op="slice", slice_by={"country": "US"})
 
 
 def test_transform_slice_delta_dimension_selector_is_recorded_in_alignment(tmp_path):
     frame = _make_delta_panel(tmp_path)
     sliced = _active_transform(
-        frame, op="slice", where={make_ref("country", SemanticKind.DIMENSION): "US"}
+        frame, op="slice", slice_by={make_ref("country", SemanticKind.DIMENSION): "US"}
     )
     assert isinstance(sliced, DeltaFrame)
     assert sliced.meta.alignment["where"]["sales.orders.country"] == "US"
@@ -1373,7 +1373,7 @@ def test_transform_slice_rejects_unknown_dimension(tmp_path):
         _active_transform(
             frame,
             op="slice",
-            where={make_ref("platform", SemanticKind.DIMENSION): "mobile"},
+            slice_by={make_ref("platform", SemanticKind.DIMENSION): "mobile"},
         )
     assert "platform" in str(excinfo.value)
 
@@ -1400,7 +1400,7 @@ def test_transform_slice_supports_range_tuple(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        where={make_ref("event_date", SemanticKind.DIMENSION): (start, end)},
+        slice_by={make_ref("event_date", SemanticKind.DIMENSION): (start, end)},
     )
     expected = int(values.between(start, end, inclusive="both").sum())
     assert sliced.meta.row_count == expected
@@ -1412,7 +1412,7 @@ def test_transform_slice_rejects_string_key_that_is_not_axis_column(tmp_path):
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError) as excinfo:
         _active_transform(
-            frame, op="slice", where={make_ref("revenue", SemanticKind.DIMENSION): (15, 35)}
+            frame, op="slice", slice_by={make_ref("revenue", SemanticKind.DIMENSION): (15, 35)}
         )
     assert "revenue" in str(excinfo.value)
 
@@ -1423,7 +1423,7 @@ def test_transform_slice_rejects_incomparable_range_bounds(tmp_path):
     frame = _make_segmented(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
         _active_transform(
-            frame, op="slice", where={make_ref("country", SemanticKind.DIMENSION): (1, "z")}
+            frame, op="slice", slice_by={make_ref("country", SemanticKind.DIMENSION): (1, "z")}
         )
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
@@ -1437,7 +1437,7 @@ def test_transform_slice_rejects_non_range_tuple(tmp_path):
         _active_transform(
             frame,
             op="slice",
-            where={make_ref("country", SemanticKind.DIMENSION): ("US", "CA", "MX")},
+            slice_by={make_ref("country", SemanticKind.DIMENSION): ("US", "CA", "MX")},
         )
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
@@ -1451,7 +1451,7 @@ def test_transform_slice_rejects_range_tuple_on_dimension(tmp_path):
         _active_transform(
             frame,
             op="slice",
-            where={make_ref("country", SemanticKind.DIMENSION): ("US", "CA")},
+            slice_by={make_ref("country", SemanticKind.DIMENSION): ("US", "CA")},
         )
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
@@ -1581,7 +1581,7 @@ def test_rollup_rejects_non_reaggregatable_metric_frame(sampled_bandwidth_for_ro
 
     frame = sampled_bandwidth_for_rollup.observe(
         make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
-        timescope={"start": "2026-01-01", "end": "2026-01-02"},
+        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
         grain="hour",
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )

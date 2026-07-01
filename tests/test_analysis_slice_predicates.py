@@ -40,7 +40,7 @@ def _session_with_sales(tmp_path):
 def test_observe_structured_slice_predicates(tmp_path, slice_spec, expected):
     session = _session_with_sales(tmp_path)
     where = {make_ref(key, SemanticKind.DIMENSION): value for key, value in slice_spec.items()}
-    frame = observe(make_ref("sales.revenue", SemanticKind.METRIC), where=where, session=session)
+    frame = observe(make_ref("sales.revenue", SemanticKind.METRIC), slice_by=where, session=session)
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(expected)
 
 
@@ -48,7 +48,7 @@ def test_observe_equality_shorthand_still_works(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        where={make_ref("region", SemanticKind.DIMENSION): "NORTH"},
+        slice_by={make_ref("region", SemanticKind.DIMENSION): "NORTH"},
         session=session,
     )
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(70.0)
@@ -58,7 +58,7 @@ def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        where={make_ref("region", SemanticKind.DIMENSION): {"op": "in", "value": {"NORTH"}}},
+        slice_by={make_ref("region", SemanticKind.DIMENSION): {"op": "in", "value": {"NORTH"}}},
         session=session,
     )
 
@@ -81,7 +81,7 @@ def test_invalid_structured_predicates_raise(tmp_path, slice_spec):
     session = _session_with_sales(tmp_path)
     where = {make_ref(key, SemanticKind.DIMENSION): value for key, value in slice_spec.items()}
     with pytest.raises(SliceInvalidError):
-        observe(make_ref("sales.revenue", SemanticKind.METRIC), where=where, session=session)
+        observe(make_ref("sales.revenue", SemanticKind.METRIC), slice_by=where, session=session)
 
 
 @pytest.mark.parametrize(
@@ -99,7 +99,7 @@ def test_observe_rejects_physical_only_dimension_ref_slice_keys(tmp_path, slice_
     session = _session_with_sales(tmp_path)
     where = {make_ref(key, SemanticKind.DIMENSION): value for key, value in slice_spec.items()}
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        observe(make_ref("sales.revenue", SemanticKind.METRIC), where=where, session=session)
+        observe(make_ref("sales.revenue", SemanticKind.METRIC), slice_by=where, session=session)
     assert exc_info.value.details["expected_kind"] == "dimension"
 
 
@@ -109,7 +109,7 @@ def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):
     with pytest.raises(SliceInvalidError):
         observe(
             make_ref("sales.revenue", SemanticKind.METRIC),
-            where={
+            slice_by={
                 make_ref("region", SemanticKind.DIMENSION): {
                     "op": "in",
                     "value": [object()],

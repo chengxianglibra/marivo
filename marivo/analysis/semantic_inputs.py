@@ -239,6 +239,6 @@ def normalize_where_inputs(
     if where is None:
         return {}
     return {
-        normalize_dimension_input(catalog, key, argument="where"): value
+        normalize_dimension_input(catalog, key, argument="slice_by"): value
         for key, value in where.items()
     }

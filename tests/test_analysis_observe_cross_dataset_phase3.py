@@ -116,7 +116,7 @@ def test_panel_observe_aggregate_then_join(tmp_path):
 
     frame = observe(
         make_ref("sales.gmv_by_category", SemanticKind.METRIC),
-        timescope={"start": "2026-07-01", "end": "2026-07-05"},
+        time_scope={"start": "2026-07-01", "end": "2026-07-05"},
         grain="day",
         dimensions=[make_ref("sales.order_items.category", SemanticKind.DIMENSION)],
         session=_session(con),
