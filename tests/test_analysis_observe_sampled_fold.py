@@ -384,6 +384,36 @@ def test_compare_folded_ratio_persists_component_delta(sampled_bandwidth_project
     assert delta.meta.component_ref is not None
 
 
+def test_attribute_folded_ratio_uses_component_mix_attribution(
+    sampled_bandwidth_project,
+) -> None:
+    cur = sampled_bandwidth_project.observe(
+        make_ref("sales.p95_utilization", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-02T00:00:00", "end": "2026-01-02T01:00:00"},
+        grain="hour",
+        dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
+    )
+    base = sampled_bandwidth_project.observe(
+        make_ref("sales.p95_utilization", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+        dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
+    )
+    delta = sampled_bandwidth_project.compare(cur, base)
+
+    result = sampled_bandwidth_project.attribute(
+        delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
+    )
+
+    assert result.meta.method == "ratio_mix"
+    assert result.meta.attribution_kind == "decomposition"
+    df = result.to_pandas()
+    assert "value_effect" in df.columns
+    assert "mix_effect" in df.columns
+    assert "current_upstream_bw_p95" in df.columns
+    assert "baseline_reserved_bw" in df.columns
+
+
 def test_rollup_rejects_non_reaggregatable_folded_frame(sampled_bandwidth_project) -> None:
     from marivo.analysis.errors import TransformShapeUnsupportedError
 
@@ -425,6 +455,11 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_project) -> N
         )
 
     assert exc_info.value.details["reason"] == "non_linear_time_fold"
+    assert exc_info.value.details["recommended_path"] == (
+        "Use a component-aware derived ratio or weighted-average metric for mix "
+        "attribution, or attribute numerator and denominator separately and "
+        "synthesize the ratio externally."
+    )
 
 
 def test_decompose_allows_mean_fold_delta(sampled_bandwidth_project) -> None:
