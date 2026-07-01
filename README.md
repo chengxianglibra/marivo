@@ -68,8 +68,8 @@ if report.status == "blocked":
     report.show()                       # resolve blockers before analysis
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
-revenue = session.catalog.get("sales.revenue")
-region = session.catalog.get("sales.orders.region")
+revenue = session.catalog.get("metric.sales.revenue")
+region = session.catalog.get("dimension.sales.orders.region")
 
 current = session.observe(revenue, time_scope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
 baseline = session.observe(revenue, time_scope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])

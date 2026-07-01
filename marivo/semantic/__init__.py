@@ -9,8 +9,7 @@ Public surface::
     catalog = ms.load(domains=['sales'])  # filter to specific domains
     catalog.list().show()
     catalog.list(kind=ms.SemanticKind.METRIC).show()              # all metrics across domains
-    sales = catalog.get("domain.sales")
-    catalog.list(sales.ref, kind=ms.SemanticKind.METRIC).show()  # metrics in one domain
+    catalog.list("domain.sales", kind=ms.SemanticKind.METRIC).show()  # metrics in one domain
 
     ms.domain(name="sales", owner="Mina Zhang", default=True)
     warehouse = md.ref("datasource.warehouse")

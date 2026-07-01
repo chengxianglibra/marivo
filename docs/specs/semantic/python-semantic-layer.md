@@ -190,8 +190,7 @@ import marivo.semantic as ms
 
 catalog = ms.load()
 catalog.list().show()
-sales = catalog.get("domain.sales")
-catalog.list(sales.ref, kind=ms.SemanticKind.METRIC).show()
+catalog.list("domain.sales", kind=ms.SemanticKind.METRIC).show()
 catalog.list(kind=ms.SemanticKind.METRIC).show()  # all metrics across every domain
 revenue = catalog.get("metric.sales.revenue")
 revenue.details().show()                       # bounded details card
@@ -204,7 +203,7 @@ revenue.children                               # child SemanticRef subclass valu
 | --- | --- |
 | `ms.load(workspace_dir=None)` | 加载当前项目并返回 `SemanticCatalog` |
 | `catalog.get("<kind>.<semantic_id>")` | 用 typed id 解析并验证单个 `SemanticObject` |
-| `catalog.list(scope=None, kind=None)` | 用 `SemanticRef` scope 浏览 domain、datasource、entity、dimension、time_dimension、metric、relationship；顶层 `kind=SemanticKind.METRIC` 跨域搜索 |
+| `catalog.list(scope=None, kind=None)` | 用 typed string scope（`"<kind>.<semantic_id>"`）浏览 domain、datasource、entity、dimension、time_dimension、metric、relationship；顶层 `kind=SemanticKind.METRIC` 跨域搜索 |
 | `catalog.preview(ref, limit=..., context_columns=None)` | 对 `SemanticRef` 指向的 entity / dimension / time_dimension / measure / metric 做有界预览 |
 | `catalog.readiness(refs=None)` | 对 handoff `SemanticRef` 做结构 readiness gate |
 | `project.load()` | 重新加载该项目 |
@@ -224,7 +223,7 @@ revenue.children                               # child SemanticRef subclass valu
 
 `find_project()` 的 project 判定只要求 `models/semantic/` 目录存在。空目录也算语义项目：`SemanticProject` 可返回，load 后 registry 为 `ready`，`catalog.list().objects` 返回空 tuple。如果 `models/semantic/` 存在但不是目录，必须 fail closed。
 
-Use `catalog.get("<kind>.<semantic_id>")` to resolve a known object, then pass `SemanticObject.ref` into `catalog.list(...)`, `catalog.preview(...)`, and `catalog.readiness(...)`. The catalog surface is deterministic and does not depend on fuzzy or embedding-based recall. At the top level (no scope), `kind=SemanticKind.METRIC` searches across all domains; `catalog.list(domain.ref, kind=...)` scopes to a single domain.
+Use `catalog.get("<kind>.<semantic_id>")` to resolve a known object, and use `catalog.list("<kind>.<semantic_id>", kind=...)` to browse under a known domain, datasource, or entity. Pass `SemanticObject.ref` into `catalog.preview(...)`, `catalog.readiness(...)`, and `catalog.verify_object(...)`. The catalog surface is deterministic and does not depend on fuzzy or embedding-based recall. At the top level (no scope), `kind=SemanticKind.METRIC` searches across all domains; `catalog.list("domain.sales", kind=...)` scopes to a single domain.
 
 `catalog.list(...)` 和 `catalog.get(...)` 不写 stdout。需要人类可读输出时显式调用 `.show()`；程序化消费使用 `SemanticObject.ref`、`.details()`、`.children` 和 `SemanticObjectList.objects`。`details()` 返回的结构化 dataclass 也支持 `.render()` / `.show()`，用于 agent-facing bounded card 输出。
 

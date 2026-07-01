@@ -63,7 +63,7 @@ class ReplayCheckResult:
 def _catalog_metric_ids(catalog: Any) -> set[str]:
     ids: set[str] = set()
     for domain in catalog.list(kind=ms.SemanticKind.DOMAIN):
-        ids.update(catalog.list(domain.ref, kind=ms.SemanticKind.METRIC).ids())
+        ids.update(catalog.list(f"domain.{domain.ref.id}", kind=ms.SemanticKind.METRIC).ids())
     return ids
 
 

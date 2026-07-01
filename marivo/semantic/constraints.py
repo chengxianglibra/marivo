@@ -643,7 +643,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric", "relationship"),
         "Unqualified name lookups must resolve to a single object kind.",
         "Cross-kind name matches make registry lookups ambiguous.",
-        "Use catalog.list(scope_ref, kind=...) to narrow candidates, then catalog.get('<kind>.<semantic_id>').",
+        "Use catalog.list('<kind>.<semantic_id>', kind=...) to narrow candidates, then catalog.get('<kind>.<semantic_id>').",
         docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.BACKEND_FACTORY_AVAILABLE: _constraint(
@@ -689,7 +689,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "runtime",
         ("SemanticCatalog",),
         "Kind filter must be a valid SemanticKind value.",
-        "The kind parameter accepts: model, datasource, entity, dimension, time_dimension, metric, relationship.",
+        "The kind parameter accepts: domain, datasource, entity, dimension, measure, time_dimension, metric, relationship.",
         "Use catalog.list() without kind to browse all, or pass a SemanticKind enum value.",
     ),
     ConstraintId.CATALOG_PARENT_BROWSABLE: _constraint(
@@ -697,7 +697,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "unsupported_list_parent",
         "runtime",
         ("SemanticCatalog",),
-        "Only domain, datasource, and entity refs can be used as catalog.list() scopes.",
+        "Only domain, datasource, and entity typed ids can be used as catalog.list() scopes.",
         "Metrics, dimensions, time dimensions, and relationships are leaf objects with no children to list.",
         "Use catalog.get('<kind>.<semantic_id>').details() to inspect a leaf object's dependencies.",
     ),
@@ -706,9 +706,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "conflicting_parameters",
         "runtime",
         ("SemanticCatalog",),
-        "catalog.list() accepts a single SemanticRef scope and no domain shortcut.",
+        "catalog.list() accepts a single '<kind>.<semantic_id>' scope and no domain shortcut.",
         "The old 'domain' keyword was removed so agents use one scoped browsing path.",
-        "Use domain = catalog.get('domain.<name>') and then catalog.list(domain.ref, kind=...).",
+        "Use catalog.list('domain.<name>', kind=...) for scoped browsing.",
     ),
     ConstraintId.SAMPLE_INTERVAL_VALID: _constraint(
         ConstraintId.SAMPLE_INTERVAL_VALID,

@@ -177,8 +177,8 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("sales.revenue")
-region = catalog.get("sales.orders.region")
+revenue = catalog.get("metric.sales.revenue")
+region = catalog.get("dimension.sales.orders.region")
 
 current = session.observe(
     revenue,

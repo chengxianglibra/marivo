@@ -87,7 +87,7 @@ def _make_catalog(semantic_project_factory):
 
 def test_catalog_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    catalog.list(catalog.get("domain.sales").ref, kind=ms.SemanticKind.METRIC)
+    catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
     assert capsys.readouterr().out == ""
 
 
@@ -198,7 +198,7 @@ def test_metric_frame_repr_is_one_line() -> None:
 
 def test_semantic_object_list_repr_is_one_line(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(catalog.get("domain.sales").ref, kind=ms.SemanticKind.METRIC)
+    result = catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
     r = repr(result)
     assert r.count("\n") == 0
 
@@ -255,11 +255,11 @@ def test_frame_show_prints_render_plus_newline(capsys) -> None:
 
 def test_semantic_object_list_render_contains_refs_affordance(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(catalog.get("domain.sales").ref, kind=ms.SemanticKind.METRIC)
+    result = catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
     rendered = result.render()
     assert "available:" in rendered
     assert "- result.refs()" in rendered
-    assert "next steps:" not in rendered
+    assert "catalog.get('metric.sales.total_revenue').details().show()" in rendered
 
 
 def test_datasource_catalog_render_uses_card_listing_shape(
@@ -288,7 +288,7 @@ def test_datasource_catalog_render_uses_card_listing_shape(
 
 def test_semantic_object_list_available_never_none(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list(catalog.get("domain.sales").ref, kind=ms.SemanticKind.METRIC)
+    result = catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
     # "available: none" should never appear — the available: section lists
     # method entries, never the word "none"
     assert "available: none" not in result.render().lower()

@@ -180,7 +180,9 @@ def _catalog_metric_ids(catalog: Any) -> set[str]:
         return ids
     for domain in domains:
         try:
-            ids.update(catalog.list(domain.ref, kind=CatalogSemanticKind.METRIC).ids())
+            ids.update(
+                catalog.list(f"domain.{domain.ref.id}", kind=CatalogSemanticKind.METRIC).ids()
+            )
         except Exception:
             continue
     return ids

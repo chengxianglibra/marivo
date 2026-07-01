@@ -99,7 +99,7 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 frame = session.observe(revenue, time_scope={...})
 ```
 
-The catalog's `catalog.get("sales.revenue").ref` returns the same `MetricRef`
+The catalog's `catalog.get("metric.sales.revenue").ref` returns the same `MetricRef`
 subclass. There is no `.ref.ref` chain or type mismatch between authoring and
 analysis.
 
@@ -566,10 +566,10 @@ Once declarations are in place, load the catalog and inspect it:
 import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
-catalog.list().show()                     # everything, grouped
-catalog.list(kind="metric").show()        # just metrics
-revenue = catalog.get("sales.revenue")           # one object
-region = catalog.get("sales.orders.region")      # also an object
+catalog.list().show()                     # top-level domains and datasources
+catalog.list(kind=ms.SemanticKind.METRIC).show()        # just metrics
+revenue = catalog.get("metric.sales.revenue")           # one object
+region = catalog.get("dimension.sales.orders.region")      # also an object
 ```
 
 Before any analysis, check **readiness** — the structural gate that keeps
