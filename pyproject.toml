@@ -19,6 +19,7 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
+    "boto3>=1.34",
     "ibis-framework>=12.0.0",
     "numpy>=1.26.0",
     "pandas>=2.2.0",

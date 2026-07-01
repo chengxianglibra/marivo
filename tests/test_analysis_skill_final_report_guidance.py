@@ -104,6 +104,7 @@ def test_final_report_guidance_contains_required_contract() -> None:
         "session.evidence",
         "Marivo does not generate or publish reports",
         "Do not look for Marivo report package APIs",
+        "marivo publish <path>",
     ]
     forbidden_terms = [
         "MarivoReportArtifact",

@@ -126,8 +126,9 @@ separate charts, or visibly encode the grouping dimension.
 
 Agent-generated analysis scripts and deliverables belong under the session
 directory or another user-approved output location, not as new Marivo library
-state. If you publish or upload the final deliverable, use the environment's
-available file/S3/MCP/browser tooling and verify the resulting artifact there.
+state. After the requested deliverable has been created and QA-checked, use
+`marivo publish <path>` to upload a file or directory when the project has S3
+publish configuration. Verify the resulting artifact in the delivery surface.
 
 ## Discovery and anomaly reports
 

@@ -15,6 +15,13 @@ def _optional_dependencies() -> dict[str, list[str]]:
     return pyproject["project"]["optional-dependencies"]
 
 
+def _dependencies() -> list[str]:
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    with pyproject_path.open("rb") as handle:
+        pyproject = tomllib.load(handle)
+    return pyproject["project"]["dependencies"]
+
+
 def test_datasource_backend_extras_track_supported_backends() -> None:
     optional_dependencies = _optional_dependencies()
 
@@ -25,3 +32,7 @@ def test_datasource_backend_extras_track_supported_backends() -> None:
     assert optional_dependencies["all"] == [
         "ibis-framework[duckdb,trino,mysql,postgres,clickhouse]>=12.0.0"
     ]
+
+
+def test_s3_publish_client_is_default_dependency() -> None:
+    assert "boto3>=1.34" in _dependencies()
