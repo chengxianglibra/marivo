@@ -98,7 +98,9 @@ marivo publish ./output-dir
 
 `marivo publish` is a simple uploader: it does not validate, package, or inspect
 the content. Files are uploaded under `S3_BUCKET_PATH`, and existing objects are
-overwritten by normal S3 behavior.
+overwritten by normal S3 behavior. Files ending in `.html` or `.htm` are uploaded
+with `Content-Type: text/html`; other file types are uploaded without MIME
+inference.
 
 For local development from this repository:
 
