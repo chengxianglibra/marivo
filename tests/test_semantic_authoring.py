@@ -285,6 +285,26 @@ def test_dataset_rejects_bare_string_datasource() -> None:
         _exit_ctx()
 
 
+def test_dimension_rejects_bare_string_domain() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        ds = ms.entity(
+            name="orders",
+            datasource=md.ref("datasource.wh"),
+            source=ms.table("orders"),
+        )
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+
+            @ms.dimension(entity=ds, domain="inventory")  # type: ignore[arg-type]
+            def region(table):
+                return table.region
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "ms.domain(name=...)" in str(exc_info.value)
+    finally:
+        _exit_ctx()
+
+
 def test_dataset_explicit_name() -> None:
     _enter_ctx(default_domain="sales")
     try:

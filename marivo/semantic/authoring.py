@@ -130,7 +130,13 @@ def _resolve_domain(explicit: DomainRef | None, ctx: LoaderContext) -> str:
     if isinstance(explicit, DomainRef):
         return explicit.id
     if explicit is not None:
-        return explicit
+        _raise(
+            ErrorKind.INVALID_REF,
+            "domain= accepts a DomainRef from ms.domain(name=...). "
+            "Do not pass a bare string such as 'sales' or 'domain.sales'.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
     if ctx.default_domain is not None:
         return ctx.default_domain
     _raise(
