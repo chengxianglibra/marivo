@@ -1,13 +1,20 @@
-"""Finding extractors: metric_value and delta."""
+"""Finding extractors: metric_value, delta, anomaly, composition, correlation, forecast, test."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
 import pandas as pd
+import pytest
 
+from marivo.analysis.errors import FindingExtractionFailedError
+from marivo.analysis.evidence.extraction.anomaly import extract_anomaly_candidate_findings
+from marivo.analysis.evidence.extraction.composition import extract_decomposition_findings
+from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
 from marivo.analysis.evidence.extraction.delta import extract_delta_findings
+from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
 from marivo.analysis.evidence.extraction.observation import extract_metric_value_findings
+from marivo.analysis.evidence.extraction.test import extract_test_result_findings
 from marivo.analysis.evidence.types import Subject
 
 
@@ -198,3 +205,294 @@ def test_delta_payload_unit_defaults_to_none() -> None:
         committed_at=_now(),
     )
     assert findings[0].payload["unit"] is None
+
+
+# ---------------------------------------------------------------------------
+# Anomaly candidate extraction
+# ---------------------------------------------------------------------------
+
+
+def test_anomaly_candidate_findings_one_per_row() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "candidate_ref": "cand_1",
+                "score": 0.92,
+                "flag_level": "high",
+                "current_value": 1200.0,
+                "baseline_value": 800.0,
+                "deviation_absolute": 400.0,
+                "deviation_relative": 0.5,
+            },
+            {
+                "candidate_ref": "cand_2",
+                "score": 0.81,
+                "flag_level": "medium",
+                "current_value": 600.0,
+                "baseline_value": 800.0,
+                "deviation_absolute": -200.0,
+                "deviation_relative": -0.25,
+            },
+        ]
+    )
+    subject = Subject(metric="dau", analysis_axis="time")
+
+    findings = extract_anomaly_candidate_findings(
+        df=df,
+        artifact_id="art_anom1",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+    )
+
+    assert len(findings) == 2
+    assert findings[0].finding_type == "anomaly_candidate"
+    assert findings[0].subject.analysis_axis == "time"
+    assert findings[0].canonical_item_key == "cand_1"
+    assert findings[0].payload["candidate_ref"] == "cand_1"
+    assert findings[0].payload["score"] == 0.92
+
+
+def test_anomaly_candidate_empty_allowed() -> None:
+    subject = Subject(metric="dau", analysis_axis="time")
+
+    findings = extract_anomaly_candidate_findings(
+        df=pd.DataFrame(columns=["candidate_ref", "score"]),
+        artifact_id="art_anom_empty",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+    )
+
+    assert findings == []
+
+
+def test_anomaly_candidate_falls_back_to_index_when_no_ref() -> None:
+    df = pd.DataFrame([{"score": 0.7, "current_value": 100.0}])
+    subject = Subject(metric="dau", analysis_axis="time")
+
+    findings = extract_anomaly_candidate_findings(
+        df=df,
+        artifact_id="art_x",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+    )
+
+    assert findings[0].canonical_item_key == "row:0"
+
+
+# ---------------------------------------------------------------------------
+# Decomposition finding extraction
+# ---------------------------------------------------------------------------
+
+
+def test_decomposition_findings_one_per_row() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "dimension": "country",
+                "country": "us",
+                "contribution_value": 12.0,
+                "contribution_share": 0.6,
+                "direction": "increase",
+            },
+            {
+                "dimension": "country",
+                "country": "jp",
+                "contribution_value": -4.0,
+                "contribution_share": -0.2,
+                "direction": "decrease",
+            },
+        ]
+    )
+    subject = Subject(metric="dau", analysis_axis="decomposition")
+
+    findings = extract_decomposition_findings(
+        df=df,
+        artifact_id="art_decomp1",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+        scope_delta_ref="art_delta_parent",
+    )
+
+    assert len(findings) == 2
+    assert findings[0].finding_type == "decomposition_item"
+    assert findings[0].canonical_item_key.startswith("country|")
+    assert findings[0].payload["scope_delta_ref"] == "art_delta_parent"
+    assert findings[0].payload["dimension"] == "country"
+    assert findings[0].payload["dimension_keys"] == {"country": "us"}
+    assert findings[0].payload["contribution_value"] == 12.0
+    assert findings[0].payload["contribution_share"] == 0.6
+
+
+def test_decomposition_findings_empty_df_returns_empty() -> None:
+    subject = Subject(metric="dau", analysis_axis="decomposition")
+
+    findings = extract_decomposition_findings(
+        df=pd.DataFrame(columns=["dimension", "contribution_value"]),
+        artifact_id="art_decomp_empty",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+        scope_delta_ref="art_delta_parent",
+    )
+
+    assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Correlation finding extraction
+# ---------------------------------------------------------------------------
+
+
+def test_correlation_finding_one_per_artifact() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "left_ref": "art_left",
+                "right_ref": "art_right",
+                "method": "pearson",
+                "coefficient": 0.71,
+                "p_value": 0.03,
+                "n": 42,
+                "join_basis": "window_bucket",
+            }
+        ]
+    )
+    subject = Subject(metric=None, analysis_axis="correlation")
+
+    findings = extract_correlation_findings(
+        df=df,
+        artifact_id="art_corr1",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+    )
+
+    assert len(findings) == 1
+    assert findings[0].finding_type == "correlation_result"
+    assert findings[0].canonical_item_key == "result"
+    assert findings[0].payload["coefficient"] == 0.71
+    assert findings[0].payload["join_basis"] == "window_bucket"
+
+
+def test_correlation_extractor_empty_raises() -> None:
+    subject = Subject(metric=None, analysis_axis="correlation")
+
+    with pytest.raises(FindingExtractionFailedError):
+        extract_correlation_findings(
+            df=pd.DataFrame(columns=["coefficient"]),
+            artifact_id="art_empty",
+            session_id="sess_1",
+            subject=subject,
+            committed_at=datetime.now(UTC),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Forecast point finding extraction
+# ---------------------------------------------------------------------------
+
+
+def test_forecast_point_findings_one_per_bucket() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "bucket_start": "2025-01-08",
+                "bucket_end": "2025-01-08",
+                "predicted_value": 1100.0,
+                "lower": 1050.0,
+                "upper": 1150.0,
+                "horizon_index": 1,
+            },
+            {
+                "bucket_start": "2025-01-09",
+                "bucket_end": "2025-01-09",
+                "predicted_value": 1120.0,
+                "lower": 1060.0,
+                "upper": 1180.0,
+                "horizon_index": 2,
+            },
+        ]
+    )
+    subject = Subject(metric="dau", analysis_axis="forecast")
+
+    findings = extract_forecast_point_findings(
+        df=df,
+        artifact_id="art_f1",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+    )
+
+    assert len(findings) == 2
+    assert findings[0].finding_type == "forecast_point"
+    assert findings[0].canonical_item_key == "2025-01-08|2025-01-08"
+    assert findings[0].payload["predicted_value"] == 1100.0
+    assert findings[0].payload["prediction_interval"] == [1050.0, 1150.0]
+
+
+def test_forecast_point_extractor_empty_raises() -> None:
+    subject = Subject(metric="dau", analysis_axis="forecast")
+
+    with pytest.raises(FindingExtractionFailedError):
+        extract_forecast_point_findings(
+            df=pd.DataFrame(columns=["predicted_value"]),
+            artifact_id="art_empty",
+            session_id="sess_1",
+            subject=subject,
+            committed_at=datetime.now(UTC),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test result finding extraction
+# ---------------------------------------------------------------------------
+
+
+def test_test_result_finding_one_per_artifact() -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "current_ref": "art_cur",
+                "baseline_ref": "art_bas",
+                "method": "welch_t",
+                "estimate_value": 5.0,
+                "statistic_name": "t",
+                "statistic_value": 2.4,
+                "p_value": 0.02,
+                "reject_null": True,
+                "alpha": 0.05,
+            }
+        ]
+    )
+    subject = Subject(metric="dau", analysis_axis="scalar")
+
+    findings = extract_test_result_findings(
+        df=df,
+        artifact_id="art_t1",
+        session_id="sess_1",
+        subject=subject,
+        committed_at=datetime.now(UTC),
+    )
+
+    assert len(findings) == 1
+    assert findings[0].finding_type == "test_result"
+    assert findings[0].canonical_item_key == "result"
+    assert findings[0].payload["reject_null"] is True
+    assert findings[0].payload["p_value"] == 0.02
+
+
+def test_test_result_extractor_empty_raises() -> None:
+    subject = Subject(metric="dau", analysis_axis="scalar")
+
+    with pytest.raises(FindingExtractionFailedError):
+        extract_test_result_findings(
+            df=pd.DataFrame(columns=["p_value"]),
+            artifact_id="art_empty",
+            session_id="sess_1",
+            subject=subject,
+            committed_at=datetime.now(UTC),
+        )

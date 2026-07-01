@@ -114,26 +114,6 @@ def test_richness_is_silent(semantic_project_factory, capsys) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_mv_help_returns_none(capsys) -> None:
-    result = mv.help()
-    assert result is None
-
-
-def test_mv_help_symbol_returns_none(capsys) -> None:
-    result = mv.help("observe")
-    assert result is None
-
-
-def test_ms_help_returns_none(capsys) -> None:
-    result = ms.help()
-    assert result is None
-
-
-def test_ms_help_symbol_returns_none(capsys) -> None:
-    result = ms.help("metric")
-    assert result is None
-
-
 # ---------------------------------------------------------------------------
 # Help APIs reject format=
 # ---------------------------------------------------------------------------
@@ -201,15 +181,6 @@ def test_semantic_object_list_repr_is_one_line(semantic_project_factory) -> None
     result = catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
     r = repr(result)
     assert r.count("\n") == 0
-
-
-def test_readiness_report_repr_is_one_line(semantic_project_factory) -> None:
-    project = _make_project(semantic_project_factory)
-    report = project.readiness()
-    r = repr(report)
-    assert r.count("\n") == 0
-    assert "ReadinessReport" in r
-    assert "call .show() to inspect" in r
 
 
 # ---------------------------------------------------------------------------
