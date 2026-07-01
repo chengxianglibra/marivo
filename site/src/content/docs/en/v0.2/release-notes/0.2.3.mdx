@@ -1,0 +1,84 @@
+---
+slug: en/v0.2/release-notes/0.2.3
+title: Marivo 0.2.3
+description: Release notes for Marivo 0.2.3.
+---
+
+Marivo 0.2.3 is a v0.2 patch release that tightens the agent-facing semantic
+and analysis contracts while adding operational publishing support. It improves
+Trino aggregate compatibility, makes semantic help and catalog scopes more
+explicit, and adds deterministic attribution materialization for multi-level
+driver analysis.
+
+## Highlights
+
+- Added `marivo --version` so CLI environments can report the installed package
+  version directly.
+- Added the internal S3 publish uploader used by Marivo's static artifact
+  publishing workflow.
+- Implemented composite attribution materialization for analysis workflows that
+  need stable multi-tier driver output.
+- Tightened semantic catalog and help contracts around typed scopes, explicit
+  domain refs, and percentile naming.
+- Removed the older report publish surface from the public analysis path.
+
+## Changed
+
+- Analysis intent parameters now use `time_scope` and `slice_by` consistently
+  instead of the older `timescope` and `where` spellings.
+- Semantic fold help now uses percentile terminology consistently instead of
+  mixing quantile and percentile names.
+- Catalog list scopes now require typed string scope objects rather than loose
+  bare-string inputs.
+- Analysis evidence suites were reorganized by domain and per-tier coverage to
+  keep release checks easier to interpret.
+
+## Fixed
+
+- Trino-backed semantic aggregates now support percentile expressions.
+- Sampled ratio attribution now works in the attribution path.
+- Analysis help aliases now resolve to the current public names.
+- Semantic authoring now rejects bare strings for `domain=` consistently.
+
+## Documentation
+
+- Added the attribution composite materialization design note.
+- Updated analysis design and skill guidance for the current attribution,
+  publishing, and parameter contracts.
+- Refreshed semantic-layer documentation around typed refs, explicit help
+  output, and percentile folding.
+
+## Breaking changes
+
+- The public analysis report publish surface has been removed; artifact
+  publishing now routes through the narrower static publishing path.
+- Analysis callers should use `time_scope` and `slice_by`; the legacy
+  `timescope` and `where` names are no longer the documented contract.
+- Semantic catalog and authoring helpers require typed scope/domain refs rather
+  than accepting bare strings.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.3 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/v0.2/installation/)
+- [Quick Start](/en/v0.2/quick-start/)
+- [Semantic Layer](/en/v0.2/concepts/semantic-layer/)
+- [Analysis Workflow](/en/v0.2/concepts/analysis-workflow/)
