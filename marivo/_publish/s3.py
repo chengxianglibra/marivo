@@ -20,6 +20,10 @@ class PublishResult:
     file_count: int
 
 
+def _is_html_path(rel_path: str) -> bool:
+    return rel_path.lower().endswith((".html", ".htm"))
+
+
 def default_s3_client_factory(
     service_name: str,
     *,
@@ -84,12 +88,15 @@ class S3Uploader:
 
     def put_file(self, rel_path: str, data: bytes) -> str:
         key = self._key(rel_path)
-        self._client.put_object(
-            Bucket=self._config.bucket,
-            Key=key,
-            Body=data,
-            ContentLength=len(data),
-        )
+        put_kwargs: dict[str, object] = {
+            "Bucket": self._config.bucket,
+            "Key": key,
+            "Body": data,
+            "ContentLength": len(data),
+        }
+        if _is_html_path(rel_path):
+            put_kwargs["ContentType"] = "text/html"
+        self._client.put_object(**put_kwargs)
         return f"s3://{self._config.bucket}/{key}"
 
     def _key(self, rel_path: str) -> str:

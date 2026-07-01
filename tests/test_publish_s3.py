@@ -182,6 +182,7 @@ def test_publish_file_uploads_basename_and_content_length(
     assert put["Key"] == "base/report.html"
     assert put["Body"] == b"<h1>report</h1>"
     assert put["ContentLength"] == len(b"<h1>report</h1>")
+    assert put["ContentType"] == "text/html"
 
 
 def test_publish_directory_preserves_nested_relative_paths(
@@ -206,6 +207,31 @@ def test_publish_directory_preserves_nested_relative_paths(
     assert result.file_count == 2
     keys = sorted(put["Key"] for put in factory.client.puts)
     assert keys == ["base/output/assets/app.js", "base/output/index.html"]
+    puts_by_key = {put["Key"]: put for put in factory.client.puts}
+    assert puts_by_key["base/output/index.html"]["ContentType"] == "text/html"
+    assert "ContentType" not in puts_by_key["base/output/assets/app.js"]
+
+
+def test_publish_html_content_type_matches_case_insensitive_suffix() -> None:
+    from marivo._publish.s3 import PublishConfig, S3Uploader
+
+    factory = _FakeClientFactory()
+    uploader = S3Uploader(
+        PublishConfig(
+            bucket="bucket",
+            prefix="base",
+            endpoint_url="https://s3.example.com",
+            aws_access_key_id="ak",
+            aws_secret_access_key="sk",
+        ),
+        client_factory=factory,
+    )
+
+    uploader.put_file("REPORT.HTM", b"<h1>report</h1>")
+
+    put = factory.client.puts[0]
+    assert put["Key"] == "base/REPORT.HTM"
+    assert put["ContentType"] == "text/html"
 
 
 def test_publish_rejects_path_traversal_segments(tmp_path: Path) -> None:

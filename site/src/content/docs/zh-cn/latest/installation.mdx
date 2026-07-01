@@ -96,7 +96,9 @@ marivo publish ./output-dir
 ```
 
 `marivo publish` 只是一个简单上传工具：它不会 validate、package 或 inspect 内容。文件会上传到
-`S3_BUCKET_PATH` 之下；如果目标对象已存在，会按普通 S3 `put_object` 行为覆盖。
+`S3_BUCKET_PATH` 之下；如果目标对象已存在，会按普通 S3 `put_object` 行为覆盖。以
+`.html` 或 `.htm` 结尾的文件会使用 `Content-Type: text/html` 上传；其他文件类型不会进行
+MIME 推断。
 
 从当前仓库进行本地开发：
 
