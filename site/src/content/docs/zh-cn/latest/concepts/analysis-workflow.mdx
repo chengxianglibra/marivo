@@ -128,6 +128,9 @@ delta = session.compare(current, baseline)
 ### `attribute` → `AttributionFrame`
 
 把 delta 的变动归因到显式 axes 上。这是“为什么变了？”分析的默认 public 入口。
+component-aware 的 ratio 和 weighted-average delta 会使用 mix attribution。普通
+非线性 sampled fold（例如 quantile、min、max、first 或 last）不能直接按 axis 求和；
+除非它们属于已持久化 component-aware derived metric delta，否则仍不支持。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |

@@ -106,6 +106,14 @@ def test_help_for_intent_includes_signature_and_docstring() -> None:
         assert first_doc_line in out, f"{symbol} help should include first docstring line"
 
 
+def test_help_attribute_mentions_component_mix_and_sampled_fold_boundary() -> None:
+    out = _capture("attribute").lower()
+
+    assert "component-aware ratio" in out
+    assert "weighted-average" in out
+    assert "non-linear sampled folds" in out
+
+
 def test_help_for_session_intent_aliases_matches_canonical_target() -> None:
     intents = (
         "observe",

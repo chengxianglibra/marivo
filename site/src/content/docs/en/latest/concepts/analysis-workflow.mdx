@@ -139,6 +139,10 @@ override — `mv.dow_aligned()`, `mv.holiday_aligned()`, or
 
 Attribute a delta's movement across explicit axes. This is the default public
 entry point for "why did it change?" analysis.
+Component-aware ratio and weighted-average deltas use mix attribution. Plain
+non-linear sampled folds such as quantile, min, max, first, or last cannot be
+summed by axis unless they are part of a persisted component-aware derived
+metric delta.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |

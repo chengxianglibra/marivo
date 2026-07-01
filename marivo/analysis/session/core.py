@@ -795,6 +795,10 @@ class Session:
         This operator does not explain business causes and does not choose axes
         for the agent. Pass explicit axes selected from the catalog or from a
         CandidateSet.
+        Component-aware ratio and weighted-average deltas use mix attribution.
+        Plain non-linear sampled folds such as quantile, min, max, first, or
+        last cannot be summed by axis and remain unsupported unless they are
+        part of a persisted component-aware derived metric delta.
 
         Args:
             frame: A DeltaFrame produced by ``session.compare``.

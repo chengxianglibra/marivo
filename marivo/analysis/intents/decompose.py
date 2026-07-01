@@ -144,6 +144,48 @@ def _load_delta_component_frame(frame: DeltaFrame, *, session: Session) -> Compo
     return loaded
 
 
+_NON_LINEAR_FOLD_RECOMMENDED_PATH = (
+    "Use a component-aware derived ratio or weighted-average metric for mix "
+    "attribution, or attribute numerator and denominator separately and "
+    "synthesize the ratio externally."
+)
+
+
+def _non_linear_fold_labels(frame: DeltaFrame) -> list[str]:
+    fold = getattr(frame.meta, "fold", None)
+    component_folds = getattr(frame.meta, "component_folds", [])
+    fold_labels = [fold.get("time_fold")] if isinstance(fold, dict) else []
+    fold_labels.extend(item.get("time_fold") for item in component_folds if isinstance(item, dict))
+    return [
+        str(label)
+        for label in fold_labels
+        if label and str(label) != "derived" and not str(label).startswith("mean")
+    ]
+
+
+def _component_allows_non_linear_fold(component: ComponentFrame | None) -> bool:
+    return component is not None and component.meta.composition_kind in {
+        "ratio",
+        "weighted_average",
+    }
+
+
+def _raise_non_linear_fold_error(frame: DeltaFrame, fold_labels: list[str]) -> None:
+    raise ComponentDecompositionError(
+        message=(
+            "decompose cannot sum non-linear sampled time fold deltas by axis; "
+            "component-aware ratio or weighted-average deltas can use mix attribution"
+        ),
+        details={
+            "reason": "non_linear_time_fold",
+            "delta_ref": frame.ref,
+            "time_folds": fold_labels,
+            "supported_component_kinds": ["ratio", "weighted_average"],
+            "recommended_path": _NON_LINEAR_FOLD_RECOMMENDED_PATH,
+        },
+    )
+
+
 def _component_role_column_name(component: ComponentFrame, role: str) -> str:
     return resolve_role_column_name(component.meta.components, role)
 
@@ -404,20 +446,10 @@ def decompose(
             message=f"decompose does not support semantic_kind={frame.meta.semantic_kind!r}",
         )
 
-    # Gate: reject non-linear sampled time folds that cannot be decomposed.
-    fold = getattr(frame.meta, "fold", None)
-    component_folds = getattr(frame.meta, "component_folds", [])
-    fold_labels = [fold.get("time_fold")] if isinstance(fold, dict) else []
-    fold_labels.extend(item.get("time_fold") for item in component_folds if isinstance(item, dict))
-    if any(label and not str(label).startswith("mean") for label in fold_labels):
-        raise ComponentDecompositionError(
-            message="decompose does not support non-linear sampled time folds",
-            details={
-                "reason": "non_linear_time_fold",
-                "delta_ref": frame.ref,
-                "time_folds": fold_labels,
-            },
-        )
+    component = _load_delta_component_frame(frame, session=session)
+    non_linear_fold_labels = _non_linear_fold_labels(frame)
+    if non_linear_fold_labels and not _component_allows_non_linear_fold(component):
+        _raise_non_linear_fold_error(frame, non_linear_fold_labels)
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -433,7 +465,6 @@ def decompose(
     assert axis_column is not None  # validated above; needed for type narrowing
 
     # Component-aware path: ratio/weighted mix or linear additive attribution.
-    component = _load_delta_component_frame(frame, session=session)
     if component is not None:
         component_columns = [str(column) for column in component.to_pandas().columns]
         component_axis_column = _effective_component_axis_column(frame, axis_id, component_columns)
