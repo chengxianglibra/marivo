@@ -529,7 +529,7 @@ delta = analysis.compare(
 
 ### `decompose`
 
-职责：把已定义的 `delta_frame` 沿一个 semantic axis 分配到贡献项。
+职责：把已定义的 `delta_frame` 沿显式 semantic axes 分配到贡献项。
 
 固定输出：
 
@@ -539,12 +539,19 @@ attribution_frame
 
 `decompose` 回答“这个 delta 由谁贡献”。核心 `decompose` 不负责自动找轴；自动找轴属于 `discover.driver_axes(...)` 或 `analysis.composites.auto_decompose(...)`。
 
-核心 `decompose` 只接受单一 semantic axis。多轴联合归因不是分层 drilldown 的同义词：`country -> platform` 的 drilldown 回答”某个 country 内 platform 如何贡献”，而 `country x platform` 联合归因回答”哪个 country-platform 组合贡献最大”。后者应作为 domain composite operator，待 semantic layer 支持相关数据模型后设计。
+核心 `decompose` 接受有序 semantic axes。单轴是 level-1 贡献分解；多轴表示有序分层 drilldown：`country -> platform` 回答“某个 country 内 platform 如何贡献”。这不是无序多轴联合归因；`country x platform` 联合归因回答“哪个 country-platform 组合贡献最大”。后者应作为 domain composite operator，待 semantic layer 支持相关数据模型后设计。
 
 示例：
 
 ```python
-country_drivers = analysis.decompose(delta, axis=session.catalog.get("sales.orders.country"))
+country_drivers = analysis.decompose(delta, axes=[session.catalog.get("sales.orders.country")])
+country_platform_drivers = analysis.decompose(
+    delta,
+    axes=[
+        session.catalog.get("sales.orders.country"),
+        session.catalog.get("sales.orders.platform"),
+    ],
+)
 ```
 
 ### `discover`
@@ -1310,7 +1317,7 @@ focused_delta = analysis.promote_delta_frame(
 
 ### 待纳入的 decompose 扩展
 
-- `decompose` 签名扩展为 `axis=SemanticObject | SemanticRef | DynamicAxisRef`，待 `register_dynamic_axis` 落地后启用
+- `decompose` 签名扩展为 `axes=list[SemanticObject | SemanticRef | DynamicAxisRef]`，待 `register_dynamic_axis` 落地后启用
 - 多轴联合归因 composite `cross_axis_attribution`
 
 ### Domain frame contract
