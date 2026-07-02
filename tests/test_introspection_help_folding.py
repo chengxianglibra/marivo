@@ -69,7 +69,6 @@ def test_semantic_fold_partition() -> None:
     assert set(fams["Other types"]) == {
         "AiContextValue",
         "AuthoringQuestion",
-        "DecisionRecord",
         "JoinKey",
         "ReadinessInputSummary",
         "ReadinessIssue",

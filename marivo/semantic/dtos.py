@@ -142,7 +142,6 @@ class VerifyResult(RenderableResult):
     issues: tuple[AssessmentIssue, ...]
     warnings: tuple[AssessmentIssue, ...]
     scan: ScanReport | None
-    auto_recorded: tuple[str, ...]
 
     def _repr_identity(self) -> str:
         return f"VerifyResult status={self.status} ref={self.ref} kind={self.kind}"

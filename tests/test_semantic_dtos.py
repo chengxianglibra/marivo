@@ -220,7 +220,6 @@ def test_verify_result_is_public_result_object() -> None:
         issues=(),
         warnings=(),
         scan=None,
-        auto_recorded=(),
     )
 
     assert (
@@ -258,7 +257,6 @@ def test_verify_result_render_shows_issue_details() -> None:
         issues=(issue,),
         warnings=(),
         scan=None,
-        auto_recorded=(),
     )
 
     rendered = result.render()
@@ -293,7 +291,6 @@ def test_verify_result_render_shows_warning_details() -> None:
         issues=(),
         warnings=(warning,),
         scan=None,
-        auto_recorded=(),
     )
 
     rendered = result.render()
@@ -331,7 +328,6 @@ def test_verify_result_render_lists_many_issues_as_omittable_card_section() -> N
         issues=issues,
         warnings=(),
         scan=None,
-        auto_recorded=(),
     )
 
     rendered = result.render()

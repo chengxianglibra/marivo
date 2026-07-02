@@ -1,11 +1,10 @@
-"""Tests for semantic verification ledger behavior."""
+"""Tests for semantic verification behavior."""
 
 from pathlib import Path
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
-from marivo.semantic import ledger as lg
 
 
 def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
@@ -50,10 +49,10 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
     )
 
 
-# -- Entity verification auto-record tests -----------------------------------
+# -- Entity verification tests ------------------------------------------------
 
 
-def test_verify_object_entity_auto_records_verified(
+def test_verify_object_entity_scans_datasource_without_audit_side_effects(
     tmp_path: Path, semantic_project_factory
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
@@ -62,26 +61,19 @@ def test_verify_object_entity_auto_records_verified(
 
     assert result.status == "passed"
     assert result.kind == "entity"
-    assert len(result.auto_recorded) == 1
-    assert result.auto_recorded[0] == "sales.orders:entity_verified"
-
-    # Verify the decision was persisted to the ledger.
-    store = lg.LedgerStore(project.state_root)
-    obj = store.read_object("sales.orders")
-    assert obj is not None
-    decision = next(d for d in obj.decisions if d.decision_kind == "entity_verified")
-    assert decision.chosen == "passed"
-    assert decision.qualifying_sources == ("live_datasource_probe",)
-    assert decision.evidence_fingerprint.startswith("sha256:")
+    assert result.scan is not None
+    assert result.scan.rows_scanned == 2
+    assert not hasattr(result, "auto" + "_recorded")
+    assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_stale_verification_raises_after_source_change(
+def test_verify_object_entity_uses_current_source_declaration(
     tmp_path: Path, semantic_project_factory
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    project.verify_object(ms.ref("entity.sales.orders"))
-    assert project._is_entity_verified("sales.orders")
+    first = project.verify_object(ms.ref("entity.sales.orders"))
+    assert first.status == "passed"
 
     # Rewrite the entity with a different source table name
     import ibis
@@ -103,9 +95,11 @@ def test_stale_verification_raises_after_source_change(
         workspace_dir=tmp_path,
     )
 
-    # The ledger still has the old fingerprint for "sales.orders", but the
-    # entity now points to a different table, so the verification is stale.
-    assert not project2._is_entity_verified("sales.orders")
+    second = project2.verify_object(ms.ref("entity.sales.orders"))
+    assert second.status == "passed"
+    assert second.scan is not None
+    assert second.scan.rows_scanned == 1
+    assert not (Path(project2.state_root) / "evidence").exists()
 
 
 # -- verify_object with project load failure ----------------------------------

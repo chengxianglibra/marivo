@@ -24,7 +24,7 @@ if report.status == "blocked":
 
 `ms.readiness()` 是一次**纯内存检查**。它从不打开 datasource 连接 —— 它只针对 declarations
 本身进行推理：缺失定义、未知 refs、跨 datasource 的 fan-out、脆弱的 string references，以及
-未经审计的危险决策。
+SQL parity 状态。它不检查 GitHub/GitLab 审批状态，也不做审计审批判断。
 
 触及 backend 的校验是独立的，并按需运行：
 
@@ -50,8 +50,7 @@ if report.status == "blocked":
 | `blockers` | `tuple[ReadinessIssue, ...]` | 交接前必须修复的问题。 |
 | `warnings` | `tuple[ReadinessIssue, ...]` | 不会 block 的建议性问题。 |
 | `analysis_ready_refs` | `tuple[str, ...]` | 通过检查的 refs —— 可安全交给分析。 |
-| `input_summary` | `ReadinessInputSummary` | 检查了什么：datasources、refs、tables、decision records。 |
-| `abandoned` | `tuple[...]` | 被标记为 abandoned 的候选对象。 |
+| `input_summary` | `ReadinessInputSummary` | 检查了什么：datasources、refs、tables。 |
 | `checked_at` | `str` | 检查的 ISO-8601 时间戳。 |
 
 `status` 由严重程度推导：只要有 blocker ⇒ `blocked`；只有 warnings ⇒ `ready_with_warnings`；
@@ -77,7 +76,6 @@ if report.status == "blocked":
 | `unknown_ref` | blocker | 请求的 ref 不在 registry 中。 | 修正该 ref，或将其从 readiness 范围中移除。 |
 | `missing_business_definition` | blocker | 被检查的对象没有 `ai_context.business_definition`。 | 补充 `business_definition`。 |
 | `cross_datasource_unfederated` | blocker | 某个 metric 在没有 federation 的情况下跨越多个 datasource。 | 把集成移到上游、启用 federated backend，或拆分 metric。 |
-| `unresolved_clarification` | blocker | 某个危险决策（time-dimension identity、metric composition）没有记录的决策。 | 在 declaration 之后重新加载，或记录对象级的 `DecisionRecord`。 |
 | `missing_guardrails` | warning | 被检查的对象没有 `ai_context.guardrails`。 | 补充 `guardrails`。 |
 | `sql_parity_unverified` | warning | 某个 metric 有 `provenance` SQL 但 parity 未确认。 | 运行 `ms.parity_check(ref)`。 |
 | `fragile_string_ref` | warning | 某个对象使用了脆弱的 string reference。 | 用稳定的 object ref 替换它。 |

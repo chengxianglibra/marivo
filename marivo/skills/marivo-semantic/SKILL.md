@@ -39,7 +39,8 @@ These gates apply before writing semantic code:
 
 - **Evidence before questions:** inspect `ms.help(...)`, the matching
   `md.discover_*` evidence, current catalog state, project docs, source
-  SQL/provenance when present, prior decisions, and user answers.
+  SQL/provenance when present, Git review context when available, and user
+  answers.
 - **Wide discovery, narrow authoring:** collect domain- or table-group evidence
   once when useful, then reuse it while authoring. Broad evidence collection
   does not change the authoring unit.
@@ -111,7 +112,7 @@ choose active batch
   -> inspect ms.help(...)
   -> run matching md.discover_*
   -> inspect ms.load() catalog state
-  -> settle from evidence, registry, project docs, and prior decisions
+  -> settle from evidence, registry, project docs, source SQL/provenance, and Git review context
   -> grill one unresolved semantic decision, if needed
   -> author one object
   -> ms.verify_object(ref)
@@ -132,9 +133,9 @@ types, sample values, join-key viability, partition state, or existing refs.
 
 Do not invent multiple-choice options. Every option must be grounded in
 metadata comments, column profiles, sample distributions, existing semantic
-objects, source SQL, project docs, or prior decisions. If evidence supports one
-path, ask for confirmation of that path. If evidence is too thin for options,
-ask an open clarification or run another bounded discovery query.
+objects, source SQL, project docs, or Git review context. If evidence supports
+one path, ask for confirmation of that path. If evidence is too thin for
+options, ask an open clarification or run another bounded discovery query.
 
 ## Existing Catalog
 

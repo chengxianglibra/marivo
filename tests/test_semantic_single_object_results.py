@@ -12,9 +12,7 @@ def _make_readiness_report() -> ReadinessReport:
         analysis_ready_refs=("sales.revenue",),
         blockers=(),
         warnings=(),
-        input_summary=ReadinessInputSummary(
-            datasources=(), refs=(), tables=(), decision_records=()
-        ),
+        input_summary=ReadinessInputSummary(datasources=(), refs=(), tables=()),
         checked_at="2026-06-09T00:00:00Z",
     )
 

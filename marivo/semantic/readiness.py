@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 from marivo.datasource.authoring import DatasourceRef
 from marivo.render import Card, RenderableResult
@@ -23,7 +23,6 @@ ReadinessIssueKind = Literal[
     "sql_parity_unverified",
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
-    "unresolved_clarification",
     "missing_business_definition",
 ]
 
@@ -51,14 +50,12 @@ class ReadinessInputSummary:
     datasources: tuple[str, ...]
     refs: tuple[str, ...]
     tables: tuple[str, ...]
-    decision_records: tuple[str, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
             "datasources": list(self.datasources),
             "refs": list(self.refs),
             "tables": list(self.tables),
-            "decision_records": list(self.decision_records),
         }
 
 
@@ -70,7 +67,6 @@ class ReadinessReport(RenderableResult):
     warnings: tuple[ReadinessIssue, ...]
     input_summary: ReadinessInputSummary
     checked_at: str
-    abandoned: tuple[Any, ...] = ()
 
     def _repr_identity(self) -> str:
         return (
@@ -91,11 +87,6 @@ class ReadinessReport(RenderableResult):
             )
         if self.analysis_ready_refs:
             card = card.field(label="analysis_ready", value=", ".join(self.analysis_ready_refs))
-        if self.abandoned:
-            card = card.listing(
-                label=f"abandoned ({len(self.abandoned)})",
-                items=tuple(str(c.candidate) for c in self.abandoned),
-            )
         return card.field(label="checked_at", value=self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
@@ -105,7 +96,6 @@ class ReadinessReport(RenderableResult):
             "blockers": [issue.to_dict() for issue in self.blockers],
             "warnings": [issue.to_dict() for issue in self.warnings],
             "input_summary": self.input_summary.to_dict(),
-            "abandoned": [c.to_dict() for c in self.abandoned],
             "checked_at": self.checked_at,
         }
 
@@ -141,20 +131,6 @@ def _dedupe(values: Iterable[str]) -> tuple[str, ...]:
             seen.add(value)
             out.append(value)
     return tuple(out)
-
-
-def _decision_record_summary(project: SemanticProject, refs: Iterable[str]) -> tuple[str, ...]:
-    from marivo.semantic.ledger import LedgerStore
-
-    store = LedgerStore(project.state_root)
-    records: list[str] = []
-    for ref in refs:
-        record = store.read_object(ref)
-        if record is None:
-            continue
-        for decision in record.decisions:
-            records.append(f"{ref}:{decision.decision_kind}")
-    return _dedupe(records)
 
 
 def _issue(
@@ -212,39 +188,6 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, _SemanticKind], di
         objects[datasource_ref] = ds_ir
 
     return kinds, objects
-
-
-_REQUIRED_DECISION_BY_KIND = {
-    _SemanticKind.TIME_DIMENSION: "time_dimension_identity",
-    _SemanticKind.METRIC: "metric_composition",
-}
-
-
-def _evidence_ledger_blockers(project: SemanticProject) -> list[ReadinessIssue]:
-    """Dangerous-kind authored objects with no backing ledger decision -> blockers.
-    Mapping: time_dimension -> time_dimension_identity, metric -> metric_composition."""
-    from marivo.semantic.ledger import LedgerStore
-
-    store = LedgerStore(project.state_root)
-    kinds, _objects = _object_maps(project)
-    issues: list[ReadinessIssue] = []
-    for semantic_id, kind in kinds.items():
-        required = _REQUIRED_DECISION_BY_KIND.get(kind)
-        if required is None:
-            continue
-        obj = store.read_object(semantic_id)
-        has_decision = obj is not None and any(d.decision_kind == required for d in obj.decisions)
-        if not has_decision:
-            issues.append(
-                _issue(
-                    "unresolved_clarification",
-                    "blocker",
-                    (semantic_id,),
-                    f"{semantic_id} has no recorded {required} decision; this dangerous decision is unaudited.",
-                    f"Reload after the semantic declaration or record an object-level {required} DecisionRecord before handoff.",
-                )
-            )
-    return issues
 
 
 def _strict_enrichment_issues(
@@ -398,27 +341,6 @@ def _missing_business_definition(obj: object) -> bool:
     return not (business_definition and business_definition.strip())
 
 
-def _decision_record_refs(project: SemanticProject) -> tuple[str, ...]:
-    from marivo.semantic.ledger import LedgerStore
-
-    refs: list[str] = []
-    for record in LedgerStore(project.state_root).iter_object_records():
-        refs.extend(
-            f"{record.semantic_id}:{decision.decision_kind}" for decision in record.decisions
-        )
-    return _dedupe(refs)
-
-
-def _abandoned_candidates(project: SemanticProject) -> tuple[Any, ...]:
-    """Return authoring-abandoned rejected candidates from the project ledger."""
-    from marivo.semantic.ledger import LedgerStore
-
-    store = LedgerStore(project.state_root)
-    return tuple(
-        c for c in store.list_rejected_candidates() if c.decision_kind == "authoring_abandoned"
-    )
-
-
 def build_structural_readiness_report(
     project: SemanticProject,
     *,
@@ -426,9 +348,9 @@ def build_structural_readiness_report(
 ) -> ReadinessReport:
     """Build a structural readiness report without backend access.
 
-    Performs pure in-memory checks: load errors, unknown refs, evidence
-    ledger blockers, cross-datasource unfederated metrics, raw SQL
-    requirements, strict enrichment issues, and load warnings forwarding.
+    Performs pure in-memory checks: load errors, unknown refs,
+    cross-datasource unfederated metrics, raw SQL requirements,
+    strict enrichment issues, and load warnings forwarding.
     Does not require or use any datasource connection.
 
     Args:
@@ -443,8 +365,6 @@ def build_structural_readiness_report(
     # even if callers pass SemanticRef objects.
     if refs is not None:
         refs = [str(r) for r in refs]
-
-    require_evidence_ledger = True
 
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
@@ -469,9 +389,7 @@ def build_structural_readiness_report(
                 datasources=(),
                 refs=(),
                 tables=(),
-                decision_records=_decision_record_refs(project),
             ),
-            abandoned=_abandoned_candidates(project),
             checked_at=_checked_at(),
         )
 
@@ -572,10 +490,6 @@ def build_structural_readiness_report(
                 )
             )
 
-    # Evidence ledger blockers.
-    if require_evidence_ledger:
-        blockers.extend(_evidence_ledger_blockers(project))
-
     blocked_refs = _refs_with_issue(blockers)
     analysis_ready_refs = tuple(ref for ref in checked_refs if ref not in blocked_refs)
 
@@ -590,8 +504,6 @@ def build_structural_readiness_report(
             datasources=datasources_checked,
             refs=checked_refs,
             tables=_dataset_refs(checked_refs, kinds),
-            decision_records=_decision_record_summary(project, checked_refs),
         ),
-        abandoned=_abandoned_candidates(project),
         checked_at=_checked_at(),
     )
