@@ -209,6 +209,66 @@ def test_session_exposes_catalog_property(tmp_path, monkeypatch):
     assert session.catalog.workspace_dir == tmp_path
 
 
+def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
+    import textwrap
+
+    import marivo.analysis as mv
+
+    project_root = tmp_path / "project"
+    external_models = tmp_path / "external" / "models"
+    project_root.mkdir()
+    (project_root / "marivo.toml").write_text(
+        textwrap.dedent(
+            """
+            [project]
+            name = "demo"
+
+            [semantic]
+            layer_paths = ["../external/models"]
+            """
+        ),
+        encoding="utf-8",
+    )
+    for models_root, datasource, domain, entity, metric in (
+        (project_root / "models", "local_warehouse", "sales", "orders", "revenue"),
+        (external_models, "external_warehouse", "finance", "refunds", "refunds_total"),
+    ):
+        datasource_dir = models_root / "datasources"
+        semantic_dir = models_root / "semantic" / domain
+        datasource_dir.mkdir(parents=True, exist_ok=True)
+        semantic_dir.mkdir(parents=True, exist_ok=True)
+        (datasource_dir / f"{datasource}.py").write_text(
+            f"import marivo.datasource as md\nmd.duckdb(name={datasource!r}, path=':memory:')\n",
+            encoding="utf-8",
+        )
+        (semantic_dir / "_domain.py").write_text(
+            f"import marivo.semantic as ms\nms.domain(name={domain!r}, owner='Mina Zhang')\n",
+            encoding="utf-8",
+        )
+        (semantic_dir / "objects.py").write_text(
+            textwrap.dedent(
+                f"""
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                source = md.ref("datasource.{datasource}")
+                rows = ms.entity(name={entity!r}, datasource=source, source=ms.table({entity!r}))
+
+                @ms.metric(entities=[rows], additivity="additive")
+                def {metric}(table):
+                    return table.amount.sum()
+                """
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.chdir(project_root)
+
+    session = mv.session.get_or_create(name="external_layer_session")
+
+    assert session.catalog.get("metric.finance.refunds_total").ref.id == "finance.refunds_total"
+
+
 def test_session_close_closes_connection_runtime(tmp_path):
     from datetime import UTC, datetime
 

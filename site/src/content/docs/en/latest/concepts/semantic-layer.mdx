@@ -47,6 +47,19 @@ your-project/
         _domain.py          # ms.domain(name="sales", owner="Mina Zhang") + entities, metrics, ...
 ```
 
+For multi-repository semantic layers, keep each business-domain package in the
+same authored `models/` layout and reference those roots from the central
+analysis project:
+
+```toml
+[semantic]
+layer_paths = ["../finance-domain/models"]
+```
+
+Marivo loads the central project's `models/` first, then each configured external
+`models/` root. All loaded datasources, domains, and semantic objects share one
+catalog, so names must stay globally unique.
+
 ## Semantic refs
 
 Every semantic object is identified by a **semantic ref** — a typed, immutable

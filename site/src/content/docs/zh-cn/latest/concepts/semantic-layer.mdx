@@ -45,6 +45,17 @@ your-project/
         _domain.py          # ms.domain(name="sales", owner="Mina Zhang") + entities, metrics, ...
 ```
 
+在多仓库语义层场景中，每个业务域仓库仍保持相同的 authored `models/` 布局，
+中央分析 project 只需要引用这些 root：
+
+```toml
+[semantic]
+layer_paths = ["../finance-domain/models"]
+```
+
+Marivo 会先加载中央 project 的 `models/`，再按配置顺序加载外部 `models/` root。
+所有 datasource、domain 与 semantic object 会进入同一个 catalog，因此名称必须全局唯一。
+
 ## Semantic refs
 
 每个 semantic 对象都由一个 **semantic ref** 标识。它是类型化、不可变的句柄，同时携带限定名

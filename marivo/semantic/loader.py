@@ -16,6 +16,7 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any, Literal
 
+from marivo.config import AUTHORED_DIR
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.errors import (
     DatasourceConfigError,
@@ -140,6 +141,16 @@ class LoadResult:
     sidecar: Sidecar | None = None
     filtered_models: tuple[str, ...] = ()
     datasource_irs: tuple[DatasourceIR, ...] = ()
+
+
+@dataclass(frozen=True)
+class ModelsRoot:
+    """Internal authored models root used by the semantic loader."""
+
+    models_root: Path
+    semantic_root: Path
+    datasource_root: Path
+    is_external: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +296,11 @@ def _load_model_dir(
         return None
 
     # Execute _domain.py
-    ctx = LoaderContext()
+    ctx = LoaderContext(
+        model_name=model_name,
+        file_path=str(model_file),
+        current_model_file=str(model_file),
+    )
     model_package = f"{module_prefix}.{model_name}"
     _ensure_package(model_package, model_dir)
     _execute_file(
@@ -341,6 +356,7 @@ def _load_model_dir(
         module_name = f"{model_package}.{sibling.stem}"
         if module_name in sys.modules:
             continue
+        ctx.current_model_file = str(sibling)
         _execute_file(
             sibling,
             ctx,
@@ -591,7 +607,198 @@ def _build_registry(
     return registry, sidecar
 
 
-def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResult:
+def _models_root_from_path(path: Path, *, is_external: bool) -> ModelsRoot:
+    models_root = Path(path).resolve()
+    return ModelsRoot(
+        models_root=models_root,
+        semantic_root=models_root / "semantic",
+        datasource_root=models_root / "datasources",
+        is_external=is_external,
+    )
+
+
+def _models_root_from_semantic_root(root: Path) -> ModelsRoot:
+    semantic_root = Path(root).resolve()
+    return ModelsRoot(
+        models_root=semantic_root.parent,
+        semantic_root=semantic_root,
+        datasource_root=semantic_root.parent / "datasources",
+        is_external=False,
+    )
+
+
+def _root_shape_errors(roots: Sequence[ModelsRoot]) -> list[SemanticLoadError]:
+    errors: list[SemanticLoadError] = []
+    if not roots:
+        return errors
+    local_root = roots[0].models_root
+    seen_external: set[Path] = set()
+    for root in roots[1:]:
+        if root.models_root == local_root:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=(
+                        "Configured semantic layer models root duplicates the local "
+                        f"project models root: {root.models_root}"
+                    ),
+                    refs=(str(root.models_root),),
+                    hint="Remove the local models/ path from marivo.toml [semantic].layer_paths.",
+                )
+            )
+            continue
+        if root.models_root in seen_external:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=(
+                        "Configured semantic layer models root is listed more than once: "
+                        f"{root.models_root}"
+                    ),
+                    refs=(str(root.models_root),),
+                    hint="Keep each marivo.toml [semantic].layer_paths entry unique.",
+                )
+            )
+            continue
+        seen_external.add(root.models_root)
+        if not root.models_root.exists():
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=(
+                        f"Configured semantic layer models root does not exist: {root.models_root}"
+                    ),
+                    refs=(str(root.models_root),),
+                    hint="Point marivo.toml [semantic].layer_paths at an existing models/ directory.",
+                )
+            )
+            continue
+        if not root.models_root.is_dir():
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=(
+                        "Configured semantic layer models root is not a directory: "
+                        f"{root.models_root}"
+                    ),
+                    refs=(str(root.models_root),),
+                    hint="Point marivo.toml [semantic].layer_paths at a models/ directory.",
+                )
+            )
+            continue
+        if not root.datasource_root.is_dir():
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=(
+                        "Configured semantic layer models root is missing datasources/: "
+                        f"{root.datasource_root}"
+                    ),
+                    refs=(str(root.datasource_root),),
+                    hint="Create datasources/ under the configured models root or remove this layer path.",
+                )
+            )
+        if not root.semantic_root.is_dir():
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=(
+                        "Configured semantic layer models root is missing semantic/: "
+                        f"{root.semantic_root}"
+                    ),
+                    refs=(str(root.semantic_root),),
+                    hint="Create semantic/ under the configured models root or remove this layer path.",
+                )
+            )
+    return errors
+
+
+def _semantic_source_path(ir: Any) -> str:
+    location = getattr(ir, "location", None)
+    file = getattr(location, "file", None)
+    if isinstance(file, str) and file:
+        return file
+    return "<unknown>"
+
+
+def _datasource_duplicate_errors(datasources: Sequence[DatasourceIR]) -> list[SemanticLoadError]:
+    errors: list[SemanticLoadError] = []
+    seen: dict[str, DatasourceIR] = {}
+    for datasource in datasources:
+        existing = seen.get(datasource.name)
+        if existing is not None:
+            first = existing.location.file
+            second = datasource.location.file
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.DUPLICATE_NAME,
+                    message=(
+                        f"Duplicate datasource name: {datasource.name!r}. "
+                        f"First declaration: {first}. Conflicting declaration: {second}."
+                    ),
+                    refs=(datasource.name, first, second),
+                    hint="Rename or remove one datasource declaration.",
+                )
+            )
+        seen.setdefault(datasource.name, datasource)
+    return errors
+
+
+def _domain_duplicate_errors(model_dirs: Sequence[Path]) -> list[SemanticLoadError]:
+    errors: list[SemanticLoadError] = []
+    seen: dict[str, Path] = {}
+    for model_dir in model_dirs:
+        existing = seen.get(model_dir.name)
+        if existing is not None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.DUPLICATE_NAME,
+                    message=(
+                        f"Duplicate domain name: {model_dir.name!r}. "
+                        f"First domain directory: {existing}. "
+                        f"Conflicting domain directory: {model_dir}."
+                    ),
+                    refs=(model_dir.name, str(existing), str(model_dir)),
+                    hint="Rename or remove one domain directory.",
+                )
+            )
+        seen.setdefault(model_dir.name, model_dir)
+    return errors
+
+
+def _semantic_duplicate_errors(contexts: Sequence[LoaderContext]) -> list[SemanticLoadError]:
+    errors: list[SemanticLoadError] = []
+    seen: dict[str, Any] = {}
+    for ctx in contexts:
+        for ir, _ in ctx.pending_objects:
+            if not hasattr(ir, "semantic_id"):
+                continue
+            sid = ir.semantic_id
+            existing = seen.get(sid)
+            if existing is not None:
+                first = _semantic_source_path(existing)
+                second = _semantic_source_path(ir)
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.DUPLICATE_NAME,
+                        message=(
+                            f"Duplicate semantic_id: {sid!r}. "
+                            f"First declaration: {first}. Conflicting declaration: {second}."
+                        ),
+                        refs=(sid, first, second),
+                        hint="Rename or remove one semantic declaration.",
+                    )
+                )
+            seen.setdefault(sid, ir)
+    return errors
+
+
+def load_project(
+    root: Path,
+    *,
+    models: Sequence[str] | None = None,
+    models_roots: Sequence[Path] | None = None,
+) -> LoadResult:
     """Load domains from the semantic project root.
 
     Two-pass pipeline:
@@ -608,91 +815,108 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
     Returns a LoadResult with status, errors, warnings, registry, and sidecar.
     """
     root = Path(root)
-    if root.name == "models" and (root / "semantic").is_dir():
-        return LoadResult(
-            status="errored",
-            errors=(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "load_project(root) expects the semantic root directory "
-                        "`models/semantic/`, but received the parent `models/` directory."
-                    ),
-                    refs=(str(root),),
-                    hint="Pass the `models/semantic/` path to load_project(...).",
-                ),
-            ),
-        )
-    if (root / "models" / "semantic").is_dir():
-        return LoadResult(
-            status="errored",
-            errors=(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "load_project(root) expects the semantic root directory "
-                        "`models/semantic/`, but received a workspace root."
-                    ),
-                    refs=(str(root),),
-                    hint=(
-                        "Pass `workspace/models/semantic` to load_project(...) or use "
-                        "ms.load(workspace_dir=...) for workspace-root loading."
+    if models_roots is None:
+        if root.name == AUTHORED_DIR and (root / "semantic").is_dir():
+            return LoadResult(
+                status="errored",
+                errors=(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_PROJECT,
+                        message=(
+                            "load_project(root) expects the semantic root directory "
+                            "`models/semantic/`, but received the parent `models/` directory."
+                        ),
+                        refs=(str(root),),
+                        hint="Pass the `models/semantic/` path to load_project(...).",
                     ),
                 ),
-            ),
+            )
+        if (root / AUTHORED_DIR / "semantic").is_dir():
+            return LoadResult(
+                status="errored",
+                errors=(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_PROJECT,
+                        message=(
+                            "load_project(root) expects the semantic root directory "
+                            "`models/semantic/`, but received a workspace root."
+                        ),
+                        refs=(str(root),),
+                        hint=(
+                            "Pass `workspace/models/semantic` to load_project(...) or use "
+                            "ms.load(workspace_dir=...) for workspace-root loading."
+                        ),
+                    ),
+                ),
+            )
+        root_specs: tuple[ModelsRoot, ...] = (_models_root_from_semantic_root(root),)
+    else:
+        root_specs = tuple(
+            _models_root_from_path(models_root, is_external=index > 0)
+            for index, models_root in enumerate(models_roots)
         )
 
     errors: list[SemanticError] = []
     warnings: list[StructuredWarning] = []
     registry: Registry | None = None
     sidecar: Sidecar | None = None
+    all_contexts: list[LoaderContext] = []
+    all_model_dirs: list[Path] = []
+    datasource_irs: list[DatasourceIR] = []
+    path_entries: list[str] = []
+    module_prefixes: list[str] = []
 
-    module_prefix = _module_prefix(root)
-    _purge_synthetic_modules(module_prefix)
+    errors.extend(_root_shape_errors(root_specs))
+    if errors:
+        return LoadResult(status="errored", errors=tuple(errors))
 
-    # Inject root's parent into sys.path so model files can import each other
-    path_entry = str(root.parent)
-    sys.path.insert(0, path_entry)
+    for root_spec in root_specs:
+        module_prefix = _module_prefix(root_spec.semantic_root)
+        module_prefixes.append(module_prefix)
+        _purge_synthetic_modules(module_prefix)
+        path_entry = str(root_spec.semantic_root.parent)
+        path_entries.append(path_entry)
+        sys.path.insert(0, path_entry)
+
     try:
-        _ensure_package(module_prefix, root)
-        datasource_result = load_datasources(root.parent / "datasources")
-        for error in datasource_result.errors:
-            errors.append(_wrap_datasource_error(error))
-        model_dirs = _discover_model_dirs(root)
-        model_dirs, filter_warnings = _filter_model_dirs(model_dirs, models)
-        warnings.extend(filter_warnings)
-        all_contexts: list[LoaderContext] = []
+        for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True):
+            _ensure_package(module_prefix, root_spec.semantic_root)
+            datasource_result = load_datasources(root_spec.datasource_root)
+            for error in datasource_result.errors:
+                errors.append(_wrap_datasource_error(error))
+            datasource_irs.extend(datasource_result.datasources)
+            all_model_dirs.extend(_discover_model_dirs(root_spec.semantic_root))
 
-        # Pass 1: Discover + Collect
+        errors.extend(_datasource_duplicate_errors(datasource_irs))
+
+        model_dirs, filter_warnings = _filter_model_dirs(all_model_dirs, models)
+        warnings.extend(filter_warnings)
+        errors.extend(_domain_duplicate_errors(model_dirs))
+
+        prefix_by_semantic_root = {
+            root_spec.semantic_root: module_prefix
+            for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True)
+        }
+
         for model_dir in model_dirs:
-            ctx = _load_model_dir(model_dir, root, errors, module_prefix=module_prefix)
+            semantic_root = model_dir.parent
+            module_prefix = prefix_by_semantic_root[semantic_root]
+            ctx = _load_model_dir(
+                model_dir,
+                semantic_root,
+                errors,
+                module_prefix=module_prefix,
+            )
             if ctx is not None:
                 all_contexts.append(ctx)
 
-        # Pass 2: Resolve + Validate
         registry, sidecar = _build_registry(
             all_contexts,
-            datasource_irs=datasource_result.datasources,
+            datasource_irs=tuple(datasource_irs),
         )
 
-        # Duplicate semantic_id check
-        seen_objects: dict[str, Any] = {}
-        for ctx in all_contexts:
-            for ir, _ in ctx.pending_objects:
-                if hasattr(ir, "semantic_id"):
-                    sid = ir.semantic_id
-                    existing = seen_objects.get(sid)
-                    if existing is not None:
-                        errors.append(
-                            SemanticLoadError(
-                                kind=ErrorKind.DUPLICATE_NAME,
-                                message=f"Duplicate semantic_id: {sid!r}",
-                                refs=(sid,),
-                            )
-                        )
-                    seen_objects.setdefault(sid, ir)
+        errors.extend(_semantic_duplicate_errors(all_contexts))
 
-        # Assembly validation
         loaded_models_set = {d.name for d in model_dirs} if models is not None else None
         asm_errors, asm_warnings = assembly_validate(
             registry, sidecar, loaded_models=loaded_models_set
@@ -701,9 +925,9 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
         warnings.extend(asm_warnings)
 
     finally:
-        # Clean up sys.path
-        if path_entry in sys.path:
-            sys.path.remove(path_entry)
+        for path_entry in path_entries:
+            if path_entry in sys.path:
+                sys.path.remove(path_entry)
 
     status: Literal["ready", "errored"] = "ready" if not errors else "errored"
     filtered_models_tuple = tuple(d.name for d in model_dirs) if models is not None else ()
@@ -714,7 +938,7 @@ def load_project(root: Path, *, models: Sequence[str] | None = None) -> LoadResu
         registry=registry if status == "ready" else None,
         sidecar=sidecar if status == "ready" else None,
         filtered_models=filtered_models_tuple,
-        datasource_irs=datasource_result.datasources,
+        datasource_irs=tuple(datasource_irs),
     )
 
 

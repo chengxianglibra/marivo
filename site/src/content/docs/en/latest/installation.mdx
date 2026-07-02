@@ -63,6 +63,23 @@ your-project/
   .codex/skills/    # marivo-semantic, marivo-analysis
 ```
 
+To load semantic-layer packages managed in other repositories, add their authored
+`models/` directories to `marivo.toml`:
+
+```toml
+[semantic]
+layer_paths = [
+  "../sales-domain/models",
+  "/opt/company/finance-domain/models",
+]
+```
+
+The current project's `models/` directory is always loaded first. Relative paths
+are resolved from the directory containing `marivo.toml`; absolute paths are used
+as-is. Each external `models/` root must contain both `datasources/` and
+`semantic/`. Datasource names, domain names, and semantic IDs must be globally
+unique across all roots; duplicates cause a load error.
+
 Add `.marivo/` to `.gitignore`; version-control `marivo.toml` and `models/` (see
 [Quick Start](/en/latest/quick-start/#manage-the-project-with-git)).
 

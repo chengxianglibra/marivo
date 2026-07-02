@@ -61,6 +61,22 @@ your-project/
   .codex/skills/    # marivo-semantic, marivo-analysis
 ```
 
+如果语义层对象由其他仓库维护，可以把这些仓库中的 authored `models/` 目录加入
+`marivo.toml`：
+
+```toml
+[semantic]
+layer_paths = [
+  "../sales-domain/models",
+  "/opt/company/finance-domain/models",
+]
+```
+
+当前 project 的 `models/` 会始终优先加载。相对路径按 `marivo.toml` 所在目录解析；
+绝对路径按原样使用。每个外部 `models/` root 都必须同时包含 `datasources/` 与
+`semantic/`。所有 root 中的 datasource 名称、domain 名称与 semantic ID 必须全局唯一；
+出现重复将导致加载失败。
+
 把 `.marivo/` 加入 `.gitignore`；对 `marivo.toml` 和 `models/` 做版本控制（参见
 [快速开始](/zh-cn/latest/quick-start/#用-git-管理-project)）。
 
