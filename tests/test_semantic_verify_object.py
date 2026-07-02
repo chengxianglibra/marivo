@@ -7,7 +7,6 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
-from marivo.semantic import ledger as lg
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
 
@@ -92,7 +91,7 @@ def test_verify_object_scoped_entity_preview_passes(
     assert result.scan.partition_resolution == "unpruned"
 
 
-# -- Auto-recording tests -------------------------------------------------------
+# -- Static verification without audit persistence ------------------------------
 
 
 def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_project_factory):
@@ -133,7 +132,7 @@ def _duckdb_project_with_time_dimension_and_metric(tmp_path: Path, semantic_proj
     )
 
 
-def test_verify_time_dimension_auto_records_identity(
+def test_verify_time_dimension_passes_without_audit_side_effects(
     tmp_path: Path, semantic_project_factory
 ) -> None:
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
@@ -142,44 +141,26 @@ def test_verify_time_dimension_auto_records_identity(
 
     assert result.status == "passed"
     assert result.kind == "time_dimension"
-    assert len(result.auto_recorded) == 1
-    assert result.auto_recorded[0] == "sales.orders.dt:time_dimension_identity"
-
-    # Verify the decision was persisted to the ledger.
-    store = lg.LedgerStore(project.state_root)
-    obj = store.read_object("sales.orders.dt")
-    assert obj is not None
-    assert any(d.decision_kind == "time_dimension_identity" for d in obj.decisions)
-    td_decision = next(d for d in obj.decisions if d.decision_kind == "time_dimension_identity")
-    assert td_decision.chosen == "strptime/day"
-    assert td_decision.agreement_confidence == "high"
-    assert td_decision.qualifying_sources == ("semantic_declaration",)
-    assert td_decision.evidence_fingerprint.startswith("sha256:")
+    assert not hasattr(result, "auto" + "_recorded")
+    assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_verify_metric_auto_records_decomposition(tmp_path: Path, semantic_project_factory) -> None:
+def test_verify_metric_passes_without_audit_side_effects(
+    tmp_path: Path, semantic_project_factory
+) -> None:
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
 
     result = project.verify_object(ms.ref("metric.sales.revenue"))
 
     assert result.status == "passed"
     assert result.kind == "metric"
-    assert len(result.auto_recorded) == 1
-    assert result.auto_recorded[0] == "sales.revenue:metric_composition"
-
-    # Verify the decision was persisted to the ledger.
-    store = lg.LedgerStore(project.state_root)
-    obj = store.read_object("sales.revenue")
-    assert obj is not None
-    assert any(d.decision_kind == "metric_composition" for d in obj.decisions)
-    m_decision = next(d for d in obj.decisions if d.decision_kind == "metric_composition")
-    assert m_decision.chosen == "simple"
-    assert m_decision.agreement_confidence == "high"
-    assert m_decision.qualifying_sources == ("semantic_declaration",)
-    assert m_decision.evidence_fingerprint.startswith("sha256:")
+    assert not hasattr(result, "auto" + "_recorded")
+    assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_verify_metric_auto_records_semi_additive_additivity(semantic_project_factory) -> None:
+def test_verify_metric_handles_semi_additive_without_persistence(
+    semantic_project_factory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -201,45 +182,27 @@ def test_verify_metric_auto_records_semi_additive_additivity(semantic_project_fa
 
     assert result.status == "passed"
     assert result.kind == "metric"
-    assert result.auto_recorded == ("sales.inventory:metric_composition",)
-
-    store = lg.LedgerStore(project.state_root)
-    obj = store.read_object("sales.inventory")
-    assert obj is not None
-    decision = next(d for d in obj.decisions if d.decision_kind == "metric_composition")
-    assert decision.cited_source is not None
-    assert decision.cited_source["additivity"] == {
-        "type": "semi_additive",
-        "over": "sales.orders.dt",
-        "fold": "mean",
-    }
+    assert not hasattr(result, "auto" + "_recorded")
+    assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_verify_auto_record_idempotent(tmp_path: Path, semantic_project_factory) -> None:
-    """Second verify_object call should not duplicate the auto-recorded decision."""
+def test_verify_object_is_repeatable_without_persistence(
+    tmp_path: Path, semantic_project_factory
+) -> None:
     project = _duckdb_project_with_time_dimension_and_metric(tmp_path, semantic_project_factory)
 
     result1 = project.verify_object(ms.ref("metric.sales.revenue"))
     assert result1.status == "passed"
-    assert len(result1.auto_recorded) == 1
-
-    store = lg.LedgerStore(project.state_root)
-    count_after_first = len(store.read_object("sales.revenue").decisions)
+    assert not (Path(project.state_root) / "evidence").exists()
 
     result2 = project.verify_object(ms.ref("metric.sales.revenue"))
     assert result2.status == "passed"
-    assert len(result2.auto_recorded) == 1
-
-    count_after_second = len(store.read_object("sales.revenue").decisions)
-    assert count_after_second == count_after_first, (
-        "Second verify should not duplicate the decision"
-    )
+    assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_verify_auto_record_replaces_on_fingerprint_change(
+def test_verify_time_dimension_reloads_changed_declaration_without_stale_state(
     tmp_path: Path, semantic_project_factory
 ) -> None:
-    """If the declaration changes (different fingerprint), verify replaces the old decision."""
     import ibis
 
     db_path = tmp_path / "warehouse.duckdb"
@@ -266,12 +229,10 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
     )
 
     result1 = project.verify_object(ms.ref("time_dimension.sales.orders.dt"))
-    assert result1.auto_recorded == ("sales.orders.dt:time_dimension_identity",)
+    assert result1.status == "passed"
 
-    store = lg.LedgerStore(project.state_root)
-    first_fp = store.read_object("sales.orders.dt").decisions[0].evidence_fingerprint
-
-    # Re-author with a different granularity — the fingerprint should change.
+    # Re-author with a different granularity. Verification should read the
+    # current source declaration directly, with no stale sidecar state.
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -288,17 +249,13 @@ def test_verify_auto_record_replaces_on_fingerprint_change(
     )
 
     result2 = project.verify_object(ms.ref("time_dimension.sales.orders.dt"))
-    assert result2.auto_recorded == ("sales.orders.dt:time_dimension_identity",)
-
-    obj = store.read_object("sales.orders.dt")
-    assert len(obj.decisions) == 1, "Stale decision should be replaced, not accumulated"
-    second_fp = obj.decisions[0].evidence_fingerprint
-    assert second_fp != first_fp, "Fingerprint should differ after declaration change"
-    assert obj.decisions[0].chosen == "strptime/month"
+    assert result2.status == "passed"
+    assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_verify_dimension_no_auto_record(tmp_path: Path, semantic_project_factory) -> None:
-    """Plain dimensions should not auto-record any decisions."""
+def test_verify_dimension_passes_without_audit_side_effects(
+    tmp_path: Path, semantic_project_factory
+) -> None:
     import ibis
 
     db_path = tmp_path / "warehouse.duckdb"
@@ -327,13 +284,13 @@ def test_verify_dimension_no_auto_record(tmp_path: Path, semantic_project_factor
     result = project.verify_object(ms.ref("dimension.sales.orders.region"))
     assert result.status == "passed"
     assert result.kind == "dimension"
-    assert result.auto_recorded == ()
+    assert not hasattr(result, "auto" + "_recorded")
+    assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_verify_derived_metric_auto_records_decomposition(
+def test_verify_derived_metric_passes_without_audit_side_effects(
     tmp_path: Path, semantic_project_factory
 ) -> None:
-    """Derived metrics should auto-record metric_composition with kind=derived_metric."""
     import ibis
 
     db_path = tmp_path / "warehouse.duckdb"
@@ -367,20 +324,13 @@ def test_verify_derived_metric_auto_records_decomposition(
     result = project.verify_object(ms.ref("metric.sales.revenue_ratio"))
     assert result.status == "passed"
     assert result.kind == "derived_metric"
-    assert result.auto_recorded == ("sales.revenue_ratio:metric_composition",)
-
-    store = lg.LedgerStore(project.state_root)
-    obj = store.read_object("sales.revenue_ratio")
-    assert obj is not None
-    d = next(d for d in obj.decisions if d.decision_kind == "metric_composition")
-    assert d.chosen == "ratio"
-    assert d.cited_source is not None
+    assert not hasattr(result, "auto" + "_recorded")
+    assert not (Path(project.state_root) / "evidence").exists()
 
 
-def test_verify_clears_readiness_unresolved_clarification(
+def test_readiness_does_not_require_audit_decisions(
     tmp_path: Path, semantic_project_factory
 ) -> None:
-    """After verify_object auto-records, readiness should not report unresolved_clarification."""
     import ibis
 
     db_path = tmp_path / "warehouse.duckdb"
@@ -397,11 +347,13 @@ def test_verify_clears_readiness_unresolved_clarification(
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
-                "source=ms.table('orders'))\n"
-                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
+                "source=ms.table('orders'), ai_context=ms.ai_context(business_definition='One row per order.'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'), "
+                "ai_context=ms.ai_context(business_definition='Order day.'))\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
-                "@ms.metric(entities=[orders], additivity='additive', )\n"
+                "@ms.metric(entities=[orders], additivity='additive', "
+                "ai_context=ms.ai_context(business_definition='Sum of amount.'))\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
             )
@@ -409,20 +361,7 @@ def test_verify_clears_readiness_unresolved_clarification(
         workspace_dir=tmp_path,
     )
 
-    # Before verify, readiness should flag unresolved_clarification.
-    report_before = project.readiness()
-    blocker_kinds = [b.kind for b in report_before.blockers]
-    assert "unresolved_clarification" in blocker_kinds, (
-        "Expected unresolved_clarification before verify"
-    )
-
-    # Auto-record decisions via verify_object.
-    project.verify_object(ms.ref("time_dimension.sales.orders.dt"))
-    project.verify_object(ms.ref("metric.sales.revenue"))
-
-    # After verify, readiness should not flag unresolved_clarification.
-    report_after = project.readiness()
-    blocker_kinds_after = [b.kind for b in report_after.blockers]
-    assert "unresolved_clarification" not in blocker_kinds_after, (
-        "unresolved_clarification should be resolved after verify_object auto-records"
-    )
+    report = project.readiness()
+    blocker_kinds = {b.kind for b in report.blockers}
+    assert "missing_business_definition" not in blocker_kinds
+    assert report.status == "ready"

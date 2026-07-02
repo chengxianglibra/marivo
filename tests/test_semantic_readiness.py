@@ -73,7 +73,6 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
             datasources=("warehouse",),
             refs=("sales.total_amount",),
             tables=("sales.orders",),
-            decision_records=("sales.total_amount:metric_composition",),
         ),
         checked_at="2026-05-29T00:00:00Z",
     )
@@ -107,7 +106,6 @@ def test_readiness_report_target_fields_are_json_safe() -> None:
             datasources=("warehouse",),
             refs=("sales.total_amount",),
             tables=("sales.orders",),
-            decision_records=("sales.total_amount:metric_composition",),
         ),
         checked_at="2026-05-29T00:00:00Z",
     )
@@ -235,49 +233,6 @@ def test_readiness_strict_enrichment_is_ready_when_only_guardrails_missing(
     assert "missing_guardrails" not in _issue_kinds(report.warnings)
 
 
-def test_readiness_reports_authoring_abandoned_candidates(
-    semantic_project_factory,
-) -> None:
-    from datetime import UTC, datetime
-
-    from marivo.semantic.ledger import DecisionRecord, LedgerStore, RejectedCandidate
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
-        }
-    )
-    ledger = LedgerStore(project.state_root)
-    decided_at = datetime.now(UTC).isoformat()
-    ledger.record_decision(
-        "sales.missing_metric",
-        DecisionRecord(
-            decision_kind="authoring_abandoned",
-            chosen="abandoned",
-            agreement_confidence="high",
-            qualifying_sources=("structural",),
-            materiality="low",
-            blast_radius=0,
-            evidence_fingerprint="",
-            question_id=None,
-            decided_at=decided_at,
-        ),
-    )
-    ledger.write_rejected_candidate(
-        RejectedCandidate(
-            decision_kind="authoring_abandoned",
-            candidate="sales.missing_metric",
-            reason="No source evidence was available.",
-            evidence_fingerprint="",
-            rejected_at=decided_at,
-        )
-    )
-
-    report = project.readiness(refs=("sales",))
-
-    assert [candidate.candidate for candidate in report.abandoned] == ["sales.missing_metric"]
-
-
 _COMMENTLESS_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
@@ -377,79 +332,7 @@ def test_readiness_no_backend_access_required(semantic_project_factory) -> None:
     assert report.status in {"ready", "ready_with_warnings", "blocked"}
 
 
-# -- evidence ledger blockers ------------------------------------------------
-
-
-def test_evidence_ledger_blockers_flags_metric_without_decision(semantic_project_factory):
-    from marivo.semantic.readiness import _evidence_ledger_blockers
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
-                "def revenue(orders):\n    return orders.amount.sum()\n"
-            ),
-        }
-    )
-
-    # Auto-record creates a decision during load(). Remove it to test
-    # the underlying readiness check for "no decision" state.
-    from marivo.semantic.ledger import LedgerStore
-
-    LedgerStore(project.state_root)._object_path("sales.revenue").unlink(missing_ok=True)
-
-    issues = _evidence_ledger_blockers(project)
-    refs = {ref for issue in issues for ref in issue.refs}
-    assert "sales.revenue" in refs  # metric has no metric_composition decision recorded
-    assert all(issue.kind == "unresolved_clarification" for issue in issues)
-    assert all(issue.severity == "blocker" for issue in issues)
-
-
-def test_evidence_ledger_blockers_clears_after_decision_recorded(semantic_project_factory):
-    from marivo.semantic import ledger as lg
-    from marivo.semantic.readiness import _evidence_ledger_blockers
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
-                "def revenue(orders):\n    return orders.amount.sum()\n"
-            ),
-        }
-    )
-    # Write DecisionRecord directly to LedgerStore (same pattern as auto_record)
-    store = lg.LedgerStore(project.state_root)
-    store.write_object(
-        lg.ObjectEvidence(
-            semantic_id="sales.revenue",
-            authored_at="t",
-            decisions=(
-                lg.DecisionRecord(
-                    decision_kind="metric_composition",
-                    chosen="sum",
-                    agreement_confidence="high",
-                    qualifying_sources=("provenance_sql",),
-                    materiality="high",
-                    blast_radius=0,
-                    evidence_fingerprint="sha256:a",
-                    question_id=None,
-                    decided_at="t",
-                ),
-            ),
-            rejected_candidates=(),
-        )
-    )
-    refs = {ref for issue in _evidence_ledger_blockers(project) for ref in issue.refs}
-    assert "sales.revenue" not in refs
-
-
-def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_project_factory):
+def test_readiness_does_not_require_internal_audit_decisions(semantic_project_factory):
     project = semantic_project_factory(
         {
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
@@ -464,90 +347,9 @@ def test_readiness_require_evidence_ledger_flags_missing_decision(semantic_proje
         }
     )
 
-    # After load, no decisions exist in the ledger, so readiness
-    # flags the missing metric_composition decision.
-    bare_report = project.readiness()
-    kinds = {b.kind for b in bare_report.blockers}
-    assert "unresolved_clarification" in kinds
-
-    # Record a decision manually. Readiness is a pure check — it
-    # sees the new ledger entry and clears the blocker.
-    from marivo.semantic import ledger as lg
-
-    user_decision = lg.DecisionRecord(
-        decision_kind="metric_composition",
-        chosen="sum",
-        agreement_confidence="high",
-        qualifying_sources=("user_confirmation",),
-        materiality="high",
-        blast_radius=0,
-        evidence_fingerprint="sha256:answer",
-        question_id="q-metric-decomposition",
-        decided_at="2026-06-01T00:00:00+00:00",
-    )
-    store = lg.LedgerStore(project.state_root)
-    store.write_object(
-        lg.ObjectEvidence(
-            semantic_id="sales.revenue",
-            authored_at="2026-06-01T00:00:00+00:00",
-            decisions=(user_decision,),
-            rejected_candidates=(),
-        )
-    )
-
-    resolved_report = project.readiness()
-    assert all(b.kind != "unresolved_clarification" for b in resolved_report.blockers)
-
-
-def test_readiness_evidence_ledger_persists_answer_across_reload(semantic_project_factory):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
-                "def revenue(orders):\n    return orders.amount.sum()\n"
-            ),
-        }
-    )
-    # Record a user-confirmed decision directly in the ledger
-    from marivo.semantic import ledger as lg
-
-    user_decision = lg.DecisionRecord(
-        decision_kind="metric_composition",
-        chosen="sum",
-        agreement_confidence="high",
-        qualifying_sources=("user_confirmation",),
-        materiality="high",
-        blast_radius=0,
-        evidence_fingerprint="sha256:answer",
-        question_id="q-metric-decomposition",
-        decided_at="2026-06-01T00:00:00+00:00",
-    )
-    store = lg.LedgerStore(project.state_root)
-    store.write_object(
-        lg.ObjectEvidence(
-            semantic_id="sales.revenue",
-            authored_at="2026-06-01T00:00:00+00:00",
-            decisions=(user_decision,),
-            rejected_candidates=(),
-        )
-    )
-
-    from marivo.semantic.reader import SemanticProject
-
-    reloaded = SemanticProject(root=project.root)
-    reloaded.load()
-
-    report = reloaded.readiness()
-    refs = {
-        ref
-        for issue in report.blockers
-        if issue.kind == "unresolved_clarification"
-        for ref in issue.refs
-    }
-    assert "sales.revenue" not in refs
+    report = project.readiness()
+    assert report.status == "ready"
+    assert report.blockers == ()
 
 
 # -- enrichment predicates ---------------------------------------------------
@@ -608,14 +410,6 @@ def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
 # -- issue kind validation ---------------------------------------------------
 
 
-def test_unresolved_clarification_is_a_valid_issue_kind():
-    from typing import get_args
-
-    from marivo.semantic.readiness import ReadinessIssueKind
-
-    assert "unresolved_clarification" in get_args(ReadinessIssueKind)
-
-
 def test_strict_enrichment_issue_kinds_are_valid():
     from typing import get_args
 
@@ -624,6 +418,7 @@ def test_strict_enrichment_issue_kinds_are_valid():
     kinds = get_args(ReadinessIssueKind)
     assert "missing_business_definition" in kinds
     assert "missing_guardrails" not in kinds
+    assert "unresolved" + "_clarification" not in kinds
 
 
 # -- check CLI ---------------------------------------------------------------
@@ -865,7 +660,5 @@ def test_column_helper_objects_participate_in_readiness(semantic_project_factory
     )
     report = project.readiness(refs=("sales.orders.amount", "sales.total_amount"))
     # Column helper refs are recognized (no unknown_ref blockers).
-    # Evidence-ledger blockers (unresolved_clarification) are expected in a
-    # fresh test project without recorded decisions.
     blocker_kinds = {b.kind for b in report.blockers}
     assert "unknown_ref" not in blocker_kinds

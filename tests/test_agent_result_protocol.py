@@ -201,7 +201,6 @@ def _verify_result() -> VerifyResult:
         issues=(),
         warnings=(),
         scan=None,
-        auto_recorded=(),
     )
 
 
@@ -215,7 +214,6 @@ def _readiness_report() -> ReadinessReport:
             datasources=("warehouse",),
             refs=("sales.revenue",),
             tables=("sales.orders",),
-            decision_records=(),
         ),
         checked_at="2026-06-09T00:00:00Z",
     )

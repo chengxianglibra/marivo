@@ -5,17 +5,14 @@ Agent-facing semantic reading goes through ``ms.load()`` and ``SemanticCatalog``
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from marivo.config import SEMANTIC_DIR
-from marivo.datasource.ir import DatasourceIR, source_to_dict
+from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import ScanReport, ScanScope
 from marivo.refs import SemanticRef
@@ -33,11 +30,6 @@ from marivo.semantic.errors import (
     _raise,
 )
 from marivo.semantic.ir import (
-    Additivity,
-    DimensionIR,
-    EntityIR,
-    MetricIR,
-    SemiAdditive,
     SymbolKind,
 )
 from marivo.semantic.loader import LoadResult, load_project
@@ -95,105 +87,6 @@ class _DepNode:
     semantic_id: str
     kind: SymbolKind
     children: tuple[_DepNode, ...]
-
-
-def _semantic_fingerprint(payload: dict[str, object]) -> str:
-    """Deterministic sha256 fingerprint for auto-recorded decision evidence."""
-    digest = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    return f"sha256:{digest}"
-
-
-def _time_dimension_identity_fingerprint(field_ir: DimensionIR) -> str:
-    """Fingerprint for time_dimension_identity decisions over a DimensionIR."""
-    from marivo.semantic.ir import (
-        DateParse,
-        DatetimeParse,
-        HourPrefixParse,
-        StrptimeParse,
-        TimestampParse,
-    )
-
-    parse = field_ir.parse
-    data_type_val: str | None = None
-    format_val: str | None = None
-    timezone_val: str | None = None
-    required_prefix_val: str | None = None
-    sample_interval_val: str | None = None
-    if isinstance(parse, DateParse):
-        data_type_val = "date"
-    elif isinstance(parse, DatetimeParse):
-        data_type_val = "datetime"
-        timezone_val = parse.timezone
-        sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
-    elif isinstance(parse, TimestampParse):
-        data_type_val = "timestamp"
-        timezone_val = parse.timezone
-        sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
-    elif isinstance(parse, StrptimeParse):
-        data_type_val = "strptime"
-        format_val = parse.format
-        timezone_val = parse.timezone
-        sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
-    elif isinstance(parse, HourPrefixParse):
-        data_type_val = "hour_prefix"
-        required_prefix_val = parse.prefix
-        sample_interval_val = parse.sample_interval.to_token() if parse.sample_interval else None
-    return _semantic_fingerprint(
-        {
-            "data_type": data_type_val,
-            "granularity": field_ir.granularity,
-            "format": format_val,
-            "timezone": timezone_val,
-            "required_prefix": required_prefix_val,
-            "sample_interval": sample_interval_val,
-            "is_default": field_ir.is_default,
-        }
-    )
-
-
-def _metric_composition_fingerprint(metric_ir: MetricIR) -> str:
-    """Fingerprint for metric_composition/additivity decisions over a MetricIR."""
-    from marivo.semantic.ir import additivity_bucket, composition_components
-
-    add = metric_ir.additivity
-    fold = add.fold.label() if isinstance(add, SemiAdditive) else None
-    return _semantic_fingerprint(
-        {
-            "metric_type": metric_ir.metric_type,
-            "composition_kind": metric_ir.composition.kind if metric_ir.composition else None,
-            "composition_components": composition_components(metric_ir.composition)
-            if metric_ir.composition
-            else {},
-            "additivity": additivity_bucket(add) if add is not None else None,
-            "aggregation": metric_ir.aggregation,
-            "measure": metric_ir.measure,
-            "fold": fold,
-        }
-    )
-
-
-def _metric_additivity_cited_source(additivity: Additivity | None) -> str | dict[str, str] | None:
-    """Return the JSON-safe additivity payload stored in metric ledger evidence."""
-    if isinstance(additivity, SemiAdditive):
-        return {
-            "type": "semi_additive",
-            "over": additivity.over,
-            "fold": additivity.fold.label(),
-        }
-    return additivity
-
-
-def _entity_verified_fingerprint(entity_ir: EntityIR) -> str:
-    """Fingerprint for entity_verified decisions over an EntityIR."""
-    return _semantic_fingerprint(
-        {
-            "datasource": entity_ir.datasource,
-            "source": source_to_dict(entity_ir.source),
-            "primary_key": list(entity_ir.primary_key),
-        }
-    )
 
 
 def _suggest_ref_level(registry: Registry, ref: str) -> str | None:
@@ -453,7 +346,7 @@ class SemanticProject:
         refs themselves. Unknown (not-yet-declared) refs contribute zero.
 
         Public API for callers who need the real transitive-dependent count
-        when constructing a ``DecisionRecord`` via ``record_decision``."""
+        when assessing semantic change blast radius."""
         seen: set[str] = set()
         for ref in refs:
             try:
@@ -518,10 +411,10 @@ class SemanticProject:
         """Return a structural semantic readiness report.
 
         Performs pure in-memory checks without datasource connectivity:
-        load errors, unknown refs, evidence ledger blockers, cross-datasource
-        unfederated metrics, SQL parity unverified warnings, strict enrichment issues,
-        and load warnings forwarding. Use ``refs`` to scope which semantic
-        objects to check; by default all loaded objects are checked.
+        load errors, unknown refs, cross-datasource unfederated metrics,
+        SQL parity unverified warnings, strict enrichment issues, and load
+        warnings forwarding. Use ``refs`` to scope which semantic objects to
+        check; by default all loaded objects are checked.
 
         For runtime validation, use ``catalog.preview(...)``,
         ``ms.parity_check(...)``, and ``ms.richness()``.
@@ -565,9 +458,7 @@ class SemanticProject:
         For domains, relationships, and dimensions this is a static-only check.
         For entities, a scoped preview confirms the datasource is reachable and
         the expression is valid. For time dimensions, metrics, and derived
-        metrics, the check is static and auto-records a decision into the
-        evidence ledger (``time_dimension_identity`` or ``metric_composition``
-        respectively).
+        metrics, the check is static and validates the loaded semantic contract.
 
         Parameters
         ----------
@@ -624,7 +515,6 @@ class SemanticProject:
                 issues=(),
                 warnings=(),
                 scan=None,
-                auto_recorded=(),
             )
 
         if kind == "entity":
@@ -651,20 +541,6 @@ class SemanticProject:
                         elapsed_seconds=scoped.scan.elapsed_seconds,
                         warnings=scoped.scan.warnings,
                     )
-                fingerprint = _entity_verified_fingerprint(entity)
-                recorded = self._auto_record_decision(
-                    ref_str,
-                    "entity_verified",
-                    "passed",
-                    fingerprint,
-                    qualifying_sources=("live_datasource_probe",),
-                    blast_radius=self.blast_radius_of((ref_str,)),
-                    cited_source={
-                        "datasource": entity.datasource,
-                        "source_kind": entity.source.kind,
-                        "rows_scanned": scan.rows_scanned,
-                    },
-                )
                 return VerifyResult(
                     status="passed",
                     ref=ref_str,
@@ -672,7 +548,6 @@ class SemanticProject:
                     issues=(),
                     warnings=(),
                     scan=scan,
-                    auto_recorded=(recorded,),
                 )
             except Exception as exc:
                 issue = AssessmentIssue(
@@ -689,7 +564,6 @@ class SemanticProject:
                     issues=(issue,),
                     warnings=(),
                     scan=None,
-                    auto_recorded=(),
                 )
 
         if kind == "dimension":
@@ -700,7 +574,6 @@ class SemanticProject:
                 issues=(),
                 warnings=(),
                 scan=None,
-                auto_recorded=(),
             )
         if kind == "measure":
             return VerifyResult(
@@ -710,17 +583,8 @@ class SemanticProject:
                 issues=(),
                 warnings=(),
                 scan=None,
-                auto_recorded=(),
             )
         if kind == "time_dimension":
-            from marivo.semantic.ir import (
-                DateParse,
-                DatetimeParse,
-                HourPrefixParse,
-                StrptimeParse,
-                TimestampParse,
-            )
-
             field_ir = (
                 self._registry.dimensions.get(ref_str) if self._registry is not None else None
             )
@@ -731,33 +595,6 @@ class SemanticProject:
                     "authored_object_invalid",
                     "Object is not loaded.",
                 )
-            fingerprint = _time_dimension_identity_fingerprint(field_ir)
-            parse = field_ir.parse
-            data_type_str: str | None = None
-            if isinstance(parse, DateParse):
-                data_type_str = "date"
-            elif isinstance(parse, DatetimeParse):
-                data_type_str = "datetime"
-            elif isinstance(parse, TimestampParse):
-                data_type_str = "timestamp"
-            elif isinstance(parse, StrptimeParse):
-                data_type_str = "strptime"
-            elif isinstance(parse, HourPrefixParse):
-                data_type_str = "hour_prefix"
-            chosen = f"{data_type_str}/{field_ir.granularity}"
-            recorded = self._auto_record_decision(
-                ref_str,
-                "time_dimension_identity",
-                chosen,
-                fingerprint,
-                qualifying_sources=("semantic_declaration",),
-                blast_radius=self.blast_radius_of((ref_str,)),
-                cited_source={
-                    "data_type": data_type_str,
-                    "granularity": field_ir.granularity,
-                },
-            )
-            auto_recorded = (recorded,)
             return VerifyResult(
                 status="passed",
                 ref=ref_str,
@@ -765,7 +602,6 @@ class SemanticProject:
                 issues=(),
                 warnings=(),
                 scan=None,
-                auto_recorded=auto_recorded,
             )
         if kind in ("metric", "derived_metric"):
             return self._verify_metric(ref_str, kind)
@@ -837,13 +673,10 @@ class SemanticProject:
             issues=(issue,),
             warnings=(),
             scan=None,
-            auto_recorded=(),
         )
 
     def _verify_metric(self, ref: str, kind: str) -> VerifyResult:
-        """Verify a base or derived metric and auto-record metric_composition."""
-        from marivo.semantic.ir import composition_components
-
+        """Verify a base or derived metric is loaded in the semantic registry."""
         # Narrow from str to AuthoringObjectKind — mypy cannot narrow
         # AuthoringObjectKind | Literal["unknown"] through ``in`` checks.
         assert kind in ("metric", "derived_metric")
@@ -853,28 +686,6 @@ class SemanticProject:
             return self._failed_verify(
                 ref, narrow_kind, "authored_object_invalid", "Object is not loaded."
             )
-        fingerprint = _metric_composition_fingerprint(metric_ir)
-        chosen = metric_ir.composition.kind if metric_ir.composition is not None else "simple"
-        cited_source: dict[str, object] = {
-            "composition": metric_ir.composition.kind
-            if metric_ir.composition is not None
-            else None,
-            "components": dict(composition_components(metric_ir.composition))
-            if metric_ir.composition is not None
-            else {},
-            "additivity": _metric_additivity_cited_source(metric_ir.additivity),
-        }
-        if kind == "derived_metric":
-            cited_source["metric_type"] = "derived"
-        recorded = self._auto_record_decision(
-            ref,
-            "metric_composition",
-            chosen,
-            fingerprint,
-            qualifying_sources=("semantic_declaration",),
-            blast_radius=self.blast_radius_of((ref,)),
-            cited_source=cited_source,
-        )
         return VerifyResult(
             status="passed",
             ref=ref,
@@ -882,95 +693,4 @@ class SemanticProject:
             issues=(),
             warnings=(),
             scan=None,
-            auto_recorded=(recorded,),
         )
-
-    def _auto_record_decision(
-        self,
-        ref: str,
-        decision_kind: str,
-        chosen: str,
-        evidence_fingerprint: str,
-        qualifying_sources: tuple[str, ...],
-        blast_radius: int,
-        cited_source: dict[str, object] | None = None,
-        cited_columns: tuple[str, ...] = (),
-    ) -> str:
-        """Auto-record a decision into the evidence ledger, with idempotency.
-
-        If a decision with the same *decision_kind* already exists and its
-        *evidence_fingerprint* matches, the existing entry is kept and no new
-        record is written.
-
-        If a decision with the same *decision_kind* exists but the fingerprint
-        differs (the declaration changed), the old decision is replaced.
-
-        Returns the decision ref string ``"{ref}:{decision_kind}"``.
-        """
-        from marivo.semantic.ledger import DecisionRecord, LedgerStore, ObjectEvidence
-
-        decision_ref = f"{ref}:{decision_kind}"
-        store = LedgerStore(self.state_root)
-        obj = store.read_object(ref)
-
-        # Check for an existing decision with the same kind.
-        if obj is not None:
-            for _idx, d in enumerate(obj.decisions):
-                if d.decision_kind == decision_kind:
-                    if d.evidence_fingerprint == evidence_fingerprint:
-                        # Same fingerprint — nothing to do.
-                        return decision_ref
-                    # Fingerprint changed — replace the stale decision.
-                    break  # fall through to write below
-
-        record = DecisionRecord(
-            decision_kind=decision_kind,
-            chosen=chosen,
-            agreement_confidence="high",
-            qualifying_sources=qualifying_sources,
-            materiality="high" if blast_radius > 0 else "low",
-            blast_radius=blast_radius,
-            evidence_fingerprint=evidence_fingerprint,
-            question_id=None,
-            decided_at=datetime.now(UTC).isoformat(),
-            cited_source=cited_source,
-            cited_columns=cited_columns,
-        )
-
-        if obj is not None and any(d.decision_kind == decision_kind for d in obj.decisions):
-            # Replace the stale decision with the same kind.
-            updated_decisions = tuple(d for d in obj.decisions if d.decision_kind != decision_kind)
-            store.write_object(
-                ObjectEvidence(
-                    semantic_id=obj.semantic_id,
-                    authored_at=obj.authored_at,
-                    decisions=(*updated_decisions, record),
-                    rejected_candidates=obj.rejected_candidates,
-                )
-            )
-        else:
-            # No existing decision with this kind — append a new one.
-            store.record_decision(ref, record)
-
-        return decision_ref
-
-    # -- ledger helpers ------------------------------------------------------
-
-    def _is_entity_verified(self, ref: str) -> bool:
-        """Check whether ref has a current (non-stale) entity_verified decision in the ledger."""
-        if self._registry is None:
-            return False
-        entity_ir = self._registry.entities.get(ref)
-        if entity_ir is None:
-            return False
-        from marivo.semantic.ledger import LedgerStore
-
-        store = LedgerStore(self.state_root)
-        obj = store.read_object(ref)
-        if obj is None:
-            return False
-        current_fp = _entity_verified_fingerprint(entity_ir)
-        for d in obj.decisions:
-            if d.decision_kind == "entity_verified":
-                return d.evidence_fingerprint == current_fp
-        return False

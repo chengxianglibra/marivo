@@ -26,8 +26,9 @@ if report.status == "blocked":
 
 `ms.readiness()` is a **pure in-memory check**. It never opens a datasource
 connection — it reasons about the declarations themselves: missing definitions,
-unknown refs, fan-out across datasources, fragile string references, and unaudited
-dangerous decisions.
+unknown refs, fan-out across datasources, fragile string references, and SQL
+parity status. It does not inspect GitHub/GitLab approval state and does not
+make audit-approval judgments.
 
 Backend-touching validation is separate and runs on demand:
 
@@ -54,8 +55,7 @@ is reachable or the numbers are correct. Use `catalog.preview(...)` and
 | `blockers` | `tuple[ReadinessIssue, ...]` | Issues that must be fixed before handoff. |
 | `warnings` | `tuple[ReadinessIssue, ...]` | Advisory issues that do not block. |
 | `analysis_ready_refs` | `tuple[str, ...]` | Refs that passed — safe to hand to analysis. |
-| `input_summary` | `ReadinessInputSummary` | What was checked: datasources, refs, tables, decision records. |
-| `abandoned` | `tuple[...]` | Candidate objects marked abandoned. |
+| `input_summary` | `ReadinessInputSummary` | What was checked: datasources, refs, and tables. |
 | `checked_at` | `str` | ISO-8601 timestamp of the check. |
 
 `status` is derived from severity: any blocker ⇒ `blocked`; warnings only ⇒
@@ -85,7 +85,6 @@ by `ms.richness()`. They do not change readiness status.
 | `unknown_ref` | blocker | A requested ref is not in the registry. | Fix the ref or remove it from the readiness scope. |
 | `missing_business_definition` | blocker | A checked object has no `ai_context.business_definition`. | Add a `business_definition`. |
 | `cross_datasource_unfederated` | blocker | A metric spans more than one datasource without federation. | Move integration upstream, enable a federated backend, or split the metric. |
-| `unresolved_clarification` | blocker | A dangerous decision (time-dimension identity, metric composition) has no recorded decision. | Reload after the declaration, or record the object-level `DecisionRecord`. |
 | `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
 | `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |

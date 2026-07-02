@@ -73,7 +73,6 @@ Readiness & verification
    richness
    verify_object
    parity_check
-   record_decision
 
 Refs & loading
 --------------
@@ -165,7 +164,6 @@ Readiness & assessment
    AuthoringQuestion
    ParityResult
    VerifyResult
-   DecisionRecord
 
 Keys & kinds
 ------------
