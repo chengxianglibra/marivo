@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
 import json
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -16,7 +16,7 @@ _FREQ = GRAIN_FREQ
 
 def run_metric_checks(frame: MetricFrame, *, tz: str | None = None) -> list[dict[str, str]]:
     df = frame.to_pandas()
-    rows = [_row_count_check(df)]
+    rows = [_row_count_check(df, semantic_kind=frame.meta.semantic_kind)]
     rows.extend(_null_ratio_checks(df, frame))
     if frame.meta.semantic_kind in {"time_series", "panel"}:
         rows.append(_time_coverage_check(df, frame, tz=tz))
@@ -43,9 +43,18 @@ def _result(
     }
 
 
-def _row_count_check(df: pd.DataFrame) -> dict[str, str]:
+def _row_count_check(
+    df: pd.DataFrame,
+    *,
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
+) -> dict[str, str]:
     count = len(df)
-    severity = "blocking" if count == 0 else "warning" if count < 5 else "ok"
+    if count == 0:
+        severity = "blocking"
+    elif semantic_kind == "scalar":
+        severity = "ok"
+    else:
+        severity = "warning" if count < 5 else "ok"
     return _result(
         "row_count",
         "row_count",

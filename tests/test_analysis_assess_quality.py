@@ -116,6 +116,44 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
     assert empty_report.meta.blocking_issues[0].kind == "sample_size"
 
 
+def test_scalar_metric_single_row_does_not_emit_row_count_warning(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame([{"value": 0.73}]),
+        metric_id="infra.utilization",
+        axes={},
+        measure={"field": "value", "aggregation": "mean"},
+        semantic_kind="scalar",
+        semantic_model="infra",
+        window=None,
+        session=session,
+    )
+
+    report = session.assess_quality(frame)
+    row_count = report.to_pandas().set_index("check_kind").loc["row_count"]
+
+    assert report.meta.overall_status == "ok"
+    assert report.meta.warning_count == 0
+    assert row_count["severity"] == "ok"
+
+
+def test_segmented_metric_single_row_still_emits_row_count_warning(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(
+        session,
+        [{"segment": "US", "value": 1.0}],
+        semantic_kind="segmented",
+        axes={"dimensions": [{"field": "segment"}]},
+        window=None,
+    )
+
+    report = session.assess_quality(frame)
+    row_count = report.to_pandas().set_index("check_kind").loc["row_count"]
+
+    assert report.meta.overall_status == "warning"
+    assert row_count["severity"] == "warning"
+
+
 def test_panel_all_checks_and_persistence(tmp_path):
     session = session_attach.get_or_create(name="demo")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5, segments=["US", "CA"])
