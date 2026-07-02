@@ -533,21 +533,26 @@ def _normalize_additivity(additivity: Additivity, *, semantic_id: str) -> Additi
     )
 
 
+_AUTHORING_FILE = __file__
+
+
 def _caller_location() -> SourceLocation:
     """Best-effort source location from the caller's frame.
 
-    Walks up 1 frame: ``_caller_location`` -> caller (decorator).
-    Reports the file/line of the decorator call site.
+    Walks up past internal ``authoring.py`` frames to find the first
+    external caller (the user's code).  Reports the file/line of that
+    call site.
     """
     frame = inspect.currentframe()
-    # Walk up: _caller_location -> decorator
     try:
-        if frame is not None and frame.f_back is not None:
+        if frame is not None:
             caller_frame = frame.f_back
-            if caller_frame is not None:
-                filename = caller_frame.f_code.co_filename
-                lineno = caller_frame.f_lineno
-                return SourceLocation(file=filename, line=lineno)
+            while caller_frame is not None:
+                if caller_frame.f_code.co_filename != _AUTHORING_FILE:
+                    filename = caller_frame.f_code.co_filename
+                    lineno = caller_frame.f_lineno
+                    return SourceLocation(file=filename, line=lineno)
+                caller_frame = caller_frame.f_back
     except AttributeError:
         pass
     return SourceLocation(file="<unknown>", line=0)

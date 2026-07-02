@@ -344,6 +344,14 @@ def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:
     } <= methods
 
 
+def test_semantic_load_descriptor_mentions_configured_layer_paths() -> None:
+    result = _json_help(ms, "load")
+
+    assert result["kind"] == "callable"
+    assert "[semantic].layer_paths" in result["doc"]
+    assert "external models roots" in result["doc"]
+
+
 def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
     result = _json_help(ms, "metric")
 

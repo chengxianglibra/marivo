@@ -422,18 +422,21 @@ _DATASOURCE_CTX: ContextVar[DatasourceLoaderContext | None] = ContextVar(
 )
 
 
+_AUTHORING_FILE = __file__
+
+
 def _caller_location() -> DatasourceSourceLocation:
     try:
         frame = inspect.currentframe()
         if frame is not None:
             caller_frame = frame.f_back
-            if caller_frame is not None:
+            while caller_frame is not None:
+                if caller_frame.f_code.co_filename != _AUTHORING_FILE:
+                    return DatasourceSourceLocation(
+                        file=caller_frame.f_code.co_filename,
+                        line=caller_frame.f_lineno,
+                    )
                 caller_frame = caller_frame.f_back
-            if caller_frame is not None:
-                return DatasourceSourceLocation(
-                    file=caller_frame.f_code.co_filename,
-                    line=caller_frame.f_lineno,
-                )
     except AttributeError:
         pass
     return DatasourceSourceLocation(file="<unknown>", line=0)

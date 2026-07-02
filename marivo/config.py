@@ -97,6 +97,56 @@ def load_project_config(project_root: Path) -> ProjectConfig:
     return ProjectConfig(name=name, version=version if isinstance(version, str) else None)
 
 
+def load_semantic_layer_paths(project_root: Path) -> tuple[Path, ...]:
+    """Return configured external semantic layer models roots.
+
+    Args:
+        project_root: Directory containing the active project's ``marivo.toml``.
+
+    Returns:
+        Absolute paths from ``[semantic].layer_paths``. Relative paths are
+        resolved against ``project_root``. Missing ``marivo.toml`` and missing
+        ``[semantic]`` config both return an empty tuple.
+
+    Raises:
+        ValueError: If ``[semantic]`` is not a table, if ``layer_paths`` is not
+            a list, or if any item is not a string.
+
+    Example:
+        >>> paths = load_semantic_layer_paths(Path.cwd())
+        >>> paths
+        ()
+
+    Constraints:
+        Only ``[semantic].layer_paths`` is read. Other keys under
+        ``[semantic]`` are silently ignored for forward compatibility.
+    """
+    manifest_path = project_root / PROJECT_MANIFEST
+    if not manifest_path.is_file():
+        return ()
+    with open(manifest_path, "rb") as f:
+        data = tomllib.load(f)
+    semantic_table = data.get("semantic")
+    if semantic_table is None:
+        return ()
+    if not isinstance(semantic_table, dict):
+        raise ValueError("marivo.toml [semantic] must be a table.")
+    raw_paths = semantic_table.get("layer_paths")
+    if raw_paths is None:
+        return ()
+    if not isinstance(raw_paths, list):
+        raise ValueError("marivo.toml [semantic].layer_paths must be a list of strings.")
+    resolved: list[Path] = []
+    for index, raw_path in enumerate(raw_paths):
+        if not isinstance(raw_path, str):
+            raise ValueError(f"marivo.toml [semantic].layer_paths[{index}] must be a string.")
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = project_root / path
+        resolved.append(path.resolve())
+    return tuple(resolved)
+
+
 # ---------------------------------------------------------------------------
 # Project discovery
 # ---------------------------------------------------------------------------

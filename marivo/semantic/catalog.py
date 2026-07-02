@@ -1420,6 +1420,10 @@ class SemanticCatalog:
                 Pass a single domain name as a string or a list of names.
                 When omitted, the previously active filter (if any) is reused.
 
+            Reload uses the same workspace config as ``ms.load()``: the local
+            ``models/`` root plus any external models roots declared in
+            ``marivo.toml [semantic].layer_paths``.
+
         Example:
             >>> catalog.load(domains="sales")
             >>> catalog.load(domains=["sales", "inventory"])
@@ -2060,7 +2064,9 @@ def load(
 
     Args:
         workspace_dir: Path to the project root containing ``marivo.toml``.
-            Defaults to the current working directory when omitted.
+            Defaults to the current working directory when omitted. The local
+            ``models/`` root is always loaded; external models roots can be
+            added with ``marivo.toml [semantic].layer_paths``.
         domains: When specified, only those domain directories are loaded.
             Pass a single domain name as a string or a list of names.
             Cross-domain references to filtered-out domains produce warnings
@@ -2079,6 +2085,8 @@ def load(
     Constraints:
         Raises a typed load error on failure. Does not return a partial catalog.
         Does not print to stdout.
+        Configured layer paths must point at authored ``models/`` roots that
+        contain both ``datasources/`` and ``semantic/``.
     """
     import os
 

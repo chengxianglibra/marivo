@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from marivo.config import SEMANTIC_DIR
+from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import ScanReport, ScanScope
@@ -229,9 +229,28 @@ class SemanticProject:
             self._filtered_domains = tuple(domains)
         else:
             self._filtered_domains = ()
-        result = load_project(
-            self._semantic_root, models=self._filtered_domains if self._filtered_domains else None
-        )
+        configured_roots: tuple[Path, ...] = ()
+        config_errors: list[SemanticError] = []
+        try:
+            configured_roots = load_semantic_layer_paths(self._workspace_dir)
+        except ValueError as exc:
+            config_errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_PROJECT,
+                    message=str(exc),
+                    refs=(str(self._workspace_dir / "marivo.toml"),),
+                    hint="Fix marivo.toml [semantic].layer_paths and rerun ms.load().",
+                )
+            )
+        if config_errors:
+            result = LoadResult(status="errored", errors=tuple(config_errors))
+        else:
+            models_roots = (self._workspace_dir / AUTHORED_DIR, *configured_roots)
+            result = load_project(
+                self._semantic_root,
+                models=self._filtered_domains if self._filtered_domains else None,
+                models_roots=models_roots,
+            )
         self._load_result = result
         self._status = result.status
         self._errors = result.errors
