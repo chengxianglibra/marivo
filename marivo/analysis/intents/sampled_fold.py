@@ -187,6 +187,7 @@ def sample_point_table(
     datasource_read_tz: Any,
     window: Any,
     dataset_ir: Any | None = None,
+    dialect: str = "unknown",
 ) -> Any:
     from marivo.analysis.executor.runner import (
         bucket_time_expression,
@@ -212,6 +213,7 @@ def sample_point_table(
             grain=sample_grain,
             report_tz=report_tz,
             datasource_read_tz=datasource_read_tz,
+            dialect=dialect,
             window=window,
         )
         return table.mutate(sample_point=sample_point)
@@ -227,6 +229,7 @@ def sample_point_table(
             table,
             hour_field_ir=time_field_ir,
             dataset_ir=dataset_ir,
+            dialect=dialect,
         )
         import types
 
@@ -242,6 +245,7 @@ def sample_point_table(
             grain=sample_grain,
             report_tz=report_tz,
             datasource_read_tz=datasource_read_tz,
+            dialect=dialect,
             window=window,
         )
         return table.mutate(sample_point=sample_point)

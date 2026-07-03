@@ -169,6 +169,19 @@ the `format` string. The new rule:
 
 ## §3 — Format semantics caveat: `%M` vs `%i`
 
+> **SUPERSEDED (2026-07):** The "no translation" decision below is reversed.
+> The recommended alternative — authoring `%i` for minutes on Trino — is
+> unfollowable: `normalize_strptime` validates via Python `time.strptime`,
+> which rejects `%i` ("'i' is a bad directive"), so minute-granularity string
+> time dimensions on Trino/MySQL had *no* valid format. Marivo now translates
+> Python strptime → MySQL at SQL-emission time
+> (`marivo.semantic.time_format.python_to_mysql_strptime`), gated on backend
+> dialect (`trino`, `mysql`); authors write Python strptime (`%M` for minute)
+> and it works on every backend. See
+> `docs/specs/semantic/python-semantic-layer.md` § "Format specifier
+> divergence" for the current contract. The original (superseded) rationale
+> is preserved below for history.
+
 Python strptime and MySQL/Trino/Presto `date_parse` agree on most common
 specifiers (`%Y %m %d %H %S %y %j`), but disagree on minutes:
 

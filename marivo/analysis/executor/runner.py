@@ -38,6 +38,7 @@ from marivo.analysis.timezone import zoneinfo_from_name
 from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain
 from marivo.analysis.windows.spec import AbsoluteWindow, is_date_only
 from marivo.datasource import secrets as _secrets
+from marivo.semantic.time_format import python_to_mysql_strptime
 
 UTC_ZONE = ZoneInfo("UTC")
 _MISSING_ATTR = object()
@@ -284,7 +285,7 @@ def _encode_partition_date_bound(value: date, time_meta: Any) -> Any:
     return _encode_window_bound(value.isoformat(), time_meta)
 
 
-def _parse_string_column(field_expr: Any, time_meta: Any) -> Any:
+def _parse_string_column(field_expr: Any, time_meta: Any, *, dialect: str = "unknown") -> Any:
     """Parse a string/integer column into a temporal type using as_date/as_timestamp."""
     data_type = time_meta.data_type
     fmt = time_meta.format
@@ -301,10 +302,32 @@ def _parse_string_column(field_expr: Any, time_meta: Any) -> Any:
         raise WindowInvalidError(
             message=f"_parse_string_column only supports string/integer, got {data_type!r}",
         )
+    # Classify on the authored Python strptime format (directives like %M/%S are
+    # Python-specific); the emitted format may be translated to MySQL below.
     classification = _classify_strptime_format(fmt)
+    emit_fmt = fmt
+    if dialect in {"trino", "mysql"}:
+        # ibis emits MySQL-specifier parsers for these backends (``date_parse``
+        # for Trino, ``STR_TO_DATE`` for MySQL). Several Python strptime
+        # directives disagree with MySQL — notably ``%M`` (Python minute vs
+        # MySQL month name). Translate so a single authored Python strptime
+        # format works on every backend. DuckDB uses Python strptime natively;
+        # Postgres uses a Java-style pattern that ibis translates itself.
+        try:
+            emit_fmt = python_to_mysql_strptime(fmt)
+        except ValueError as exc:
+            raise WindowInvalidError(
+                message=(
+                    f"time field strptime format {time_meta.format!r} cannot be "
+                    f"translated for the {dialect!r} backend's MySQL-style date "
+                    f"parser: {exc}. Restrict the format to supported directives "
+                    f"(year/month/day/hour/minute/second) or use a native "
+                    f"temporal column."
+                ),
+            ) from exc
     if classification == "day":
-        return string_expr.as_date(fmt)
-    return string_expr.as_timestamp(fmt)
+        return string_expr.as_date(emit_fmt)
+    return string_expr.as_timestamp(emit_fmt)
 
 
 def _raise_window_bound_invalid(
@@ -722,6 +745,7 @@ def _window_bound_predicates(
     *,
     report_tz: ZoneInfo,
     datasource_read_tz: ZoneInfo,
+    dialect: str = "unknown",
 ) -> tuple[Any, Any]:
     _validate_time_field_timezone(field_expr, time_meta)
     _validate_time_field_dtype(field_expr, time_meta)
@@ -836,7 +860,7 @@ def _window_bound_predicates(
                 hint="Pass timezone= when attaching the session.",
                 details={"format": fmt},
             )
-        parsed_expr = _parse_string_column(field_expr, time_meta)
+        parsed_expr = _parse_string_column(field_expr, time_meta, dialect=dialect)
         classification = _classify_strptime_format(fmt)
         column_tz = context.effective_column_tz or report_tz
         if classification == "day":
@@ -1065,6 +1089,20 @@ def datasource_read_timezone(
     return ZoneInfo("UTC")
 
 
+def datasource_backend_dialect(
+    cache: AnalysisConnectionRuntime,
+    datasource_name: str,
+) -> str:
+    """Resolve the ibis backend dialect name for a datasource.
+
+    Mirrors :func:`datasource_read_timezone` so the intent layer can resolve the
+    backend dialect once and thread it into the expression builders, which gate
+    Python-strptime -> MySQL ``date_parse`` translation on it.
+    """
+    backend = cache.get_or_create(datasource_name)
+    return _backend_dialect(backend)
+
+
 def apply_window_to_dataset(
     table: ibis.Table,
     window: AbsoluteWindow | Mapping[str, Any] | None,
@@ -1072,6 +1110,7 @@ def apply_window_to_dataset(
     dataset_ir: Any,
     report_tz: ZoneInfo = UTC_ZONE,
     datasource_read_tz: ZoneInfo = UTC_ZONE,
+    dialect: str = "unknown",
 ) -> ibis.Table:
     if window is None:
         return table
@@ -1103,6 +1142,7 @@ def apply_window_to_dataset(
         time_field_ir.time_meta,
         report_tz=report_tz,
         datasource_read_tz=datasource_read_tz,
+        dialect=dialect,
     )
     return table.filter(lower_predicate, upper_predicate)
 
@@ -1262,6 +1302,7 @@ def bucket_time_expression(
     report_tz: ZoneInfo,
     datasource_read_tz: ZoneInfo,
     window: AbsoluteWindow | None,
+    dialect: str = "unknown",
 ) -> Any:
     """Return a report-local bucket expression for a timestamp-like time field."""
     if time_meta.data_type in {"datetime", "timestamp"}:
@@ -1289,7 +1330,7 @@ def bucket_time_expression(
                 message="bucket_time_expression requires a window for strptime bucketing.",
                 details={"data_type": time_meta.data_type, "format": time_meta.format},
             )
-        parsed = _parse_string_column(raw, time_meta)
+        parsed = _parse_string_column(raw, time_meta, dialect=dialect)
         classification = _classify_strptime_format(time_meta.format)
         grain_matches_classification = (
             (grain.is_day and classification == "day")
@@ -1373,14 +1414,14 @@ def _local_bucket_expr(
     return bucket_start_expr(local_expr, grain)
 
 
-def _prefix_date_expr(table: ibis.Table, prefix_field_ir: Any) -> Any:
+def _prefix_date_expr(table: ibis.Table, prefix_field_ir: Any, *, dialect: str = "unknown") -> Any:
     """Compute a date ibis expression from a day-level required_prefix field."""
     time_meta = prefix_field_ir.time_meta
     raw = prefix_field_ir.fn(table)
     if time_meta.data_type == "date":
         return raw
     if time_meta.data_type in {"string", "integer"}:
-        return _parse_string_column(raw, time_meta)
+        return _parse_string_column(raw, time_meta, dialect=dialect)
     if time_meta.data_type in {"datetime", "timestamp"}:
         return raw.cast("date")
     raise WindowInvalidError(
@@ -1394,6 +1435,7 @@ def combine_prefix_hour_to_timestamp(
     *,
     hour_field_ir: Any,
     dataset_ir: Any,
+    dialect: str = "unknown",
 ) -> Any:
     """Combine a day-level prefix field and an hour-only column into a timestamp.
 
@@ -1406,7 +1448,7 @@ def combine_prefix_hour_to_timestamp(
             message=f"hour_prefix time field '{hour_field_ir.name}' requires a "
             f"day-level prefix for timestamp construction",
         )
-    prefix_date = _prefix_date_expr(table, prefix_field_ir)
+    prefix_date = _prefix_date_expr(table, prefix_field_ir, dialect=dialect)
     raw = hour_field_ir.fn(table)
     time_meta = hour_field_ir.time_meta
     hour_int = raw.cast("int") if time_meta.data_type == "string" else raw
@@ -1422,6 +1464,7 @@ def _apply_hour_only_bucket(
     report_tz: ZoneInfo,
     datasource_read_tz: ZoneInfo,
     dataset_ir: Any,
+    dialect: str = "unknown",
 ) -> ibis.Table:
     """Bucket for hour-only string/integer time fields that use required_prefix."""
     time_meta = field_ir.time_meta
@@ -1448,7 +1491,7 @@ def _apply_hour_only_bucket(
     if grain > field_grain:
         if _is_day_partition_meta(prefix_field_ir.time_meta) and grain.is_day:
             return table.mutate(bucket_start=prefix_raw.name("bucket_start"))
-        prefix_date = _prefix_date_expr(table, prefix_field_ir)
+        prefix_date = _prefix_date_expr(table, prefix_field_ir, dialect=dialect)
         return table.mutate(bucket_start=bucket_start_expr(prefix_date, grain))
 
     # Grain matches field: concatenate prefix + hour into sortable string.
@@ -1462,7 +1505,7 @@ def _apply_hour_only_bucket(
         bucket = (prefix_raw + hour_str).name("bucket_start")
     else:
         # Fallback for unusual prefix formats
-        prefix_date = _prefix_date_expr(table, prefix_field_ir)
+        prefix_date = _prefix_date_expr(table, prefix_field_ir, dialect=dialect)
         hour_int = raw.cast("int") if time_meta.data_type == "string" else raw
         date_ts = prefix_date.cast("timestamp")
         bucket = (date_ts + (hour_int * 3600).as_interval("s")).name("bucket_start")
@@ -1572,6 +1615,7 @@ def apply_time_series_bucket(
     report_tz: ZoneInfo,
     datasource_read_tz: ZoneInfo,
     dataset_ir: Any | None = None,
+    dialect: str = "unknown",
 ) -> ibis.Table:
     if field_ir.time_meta is None:
         raise WindowInvalidError(message=f"field '{field_ir.name}' has no time metadata")
@@ -1592,7 +1636,7 @@ def apply_time_series_bucket(
         and fmt.startswith("%")
         and not _is_hour_only_partition_meta(time_meta)
     ):
-        parsed = _parse_string_column(raw, time_meta)
+        parsed = _parse_string_column(raw, time_meta, dialect=dialect)
         classification = _classify_strptime_format(fmt)
         grain_matches_classification = (
             (window.grain.is_day and classification == "day")
@@ -1666,6 +1710,7 @@ def apply_time_series_bucket(
             report_tz=report_tz,
             datasource_read_tz=datasource_read_tz,
             dataset_ir=dataset_ir,
+            dialect=dialect,
         )
 
     # Date type: simple truncate or cast

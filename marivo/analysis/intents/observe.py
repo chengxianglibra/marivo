@@ -30,6 +30,7 @@ from marivo.analysis.evidence.types import Subject
 from marivo.analysis.executor.runner import (
     apply_time_series_bucket,
     bucket_start_expr,
+    datasource_backend_dialect,
     datasource_read_timezone,
     ensure_bucket_start_timestamp,
     execute,
@@ -687,6 +688,7 @@ def _execute_sampled_base(
     )
     sample_grain = Grain(count=sample_interval.count, unit=sample_interval.unit)
     read_tz = datasource_read_timezone(session._connection_runtime, plan.datasource_name)
+    dialect = datasource_backend_dialect(session._connection_runtime, plan.datasource_name)
     table = sample_point_table(
         plan.table,
         time_field_ir=root_time_adapter,
@@ -695,6 +697,7 @@ def _execute_sampled_base(
         datasource_read_tz=read_tz,
         window=resolved_window,
         dataset_ir=root_adapter,
+        dialect=dialect,
     )
     dimension_names = [dimension.column for dimension in plan.dimensions]
     metric_datasets = tuple(metric_ir.entities)
@@ -831,6 +834,7 @@ def _execute_base(
     metric_datasets = tuple(metric_ir.entities)
     primary_datasource = plan.datasource_name
     read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
+    dialect = datasource_backend_dialect(session._connection_runtime, primary_datasource)
     dataset_tables = plan.dataset_tables
     resolved_dimensions = [
         (dimension.field.entity, dimension.field) for dimension in plan.dimensions
@@ -858,6 +862,7 @@ def _execute_base(
             window=resolved_window,
             report_tz=cast("ZoneInfo", session.report_tz),
             datasource_read_tz=read_tz,
+            dialect=dialect,
             dataset_ir=root_adapter,
         )
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
@@ -930,6 +935,7 @@ def _execute_base(
             window=resolved_window,
             report_tz=cast("ZoneInfo", session.report_tz),
             datasource_read_tz=read_tz,
+            dialect=dialect,
             dataset_ir=root_adapter,
         )
         dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
@@ -1052,6 +1058,7 @@ def _execute_folded_component(
     )
     sample_grain = Grain(count=sample_interval.count, unit=sample_interval.unit)
     read_tz = datasource_read_timezone(session._connection_runtime, cp.base_plan.datasource_name)
+    dialect = datasource_backend_dialect(session._connection_runtime, cp.base_plan.datasource_name)
     table = sample_point_table(
         cp.base_plan.table,
         time_field_ir=root_time_adapter,
@@ -1060,6 +1067,7 @@ def _execute_folded_component(
         datasource_read_tz=read_tz,
         window=resolved_window,
         dataset_ir=root_adapter,
+        dialect=dialect,
     )
     dimension_names = [dimension.column for dimension in cp.base_plan.dimensions]
     dataset_tables = dict.fromkeys(component_datasets, table)
@@ -1296,12 +1304,16 @@ def _execute_derived(
                 read_tz = datasource_read_timezone(
                     session._connection_runtime, cp.base_plan.datasource_name
                 )
+                dialect = datasource_backend_dialect(
+                    session._connection_runtime, cp.base_plan.datasource_name
+                )
                 table = apply_time_series_bucket(
                     table,
                     field_ir=time_dimension_ir,
                     window=resolved_window,
                     report_tz=cast("ZoneInfo", session.report_tz),
                     datasource_read_tz=read_tz,
+                    dialect=dialect,
                     dataset_ir=root_adapter,
                 )
                 group_names = ["bucket_start", *dim_columns]

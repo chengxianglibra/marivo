@@ -20,6 +20,7 @@ from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.executor.runner import (
     apply_slice_to_dataset,
     apply_window_to_dataset,
+    datasource_backend_dialect,
     datasource_read_timezone,
     execute,
 )
@@ -1400,6 +1401,9 @@ def plan_base_observe(
         dataset_ir=dataset_irs[root],
         report_tz=session.report_tz,
         datasource_read_tz=datasource_read_timezone(
+            session._connection_runtime, dataset_irs[root].datasource_name
+        ),
+        dialect=datasource_backend_dialect(
             session._connection_runtime, dataset_irs[root].datasource_name
         ),
     )
