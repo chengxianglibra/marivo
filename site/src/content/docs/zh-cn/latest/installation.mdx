@@ -35,7 +35,7 @@ marivo init
 
 | 路径 | 用途 |
 | --- | --- |
-| `marivo.toml` | Project manifest。project 名默认使用目录名。 |
+| `marivo.toml` | Project manifest。project 名默认使用目录名；本地 telemetry 默认 `enabled = "on"`。 |
 | `models/` | 编写 datasource 与 semantic declarations 的位置。 |
 | `.marivo/` | Project 本地状态：sessions、evidence 以及缓存的 metadata。 |
 | `.claude/skills/marivo-semantic`、`.claude/skills/marivo-analysis` | 面向 Claude Code 的 Marivo skills（以符号链接接入 project）。 |
@@ -79,6 +79,36 @@ layer_paths = [
 
 把 `.marivo/` 加入 `.gitignore`；对 `marivo.toml` 和 `models/` 做版本控制（参见
 [快速开始](/zh-cn/latest/quick-start/#用-git-管理-project)）。
+
+## 本地使用 telemetry
+
+Marivo 会在 project state 目录下写入 OpenTelemetry 形态的本地 JSONL 使用事件：
+
+```text
+.marivo/telemetry/events.jsonl
+```
+
+Telemetry 只保存在本地：Marivo 不会上传这些事件。事件覆盖 `marivo init`、analysis intents、
+discover/transform helpers，以及 escape-hatch promotions。记录只包含低基数字段，例如 event name、
+intent family、status、duration、error class 和 analysis session id。它不会包含 SQL 文本、
+datasource hosts、credentials、metric ids、dimension ids、session names、session questions
+或 frame data。
+
+可以通过环境变量在当前进程中关闭本地 telemetry：
+
+```bash
+MARIVO_TELEMETRY=off marivo init
+```
+
+也可以在 `marivo.toml` 中配置 project 默认值：
+
+```toml
+[telemetry]
+enabled = "off" # "on" 或 "off"
+```
+
+`MARIVO_TELEMETRY=on|off` 会覆盖当前进程中的 project 配置。如果两者都没有设置，
+本地 telemetry 默认使用 `"on"`。
 
 ## 部署与开发
 

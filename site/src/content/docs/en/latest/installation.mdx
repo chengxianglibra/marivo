@@ -35,7 +35,7 @@ marivo init
 
 | Path | Purpose |
 | --- | --- |
-| `marivo.toml` | Project manifest. The project name defaults to the directory name. |
+| `marivo.toml` | Project manifest. The project name defaults to the directory name; local telemetry defaults to `enabled = "on"`. |
 | `models/` | Where you author datasource and semantic declarations. |
 | `.marivo/` | Project-local state: sessions, evidence, and cached metadata. |
 | `.claude/skills/marivo-semantic`, `.claude/skills/marivo-analysis` | Marivo skills for Claude Code (symlinked into the project). |
@@ -82,6 +82,38 @@ unique across all roots; duplicates cause a load error.
 
 Add `.marivo/` to `.gitignore`; version-control `marivo.toml` and `models/` (see
 [Quick Start](/en/latest/quick-start/#manage-the-project-with-git)).
+
+## Local usage telemetry
+
+Marivo records local usage telemetry as OpenTelemetry-shaped JSONL under the
+project state directory:
+
+```text
+.marivo/telemetry/events.jsonl
+```
+
+Telemetry is local-only: Marivo does not upload these events. Events cover
+`marivo init`, analysis intents, discover/transform helpers, and escape-hatch
+promotions. Records include low-cardinality metadata such as the event name,
+intent family, status, duration, error class, and analysis session id. They do
+not include SQL text, datasource hosts, credentials, metric ids, dimension ids,
+session names, session questions, or frame data.
+
+Disable local telemetry for a process with:
+
+```bash
+MARIVO_TELEMETRY=off marivo init
+```
+
+Set the project default in `marivo.toml`:
+
+```toml
+[telemetry]
+enabled = "off" # "on" or "off"
+```
+
+`MARIVO_TELEMETRY=on|off` overrides the project setting for the current process.
+If neither is set, local telemetry defaults to `"on"`.
 
 ## Deploy and develop
 

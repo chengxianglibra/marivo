@@ -45,7 +45,7 @@ def _artifact_paths(project_dir: Path) -> dict[str, Path]:
     }
 
 
-def init_project(force: bool = False, project_dir: Path | None = None) -> None:
+def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> None:
     """Initialize a Marivo project in the given directory.
 
     Args:
@@ -101,7 +101,7 @@ def init_project(force: bool = False, project_dir: Path | None = None) -> None:
     manifest_path = project_dir / PROJECT_MANIFEST
     if not manifest_path.exists():
         project_name = project_dir.name
-        manifest_data = {"project": {"name": project_name}}
+        manifest_data = {"project": {"name": project_name}, "telemetry": {"enabled": "on"}}
         manifest_path.write_text(tomli_w.dumps(manifest_data))
         print(f"  Created {PROJECT_MANIFEST}")
     else:
@@ -150,6 +150,20 @@ def init_project(force: bool = False, project_dir: Path | None = None) -> None:
                     file=sys.stderr,
                 )
         print(f"  Installed skills for {agent_label} ({agent_dir_name}/)")
+
+
+def init_project(force: bool = False, project_dir: Path | None = None) -> None:
+    """Initialize a Marivo project and record local usage telemetry."""
+    resolved_project_dir = project_dir or Path.cwd()
+    from marivo.telemetry import track_operation
+
+    with track_operation(
+        "marivo.cli.init",
+        family="cli",
+        intent="init",
+        project_root=resolved_project_dir,
+    ):
+        _init_project_impl(force=force, project_dir=resolved_project_dir)
 
 
 def main(argv: list[str] | None = None) -> None:

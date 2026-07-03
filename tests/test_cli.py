@@ -28,6 +28,13 @@ def test_creates_marivo_toml_with_project_name(tmp_path: Path) -> None:
     assert data["project"]["name"] == tmp_path.name
 
 
+def test_creates_marivo_toml_with_default_telemetry_on(tmp_path: Path) -> None:
+    init_project(project_dir=tmp_path)
+    with open(tmp_path / "marivo.toml", "rb") as f:
+        data = tomllib.load(f)
+    assert data["telemetry"]["enabled"] == "on"
+
+
 def test_creates_models_dir(tmp_path: Path) -> None:
     init_project(project_dir=tmp_path)
     assert (tmp_path / "models").is_dir()
