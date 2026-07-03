@@ -535,7 +535,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric", "SemanticCatalog"),
         "Requested metrics must exist in the loaded project.",
         "Runtime operations compile registered metric ids.",
-        "catalog = ms.load(); catalog.list(kind=ms.SemanticKind.METRIC) and use catalog.get('metric.<semantic_id>').",
+        "catalog = ms.load(); catalog.list(\"metric\") and use catalog.get('metric.<semantic_id>').",
     ),
     ConstraintId.ENTITY_EXISTS: _constraint(
         ConstraintId.ENTITY_EXISTS,
@@ -544,7 +544,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "SemanticCatalog"),
         "Requested entities must exist in the loaded project.",
         "Runtime operations look up registered entity ids.",
-        "catalog.list(kind=ms.SemanticKind.ENTITY) and use catalog.get('entity.<semantic_id>').",
+        "catalog.list(\"entity\") and use catalog.get('entity.<semantic_id>').",
     ),
     ConstraintId.DIMENSION_EXISTS: _constraint(
         ConstraintId.DIMENSION_EXISTS,
@@ -553,7 +553,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dimension", "SemanticCatalog"),
         "Requested dimensions must exist in the loaded project.",
         "Runtime operations look up registered dimension ids.",
-        "catalog.list(kind=ms.SemanticKind.DIMENSION) and use catalog.get('dimension.<semantic_id>').",
+        "catalog.list(\"dimension\") and use catalog.get('dimension.<semantic_id>').",
     ),
     ConstraintId.SYMBOL_EXISTS: _constraint(
         ConstraintId.SYMBOL_EXISTS,
@@ -562,7 +562,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticCatalog",),
         "Requested semantic objects must exist in the loaded project.",
         "Lookup methods search across all registered symbol kinds.",
-        "catalog.list() for available names.",
+        'catalog.list("domain") and catalog.list("datasource") for available names.',
     ),
     ConstraintId.MATERIALIZE_EXECUTION: _constraint(
         ConstraintId.MATERIALIZE_EXECUTION,
@@ -643,7 +643,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric", "relationship"),
         "Unqualified name lookups must resolve to a single object kind.",
         "Cross-kind name matches make registry lookups ambiguous.",
-        "Use catalog.list('<kind>.<semantic_id>', kind=...) to narrow candidates, then catalog.get('<kind>.<semantic_id>').",
+        'Use catalog.list("<kind>", scope="<kind>.<semantic_id>") to narrow candidates, then catalog.get(\'<kind>.<semantic_id>\').',
         docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.BACKEND_FACTORY_AVAILABLE: _constraint(
@@ -690,7 +690,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticCatalog",),
         "Kind filter must be a valid SemanticKind value.",
         "The kind parameter accepts: domain, datasource, entity, dimension, measure, time_dimension, metric, relationship.",
-        "Use catalog.list() without kind to browse all, or pass a SemanticKind enum value.",
+        'The kind parameter accepts strings ("domain", "metric", ...) or SemanticKind enum values. Use catalog.list("<kind>") or catalog.list("<kind>", scope="<kind>.<semantic_id>").',
     ),
     ConstraintId.CATALOG_PARENT_BROWSABLE: _constraint(
         ConstraintId.CATALOG_PARENT_BROWSABLE,
@@ -708,7 +708,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("SemanticCatalog",),
         "catalog.list() accepts a single '<kind>.<semantic_id>' scope and no domain shortcut.",
         "The old 'domain' keyword was removed so agents use one scoped browsing path.",
-        "Use catalog.list('domain.<name>', kind=...) for scoped browsing.",
+        'Use catalog.list("<kind>") or catalog.list("<kind>", scope="<kind>.<semantic_id>").',
     ),
     ConstraintId.SAMPLE_INTERVAL_VALID: _constraint(
         ConstraintId.SAMPLE_INTERVAL_VALID,

@@ -641,7 +641,7 @@ class SemanticProject:
         else:
             message = (
                 f"Semantic object {ref_str!r} was not found. "
-                "Use catalog.list().show() to browse available refs."
+                "Use catalog.list('domain').show() to browse available refs."
             )
         return self._failed_verify(ref_str, "entity", "static_check_failed", message)
 

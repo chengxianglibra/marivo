@@ -52,7 +52,7 @@ status_values = md.discover_dimension_values(
 status_values.show()
 
 catalog = ms.load()
-catalog.list().show()
+catalog.list("domain").show()
 
 print(
     "GRILL: Should status='refunded' be modeled as an excluded order state "

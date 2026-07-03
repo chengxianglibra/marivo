@@ -18,22 +18,20 @@ DimensionInput = SemanticInput
 
 
 def _available_ids(catalog: SemanticCatalog, *, kind: SemanticKind) -> list[str]:
-    domains = [obj.ref.id for obj in catalog.list(kind=SemanticKind.DOMAIN)]
+    domains = [obj.ref.id for obj in catalog.list("domain")]
     ids: list[str] = []
     for domain_id in domains:
-        ids.extend(catalog.list(f"domain.{domain_id}", kind=kind).ids())
+        ids.extend(catalog.list(str(kind), scope=f"domain.{domain_id}").ids())
     return sorted(ids)
 
 
 def _available_dimension_ids(catalog: SemanticCatalog) -> list[str]:
-    domains = [obj.ref.id for obj in catalog.list(kind=SemanticKind.DOMAIN)]
+    domains = [obj.ref.id for obj in catalog.list("domain")]
     ids: list[str] = []
     for domain_id in domains:
-        for entity in catalog.list(f"domain.{domain_id}", kind=SemanticKind.ENTITY):
-            ids.extend(catalog.list(f"entity.{entity.ref.id}", kind=SemanticKind.DIMENSION).ids())
-            ids.extend(
-                catalog.list(f"entity.{entity.ref.id}", kind=SemanticKind.TIME_DIMENSION).ids()
-            )
+        for entity in catalog.list("entity", scope=f"domain.{domain_id}"):
+            ids.extend(catalog.list("dimension", scope=f"entity.{entity.ref.id}").ids())
+            ids.extend(catalog.list("time_dimension", scope=f"entity.{entity.ref.id}").ids())
     return sorted(ids)
 
 
@@ -106,8 +104,7 @@ def normalize_metric_input(catalog: SemanticCatalog, metric: MetricInput) -> str
         raise MetricNotFoundError(
             message=f"metric {ref!r} not found",
             hint=(
-                "Use session.catalog.list('domain.<name>', kind=SemanticKind.METRIC) "
-                "to browse metric refs."
+                "Use session.catalog.list('metric', scope='domain.<name>') to browse metric refs."
             ),
             details={
                 "metric": ref,

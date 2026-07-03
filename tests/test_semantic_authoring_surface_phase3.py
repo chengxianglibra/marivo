@@ -114,10 +114,8 @@ def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -
 def test_catalog_lists_measure_kind_at_top_level_and_under_entity(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    assert catalog.list(kind=SemanticKind.MEASURE).ids() == ["sales.orders.amount"]
-    assert catalog.list("entity.sales.orders", kind=SemanticKind.MEASURE).ids() == [
-        "sales.orders.amount"
-    ]
+    assert catalog.list("measure").ids() == ["sales.orders.amount"]
+    assert catalog.list("measure", scope="entity.sales.orders").ids() == ["sales.orders.amount"]
 
 
 def test_entity_children_include_dimension_measure_time_dimension_metrics_and_relationships(

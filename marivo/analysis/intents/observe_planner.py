@@ -345,7 +345,7 @@ def _metric(catalog: SemanticCatalog, ref: str) -> MetricDetails:
 def _fields_for_entity(catalog: SemanticCatalog, entity_ref: str) -> list[FieldDetails]:
     fields: list[FieldDetails] = []
     for kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-        for obj in catalog.list(f"entity.{entity_ref}", kind=kind):
+        for obj in catalog.list(str(kind), scope=f"entity.{entity_ref}"):
             details = obj.details()
             if isinstance(details, (DimensionDetails, TimeDimensionDetails)):
                 fields.append(details)
@@ -456,8 +456,8 @@ def _resolve_field_ref(
         if not allow_qualified_outside_scope and not allow_unqualified_outside_scope
         else {
             obj.ref.id
-            for domain in catalog.list(kind=SemanticKind.DOMAIN)
-            for obj in catalog.list(f"domain.{domain.ref.id}", kind=SemanticKind.ENTITY)
+            for domain in catalog.list("domain")
+            for obj in catalog.list("entity", scope=f"domain.{domain.ref.id}")
         },
     )
     if "." in ref_id:
@@ -610,7 +610,7 @@ def _relationship_neighbors(
 ) -> list[tuple[str, RelationshipInfo]]:
     neighbors: list[tuple[str, RelationshipInfo]] = []
     relationships: list[RelationshipInfo] = []
-    for obj in catalog.list(f"entity.{dataset_id}", kind=SemanticKind.RELATIONSHIP):
+    for obj in catalog.list("relationship", scope=f"entity.{dataset_id}"):
         details = obj.details()
         if isinstance(details, RelationshipDetails):
             relationships.append(_planned_relationship(details))

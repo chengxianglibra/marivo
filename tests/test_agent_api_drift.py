@@ -87,13 +87,13 @@ def _make_catalog(semantic_project_factory):
 
 def test_catalog_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
+    catalog.list("metric", scope="domain.sales")
     assert capsys.readouterr().out == ""
 
 
 def test_catalog_list_datasources_is_silent(semantic_project_factory, capsys) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    catalog.list(kind=ms.SemanticKind.DATASOURCE)
+    catalog.list("datasource")
     assert capsys.readouterr().out == ""
 
 
@@ -178,7 +178,7 @@ def test_metric_frame_repr_is_one_line() -> None:
 
 def test_semantic_object_list_repr_is_one_line(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
+    result = catalog.list("metric", scope="domain.sales")
     r = repr(result)
     assert r.count("\n") == 0
 
@@ -226,7 +226,7 @@ def test_frame_show_prints_render_plus_newline(capsys) -> None:
 
 def test_semantic_object_list_render_contains_refs_affordance(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
+    result = catalog.list("metric", scope="domain.sales")
     rendered = result.render()
     assert "available:" in rendered
     assert "- result.refs()" in rendered
@@ -259,7 +259,7 @@ def test_datasource_catalog_render_uses_card_listing_shape(
 
 def test_semantic_object_list_available_never_none(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("domain.sales", kind=ms.SemanticKind.METRIC)
+    result = catalog.list("metric", scope="domain.sales")
     # "available: none" should never appear — the available: section lists
     # method entries, never the word "none"
     assert "available: none" not in result.render().lower()

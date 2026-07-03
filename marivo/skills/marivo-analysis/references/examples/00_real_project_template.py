@@ -18,7 +18,7 @@ time_scope = {"start": "2026-05-01", "end": "2026-06-01"}
 grain = "day"
 
 catalog = ms.load()
-available_metric_ids = catalog.list(kind=ms.SemanticKind.METRIC).ids()
+available_metric_ids = catalog.list("metric").ids()
 if metric_id not in available_metric_ids:
     raise SystemExit(
         f"Metric {metric_id!r} was not found. Available metrics: {available_metric_ids}"

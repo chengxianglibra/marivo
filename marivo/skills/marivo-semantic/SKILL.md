@@ -143,9 +143,9 @@ Use `ms.load()` for current semantic state:
 
 ```python
 catalog = ms.load()
-catalog.list().show()
-catalog.list("domain.sales", kind=ms.SemanticKind.METRIC).show()
-catalog.list(kind=ms.SemanticKind.METRIC).show()
+catalog.list("domain").show()
+catalog.list("metric", scope="domain.sales").show()
+catalog.list("metric").show()
 catalog.get("metric.sales.revenue").details().show()
 ```
 

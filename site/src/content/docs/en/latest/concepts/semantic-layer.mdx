@@ -579,8 +579,8 @@ Once declarations are in place, load the catalog and inspect it:
 import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
-catalog.list().show()                     # top-level domains and datasources
-catalog.list(kind=ms.SemanticKind.METRIC).show()        # just metrics
+catalog.list("domain").show()                     # top-level domains
+catalog.list("metric").show()                     # just metrics across all domains
 revenue = catalog.get("metric.sales.revenue")           # one object
 region = catalog.get("dimension.sales.orders.region")      # also an object
 ```
