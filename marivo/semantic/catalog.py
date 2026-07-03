@@ -6,6 +6,7 @@ Public entrypoint: ms.load() -> SemanticCatalog
 from __future__ import annotations
 
 import contextlib
+import difflib
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -639,8 +640,8 @@ class SemanticObject(RenderableResult):
 
     Constraints:
         Business meaning and guardrails live under ``context``. Use
-        ``catalog.list("<kind>.<semantic_id>")`` for hierarchy browsing — SemanticObject
-        does not expose navigation methods.
+        ``catalog.list("<kind>", scope="<kind>.<semantic_id>")`` for hierarchy
+        browsing — SemanticObject does not expose navigation methods.
     """
 
     ref: SemanticRef
@@ -669,6 +670,25 @@ class SemanticObject(RenderableResult):
             the semantic model.
         """
         return self._details.children
+
+    @property
+    def id(self) -> str:
+        """Return the flat semantic id string (equivalent to ``self.ref.id``).
+
+        Returns:
+            The semantic id such as ``"sales.revenue"`` or
+            ``"datasource.warehouse"``.
+
+        Example:
+            >>> obj = catalog.get("metric.sales.revenue")
+            >>> obj.id  # "sales.revenue"
+
+        Constraints:
+            Read-only alias for ``self.ref.id``. Use ``.ref`` when you need
+            the typed ``SemanticRef`` for analysis APIs; use ``.id`` for flat
+            string comparisons and display.
+        """
+        return self.ref.id
 
     def details(self) -> SemanticObjectDetails:
         """Return the typed kind-specific details for this object.
@@ -716,7 +736,7 @@ class SemanticObjectList(RenderableResult):
 
     Example:
         >>> orders = catalog.get("entity.sales.orders")
-        >>> result = catalog.list("entity.sales.orders")
+        >>> result = catalog.list("dimension", scope="entity.sales.orders")
         >>> result.show()
         >>> result.refs()          # tuple[SemanticRef, ...]
         >>> result.objects         # tuple[SemanticObject, ...]
@@ -772,7 +792,8 @@ class SemanticObjectList(RenderableResult):
             items = [obj.ref.id]
             typed_id = _catalog_typed_id(obj.ref.id, obj.kind)
             if str(obj.kind) in _BROWSABLE_PARENT_KINDS:
-                items.append(f'catalog.list("{typed_id}").show()')
+                first_kind = _FIRST_LISTABLE_KIND_UNDER[obj.kind]
+                items.append(f'catalog.list("{first_kind}", scope="{typed_id}").show()')
             else:
                 items.append(f"catalog.get('{typed_id}').details().show()")
             card = card.listing(label=str(obj.kind), items=tuple(items))
@@ -798,6 +819,38 @@ _BROWSABLE_PARENT_KINDS: frozenset[str] = frozenset(
     }
 )
 
+_PLURAL_KIND_NAMES: dict[str, str] = {f"{k.value}s": k.value for k in SymbolKind}
+_PLURAL_KIND_NAMES["entities"] = SymbolKind.ENTITY.value
+
+_SCOPE_SUPPORTED_KINDS: dict[SymbolKind, frozenset[SymbolKind]] = {
+    SymbolKind.DOMAIN: frozenset(
+        {
+            SymbolKind.ENTITY,
+            SymbolKind.METRIC,
+            SymbolKind.MEASURE,
+            SymbolKind.DIMENSION,
+            SymbolKind.TIME_DIMENSION,
+            SymbolKind.RELATIONSHIP,
+        }
+    ),
+    SymbolKind.DATASOURCE: frozenset({SymbolKind.ENTITY, SymbolKind.MEASURE}),
+    SymbolKind.ENTITY: frozenset(
+        {
+            SymbolKind.DIMENSION,
+            SymbolKind.TIME_DIMENSION,
+            SymbolKind.MEASURE,
+            SymbolKind.RELATIONSHIP,
+            SymbolKind.METRIC,
+        }
+    ),
+}
+
+_FIRST_LISTABLE_KIND_UNDER: dict[SymbolKind, str] = {
+    SymbolKind.DOMAIN: "entity",
+    SymbolKind.DATASOURCE: "entity",
+    SymbolKind.ENTITY: "dimension",
+}
+
 
 def _catalog_typed_id(ref_id: str, kind: SemanticKind) -> str:
     if kind == SemanticKind.DATASOURCE:
@@ -806,18 +859,49 @@ def _catalog_typed_id(ref_id: str, kind: SemanticKind) -> str:
 
 
 def _supported_kind_members() -> str:
-    return ", ".join(f"SemanticKind.{kind.name}" for kind in SymbolKind)
+    return ", ".join(f'"{kind.value}"' for kind in SymbolKind)
 
 
-def _validate_kind(kind_input: SemanticKind) -> SemanticKind:
-    if not isinstance(kind_input, SymbolKind):
-        _raise(
-            ErrorKind.UNSUPPORTED_KIND,
-            f"catalog.list(..., kind=...) requires a SemanticKind enum value such as "
-            f"SemanticKind.DIMENSION. Supported values: {_supported_kind_members()}.",
-            cls=SemanticRuntimeError,
-        )
-    return kind_input
+def _closest_kind(value: str) -> str | None:
+    matches = difflib.get_close_matches(value, sorted(_VALID_KINDS), n=1, cutoff=0.6)
+    return matches[0] if matches else None
+
+
+def _coerce_kind(kind_input: SemanticKind | str) -> SemanticKind:
+    if isinstance(kind_input, SymbolKind):
+        return kind_input
+    if isinstance(kind_input, str):
+        if "." in kind_input:
+            prefix, _, _ = kind_input.partition(".")
+            if prefix in _VALID_KINDS:
+                prefix_kind = SymbolKind(prefix)
+                first_kind = _FIRST_LISTABLE_KIND_UNDER.get(prefix_kind, prefix)
+                _raise(
+                    ErrorKind.UNSUPPORTED_KIND,
+                    f"catalog.list(...) kind {kind_input!r} looks like a scope, not a kind. "
+                    f'Use catalog.list("{first_kind}", scope="{kind_input}") to browse under this '
+                    f'object, or catalog.get("{kind_input}") to inspect it directly.',
+                    cls=SemanticRuntimeError,
+                )
+        try:
+            return SymbolKind(kind_input)
+        except ValueError:
+            suggestion = _closest_kind(kind_input)
+            did_you_mean = [f'catalog.list("{suggestion}")'] if suggestion else []
+            _raise(
+                ErrorKind.UNSUPPORTED_KIND,
+                f"catalog.list(...) kind {kind_input!r} is not supported. "
+                f"Valid kinds: {_supported_kind_members()}.",
+                cls=SemanticRuntimeError,
+                details={"did_you_mean": did_you_mean} if did_you_mean else None,
+            )
+    _raise(
+        ErrorKind.UNSUPPORTED_KIND,
+        "catalog.list(...) kind must be a string or SemanticKind enum value. "
+        'Use kind="metric" or ms.SemanticKind.METRIC '
+        "(import marivo.semantic as ms).",
+        cls=SemanticRuntimeError,
+    )
 
 
 def _require_semantic_ref(value: object, *, parameter: str) -> SemanticRef:
@@ -1379,10 +1463,9 @@ class SemanticCatalog:
 
     Example:
         >>> catalog = ms.load()
-        >>> catalog.list().show()
-        >>> catalog.list("domain.sales").show()
-        >>> catalog.list(kind=ms.SemanticKind.METRIC).show()  # all metrics across domains
-        >>> catalog.list("domain.sales", kind=ms.SemanticKind.METRIC).show()
+        >>> catalog.list("domain").show()
+        >>> catalog.list("metric").show()  # all metrics across domains
+        >>> catalog.list("metric", scope="domain.sales").show()
         >>> revenue = catalog.get("metric.sales.revenue")
         >>> revenue.details().additivity
 
@@ -1397,6 +1480,17 @@ class SemanticCatalog:
     def __init__(self, project: SemanticProject) -> None:
         self._project = project
         self._reg = project._registry
+
+    def __getattr__(self, name: str) -> object:
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        singular = _PLURAL_KIND_NAMES.get(name)
+        if singular is not None:
+            raise AttributeError(
+                f"SemanticCatalog has no attribute {name!r}. "
+                f'Use catalog.list("{singular}") to enumerate {singular} objects.'
+            )
+        raise AttributeError(name)
 
     @property
     def semantic_root(self) -> Path:
@@ -1457,51 +1551,48 @@ class SemanticCatalog:
 
     def list(
         self,
-        scope: str | None = None,
+        kind: SemanticKind | str,
         *,
-        kind: SemanticKind | None = None,
+        scope: str | None = None,
     ) -> SemanticObjectList:
-        """Browse the semantic hierarchy under the given typed scope id.
+        """Enumerate every object of ``kind`` within the ``scope`` subtree.
 
         Args:
-            scope: Typed id string of the object to browse under.
-                None returns top-level domains and datasources.
-                A domain id returns entities, metrics, and relationships.
-                An entity id returns dimensions, time dimensions,
-                relationships, and a filtered metric view.
-            kind: Optional kind filter. Accepts only SemanticKind enum values.
-                At the top level (no scope), leaf kinds such as
-                "metric" search across all domains.
+            kind: Semantic kind to enumerate. Accepts the string form
+                (``"metric"``) or the enum (``ms.SemanticKind.METRIC``).
+                The string form is the documented default spelling.
+            scope: Optional typed id ``"<kind>.<semantic_id>"`` that roots
+                the enumeration subtree. None means the whole project.
 
         Returns:
-            SemanticObjectList with .show(), .refs(), and .objects.
+            SemanticObjectList with .show(), .refs(), .objects, and .ids().
 
         Example:
-            >>> catalog.list().show()
-            >>> catalog.list("domain.sales").show()
-            >>> catalog.list("entity.sales.orders", kind=SemanticKind.METRIC).show()
-            >>> catalog.list(kind=SemanticKind.METRIC).show()  # all metrics
+            >>> catalog.list("metric")                             # all metrics
+            >>> catalog.list("domain")                             # all domains
+            >>> catalog.list("dimension", scope="domain.sales")    # dimensions in sales
+            >>> catalog.list("metric", scope="entity.sales.orders")
 
         Constraints:
-            Only '<kind>.<semantic_id>' strings are accepted as scopes. Non-container refs
-            (metric, field, time_dimension, relationship) raise an unsupported-parent error.
+            ``kind`` is required; ``catalog.list()`` with no arguments raises
+            TypeError. The ``kind`` x ``scope`` combination must be structurally
+            supported; unsupported combinations raise a teaching error listing
+            the kinds that are listable under that scope type.
         """
         reg = self._require_ready()
-
-        validated_kind = _validate_kind(kind) if kind is not None else None
+        validated_kind = _coerce_kind(kind)
 
         if scope is None:
             items = self._list_top_level(reg, validated_kind)
             return SemanticObjectList(
                 items=tuple(items),
                 parent_label=None,
-                kind_filter=str(kind) if kind else None,
+                kind_filter=str(validated_kind),
             )
 
         scope_ref = _parse_typed_ref_id(scope, method="list", reg=reg)
         scope_str = scope_ref.id
 
-        # Resolve scope kind from registry and validate the typed ref.
         scope_kind = self._resolve_kind_of(scope_str, reg)
         if scope_kind is None:
             self._raise_not_found(scope_str)
@@ -1510,19 +1601,30 @@ class SemanticCatalog:
             _raise(
                 ErrorKind.NOT_FOUND,
                 f"Semantic object {scope_str!r} is loaded as {scope_kind}, "
-                f"not {scope_ref.kind}. Use catalog.list('{correct_scope}') to browse this object.",
+                f"not {scope_ref.kind}. "
+                f"Use catalog.list({str(scope_kind)!r}, scope={correct_scope!r}).",
                 cls=SemanticRuntimeError,
                 refs=(scope_str,),
             )
 
-        # Guard: only model, datasource, and dataset refs can be browsed
         if str(scope_kind) not in _BROWSABLE_PARENT_KINDS:
             correct_lookup = _catalog_typed_id(scope_str, scope_kind)
             _raise(
                 ErrorKind.UNSUPPORTED_LIST_PARENT,
                 f"Semantic object {scope_str!r} is a {scope_kind} and cannot be used as a "
-                f"catalog list scope. Use catalog.get('{correct_lookup}').details() "
+                f"catalog list scope. Use catalog.get({correct_lookup!r}).details() "
                 "to inspect dependencies.",
+                cls=SemanticRuntimeError,
+                refs=(scope_str,),
+            )
+
+        supported = _SCOPE_SUPPORTED_KINDS.get(scope_kind, frozenset())
+        if validated_kind not in supported:
+            listable = ", ".join(sorted(str(k) for k in supported))
+            _raise(
+                ErrorKind.UNSUPPORTED_KIND,
+                f"catalog.list({str(validated_kind)!r}, scope={scope!r}) is not supported. "
+                f"Under a {scope_kind} scope, listable kinds are: {listable}.",
                 cls=SemanticRuntimeError,
                 refs=(scope_str,),
             )
@@ -1537,40 +1639,40 @@ class SemanticCatalog:
         return SemanticObjectList(
             items=tuple(items),
             parent_label=scope_str,
-            kind_filter=str(kind) if kind else None,
+            kind_filter=str(validated_kind),
         )
 
     def _list_top_level(
         self,
         reg: Registry,
-        kind_filter: SemanticKind | None,
+        kind_filter: SemanticKind,
     ) -> _ListOfSemanticObject:
         items: list[SemanticObject] = []
-        if kind_filter is None or kind_filter == SemanticKind.DOMAIN:
+        if kind_filter == SemanticKind.DOMAIN:
             for model_ir in reg.domains.values():
                 items.append(_build_domain_object(model_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.DATASOURCE:
+        elif kind_filter == SemanticKind.DATASOURCE:
             datasource_irs = self._project._datasource_irs or tuple(reg.datasources.values())
             for ds_ir in datasource_irs:
                 items.append(_build_datasource_object(ds_ir, reg))
-        if kind_filter == SemanticKind.ENTITY:
+        elif kind_filter == SemanticKind.ENTITY:
             for entity_ir in reg.entities.values():
                 items.append(_build_entity_object(entity_ir, reg))
-        if kind_filter == SemanticKind.DIMENSION:
+        elif kind_filter == SemanticKind.DIMENSION:
             for f_ir in reg.dimensions.values():
                 if not f_ir.is_time_dimension:
                     items.append(_build_dimension_object(f_ir, reg))
-        if kind_filter == SemanticKind.TIME_DIMENSION:
+        elif kind_filter == SemanticKind.TIME_DIMENSION:
             for f_ir in reg.dimensions.values():
                 if f_ir.is_time_dimension:
                     items.append(_build_dimension_object(f_ir, reg))
-        if kind_filter == SemanticKind.METRIC:
+        elif kind_filter == SemanticKind.METRIC:
             for m_ir in reg.metrics.values():
                 items.append(_build_metric_object(m_ir, reg, self._project))
-        if kind_filter == SemanticKind.RELATIONSHIP:
+        elif kind_filter == SemanticKind.RELATIONSHIP:
             for r_ir in reg.relationships.values():
                 items.append(_build_relationship_object(r_ir, reg))
-        if kind_filter == SemanticKind.MEASURE:
+        elif kind_filter == SemanticKind.MEASURE:
             for meas_ir in reg.measures.values():
                 items.append(_build_measure_object(meas_ir, reg))
         return items
@@ -1579,30 +1681,30 @@ class SemanticCatalog:
         self,
         model_name: str,
         reg: Registry,
-        kind_filter: SemanticKind | None,
+        kind_filter: SemanticKind,
     ) -> _ListOfSemanticObject:
         items: list[SemanticObject] = []
-        if kind_filter is None or kind_filter == SemanticKind.ENTITY:
+        if kind_filter == SemanticKind.ENTITY:
             for ds_ir in reg.entities.values():
                 if ds_ir.domain == model_name:
                     items.append(_build_entity_object(ds_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.METRIC:
+        elif kind_filter == SemanticKind.METRIC:
             for m_ir in reg.metrics.values():
                 if m_ir.domain == model_name:
                     items.append(_build_metric_object(m_ir, reg, self._project))
-        if kind_filter is None or kind_filter == SemanticKind.RELATIONSHIP:
+        elif kind_filter == SemanticKind.RELATIONSHIP:
             for r_ir in reg.relationships.values():
                 if r_ir.domain == model_name:
                     items.append(_build_relationship_object(r_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.MEASURE:
+        elif kind_filter == SemanticKind.MEASURE:
             for meas_ir in reg.measures.values():
                 if meas_ir.domain == model_name:
                     items.append(_build_measure_object(meas_ir, reg))
-        if kind_filter == SemanticKind.DIMENSION:
+        elif kind_filter == SemanticKind.DIMENSION:
             for f_ir in reg.dimensions.values():
                 if f_ir.domain == model_name and not f_ir.is_time_dimension:
                     items.append(_build_dimension_object(f_ir, reg))
-        if kind_filter == SemanticKind.TIME_DIMENSION:
+        elif kind_filter == SemanticKind.TIME_DIMENSION:
             for f_ir in reg.dimensions.values():
                 if f_ir.domain == model_name and f_ir.is_time_dimension:
                     items.append(_build_dimension_object(f_ir, reg))
@@ -1612,15 +1714,15 @@ class SemanticCatalog:
         self,
         datasource_ref: str,
         reg: Registry,
-        kind_filter: SemanticKind | None,
+        kind_filter: SemanticKind,
     ) -> _ListOfSemanticObject:
         datasource = DatasourceRef.from_id(datasource_ref)
         items: list[SemanticObject] = []
-        if kind_filter is None or kind_filter == SemanticKind.ENTITY:
+        if kind_filter == SemanticKind.ENTITY:
             for ds_ir in reg.entities.values():
                 if DatasourceRef.from_id(ds_ir.datasource) == datasource:
                     items.append(_build_entity_object(ds_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.MEASURE:
+        elif kind_filter == SemanticKind.MEASURE:
             entity_ids_for_datasource = {
                 e.semantic_id
                 for e in reg.entities.values()
@@ -1635,26 +1737,26 @@ class SemanticCatalog:
         self,
         dataset_ref: str,
         reg: Registry,
-        kind_filter: SemanticKind | None,
+        kind_filter: SemanticKind,
     ) -> _ListOfSemanticObject:
         items: list[SemanticObject] = []
-        if kind_filter is None or kind_filter == SemanticKind.DIMENSION:
+        if kind_filter == SemanticKind.DIMENSION:
             for f_ir in reg.dimensions.values():
                 if f_ir.entity == dataset_ref and not f_ir.is_time_dimension:
                     items.append(_build_dimension_object(f_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.TIME_DIMENSION:
+        elif kind_filter == SemanticKind.TIME_DIMENSION:
             for f_ir in reg.dimensions.values():
                 if f_ir.entity == dataset_ref and f_ir.is_time_dimension:
                     items.append(_build_dimension_object(f_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.MEASURE:
+        elif kind_filter == SemanticKind.MEASURE:
             for meas_ir in reg.measures.values():
                 if meas_ir.entity == dataset_ref:
                     items.append(_build_measure_object(meas_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.RELATIONSHIP:
+        elif kind_filter == SemanticKind.RELATIONSHIP:
             for r_ir in reg.relationships.values():
                 if r_ir.from_entity == dataset_ref or r_ir.to_entity == dataset_ref:
                     items.append(_build_relationship_object(r_ir, reg))
-        if kind_filter is None or kind_filter == SemanticKind.METRIC:
+        elif kind_filter == SemanticKind.METRIC:
             seen: set[str] = set()
             for m_ir in reg.metrics.values():
                 if dataset_ref in m_ir.entities and m_ir.semantic_id not in seen:
@@ -1692,7 +1794,8 @@ class SemanticCatalog:
                 f"Semantic object {ref_str!r} was not found. "
                 "`catalog.get(...)` requires '<kind>.<semantic_id>' such as "
                 "'metric.sales.revenue'.\n"
-                "Use catalog.list().show(), then catalog.list('domain.<name>').show() "
+                "Use catalog.list('domain').show() and "
+                "catalog.list('<kind>', scope='<kind>.<semantic_id>').show() "
                 "to browse object refs."
             )
         _raise(
@@ -1728,8 +1831,8 @@ class SemanticCatalog:
             guidance = (
                 suggestion
                 if suggestion is not None
-                else "Use catalog.list().show() or "
-                "catalog.list('<kind>.<semantic_id>', kind=SemanticKind.<KIND>).show() "
+                else "Use catalog.list('<kind>').show() or "
+                "catalog.list('<kind>', scope='<kind>.<semantic_id>').show() "
                 "to browse object refs."
             )
             _raise(
@@ -2078,9 +2181,9 @@ def load(
     Example:
         >>> import marivo.semantic as ms
         >>> catalog = ms.load()
-        >>> catalog.list().show()
+        >>> catalog.list("domain").show()
         >>> catalog = ms.load(domains=["sales"])
-        >>> catalog.list().show()
+        >>> catalog.list("domain").show()
 
     Constraints:
         Raises a typed load error on failure. Does not return a partial catalog.

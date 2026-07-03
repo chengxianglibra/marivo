@@ -32,7 +32,7 @@ _TEMPLATE_REQUIRED_SNIPPETS = (
     "marivo.semantic",
     "marivo.analysis",
     "ms.load()",
-    "catalog.list(kind=ms.SemanticKind.METRIC).ids()",
+    'catalog.list("metric").ids()',
     "mv.session.get_or_create(",
     "default_calendar=",
     "session.observe(",

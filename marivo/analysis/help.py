@@ -1024,7 +1024,7 @@ def _help_catalog_ref(
             ErrorKind.INVALID_REF,
             (
                 f"{ref.kind} {ref.id!r} not found in loaded project. "
-                "Call catalog.list(kind=ms.SemanticKind.METRIC).ids() to see available ids."
+                'Call catalog.list("metric").ids() to see available ids.'
             ),
             cls=SemanticRuntimeError,
         )
@@ -1056,7 +1056,7 @@ def _semantic_ir_help_lines(ir: object, *, kind: str) -> list[str]:
                 lines.append(f"  - {ex}")
     lines.append("")
     lines.append(
-        "use: catalog.list(kind=ms.SemanticKind.METRIC).ids() to enumerate; "
+        'use: catalog.list("metric").ids() to enumerate; '
         f"pass catalog.get('{kind}.{semantic_id}') to session.observe(...)"
     )
     return lines

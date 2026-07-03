@@ -157,7 +157,7 @@ ms.help("entity")
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.list().show()
+catalog.list("domain").show()
 
 report = catalog.readiness()
 if report.status == "blocked":

@@ -29,7 +29,6 @@ from unittest.mock import patch
 import ibis
 import pytest
 
-from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticParityError
 from marivo.semantic.ir import ParityStatus
 from marivo.semantic.parity import propagated_parity_status
@@ -733,7 +732,7 @@ def test_catalog_metric_details_reflect_parity_status(
     catalog = SemanticCatalog(project)
 
     # Before parity check: UNVERIFIED
-    metrics = catalog.list("domain.sales", kind=SemanticKind.METRIC).objects
+    metrics = catalog.list("metric", scope="domain.sales").objects
     assert any(metric.ref.id == "sales.total_amount" for metric in metrics)
     details = catalog.get("metric.sales.total_amount").details()
     assert isinstance(details, MetricDetails)

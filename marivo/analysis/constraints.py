@@ -79,7 +79,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("observe", "SemanticObject"),
         "Observed metrics must resolve to a registered semantic metric.",
         "Analysis frames are materialized from semantic metric ids; unresolved ids cannot produce SQL.",
-        "Use session.catalog.get('metric.<model.metric>') and confirm the id with session.catalog.list(...).",
+        "Use session.catalog.get('metric.<model.metric>') and confirm the id with session.catalog.list(\"metric\").ids().",
         example=f"{_EXAMPLE_BASE}/01_observe_single_window.py",
         docs_ref=_PITFALLS,
     ),

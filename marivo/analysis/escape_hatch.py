@@ -175,14 +175,12 @@ def _validate_metric_in_catalog(
 def _catalog_metric_ids(catalog: Any) -> set[str]:
     ids: set[str] = set()
     try:
-        domains = list(catalog.list(kind=CatalogSemanticKind.DOMAIN))
+        domains = list(catalog.list("domain"))
     except Exception:
         return ids
     for domain in domains:
         try:
-            ids.update(
-                catalog.list(f"domain.{domain.ref.id}", kind=CatalogSemanticKind.METRIC).ids()
-            )
+            ids.update(catalog.list("metric", scope=f"domain.{domain.ref.id}").ids())
         except Exception:
             continue
     return ids

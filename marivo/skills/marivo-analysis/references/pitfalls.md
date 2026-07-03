@@ -126,7 +126,7 @@ catalog and re-derive with a defined metric id:
 ```python
 import marivo.semantic as ms
 catalog = ms.load()
-catalog.list(kind=ms.SemanticKind.METRIC).show()
+catalog.list("metric").show()
 ```
 
 ## No active session
@@ -241,7 +241,7 @@ MetricNotFoundError: metric 'sales.revenu' not found
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.list(kind=ms.SemanticKind.METRIC)
+catalog.list("metric")
 cur = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2026-07-01", "end": "2026-10-01"})
 ```
 

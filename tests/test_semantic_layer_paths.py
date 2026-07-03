@@ -263,7 +263,8 @@ def test_ms_load_reads_local_and_external_models_roots(tmp_path: Path) -> None:
     project_root, _ = _write_project_with_external_layer(tmp_path)
 
     catalog = ms.load(workspace_dir=project_root)
-    top_level_refs = {obj.ref.id for obj in catalog.list().objects}
+    top_level_refs = {obj.ref.id for obj in catalog.list("domain").objects}
+    top_level_refs |= {obj.ref.id for obj in catalog.list("datasource").objects}
 
     assert {
         "sales",
@@ -281,7 +282,7 @@ def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> N
     project_root, _ = _write_project_with_external_layer(tmp_path)
 
     catalog = ms.load(workspace_dir=project_root, domains=["finance"])
-    top_level_refs = {obj.ref.id for obj in catalog.list().objects}
+    top_level_refs = {obj.ref.id for obj in catalog.list("domain").objects}
 
     assert "finance" in top_level_refs
     assert "sales" not in top_level_refs

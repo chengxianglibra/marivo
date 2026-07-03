@@ -513,9 +513,7 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
 
     catalog = SemanticCatalog(project)
     domain = catalog.get("domain.sales")
-    metric_ids = [
-        ref.id for ref in catalog.list(f"domain.{domain.ref.id}", kind=SemanticKind.METRIC).refs()
-    ]
+    metric_ids = [ref.id for ref in catalog.list("metric", scope=f"domain.{domain.ref.id}").refs()]
     if not metric_ids:
         pytest.skip("no metrics in fixture")
     ref = make_ref(metric_ids[0], SemanticKind.METRIC)

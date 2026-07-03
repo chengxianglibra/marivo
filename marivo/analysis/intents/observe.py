@@ -211,7 +211,7 @@ def _fields_for_entity(
 ) -> list[DimensionDetails | TimeDimensionDetails]:
     fields: list[DimensionDetails | TimeDimensionDetails] = []
     for kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-        for obj in catalog.list(f"entity.{entity_ref}", kind=kind):
+        for obj in catalog.list(str(kind), scope=f"entity.{entity_ref}"):
             details = obj.details()
             if isinstance(details, (DimensionDetails, TimeDimensionDetails)):
                 fields.append(details)
@@ -1724,8 +1724,8 @@ def observe(
         # across any entity they reference.
         all_entity_refs = {
             obj.ref.id
-            for domain in catalog.list(kind=SemanticKind.DOMAIN)
-            for obj in catalog.list(f"domain.{domain.ref.id}", kind=SemanticKind.ENTITY)
+            for domain in catalog.list("domain")
+            for obj in catalog.list("entity", scope=f"domain.{domain.ref.id}")
         }
         _, _, all_dataset_irs, all_dataset_fns = _entity_adapter_maps(
             catalog=catalog,
