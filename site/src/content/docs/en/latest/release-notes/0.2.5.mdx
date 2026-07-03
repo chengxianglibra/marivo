@@ -1,0 +1,73 @@
+---
+slug: en/latest/release-notes/0.2.5
+title: Marivo 0.2.5
+description: Release notes for Marivo 0.2.5.
+---
+
+Marivo 0.2.5 is a v0.2 patch release for agent-facing semantic authoring,
+catalog browsing, and local runtime observability. It narrows the semantic
+surface around project-local files, makes catalog traversal more direct, and
+removes the old decision ledger from the public contract.
+
+## Highlights
+
+- Semantic projects can now load multiple layer roots from `layer_paths`, so
+  teams can split datasource, domain, and metric declarations across several
+  files without flattening them into one module.
+- The semantic decision ledger has been removed from the public surface.
+  Readiness and verification now focus on declared semantic objects and source
+  evidence instead of a separate internal decision log.
+- `catalog.list()` now follows a kind-first browsing model with bounded output,
+  explicit drill-down keys, and agent-facing help that points to concrete next
+  calls.
+- Local usage telemetry is now recorded project-locally so CLI and runtime
+  usage can be inspected without sending data to an external service.
+
+## Changed
+
+- Catalog discovery output is organized around kinds such as datasources,
+  domains, entities, dimensions, measures, metrics, and relationships.
+- Semantic loader and reader behavior now treats configured layer roots as the
+  project contract and fails closed on ambiguous names.
+- Agent help and bundled semantic/analysis skills now route authors through the
+  current help, discovery, verification, and catalog-browsing surfaces.
+
+## Fixed
+
+- Scalar row-count quality checks no longer emit noisy warnings for valid
+  single-row aggregate outputs.
+- Analysis error rendering and frame guidance were tightened around the current
+  semantic-input contract.
+
+## Documentation
+
+- Added design notes for multi-root semantic projects and kind-first catalog
+  browsing.
+- Updated the `latest` and `v0.2` installation, quick start, semantic-layer,
+  and readiness documentation for the current semantic project model.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.5 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/latest/installation/)
+- [Quick Start](/en/latest/quick-start/)
+- [Semantic Layer](/en/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/)
