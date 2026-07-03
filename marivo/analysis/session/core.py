@@ -44,6 +44,25 @@ if TYPE_CHECKING:
 SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
 
+def _track_session_operation(
+    session: object,
+    event_name: str,
+    *,
+    family: str,
+    intent: str,
+    attributes: dict[str, str | int | float | bool] | None = None,
+) -> Any:
+    from marivo.telemetry import track_operation
+
+    return track_operation(
+        event_name,
+        family=family,
+        intent=intent,
+        session=session,
+        attributes=attributes,
+    )
+
+
 @dataclass(frozen=True, repr=False)
 class JobSummary(RenderableResult):
     id: str
@@ -486,16 +505,23 @@ class Session:
         """
         from marivo.analysis.intents.observe import observe
 
-        return observe(
-            metric,
-            time_scope=time_scope,
-            grain=grain,
-            dimensions=dimensions,
-            slice_by=slice_by,
-            time_dimension=time_dimension,
-            expect_shape=expect_shape,
-            session=self,
-        )
+        with _track_session_operation(
+            self,
+            "marivo.analysis.observe",
+            family="core",
+            intent="observe",
+            attributes={"marivo.analysis.dimension_count": len(dimensions or [])},
+        ):
+            return observe(
+                metric,
+                time_scope=time_scope,
+                grain=grain,
+                dimensions=dimensions,
+                slice_by=slice_by,
+                time_dimension=time_dimension,
+                expect_shape=expect_shape,
+                session=self,
+            )
 
     def derive_metric_frame(
         self,
@@ -529,15 +555,22 @@ class Session:
             raise TypeError("derive_metric_frame query must be mv.ibis_query(...)")
         if not isinstance(columns, MetricColumns):
             raise TypeError("derive_metric_frame columns must be mv.metric_columns(...)")
-        return derive_metric_frame(
-            metric=metric,
-            query=query,
-            columns=columns,
-            time_scope=time_scope,
-            grain=grain,
-            label=label,
-            session=self,
-        )
+        with _track_session_operation(
+            self,
+            "marivo.analysis.derive_metric_frame",
+            family="core",
+            intent="derive_metric_frame",
+            attributes={"marivo.analysis.dimension_count": len(columns.dimensions)},
+        ):
+            return derive_metric_frame(
+                metric=metric,
+                query=query,
+                columns=columns,
+                time_scope=time_scope,
+                grain=grain,
+                label=label,
+                session=self,
+            )
 
     def compare(
         self,
@@ -575,7 +608,20 @@ class Session:
         """
         from marivo.analysis.intents.compare import compare
 
-        return compare(current, baseline, alignment=alignment, session=self)
+        semantic_kind = getattr(current.meta, "semantic_kind", None)
+        attrs: dict[str, str | int | float | bool] | None = (
+            {"marivo.analysis.semantic_kind": semantic_kind}
+            if isinstance(semantic_kind, str)
+            else None
+        )
+        with _track_session_operation(
+            self,
+            "marivo.analysis.compare",
+            family="core",
+            intent="compare",
+            attributes=attrs,
+        ):
+            return compare(current, baseline, alignment=alignment, session=self)
 
     def attribute(
         self,
@@ -613,7 +659,18 @@ class Session:
         """
         from marivo.analysis.intents.attribute import attribute
 
-        return attribute(frame, axes=axes, session=self)
+        semantic_kind = getattr(frame.meta, "semantic_kind", None)
+        attrs: dict[str, str | int | float | bool] = {"marivo.analysis.axis_count": len(axes)}
+        if isinstance(semantic_kind, str):
+            attrs["marivo.analysis.semantic_kind"] = semantic_kind
+        with _track_session_operation(
+            self,
+            "marivo.analysis.attribute",
+            family="core",
+            intent="attribute",
+            attributes=attrs,
+        ):
+            return attribute(frame, axes=axes, session=self)
 
     def correlate(
         self,
@@ -655,15 +712,28 @@ class Session:
         """
         from marivo.analysis.intents.correlate import correlate
 
-        return correlate(
-            a,
-            b,
-            measure_a=measure_a,
-            measure_b=measure_b,
-            alignment=alignment,
-            method=method,
-            session=self,
+        semantic_kind = getattr(a.meta, "semantic_kind", None)
+        attrs: dict[str, str | int | float | bool] | None = (
+            {"marivo.analysis.semantic_kind": semantic_kind}
+            if isinstance(semantic_kind, str)
+            else None
         )
+        with _track_session_operation(
+            self,
+            "marivo.analysis.correlate",
+            family="core",
+            intent="correlate",
+            attributes=attrs,
+        ):
+            return correlate(
+                a,
+                b,
+                measure_a=measure_a,
+                measure_b=measure_b,
+                alignment=alignment,
+                method=method,
+                session=self,
+            )
 
     def forecast(
         self,
@@ -710,15 +780,29 @@ class Session:
         """
         from marivo.analysis.intents.forecast import forecast
 
-        return forecast(
-            history,
-            horizon=horizon,
-            model=model,
-            seasonality_period=seasonality_period,
-            interval_level=interval_level,
-            measure_column=measure_column,
-            session=self,
-        )
+        semantic_kind = getattr(history.meta, "semantic_kind", None)
+        attrs: dict[str, str | int | float | bool] = {
+            "marivo.analysis.horizon": horizon,
+            "marivo.analysis.forecast_model": model,
+        }
+        if isinstance(semantic_kind, str):
+            attrs["marivo.analysis.semantic_kind"] = semantic_kind
+        with _track_session_operation(
+            self,
+            "marivo.analysis.forecast",
+            family="core",
+            intent="forecast",
+            attributes=attrs,
+        ):
+            return forecast(
+                history,
+                horizon=horizon,
+                model=model,
+                seasonality_period=seasonality_period,
+                interval_level=interval_level,
+                measure_column=measure_column,
+                session=self,
+            )
 
     def assess_quality(self, frame: BaseFrame) -> QualityReport:
         """Run quality checks over a MetricFrame and return a structured report.
@@ -744,7 +828,13 @@ class Session:
         """
         from marivo.analysis.intents.assess_quality import assess_quality
 
-        return assess_quality(frame, session=self)
+        with _track_session_operation(
+            self,
+            "marivo.analysis.assess_quality",
+            family="core",
+            intent="assess_quality",
+        ):
+            return assess_quality(frame, session=self)
 
     def hypothesis_test(
         self,
@@ -792,17 +882,30 @@ class Session:
         """
         from marivo.analysis.intents.hypothesis_test import hypothesis_test
 
-        return hypothesis_test(
-            a,
-            b,
-            hypothesis=hypothesis,
-            value_a=value_a,
-            value_b=value_b,
-            alignment=alignment,
-            sampling=sampling,
-            alpha=alpha,
-            session=self,
+        semantic_kind = getattr(a.meta, "semantic_kind", None)
+        attrs: dict[str, str | int | float | bool] | None = (
+            {"marivo.analysis.semantic_kind": semantic_kind}
+            if isinstance(semantic_kind, str)
+            else None
         )
+        with _track_session_operation(
+            self,
+            "marivo.analysis.hypothesis_test",
+            family="core",
+            intent="hypothesis_test",
+            attributes=attrs,
+        ):
+            return hypothesis_test(
+                a,
+                b,
+                hypothesis=hypothesis,
+                value_a=value_a,
+                value_b=value_b,
+                alignment=alignment,
+                sampling=sampling,
+                alpha=alpha,
+                session=self,
+            )
 
 
 def ensure_session_can_execute(session: Session) -> None:
@@ -843,12 +946,18 @@ class SessionDiscoverNamespace:
         """
         from marivo.analysis.intents.discover import discover
 
-        return discover.point_anomalies(
-            source,
-            value=value,
-            threshold=threshold,
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.discover.point_anomalies",
+            family="discover",
+            intent="point_anomalies",
+        ):
+            return discover.point_anomalies(
+                source,
+                value=value,
+                threshold=threshold,
+                session=self._session,
+            )
 
     def period_shifts(
         self,
@@ -866,12 +975,18 @@ class SessionDiscoverNamespace:
         """
         from marivo.analysis.intents.discover import discover
 
-        return discover.period_shifts(
-            source,
-            value=value,
-            threshold=threshold,
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.discover.period_shifts",
+            family="discover",
+            intent="period_shifts",
+        ):
+            return discover.period_shifts(
+                source,
+                value=value,
+                threshold=threshold,
+                session=self._session,
+            )
 
     def driver_axes(
         self,
@@ -888,13 +1003,20 @@ class SessionDiscoverNamespace:
         """
         from marivo.analysis.intents.discover import discover
 
-        return discover.driver_axes(
-            source,
-            search_space=search_space,
-            value=value,
-            limit=limit,
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.discover.driver_axes",
+            family="discover",
+            intent="driver_axes",
+            attributes={"marivo.analysis.search_space_count": len(search_space)},
+        ):
+            return discover.driver_axes(
+                source,
+                search_space=search_space,
+                value=value,
+                limit=limit,
+                session=self._session,
+            )
 
     def interesting_slices(
         self,
@@ -914,14 +1036,21 @@ class SessionDiscoverNamespace:
         """
         from marivo.analysis.intents.discover import discover
 
-        return discover.interesting_slices(
-            source,
-            search_space=search_space,
-            value=value,
-            threshold=threshold,
-            limit=limit,
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.discover.interesting_slices",
+            family="discover",
+            intent="interesting_slices",
+            attributes={"marivo.analysis.search_space_count": len(search_space or [])},
+        ):
+            return discover.interesting_slices(
+                source,
+                search_space=search_space,
+                value=value,
+                threshold=threshold,
+                limit=limit,
+                session=self._session,
+            )
 
     def interesting_windows(
         self,
@@ -938,12 +1067,18 @@ class SessionDiscoverNamespace:
         """
         from marivo.analysis.intents.discover import discover
 
-        return discover.interesting_windows(
-            source,
-            value=value,
-            threshold=threshold,
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.discover.interesting_windows",
+            family="discover",
+            intent="interesting_windows",
+        ):
+            return discover.interesting_windows(
+                source,
+                value=value,
+                threshold=threshold,
+                session=self._session,
+            )
 
     def cross_sectional_outliers(
         self,
@@ -963,13 +1098,20 @@ class SessionDiscoverNamespace:
         """
         from marivo.analysis.intents.discover import discover
 
-        return discover.cross_sectional_outliers(
-            source,
-            peer_scope=peer_scope,
-            value=value,
-            threshold=threshold,
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.discover.cross_sectional_outliers",
+            family="discover",
+            intent="cross_sectional_outliers",
+            attributes={"marivo.analysis.peer_scope_count": len(peer_scope or [])},
+        ):
+            return discover.cross_sectional_outliers(
+                source,
+                peer_scope=peer_scope,
+                value=value,
+                threshold=threshold,
+                session=self._session,
+            )
 
 
 @dataclass(frozen=True)
@@ -986,7 +1128,13 @@ class SessionTransformNamespace:
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.filter(frame, predicate=predicate, session=self._session)
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.transform.filter",
+            family="transform",
+            intent="filter",
+        ):
+            return transform.filter(frame, predicate=predicate, session=self._session)
 
     def slice(
         self, frame: object, *, slice_by: dict[DimensionInput, Any]
@@ -998,7 +1146,14 @@ class SessionTransformNamespace:
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.slice(frame, slice_by=slice_by, session=self._session)
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.transform.slice",
+            family="transform",
+            intent="slice",
+            attributes={"marivo.analysis.slice_count": len(slice_by)},
+        ):
+            return transform.slice(frame, slice_by=slice_by, session=self._session)
 
     def rollup(self, frame: object, *, drop_axes: list[DimensionInput]) -> MetricFrame | DeltaFrame:
         """Aggregate to coarser segments by dropping axes.
@@ -1008,7 +1163,14 @@ class SessionTransformNamespace:
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.rollup(frame, drop_axes=drop_axes, session=self._session)
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.transform.rollup",
+            family="transform",
+            intent="rollup",
+            attributes={"marivo.analysis.axis_count": len(drop_axes)},
+        ):
+            return transform.rollup(frame, drop_axes=drop_axes, session=self._session)
 
     def topk(
         self,
@@ -1025,13 +1187,20 @@ class SessionTransformNamespace:
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.topk(
-            frame,
-            by=by,
-            limit=limit,
-            order=cast("Any", order),
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.transform.topk",
+            family="transform",
+            intent="topk",
+            attributes={"marivo.analysis.limit": limit},
+        ):
+            return transform.topk(
+                frame,
+                by=by,
+                limit=limit,
+                order=cast("Any", order),
+                session=self._session,
+            )
 
     def bottomk(self, frame: object, *, by: str, limit: int) -> MetricFrame | DeltaFrame:
         """Keep the bottom N rows ranked by a measure column.
@@ -1041,7 +1210,14 @@ class SessionTransformNamespace:
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.bottomk(frame, by=by, limit=limit, session=self._session)
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.transform.bottomk",
+            family="transform",
+            intent="bottomk",
+            attributes={"marivo.analysis.limit": limit},
+        ):
+            return transform.bottomk(frame, by=by, limit=limit, session=self._session)
 
     def rank(
         self,
@@ -1058,13 +1234,19 @@ class SessionTransformNamespace:
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.rank(
-            frame,
-            by=by,
-            method=cast("Any", method),
-            rank_column=rank_column,
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.transform.rank",
+            family="transform",
+            intent="rank",
+        ):
+            return transform.rank(
+                frame,
+                by=by,
+                method=cast("Any", method),
+                rank_column=rank_column,
+                session=self._session,
+            )
 
     def normalize(
         self,
@@ -1081,12 +1263,19 @@ class SessionTransformNamespace:
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.normalize(
-            frame,
-            mode=mode,
-            baseline=baseline,
-            session=self._session,
-        )
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.transform.normalize",
+            family="transform",
+            intent="normalize",
+            attributes={"marivo.analysis.normalize_mode": str(mode)},
+        ):
+            return transform.normalize(
+                frame,
+                mode=mode,
+                baseline=baseline,
+                session=self._session,
+            )
 
     def window(self, frame: object, *, window: object) -> MetricFrame | DeltaFrame:
         """Restrict a frame to a time window.
@@ -1097,7 +1286,13 @@ class SessionTransformNamespace:
         """
         from marivo.analysis.intents.transform import transform
 
-        return transform.window(frame, window=window, session=self._session)
+        with _track_session_operation(
+            self._session,
+            "marivo.analysis.transform.window",
+            family="transform",
+            intent="window",
+        ):
+            return transform.window(frame, window=window, session=self._session)
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,8 @@ import math
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal, cast
+from functools import wraps
+from typing import TYPE_CHECKING, Any, Literal, ParamSpec, TypeVar, cast
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype, is_object_dtype
@@ -44,6 +45,32 @@ if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
 
 SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _instrument_escape_hatch(intent: str) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
+    event_name = f"marivo.analysis.escape_hatch.{intent}"
+
+    def decorator(func: Callable[_P, _R]) -> Callable[_P, _R]:
+        @wraps(func)
+        def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+            kwargs_dict = cast("dict[str, Any]", kwargs)
+            resolved_session = _resolve_session(cast("Session | None", kwargs_dict.get("session")))
+            kwargs_dict["session"] = resolved_session
+            from marivo.telemetry import track_operation
+
+            with track_operation(
+                event_name,
+                family="escape_hatch",
+                intent=intent,
+                session=resolved_session,
+            ):
+                return func(*args, **kwargs_dict)
+
+        return wrapper
+
+    return decorator
 
 
 def _resolve_session(session: Session | None) -> Session:
@@ -541,6 +568,7 @@ def _validate_axis_collisions(
         )
 
 
+@_instrument_escape_hatch("from_pandas")
 def from_pandas(
     df: pd.DataFrame,
     *,
@@ -588,6 +616,7 @@ def from_pandas(
     return scratch
 
 
+@_instrument_escape_hatch("explore_ibis")
 def explore_ibis(
     query_builder: Callable[[Any], Any],
     *,
@@ -661,6 +690,7 @@ def explore_ibis(
     return scratch
 
 
+@_instrument_escape_hatch("promote_metric_frame")
 def promote_metric_frame(
     source: ExplorationResult | pd.DataFrame,
     *,
@@ -820,6 +850,7 @@ def promote_metric_frame(
     return frame
 
 
+@_instrument_escape_hatch("promote_delta_frame")
 def promote_delta_frame(
     source: ExplorationResult | pd.DataFrame,
     *,
@@ -1047,6 +1078,7 @@ def promote_delta_frame(
     return frame
 
 
+@_instrument_escape_hatch("promote_attribution_frame")
 def promote_attribution_frame(
     source: ExplorationResult | pd.DataFrame,
     *,
