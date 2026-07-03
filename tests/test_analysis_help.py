@@ -378,6 +378,23 @@ def test_help_agent_surface_topic_teaches_phase3_boundaries() -> None:
     assert "decompose" not in rendered
 
 
+def test_help_agent_surface_topic_includes_catalog_discovery() -> None:
+    result = _json_data("agent_surface")
+    content = cast("dict[str, Any]", result["content"])
+    discovery = cast("list[str]", content["catalog_discovery"])
+    assert discovery, "catalog_discovery must be a non-empty list of example calls"
+    joined = "\n".join(discovery)
+
+    assert 'catalog.list("metric")' in joined
+    assert 'catalog.list("dimension"' in joined
+    assert 'catalog.get("metric.' in joined
+
+    rendered = _capture("agent_surface")
+    assert 'catalog.list("metric")' in rendered
+    assert 'catalog.get("metric.' in rendered
+    assert "observe" in rendered
+
+
 def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:
     result = _json_data("MetricFrame")
 

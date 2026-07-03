@@ -500,6 +500,11 @@ def _observe_text(content: dict[str, object]) -> str:
 def _agent_surface_content() -> dict[str, object]:
     return {
         "summary": "Phase 3 default agent-facing analysis surface.",
+        "catalog_discovery": [
+            'session.catalog.list("metric").show()',
+            'session.catalog.list("dimension", scope="domain.sales").show()',
+            'session.catalog.get("metric.sales.revenue")',
+        ],
         "core_operators": [
             {"operator": "observe", "output": "MetricFrame"},
             {"operator": "compare", "output": "DeltaFrame"},
@@ -553,7 +558,11 @@ def _agent_surface_content() -> dict[str, object]:
 
 def _agent_surface_text(content: dict[str, object]) -> str:
     core = cast("list[dict[str, str]]", content["core_operators"])
-    lines = ["Default agent-facing operators:", ""]
+    discovery = cast("list[str]", content["catalog_discovery"])
+    lines = ["Catalog discovery (before observe):"]
+    for step in discovery:
+        lines.append(f"  {step}")
+    lines.extend(("", "Default agent-facing operators:", ""))
     for item in core:
         lines.append(f"  session.{item['operator']:<24}-> {item['output']}")
     lines.extend(("", "Base artifact protocol:"))
