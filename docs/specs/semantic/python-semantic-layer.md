@@ -452,7 +452,7 @@ hh = ms.time_dimension_column(
 - 需要作为时间窗口、时间粒度或 calendar axis 使用的维度必须声明为 `time_dimension`。
 - 普通 `dimension` 不应靠名称如 `dt`、`date`、`event_time` 被自动推断为时间维度。
 - `parse` 可省略（此时从列的 ibis dtype 自动推断 parse 变体）。原生 `date`、`datetime`、`timestamp` 列无需显式指定 parse；`string` 或 `integer` 列必须提供 `ms.strptime(format)` 或 `ms.hour_prefix(prefix)`。
-- `ms.strptime(format)` 的 `format` 必须是 Python strptime 格式串（`%` 前缀），例如 `"%Y%m%d"`、`"%Y-%m-%d"`、`"%Y%m%d%H"`、`"%Y-%m-%d %H:%M:%S"`。格式串原样传给 backend 的 `date_parse`，作者需按目标 backend 语义书写（参见下一节 `%M` 与 `%i` 注意事项）。原生 `date`/`datetime`/`timestamp` 列不需要 `format`；`ms.hour_prefix` 的字段也不需要 `format`（运行时用 `lpad(2, "0")` 归一化 hour 列）。
+- `ms.strptime(format)` 的 `format` 必须是 Python strptime 格式串（`%` 前缀），例如 `"%Y%m%d"`、`"%Y-%m-%d"`、`"%Y%m%d%H"`、`"%Y-%m-%d %H:%M:%S"`。Marivo 在 SQL 生成阶段为 MySQL-family backend（Trino `date_parse`、MySQL `STR_TO_DATE`）将 Python strptime 翻译为 MySQL 格式，作者一律按 Python strptime 语义书写即可（参见下一节）。原生 `date`/`datetime`/`timestamp` 列不需要 `format`；`ms.hour_prefix` 的字段也不需要 `format`（运行时用 `lpad(2, "0")` 归一化 hour 列）。
 - `granularity` 支持 `year` | `quarter` | `month` | `week` | `day` | `hour` | `minute` | `second`。`minute` 和 `second` 要求 `parse` 为 `ms.datetime(...)` 或 `ms.timestamp(...)`；`hour` 在非 `ms.datetime`/`ms.timestamp` 类型上必须使用 `ms.hour_prefix(...)`。省略 `parse` 时，若推断出的 data_type 为 `date`，则 `hour`/`minute`/`second` granularity 会报错。
 - body 返回的 ibis dtype 必须与 parse 变体兼容：`.cast("date")` 或原生 date 列 → 省略 `parse`；`.cast("timestamp")` 或原生 timestamp 列 → 省略 `parse` 或使用 `ms.datetime(...)`/`ms.timestamp(...)`。不匹配时执行器 TypeError。
 - hour-only 字段（列只存小时数值）必须使用 `ms.hour_prefix(prefix)`，其中 `prefix` 是同 entity 的 day 粒度 time-dimension ref。hour-only 字段支持可选的 `sample_interval`，使其可作为 sampled semi-additive metric 的时间轴。
@@ -465,30 +465,38 @@ hh = ms.time_dimension_column(
   more raises `SemanticLoadError` with kind `duplicate_default_time_dimension` at assembly
   time.
 
-#### Format specifier divergence: Python strptime vs MySQL/Trino/Presto
+#### Format specifier divergence: Python strptime vs MySQL
 
-`date_format` strings flow unchanged to the backend's `date_parse`
-function. Trino and Presto `date_parse` accept MySQL-style format
-specifiers, which agree with Python strptime on most common tokens
-(`%Y %m %d %H %S %y %j`) but disagree on minutes:
+`date_format` strings are authored as Python strptime and validated by
+`normalize_strptime` at authoring time. At SQL-emission time, Marivo
+translates the Python strptime format to the MySQL form for MySQL-family
+backends (Trino `date_parse`, MySQL `STR_TO_DATE`) via
+`marivo.semantic.time_format.python_to_mysql_strptime`, so a single
+authored format works on every backend. DuckDB receives the Python
+strptime unchanged (`STRPTIME` is Python-native); Postgres is handled by
+ibis's own Java-style pattern translation.
 
-| Specifier | Python strptime | Trino/Presto `date_parse` |
+The critical divergence this translation resolves is `%M`: Python
+strptime reads it as *minute*, while MySQL reads it as *month name*
+(MySQL minute is `%i`). Without translation,
+`date_parse(col, '%Y-%m-%d %H:%M:%S')` would malform on Trino at the
+minute position.
+
+| Specifier | Python strptime | MySQL `date_parse`/`STR_TO_DATE` |
 |---|---|---|
 | `%M` | Minutes (00..59) | **Month name** (January..December) |
 | `%i` | (not used) | Minutes (00..59) |
-| `%c` | Locale-dependent datetime | Month, numeric (1..12) |
 
-For minute-granularity string dimensions on Trino/Presto backends, write
-`%i` for minutes, not `%M`. Example: `date_format="%Y-%m-%d %H:%i:%S"`.
+Authors write Python strptime (`%M` for minute); Marivo translates
+`%M`→`%i` for Trino/MySQL. Do not author `%i` directly — it is not valid
+Python strptime and `normalize_strptime` rejects it.
 
-Marivo does not translate Python strptime to MySQL format. The contract
-is: the format string reaches the backend's `date_parse` unchanged;
-author with the target backend's MySQL semantics in mind.
-
-Trino additionally does not support these specifiers (per the Trino
-datetime functions reference): `%D`, `%U`, `%u`, `%V`, `%w`, `%X`.
-Queries using them will fail at the backend with the backend's native
-error; Marivo does not pre-validate against backend support.
+Directives whose Python and MySQL meanings diverge without a safe
+mapping (e.g. `%W`, `%u`, `%Z`, `%c`) raise a `WindowInvalidError` at
+SQL-emission time on Trino/MySQL backends, pointing the author to a
+supported directive or a native temporal column. Trino additionally does
+not support `%D`, `%U`, `%u`, `%V`, `%w`, `%X` (per the Trino datetime
+functions reference).
 
 ### Metric
 
