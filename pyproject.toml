@@ -1,6 +1,6 @@
 [project]
 name = "marivo"
-version = "0.2.6"
+version = "0.2.7.dev0"
 description = "Python-native semantic modeling and analysis library for agentic analytics."
 readme = "README.md"
 license = "Apache-2.0"
