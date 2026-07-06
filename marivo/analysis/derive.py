@@ -192,6 +192,7 @@ def derive_metric_frame(
     time_scope: TimeScopeInput = None,
     grain: GrainInput = None,
     label: str | None = None,
+    analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
     from marivo.analysis.semantic_inputs import normalize_dimension_input, normalize_metric_input
@@ -284,6 +285,7 @@ def derive_metric_frame(
         session_id=resolved_session.id,
         project_root=str(resolved_session.project_root),
         produced_by_job=job_ref,
+        analysis_purpose=analysis_purpose,
         created_at=finished_at,
         row_count=len(df),
         byte_size=0,
@@ -294,6 +296,7 @@ def derive_metric_frame(
                     job_ref=job_ref,
                     inputs=[],
                     params_digest=_digest_json(params),
+                    analysis_purpose=analysis_purpose,
                     params=params,
                 )
             ]
@@ -317,6 +320,7 @@ def derive_metric_frame(
             "id": job_ref,
             "session_id": resolved_session.id,
             "intent": "derive_metric_frame",
+            "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": [],
             "output_frame_ref": frame.meta.artifact_id or frame_ref,

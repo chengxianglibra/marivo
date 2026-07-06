@@ -13,6 +13,7 @@ class LineageStep:
     inputs: list[str]
     params_digest: str
     params: dict[str, Any] = field(default_factory=dict)
+    analysis_purpose: str | None = None
 
 
 @dataclass(frozen=True)

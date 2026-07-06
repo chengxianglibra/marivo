@@ -514,6 +514,7 @@ def compare(
     baseline: MetricFrame,
     *,
     alignment: AlignmentPolicy | None = None,
+    analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> DeltaFrame:
     if session is None:
@@ -675,6 +676,7 @@ def compare(
         session_id=session.id,
         project_root=str(session.project_root),
         produced_by_job=job_ref,
+        analysis_purpose=analysis_purpose,
         created_at=finished_at,
         row_count=len(df),
         byte_size=0,
@@ -686,6 +688,7 @@ def compare(
                 job_ref=job_ref,
                 inputs=[current.ref, baseline.ref],
                 params_digest=digest,
+                analysis_purpose=analysis_purpose,
             ),
         ),
         metric_id=current.meta.metric_id,
@@ -753,6 +756,7 @@ def compare(
             "id": job_ref,
             "session_id": session.id,
             "intent": "compare",
+            "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": [current.ref, baseline.ref],
             "output_frame_ref": output_frame.meta.artifact_id or output_frame.ref,

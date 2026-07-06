@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from marivo.analysis.errors import FrameMutationError
+from marivo.analysis.frames._content_hash import stable_meta_payload
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
 
@@ -57,6 +58,24 @@ def test_base_frame_meta_evidence_fields_default() -> None:
     assert meta.confidence_scope is None
     assert "quality" not in meta.model_dump()
     assert "recommended_followups" not in meta.model_dump()
+
+
+def test_base_frame_meta_accepts_analysis_purpose_without_content_identity() -> None:
+    meta = _meta(analysis_purpose="确认收入下降是否真实")
+
+    assert meta.analysis_purpose == "确认收入下降是否真实"
+    assert "analysis_purpose" not in stable_meta_payload(meta)
+
+
+def test_render_includes_analysis_purpose_when_present() -> None:
+    frame = BaseFrame(
+        _df=pd.DataFrame({"value": [1.0]}),
+        meta=_meta(analysis_purpose="确认收入下降是否真实"),
+    )
+
+    rendered = frame.render()
+
+    assert "analysis_purpose: 确认收入下降是否真实" in rendered
 
 
 def test_meta_kind_required():

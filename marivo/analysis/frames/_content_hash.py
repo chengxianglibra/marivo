@@ -14,6 +14,7 @@ _SESSION_LOCAL_META_FIELDS = {
     "session_id",
     "project_root",
     "produced_by_job",
+    "analysis_purpose",
     "created_at",
     "byte_size",
     "artifact_id",

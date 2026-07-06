@@ -1630,6 +1630,7 @@ def observe(
     slice_by: dict[DimensionInput, SliceValue] | None = None,
     time_dimension: DimensionInput | None = None,
     expect_shape: SemanticShape | None = None,
+    analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
     if session is None:
@@ -1836,6 +1837,7 @@ def observe(
             session_id=session.id,
             project_root=str(session.project_root),
             produced_by_job=job_ref,
+            analysis_purpose=analysis_purpose,
             created_at=finished_at,
             row_count=result.row_count,
             byte_size=0,
@@ -1846,6 +1848,7 @@ def observe(
                         job_ref=job_ref,
                         inputs=[],
                         params_digest=_params_digest(params),
+                        analysis_purpose=analysis_purpose,
                         params=params,
                     )
                 ]
@@ -1902,6 +1905,7 @@ def observe(
                 "id": job_ref,
                 "session_id": session.id,
                 "intent": "observe",
+                "analysis_purpose": analysis_purpose,
                 "params": params,
                 "input_frame_refs": [],
                 "output_frame_ref": _output_ref,
@@ -2021,6 +2025,7 @@ def observe(
         session_id=session.id,
         project_root=str(session.project_root),
         produced_by_job=job_ref,
+        analysis_purpose=analysis_purpose,
         created_at=finished_at,
         row_count=result.row_count,
         byte_size=0,
@@ -2031,6 +2036,7 @@ def observe(
                     job_ref=job_ref,
                     inputs=[],
                     params_digest=_params_digest(params),
+                    analysis_purpose=analysis_purpose,
                     params=params,
                 )
             ]
@@ -2083,6 +2089,7 @@ def observe(
             "id": job_ref,
             "session_id": session.id,
             "intent": "observe",
+            "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": [],
             "output_frame_ref": _output_ref,

@@ -218,7 +218,9 @@ def _discover_content() -> dict[str, object]:
         "objectives": objectives,
         "example": (
             'region = session.catalog.get("dimension.sales.orders.region").ref\n'
-            "session.discover.driver_axes(delta, search_space=[region])"
+            "session.discover.driver_axes(\n"
+            '    delta, search_space=[region], analysis_purpose="寻找收入变化的候选归因维度"\n'
+            ")"
         ),
     }
 
@@ -306,7 +308,11 @@ def _transform_content() -> dict[str, object]:
         "notes": [
             "normalize is MetricFrame-only in v1; DeltaFrame normalize is reserved.",
         ],
-        "example": 'session.transform.topk(delta, by="delta", limit=3, order="decrease")',
+        "example": (
+            "session.transform.topk(\n"
+            '    delta, by="delta", limit=3, order="decrease", analysis_purpose="保留变化最大的地区"\n'
+            ")"
+        ),
     }
 
 
@@ -441,7 +447,8 @@ def _session_content(constraints: tuple[Constraint, ...]) -> dict[str, object]:
             "session = mv.session.get_or_create(name='analysis')\n"
             "revenue = session.catalog.get('metric.orders.revenue')\n"
             "metric = session.observe(revenue, "
-            "time_scope={'start': '2026-01-01', 'end': '2026-01-31'})"
+            "time_scope={'start': '2026-01-01', 'end': '2026-01-31'}, "
+            "analysis_purpose='确认 1 月收入水平')"
         ),
     }
 
@@ -481,6 +488,12 @@ def _observe_content() -> dict[str, object]:
             "coverage through frame.coverage(), and should be re-observed rather than "
             "rolled up.",
         ],
+        "example": (
+            "session.observe(\n"
+            '    revenue, time_scope={"start": "2026-01-01", "end": "2026-02-01"}, '
+            'analysis_purpose="确认 1 月收入水平"\n'
+            ")"
+        ),
     }
 
 
@@ -494,6 +507,7 @@ def _observe_text(content: dict[str, object]) -> str:
     lines.extend(("", "Notes:"))
     for note in cast("list[str]", content["notes"]):
         lines.append(f"  - {note}")
+    lines.extend(("", "Example:", cast("str", content["example"])))
     return "\n".join(lines)
 
 
@@ -552,6 +566,10 @@ def _agent_surface_content() -> dict[str, object]:
             "artifact.contract().affordances are mechanical compatibility facts, "
             "not advisory endorsements from Marivo."
         ),
+        "purpose_guidance": (
+            "Pass analysis_purpose on artifact-producing intents so persisted "
+            "frames/results remain easy to identify during session recovery."
+        ),
         "expert_reference": ["transform", "select", "evidence", "knowledge"],
     }
 
@@ -567,6 +585,8 @@ def _agent_surface_text(content: dict[str, object]) -> str:
         lines.append(f"  session.{item['operator']:<24}-> {item['output']}")
     lines.extend(("", "Base artifact protocol:"))
     lines.append("  " + ", ".join(cast("list[str]", content["artifact_protocol"])))
+    lines.extend(("", "Purpose labels:"))
+    lines.append(f"  {content['purpose_guidance']}")
     lines.extend(("", "Bounded read order:"))
     for step in cast("list[str]", content["read_order"]):
         lines.append(f"  {step}")
