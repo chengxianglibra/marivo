@@ -168,6 +168,7 @@ def _discover_dispatch(
     search_space: list[DimensionInput] | None = None,
     peer_scope: list[DimensionInput] | None = None,
     session: Session | None = None,
+    analysis_purpose: str | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> CandidateSet:
     """Discover candidate follow-ups (anomalies, drivers, outliers) from a frame.
@@ -206,7 +207,11 @@ def _discover_dispatch(
         CrossSessionFrameError: ``source`` belongs to a different session.
 
     Example:
-        >>> candidates = session.discover.point_anomalies(series, threshold=1.0)
+        >>> candidates = session.discover.point_anomalies(
+        ...     series,
+        ...     threshold=1.0,
+        ...     analysis_purpose="识别收入时间序列异常点",
+        ... )
         >>> candidates.show()
     """
     session = resolve_session(session)
@@ -282,6 +287,7 @@ def _discover_dispatch(
         session_id=session.id,
         project_root=str(session.project_root),
         produced_by_job=job_ref,
+        analysis_purpose=analysis_purpose,
         created_at=finished_at,
         row_count=len(df),
         byte_size=0,
@@ -292,6 +298,7 @@ def _discover_dispatch(
                 job_ref=job_ref,
                 inputs=[source.ref],
                 params_digest=params_digest(full_params),
+                analysis_purpose=analysis_purpose,
             ),
         ),
         shape=shape,
@@ -356,6 +363,7 @@ def _discover_dispatch(
             "id": job_ref,
             "session_id": session.id,
             "intent": "discover",
+            "analysis_purpose": analysis_purpose,
             "params": full_params,
             "input_frame_refs": [source.ref],
             "output_frame_ref": frame.meta.artifact_id or frame_ref,
@@ -381,6 +389,7 @@ class DiscoverAPI:
         value: str | None = None,
         threshold: float | None = None,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         return _discover_dispatch(
             source,
@@ -388,6 +397,7 @@ class DiscoverAPI:
             value=value,
             threshold=threshold,
             session=session,
+            analysis_purpose=analysis_purpose,
         )
 
     def period_shifts(
@@ -397,6 +407,7 @@ class DiscoverAPI:
         value: str | None = None,
         threshold: float | None = None,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
 
         return _discover_dispatch(
@@ -405,6 +416,7 @@ class DiscoverAPI:
             value=value,
             threshold=threshold,
             session=session,
+            analysis_purpose=analysis_purpose,
         )
 
     def driver_axes(
@@ -415,6 +427,7 @@ class DiscoverAPI:
         value: str | None = None,
         limit: int | None = None,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         return _discover_dispatch(
             source,
@@ -423,6 +436,7 @@ class DiscoverAPI:
             limit=limit,
             search_space=search_space,
             session=session,
+            analysis_purpose=analysis_purpose,
         )
 
     def interesting_slices(
@@ -434,6 +448,7 @@ class DiscoverAPI:
         threshold: float | None = None,
         limit: int | None = None,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         return _discover_dispatch(
             source,
@@ -443,6 +458,7 @@ class DiscoverAPI:
             limit=limit,
             search_space=search_space,
             session=session,
+            analysis_purpose=analysis_purpose,
         )
 
     def interesting_windows(
@@ -452,6 +468,7 @@ class DiscoverAPI:
         value: str | None = None,
         threshold: float | None = None,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         return _discover_dispatch(
             source,
@@ -459,6 +476,7 @@ class DiscoverAPI:
             value=value,
             threshold=threshold,
             session=session,
+            analysis_purpose=analysis_purpose,
         )
 
     def cross_sectional_outliers(
@@ -469,6 +487,7 @@ class DiscoverAPI:
         value: str | None = None,
         threshold: float | None = None,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         return _discover_dispatch(
             source,
@@ -477,6 +496,7 @@ class DiscoverAPI:
             threshold=threshold,
             peer_scope=peer_scope,
             session=session,
+            analysis_purpose=analysis_purpose,
         )
 
 

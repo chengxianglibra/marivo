@@ -110,6 +110,7 @@ def persist_attribution_frame(
     semantic_model: str,
     started_at: datetime,
     started_monotonic: float,
+    analysis_purpose: str | None = None,
 ) -> AttributionFrame:
     session._connection_runtime.begin_query_capture()
     frame_ref = gen_ref("frame")
@@ -122,6 +123,7 @@ def persist_attribution_frame(
         session_id=session.id,
         project_root=str(session.project_root),
         produced_by_job=job_ref,
+        analysis_purpose=analysis_purpose,
         created_at=finished_at,
         row_count=len(df),
         byte_size=0,
@@ -132,6 +134,7 @@ def persist_attribution_frame(
                 job_ref=job_ref,
                 inputs=source_refs,
                 params_digest=params_digest(params),
+                analysis_purpose=analysis_purpose,
             ),
         ),
         metric_ids=metric_ids,
@@ -172,6 +175,7 @@ def persist_attribution_frame(
             "id": job_ref,
             "session_id": session.id,
             "intent": intent,
+            "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": source_refs,
             "output_frame_ref": frame.meta.artifact_id or frame_ref,

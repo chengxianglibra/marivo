@@ -91,6 +91,7 @@ class FrameSummaryEntry(RenderableResult):
     created_at: str | None
     row_count: int | None = None
     content_hash: str | None = None
+    analysis_purpose: str | None = None
 
     def _repr_identity(self) -> str:
         parts = f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
@@ -99,9 +100,12 @@ class FrameSummaryEntry(RenderableResult):
         return parts
 
     def _card(self) -> Card:
-        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
             f"metric={self.metric_id} created={self.created_at}"
         )
+        if self.analysis_purpose:
+            card.field("analysis_purpose", self.analysis_purpose)
+        return card
 
 
 class Session:
@@ -368,6 +372,7 @@ class Session:
                         semantic_kind=meta.get("semantic_kind"),
                         semantic_model=meta.get("semantic_model"),
                         created_at=meta.get("created_at"),
+                        analysis_purpose=meta.get("analysis_purpose"),
                         row_count=meta.get("row_count"),
                         content_hash=meta.get("content_hash"),
                     )
@@ -450,6 +455,7 @@ class Session:
         slice_by: dict[DimensionInput, SliceValue] | None = None,
         time_dimension: DimensionInput | None = None,
         expect_shape: SemanticShape | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame:
         """Materialize a metric into a typed MetricFrame.
 
@@ -500,6 +506,7 @@ class Session:
             ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
             ...     grain="day",
             ...     dimensions=[country],
+            ...     analysis_purpose="确认三季度按国家收入走势",
             ... )
             >>> frame.show()
         """
@@ -520,6 +527,7 @@ class Session:
                 slice_by=slice_by,
                 time_dimension=time_dimension,
                 expect_shape=expect_shape,
+                analysis_purpose=analysis_purpose,
                 session=self,
             )
 
@@ -532,6 +540,7 @@ class Session:
         time_scope: TimeScopeInput = None,
         grain: GrainInput = None,
         label: str | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame:
         """Run a governed Ibis query and attach MetricFrame metadata to the result.
 
@@ -569,6 +578,7 @@ class Session:
                 time_scope=time_scope,
                 grain=grain,
                 label=label,
+                analysis_purpose=analysis_purpose,
                 session=self,
             )
 
@@ -578,6 +588,7 @@ class Session:
         baseline: MetricFrame,
         *,
         alignment: AlignmentPolicy | None = None,
+        analysis_purpose: str | None = None,
     ) -> DeltaFrame:
         """Compute the typed delta between two MetricFrames (current minus baseline).
 
@@ -602,9 +613,14 @@ class Session:
 
         Example:
             >>> revenue = session.catalog.get("metric.sales.revenue")
-            >>> cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})
+            >>> cur = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})
             >>> base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})
-            >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
+            >>> delta = session.compare(
+            ...     cur,
+            ...     base,
+            ...     alignment=mv.window_bucket(),
+            ...     analysis_purpose="量化三季度收入同比变化",
+            ... )
         """
         from marivo.analysis.intents.compare import compare
 
@@ -621,13 +637,20 @@ class Session:
             intent="compare",
             attributes=attrs,
         ):
-            return compare(current, baseline, alignment=alignment, session=self)
+            return compare(
+                current,
+                baseline,
+                alignment=alignment,
+                analysis_purpose=analysis_purpose,
+                session=self,
+            )
 
     def attribute(
         self,
         frame: DeltaFrame,
         *,
         axes: list[DimensionInput],
+        analysis_purpose: str | None = None,
     ) -> AttributionFrame:
         """Attribute a DeltaFrame's movement over explicit deterministic axes.
 
@@ -655,7 +678,11 @@ class Session:
         Example:
             >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
             >>> country = session.catalog.get("dimension.sales.orders.country").ref
-            >>> attribution = session.attribute(delta, axes=[country])
+            >>> attribution = session.attribute(
+            ...     delta,
+            ...     axes=[country],
+            ...     analysis_purpose="按国家归因收入变化",
+            ... )
         """
         from marivo.analysis.intents.attribute import attribute
 
@@ -670,7 +697,7 @@ class Session:
             intent="attribute",
             attributes=attrs,
         ):
-            return attribute(frame, axes=axes, session=self)
+            return attribute(frame, axes=axes, analysis_purpose=analysis_purpose, session=self)
 
     def correlate(
         self,
@@ -681,6 +708,7 @@ class Session:
         measure_b: str | None = None,
         alignment: AlignmentPolicy | None = None,
         method: Literal["pearson"] = "pearson",
+        analysis_purpose: str | None = None,
     ) -> AssociationResult:
         """Measure the association between two MetricFrames over aligned buckets.
 
@@ -707,6 +735,7 @@ class Session:
             >>> result = session.correlate(
             ...     a, b,
             ...     alignment=mv.window_bucket(),
+            ...     analysis_purpose="验证收入和订单量是否同向变化",
             ... )
             >>> result.show()
         """
@@ -732,6 +761,7 @@ class Session:
                 measure_b=measure_b,
                 alignment=alignment,
                 method=method,
+                analysis_purpose=analysis_purpose,
                 session=self,
             )
 
@@ -744,6 +774,7 @@ class Session:
         seasonality_period: int | None = None,
         interval_level: float = 0.95,
         measure_column: str | None = None,
+        analysis_purpose: str | None = None,
     ) -> ForecastFrame:
         """Project a time_series or panel MetricFrame forward by ``horizon`` buckets.
 
@@ -775,7 +806,11 @@ class Session:
             ...     session.catalog.get("metric.sales.revenue"),
             ...     time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
             ... )
-            >>> forecast = session.forecast(history, horizon=30)
+            >>> forecast = session.forecast(
+            ...     history,
+            ...     horizon=30,
+            ...     analysis_purpose="预测未来 30 天收入走势",
+            ... )
             >>> forecast.show()
         """
         from marivo.analysis.intents.forecast import forecast
@@ -801,10 +836,13 @@ class Session:
                 seasonality_period=seasonality_period,
                 interval_level=interval_level,
                 measure_column=measure_column,
+                analysis_purpose=analysis_purpose,
                 session=self,
             )
 
-    def assess_quality(self, frame: BaseFrame) -> QualityReport:
+    def assess_quality(
+        self, frame: BaseFrame, *, analysis_purpose: str | None = None
+    ) -> QualityReport:
         """Run quality checks over a MetricFrame and return a structured report.
 
         When to use: check data quality (nulls, outliers, coverage) before analysis.
@@ -822,7 +860,10 @@ class Session:
             CrossSessionFrameError: ``frame`` belongs to a different session.
 
         Example:
-            >>> report = session.assess_quality(frame)
+            >>> report = session.assess_quality(
+            ...     frame,
+            ...     analysis_purpose="检查收入观察结果是否可用于归因",
+            ... )
             >>> for issue in report.blocking_issues:
             ...     print(issue)
         """
@@ -834,7 +875,7 @@ class Session:
             family="core",
             intent="assess_quality",
         ):
-            return assess_quality(frame, session=self)
+            return assess_quality(frame, analysis_purpose=analysis_purpose, session=self)
 
     def hypothesis_test(
         self,
@@ -847,6 +888,7 @@ class Session:
         alignment: AlignmentPolicy | None = None,
         sampling: SamplingPolicy | None = None,
         alpha: float = 0.05,
+        analysis_purpose: str | None = None,
     ) -> HypothesisTestResult:
         """Run a paired hypothesis test over two compatible MetricFrames.
 
@@ -877,7 +919,11 @@ class Session:
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:
-            >>> result = session.hypothesis_test(cur, base)
+            >>> result = session.hypothesis_test(
+            ...     cur,
+            ...     base,
+            ...     analysis_purpose="验证收入变化是否统计显著",
+            ... )
             >>> result.show()
         """
         from marivo.analysis.intents.hypothesis_test import hypothesis_test
@@ -904,6 +950,7 @@ class Session:
                 alignment=alignment,
                 sampling=sampling,
                 alpha=alpha,
+                analysis_purpose=analysis_purpose,
                 session=self,
             )
 
@@ -937,6 +984,7 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find time-series points with unusual values.
 
@@ -956,6 +1004,7 @@ class SessionDiscoverNamespace:
                 source,
                 value=value,
                 threshold=threshold,
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
@@ -965,6 +1014,7 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find period-shift candidates from a DeltaFrame.
 
@@ -985,6 +1035,7 @@ class SessionDiscoverNamespace:
                 source,
                 value=value,
                 threshold=threshold,
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
@@ -995,6 +1046,7 @@ class SessionDiscoverNamespace:
         search_space: list[DimensionInput],
         value: str | None = None,
         limit: int | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find dimensions that explain a delta.
 
@@ -1015,6 +1067,7 @@ class SessionDiscoverNamespace:
                 search_space=search_space,
                 value=value,
                 limit=limit,
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
@@ -1026,6 +1079,7 @@ class SessionDiscoverNamespace:
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find dimension slices with notable values.
 
@@ -1049,6 +1103,7 @@ class SessionDiscoverNamespace:
                 value=value,
                 threshold=threshold,
                 limit=limit,
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
@@ -1058,6 +1113,7 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find time windows with notable behavior.
 
@@ -1077,6 +1133,7 @@ class SessionDiscoverNamespace:
                 source,
                 value=value,
                 threshold=threshold,
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
@@ -1087,6 +1144,7 @@ class SessionDiscoverNamespace:
         peer_scope: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
+        analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find segments that are outliers compared to their peers.
 
@@ -1110,6 +1168,7 @@ class SessionDiscoverNamespace:
                 peer_scope=peer_scope,
                 value=value,
                 threshold=threshold,
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
@@ -1120,7 +1179,13 @@ class SessionTransformNamespace:
 
     _session: Session
 
-    def filter(self, frame: object, *, predicate: Callable[[Any], Any]) -> MetricFrame | DeltaFrame:
+    def filter(
+        self,
+        frame: object,
+        *,
+        predicate: Callable[[Any], Any],
+        analysis_purpose: str | None = None,
+    ) -> MetricFrame | DeltaFrame:
         """Filter rows using a predicate function.
 
         The predicate receives the underlying DataFrame and must return a
@@ -1134,10 +1199,19 @@ class SessionTransformNamespace:
             family="transform",
             intent="filter",
         ):
-            return transform.filter(frame, predicate=predicate, session=self._session)
+            return transform.filter(
+                frame,
+                predicate=predicate,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
 
     def slice(
-        self, frame: object, *, slice_by: dict[DimensionInput, Any]
+        self,
+        frame: object,
+        *,
+        slice_by: dict[DimensionInput, Any],
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
         """Filter rows by exact axis values.
 
@@ -1153,9 +1227,20 @@ class SessionTransformNamespace:
             intent="slice",
             attributes={"marivo.analysis.slice_count": len(slice_by)},
         ):
-            return transform.slice(frame, slice_by=slice_by, session=self._session)
+            return transform.slice(
+                frame,
+                slice_by=slice_by,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
 
-    def rollup(self, frame: object, *, drop_axes: list[DimensionInput]) -> MetricFrame | DeltaFrame:
+    def rollup(
+        self,
+        frame: object,
+        *,
+        drop_axes: list[DimensionInput],
+        analysis_purpose: str | None = None,
+    ) -> MetricFrame | DeltaFrame:
         """Aggregate to coarser segments by dropping axes.
 
         Removes the listed catalog dimensions and re-aggregates
@@ -1170,7 +1255,12 @@ class SessionTransformNamespace:
             intent="rollup",
             attributes={"marivo.analysis.axis_count": len(drop_axes)},
         ):
-            return transform.rollup(frame, drop_axes=drop_axes, session=self._session)
+            return transform.rollup(
+                frame,
+                drop_axes=drop_axes,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
 
     def topk(
         self,
@@ -1179,6 +1269,7 @@ class SessionTransformNamespace:
         by: str,
         limit: int,
         order: str | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
         """Keep the top N rows ranked by a measure column.
 
@@ -1199,10 +1290,18 @@ class SessionTransformNamespace:
                 by=by,
                 limit=limit,
                 order=cast("Any", order),
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
-    def bottomk(self, frame: object, *, by: str, limit: int) -> MetricFrame | DeltaFrame:
+    def bottomk(
+        self,
+        frame: object,
+        *,
+        by: str,
+        limit: int,
+        analysis_purpose: str | None = None,
+    ) -> MetricFrame | DeltaFrame:
         """Keep the bottom N rows ranked by a measure column.
 
         Equivalent to ``topk(..., order="increase")``. Returns the rows with
@@ -1217,7 +1316,13 @@ class SessionTransformNamespace:
             intent="bottomk",
             attributes={"marivo.analysis.limit": limit},
         ):
-            return transform.bottomk(frame, by=by, limit=limit, session=self._session)
+            return transform.bottomk(
+                frame,
+                by=by,
+                limit=limit,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
 
     def rank(
         self,
@@ -1226,6 +1331,7 @@ class SessionTransformNamespace:
         by: str,
         method: str = "ordinal",
         rank_column: str = "rank",
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
         """Add a rank column ordered by a measure.
 
@@ -1245,6 +1351,7 @@ class SessionTransformNamespace:
                 by=by,
                 method=cast("Any", method),
                 rank_column=rank_column,
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
@@ -1254,6 +1361,7 @@ class SessionTransformNamespace:
         *,
         mode: NormalizeKind,
         baseline: object | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame:
         """Convert measure values to a normalized form (MetricFrame only).
 
@@ -1274,10 +1382,13 @@ class SessionTransformNamespace:
                 frame,
                 mode=mode,
                 baseline=baseline,
+                analysis_purpose=analysis_purpose,
                 session=self._session,
             )
 
-    def window(self, frame: object, *, window: object) -> MetricFrame | DeltaFrame:
+    def window(
+        self, frame: object, *, window: object, analysis_purpose: str | None = None
+    ) -> MetricFrame | DeltaFrame:
         """Restrict a frame to a time window.
 
         ``window`` is an ``AbsoluteWindow`` or compatible specification that
@@ -1292,7 +1403,12 @@ class SessionTransformNamespace:
             family="transform",
             intent="window",
         ):
-            return transform.window(frame, window=window, session=self._session)
+            return transform.window(
+                frame,
+                window=window,
+                analysis_purpose=analysis_purpose,
+                session=self._session,
+            )
 
 
 @dataclass(frozen=True)

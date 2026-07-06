@@ -27,6 +27,13 @@ def test_lineage_with_steps():
     assert len(lin.steps) == 1
 
 
+def test_lineage_step_positional_params_compatibility():
+    step = LineageStep("observe", "job_1", [], "sha256:abc", {"metric": "sales.revenue"})
+
+    assert step.params == {"metric": "sales.revenue"}
+    assert step.analysis_purpose is None
+
+
 def test_external_inputs_track_from_dataframe_entries():
     lin = Lineage(external_inputs=["frame_abc"])
     assert "frame_abc" in lin.external_inputs

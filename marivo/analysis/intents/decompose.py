@@ -539,6 +539,7 @@ def decompose(
     axis: DimensionInput | None = None,
     session: Session | None = None,
     _intent: str = "decompose",
+    _analysis_purpose: str | None = None,
     _params_extra: dict[str, object] | None = None,
 ) -> AttributionFrame:
     session = resolve_session(session)
@@ -635,6 +636,7 @@ def decompose(
             semantic_model=frame.meta.semantic_model,
             started_at=started_at,
             started_monotonic=started,
+            analysis_purpose=_analysis_purpose,
         )
 
     if frame.meta.semantic_kind == "panel":
@@ -673,6 +675,7 @@ def decompose(
             semantic_model=frame.meta.semantic_model,
             started_at=started_at,
             started_monotonic=started,
+            analysis_purpose=_analysis_purpose,
         )
 
     output = _ordered_hierarchy_output(
@@ -707,4 +710,5 @@ def decompose(
         semantic_model=frame.meta.semantic_model,
         started_at=started_at,
         started_monotonic=started,
+        analysis_purpose=_analysis_purpose,
     )

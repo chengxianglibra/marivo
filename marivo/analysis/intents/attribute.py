@@ -92,6 +92,7 @@ def attribute(
     frame: DeltaFrame,
     *,
     axes: list[DimensionInput],
+    analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> AttributionFrame:
     """Attribute a DeltaFrame's movement over explicit deterministic axes."""
@@ -108,6 +109,7 @@ def attribute(
             axes=axes,
             session=resolved_session,
             _intent="attribute",
+            _analysis_purpose=analysis_purpose,
             _params_extra={
                 "materialization_status": "not_required",
                 "original_delta_ref": frame.ref,
@@ -149,6 +151,7 @@ def attribute(
         axes=axes,
         session=resolved_session,
         _intent="attribute",
+        _analysis_purpose=analysis_purpose,
         _params_extra={
             "materialization_status": "expanded",
             "original_delta_ref": frame.ref,

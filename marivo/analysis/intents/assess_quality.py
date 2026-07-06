@@ -43,6 +43,7 @@ from marivo.analysis.session.core import Session, ensure_session_writable
 def assess_quality(
     frame: BaseFrame,
     *,
+    analysis_purpose: str | None = None,
     session: Session | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> QualityReport:
@@ -77,6 +78,7 @@ def assess_quality(
         session_id=session.id,
         project_root=str(session.project_root),
         produced_by_job=job_ref,
+        analysis_purpose=analysis_purpose,
         created_at=finished_at,
         row_count=len(output),
         byte_size=0,
@@ -87,6 +89,7 @@ def assess_quality(
                 job_ref=job_ref,
                 inputs=[frame.ref],
                 params_digest=params_digest(params),
+                analysis_purpose=analysis_purpose,
             ),
         ),
         source_refs=[frame.ref],
@@ -134,6 +137,7 @@ def assess_quality(
             "id": job_ref,
             "session_id": session.id,
             "intent": "assess_quality",
+            "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": [frame.ref],
             "output_frame_ref": result.meta.artifact_id or result.ref,

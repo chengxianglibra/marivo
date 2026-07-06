@@ -52,6 +52,7 @@ def correlate(
     measure_b: str | None = None,
     alignment: AlignmentPolicy | None = None,
     method: Literal["pearson"] = "pearson",
+    analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> AssociationResult:
     session = resolve_session(session)
@@ -148,6 +149,7 @@ def correlate(
         session_id=session.id,
         project_root=str(session.project_root),
         produced_by_job=job_ref,
+        analysis_purpose=analysis_purpose,
         created_at=finished_at,
         row_count=len(output),
         byte_size=0,
@@ -158,6 +160,7 @@ def correlate(
                 job_ref=job_ref,
                 inputs=source_refs,
                 params_digest=_params_digest(params),
+                analysis_purpose=analysis_purpose,
             ),
         ),
         source_refs=source_refs,
@@ -204,6 +207,7 @@ def correlate(
             "id": job_ref,
             "session_id": session.id,
             "intent": "correlate",
+            "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": source_refs,
             "output_frame_ref": result.meta.artifact_id or frame_ref,

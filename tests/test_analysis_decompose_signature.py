@@ -12,4 +12,12 @@ def test_decompose_signature_has_no_triggered_by():
 
 def test_decompose_signature_is_frame_axes_axis_session_with_internal_kwargs():
     params = list(inspect.signature(decompose).parameters)
-    assert params == ["frame", "axes", "axis", "session", "_intent", "_params_extra"]
+    assert params == [
+        "frame",
+        "axes",
+        "axis",
+        "session",
+        "_intent",
+        "_analysis_purpose",
+        "_params_extra",
+    ]

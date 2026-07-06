@@ -185,6 +185,7 @@ class BaseFrameMeta(BaseModel):
     session_id: str
     project_root: str
     produced_by_job: str | None
+    analysis_purpose: str | None = None
     created_at: datetime
     row_count: int
     byte_size: int
@@ -399,6 +400,8 @@ class BaseFrame(RenderableResult):
         status = self._render_status()
         if status is not None:
             card.status(status)
+        if self.meta.analysis_purpose:
+            card.field("analysis_purpose", self.meta.analysis_purpose)
         return card.lazy_table(
             columns=columns,
             rows_provider=self._preview_rows_provider,

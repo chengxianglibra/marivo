@@ -115,6 +115,7 @@ def _transform_dispatch(
     mode: str | None = None,
     baseline: Any = None,
     window: Any = None,
+    analysis_purpose: str | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> MetricFrame | DeltaFrame:
     """Family-preserving reshape of a MetricFrame or DeltaFrame.
@@ -162,7 +163,13 @@ def _transform_dispatch(
         CrossSessionFrameError: ``frame`` belongs to a different session.
 
     Example:
-        >>> top = session.transform.topk(delta, by="delta", limit=10, order="decrease")
+        >>> top = session.transform.topk(
+        ...     delta,
+        ...     by="delta",
+        ...     limit=10,
+        ...     order="decrease",
+        ...     analysis_purpose="保留变化最大的细分项",
+        ... )
         >>> top.show()
     """
 
@@ -238,6 +245,7 @@ def _transform_dispatch(
         alignment=meta_overrides.get("alignment"),
         normalization=meta_overrides.get("normalization"),
         window=meta_overrides.get("window"),
+        analysis_purpose=analysis_purpose,
         triggered_by_followup=_triggered_by,
     )
 
@@ -304,8 +312,15 @@ class TransformAPI:
         *,
         predicate: Callable[[pd.DataFrame], pd.Series],
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
-        return _transform_dispatch(frame, op="filter", predicate=predicate, session=session)
+        return _transform_dispatch(
+            frame,
+            op="filter",
+            predicate=predicate,
+            analysis_purpose=analysis_purpose,
+            session=session,
+        )
 
     def slice(
         self,
@@ -313,10 +328,17 @@ class TransformAPI:
         *,
         slice_by: dict[DimensionInput, Any],
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
         resolved_session = session if session is not None else require_current_session()
         where_by_id = _normalize_where_boundary(resolved_session, slice_by)
-        return _transform_dispatch(frame, op="slice", where=where_by_id, session=resolved_session)
+        return _transform_dispatch(
+            frame,
+            op="slice",
+            where=where_by_id,
+            analysis_purpose=analysis_purpose,
+            session=resolved_session,
+        )
 
     def rollup(
         self,
@@ -324,6 +346,7 @@ class TransformAPI:
         *,
         drop_axes: list[DimensionInput],
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
         resolved_session = session if session is not None else require_current_session()
         drop_axis_ids = _normalize_drop_axes_boundary(resolved_session, drop_axes)
@@ -331,6 +354,7 @@ class TransformAPI:
             frame,
             op="rollup",
             drop_axes=drop_axis_ids,
+            analysis_purpose=analysis_purpose,
             session=resolved_session,
         )
 
@@ -342,6 +366,7 @@ class TransformAPI:
         limit: int,
         order: TopKDirection | None = None,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
         return _transform_dispatch(
             frame,
@@ -349,6 +374,7 @@ class TransformAPI:
             by=by,
             limit=limit,
             order=order,
+            analysis_purpose=analysis_purpose,
             session=session,
         )
 
@@ -359,8 +385,16 @@ class TransformAPI:
         by: str,
         limit: int,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
-        return _transform_dispatch(frame, op="bottomk", by=by, limit=limit, session=session)
+        return _transform_dispatch(
+            frame,
+            op="bottomk",
+            by=by,
+            limit=limit,
+            analysis_purpose=analysis_purpose,
+            session=session,
+        )
 
     def rank(
         self,
@@ -370,6 +404,7 @@ class TransformAPI:
         method: RankMethod = "ordinal",
         rank_column: str = "rank",
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
         return _transform_dispatch(
             frame,
@@ -377,6 +412,7 @@ class TransformAPI:
             by=by,
             method=method,
             rank_column=rank_column,
+            analysis_purpose=analysis_purpose,
             session=session,
         )
 
@@ -387,12 +423,14 @@ class TransformAPI:
         mode: NormalizeKind,
         baseline: Any = None,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame:
         result = _transform_dispatch(
             frame,
             op="normalize",
             mode=mode,
             baseline=baseline,
+            analysis_purpose=analysis_purpose,
             session=session,
         )
         return cast("MetricFrame", result)
@@ -403,8 +441,15 @@ class TransformAPI:
         *,
         window: Any,
         session: Session | None = None,
+        analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
-        return _transform_dispatch(frame, op="window", window=window, session=session)
+        return _transform_dispatch(
+            frame,
+            op="window",
+            window=window,
+            analysis_purpose=analysis_purpose,
+            session=session,
+        )
 
 
 transform = TransformAPI()
@@ -1922,6 +1967,7 @@ def _persist_transform_frame(
     alignment: dict[str, Any] | None = None,
     normalization: dict[str, Any] | None = None,
     window: dict[str, Any] | None = None,
+    analysis_purpose: str | None = None,
     triggered_by_followup: TriggeredByFollowup | None = None,
 ) -> MetricFrame | DeltaFrame:
     frame_ref = _gen_ref("frame")
@@ -1937,6 +1983,7 @@ def _persist_transform_frame(
                 job_ref=job_ref,
                 inputs=source_refs,
                 params_digest=_params_digest(normalized_params),
+                analysis_purpose=analysis_purpose,
             ),
         ],
         external_inputs=list(parent.lineage.external_inputs),
@@ -1948,6 +1995,7 @@ def _persist_transform_frame(
             "session_id": session.id,
             "project_root": str(session.project_root),
             "produced_by_job": job_ref,
+            "analysis_purpose": analysis_purpose,
             "created_at": finished_at,
             "row_count": len(df),
             "byte_size": 0,
@@ -2029,6 +2077,7 @@ def _persist_transform_frame(
             "id": job_ref,
             "session_id": session.id,
             "intent": "transform",
+            "analysis_purpose": analysis_purpose,
             "params": normalized_params,
             "input_frame_refs": source_refs,
             "output_frame_ref": frame.meta.artifact_id or frame_ref,

@@ -170,6 +170,23 @@ def _frame_summary_entry() -> FrameSummaryEntry:
     )
 
 
+def test_frame_summary_entry_positional_row_count_compatibility() -> None:
+    entry = FrameSummaryEntry(
+        "frame_ab12",
+        "metric_frame",
+        "sales.revenue",
+        "time_series",
+        "sales",
+        "2026-06-13T00:00:00Z",
+        10,
+        "sha256:abc",
+    )
+
+    assert entry.row_count == 10
+    assert entry.content_hash == "sha256:abc"
+    assert entry.analysis_purpose is None
+
+
 def _session_summary() -> SessionSummary:
     return SessionSummary(
         id="sess_1",
