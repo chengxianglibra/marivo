@@ -8,8 +8,8 @@ answer is a user-facing synthesis, not a dump of intermediate frame previews.
 The report should make the conclusion easy to read, show the evidence that
 supports it, and preserve the limits of the analysis. Write Markdown by default.
 Only build an HTML, MCP, PDF, slide, or notebook deliverable when the user
-explicitly asks for that delivery surface. Marivo does not generate or publish
-reports; the agent authors the deliverable from persisted Marivo evidence.
+explicitly asks for that delivery surface. Marivo does not generate reports;
+the agent authors the deliverable from persisted Marivo evidence.
 
 ## Required structure
 
@@ -91,44 +91,6 @@ artifact with the available agent/runtime tools. Keep the output self-contained
 when that is the requested format, and perform delivery-surface QA in that
 tooling. Do not look for Marivo report package APIs; they are intentionally not
 part of the library contract.
-
-For HTML analysis documents, prefer a compact GitHub-dark weekly-report style:
-centered max-width page, dark canvas, blue section accents, dense stat
-cards/tables, lightweight filters or collapsible sections when useful, and
-minimal ornamentation.
-
-HTML reports must not be dashboard-only. A generated HTML report needs the same
-narrative structure as the final Markdown report, with reader-facing sections
-for:
-
-- Conclusion summary
-- Scope and metric basis
-- Key findings with interpretation
-- Caveats and assumptions
-- Agent-authored next steps
-- Source and reproducibility details
-
-KPI cards, charts, and tables are evidence blocks inside that report, not a
-substitute for the report. Put a concise conclusion near the top of the HTML,
-place interpretation next to the relevant visual or table, and include skipped
-or weakened analysis steps in the caveats when they affect the answer.
-
-The deliverable should remain narrative-first and evidence-backed:
-
-- The narrative layer owns the title, executive summary, finding takeaways,
-  caveats, and recommendations.
-- The evidence layer owns KPI strips, charts, compact tables, candidate reviews,
-  and driver views derived from bounded Marivo frames.
-- The audit layer owns cited frame refs, job ids, semantic refs, source/query
-  summaries, lineage, evidence status, and caveats.
-
-Keep readable interpretation adjacent to each important chart or table. Do not
-make the user infer the conclusion from raw rows or a chart alone.
-
-Every reader-facing number in a claim, KPI, chart label, or numeric callout
-should be traceable to a bounded frame extract, `artifact.show()` output, or
-evidence object. Avoid maintaining a second hidden source of truth in the
-deliverable.
 
 When choosing formats and value suffixes, consult the semantic metric's `unit`
 through runtime help or catalog details. `%` means values are percentage points;
