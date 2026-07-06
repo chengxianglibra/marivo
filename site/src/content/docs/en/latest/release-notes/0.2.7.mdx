@@ -1,0 +1,57 @@
+---
+slug: en/latest/release-notes/0.2.7
+title: Marivo 0.2.7
+description: Release notes for Marivo 0.2.7.
+---
+
+Marivo 0.2.7 is a v0.2 patch release for relationship readiness checks and
+packaged analysis guidance. It fixes readiness expansion for relationships
+authored with `ms.join_on(...)` and keeps the packaged `marivo-analysis` skill
+focused on Marivo evidence rather than external report delivery details.
+
+## Highlights
+
+- Relationship readiness now expands dependencies through the `JoinKey` value
+  object contract. Readiness checks for a relationship include the source
+  entity, target entity, and both authored join-key dimensions.
+- The packaged final-report guidance for `marivo-analysis` now describes the
+  default Markdown report boundary without bundling HTML report style or
+  publishing instructions that are maintained outside the Marivo package.
+
+## Fixed
+
+- Fixed relationship readiness dependency expansion for relationships authored
+  with `ms.join_on(...)`. This avoids treating join keys like raw tuples and
+  prevents valid join dimensions from being missed during readiness inspection.
+
+## Documentation
+
+- Removed HTML-report delivery and publishing guidance from the packaged
+  `marivo-analysis` final-report reference. Agents should only use those
+  delivery-specific instructions from the explicitly requested delivery surface.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.7 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/latest/installation/)
+- [Quick Start](/en/latest/quick-start/)
+- [Semantic Layer](/en/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/)
