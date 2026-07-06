@@ -142,6 +142,69 @@ def test_project_readiness_accepts_semantic_ref_objects(
     assert "unknown_ref" not in _issue_kinds(report.blockers)
 
 
+def test_readiness_expands_relationship_join_key_dependencies(
+    semantic_project_factory,
+) -> None:
+    project = _project(
+        semantic_project_factory,
+        textwrap.dedent("""\
+            import marivo.datasource as md
+            import marivo.semantic as ms
+
+            orders = ms.entity(
+                name="orders",
+                datasource=md.ref("datasource.warehouse"),
+                source=ms.table("orders"),
+                primary_key=["order_id"],
+                ai_context=ms.ai_context(business_definition="One row per paid order."),
+            )
+            customers = ms.entity(
+                name="customers",
+                datasource=md.ref("datasource.warehouse"),
+                source=ms.table("customers"),
+                primary_key=["customer_id"],
+                ai_context=ms.ai_context(business_definition="One row per customer."),
+            )
+
+            @ms.dimension(
+                entity=orders,
+                ai_context=ms.ai_context(business_definition="Customer linked to the order."),
+            )
+            def customer_id(table):
+                return table.customer_id
+
+            @ms.dimension(
+                entity=customers,
+                name="id",
+                ai_context=ms.ai_context(business_definition="Stable customer identifier."),
+            )
+            def customer_pk(table):
+                return table.customer_id
+
+            ms.relationship(
+                name="orders_to_customers",
+                from_entity=orders,
+                to_entity=customers,
+                keys=[ms.join_on(customer_id, customer_pk)],
+                ai_context=ms.ai_context(
+                    business_definition="Orders join to customers through customer id."
+                ),
+            )
+        """),
+    )
+
+    report = project.readiness(refs=("sales.orders_to_customers",))
+
+    assert report.input_summary.refs == (
+        "sales.orders_to_customers",
+        "sales.orders",
+        "sales.customers",
+        "sales.orders.customer_id",
+        "sales.customers.id",
+    )
+    assert "unknown_ref" not in _issue_kinds(report.blockers)
+
+
 def test_readiness_blocks_unknown_requested_ref(semantic_project_factory) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
 
