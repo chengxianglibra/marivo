@@ -38,8 +38,9 @@ marivo init
 | `marivo.toml` | Project manifest. The project name defaults to the directory name; local telemetry defaults to `enabled = "on"`. |
 | `models/` | Where you author datasource and semantic declarations. |
 | `.marivo/` | Project-local state: sessions, evidence, and cached metadata. |
+| `.agents/skills/marivo-semantic`, `.agents/skills/marivo-analysis` | Shared Marivo skill entrypoints for agents that read `.agents/skills`. |
 | `.claude/skills/marivo-semantic`, `.claude/skills/marivo-analysis` | Marivo skills for Claude Code (symlinked into the project). |
-| `.codex/skills/marivo-semantic`, `.codex/skills/marivo-analysis` | The same skills for Codex. |
+| `.codex/skills/marivo-semantic`, `.codex/skills/marivo-analysis` | Compatibility skill entrypoints for Codex. |
 
 `init` is idempotent: existing files are left untouched and reported as skipped, so
 it is safe to re-run — for example after upgrading to a release that ships updated
@@ -59,6 +60,7 @@ your-project/
   marivo.toml
   models/
   .marivo/
+  .agents/skills/  # marivo-semantic, marivo-analysis
   .claude/skills/   # marivo-semantic, marivo-analysis
   .codex/skills/    # marivo-semantic, marivo-analysis
 ```

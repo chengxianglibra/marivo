@@ -22,6 +22,7 @@ ANALYSIS_DIR = ".marivo/analysis"
 
 CLAUDE_SKILLS_DIR = ".claude/skills"
 CODEX_SKILLS_DIR = ".codex/skills"
+AGENTS_SKILLS_DIR = ".agents/skills"
 SKILL_SEMANTIC = "marivo-semantic"
 SKILL_ANALYSIS = "marivo-analysis"
 

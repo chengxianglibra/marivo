@@ -110,9 +110,9 @@ revenue = ms.aggregate(
 ```
 
 You don't have to write these by hand. `marivo init` installed the
-**`marivo-semantic` skill** into `.claude/skills/` and `.codex/skills/`, so a coding
-agent (Claude Code or Codex) running in the project can build the semantic layer with
-you. Point it at your tables and ask:
+**`marivo-semantic` skill** into `.agents/skills/`, `.claude/skills/`, and
+`.codex/skills/`, so a coding agent running in the project can build the semantic
+layer with you. Point it at your tables and ask:
 
 > Use the marivo-semantic skill to model the `orders` table in the `sales` domain.
 

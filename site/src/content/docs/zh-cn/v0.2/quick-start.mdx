@@ -109,8 +109,8 @@ revenue = ms.aggregate(
 )
 ```
 
-你不必手写这些对象。`marivo init` 已经把 **`marivo-semantic` skill** 安装到 `.claude/skills/`
-和 `.codex/skills/`，因此在 project 中运行的编码 agent（Claude Code 或 Codex）可以和你一起构建
+你不必手写这些对象。`marivo init` 已经把 **`marivo-semantic` skill** 安装到 `.agents/skills/`、
+`.claude/skills/` 和 `.codex/skills/`，因此在 project 中运行的编码 agent 可以和你一起构建
 semantic layer。把它指向你的表并提出请求：
 
 > Use the marivo-semantic skill to model the `orders` table in the `sales` domain.

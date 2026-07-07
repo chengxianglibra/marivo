@@ -53,8 +53,9 @@ marivo init
 ```
 
 `marivo init` creates the project skeleton (`marivo.toml`, `models/`, `.marivo/`)
-and installs the `marivo-semantic` and `marivo-analysis` skills for Claude Code
-and Codex, so a coding agent can author the semantic layer with you.
+and installs the `marivo-semantic` and `marivo-analysis` skills into the shared
+`.agents/skills` directory plus Claude Code and Codex compatibility directories,
+so a coding agent can author the semantic layer with you.
 
 Declare semantics under `models/semantic/`, then load and analyze:
 
