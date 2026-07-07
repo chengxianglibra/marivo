@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 import tomllib
@@ -194,6 +195,21 @@ def main(argv: list[str] | None = None) -> None:
     )
     publish_parser = subparsers.add_parser("publish", help="Upload a file or directory to S3")
     publish_parser.add_argument("path", help="File or directory to upload")
+    doctor_parser = subparsers.add_parser("doctor", help="Diagnose Marivo environment setup")
+    doctor_parser.add_argument("--project-root", default=None, help="Project root to inspect")
+    doctor_parser.add_argument("--format", choices=("text", "json"), default="text")
+    doctor_parser.add_argument(
+        "--fix-snap", action="store_true", help="Print suggested fix commands"
+    )
+    doctor_parser.add_argument(
+        "--semantic", action="store_true", help="Include semantic load/readiness checks"
+    )
+    doctor_parser.add_argument(
+        "--connect", action="store_true", help="Run live datasource connectivity checks"
+    )
+    doctor_parser.add_argument(
+        "--datasource", default=None, help="Limit datasource checks to one name"
+    )
 
     args = parser.parse_args(argv)
 
@@ -216,3 +232,25 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Uploaded {result.file_count} {suffix}")
         print(f"URL: {result.url}")
         print(f"S3: {result.uri}")
+    elif args.command == "doctor":
+        from marivo.doctor import DoctorOptions, exit_code, render_fix_snap, render_text, run_doctor
+
+        report = run_doctor(
+            DoctorOptions(
+                project_root=args.project_root,
+                format=args.format,
+                fix_snap=args.fix_snap,
+                semantic=args.semantic,
+                connect=args.connect,
+                datasource=args.datasource,
+            )
+        )
+        if args.fix_snap:
+            print(render_fix_snap(report))
+        elif args.format == "json":
+            print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(render_text(report))
+        code = exit_code(report)
+        if code:
+            raise SystemExit(code)

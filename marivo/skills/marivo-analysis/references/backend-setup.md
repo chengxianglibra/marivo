@@ -23,6 +23,13 @@ project datasources or uses explicit backend overrides for tests/CI.
 4. With `use_datasources=False` and no explicit factory, materialization fails
    with `NoBackendFactoryError`.
 
+When backend resolution fails in a real project, run `marivo doctor` before
+editing analysis code. It diagnoses the active Marivo install, project root,
+datasource declarations, backend extras, secret references, and existing
+analysis state. Use `marivo doctor --semantic` for semantic diagnostics and
+`marivo doctor --datasource <name> --connect` only for an intentional live
+round-trip.
+
 ## Project Datasource Session
 
 Use this when the project already has the required `models/datasources/*.py`
