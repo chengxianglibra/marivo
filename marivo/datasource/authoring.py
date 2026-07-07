@@ -745,6 +745,10 @@ def clickhouse(
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
+            ClickHouse connections default ``autogenerate_session_id`` to ``False``
+            for analysis stability; pass ``{"autogenerate_session_id": True}``
+            only when the datasource needs ClickHouse session state such as
+            temporary tables.
 
     Returns:
         ``ClickHouseSpec`` usable with ``md.register(...)`` or ``.ref``.
