@@ -5,11 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
+
+from ibis.expr.operations.relations import Field
 
 from marivo.analysis.errors import (
     AnalysisError,
@@ -811,6 +814,93 @@ def _resolve_fold_time_field(catalog: Any, status_time_dimension_id: str) -> Tim
     return details
 
 
+def _expression_source_columns(expr: Any) -> set[str] | None:
+    try:
+        nodes = expr.op().find_topmost(lambda node: isinstance(node, Field))
+    except Exception:
+        return None
+    columns: set[str] = set()
+    for node in nodes:
+        name = getattr(node, "name", None)
+        if isinstance(name, str) and name:
+            columns.add(name)
+    return columns
+
+
+def _time_dependency_exprs(table: Any, *, time_field_ir: Any, dataset_ir: Any) -> list[Any]:
+    expressions = [time_field_ir.fn(table)]
+    time_meta = getattr(time_field_ir, "time_meta", None)
+    required_prefix = getattr(time_meta, "required_prefix", None)
+    if required_prefix:
+        for field in dataset_ir.fields.values():
+            if field.name == required_prefix or field.semantic_id == required_prefix:
+                expressions.append(field.fn(table))
+                break
+    return expressions
+
+
+def _prune_base_observe_projection(
+    plan: BaseObservePlan,
+    metric_ir: Any,
+    *,
+    catalog: Any,
+    resolver: Any,
+    resolved_window: AbsoluteWindow | None,
+) -> BaseObservePlan:
+    table = plan.table
+    metric_datasets = tuple(metric_ir.entities)
+    try:
+        dataset_tables = dict.fromkeys(metric_datasets, table)
+        expressions = [
+            _metric_expr(catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables)
+        ]
+        root_adapter = _build_entity_adapter(
+            catalog,
+            resolver,
+            _entity_details(catalog, plan.root_entity),
+        )
+        if resolved_window is not None and resolved_window.grain is not None:
+            time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+            expressions.extend(
+                _time_dependency_exprs(
+                    table,
+                    time_field_ir=time_dimension_ir,
+                    dataset_ir=root_adapter,
+                )
+            )
+        for dimension in plan.dimensions:
+            dimension_ref = _field_details(catalog, dimension.field.semantic_id).ref
+            expressions.append(
+                _validate_field_expr(
+                    resolver.dimension_on(dimension_ref, table),
+                    field_id=dimension.field.semantic_id,
+                )
+            )
+
+        required_columns: set[str] = set()
+        for expr in expressions:
+            columns = _expression_source_columns(expr)
+            if columns is None:
+                return plan
+            required_columns.update(columns)
+
+        available_columns = set(table.columns)
+        if not required_columns or not required_columns.issubset(available_columns):
+            return plan
+        selected_columns = [column for column in table.columns if column in required_columns]
+        if not selected_columns:
+            return plan
+        pruned_table = table.select(*selected_columns)
+    except Exception:
+        return plan
+
+    return replace(
+        plan,
+        table=pruned_table,
+        dataset_tables=dict.fromkeys(metric_datasets, pruned_table),
+    )
+
+
 def _execute_base(
     plan: BaseObservePlan,
     metric_ir: Any,
@@ -835,6 +925,13 @@ def _execute_base(
     primary_datasource = plan.datasource_name
     read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
     dialect = datasource_backend_dialect(session._connection_runtime, primary_datasource)
+    plan = _prune_base_observe_projection(
+        plan,
+        metric_ir,
+        catalog=catalog,
+        resolver=resolver,
+        resolved_window=resolved_window,
+    )
     dataset_tables = plan.dataset_tables
     resolved_dimensions = [
         (dimension.field.entity, dimension.field) for dimension in plan.dimensions
