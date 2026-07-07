@@ -29,11 +29,15 @@ is preserved.
 ## Reading what the session knows
 
 `session.knowledge()` returns an immutable `SessionKnowledge` snapshot — the
-read-optimized projection an agent consults to decide its next step. It separates
-**settled facts** from **open items**:
+read-optimized projection an agent consults to decide its next step. It carries
+**observation digests**, **settled facts**, and **open items**:
 
 ```python
 knowledge = session.knowledge()
+
+# What was observed: one bounded digest per observe / derive_metric_frame commit.
+for obs in knowledge.observations():
+    print(obs.subject.metric, obs.semantic_kind, obs.analysis_purpose, obs.digest)
 
 # Settled facts: propositions with a current assessment.
 for fact in knowledge.facts(kind="driver"):
@@ -47,6 +51,15 @@ for item in knowledge.open_items(kind="anomaly"):
 for action in knowledge.next_steps(top=3):
     print(action)
 ```
+
+`observations()` returns bounded digests, oldest first: per-shape value
+summaries (scalar value; time-series bounds and direction; top segments by
+absolute value) plus window, row count, and `analysis_purpose`. Totals and
+shares are composition semantics and are only filled for additive metrics;
+non-additive metrics (ratios, percentiles, sampled folds) keep per-segment
+values without totals, and non-additive panels skip cross-bucket segment
+ranking. Observations are ground truth rather than assessed claims, so they
+carry no status or confidence.
 
 Facts come in five kinds, each produced by an operator:
 

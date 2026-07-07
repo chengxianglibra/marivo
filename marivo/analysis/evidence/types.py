@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -212,6 +212,75 @@ class AssociationSummary(_FactBase):
     join_basis: str
 
 
+ObservationShape = Literal["scalar", "time_series", "segmented", "panel"]
+
+
+class ObservationSegmentShare(_FrozenModel):
+    keys: dict[str, str] = Field(default_factory=dict)
+    value: float | None = None
+    share: float | None = None
+
+
+class ScalarObservationDigest(_FrozenModel):
+    shape: Literal["scalar"] = "scalar"
+    value: float | None = None
+
+
+class TimeSeriesObservationDigest(_FrozenModel):
+    shape: Literal["time_series"] = "time_series"
+    bucket_count: int
+    first_bucket: str | None = None
+    last_bucket: str | None = None
+    first_value: float | None = None
+    last_value: float | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    mean_value: float | None = None
+    direction: Literal["increase", "decrease", "flat", "undefined"] = "undefined"
+
+
+class SegmentedObservationDigest(_FrozenModel):
+    shape: Literal["segmented"] = "segmented"
+    segment_count: int
+    total_value: float | None = None
+    top_segments: list[ObservationSegmentShare] = Field(default_factory=list)
+
+
+class PanelObservationDigest(_FrozenModel):
+    shape: Literal["panel"] = "panel"
+    bucket_count: int
+    segment_count: int
+    first_bucket: str | None = None
+    last_bucket: str | None = None
+    top_segments: list[ObservationSegmentShare] = Field(default_factory=list)
+
+
+ObservationDigest = Annotated[
+    ScalarObservationDigest
+    | TimeSeriesObservationDigest
+    | SegmentedObservationDigest
+    | PanelObservationDigest,
+    Field(discriminator="shape"),
+]
+
+
+class ObservationSummary(_FrozenModel):
+    """Bounded Surface 2 record of one observe / derive_metric_frame commit.
+
+    Observations are ground truth, not assessed claims: unlike facts they
+    carry no status, confidence, or assessment linkage.
+    """
+
+    id: str
+    subject: Subject
+    window: TimeWindow | None = None
+    semantic_kind: ObservationShape
+    analysis_purpose: str | None = None
+    row_count: int = 0
+    digest: ObservationDigest
+    source_refs: list[str] = Field(default_factory=list)
+
+
 class _OpenItemBase(_FrozenModel):
     id: str
     kind: OpenItemKind
@@ -279,15 +348,23 @@ __all__ = [
     "FollowupAction",
     "ForecastSummary",
     "LagSweepSummary",
+    "ObservationDigest",
+    "ObservationSegmentShare",
+    "ObservationShape",
+    "ObservationSummary",
     "OpenAnomaly",
     "OpenItemKind",
     "OpenQuestion",
     "OpenQuestionReason",
+    "PanelObservationDigest",
     "Proposition",
     "PropositionType",
     "QualitySummary",
+    "ScalarObservationDigest",
+    "SegmentedObservationDigest",
     "Subject",
     "TestedHypothesis",
+    "TimeSeriesObservationDigest",
     "TimeWindow",
     "TriggeredByFollowup",
 ]

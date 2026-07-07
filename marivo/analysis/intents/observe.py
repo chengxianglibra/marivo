@@ -1863,6 +1863,7 @@ def observe(
             unit=metric_ir.unit,
             fold=_derived_fold,
             reaggregatable=not _any_folded,
+            additivity=_meta_additivity(metric_ir.additivity),
         )
         frame = MetricFrame(_df=result.df, meta=meta)
         frame = _commit_observe_metric_frame(
@@ -2051,6 +2052,7 @@ def observe(
         unit=metric_ir.unit,
         fold=_build_fold_meta(metric_ir, catalog) if metric_ir.time_fold is not None else None,
         reaggregatable=metric_ir.time_fold is None,
+        additivity=_meta_additivity(metric_ir.additivity),
         quantile_mode=quantile_mode,
         quantile_method=quantile_method,
     )
@@ -2116,15 +2118,20 @@ def _commit_observe_metric_frame(
     stored_where: dict[str, Any],
     semantic_kind: str,
     subject_grain: str | None = None,
+    step_type: str = "observe",
 ) -> MetricFrame:
-    """Commit an observe MetricFrame through the evidence pipeline (shared tail)."""
+    """Commit a MetricFrame through the evidence pipeline (shared tail).
+
+    Shared by observe and derive_metric_frame; both are metric_frame-family
+    commits and must emit the same evidence side effects.
+    """
     result = cast(
         "MetricFrame",
         commit_result(
             store=session._evidence_store(),
             frames_dir=session._layout.frames_dir,
             frame=frame,
-            step_type="observe",
+            step_type=step_type,
             inputs=CommitInputs(input_refs=[]),
             params=CommitParams(values=params),
             semantic_anchors=CommitSemanticAnchors(
@@ -2141,6 +2148,19 @@ def _commit_observe_metric_frame(
     )
     register_frame_artifact(session, result)
     return result
+
+
+def _meta_additivity(
+    value: str | None,
+) -> Literal["additive", "semi_additive", "non_additive"] | None:
+    """Narrow a catalog additivity string to the MetricFrameMeta literal."""
+    if value == "additive":
+        return "additive"
+    if value == "semi_additive":
+        return "semi_additive"
+    if value == "non_additive":
+        return "non_additive"
+    return None
 
 
 def _analysis_axis_for_kind(

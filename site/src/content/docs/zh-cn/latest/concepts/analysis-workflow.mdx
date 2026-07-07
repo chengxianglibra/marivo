@@ -300,7 +300,7 @@ previous = session.get_frame(ref)
 
 每个 operator 都会把 evidence 写入 session，使结论保持可审计。
 
-- `session.knowledge()` —— 整个 session 的既定事实、driver 事实、未决异常和建议的后续。
+- `session.knowledge()` —— 整个 session 的观察摘要、既定事实、driver 事实、未决异常和建议的后续。
 - `session.evidence.findings(...)`、`.propositions(...)`、`.assessments(...)`、
   `.proposition(id)`、`.latest_assessment(id)`、`.trace(id)` —— 查找 evidence 对象，
   并把一个 proposition 追溯回支持它的 findings。

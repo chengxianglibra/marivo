@@ -411,7 +411,32 @@ class Session:
         return store
 
     def knowledge(self) -> SessionKnowledge:
-        """Return a SessionKnowledge projection for this session."""
+        """Return an immutable SessionKnowledge snapshot for this session.
+
+        When to use: synthesis at key decision points, closeout recaps, and
+        cross-script session recovery. The snapshot projects judgment.db into
+        bounded typed sections:
+
+        - ``knowledge.observations()`` -- observation digests for every
+          observe / derive_metric_frame commit, oldest first.
+        - ``knowledge.facts(kind=...)`` -- established facts from compare,
+          attribute, hypothesis_test, forecast, and correlate.
+        - ``knowledge.open_items()`` / ``knowledge.blocked_followups()`` /
+          ``knowledge.next_steps()`` -- unresolved work.
+
+        Returns:
+            SessionKnowledge snapshot. Read-only; does not create a step or
+            enter lineage.
+
+        Example:
+            >>> knowledge = session.knowledge()
+            >>> knowledge.observations()[-1].digest
+            >>> knowledge.facts(kind="change")
+
+        Constraints:
+            Check ``knowledge.evidence_completeness`` before consuming the
+            lists; ``"unavailable"`` means unknown, not empty.
+        """
         from marivo.analysis.evidence.knowledge import build_session_knowledge
 
         db_path = self._layout.session_dir / "judgment.db"

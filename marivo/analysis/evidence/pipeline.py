@@ -37,7 +37,10 @@ from marivo.analysis.evidence.extraction.composition import (
 from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
 from marivo.analysis.evidence.extraction.delta import extract_delta_findings
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
-from marivo.analysis.evidence.extraction.observation import extract_metric_value_findings
+from marivo.analysis.evidence.extraction.observation import (
+    extract_metric_value_findings,
+    extract_observation_digest_finding,
+)
 from marivo.analysis.evidence.extraction.test import extract_test_result_findings
 from marivo.analysis.evidence.followups import GenerationContext, generate_followups
 from marivo.analysis.evidence.identity import (
@@ -218,14 +221,19 @@ def _extract_findings(
         )
         # Fall back if measure_column is not in the DataFrame
         if measure_column not in df.columns:
-            non_time = [c for c in df.columns if c != "bucket_start"]
-            measure_column = non_time[0] if non_time else "value"
+            axis_columns = set(_dimension_columns_from_meta(meta) or [])
+            axis_columns.add("bucket_start")
+            non_axis = [c for c in df.columns if c not in axis_columns]
+            if "value" in non_axis:
+                measure_column = "value"
+            else:
+                measure_column = non_axis[0] if non_axis else "value"
         time_column: str | None = None
         if semantic_kind == "time_series" and "bucket_start" in df.columns:
             time_column = "bucket_start"
         elif semantic_kind == "time_series":
             time_column = _time_column_from_meta(meta)
-        return extract_metric_value_findings(
+        findings = extract_metric_value_findings(
             df=df,
             artifact_id=artifact_id,
             session_id=session_id,
@@ -235,6 +243,28 @@ def _extract_findings(
             committed_at=committed_at,
             time_column=time_column,
         )
+        digest_time_column = time_column
+        if semantic_kind == "panel":
+            digest_time_column = (
+                "bucket_start" if "bucket_start" in df.columns else _time_column_from_meta(meta)
+            )
+        findings.append(
+            extract_observation_digest_finding(
+                df=df,
+                artifact_id=artifact_id,
+                session_id=session_id,
+                subject=subject,
+                semantic_kind=semantic_kind,
+                measure_column=measure_column,
+                committed_at=committed_at,
+                time_column=digest_time_column,
+                dimension_columns=_dimension_columns_from_meta(meta),
+                window=getattr(meta, "window", None),
+                analysis_purpose=getattr(meta, "analysis_purpose", None),
+                additive=getattr(meta, "additivity", None) == "additive",
+            )
+        )
+        return findings
     if extractor_family == "delta_frame":
         dimension_columns = _dimension_columns_from_meta(meta)
         return extract_delta_findings(

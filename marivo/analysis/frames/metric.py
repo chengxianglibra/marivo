@@ -31,6 +31,7 @@ class MetricFrameMeta(BaseFrameMeta):
     composition: dict[str, Any] | None = None
     fold: dict[str, Any] | None = None
     reaggregatable: bool = True
+    additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
     sample_set_digest: str | None = None
     quantile_mode: Literal["exact", "approximate"] | None = None
     quantile_method: str | None = None

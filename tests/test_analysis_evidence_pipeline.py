@@ -162,7 +162,7 @@ def test_commit_observe_writes_artifact_and_metric_value_findings(tmp_session) -
         findings = conn.execute("SELECT finding_type FROM findings").fetchall()
     assert len(artifacts) == 1
     assert artifacts[0][1] == "observe"
-    assert findings == [("metric_value",)]
+    assert sorted(row[0] for row in findings) == ["metric_value", "observation"]
 
 
 def test_commit_compare_seeds_change_proposition(tmp_session) -> None:

@@ -317,8 +317,8 @@ previous = session.get_frame(ref)
 
 Every operator records evidence into the session, so conclusions stay auditable.
 
-- `session.knowledge()` — established facts, driver facts, open anomalies, and
-  suggested follow-ups for the whole session.
+- `session.knowledge()` — observation digests, established facts, driver facts,
+  open anomalies, and suggested follow-ups for the whole session.
 - `session.evidence.findings(...)`, `.propositions(...)`, `.assessments(...)`,
   `.proposition(id)`, `.latest_assessment(id)`, `.trace(id)` — look up the
   evidence objects, and trace a proposition back to the findings that support it.

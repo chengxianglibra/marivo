@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from marivo.analysis.evidence.identity import (
     canonical_json,
@@ -24,6 +24,8 @@ from marivo.analysis.evidence.types import (
     FactKind,
     ForecastSummary,
     LagSweepSummary,
+    ObservationDigest,
+    ObservationSummary,
     OpenAnomaly,
     OpenItemKind,
     OpenQuestion,
@@ -230,6 +232,46 @@ def _association_facts(conn: sqlite3.Connection, session_id: str) -> list[Associ
     return facts
 
 
+_DIGEST_ADAPTER: TypeAdapter[ObservationDigest] = TypeAdapter(ObservationDigest)
+
+
+def _observation_window(payload: Any) -> TimeWindow | None:
+    if not isinstance(payload, dict):
+        return None
+    start = payload.get("start")
+    end = payload.get("end")
+    if start is None or end is None:
+        return None
+    return TimeWindow(field=str(payload.get("field", "")), start=str(start), end=str(end))
+
+
+def _observation_summaries(conn: sqlite3.Connection, session_id: str) -> list[ObservationSummary]:
+    rows = conn.execute(
+        "SELECT finding_id, artifact_id, subject_payload, payload FROM findings "
+        "WHERE session_id = ? AND finding_type = 'observation' "
+        "ORDER BY committed_at_us, finding_id",
+        (session_id,),
+    ).fetchall()
+    summaries: list[ObservationSummary] = []
+    for row in rows:
+        payload = _loads(row["payload"])
+        summaries.append(
+            ObservationSummary(
+                id=row["finding_id"],
+                subject=_row_subject(row),
+                window=_observation_window(payload.get("window")),
+                semantic_kind=payload.get("semantic_kind") or "scalar",
+                analysis_purpose=payload.get("analysis_purpose"),
+                row_count=int(payload.get("row_count") or 0),
+                digest=_DIGEST_ADAPTER.validate_python(
+                    payload.get("digest") or {"shape": "scalar"}
+                ),
+                source_refs=[row["artifact_id"]] if row["artifact_id"] else [],
+            )
+        )
+    return summaries
+
+
 def _open_anomalies(conn: sqlite3.Connection, session_id: str) -> list[OpenAnomaly]:
     items: list[OpenAnomaly] = []
     for row in _proposition_with_assessment(conn, session_id, "anomaly"):
@@ -337,6 +379,7 @@ class SessionKnowledge(BaseModel):
     snapshot_id: str
     snapshot_at: datetime
     evidence_completeness: EvidenceCompleteness
+    observation_summaries: tuple[ObservationSummary, ...] = Field(default_factory=tuple)
     change_facts: tuple[ChangeFact, ...] = Field(default_factory=tuple)
     driver_facts: tuple[AttributedDriver, ...] = Field(default_factory=tuple)
     tested_hypothesis_facts: tuple[TestedHypothesis, ...] = Field(default_factory=tuple)
@@ -368,6 +411,10 @@ class SessionKnowledge(BaseModel):
                 *self.association_facts,
             ]
         return []
+
+    def observations(self) -> list[ObservationSummary]:
+        """Return observation digests for observe / derive_metric_frame commits, oldest first."""
+        return list(self.observation_summaries)
 
     def open_items(self, kind: OpenItemKind | None = None) -> list[Any]:
         """Return unresolved open items, optionally filtered by kind."""
@@ -401,6 +448,9 @@ class SessionKnowledge(BaseModel):
             snapshot_id=self.snapshot_id,
             snapshot_at=self.snapshot_at,
             evidence_completeness=self.evidence_completeness,
+            observation_summaries=tuple(
+                o for o in self.observation_summaries if matches(o.subject)
+            ),
             change_facts=tuple(f for f in self.change_facts if matches(f.subject)),
             driver_facts=tuple(f for f in self.driver_facts if matches(f.subject)),
             tested_hypothesis_facts=tuple(
@@ -421,6 +471,7 @@ def build_session_knowledge(*, db_path: Path, session_id: str) -> SessionKnowled
     try:
         snapshot_at = datetime.now(UTC)
         completeness = _completeness(conn, session_id)
+        observation_summaries = tuple(_observation_summaries(conn, session_id))
         change_facts = tuple(_change_facts(conn, session_id))
         driver_facts = tuple(_driver_facts(conn, session_id))
         tested_hypothesis_facts = tuple(_tested_hypothesis_facts(conn, session_id))
@@ -432,6 +483,7 @@ def build_session_knowledge(*, db_path: Path, session_id: str) -> SessionKnowled
         next_steps_payload = tuple(_next_steps(conn, session_id, top=100))
         snapshot_payload = {
             "evidence_completeness": completeness,
+            "observations": [item.model_dump(mode="json") for item in observation_summaries],
             "facts": [
                 item.model_dump(mode="json")
                 for item in (
@@ -455,6 +507,7 @@ def build_session_knowledge(*, db_path: Path, session_id: str) -> SessionKnowled
             snapshot_id=snapshot_id,
             snapshot_at=snapshot_at,
             evidence_completeness=completeness,
+            observation_summaries=observation_summaries,
             change_facts=change_facts,
             driver_facts=driver_facts,
             tested_hypothesis_facts=tested_hypothesis_facts,

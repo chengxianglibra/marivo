@@ -141,6 +141,29 @@ def test_observe_single_dimension_returns_segmented_frame(tmp_path):
     assert by_region == {"NORTH": pytest.approx(70.0), "SOUTH": pytest.approx(30.0)}
 
 
+def test_ratio_segmented_observation_digest_omits_composition_fields(tmp_path):
+    _bootstrap_sales(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    s = session_attach.get_or_create(name="demo", backends=_backends(con))
+
+    mf = observe(
+        make_ref("sales.failure_rate", SemanticKind.METRIC),
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        session=s,
+    )
+
+    assert mf.meta.additivity == "non_additive"
+    observations = s.knowledge().observations()
+    assert len(observations) == 1
+    digest = observations[0].digest
+    assert digest.shape == "segmented"
+    assert digest.total_value is None
+    assert digest.top_segments
+    assert all(entry.share is None for entry in digest.top_segments)
+    assert digest.top_segments[0].value is not None
+
+
 def test_observe_multi_dimension_segmented(tmp_path):
     _bootstrap_sales(tmp_path)
     con = ibis.duckdb.connect(":memory:")
