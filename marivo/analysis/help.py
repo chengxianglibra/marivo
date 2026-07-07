@@ -136,10 +136,10 @@ _SUMMARIES: dict[str, str] = {
     "SemanticObject": "catalog object returned by session.catalog.get(...)",
     "SemanticRef": "catalog ref returned by SemanticObject.ref",
     "SamplingPolicy": "sampling policy for compare and correlate",
-    "SlicePredicate": "typed dict for transform slice predicates",
+    "SlicePredicate": "typed dict for analysis slice predicates",
     "SlicePredicateOp": "literal values for SlicePredicate.op field",
     "SliceScalar": "scalar types allowed in slice values",
-    "SliceValue": "accepted value types for transform slice",
+    "SliceValue": "accepted value types for analysis slice filters",
     "TimeScope": "half-open time interval model for observe",
     "TimeScopeInput": "accepted time_scope input types",
 }

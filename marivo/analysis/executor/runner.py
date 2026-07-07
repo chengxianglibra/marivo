@@ -1765,6 +1765,9 @@ def _normalize_slice_predicate(raw: Any) -> tuple[str, Any]:
             )
         _validate_slice_value_shape(op, value)
         return str(op), value
+    if isinstance(raw, (list, tuple, set)):
+        _validate_slice_value_shape("in", raw)
+        return "in", raw
     _validate_slice_value_shape("==", raw)
     return "==", raw
 

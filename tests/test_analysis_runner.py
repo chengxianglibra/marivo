@@ -162,6 +162,33 @@ def test_apply_slice_filters_by_declared_field(tmp_path):
     assert df.iloc[0]["region"] == "north"
 
 
+@pytest.mark.parametrize(
+    "slice_value",
+    [
+        ["NORTH", "SOUTH"],
+        ("NORTH", "SOUTH"),
+        {"NORTH", "SOUTH"},
+    ],
+)
+def test_apply_slice_collection_shorthand_filters_by_membership(tmp_path, slice_value):
+    sp = _bootstrap_project(tmp_path)
+    con = _seed_backend()
+    ds_adapter = _build_dataset_adapter(sp, "sales.orders")
+    filtered = apply_slice_to_dataset(
+        ds_adapter.fn(con), {"region": slice_value}, dataset_ir=ds_adapter
+    )
+    df = filtered.order_by("order_id").execute()
+    assert df["order_id"].tolist() == [1, 2]
+
+
+def test_apply_slice_rejects_empty_collection_shorthand(tmp_path):
+    sp = _bootstrap_project(tmp_path)
+    con = _seed_backend()
+    ds_adapter = _build_dataset_adapter(sp, "sales.orders")
+    with pytest.raises(SliceInvalidError, match="requires a non-empty list/tuple/set"):
+        apply_slice_to_dataset(ds_adapter.fn(con), {"region": []}, dataset_ir=ds_adapter)
+
+
 def test_apply_slice_unknown_field_raises(tmp_path):
     sp = _bootstrap_project(tmp_path)
     con = _seed_backend()

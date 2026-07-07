@@ -502,8 +502,8 @@ class Session:
                 segment axes. In v1 all non-empty dimension lists must resolve to
                 the same entity as ``metric``.
             slice_by: Pre-aggregation row filter. Keys are catalog dimension objects/refs for
-                the filtered dimension; values are either a scalar (``==``), a list
-                (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
+                the filtered dimension; values are either a scalar (``==``), a
+                list/tuple/set (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
                 ``==, !=, in, >, >=, <, <=, between``.
             time_dimension: Pick the entity time axis as
                 a catalog time-dimension object/ref when an entity declares multiple
