@@ -13,7 +13,9 @@ class SlicePredicate(TypedDict):
 
 
 SliceScalar = str | int | float | bool | None
-SliceValue = SliceScalar | list[SliceScalar] | SlicePredicate
+SliceValue = (
+    SliceScalar | list[SliceScalar] | tuple[SliceScalar, ...] | set[SliceScalar] | SlicePredicate
+)
 
 DiscoverSensitivity = Literal["conservative", "balanced", "aggressive"]
 

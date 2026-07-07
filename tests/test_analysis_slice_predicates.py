@@ -54,6 +54,30 @@ def test_observe_equality_shorthand_still_works(tmp_path):
     assert frame.to_pandas().iloc[0, 0] == pytest.approx(70.0)
 
 
+@pytest.mark.parametrize(
+    ("slice_value", "expected_value"),
+    [
+        (["NORTH", "SOUTH"], ["NORTH", "SOUTH"]),
+        (("NORTH", "SOUTH"), ["NORTH", "SOUTH"]),
+        ({"SOUTH", "NORTH"}, ["NORTH", "SOUTH"]),
+    ],
+)
+def test_observe_collection_shorthand_uses_in_predicate(tmp_path, slice_value, expected_value):
+    session = _session_with_sales(tmp_path)
+    frame = observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        slice_by={make_ref("region", SemanticKind.DIMENSION): slice_value},
+        session=session,
+    )
+
+    expected_where = {"sales.orders.region": {"op": "in", "value": expected_value}}
+    job = next(item for item in session.jobs() if item.output_frame_ref == frame.ref)
+    record = session.job(job.id)
+    assert frame.to_pandas().iloc[0, 0] == pytest.approx(100.0)
+    assert record["params"]["where"] == expected_where
+    assert frame.meta.where == expected_where
+
+
 def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
     session = _session_with_sales(tmp_path)
     frame = observe(
@@ -74,7 +98,7 @@ def test_in_predicate_with_set_is_json_safe_in_job_record(tmp_path):
     [
         {"region": {"op": "==", "value": ["NORTH"]}},
         {"region": {"op": "!=", "value": {"NORTH"}}},
-        {"region": ["NORTH"]},
+        {"region": []},
     ],
 )
 def test_invalid_structured_predicates_raise(tmp_path, slice_spec):
