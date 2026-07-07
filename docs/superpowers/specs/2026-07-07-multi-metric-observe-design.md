@@ -40,18 +40,26 @@ parallel batch entry point.
 2. `MetricFrame` carries one value column per metric over shared axes.
    Frame reads (`show()`, `summary()`, `to_pandas()`, `contract()`) work at
    any arity.
-3. Projection is first-class: `frame.metric("model.name")` returns an
+3. Arity-N accepts simple, unfolded metrics only. Derived metrics and
+   metrics with `time_fold` raise a teaching error at the observe
+   boundary naming the offending metric and suggesting a separate
+   arity-1 observe. Their scalar sidecar metadata (`component_ref`,
+   `composition`, `coverage_ref`, `coverage_summary`, quantile and
+   sample fields) is attached after execution and has no per-measure
+   representation yet; admitting them would silently lose
+   component-aware compare and coverage semantics after projection.
+4. Projection is first-class: `frame.metric("model.name")` returns an
    arity-1 `MetricFrame` as a cheap in-memory lineage step, no query.
-4. Every intent boundary that accepts a `MetricFrame` (`compare`,
+5. Every intent boundary that accepts a `MetricFrame` (`compare`,
    `discover`, `correlate`, `transform`, `assess_quality`,
    `hypothesis_test`, `forecast`) requires arity-1 and raises a teaching
    error naming the actual metrics and the exact `frame.metric(...)` call
    to make first. Intents that consume downstream artifacts
    (`decompose`, `attribute` over `DeltaFrame`) are covered transitively
    by the `compare` gate.
-5. No broadcasting. Arity is an observation/reading affordance only;
+6. No broadcasting. Arity is an observation/reading affordance only;
    analytical intents never fan out over metrics implicitly.
-6. Query fusion stays in the execution layer: metrics whose base plans
+7. Query fusion stays in the execution layer: metrics whose base plans
    share scope are computed in one GROUP BY; the rest execute separately
    and join on the shared axes. Fusion is invisible to the authoring
    surface, consistent with the spec's batch-optimization stance.
@@ -76,14 +84,26 @@ parallel batch entry point.
 - Per-metric scope overrides (different windows or slices per metric in
   one call). One call means one scope.
 - Multi-metric support in `derive_metric_frame` / `metric_columns`.
+- Derived or folded metrics at arity-N. The extension path is
+  per-measure sidecar metadata (component/coverage refs, composition,
+  quantile and sample fields moved into `MeasureMeta`) plus projection
+  rewiring; it is deferred until designed, and the boundary error keeps
+  the contract explicit until then. Fusing a derived metric's simple
+  components with sibling metrics is part of that future work.
 
 ## API Surface
 
 ### observe
 
 ```python
+catalog = session.catalog
 frame = mv.observe(
-    ["analytics.dau", "analytics.new_users", "analytics.orders", "analytics.gmv"],
+    [
+        catalog.get("analytics.dau"),
+        catalog.get("analytics.new_users"),
+        catalog.get("analytics.orders"),
+        catalog.get("analytics.gmv"),
+    ],
     time_scope={"start": "2026-06-29", "end": "2026-07-05"},
     grain="day",
 )
@@ -91,9 +111,15 @@ frame.show()                      # time axis + four value columns
 dau = frame.metric("analytics.dau")   # arity-1 MetricFrame
 ```
 
-- `metric` accepts a single `MetricInput` or a non-empty sequence.
+- `metric` accepts a single `MetricInput` or a non-empty sequence of
+  `MetricInput`. The element contract is unchanged: catalog objects or
+  `SemanticRef`s, bare strings stay rejected (projection takes string
+  ids because the frame's own `metrics` list makes them unambiguous).
   Duplicates (after normalization) raise `SemanticInputError` listing the
   duplicate ids. An empty sequence raises the same error class.
+- Sequence elements must be simple, unfolded metrics; a derived or
+  folded metric raises a teaching error naming it and suggesting a
+  separate arity-1 `observe` (see Decision 3).
 - All other parameters are unchanged and apply to every metric:
   `time_scope`, `grain`, `dimensions`, `slice_by`, `time_dimension`,
   `expect_shape`, `analysis_purpose`, `session`.
@@ -142,11 +168,12 @@ dau = frame.metric("analytics.dau")   # arity-1 MetricFrame
 `MetricFrameMeta` changes:
 
 - New `measures: list[MeasureMeta] | None = None`, one entry per metric in
-  input order: `{metric_id, name, column, unit, additivity, fold,
+  input order: `{metric_id, name, column, unit, additivity,
   reaggregatable}`. `None` means a legacy arity-1 frame; accessors derive
-  the single entry from the existing scalar fields.
+  the single entry from the existing scalar fields. No per-measure `fold`
+  field: folded metrics are rejected at arity-N (Decision 3).
 - `metric_id: str | None` — populated only at arity-1 (unchanged value);
-  `None` at arity-N. Same rule for the scalar `unit`, `measure`, `fold`,
+  `None` at arity-N. Same rule for the scalar `unit`, `measure`,
   `additivity`, and `reaggregatable` fields: they describe the frame only
   when it has exactly one metric; at arity-N `reaggregatable` is the
   conjunction and the rest live per-measure.
@@ -155,17 +182,59 @@ dau = frame.metric("analytics.dau")   # arity-1 MetricFrame
   `semantic_model` to the root model of the first metric and record every
   model in `measures`; cross-model observation is allowed when every
   dimension input resolves for every metric.
+- The remaining scalar sidecar fields (`component_ref`, `composition`,
+  `coverage_ref`, `coverage_summary`, `quantile_mode`,
+  `quantile_method`, `sample_set_digest`) stay arity-1-only by
+  construction: the metric classes that populate them are rejected at
+  arity-N (Decision 3), so no per-measure representation is needed yet.
 - Persisted legacy frames load without migration because every new field
   defaults to the legacy reading.
 
-## Projection Lineage
+## Evidence And Knowledge
 
-`frame.metric(id)` commits a new frame whose lineage appends a
-`select_metric` step: inputs `[parent.ref]`, params `{"metric": id}`,
-no captured queries. The projected frame's meta is fully scalar-populated
-(arity-1), so every downstream intent sees a frame indistinguishable from
-a direct single-metric `observe`. Projection results share the session
-frame store and are cached by `(parent artifact id, metric id)`.
+An arity-N observation is one artifact but N evidence subjects.
+`Subject` stays single-metric; the multi-metric contract lives in the
+extractor:
+
+- The observe commit still goes through `commit_result` once. Semantic
+  anchors at arity-N are `{"metrics": ordered metric ids, "models":
+  ordered distinct models}`; arity-1 keeps `{metric_id, model}`
+  unchanged so existing artifact ids are stable.
+- The `metric_frame` extractor becomes measure-aware: for each
+  `meta.measures` entry it derives a per-measure `Subject`
+  (`metric=` that entry's id; `slice`, `grain`, and `analysis_axis`
+  shared from the call scope) and emits that measure's `metric_value`
+  findings and observation digest from that measure's column. At
+  arity-1 the output is byte-identical to today's single-subject
+  extraction. No finding is ever attributed to the frame as a whole,
+  so nothing in session knowledge aggregates across metrics silently.
+- One job record covers the call; the params `fusion` block names which
+  metric ids each captured query served, so query provenance stays
+  per-metric readable.
+
+## Projection
+
+`frame.metric(id)` is a session step with a full commit contract, not an
+in-memory view:
+
+- Commit through the standard `commit_result` +
+  `register_frame_artifact` tail with `step_type="select_metric"`,
+  `inputs=[parent artifact id]`, `params={"metric": id}`, semantic
+  anchors `{metric_id, model}`, and `Subject(metric=id)` carrying the
+  parent's slice, grain, and analysis axis. The deterministic artifact
+  id follows from these values, so a repeated projection first checks
+  the frame store (as observe's cache probe does) and returns the
+  persisted frame; `load_frame` recovers projections across sessions
+  like any other registered artifact.
+- The projected frame's meta is fully scalar-populated (arity-1) and its
+  lineage appends the `select_metric` step, so every downstream intent
+  sees a frame equivalent to a direct single-metric `observe` of the
+  same simple metric.
+- Projection emits no `metric_value` or digest findings: the observe
+  commit already recorded that measure's evidence, and re-extraction
+  would duplicate session knowledge. The projection commit uses a
+  finding-free extractor path and writes a job record with zero
+  captured queries.
 
 ## Arity Gate
 
@@ -188,14 +257,12 @@ MetricArityError: compare expects a single-metric frame, got 4 metrics
 
 Planning per metric, fusion by evidence:
 
-1. Normalize the metric list; plan each metric exactly as today
-   (simple → `BaseObservePlan`, derived → `DerivedObservePlan`,
-   folded → sampled path).
-2. Group simple, unfolded plans by fusion key: `(datasource_name,
-   root_entity, resolved window + grain + time_dimension, dimensions,
-   normalized where)`. Plans with `time_fold`, derived metrics, and
-   sampled paths are never fused; they keep their existing execution
-   paths unchanged.
+1. Normalize the metric list and reject derived or folded metrics with
+   the boundary teaching error (Decision 3); every admitted metric plans
+   exactly as today into a `BaseObservePlan`.
+2. Group plans by fusion key: `(datasource_name, root_entity,
+   resolved window + grain + time_dimension, dimensions,
+   normalized where)`.
 3. Each fused group executes one GROUP BY with one named aggregate per
    metric. Each remaining plan executes as today.
 4. Result blocks join on the shared axis columns (`bucket_start` and
@@ -220,8 +287,16 @@ hit the frame cache exactly like arity-1 observations do today.
   results.
 - Alignment: outer-join semantics with partially disjoint axis values;
   scalar concatenation.
+- Boundary: derived and folded metrics in a sequence raise the teaching
+  error naming the offending metric; arity-1 derived/folded observe is
+  unaffected.
 - Projection: `frame.metric(...)` meta scalars, `select_metric` lineage
-  step, downstream `compare` accepting the projected frame.
+  step, downstream `compare` accepting the projected frame, repeated
+  projection returning the cached artifact, and `load_frame` recovering
+  a projection in a fresh session.
+- Evidence: arity-N commit emits per-measure `metric_value` findings and
+  digests with per-metric subjects; arity-1 extraction output is
+  unchanged; projection commits emit no value findings.
 - Gate: every analytical intent raises `MetricArityError` on an arity-N
   frame; the message carries the real metric list.
 - Meta: arity-N round-trip through frame persistence; legacy arity-1
