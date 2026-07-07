@@ -83,8 +83,13 @@ Use these Marivo surfaces as the evidence source:
   bounded `to_pandas()` extraction.
 - `artifact.meta` for evidence status, blocking issues, confidence scope,
   lineage, quality summary, metric ids, semantic refs, and row counts.
-- `session.knowledge()` and `session.evidence` when explicit evidence objects,
-  findings, open issues, or cross-step audit facts matter.
+- `session.knowledge()` as the recap starting point: `knowledge.observations()`
+  for what was observed (bounded per-shape digests with window, purpose, and
+  value summaries), `knowledge.facts()` for what was established, and
+  `knowledge.open_items()` for what remains open. Check
+  `evidence_completeness` first; `unavailable` means unknown, not empty.
+- `session.evidence` when explicit findings, propositions, or cross-step audit
+  traces matter.
 
 For HTML, MCP, PDF, slides, or notebook deliverables, create the file or hosted
 artifact with the available agent/runtime tools. Keep the output self-contained

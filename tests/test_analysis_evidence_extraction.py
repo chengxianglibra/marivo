@@ -13,7 +13,10 @@ from marivo.analysis.evidence.extraction.composition import extract_decompositio
 from marivo.analysis.evidence.extraction.correlation import extract_correlation_findings
 from marivo.analysis.evidence.extraction.delta import extract_delta_findings
 from marivo.analysis.evidence.extraction.forecast import extract_forecast_point_findings
-from marivo.analysis.evidence.extraction.observation import extract_metric_value_findings
+from marivo.analysis.evidence.extraction.observation import (
+    extract_metric_value_findings,
+    extract_observation_digest_finding,
+)
 from marivo.analysis.evidence.extraction.test import extract_test_result_findings
 from marivo.analysis.evidence.types import Subject
 
@@ -58,6 +61,161 @@ def test_metric_value_time_series_emits_per_bucket_finding() -> None:
         "buckets:2026-05-01",
         "buckets:2026-05-02",
     }
+
+
+def test_observation_digest_scalar_payload() -> None:
+    df = pd.DataFrame({"revenue": [100.0]})
+    subject = Subject(metric="sales.revenue", slice={}, analysis_axis="scalar")
+    finding = extract_observation_digest_finding(
+        df=df,
+        artifact_id="art_dig_1",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="scalar",
+        measure_column="revenue",
+        committed_at=_now(),
+        window={"field": "order_date", "start": "2026-05-01", "end": "2026-06-01"},
+        analysis_purpose="check revenue level",
+    )
+    assert finding.finding_type == "observation"
+    assert finding.canonical_item_key == "digest"
+    assert finding.payload["digest"] == {"shape": "scalar", "value": 100.0}
+    assert finding.payload["semantic_kind"] == "scalar"
+    assert finding.payload["row_count"] == 1
+    assert finding.payload["analysis_purpose"] == "check revenue level"
+    assert finding.payload["window"]["start"] == "2026-05-01"
+
+
+def test_observation_digest_time_series_bounds_and_direction() -> None:
+    df = pd.DataFrame(
+        {
+            "bucket_start": ["2026-05-01", "2026-05-02", "2026-05-03"],
+            "revenue": [10.0, 30.0, 20.0],
+        }
+    )
+    subject = Subject(metric="sales.revenue", slice={}, grain="day", analysis_axis="time")
+    finding = extract_observation_digest_finding(
+        df=df,
+        artifact_id="art_dig_2",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="time_series",
+        measure_column="revenue",
+        committed_at=_now(),
+        time_column="bucket_start",
+    )
+    digest = finding.payload["digest"]
+    assert digest["shape"] == "time_series"
+    assert digest["bucket_count"] == 3
+    assert digest["first_bucket"] == "2026-05-01"
+    assert digest["last_bucket"] == "2026-05-03"
+    assert digest["first_value"] == 10.0
+    assert digest["last_value"] == 20.0
+    assert digest["min_value"] == 10.0
+    assert digest["max_value"] == 30.0
+    assert digest["mean_value"] == 20.0
+    assert digest["direction"] == "increase"
+
+
+def test_observation_digest_segmented_top_segments_bounded() -> None:
+    df = pd.DataFrame(
+        {
+            "region": ["r0", "r1", "r2", "r3", "r4", "r5", "r6"],
+            "revenue": [70.0, -60.0, 50.0, 40.0, 30.0, 20.0, 10.0],
+        }
+    )
+    subject = Subject(metric="sales.revenue", slice={}, analysis_axis="segment")
+    finding = extract_observation_digest_finding(
+        df=df,
+        artifact_id="art_dig_3",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="segmented",
+        measure_column="revenue",
+        committed_at=_now(),
+        dimension_columns=["region"],
+        additive=True,
+    )
+    digest = finding.payload["digest"]
+    assert digest["shape"] == "segmented"
+    assert digest["segment_count"] == 7
+    assert digest["total_value"] == 160.0
+    assert len(digest["top_segments"]) == 5
+    top = digest["top_segments"][0]
+    assert top["keys"] == {"region": "r0"}
+    assert top["value"] == 70.0
+    assert top["share"] == pytest.approx(70.0 / 160.0)
+    assert digest["top_segments"][1]["keys"] == {"region": "r1"}
+
+
+def test_observation_digest_panel_counts_and_top_segments() -> None:
+    df = pd.DataFrame(
+        {
+            "bucket_start": ["2026-05-01", "2026-05-01", "2026-05-02", "2026-05-02"],
+            "region": ["us", "eu", "us", "eu"],
+            "revenue": [10.0, 5.0, 20.0, 7.0],
+        }
+    )
+    subject = Subject(metric="sales.revenue", slice={}, grain="day", analysis_axis="panel")
+    finding = extract_observation_digest_finding(
+        df=df,
+        artifact_id="art_dig_4",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="panel",
+        measure_column="revenue",
+        committed_at=_now(),
+        time_column="bucket_start",
+        dimension_columns=["region"],
+        additive=True,
+    )
+    digest = finding.payload["digest"]
+    assert digest["shape"] == "panel"
+    assert digest["bucket_count"] == 2
+    assert digest["segment_count"] == 2
+    assert digest["first_bucket"] == "2026-05-01"
+    assert digest["last_bucket"] == "2026-05-02"
+    assert digest["top_segments"][0]["keys"] == {"region": "us"}
+    assert digest["top_segments"][0]["value"] == 30.0
+    assert digest["top_segments"][0]["share"] == pytest.approx(30.0 / 42.0)
+
+
+def test_observation_digest_non_additive_omits_total_and_share() -> None:
+    df = pd.DataFrame({"region": ["us", "eu"], "failure_rate": [0.2, 0.5]})
+    subject = Subject(metric="sales.failure_rate", slice={}, analysis_axis="segment")
+    finding = extract_observation_digest_finding(
+        df=df,
+        artifact_id="art_dig_6",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="segmented",
+        measure_column="failure_rate",
+        committed_at=_now(),
+        dimension_columns=["region"],
+    )
+    digest = finding.payload["digest"]
+    assert digest["segment_count"] == 2
+    assert digest["total_value"] is None
+    top = digest["top_segments"][0]
+    assert top["keys"] == {"region": "eu"}
+    assert top["value"] == 0.5
+    assert top["share"] is None
+
+
+def test_observation_digest_empty_scalar_has_none_value() -> None:
+    df = pd.DataFrame({"revenue": []})
+    subject = Subject(metric="sales.revenue", slice={}, analysis_axis="scalar")
+    finding = extract_observation_digest_finding(
+        df=df,
+        artifact_id="art_dig_5",
+        session_id="sess_1",
+        subject=subject,
+        semantic_kind="scalar",
+        measure_column="revenue",
+        committed_at=_now(),
+    )
+    assert finding.payload["digest"] == {"shape": "scalar", "value": None}
+    assert finding.payload["row_count"] == 0
 
 
 def test_delta_scalar_emits_change_finding() -> None:

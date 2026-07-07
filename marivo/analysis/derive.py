@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -20,7 +20,6 @@ from marivo.analysis.executor.runner import execute
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import (
-    persist_frame,
     persist_job_record,
     require_current_session,
 )
@@ -195,11 +194,14 @@ def derive_metric_frame(
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
+    from marivo.analysis.intents.observe import _commit_observe_metric_frame, _meta_additivity
     from marivo.analysis.semantic_inputs import normalize_dimension_input, normalize_metric_input
 
     resolved_session = session if session is not None else require_current_session()
     ensure_session_writable(resolved_session)
     metric_id = normalize_metric_input(resolved_session.catalog, metric)
+    metric_details = resolved_session.catalog.get(f"metric.{metric_id}").details()
+    metric_additivity = _meta_additivity(getattr(metric_details, "additivity", None))
     scope = normalize_timescope_input(time_scope)
     resolved_window = make_absolute_window(
         scope,
@@ -308,11 +310,23 @@ def derive_metric_frame(
         where={},
         semantic_kind=semantic_kind,
         semantic_model=_semantic_model_from_metric(metric_id),
+        additivity=metric_additivity,
     )
     frame = MetricFrame(_df=df, meta=meta)
-    frame.meta = cast(
-        "MetricFrameMeta",
-        persist_frame(resolved_session, frame),
+    frame = _commit_observe_metric_frame(
+        session=resolved_session,
+        frame=frame,
+        params=params,
+        metric_id=metric_id,
+        model_name=_semantic_model_from_metric(metric_id),
+        stored_where={},
+        semantic_kind=semantic_kind,
+        subject_grain=(
+            resolved_window.grain.to_token()
+            if resolved_window is not None and resolved_window.grain is not None
+            else None
+        ),
+        step_type="derive_metric_frame",
     )
     persist_job_record(
         resolved_session,

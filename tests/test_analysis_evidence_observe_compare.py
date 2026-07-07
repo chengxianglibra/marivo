@@ -62,6 +62,69 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
     assert rows == [("observe", "complete")]
 
 
+def test_observe_emits_observation_digest_into_knowledge(tmp_path) -> None:
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
+
+    frame = observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
+        session=session,
+        analysis_purpose="check current revenue level",
+    )
+
+    db_path = session._layout.session_dir / "judgment.db"
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT canonical_item_key FROM findings WHERE finding_type='observation'"
+        ).fetchall()
+    assert rows == [("digest",)]
+
+    observations = session.knowledge().observations()
+    assert len(observations) == 1
+    obs = observations[0]
+    assert obs.subject.metric == "sales.revenue"
+    assert obs.digest.shape == "scalar"
+    assert obs.digest.value == 220.0
+    assert obs.analysis_purpose == "check current revenue level"
+    assert obs.source_refs == [frame.meta.artifact_id]
+
+
+def test_observe_segmented_emits_digest_despite_no_metric_value_findings(tmp_path) -> None:
+    bootstrap_sales_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+    session = mv.session.get_or_create(name="t", backends=_backends(con), use_datasources=False)
+
+    frame = observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope={"start": "2026-05-01", "end": "2026-05-07"},
+        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        session=session,
+    )
+    assert frame.meta.additivity == "additive"
+
+    db_path = session._layout.session_dir / "judgment.db"
+    with sqlite3.connect(db_path) as conn:
+        counts = dict(
+            conn.execute("SELECT finding_type, count(*) FROM findings GROUP BY finding_type")
+        )
+    assert counts.get("metric_value") is None
+    assert counts.get("observation") == 1
+
+    observations = session.knowledge().observations()
+    assert len(observations) == 1
+    digest = observations[0].digest
+    assert digest.shape == "segmented"
+    assert digest.segment_count == 1
+    assert digest.top_segments[0].keys == {"region": "US"}
+    assert digest.top_segments[0].value == 220.0
+    assert digest.total_value == 220.0
+    assert digest.top_segments[0].share == 1.0
+
+
 def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")

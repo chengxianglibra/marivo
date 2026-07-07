@@ -122,6 +122,63 @@ def test_derive_metric_frame_materializes_metric_frame_with_governed_contract(
     assert "version" not in frame.lineage.steps[-1].params
 
 
+def test_derive_metric_frame_commits_observation_digest(tmp_path, monkeypatch) -> None:
+    import sqlite3
+
+    session = _session_with_fake_backend(
+        tmp_path,
+        monkeypatch,
+        pd.DataFrame(
+            {
+                "cohort_date": ["2026-06-18", "2026-06-19"],
+                "region": ["US", "CN"],
+                "value": [10.0, 12.0],
+            }
+        ),
+    )
+    metric = session.catalog.get("metric.sales.revenue")
+    region = session.catalog.get("dimension.sales.orders.region")
+    order_date = session.catalog.get("time_dimension.sales.orders.order_date")
+
+    frame = session.derive_metric_frame(
+        metric=metric,
+        query=mv.ibis_query(
+            datasource=md.ref("datasource.warehouse"),
+            build=lambda db, ctx: _Expr(),
+        ),
+        columns=mv.metric_columns(
+            value="value",
+            time=mv.time_column(column="cohort_date", ref=order_date),
+            dimensions=[
+                mv.dimension_column(column="region", ref=region),
+            ],
+        ),
+        time_scope={"start": "2026-06-18", "end": "2026-06-25"},
+        grain="day",
+        analysis_purpose="derived panel check",
+    )
+
+    assert frame.meta.evidence_status == "complete"
+    assert frame.meta.artifact_id is not None
+    db_path = session._layout.session_dir / "judgment.db"
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT step_type FROM artifacts WHERE artifact_id = ?",
+            (frame.meta.artifact_id,),
+        ).fetchall()
+    assert rows == [("derive_metric_frame",)]
+
+    observations = session.knowledge().observations()
+    assert len(observations) == 1
+    obs = observations[0]
+    assert obs.semantic_kind == "panel"
+    assert obs.analysis_purpose == "derived panel check"
+    assert obs.source_refs == [frame.meta.artifact_id]
+    assert obs.digest.shape == "panel"
+    assert obs.digest.bucket_count == 2
+    assert obs.digest.segment_count == 2
+
+
 def test_derive_metric_frame_rejects_non_metric_anchor(tmp_path, monkeypatch) -> None:
     session = _session_with_fake_backend(
         tmp_path,

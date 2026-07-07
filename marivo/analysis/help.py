@@ -384,7 +384,7 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
     {
         "name": "knowledge",
         "group": "namespaces/evidence",
-        "summary": "project-local knowledge and evidence recall helpers",
+        "summary": "session knowledge snapshot: observations, established facts, open items, next steps",
     },
     {
         "name": "derive_metric_frame",
@@ -552,6 +552,7 @@ def _agent_surface_content() -> dict[str, object]:
             "session.frame_summaries()",
             "session.recent_jobs(limit=5)",
             "session.get_frame(ref)",
+            "session.knowledge().observations() / .facts() / .open_items()",
         ],
         "derive_boundary": (
             "derive_metric_frame uses semantic refs for metric and axis bindings; "

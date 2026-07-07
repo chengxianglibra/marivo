@@ -15,6 +15,7 @@ from marivo.analysis.evidence.types import (
     AttributedDriver,
     ChangeFact,
     ForecastSummary,
+    ObservationSummary,
     OpenAnomaly,
     OpenQuestion,
     Subject,
@@ -160,6 +161,149 @@ def _seed_session(db_path: Path, *, evidence_status: str = "complete") -> None:
             )
     finally:
         store.close()
+
+
+def _seed_observation_finding(
+    db_path: Path,
+    *,
+    artifact_id: str,
+    finding_id: str,
+    metric: str = "sales.revenue",
+    committed_us: int,
+    digest: dict[str, Any] | None = None,
+    analysis_purpose: str | None = None,
+) -> None:
+    """Insert one observe artifact + observation digest finding."""
+    subject_payload = json.dumps({"metric": metric, "analysis_axis": "scalar"})
+    store = open_judgment_store(db_path)
+    try:
+        with store.transaction() as tx:
+            tx.execute(
+                "INSERT INTO artifacts(artifact_id, session_id, step_type, artifact_type, "
+                "artifact_schema_version, subject_payload, lineage_payload, confidence_scope, "
+                "quality_summary, evidence_status, frame_path, committed_at_us) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    artifact_id,
+                    "sess_1",
+                    "observe",
+                    "metric_frame",
+                    "v1",
+                    subject_payload,
+                    "{}",
+                    "{}",
+                    "{}",
+                    "complete",
+                    "/tmp/data.parquet",
+                    committed_us,
+                ),
+            )
+            tx.execute(
+                "INSERT INTO findings(finding_id, session_id, artifact_id, finding_type, "
+                "canonical_item_key, subject_axis, subject_payload, payload, committed_at_us) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    finding_id,
+                    "sess_1",
+                    artifact_id,
+                    "observation",
+                    "digest",
+                    "scalar",
+                    subject_payload,
+                    json.dumps(
+                        {
+                            "digest": digest or {"shape": "scalar", "value": 42.0},
+                            "window": {
+                                "field": "order_date",
+                                "start": "2026-05-01",
+                                "end": "2026-06-01",
+                            },
+                            "semantic_kind": "scalar",
+                            "analysis_purpose": analysis_purpose,
+                            "row_count": 1,
+                        }
+                    ),
+                    committed_us,
+                ),
+            )
+    finally:
+        store.close()
+
+
+def test_knowledge_observations_projects_digest_finding(tmp_path: Path) -> None:
+    db_path = tmp_path / "judgment.db"
+    committed = to_microseconds_utc(datetime(2026, 5, 27, 12, tzinfo=UTC))
+    _seed_observation_finding(
+        db_path,
+        artifact_id="art_o1",
+        finding_id="fnd_o1",
+        committed_us=committed,
+        analysis_purpose="check level",
+    )
+    knowledge = build_session_knowledge(db_path=db_path, session_id="sess_1")
+
+    observations = knowledge.observations()
+    assert len(observations) == 1
+    obs = observations[0]
+    assert isinstance(obs, ObservationSummary)
+    assert obs.id == "fnd_o1"
+    assert obs.subject.metric == "sales.revenue"
+    assert obs.semantic_kind == "scalar"
+    assert obs.analysis_purpose == "check level"
+    assert obs.row_count == 1
+    assert obs.digest.shape == "scalar"
+    assert obs.digest.value == 42.0
+    assert obs.window is not None
+    assert obs.window.start == "2026-05-01"
+    assert obs.source_refs == ["art_o1"]
+
+
+def test_knowledge_observations_ordered_by_commit_time(tmp_path: Path) -> None:
+    db_path = tmp_path / "judgment.db"
+    later = to_microseconds_utc(datetime(2026, 5, 27, 13, tzinfo=UTC))
+    earlier = to_microseconds_utc(datetime(2026, 5, 27, 12, tzinfo=UTC))
+    _seed_observation_finding(
+        db_path, artifact_id="art_late", finding_id="fnd_late", committed_us=later
+    )
+    _seed_observation_finding(
+        db_path, artifact_id="art_early", finding_id="fnd_early", committed_us=earlier
+    )
+    knowledge = build_session_knowledge(db_path=db_path, session_id="sess_1")
+
+    assert [obs.id for obs in knowledge.observations()] == ["fnd_early", "fnd_late"]
+
+
+def test_knowledge_for_subject_filters_observations(tmp_path: Path) -> None:
+    db_path = tmp_path / "judgment.db"
+    committed = to_microseconds_utc(datetime(2026, 5, 27, 12, tzinfo=UTC))
+    _seed_observation_finding(
+        db_path,
+        artifact_id="art_rev",
+        finding_id="fnd_rev",
+        metric="sales.revenue",
+        committed_us=committed,
+    )
+    _seed_observation_finding(
+        db_path,
+        artifact_id="art_ord",
+        finding_id="fnd_ord",
+        metric="sales.orders_count",
+        committed_us=committed,
+    )
+    knowledge = build_session_knowledge(db_path=db_path, session_id="sess_1")
+
+    filtered = knowledge.for_subject(Subject(metric="sales.revenue", analysis_axis="scalar"))
+    assert [obs.id for obs in filtered.observations()] == ["fnd_rev"]
+
+
+def test_knowledge_observations_empty_when_unavailable() -> None:
+    knowledge = SessionKnowledge(
+        session_id="sess_1",
+        snapshot_id="snap_x",
+        snapshot_at=datetime(2026, 5, 27, 12, tzinfo=UTC),
+        evidence_completeness="unavailable",
+    )
+    assert knowledge.observations() == []
 
 
 def test_evidence_completeness_complete(tmp_path: Path) -> None:
