@@ -38,8 +38,9 @@ marivo init
 | `marivo.toml` | Project manifest。project 名默认取目录名。 |
 | `models/` | 编写 datasource 与 semantic declarations 的位置。 |
 | `.marivo/` | Project 本地状态：sessions、evidence 以及缓存的 metadata。 |
+| `.agents/skills/marivo-semantic`、`.agents/skills/marivo-analysis` | 面向读取 `.agents/skills` 的 agents 的通用 Marivo skill 入口。 |
 | `.claude/skills/marivo-semantic`、`.claude/skills/marivo-analysis` | 面向 Claude Code 的 Marivo skills（以符号链接接入 project）。 |
-| `.codex/skills/marivo-semantic`、`.codex/skills/marivo-analysis` | 面向 Codex 的同一批 skills。 |
+| `.codex/skills/marivo-semantic`、`.codex/skills/marivo-analysis` | 面向 Codex 的兼容 skill 入口。 |
 
 `init` 是幂等的：已存在的文件不会被改动，并会报告为已跳过，因此可以安全地重复运行 —— 例如在
 升级到附带更新 skills 的版本之后。重复运行只补齐缺失的部分。使用 `marivo init --force` 可删除
@@ -57,6 +58,7 @@ your-project/
   marivo.toml
   models/
   .marivo/
+  .agents/skills/  # marivo-semantic, marivo-analysis
   .claude/skills/   # marivo-semantic, marivo-analysis
   .codex/skills/    # marivo-semantic, marivo-analysis
 ```

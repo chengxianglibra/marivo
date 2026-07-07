@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+import marivo.skills
 from marivo import __version__
 from marivo.cli import init_project, main
 
@@ -43,6 +44,17 @@ def test_creates_models_dir(tmp_path: Path) -> None:
 def test_creates_dot_marivo_dir(tmp_path: Path) -> None:
     init_project(project_dir=tmp_path)
     assert (tmp_path / ".marivo").is_dir()
+
+
+def test_installs_skills_for_supported_agent_skill_dirs(tmp_path: Path) -> None:
+    init_project(project_dir=tmp_path)
+    skills_src = Path(marivo.skills.__file__).parent.resolve()
+
+    for agent_dir in (".agents/skills", ".claude/skills", ".codex/skills"):
+        for skill_name in ("marivo-semantic", "marivo-analysis"):
+            link_path = tmp_path / agent_dir / skill_name
+            assert link_path.is_symlink()
+            assert link_path.resolve() == (skills_src / skill_name).resolve()
 
 
 def test_prints_initialized_header(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

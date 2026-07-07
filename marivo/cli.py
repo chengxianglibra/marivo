@@ -13,6 +13,7 @@ import tomli_w
 from marivo import __version__
 from marivo._publish.s3 import default_s3_client_factory
 from marivo.config import (
+    AGENTS_SKILLS_DIR,
     AUTHORED_DIR,
     CLAUDE_SKILLS_DIR,
     CODEX_SKILLS_DIR,
@@ -38,6 +39,8 @@ def _artifact_paths(project_dir: Path) -> dict[str, Path]:
         "marivo.toml": project_dir / PROJECT_MANIFEST,
         "models/": project_dir / AUTHORED_DIR,
         ".marivo/": project_dir / STATE_DIR,
+        ".agents/skills/marivo-semantic": (project_dir / AGENTS_SKILLS_DIR / SKILL_SEMANTIC),
+        ".agents/skills/marivo-analysis": project_dir / AGENTS_SKILLS_DIR / SKILL_ANALYSIS,
         ".claude/skills/marivo-semantic": project_dir / CLAUDE_SKILLS_DIR / SKILL_SEMANTIC,
         ".claude/skills/marivo-analysis": project_dir / CLAUDE_SKILLS_DIR / SKILL_ANALYSIS,
         ".codex/skills/marivo-semantic": project_dir / CODEX_SKILLS_DIR / SKILL_SEMANTIC,
@@ -125,6 +128,7 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
 
     # --- Install skills ---
     for agent_dir_name, agent_label in [
+        (AGENTS_SKILLS_DIR, "Agents"),
         (CLAUDE_SKILLS_DIR, "Claude Code"),
         (CODEX_SKILLS_DIR, "Codex"),
     ]:
