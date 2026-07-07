@@ -337,11 +337,15 @@ def connect(name: str) -> DatasourceConnection:
         connection object so that a subsequent round-trip validation can persist
         them via ``secrets.persist_backend_env_sourced``.
     """
-    datasource = _store.load_one(name)
+    return _connect_internal(name)
+
+
+def _connect_internal(name: str, *, project_root: Path | None = None) -> DatasourceConnection:
+    datasource = _store.load_one(name, project_root=project_root)
     if datasource is None:
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
-            details={"datasource": name, "available": _store.list_names()},
+            details={"datasource": name, "available": _store.list_names(project_root)},
         )
     built = _backends.build_backend_with_secrets(datasource)
     connection = DatasourceConnection(built.backend)
@@ -1555,6 +1559,51 @@ def test(name: str | DatasourceRef) -> DatasourceTestResult:
         backend = connect(datasource_name)
         backend.raw_sql("SELECT 1")
         _secrets.persist_backend_env_sourced(backend)
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return DatasourceTestResult(
+            name=datasource_name,
+            ok=True,
+            error=None,
+            latency_ms=latency_ms,
+        )
+    except Exception as exc:
+        latency_ms = int((time.perf_counter() - start) * 1000)
+        return DatasourceTestResult(
+            name=datasource_name,
+            ok=False,
+            error=f"{type(exc).__name__}: {exc}",
+            latency_ms=latency_ms,
+        )
+    finally:
+        if backend is not None:
+            disconnect = getattr(backend, "disconnect", None)
+            if callable(disconnect):
+                with suppress(Exception):
+                    disconnect()
+
+
+def test_no_persist(
+    name: str | DatasourceRef, *, project_root: Path | None = None
+) -> DatasourceTestResult:
+    """Round-trip the backend without persisting resolved secrets.
+
+    Args:
+        name: The datasource name or ``DatasourceRef`` to test.
+
+    Returns:
+        A ``DatasourceTestResult`` with ok/error status and latency.
+
+    Constraints:
+        Intended for read-only diagnostics such as ``marivo doctor --connect``.
+        Does not write ``~/.marivo/secrets.toml``. The backend is always
+        disconnected.
+    """
+    datasource_name = _datasource_name(name)
+    start = time.perf_counter()
+    backend: Any | None = None
+    try:
+        backend = _connect_internal(datasource_name, project_root=project_root)
+        backend.raw_sql("SELECT 1")
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(
             name=datasource_name,

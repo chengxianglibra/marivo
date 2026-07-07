@@ -43,6 +43,20 @@ Marivo is deployed by installing the library where the agent runs, checking in
 the `models/` declarations, and providing datasource secrets through environment
 variables referenced by `*_env` fields. There is no separate server.
 
+If setup fails, run the read-only doctor first:
+
+```bash
+marivo doctor
+marivo doctor --semantic
+marivo doctor --datasource warehouse --connect
+```
+
+The default doctor checks installation, project layout, datasource declarations,
+backend extras, secret references, and existing `.marivo/` state without
+connecting to databases or writing secrets. Use `--semantic` for semantic
+load/readiness diagnostics and `--connect` only when you intentionally want a
+live datasource round-trip.
+
 ## Quick Start
 
 Scaffold a project with the CLI:

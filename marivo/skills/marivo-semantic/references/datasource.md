@@ -14,6 +14,13 @@ only prepares a datasource for semantic authoring.
 6. Use bounded `md.discover_*` calls for source evidence. A broad domain- or table-group discovery pass is fine when it prevents repeated probes, but
    authoring still proceeds by active batch and per-object verification.
 
+If datasource setup fails before discovery, run `marivo doctor` first. It checks
+the active interpreter, project root, backend extras, datasource declarations,
+secret references, and existing `.marivo/` state without connecting to the
+database. Use `marivo doctor --datasource <name> --connect` only when you
+intentionally want a live reachability check. `md.test(...)` remains the explicit
+live datasource round-trip helper and may remember validated env-sourced secrets.
+
 Do not copy backend parameter tables into this skill. Use backend-specific
 `md.help(...)` output or the runtime error when a field shape is unclear.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -311,3 +312,199 @@ def test_publish_missing_config_names_key_and_file(
     assert str(tmp_path / "marivo.toml") in captured.err
     assert "do-not-print" not in captured.out
     assert "do-not-print" not in captured.err
+
+
+def test_doctor_command_prints_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo.doctor import DoctorCheck, DoctorReport, DoctorSection
+
+    report = DoctorReport(
+        status="ok",
+        project_root=str(tmp_path),
+        python_executable="/tmp/python",
+        marivo_version="0.2.8.dev0",
+        marivo_package_path="/tmp/marivo",
+        sections=(
+            DoctorSection(
+                id="installation",
+                label="Installation",
+                checks=(DoctorCheck(id="i", label="i", status="ok", summary="ok"),),
+            ),
+        ),
+    )
+    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
+
+    main(["doctor", "--project-root", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert "Marivo doctor: ok" in captured.out
+    assert "Python: /tmp/python" in captured.out
+
+
+def test_doctor_command_prints_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo.doctor import DoctorReport
+
+    report = DoctorReport(
+        status="ok",
+        project_root=str(tmp_path),
+        python_executable="/tmp/python",
+        marivo_version="0.2.8.dev0",
+        marivo_package_path="/tmp/marivo",
+        sections=(),
+    )
+    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
+
+    main(["doctor", "--project-root", str(tmp_path), "--format", "json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["status"] == "ok"
+    assert payload["project_root"] == str(tmp_path)
+
+
+def test_doctor_command_exits_one_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.doctor import DoctorReport
+
+    report = DoctorReport(
+        status="fail",
+        project_root=str(tmp_path),
+        python_executable="/tmp/python",
+        marivo_version="0.2.8.dev0",
+        marivo_package_path="/tmp/marivo",
+        sections=(),
+    )
+    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["doctor", "--project-root", str(tmp_path)])
+
+    assert exc_info.value.code == 1
+
+
+def test_doctor_command_prints_fix_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo.doctor import DoctorCheck, DoctorReport, DoctorSection
+
+    report = DoctorReport(
+        status="fail",
+        project_root=str(tmp_path),
+        python_executable="/tmp/python",
+        marivo_version="0.2.8.dev0",
+        marivo_package_path="/tmp/marivo",
+        sections=(
+            DoctorSection(
+                id="secrets",
+                label="Secrets",
+                checks=(
+                    DoctorCheck(
+                        id="secret.env.TRINO_AUTH",
+                        label="TRINO_AUTH",
+                        status="fail",
+                        summary="missing",
+                        fix=('export TRINO_AUTH="secret_value"',),
+                    ),
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["doctor", "--project-root", str(tmp_path), "--fix-snap"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "Marivo doctor fix snapshot: fail" in captured.out
+    assert 'export TRINO_AUTH="secret_value"' in captured.out
+
+
+def test_doctor_command_builds_doctor_options_from_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo.doctor import DoctorOptions, DoctorReport
+
+    seen: list[DoctorOptions] = []
+
+    report = DoctorReport(
+        status="ok",
+        project_root=str(tmp_path),
+        python_executable="/tmp/python",
+        marivo_version="0.2.8.dev0",
+        marivo_package_path="/tmp/marivo",
+        sections=(),
+    )
+
+    def fake_run_doctor(options: DoctorOptions) -> DoctorReport:
+        seen.append(options)
+        return report
+
+    monkeypatch.setattr("marivo.doctor.run_doctor", fake_run_doctor)
+    monkeypatch.setattr("marivo.doctor.render_fix_snap", lambda report: "FIX SNAP")
+
+    main(
+        [
+            "doctor",
+            "--project-root",
+            str(tmp_path),
+            "--format",
+            "json",
+            "--fix-snap",
+            "--semantic",
+            "--connect",
+            "--datasource",
+            "warehouse",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == "FIX SNAP\n"
+    assert seen == [
+        DoctorOptions(
+            project_root=str(tmp_path),
+            format="json",
+            fix_snap=True,
+            semantic=True,
+            connect=True,
+            datasource="warehouse",
+        )
+    ]
+
+
+def test_doctor_command_fix_snapshot_takes_precedence_over_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from marivo.doctor import DoctorReport
+
+    report = DoctorReport(
+        status="ok",
+        project_root=str(tmp_path),
+        python_executable="/tmp/python",
+        marivo_version="0.2.8.dev0",
+        marivo_package_path="/tmp/marivo",
+        sections=(),
+    )
+
+    monkeypatch.setattr("marivo.doctor.run_doctor", lambda options: report)
+    monkeypatch.setattr("marivo.doctor.render_fix_snap", lambda report: "FIX SNAP WINS")
+
+    main(["doctor", "--project-root", str(tmp_path), "--format", "json", "--fix-snap"])
+
+    captured = capsys.readouterr()
+    assert captured.out == "FIX SNAP WINS\n"
