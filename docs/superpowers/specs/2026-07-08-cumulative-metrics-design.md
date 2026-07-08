@@ -198,22 +198,102 @@ through transforms via the existing meta-propagation machinery. All other
 intents (correlate, discover, quality, derive, hypothesis_test) consume
 cumulative frames as ordinary data with no gates.
 
-## Trailing Windows (v2 direction)
+## V2 Capabilities and Forward Compatibility
 
-Recorded from design review ("last-7-day active users"):
+V2 targets capability parity with MetricFlow's cumulative surface (`window`,
+`grain_to_date`, `period_agg`) while keeping the v1 cost model (no range-join
+data expansion for the all-history case). Each item states the mechanism and
+exactly where it lands on the v1 structure.
 
-- The scalar form works today with no cumulative support: a plain
-  `count_distinct` metric observed over a 7-day window.
-- Rolling series for additive bases become cheap once v1 lands:
-  `rolling_7d(t) = cumulative(t) - cumulative(t-7)`, or a pandas rolling sum
-  over the dense flow series.
-- Rolling distinct is genuinely different: it cannot be derived from any
-  arithmetic of per-bucket or cumulative counts. The exact v2 plan is a
-  spine-expansion join — each event row joins to the <= W buckets where it is
-  visible, then per-bucket `count_distinct`. Plain GROUP BY + join, no window
-  functions, no new backend risk; cost is an explicit window-width-times data
-  expansion.
-- The `anchor` field's closed-kind variants are the extension point.
+### V2-1: grain-to-date resets (MTD / QTD / YTD)
+
+- Authoring: anchor variant `("grain_to_date", grain)` — a closed-kind
+  extension of the anchor field already stored in the IR and composition
+  hash; existing objects keep their hashes. The constructor grows an optional
+  parameter (additive signature change).
+- Execution: the same two-query skeleton. The seed query's lower bound
+  changes from "beginning of history" to "start of the reset period
+  containing window_start" (a bounded scan, cheaper than all_history). The
+  post-process cumsum additionally partitions by a reset-period key derived
+  from `bucket_start` (pandas date-trunc; `report_tz` machinery already
+  provides period boundaries).
+- `count_distinct`: the first-seen dedup subquery adds the reset period to
+  its GROUP BY key (`min(over)` per key per period). Still a plain GROUP BY
+  rewrite.
+
+### V2-2: trailing windows (rolling N)
+
+- Authoring: anchor variant `("trailing", n, unit)`.
+- The scalar form ("distinct actives in the last 7 days, one number") works
+  today with no cumulative support: a plain `count_distinct` metric observed
+  over a 7-day window.
+- Additive bases (sum/count): no seed query; the flow query's fetch window
+  extends W before the display start, and the post-process operator becomes
+  a rolling sum over the dense flow instead of cumsum (equivalently:
+  `cumulative(t) - cumulative(t-W)`).
+- `count_distinct` bases: rolling distinct cannot be derived from any
+  arithmetic of per-bucket or cumulative counts. The executor gains a third
+  plan shape — spine-expansion join: each event row joins to the <= W buckets
+  where it is visible, then per-bucket `count_distinct`. Exact, plain
+  GROUP BY + range join, no window functions; cost is an explicit
+  window-width-times data expansion. This is the same strategy MetricFlow
+  compiles for its `window` mode (its weekly-active-users example), i.e. the
+  industry exact plan, not a bet.
+- Trailing series require a time grain; trailing with no grain is rejected
+  with a teaching error pointing at the plain windowed observe above.
+
+### V2-3: re-aggregation to coarser grains (period_agg parity)
+
+- v1 blocks rollup via the boolean `reaggregatable` gate. v2 upgrades frame
+  meta with an explicit rollup fold (`rollup_fold="last"` for cumulative;
+  MetricFlow's `period_agg: first/last/average` is the reference surface) and
+  teaches the existing rollup gate to honor it.
+- Because cumulative frames are dense and values anchor to history,
+  rollup-by-period-end is a pure frame operation (group buckets by the
+  coarser grain, take the last bucket) — no re-query. A gate relaxation plus
+  a pandas group-take-last; frames without `rollup_fold` stay blocked,
+  which is exactly v1 behavior, so no migration.
+
+### Later (unscheduled)
+
+- Approximate distinct sketches (HLL state merge) as an alternative executor
+  strategy behind the same dispatch; frame meta must then record exact vs
+  approximate.
+- Cross-component query fusion arrives with multi-metric observe fusion;
+  cumulative components already emit standard component-shaped frames, so
+  fusion applies orthogonally.
+- compare with to-date alignment replaces the v1 compare gate; gate removal
+  is additive.
+- Incremental caching: the seed/flow split is the natural incremental unit
+  (seed reusable, flow append-only per bucket).
+
+### Why v2 does not restructure v1
+
+The extension surface is a dispatch matrix: anchor kind x base aggregation.
+v1 implements the `all_history` column for {sum, count, count_distinct};
+each v2 item adds an anchor kind or an executor strategy inside a cell —
+never a reshape of `MetricIR`, `CumulativeComposition`, planner interfaces,
+or frame meta. The v1 implementation MUST honor these commitments, which is
+what makes the claim true:
+
+1. `anchor` lives in the IR and the composition hash from v1. New kinds are
+   additive and never re-hash existing objects.
+2. The baseline query is implemented as one instance of a parameterizable
+   "seed" stage (all_history: unbounded lower bound; grain_to_date:
+   period-bounded; trailing: absent), not a hardcoded special case.
+3. The pandas post-process exposes one accumulation-operator slot (v1:
+   cumsum; v2 adds period-partitioned cumsum and rolling sum).
+4. Spine synthesis lives in a single helper with the render target kept
+   separable: v1 renders pandas; the v2 expansion join needs the same spine
+   SQL-side (e.g. an ibis memtable). One source of truth for spine logic,
+   two render targets.
+5. Intent gates (compare/attribute/decompose/forecast) and the multi-metric
+   arity restriction are teaching errors; later support means relaxing or
+   deleting a gate, which is additive.
+
+The only genuinely new v2 executor code is the spine-expansion join for
+trailing distinct — a new branch in the existing dispatch, alongside the
+untouched v1 branches.
 
 ## Testing
 
@@ -250,6 +330,8 @@ Narrowest first; DuckDB fixture golden tests as the core.
 
 ## Out of Scope (v1)
 
-Grain-to-date resets, trailing windows, approximate distinct sketches,
-SQL window functions, cross-component query fusion, incremental caching of
-cumulative frames.
+Grain-to-date resets, trailing windows, rollup re-aggregation of cumulative
+frames, approximate distinct sketches, SQL window functions, cross-component
+query fusion, incremental caching of cumulative frames. See "V2 Capabilities
+and Forward Compatibility" for how each lands on the v1 structure without
+restructuring it.
