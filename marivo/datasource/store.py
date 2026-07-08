@@ -6,9 +6,13 @@ from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import Any, cast
 
-from marivo.config import DATASOURCES_DIR
+from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, load_semantic_layer_paths
 from marivo.datasource.authoring import DatasourceSpec, _storage_name
-from marivo.datasource.errors import DatasourceMissingError
+from marivo.datasource.errors import (
+    DatasourceDuplicateError,
+    DatasourceLoadError,
+    DatasourceMissingError,
+)
 from marivo.datasource.ir import AiContextIR, DatasourceIR
 from marivo.datasource.loader import load_datasources
 from marivo.datasource.secrets import conventional_env_var
@@ -114,6 +118,88 @@ def load_one(name: str, project_root: Path | None = None) -> DatasourceIR | None
     return load_all(project_root).get(_storage_name(name))
 
 
+def _layered_models_roots(project_root: Path | None = None) -> tuple[Path, ...]:
+    root = project_root or resolve_project_root()
+    local_models = root / AUTHORED_DIR
+    try:
+        external_roots = load_semantic_layer_paths(root)
+    except ValueError as exc:
+        raise DatasourceLoadError(
+            message=str(exc),
+            details={"path": str(root / "marivo.toml"), "reason": str(exc)},
+        ) from exc
+    errors: list[str] = []
+    seen_external: set[Path] = set()
+    for external_root in external_roots:
+        if external_root == local_models.resolve():
+            errors.append(
+                "Configured semantic layer models root duplicates the local "
+                f"project models root: {external_root}"
+            )
+            continue
+        if external_root in seen_external:
+            errors.append(
+                f"Configured semantic layer models root is listed more than once: {external_root}"
+            )
+            continue
+        seen_external.add(external_root)
+        if not external_root.exists():
+            errors.append(f"Configured semantic layer models root does not exist: {external_root}")
+            continue
+        if not external_root.is_dir():
+            errors.append(
+                f"Configured semantic layer models root is not a directory: {external_root}"
+            )
+            continue
+        if not (external_root / "datasources").is_dir():
+            errors.append(
+                "Configured semantic layer models root is missing datasources/: "
+                f"{external_root / 'datasources'}"
+            )
+        if not (external_root / "semantic").is_dir():
+            errors.append(
+                "Configured semantic layer models root is missing semantic/: "
+                f"{external_root / 'semantic'}"
+            )
+    if errors:
+        reason = "; ".join(errors)
+        raise DatasourceLoadError(
+            message=reason,
+            details={"path": str(root / "marivo.toml"), "reason": reason},
+        )
+    return (local_models, *external_roots)
+
+
+def load_all_layered(project_root: Path | None = None) -> dict[str, DatasourceIR]:
+    datasources: dict[str, DatasourceIR] = {}
+    for models_root in _layered_models_roots(project_root):
+        result = load_datasources(models_root / "datasources")
+        if result.errors:
+            raise result.errors[0]
+        for datasource in result.datasources:
+            existing = datasources.get(datasource.name)
+            if existing is not None:
+                first = existing.location.file
+                second = datasource.location.file
+                raise DatasourceDuplicateError(
+                    message=(
+                        f"Duplicate datasource name: {datasource.name!r}. "
+                        f"First declaration: {first}. Conflicting declaration: {second}."
+                    ),
+                    details={
+                        "datasource": datasource.name,
+                        "first": first,
+                        "second": second,
+                    },
+                )
+            datasources[datasource.name] = datasource
+    return datasources
+
+
+def load_one_layered(name: str, project_root: Path | None = None) -> DatasourceIR | None:
+    return load_all_layered(project_root).get(_storage_name(name))
+
+
 def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> DatasourceIR:
     _write_datasource_file(
         spec=spec,
@@ -138,3 +224,7 @@ def delete_one(name: str, project_root: Path | None = None) -> bool:
 
 def list_names(project_root: Path | None = None) -> list[str]:
     return sorted(load_all(project_root).keys())
+
+
+def list_names_layered(project_root: Path | None = None) -> list[str]:
+    return sorted(load_all_layered(project_root).keys())

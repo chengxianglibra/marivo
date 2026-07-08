@@ -5,6 +5,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
+import duckdb
 import pytest
 
 from marivo.config import load_semantic_layer_paths
@@ -316,6 +317,48 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
     catalog.load()
 
     assert catalog.get("metric.finance.net_refunds").ref.id == "finance.net_refunds"
+
+
+def test_external_layer_datasource_supports_entity_verify_and_preview(
+    tmp_path: Path,
+) -> None:
+    import marivo.semantic as ms
+
+    project_root = tmp_path / "project"
+    external_models = tmp_path / "external" / "models"
+    db_path = tmp_path / "warehouse.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE refunds (amount DOUBLE)")
+    con.execute("INSERT INTO refunds VALUES (100.0), (50.0)")
+    con.close()
+    _write_manifest(
+        project_root,
+        """
+        [project]
+        name = "demo"
+
+        [semantic]
+        layer_paths = ["../external/models"]
+        """,
+    )
+    _write_models_root(
+        external_models,
+        datasource_name="warehouse",
+        datasource_path=str(db_path),
+        domain="finance",
+        entity="refunds",
+        metric="refunds_total",
+    )
+
+    catalog = ms.load(workspace_dir=project_root)
+    entity_ref = catalog.get("entity.finance.refunds").ref
+    metric_ref = catalog.get("metric.finance.refunds_total").ref
+
+    verify = catalog.verify_object(entity_ref)
+    preview = catalog.preview(metric_ref, limit=1)
+
+    assert verify.status == "passed"
+    assert preview.rows == ({"value": 150.0},)
 
 
 def test_duplicate_datasource_across_roots_fails_with_paths(tmp_path: Path) -> None:

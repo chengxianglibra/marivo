@@ -137,6 +137,7 @@ def _build_connection_runtime(
             backends=backends,
             backend_factory=backend_factory,
             use_datasources=use_datasources,
+            include_semantic_layers=use_datasources,
         )
     )
 

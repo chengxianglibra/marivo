@@ -405,7 +405,8 @@ class SemanticProject:
         """Return the lazily-created DatasourceConnectionService."""
         if self._connection_service_instance is None:
             self._connection_service_instance = DatasourceConnectionService(
-                project_root=self._workspace_dir
+                project_root=self._workspace_dir,
+                include_semantic_layers=True,
             )
         return self._connection_service_instance
 
@@ -543,7 +544,10 @@ class SemanticProject:
                     ref_str, "entity", "authored_object_invalid", "Object is not loaded."
                 )
             try:
-                service = DatasourceConnectionService(project_root=self._workspace_dir)
+                service = DatasourceConnectionService(
+                    project_root=self._workspace_dir,
+                    include_semantic_layers=True,
+                )
                 with service.use_backend(entity.datasource) as backend:
                     scoped = scoped_entity_expression(
                         backend=backend,

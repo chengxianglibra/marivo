@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -168,6 +169,38 @@ def _check(report: DoctorReport, section_id: str, check_id: str) -> DoctorCheck:
     raise AssertionError(f"missing check {section_id}.{check_id}")
 
 
+def _write_external_layer_project(root: Path, *, duplicate_local: bool = False) -> Path:
+    external_models = root.parent / "external" / "models"
+    root.mkdir(parents=True, exist_ok=True)
+    root.joinpath("marivo.toml").write_text(
+        textwrap.dedent(
+            """
+            [project]
+            name = "demo"
+
+            [semantic]
+            layer_paths = ["../external/models"]
+            """
+        ),
+        encoding="utf-8",
+    )
+    external_ds = external_models / "datasources"
+    external_ds.mkdir(parents=True)
+    (external_models / "semantic").mkdir(parents=True)
+    external_ds.joinpath("warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+        encoding="utf-8",
+    )
+    if duplicate_local:
+        local_ds = root / "models" / "datasources"
+        local_ds.mkdir(parents=True)
+        local_ds.joinpath("warehouse.py").write_text(
+            "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+            encoding="utf-8",
+        )
+    return external_models
+
+
 def test_default_doctor_reports_installation_and_project(tmp_path: Path) -> None:
     _write_manifest(tmp_path)
     tmp_path.joinpath("models", "datasources").mkdir(parents=True)
@@ -182,6 +215,20 @@ def test_default_doctor_reports_installation_and_project(tmp_path: Path) -> None
     assert _check(report, "project", "project.models").status == "ok"
 
 
+def test_default_doctor_accepts_missing_local_models_when_layer_paths_are_valid(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    _write_external_layer_project(project_root)
+
+    report = run_doctor(DoctorOptions(project_root=project_root))
+
+    assert _check(report, "project", "project.models").status == "ok"
+    assert _check(report, "project", "project.datasources").status == "ok"
+    assert _check(report, "project", "project.semantic").status == "ok"
+    assert _check(report, "datasources", "datasource.warehouse").status == "ok"
+
+
 def test_default_doctor_fails_missing_project_manifest(tmp_path: Path) -> None:
     report = run_doctor(DoctorOptions(project_root=tmp_path))
 
@@ -190,6 +237,49 @@ def test_default_doctor_fails_missing_project_manifest(tmp_path: Path) -> None:
     assert check.status == "fail"
     assert "marivo.toml was not found" in check.summary
     assert "marivo init" in "\n".join(check.fix)
+
+
+def test_scoped_doctor_finds_external_layer_datasource(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    _write_external_layer_project(project_root)
+
+    report = run_doctor(DoctorOptions(project_root=project_root, datasource="warehouse"))
+
+    assert _check(report, "datasources", "datasource.warehouse").status == "ok"
+
+
+def test_doctor_reports_invalid_layer_paths_config(tmp_path: Path) -> None:
+    tmp_path.joinpath("marivo.toml").write_text(
+        textwrap.dedent(
+            """
+            [project]
+            name = "demo"
+
+            [semantic]
+            layer_paths = "external/models"
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path))
+    check = _check(report, "project", "project.semantic.layer_paths")
+
+    assert report.status == "fail"
+    assert "marivo.toml [semantic].layer_paths must be a list of strings" in check.summary
+
+
+def test_doctor_reports_duplicate_layer_datasource_names(tmp_path: Path) -> None:
+    project_root = tmp_path / "project"
+    external_models = _write_external_layer_project(project_root, duplicate_local=True)
+
+    report = run_doctor(DoctorOptions(project_root=project_root))
+    duplicate = _check(report, "datasources", "datasource.warehouse.duplicate")
+
+    assert report.status == "fail"
+    assert "Duplicate datasource name: 'warehouse'" in duplicate.summary
+    assert str(project_root / "models" / "datasources" / "warehouse.py") in duplicate.summary
+    assert str(external_models / "datasources" / "warehouse.py") in duplicate.summary
 
 
 def test_default_doctor_loads_datasources_without_connecting(tmp_path: Path) -> None:
@@ -325,7 +415,7 @@ def test_scoped_doctor_detects_duplicate_datasource_names(tmp_path: Path) -> Non
 
     duplicate = _check(report, "datasources", "datasource.warehouse.duplicate")
     assert duplicate.status == "fail"
-    assert "duplicate datasource name 'warehouse'" in duplicate.summary
+    assert "Duplicate datasource name: 'warehouse'" in duplicate.summary
 
 
 def test_secret_check_ids_are_unique_when_env_var_is_reused(tmp_path: Path) -> None:
@@ -578,7 +668,7 @@ def test_doctor_connect_flag_uses_no_persist_connect_helper(
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
         encoding="utf-8",
     )
-    calls: list[tuple[str, Path | None]] = []
+    calls: list[tuple[str, Path | None, bool]] = []
 
     class FakeResult:
         name = "warehouse"
@@ -586,18 +676,55 @@ def test_doctor_connect_flag_uses_no_persist_connect_helper(
         error = None
         latency_ms = 3
 
-    def fake_test_no_persist(name: object, *, project_root: Path | None = None) -> FakeResult:
-        calls.append((str(name), project_root))
+    def fake_test_no_persist(
+        name: object,
+        *,
+        project_root: Path | None = None,
+        include_semantic_layers: bool = False,
+    ) -> FakeResult:
+        calls.append((str(name), project_root, include_semantic_layers))
         return FakeResult()
 
     monkeypatch.setattr("marivo.datasource.manage.test_no_persist", fake_test_no_persist)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, connect=True, datasource="warehouse"))
 
-    assert calls == [("warehouse", tmp_path.resolve())]
+    assert calls == [("warehouse", tmp_path.resolve(), True)]
     check = _check(report, "connect", "connect.warehouse")
     assert check.status == "ok"
     assert "3ms" in check.summary
+
+
+def test_doctor_connect_flag_uses_layered_datasource_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_root = tmp_path / "project"
+    _write_external_layer_project(project_root)
+    calls: list[tuple[str, Path | None, bool]] = []
+
+    class FakeResult:
+        name = "warehouse"
+        ok = True
+        error = None
+        latency_ms = 3
+
+    def fake_test_no_persist(
+        name: object,
+        *,
+        project_root: Path | None = None,
+        include_semantic_layers: bool = False,
+    ) -> FakeResult:
+        calls.append((str(name), project_root, include_semantic_layers))
+        return FakeResult()
+
+    monkeypatch.setattr("marivo.datasource.manage.test_no_persist", fake_test_no_persist)
+
+    report = run_doctor(
+        DoctorOptions(project_root=project_root, connect=True, datasource="warehouse")
+    )
+
+    assert calls == [("warehouse", project_root.resolve(), True)]
+    assert _check(report, "connect", "connect.warehouse").status == "ok"
 
 
 def test_doctor_connect_flag_reports_failure(
@@ -619,7 +746,7 @@ def test_doctor_connect_flag_reports_failure(
 
     monkeypatch.setattr(
         "marivo.datasource.manage.test_no_persist",
-        lambda name, *, project_root=None: FakeResult(),
+        lambda name, *, project_root=None, include_semantic_layers=False: FakeResult(),
     )
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, connect=True, datasource="warehouse"))

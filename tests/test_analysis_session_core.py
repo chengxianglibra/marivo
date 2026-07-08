@@ -1,7 +1,9 @@
 """Session class: store-backed jobs and frame summaries."""
 
+import textwrap
 from datetime import UTC, datetime
 
+import duckdb
 import pytest
 
 from marivo.analysis.calendar.loader import CalendarCache
@@ -267,6 +269,69 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
     session = mv.session.get_or_create(name="external_layer_session")
 
     assert session.catalog.get("metric.finance.refunds_total").ref.id == "finance.refunds_total"
+
+
+def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
+    import marivo.analysis as mv
+    import marivo.analysis.session as session_attach
+
+    project_root = tmp_path / "project"
+    external_models = tmp_path / "external" / "models"
+    db_path = tmp_path / "warehouse.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE refunds (amount DOUBLE)")
+    con.execute("INSERT INTO refunds VALUES (100.0), (50.0)")
+    con.close()
+    project_root.mkdir()
+    (project_root / "marivo.toml").write_text(
+        textwrap.dedent(
+            """
+            [project]
+            name = "demo"
+
+            [semantic]
+            layer_paths = ["../external/models"]
+            """
+        ),
+        encoding="utf-8",
+    )
+    datasource_dir = external_models / "datasources"
+    semantic_dir = external_models / "semantic" / "finance"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    semantic_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(db_path)!r})\n",
+        encoding="utf-8",
+    )
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='finance', owner='Mina Zhang')\n",
+        encoding="utf-8",
+    )
+    (semantic_dir / "objects.py").write_text(
+        textwrap.dedent(
+            """
+            import marivo.datasource as md
+            import marivo.semantic as ms
+
+            source = md.ref("datasource.warehouse")
+            rows = ms.entity(name="refunds", datasource=source, source=ms.table("refunds"))
+
+            @ms.metric(entities=[rows], additivity="additive")
+            def refunds_total(table):
+                return table.amount.sum()
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(project_root)
+    session_attach._reset_process_state()
+
+    session = mv.session.get_or_create(name="external_layer_observe")
+    metric = session.catalog.get("metric.finance.refunds_total")
+    frame = session.observe(metric)
+
+    assert frame.meta.metric_id == "finance.refunds_total"
+    assert frame.to_pandas()["value"].tolist() == [150.0]
 
 
 def test_session_close_closes_connection_runtime(tmp_path):

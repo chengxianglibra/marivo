@@ -80,7 +80,9 @@ The current project's `models/` directory is always loaded first. Relative paths
 are resolved from the directory containing `marivo.toml`; absolute paths are used
 as-is. Each external `models/` root must contain both `datasources/` and
 `semantic/`. Datasource names, domain names, and semantic IDs must be globally
-unique across all roots; duplicates cause a load error.
+unique across all roots; duplicates cause a load error. `marivo doctor`,
+semantic previews, verification, and analysis sessions use these configured
+layer datasources when resolving semantic objects.
 
 Add `.marivo/` to `.gitignore`; version-control `marivo.toml` and `models/` (see
 [Quick Start](/en/latest/quick-start/#manage-the-project-with-git)).
