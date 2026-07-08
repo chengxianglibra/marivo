@@ -27,8 +27,9 @@ observe execution path -> frame metadata -> intent gating.
    the first-seen rewrite (below), not rejected and not approximated.
 4. **No SQL window functions in v1.** Accumulation happens in pandas
    post-processing at the existing derived-composition merge locus. All
-   backend queries stay plain GROUP BY aggregations, so there is no new
-   backend compatibility matrix.
+   backend queries stay plain GROUP BY aggregations — no new SQL feature
+   dependency, though the new query shapes still get per-dialect compile
+   coverage.
 5. **Deferred (v2+):** grain-to-date resets (MTD/YTD), trailing windows,
    sketch-based approximate distinct, SQL-side window functions,
    cross-component query fusion, incremental caching of cumulative frames.
@@ -40,7 +41,11 @@ observe execution path -> frame metadata -> intent gating.
 `CumulativeComposition(base: str, over: str, anchor: Literal["all_history"])`
 joins `RatioComposition` / `WeightedAverageComposition` / `LinearComposition`
 as the fourth composition kind. `metric_type` stays `"derived"`; `MetricIR`
-is otherwise untouched.
+is otherwise untouched. This fits the existing derived constraints as-is
+(derived metrics carry no entities and require a composition, per
+`MetricIR.__post_init__`). Everything that must treat cumulative specially
+dispatches on the composition kind (`isinstance(composition,
+CumulativeComposition)`), never on `metric_type`.
 
 `anchor` is stored explicitly in the IR and included in the composition hash
 from day one, even though `"all_history"` is the only v1 value. Future
@@ -84,14 +89,23 @@ Validated at authoring and load with teaching errors built from real state:
 
 ### Additivity and nesting
 
-- The additivity algebra gains a `"cumulative"` nature. Any derived
-  composition containing a cumulative component produces frames with
-  `reaggregatable=False`.
+- The public additivity contract does NOT widen. `Additivity` stays
+  three-bucket (`additive` / `non_additive` / `SemiAdditive`); cumulative
+  metrics resolve to `"non_additive"` at load, and the composition kind is
+  the discriminator wherever cumulative needs special treatment.
+  `additivity_bucket`, `MetricFrameMeta.additivity`, catalog details, and
+  help output are untouched. This is deliberately conservative: a
+  cumulative-of-sum is in fact additive across non-time dimensions, but v1
+  blocks rollup anyway, so encoding that nuance buys nothing yet.
+- Any derived composition containing a cumulative component produces frames
+  with `reaggregatable=False`.
 - Nesting rule: `ratio` / `weighted_average` / `linear` MAY reference
   cumulative components (e.g. cumulative conversion rate = cumulative payers
-  / cumulative actives). The planner's `nested-derived-unsupported` check is
-  refined: components may be simple or cumulative; ratio/weighted/linear
-  components remain rejected. Cumulative may NOT reference derived bases.
+  / cumulative actives). The planner's `nested-derived-unsupported` check
+  currently rejects on `component_ir.metric_type == "derived"`; it changes
+  to reject on composition kind, so ratio/weighted/linear components stay
+  rejected while cumulative components pass (see Execution Layer for the
+  component-plan shape). Cumulative may NOT reference derived bases.
 
 ### Surface obligations
 
@@ -106,11 +120,12 @@ topic; a new line in the `ms.help('metric')` constructor decision order;
 Observe planning gains a third dispatch branch producing
 `CumulativeObservePlan { base_plan: BaseObservePlan, over, window }` — the
 embedded base plan reuses all existing dimension/where/timezone resolution.
-`ComponentPlan` gains a component-kind marker (`simple | cumulative`) so
-derived compositions can carry cumulative components; each cumulative
-component executes through the cumulative executor and yields a standard
-component-shaped DataFrame into the existing pandas merge. Ratio/linear
-per-bucket combination code is unchanged.
+`ComponentPlan.base_plan` widens to `BaseObservePlan | CumulativeObservePlan`
+so derived compositions can carry cumulative components — the component loop
+builds a cumulative component's plan from its base metric's root entity, and
+the derived executor branches on the plan type. Each cumulative component
+yields a standard component-shaped DataFrame into the existing pandas merge;
+ratio/linear per-bucket combination code is unchanged.
 
 ### Execution plan by shape
 
@@ -141,13 +156,19 @@ Cumulative distinct cannot be computed by integrating per-bucket distinct
 counts (returning entities would double-count). The executor rewrites:
 
 - Dedup subquery: `GROUP BY (distinct key[, slice dims]) -> min(over) AS
-  first_ts`. Where-filters apply BEFORE dedup (first qualifying event under
-  the filter). NULL distinct keys are dropped to preserve `nunique`
+  first_ts`, running on the fully planned root table — root and joined
+  where-phases applied first, relationship-joined slice dimensions included
+  in the dedup key — so "first seen" means first event satisfying all
+  filters, per slice. NULL distinct keys are dropped to preserve `nunique`
   semantics.
 - Baseline counts rows with `first_ts < window_start`; flow buckets and
   counts `first_ts` per bucket. Returning entities are never recounted.
-- The distinct key is the base measure's column expression (available via
-  the materializer).
+- The distinct key is the base measure's unaggregated column expression on
+  the plan table. No such seam exists today — the materializer exposes
+  `dimension_on` / `metric_on` only, and tier-1 count_distinct compiles
+  straight to `column.nunique()` — so the implementation adds an internal
+  measure-column-on-table accessor (a `measure_on` sibling of
+  `dimension_on`). Public surface is unchanged.
 - Per-slice semantics: the same entity active in two slices counts once per
   slice (dedup key includes slice dims).
 
@@ -168,9 +189,12 @@ unrestricted.
 
 ### Frame result
 
-`semantic_kind` as usual. `reaggregatable=False`. Meta gains an arity-1
-sidecar `cumulative={base, over, anchor}` (same pattern as
-`composition`/`component_ref`). The frame is dense (spine-synthesized);
+`semantic_kind` as usual. `reaggregatable=False`. No new field on
+`MetricFrameMeta` (it is `extra="forbid"`): the marker rides the existing
+dict-typed `composition` payload — `{kind: "cumulative", base, over, anchor}`
+for a directly observed cumulative metric, plus per-component kinds inside
+derived payloads so a ratio-over-cumulative frame is detectable too. The
+frame is dense (spine-synthesized);
 params record the spine-synthesis fact and attribute the baseline/flow
 queries (both recorded as ordinary `QueryExecution`s). Cost is visible, not
 sampled: the baseline is a full-history scan (for `count_distinct`, the
@@ -178,11 +202,16 @@ dedup is a full-table GROUP BY).
 
 ## Intent Gating
 
-Four explicit teaching errors, each built from real state:
+Four explicit teaching errors, each built from real state. All four intents
+consume frames (compare takes current/baseline MetricFrames; forecast takes
+a history MetricFrame), so every gate lives at the intent entrypoint and
+reads the frame meta composition marker — there is no metric-resolution hook
+to gate at.
 
-- **compare**: rejected at metric resolution. The delta between two windows
-  of an all-history cumulative is identically the flow between them; the
-  error names the base ref to compare instead.
+- **compare**: rejected when either input frame carries the cumulative
+  marker. The delta between two windows of an all-history cumulative is
+  identically the flow between them; the error names the base ref to
+  compare instead.
 - **attribute / decompose**: rejected via the frame meta marker. Per-bucket
   attribution of a running total is ill-defined (history is re-attributed in
   every bucket); the error points to attributing the base flow, noting that
@@ -273,23 +302,24 @@ The extension surface is a dispatch matrix: anchor kind x base aggregation.
 v1 implements the `all_history` column for {sum, count, count_distinct};
 each v2 item adds an anchor kind or an executor strategy inside a cell —
 never a reshape of `MetricIR`, `CumulativeComposition`, planner interfaces,
-or frame meta. The v1 implementation MUST honor these commitments, which is
-what makes the claim true:
+or frame meta.
+
+v1 locks only persistent contracts:
 
 1. `anchor` lives in the IR and the composition hash from v1. New kinds are
    additive and never re-hash existing objects.
-2. The baseline query is implemented as one instance of a parameterizable
-   "seed" stage (all_history: unbounded lower bound; grain_to_date:
-   period-bounded; trailing: absent), not a hardcoded special case.
-3. The pandas post-process exposes one accumulation-operator slot (v1:
-   cumsum; v2 adds period-partitioned cumsum and rolling sum).
-4. Spine synthesis lives in a single helper with the render target kept
-   separable: v1 renders pandas; the v2 expansion join needs the same spine
-   SQL-side (e.g. an ibis memtable). One source of truth for spine logic,
-   two render targets.
-5. Intent gates (compare/attribute/decompose/forecast) and the multi-metric
+2. The frame meta marker (composition payload) and `reaggregatable` are the
+   compatibility surface consumers see; v2 extends payloads, it never
+   reshapes them.
+3. Intent gates (compare/attribute/decompose/forecast) and the multi-metric
    arity restriction are teaching errors; later support means relaxing or
    deleting a gate, which is additive.
+
+How the seed query, the accumulation operator, and spine synthesis are
+factored is deliberately NOT prescribed. v1 writes the plain branch it
+needs; v2 abstractions grow under test pressure when the second variant
+actually arrives (this repository's no-speculative-flexibility rule). The
+v2 subsections above describe landing points, not required v1 scaffolding.
 
 The only genuinely new v2 executor code is the spine-expansion join for
 trailing distinct — a new branch in the existing dispatch, alongside the
@@ -300,7 +330,8 @@ untouched v1 branches.
 Narrowest first; DuckDB fixture golden tests as the core.
 
 - Semantic layer: base whitelist and each teaching error; additivity
-  resolves to `"cumulative"`; ratio-over-cumulative loads;
+  resolves to `"non_additive"` with the composition kind as discriminator;
+  ratio-over-cumulative loads;
   cumulative-over-derived rejected; `__all__` snapshot; `ms.help` topics.
 - Execution correctness (core):
   - returning users are NOT double-counted (the first-seen keystone test);
@@ -313,8 +344,12 @@ Narrowest first; DuckDB fixture golden tests as the core.
   - ratio-over-cumulative end-to-end;
   - multi-metric arity-N rejection.
 - Intent gates: compare / attribute / decompose / forecast teaching errors.
-- No window functions means no new backend-matrix risk; existing
-  trino/clickhouse integration suites are unchanged.
+- No new SQL feature dependency (plain GROUP BY only), but the baseline,
+  flow, and first-seen dedup queries are new SQL shapes that compile through
+  ibis per dialect: add compiled-SQL tests for the three shapes on
+  duckdb/trino/clickhouse, plus at least one cumulative case in each live
+  integration suite. "No window functions" bounds the risk; it does not
+  remove it.
 - New examples are executed in-process by `test_semantic_agent_tightening`;
   examples are tests.
 
