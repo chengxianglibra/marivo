@@ -83,7 +83,7 @@ def _seed(con):
     con.raw_sql("CREATE TABLE order_items (item_id INTEGER, order_id INTEGER, category VARCHAR)")
     con.raw_sql(
         "INSERT INTO order_items VALUES "
-        "(1, 1, 'shirt'), (2, 1, 'pants'), (3, 2, 'shirt'), (4, 3, 'pants')"
+        "(1, 1, 'shirt'), (2, 1, 'pants'), (3, 2, 'shirt'), (4, 3, 'pants'), (5, 2, 'hat')"
     )
 
 
@@ -105,6 +105,62 @@ def test_segmented_observe_aggregate_then_join(tmp_path):
     # order 1 (10): shirt + pants -> shirt=10, pants=10
     # order 2 (20): shirt -> shirt += 20 -> shirt=30
     # order 3 (30): pants -> pants += 30 -> pants=40
+    assert df.loc["shirt", "value"] == 30.0
+    assert df.loc["pants", "value"] == 40.0
+
+
+def test_where_in_slice_on_fanout_side_counts_root_once(tmp_path):
+    _bootstrap(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+
+    frame = observe(
+        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
+        slice_by={
+            make_ref("sales.order_items.category", SemanticKind.DIMENSION): ["shirt", "pants"]
+        },
+        session=_session(con),
+    )
+    df = frame.to_pandas()
+    # Order 1 (10.0) has one shirt item and one pants item; the IN slice must
+    # count the order once, not once per matching item. All three orders have
+    # at least one matching item: 10 + 20 + 30.
+    assert float(df["value"].iloc[0]) == 60.0
+
+
+def test_where_equality_slice_on_fanout_side_excludes_non_matching_roots(tmp_path):
+    _bootstrap(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+
+    frame = observe(
+        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
+        slice_by={make_ref("sales.order_items.category", SemanticKind.DIMENSION): "shirt"},
+        session=_session(con),
+    )
+    df = frame.to_pandas()
+    # Orders 1 (10.0) and 2 (20.0) have a shirt item; order 3 has none and
+    # must be excluded entirely.
+    assert float(df["value"].iloc[0]) == 30.0
+
+
+def test_where_slice_on_fanout_dimension_keeps_overlapping_buckets(tmp_path):
+    _bootstrap(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed(con)
+
+    frame = observe(
+        make_ref("sales.gmv_by_category", SemanticKind.METRIC),
+        dimensions=[make_ref("sales.order_items.category", SemanticKind.DIMENSION)],
+        slice_by={
+            make_ref("sales.order_items.category", SemanticKind.DIMENSION): ["shirt", "pants"]
+        },
+        session=_session(con),
+    )
+    df = frame.to_pandas().set_index("category")
+    # The slice drops the hat bucket, while order 1 (10.0) still contributes
+    # to both of its matching buckets (overlapping-bucket semantics).
+    assert set(df.index) == {"shirt", "pants"}
     assert df.loc["shirt", "value"] == 30.0
     assert df.loc["pants", "value"] == 40.0
 

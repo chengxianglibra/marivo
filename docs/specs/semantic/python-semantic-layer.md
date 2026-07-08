@@ -635,8 +635,15 @@ a base metric body must belong to the root entity.
   policy on the metric. `"block"` (default) rejects unsafe one-to-many edges
   with an `unsafe-fanout` repair payload that names both `set_metric_root` and
   `set_fanout_policy` as candidate fixes. `"aggregate_then_join"` reduces the
-  unsafe-side entity to the merge grain (root primary key plus the requested
-  non-root dimensions/filters that target that side) before the join. Requires
+  unsafe-side entity to the merge grain (the join key columns plus the
+  requested non-root dimensions that target that side) before the join.
+  Requested dimensions on that side keep overlapping-bucket semantics: a root
+  row counts once in every dimension bucket it matches. Where filters that
+  target that side are not part of the merge grain; they filter the unsafe-side
+  rows before the reduction and the edge joins inner, giving semi-join
+  membership semantics: a root row with at least one matching unsafe-side row
+  counts exactly once — even when the predicate (for example an `in` list)
+  matches several of its rows — and a root row with none is excluded. Requires
   `additivity in {"additive", "semi_additive"}` and is rejected on derived
   metrics; the kwarg is authored only on `@ms.metric` (relationships, entities,
   and `observe(...)` reject it).

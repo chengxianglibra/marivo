@@ -1021,6 +1021,7 @@ def _join_table(
     relationship: RelationshipInfo,
     current_entity: str,
     extra_predicates: list[Any] | None = None,
+    join_type: Literal["left", "inner"] = "left",
 ) -> tuple[Any, str]:
     if _from_entity_id(relationship) == current_entity:
         next_entity = _to_entity_id(relationship)
@@ -1036,7 +1037,7 @@ def _join_table(
     ]
     if extra_predicates:
         predicates.extend(extra_predicates)
-    return current_table.left_join(next_table, predicates), next_entity
+    return current_table.join(next_table, predicates, how=join_type), next_entity
 
 
 def _resolve_snapshot_as_of_root_time(
@@ -1289,13 +1290,20 @@ def _aggregate_then_join_pre_aggregate(
     dataset_fns: dict[str, Any],
     backend: Any,
     resolved_fields: ResolvedObserveFields,
+    dataset_ir: Any,
+    where_values: dict[str, Any],
 ) -> tuple[Any, dict[str, Any]]:
     """Reduce the unsafe-side dataset to the merge grain before joining.
 
     Merge grain = (join key on unsafe side) ∪ (requested non-root dimensions
-    targeting unsafe_dataset_id) ∪ (where fields targeting unsafe_dataset_id).
-    Each grain entry projects through ``_field_fn`` so the resulting table keeps
-    the physical column names that downstream field bodies expect.
+    targeting unsafe_dataset_id). Where predicates targeting unsafe_dataset_id
+    (``where_values``, keyed by field name) filter the unsafe-side table before
+    the distinct reduction and stay out of the grain, so a where slice keeps
+    semi-join membership semantics: a root row that has at least one matching
+    row on the many side is counted exactly once, even when the predicate
+    matches several of its rows. Each grain entry projects through
+    ``_field_fn`` so the resulting table keeps the physical column names that
+    downstream field bodies expect.
     """
     if _from_entity_id(relationship) == unsafe_dataset_id:
         join_field_ids: tuple[str, ...] = tuple(relationship.from_keys)
@@ -1308,16 +1316,17 @@ def _aggregate_then_join_pre_aggregate(
         if fid not in seen_ids:
             grain_field_ids.append(fid)
             seen_ids.add(fid)
-    other_fields = [f for f in resolved_fields.dimensions if _entity_id(f) == unsafe_dataset_id] + [
-        f for f in resolved_fields.where_fields.values() if _entity_id(f) == unsafe_dataset_id
-    ]
-    for f in other_fields:
+    for f in resolved_fields.dimensions:
+        if _entity_id(f) != unsafe_dataset_id:
+            continue
         field_id = f.ref.id
         if field_id not in seen_ids:
             grain_field_ids.append(field_id)
             seen_ids.add(field_id)
 
     table = dataset_fns[unsafe_dataset_id](backend)
+    if where_values:
+        table = apply_slice_to_dataset(table, where_values, dataset_ir=dataset_ir)
     projections: list[Any] = []
     grain_meta_entries: list[dict[str, Any]] = []
     join_field_id_set = set(join_field_ids)
@@ -1338,6 +1347,7 @@ def _aggregate_then_join_pre_aggregate(
         "relationship": _relationship_id(relationship),
         "from_dataset": from_dataset,
         "merge_grain": grain_meta_entries,
+        "pre_applied_where": sorted(where_values),
     }
     return pre_aggregated, merge_grain_meta
 
@@ -1439,6 +1449,7 @@ def plan_base_observe(
     plan_warnings: list[dict[str, Any]] = []
     fanout_meta_collector: list[dict[str, Any]] = []
     pre_aggregated_tables: dict[str, Any] = {}
+    fanout_join_types: dict[str, Literal["left", "inner"]] = {}
     for dataset_id in sorted(required_datasets - {root}):
         current_dataset = root
         for relationship in unique_shortest_relationship_path(catalog, root, dataset_id):
@@ -1451,6 +1462,17 @@ def plan_base_observe(
                         if _from_entity_id(relationship) == current_dataset
                         else _from_entity_id(relationship)
                     )
+                    # Where predicates on the unsafe side must filter before the
+                    # distinct reduction; leaving them for the post-join slice
+                    # would keep one merge-grain row per matching many-side
+                    # value and double-count the root measure.
+                    unsafe_where: dict[str, Any] = {}
+                    for where_field in resolved_fields.where_fields.values():
+                        if (
+                            _entity_id(where_field) == unsafe_dataset_id
+                            and where_field.name in joined_where
+                        ):
+                            unsafe_where[where_field.name] = joined_where.pop(where_field.name)
                     pre_table, merge_grain_meta = _aggregate_then_join_pre_aggregate(
                         catalog=catalog,
                         metric_ir=metric_ir,
@@ -1460,8 +1482,18 @@ def plan_base_observe(
                         dataset_fns=dataset_fns,
                         backend=backend,
                         resolved_fields=resolved_fields,
+                        dataset_ir=dataset_irs[unsafe_dataset_id],
+                        where_values=unsafe_where,
                     )
                     pre_aggregated_tables[unsafe_dataset_id] = pre_table
+                    # A pre-applied where slice means semi-join membership:
+                    # roots without any matching many-side row must drop, so
+                    # the reduced table joins inner instead of left. setdefault
+                    # keeps the first traversal's type: later traversals of an
+                    # already-joined dataset find joined_where drained.
+                    fanout_join_types.setdefault(
+                        unsafe_dataset_id, "inner" if unsafe_where else "left"
+                    )
                     fanout_meta_collector.append(merge_grain_meta)
                     safety = JoinSafety.MANY_TO_ONE
                 else:
@@ -1606,6 +1638,7 @@ def plan_base_observe(
                     relationship=relationship,
                     current_entity=current_dataset,
                     extra_predicates=extra_predicates,
+                    join_type=fanout_join_types.get(next_dataset, "left"),
                 )
                 materialized[next_dataset] = widened_table
             else:
@@ -1617,7 +1650,7 @@ def plan_base_observe(
                     "from_dataset": pre_join_dataset,
                     "to_dataset": next_dataset,
                     "join_safety": safety.value,
-                    "join_type": "left",
+                    "join_type": fanout_join_types.get(next_dataset, "left"),
                 }
             )
     if joined_where:
