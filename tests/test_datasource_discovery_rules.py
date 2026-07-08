@@ -180,6 +180,24 @@ def test_dimension_result_full_render_lists_all_wide_table_columns() -> None:
     assert "... 60 more" not in rendered
 
 
+def test_dimension_result_render_includes_authoring_handoff() -> None:
+    profile = _profile("status", "VARCHAR", distinct=2)
+    result = build_dimension_result(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=None,
+        scan=_scan(),
+        scope=ScanScope(),
+        column_profiles=(profile,),
+    )
+
+    text = result.render()
+
+    assert "Authoring handoff" in text
+    assert 'ms.help("dimension_column")' in text
+    assert "ms.verify_object(" in text
+
+
 def test_build_measure_result_marks_non_numeric_blocker() -> None:
     profile = _profile("label", "VARCHAR")
     result = build_measure_result(
@@ -212,6 +230,24 @@ def test_measure_result_full_render_lists_all_wide_table_columns() -> None:
     assert "measure_col_01" in rendered
     assert "measure_col_68" in rendered
     assert "... 60 more" not in rendered
+
+
+def test_measure_result_render_includes_authoring_handoff() -> None:
+    profile = _profile("amount", "DOUBLE")
+    result = build_measure_result(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=None,
+        scan=_scan(),
+        scope=ScanScope(),
+        column_profiles=(profile,),
+    )
+
+    text = result.render()
+
+    assert "Authoring handoff" in text
+    assert 'ms.help("measure_column")' in text
+    assert "ms.verify_object(" in text
 
 
 def test_resolve_partition_explicit_and_unpruned() -> None:

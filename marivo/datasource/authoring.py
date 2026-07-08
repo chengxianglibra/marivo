@@ -23,9 +23,12 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
     if not isinstance(ai_context, AiContextValue):
         raise DatasourceFieldInvalidError(
             message=(
-                "ai_context no longer accepts raw dicts. "
-                "Use ms.ai_context(business_definition=..., guardrails=[...]) "
-                "to construct an AiContextValue."
+                "ai_context= expects an AiContextValue from ms.ai_context(...), "
+                "not a raw dict. Construct it explicitly with "
+                "ms.ai_context(business_definition=..., guardrails=[...], "
+                "synonyms=[...], examples=[...], instructions=..., owner_notes=...). "
+                "The legacy summary= and glossary= keys are not accepted; use "
+                "business_definition= and instructions= respectively."
             ),
             details={
                 "datasource": "<unknown>",
@@ -524,7 +527,9 @@ def duckdb(
     Example:
         >>> import marivo.datasource as md
         >>> spec = md.duckdb(name="warehouse", path=":memory:")
-        >>> spec.ref
+        >>> md.register(spec)
+        >>> md.test(spec.ref).show()
+        >>> md.inspect_table(spec.ref, md.table("orders")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically
@@ -582,7 +587,16 @@ def trino(
 
     Example:
         >>> import marivo.datasource as md
-        >>> spec = md.trino(name="warehouse", host="trino.example", catalog="hive")
+        >>> spec = md.trino(
+        ...     name="warehouse",
+        ...     host="trino.example",
+        ...     catalog="hive",
+        ...     user_env="WAREHOUSE_USER",
+        ...     auth_env="WAREHOUSE_AUTH",
+        ... )
+        >>> md.register(spec)
+        >>> md.test(spec.ref).show()
+        >>> md.inspect_table(spec.ref, md.table("orders", database="hive")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically
@@ -640,7 +654,16 @@ def mysql(
 
     Example:
         >>> import marivo.datasource as md
-        >>> spec = md.mysql(name="oltp", host="mysql.example", database="app")
+        >>> spec = md.mysql(
+        ...     name="oltp",
+        ...     host="mysql.example",
+        ...     database="app",
+        ...     user_env="WAREHOUSE_USER",
+        ...     password_env="WAREHOUSE_PASSWORD",
+        ... )
+        >>> md.register(spec)
+        >>> md.test(spec.ref).show()
+        >>> md.inspect_table(spec.ref, md.table("orders", database="app")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically
@@ -695,7 +718,16 @@ def postgres(
 
     Example:
         >>> import marivo.datasource as md
-        >>> spec = md.postgres(name="oltp", host="pg.example", database="app")
+        >>> spec = md.postgres(
+        ...     name="oltp",
+        ...     host="pg.example",
+        ...     database="app",
+        ...     user_env="WAREHOUSE_USER",
+        ...     password_env="WAREHOUSE_PASSWORD",
+        ... )
+        >>> md.register(spec)
+        >>> md.test(spec.ref).show()
+        >>> md.inspect_table(spec.ref, md.table("orders", database="app")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically
@@ -755,7 +787,16 @@ def clickhouse(
 
     Example:
         >>> import marivo.datasource as md
-        >>> spec = md.clickhouse(name="analytics", host="ch.example")
+        >>> spec = md.clickhouse(
+        ...     name="warehouse",
+        ...     host="clickhouse.example",
+        ...     database="analytics",
+        ...     user_env="WAREHOUSE_USER",
+        ...     password_env="WAREHOUSE_PASSWORD",
+        ... )
+        >>> md.register(spec)
+        >>> md.test(spec.ref).show()
+        >>> md.inspect_table(spec.ref, md.table("orders", database="analytics")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically

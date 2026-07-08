@@ -104,6 +104,59 @@ def _composition_topic() -> Descriptor:
     )
 
 
+def _authoring_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="authoring",
+        summary=(
+            "Semantic authoring workflow: browse, author one object at a time, "
+            "verify, close out readiness, then hand off to marivo.analysis."
+        ),
+        see_also=(
+            "md.help('authoring')",
+            "ms.help('entity')",
+            "ms.help('measure_column')",
+            "ms.help('readiness')",
+        ),
+        doc="\n".join(
+            (
+                "Semantic authoring workflow:",
+                "",
+                "  import marivo.semantic as ms",
+                "",
+                "0. Browse the current catalog: ms.load() returns the SemanticCatalog;",
+                "   catalog.list(...) enumerates domains, entities, and objects already",
+                "   declared. Read what exists before authoring.",
+                '1. Author objects in this order, reading ms.help("<object>") for each',
+                "   constructor contract before authoring it (this topic does not duplicate",
+                '   parameter tables — route to ms.help("entity"), ms.help("measure_column"),',
+                '   ms.help("metric"), ms.help("relationship"), etc.):',
+                "   domain -> entity -> dimension/time_dimension/measure",
+                "          -> metric -> relationship -> cross-entity/derived metric",
+                "2. For each object family, run the matching datasource discovery call to",
+                "   ground authoring in evidence (each returns a DatasourceResult; .show()):",
+                "     entity: md.discover_entity(ref)",
+                "     dimension/dimension_column: md.discover_dimensions(ref)",
+                "     time_dimension/time_dimension_column: md.discover_time_dimensions(ref)",
+                "     measure/measure_column: md.discover_measures(ref)",
+                "     relationship: md.discover_relationship(left, right)",
+                "     metric: md.discover_relationship for cross-entity viability",
+                "3. Author one object, then verify it before continuing: ms.verify_object(ref)",
+                "   type-checks the object, resolves references, and reports fixable issues.",
+                "4. Close out with ms.readiness(refs=...) to validate the whole set together:",
+                "   it reports missing dimensions, unresolved relationships, and additivity gaps.",
+                "5. Smoke-check at runtime with catalog.preview(...) before analysis: it renders a",
+                "   bounded sample of the catalog without executing a full query.",
+                "",
+                "Handoff: the semantic catalog supports browse/preview/readiness/verification",
+                "only — do not guess a query(...) method on the catalog. Metric analysis runs",
+                "through marivo.analysis sessions (see mv.help('workflow')).",
+            )
+        ),
+    )
+
+
 def _additivity_content() -> dict[str, object]:
     return {
         "summary": (
@@ -1166,6 +1219,7 @@ def _surface() -> Surface:
                 *ms.__all__,
                 "constraints",
                 "composition",
+                "authoring",
                 *contract_topics,
                 *parse_contract_topics,
                 "from_sql",
@@ -1181,6 +1235,7 @@ def _surface() -> Surface:
         **parse_contract_topics,
         "constraints": _constraint_topic(),
         "composition": _composition_topic(),
+        "authoring": _authoring_topic(),
         "from_sql": _from_sql_topic(),
         "join_on": _join_on_topic(),
         "parquet": _parquet_topic(),

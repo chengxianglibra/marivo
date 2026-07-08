@@ -30,6 +30,18 @@ This skill owns workflow and routing only:
 - `ms.load()`, `ms.verify_object(...)`, `ms.readiness(...)`, and load errors
   own catalog state, validation, blockers, and handoff readiness.
 
+When starting authoring, consult these help topics for the staged workflow
+detail — this skill never repeats their parameter tables or schemas:
+
+- `md.help("authoring")` — datasource-backed authoring workflow
+  (discover -> settle -> author -> verify), including the
+  register/test/inspect chain for a new datasource.
+- `ms.help("authoring")` — semantic authoring workflow and the
+  dependency ladder (domain -> entity -> dimension -> time_dimension ->
+  measure -> metric -> relationship).
+- `md.help("ai_context")` — canonical `ms.ai_context(...)` contract shared
+  by datasources and every semantic object.
+
 Do not copy constructor parameter tables, discovery result schemas, parse
 recipes, backend catalogs, or public error catalogs into skill docs.
 

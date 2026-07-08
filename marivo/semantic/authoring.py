@@ -301,9 +301,12 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
     if not isinstance(ai_context, AiContextValue):
         _raise(
             ErrorKind.INVALID_AI_CONTEXT,
-            "ai_context no longer accepts raw dicts. "
-            "Use ms.ai_context(business_definition=..., guardrails=[...]) "
-            "to construct an AiContextValue.",
+            "ai_context= expects an AiContextValue from ms.ai_context(...), "
+            "not a raw dict. Construct it explicitly with "
+            "ms.ai_context(business_definition=..., guardrails=[...], "
+            "synonyms=[...], examples=[...], instructions=..., owner_notes=...). "
+            "The legacy summary= and glossary= keys are not accepted; use "
+            "business_definition= and instructions= respectively.",
             cls=SemanticDecoratorError,
         )
     return AiContextIR(

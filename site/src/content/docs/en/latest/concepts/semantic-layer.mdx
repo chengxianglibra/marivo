@@ -558,7 +558,11 @@ ms.relationship(
 
 ## Discover before prepare
 
-For datasource-backed authoring, start with bounded datasource discovery:
+For datasource-backed authoring, start with bounded datasource discovery.
+Consult `md.help("authoring")` for the staged datasource workflow
+(register/test/inspect then discover -> settle -> author -> verify),
+`ms.help("authoring")` for the semantic dependency ladder, and
+`md.help("ai_context")` for the shared `ms.ai_context(...)` contract:
 
 ```python
 warehouse = md.ref("datasource.warehouse")

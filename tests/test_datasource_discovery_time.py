@@ -179,3 +179,21 @@ def test_build_time_dimension_result_value_range_typed() -> None:
     column = result.columns[0]
     assert column.value_range.lower == "2026-01-01"
     assert column.value_range.upper == "2026-01-02"
+
+
+def test_time_dimension_result_render_includes_authoring_handoff() -> None:
+    profile = _profile("dt", "DATE", type_family="date")
+    result = build_time_dimension_result(
+        datasource=ref("warehouse"),
+        source=table("events"),
+        table_metadata=None,
+        scan=_scan(),
+        scope=ScanScope(),
+        column_profiles=(profile,),
+    )
+
+    text = result.render()
+
+    assert "Authoring handoff" in text
+    assert 'ms.help("time_dimension_column")' in text
+    assert "ms.verify_object(" in text

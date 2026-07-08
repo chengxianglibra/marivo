@@ -231,6 +231,8 @@ def test_verify_result_is_public_result_object() -> None:
         [
             "VerifyResult status=passed ref=sales.orders kind=entity",
             "status: passed",
+            "Next step:",
+            "- continue the batch or run ms.readiness(refs=...)",
             "available:",
             "- .issues",
             "- .warnings",
@@ -266,6 +268,8 @@ def test_verify_result_render_shows_issue_details() -> None:
             "status: failed, 1 issue",
             "issues:",
             "- [blocker] project_load_failed: Cannot verify 'trino_query': project failed to load.",
+            "Next step:",
+            "- repair this object, then re-run ms.verify_object(ref)",
             "available:",
             "- .issues",
             "- .warnings",
@@ -300,6 +304,8 @@ def test_verify_result_render_shows_warning_details() -> None:
             "status: passed, 1 warning",
             "warnings:",
             "- [warning] missing_evidence: No evidence recorded for this object.",
+            "Next step:",
+            "- continue the batch or run ms.readiness(refs=...)",
             "available:",
             "- .issues",
             "- .warnings",
@@ -337,3 +343,45 @@ def test_verify_result_render_lists_many_issues_as_omittable_card_section() -> N
     assert "Issue 5" in rendered
     assert "Issue 6" in rendered
     assert "more issues" not in rendered
+
+
+def test_verify_result_passed_render_has_continue_next_step() -> None:
+    from marivo.semantic.dtos import VerifyResult
+
+    result = VerifyResult(
+        status="passed",
+        ref="sales.orders",
+        kind="entity",
+        issues=(),
+        warnings=(),
+        scan=None,
+    )
+    text = result.render()
+    assert "Next step" in text
+    assert "ms.readiness(" in text
+
+
+def test_verify_result_failed_render_has_repair_next_step() -> None:
+    from marivo.semantic.dtos import AssessmentIssue, VerifyResult
+
+    issues = (
+        AssessmentIssue(
+            kind="static_check_failed",
+            severity="blocker",
+            refs=("trino_query",),
+            message="Static check failed.",
+            rule_id="verify_object_static_check_failed",
+        ),
+    )
+    result = VerifyResult(
+        status="failed",
+        ref="sales.orders",
+        kind="entity",
+        issues=issues,
+        warnings=(),
+        scan=None,
+    )
+    text = result.render()
+    assert "Next step" in text
+    assert "repair" in text.lower()
+    assert "ms.verify_object(" in text

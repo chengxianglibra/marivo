@@ -168,4 +168,14 @@ class VerifyResult(RenderableResult):
                 label="warnings",
                 items=tuple(f"[{w.severity}] {w.kind}: {w.message}" for w in self.warnings),
             )
+        if self.status == "passed":
+            card = card.listing(
+                label="Next step",
+                items=("continue the batch or run ms.readiness(refs=...)",),
+            )
+        else:
+            card = card.listing(
+                label="Next step",
+                items=("repair this object, then re-run ms.verify_object(ref)",),
+            )
         return card

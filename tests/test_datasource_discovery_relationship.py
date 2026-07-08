@@ -106,3 +106,30 @@ def test_build_relationship_result_wires_evidence_and_truncation() -> None:
     # Result-scope probe-truncated issue.
     assert any(i.rule_id == "relationship_probe_truncated" for i in result.issues)
     assert not hasattr(result, "judgment_targets")
+
+
+def test_relationship_result_render_includes_authoring_handoff() -> None:
+    key_types = (
+        KeyTypeEvidence(
+            side="from", column="customer_id", type_family="integer", data_type="BIGINT"
+        ),
+        KeyTypeEvidence(side="to", column="customer_id", type_family="integer", data_type="BIGINT"),
+    )
+    result = build_relationship_result(
+        from_side=_from_side(),
+        to_side=_to_side(),
+        key_type_evidence=key_types,
+        sampled_key_count=10,
+        matched_key_count=7,
+        max_rows_per_key=2,
+        avg_rows_per_key=1.4,
+        cardinality_evidence="many_to_one",
+        from_scan=_scan(),
+        to_scan=_scan(),
+    )
+
+    text = result.render()
+
+    assert "Authoring handoff" in text
+    assert 'ms.help("relationship")' in text
+    assert "ms.verify_object(" in text

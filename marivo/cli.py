@@ -188,7 +188,11 @@ def main(argv: list[str] | None = None) -> None:
             "Analysis workflow:\n"
             "  python -c \"import marivo.analysis as mv; mv.help('workflow')\"\n"
             "  Use the Python interpreter where marivo is installed.\n\n"
-            "Common diagnostics before live analysis:\n"
+            "Semantic authoring workflow:\n"
+            "  python -c \"import marivo.datasource as md; md.help('authoring')\"\n"
+            "  python -c \"import marivo.semantic as ms; ms.help('authoring')\"\n\n"
+            "Common diagnostics:\n"
+            "  marivo doctor\n"
             "  marivo doctor --semantic\n"
             "  marivo doctor --datasource <name> --connect"
         ),

@@ -365,6 +365,8 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
         [
             "VerifyResult status=passed ref=sales.orders kind=entity",
             "status: passed",
+            "Next step:",
+            "- continue the batch or run ms.readiness(refs=...)",
             "available:",
             "- .issues",
             "- .warnings",
