@@ -269,6 +269,10 @@ V2 targets capability parity with MetricFlow's cumulative surface (`window`,
 data expansion for the all-history case). Each item states the mechanism and
 exactly where it lands on the v1 structure.
 
+The full V2 design now lives in
+`2026-07-08-cumulative-metrics-v2-design.md`; this section remains the
+v1-side forward-compatibility argument.
+
 ### V2-1: grain-to-date resets (MTD / QTD / YTD)
 
 - Authoring: anchor variant `("grain_to_date", grain)` — a closed-kind

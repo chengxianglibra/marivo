@@ -1,0 +1,306 @@
+# Cumulative Metrics V2 Design
+
+Date: 2026-07-08
+Status: approved (design review complete; implementation not started)
+Prerequisite: the v1 design
+(`2026-07-08-cumulative-metrics-design.md`) implemented as specified. V2
+never reshapes v1 contracts; every change below is an anchor-kind addition,
+a stage parameterization, or a gate relaxation, per the v1
+forward-compatibility section.
+
+## Summary
+
+V2 extends cumulative metrics from the single all-history anchor to the full
+window vocabulary — grain-to-date resets (MTD/QTD/YTD) and trailing windows
+(rolling N) — and opens the two consumption paths v1 deliberately blocked:
+rollup re-aggregation to coarser grains (period-end semantics) and
+cross-period comparison (to-date alignment). Capability benchmark is
+MetricFlow's cumulative surface (`window`, `grain_to_date`, `period_agg`),
+kept on the v1 cost model: no range-join expansion for all-history, plain
+GROUP BY everywhere except the one genuinely new plan (trailing distinct).
+
+## Settled Decisions
+
+1. **Scope**: grain_to_date, trailing windows, rollup re-aggregation, AND
+   compare to-date alignment. Without to-date compare, MTD metrics can be
+   observed but not compared to the prior period, losing their main business
+   value.
+2. **Partial trailing windows** (window reaches before the data start):
+   show the actual partial accumulation AND mark it via coverage —
+   MetricFlow-compatible values, but never silent.
+3. **Authoring**: one kind-dispatched `anchor` parameter taking closed value
+   objects, not MetricFlow-style mutually exclusive keywords.
+4. **Trailing-distinct spine**: an inline ibis memtable built from the
+   display buckets — backend-agnostic, no warehouse spine table.
+5. **Compare to-date**: reuse `window_bucket` ordinal alignment (bucket i of
+   a single-period to-date series IS period-position i); no new
+   AlignmentPolicy kind.
+6. **Rollup fold**: `last` only. MetricFlow's `first`/`average` are caliber
+   forks we deliberately do not open (same philosophy as locked
+   carry-forward in v1).
+7. **Trailing empty windows are true zero**, not carry-forward: no activity
+   in the last 7 days means 0. Carry-forward remains an
+   all_history/grain_to_date semantic.
+8. **Trailing units are fixed-size only** — any fixed-size unit from the
+   existing grain vocabulary (second through week; day and week in
+   practice). Calendar-variable trailing ("sliding 3 months") is
+   rejected with a teaching error pointing to grain_to_date or a fixed-day
+   window; deferred to v3.
+
+## Authoring and Semantic Layer
+
+### Value objects
+
+Two new public constructors returning frozen value objects (precedent:
+`ms.semi_additive`):
+
+```python
+ms.grain_to_date(grain="month")   # grain: week | month | quarter | year
+ms.trailing(count=7, unit="day")  # count >= 1; unit: fixed-size only
+```
+
+Construction-time validation with teaching errors (unknown grain, calendar-
+variable trailing unit, non-positive count).
+
+### Constructor growth
+
+```python
+ms.cumulative(
+    *,
+    name: str,
+    base: MetricRef,
+    over: TimeDimensionRef | None = None,
+    anchor: GrainToDate | Trailing | None = None,   # None = all history
+    unit: str | None = None,
+    domain: DomainRef | None = None,
+    ai_context: AiContextValue | None = None,
+) -> MetricRef
+```
+
+Additive signature change. No `ms.all_history()` object (YAGNI; the default
+and its semantics live in the docstring). `GrainToDate` / `Trailing` type
+names stay out of the top-level help index; the constructors are the public
+surface.
+
+### IR and hash
+
+`CumulativeComposition.anchor` widens from `Literal["all_history"]` to
+`"all_history" | ("grain_to_date", grain) | ("trailing", count, unit)` —
+exactly the closed-kind growth the v1 anchor-in-hash commitment reserved.
+The v1 hash text for `"all_history"` objects is byte-identical before and
+after V2 (regression-tested).
+
+### Constraints across anchor kinds
+
+- Base whitelist unchanged: tier-1 `sum` / `count` / `count_distinct` for
+  all three anchors.
+- `over` omission rule unchanged (single-time-dimension entities only).
+- Additivity resolves to `"non_additive"` for all anchors; the three-bucket
+  public additivity contract stays untouched. Discriminator remains the
+  composition kind plus its anchor.
+- Nesting: ratio/weighted/linear over cumulative components allowed for all
+  anchors; cumulative-over-derived still rejected. The compare relaxation
+  below applies ONLY to directly observed arity-1 cumulative frames —
+  derived frames containing cumulative components stay compare-gated in V2
+  (teaching error suggests comparing the cumulative components directly).
+  Mixed-anchor component comparison is too easy to misread to be worth the
+  cognitive cost now.
+
+### Surface obligations
+
+`ms.grain_to_date` and `ms.trailing` join `__all__` (snapshot update) with
+full docstrings and `describe` coverage. `ms.help('cumulative')` gains an
+anchor section with two runnable examples (MTD revenue, rolling-7d active
+users). The `ms.help('metric')` decision-order "when" text widens to cover
+all three accumulation shapes. Site docs EN/CN in sync.
+
+## Execution Plans (anchor kind x base aggregation)
+
+V1's seed + flow + post-process skeleton parameterizes now that the second
+variant exists (v1 wrote the plain branch; the abstraction arrives with the
+test pressure, as the v1 spec committed). "Seed" generalizes v1's baseline
+query.
+
+### grain_to_date x sum/count
+
+- **Grain compatibility rule** (plan-time teaching error): every display
+  bucket must lie entirely within one reset period. Week grain under
+  month/quarter/year resets is illegal (week buckets straddle month
+  boundaries); day/hour are legal; month grain under month reset is legal
+  and meaningful (each bucket = full-period total, the period-end value).
+- Seed query: only when `window_start` is not on a reset boundary —
+  aggregate over `[period_start(window_start), window_start)`, a bounded
+  scan feeding ONLY the first period's buckets. Later periods reset to zero
+  at their boundaries and need no seed. Windows starting on a boundary run
+  one query, not two.
+- Flow query unchanged. Post-process: spine densify -> fill 0 -> cumsum
+  partitioned by (dims x reset-period key derived from `bucket_start` via
+  report_tz date-trunc) -> add seed to first-period buckets.
+- Scalar / segmented (no grain): single query over
+  `[period_start(end), end)` — "this period so far".
+
+### grain_to_date x count_distinct
+
+First-seen gains the period dimension: dedup subquery
+`GROUP BY (distinct key, slice dims, period_trunc(over)) -> min(over) AS
+first_ts` — first qualifying event *within its period*. An entity counts
+once per period and resets naturally at boundaries. Seed/flow count
+`first_ts` rows as in v1. All other v1 first-seen rules (filters before
+dedup, NULL keys dropped, per-slice keys) carry over unchanged.
+
+### trailing x sum/count
+
+- **Integer-multiple rule** (teaching error): the window span must be an
+  integer multiple of the query grain; `W_buckets = span / grain`
+  (trailing 7 day at day grain -> 7 buckets; at hour -> 168).
+- No seed. The flow fetch window extends to `[window_start - span,
+  window_end)`. Post-process: densify over the extended range -> fill 0 ->
+  rolling sum with `min_periods=1` (partial windows produce actual values)
+  -> clip back to the display window.
+- Empty windows are 0, not carried forward (Settled Decision 7); the spec
+  test suite contrasts this against all_history explicitly.
+- Coverage: one extra tiny scalar query — `min(over)` under the same
+  filters (the data-start query) — labels buckets whose window reaches
+  before the data start as `partial`. Values still shown (Settled
+  Decision 2).
+
+### trailing x count_distinct — the one new plan shape
+
+- Spine-expansion join: an inline ibis memtable of the display buckets
+  joins the filtered, dimension-projected source on "event time falls in
+  the span ending at this bucket's end boundary" (same end-boundary
+  convention as observe windows), then per-(bucket, dims) `count_distinct`.
+- Exact, plain GROUP BY + range join, no window functions. Cost is an
+  explicit rows x W_buckets expansion; the planner guards with a
+  bucket-count cap teaching error (cap value settled at implementation).
+- Empty buckets fill 0. Coverage via the same data-start query.
+- NULL keys dropped; nunique parity as in v1.
+
+### Common execution facts
+
+- Backend queries per metric: all_history 2 (v1); grain_to_date 1–2 (seed
+  skippable); trailing 2 (flow or join, plus data-start). All recorded as
+  ordinary `QueryExecution`s.
+- The frame meta `cumulative` payload carries the anchor. All three anchors
+  set `reaggregatable=False`; the rollup path below is the sanctioned
+  relaxation.
+- Multi-metric observe arity-N exclusion unchanged from v1.
+- Trailing with no grain is still rejected (teaching error points to a
+  plain windowed observe — one path per capability).
+
+## Rollup Re-aggregation
+
+- `MetricFrameMeta` gains a top-level optional field
+  `rollup_fold: Literal["last"] | None = None` (an additive schema change
+  to an `extra="forbid"` model, called out as in v1). V2 sets it only on
+  cumulative frames.
+- The existing rollup gate upgrades: `reaggregatable=False` WITH
+  `rollup_fold` present -> roll up by that fold; without it -> the v1
+  rejection stands verbatim.
+- Semantics per anchor: all_history -> period-end running total;
+  grain_to_date -> rolling up to the reset grain yields per-period totals
+  (day-MTD to month = full-month totals); trailing -> "rolling value as of
+  period end" sampling. The rollup TARGET grain must satisfy the same
+  grain-compatibility rule as observe (week targets under month resets are
+  illegal).
+- Mechanics: pure pandas — group buckets by the coarser grain (report_tz
+  date-trunc), take the last bucket per group per dims. Dense frames make
+  "last" well-defined. A trailing display window that ends mid-period
+  marks that final period's rollup row `partial` in coverage.
+- The result keeps the cumulative marker and `rollup_fold`, so rollups
+  chain correctly (day -> month -> quarter keeps taking period ends).
+
+## Compare: To-Date Alignment
+
+The v1 blanket compare gate becomes anchor-dispatched, for directly
+observed arity-1 cumulative frames only:
+
+- **all_history: still rejected.** The delta between two windows is
+  identically the flow between them; the teaching error names the base
+  ref.
+- **trailing: allowed** under ordinary window_bucket rules plus one new
+  validation: both frames' anchor payloads must match exactly — comparing
+  rolling-7d against rolling-30d is a category error (teaching error).
+- **grain_to_date: allowed via ordinal alignment plus three validations**:
+  1. both frames share the reset grain and the query grain;
+  2. each frame's window starts exactly on a reset-period boundary
+     (checked from window meta + report_tz truncation);
+  3. each frame's window spans at most one reset period — in multi-period
+     windows, ordinal position i is ambiguous; the teaching error suggests
+     single-period observes (this month so far vs the full prior month).
+  Bucket i then pairs with bucket i — period-position alignment. The
+  baseline tail beyond the current frame's length produces no delta rows
+  and is recorded in
+  `alignment_dump.to_date = {reset_grain, matched_buckets,
+  baseline_tail_buckets}` — truncation is visible, never silent.
+- **Scalars**: grain_to_date scalars ("this period so far") compare when
+  both frames' elapsed-within-period spans are equal (derived from window
+  meta); on mismatch the teaching error states the exact baseline window to
+  observe.
+- **DeltaFrame inherits the cumulative marker** (`DeltaFrameMeta` gains the
+  same additive field), so attribute/decompose on an MTD delta stay gated
+  in V2 — per-bucket attribution of to-date deltas is computable but too
+  easy to misread; the teaching error points to attributing the base flow
+  over the matched elapsed windows. Relaxation waits for evidence.
+
+## Intent Gating Delta (v1 -> v2)
+
+| Surface | v1 | v2 |
+|---|---|---|
+| compare | reject all cumulative | anchor-dispatched: all_history reject; grain_to_date to-date; trailing same-anchor; derived-with-components and DeltaFrames still gated |
+| rollup | reject (`reaggregatable=False`) | allowed with `rollup_fold="last"`, else v1 rejection |
+| attribute / decompose / forecast | reject | unchanged (relaxation needs evidence) |
+| ungated intents caveat | running-total wording | anchor-aware wording (trailing: rolling-series autocorrelation pollutes hypothesis tests) |
+| multi-metric observe | exclude cumulative at arity N | unchanged |
+
+## Testing
+
+DuckDB golden tests as the core, plus two new regression classes:
+
+- **Hash stability regression**: existing v1 all_history objects hash
+  identically under v2 code — the forward-compatibility promise, tested
+  directly.
+- grain_to_date: resets at period boundaries; seed only for the first
+  partial period (boundary-started windows run zero seed queries);
+  within-period returning user counts once, next period counts again
+  (keystone); grain-compatibility teaching error (week under month);
+  month-at-month = period totals; report_tz period boundaries.
+- trailing: integer-multiple rule error; partial windows show actual values
+  with `partial` coverage (data-start query); empty window = 0 with an
+  explicit contrast test against all_history carry-forward; expansion-join
+  distinct correctness (a user active on day 1 and day 5 counts once in any
+  7d window containing both, and drops out after the window passes —
+  keystone); bucket-cap teaching error; display-window clipping.
+- rollup: last per period per dims; chains (day -> month -> quarter);
+  partial tail-period coverage; still rejected without `rollup_fold`;
+  target-grain compatibility rule.
+- compare: matched-prefix deltas with tail truncation recorded in
+  `alignment_dump.to_date`; the four teaching errors (boundary,
+  multi-period, grain mismatch, anchor mismatch); scalar elapsed-span
+  check; all_history and derived-with-components still rejected; DeltaFrame
+  carries the marker and attribute stays gated.
+- Dialect compile tests for the three new SQL shapes — period-scoped
+  first-seen, period-bounded seed, memtable-spine expansion join — on
+  duckdb/trino/clickhouse, plus at least one cumulative-v2 case in each
+  live integration suite.
+- Agent surface: `describe(ms.grain_to_date)` / `describe(ms.trailing)`
+  resolve; `ms.help('cumulative')` anchor examples run; the cumulative
+  marker and `rollup_fold` survive `transform.window` and rollup.
+
+## Documentation Obligations (same change)
+
+- `ms.help('cumulative')` anchor section + MTD / rolling-7d runnable
+  examples; decision-order "when" text update.
+- `docs/specs/semantic/python-semantic-layer.md` and
+  `docs/specs/analysis/python-analysis-design.md` sections.
+- `site/` example code, English and Chinese editions in sync.
+- Skill references: new grill points (reset-grain choice, window-span
+  caliber, partial-window explanation) under `references/`, not SKILL.md.
+- One-line pointer from the v1 design's V2 section to this spec.
+
+## Out of Scope (v3+)
+
+Calendar-variable trailing windows (sliding months), approximate distinct
+sketches, cross-component query fusion, incremental caching, `first` /
+`average` rollup folds, attribute on to-date deltas, compare for derived
+frames with cumulative components.
