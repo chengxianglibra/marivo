@@ -18,6 +18,7 @@ def test_metric_frame_identity_shows_unit_when_present() -> None:
         semantic_kind="scalar",
         row_count=1,
         unit="CNY",
+        measure={"name": "revenue"},
     )
     frame = MetricFrame(_df=pd.DataFrame(), meta=meta)
     identity = frame._repr_identity()
@@ -31,6 +32,7 @@ def test_metric_frame_identity_omits_unit_when_absent() -> None:
         semantic_kind="scalar",
         row_count=1,
         unit=None,
+        measure={"name": "revenue"},
     )
     frame = MetricFrame(_df=pd.DataFrame(), meta=meta)
     assert "unit=" not in frame._repr_identity()

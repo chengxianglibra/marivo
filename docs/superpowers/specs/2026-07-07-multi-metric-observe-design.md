@@ -115,7 +115,7 @@ dau = frame.metric("analytics.dau")   # arity-1 MetricFrame
   `MetricInput`. The element contract is unchanged: catalog objects or
   `SemanticRef`s, bare strings stay rejected (projection takes string
   ids because the frame's own `metrics` list makes them unambiguous).
-  Duplicates (after normalization) raise `SemanticInputError` listing the
+  Duplicates (after normalization) raise `SemanticKindMismatchError` listing the
   duplicate ids. An empty sequence raises the same error class.
 - Sequence elements must be simple, unfolded metrics; a derived or
   folded metric raises a teaching error naming it and suggesting a

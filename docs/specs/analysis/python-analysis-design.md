@@ -375,6 +375,37 @@ root-preserving left joins. Cross-dataset `dimensions=` and `slice_by=` are allo
 for base metrics. Root predicates are pushed before widening; joined predicates
 apply after widening. `session.explain(...)` is not part of this phase.
 
+### Multi-metric Observe
+
+`observe` 的 `metric` 参数接受单个 `MetricInput` 或非空 `MetricInput` 序列。
+传入序列时，所有 metric 共享同一个 scope（`time_scope` / `grain` / `dimensions` /
+`slice_by` / `time_dimension`），executor 将同一 datasource 的 simple metric 合并
+为一次查询（cross-datasource 时按 datasource 分组执行后按时间轴 outer-join）。
+产出 `MetricFrame` 携带多列 measure，`frame.meta.measures` 记录每个 metric 的
+`metric_id`、`column` 与 `unit`；`frame.meta.metric_id` 为 `None`。
+
+序列元素必须是 simple、unfolded metric。derived / folded metric 会触发 teaching
+error，建议对其单独执行 arity-1 `observe`。Duplicate（归一化后）与空序列同样
+fail closed。
+
+对 arity-N frame，`frame.metric(id)` 返回 arity-1 `MetricFrame`（select_metric
+step，不重新查询后端）；arity-1 frame 上调用 `frame.metric(id)` 返回 self。
+`id` 不在 frame metrics 列表时抛出 `MetricArityError` 并在错误信息中列出可用
+metric。
+
+```python
+frame = session.observe(
+    [
+        session.catalog.get("sales.revenue"),
+        session.catalog.get("sales.total_orders"),
+    ],
+    time_scope={"start": "2026-07-01", "end": "2026-07-08"},
+    grain="day",
+)
+frame.show()                       # time axis + revenue + total_orders columns
+revenue = frame.metric("sales.revenue")   # arity-1 MetricFrame for drill-down
+```
+
 ### Derived Observe
 
 Phase 2 derived metrics share the same planner as base metrics. Each
@@ -888,7 +919,7 @@ drivers = session.decompose(delta, axis=selected_axis)
 
 ### Batch optimization
 
-Agent 不需要学习公开 lazy plan API。若连续 step 没有 materialized projection decision，runtime 可以在 session 内部合并查询、批量执行或共享中间结果。这是 execution optimization，不是第二套 authoring model。
+Agent 不需要学习公开 lazy plan API。若连续 step 没有 materialized projection decision，runtime 可以在 session 内部合并查询、批量执行或共享中间结果。这是 execution optimization，不是第二套 authoring model。Multi-metric observe 的同 scope 查询融合（same-datasource metric 合并为一次查询、cross-datasource 分组执行后按时间轴 join）正是这一原则在 same-scope observation 上的落地。
 
 ### Materialized artifact 写法
 
@@ -928,6 +959,11 @@ candidates = session.discover.interesting_windows(metric)
 - `observe` 固定事实载体。
 - projection 帮 agent 理解 shape、覆盖率、缺失和分布。
 - `discover` 给下一步 follow-up 候选。
+
+当多个 same-scope metric 需要同窗观测时（例如 revenue、orders、failure_rate 一起
+看），使用 multi-metric observe 一次产出多列 `MetricFrame`，再用 `frame.metric(id)`
+投影出单个 arity-1 frame 做下游 drill-down。这是 report-style pattern：一次 observe
+覆盖 report 维度，projection 服务于单 metric 的深入分析。
 
 ### 2. 解释一次变化
 

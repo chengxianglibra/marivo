@@ -395,3 +395,76 @@ def load_inline_semantic(
         (semantic_dir / "models.py").write_text(source)
         result = load_project(semantic_dir.parent)
         yield result
+
+
+# ---------------------------------------------------------------------------
+# Multi-metric sales project (two entities, three metrics)
+# ---------------------------------------------------------------------------
+
+
+def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:
+    """Semantic project with two entities and three simple metrics.
+
+    orders: order_date (day), region dimension, revenue + order_count metrics.
+    users: signup_date (day), user_count metric. Same warehouse datasource.
+    """
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "\n"
+        "warehouse = md.ref('datasource.warehouse')\n"
+        "\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+        "users = ms.entity(name='users', datasource=warehouse, source=ms.table('users'))\n"
+        "\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
+        "def order_date(orders):\n"
+        "    return orders.created_at.cast('date')\n"
+        "\n"
+        "@ms.time_dimension(entity=users, granularity='day')\n"
+        "def signup_date(users):\n"
+        "    return users.signed_up_at.cast('date')\n"
+        "\n"
+        "@ms.dimension(entity=orders)\n"
+        "def region(orders):\n"
+        "    return orders.region.upper()\n"
+        "\n"
+        "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+        "\n"
+        "@ms.metric(entities=[orders], additivity='additive', name='order_count', )\n"
+        "def order_count(orders):\n"
+        "    return orders.order_id.count()\n"
+        "\n"
+        "@ms.metric(entities=[users], additivity='additive', name='user_count', )\n"
+        "def user_count(users):\n"
+        "    return users.user_id.count()\n"
+    )
+
+
+def seed_multi_metric_tables(con: ibis.duckdb.DuckDBBackend) -> None:
+    """Seed orders and users tables matching bootstrap_multi_metric_sales_project."""
+    con.raw_sql(
+        "CREATE TABLE orders (order_id INTEGER, created_at DATE, "
+        "amount DOUBLE, region VARCHAR, user_id INTEGER)"
+    )
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 10.0, 'north', 100),"
+        "(2, DATE '2026-07-02', 20.0, 'north', 100),"
+        "(3, DATE '2026-07-02', 30.0, 'south', 200)"
+    )
+    con.raw_sql("CREATE TABLE users (user_id INTEGER, signed_up_at DATE)")
+    con.raw_sql("INSERT INTO users VALUES (100, DATE '2026-07-01'), (200, DATE '2026-07-03')")

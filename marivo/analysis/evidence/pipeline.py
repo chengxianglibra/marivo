@@ -213,57 +213,78 @@ def _extract_findings(
     meta = frame.meta
     semantic_kind = getattr(meta, "semantic_kind", "scalar")
     if extractor_family == "metric_frame":
-        measure = getattr(meta, "measure", {})
-        measure_column = (
-            measure.get("name") or measure.get("column") or measure.get("field") or "value"
-            if isinstance(measure, dict)
-            else "value"
-        )
-        # Fall back if measure_column is not in the DataFrame
-        if measure_column not in df.columns:
-            axis_columns = set(_dimension_columns_from_meta(meta) or [])
-            axis_columns.add("bucket_start")
-            non_axis = [c for c in df.columns if c not in axis_columns]
-            if "value" in non_axis:
-                measure_column = "value"
-            else:
-                measure_column = non_axis[0] if non_axis else "value"
+        measures_meta = getattr(meta, "measures", None)
+        if measures_meta:
+            entries: list[tuple[Subject, str, str | None, bool]] = [
+                (
+                    subject.model_copy(update={"metric": entry["metric_id"]}),
+                    entry["column"],
+                    f"metric:{entry['metric_id']}",
+                    entry.get("additivity") == "additive",
+                )
+                for entry in measures_meta
+            ]
+        else:
+            # Legacy single-measure resolution, unchanged.
+            measure = getattr(meta, "measure", {})
+            measure_column = (
+                measure.get("name") or measure.get("column") or measure.get("field") or "value"
+                if isinstance(measure, dict)
+                else "value"
+            )
+            if measure_column not in df.columns:
+                axis_columns = set(_dimension_columns_from_meta(meta) or [])
+                axis_columns.add("bucket_start")
+                non_axis = [c for c in df.columns if c not in axis_columns]
+                if "value" in non_axis:
+                    measure_column = "value"
+                else:
+                    measure_column = non_axis[0] if non_axis else "value"
+            entries = [
+                (subject, measure_column, None, getattr(meta, "additivity", None) == "additive")
+            ]
         time_column: str | None = None
         if semantic_kind == "time_series" and "bucket_start" in df.columns:
             time_column = "bucket_start"
         elif semantic_kind == "time_series":
             time_column = _time_column_from_meta(meta)
-        findings = extract_metric_value_findings(
-            df=df,
-            artifact_id=artifact_id,
-            session_id=session_id,
-            subject=subject,
-            semantic_kind=semantic_kind,
-            measure_column=measure_column,
-            committed_at=committed_at,
-            time_column=time_column,
-        )
         digest_time_column = time_column
         if semantic_kind == "panel":
             digest_time_column = (
                 "bucket_start" if "bucket_start" in df.columns else _time_column_from_meta(meta)
             )
-        findings.append(
-            extract_observation_digest_finding(
-                df=df,
-                artifact_id=artifact_id,
-                session_id=session_id,
-                subject=subject,
-                semantic_kind=semantic_kind,
-                measure_column=measure_column,
-                committed_at=committed_at,
-                time_column=digest_time_column,
-                dimension_columns=_dimension_columns_from_meta(meta),
-                window=getattr(meta, "window", None),
-                analysis_purpose=getattr(meta, "analysis_purpose", None),
-                additive=getattr(meta, "additivity", None) == "additive",
+        findings: list[Finding] = []
+        for entry_subject, entry_column, key_prefix, additive in entries:
+            findings.extend(
+                extract_metric_value_findings(
+                    df=df,
+                    artifact_id=artifact_id,
+                    session_id=session_id,
+                    subject=entry_subject,
+                    semantic_kind=semantic_kind,
+                    measure_column=entry_column,
+                    committed_at=committed_at,
+                    time_column=time_column,
+                    item_key_prefix=key_prefix,
+                )
             )
-        )
+            findings.append(
+                extract_observation_digest_finding(
+                    df=df,
+                    artifact_id=artifact_id,
+                    session_id=session_id,
+                    subject=entry_subject,
+                    semantic_kind=semantic_kind,
+                    measure_column=entry_column,
+                    committed_at=committed_at,
+                    time_column=digest_time_column,
+                    dimension_columns=_dimension_columns_from_meta(meta),
+                    window=getattr(meta, "window", None),
+                    analysis_purpose=getattr(meta, "analysis_purpose", None),
+                    additive=additive,
+                    item_key_prefix=key_prefix,
+                )
+            )
         return findings
     if extractor_family == "delta_frame":
         dimension_columns = _dimension_columns_from_meta(meta)
@@ -386,6 +407,8 @@ def _extract_findings(
         )
     if extractor_family == "quality_report":
         return []
+    # Unknown families (e.g. "projection") are intentionally finding-free:
+    # select_metric projections inherit evidence from the parent observe.
     return []
 
 

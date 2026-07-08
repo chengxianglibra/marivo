@@ -36,6 +36,7 @@ from marivo.analysis.evidence.pipeline import (
 from marivo.analysis.evidence.types import Subject, TriggeredByFollowup
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.analysis.semantic_inputs import (
@@ -185,6 +186,9 @@ def _transform_dispatch(
             ),
             details={"expected_families": ["MetricFrame", "DeltaFrame"]},
         )
+
+    if isinstance(frame, MetricFrame):
+        require_single_metric(frame, intent="transform")
 
     if frame.meta.session_id != session.id:
         raise CrossSessionFrameError(

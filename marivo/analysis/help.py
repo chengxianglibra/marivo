@@ -73,7 +73,7 @@ _SUMMARIES: dict[str, str] = {
     "evidence": "analysis evidence DTOs and session knowledge helpers",
     "errors": "AnalysisError hierarchy and analysis error kinds",
     "frames": "analysis frame and frame metadata types",
-    "observe": "build a MetricFrame from a metric and window",
+    "observe": "build a MetricFrame from one metric or a same-scope metric list and window",
     "compare": "compare two MetricFrames into a DeltaFrame",
     "attribute": "attribute a DeltaFrame into an AttributionFrame over explicit axes; missing axes are materialized from recoverable lineage",
     "discover": "discover deterministic candidate sets from analysis artifacts",
@@ -155,7 +155,11 @@ _TYPE_ALIASES: set[str] = {
 }
 
 _SEE_ALSO: dict[str, tuple[str, ...]] = {
-    "MetricFrame": ("mv.help('observe')", "mv.help('MetricFrame.components')"),
+    "MetricFrame": (
+        "mv.help('observe')",
+        "mv.help('MetricFrame.components')",
+        "mv.help('MetricFrame.metric')",
+    ),
     "DeltaFrame": ("mv.help('compare')", "mv.help('attribute')"),
     "CandidateSet": ("mv.help('discover')", "mv.help('select')"),
     "AlignmentPolicy": ("mv.help('alignment')", "mv.help('calendar')"),
@@ -334,7 +338,7 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
     {
         "name": "observe",
         "group": "intents",
-        "summary": "materialize a semantic metric as a MetricFrame",
+        "summary": "materialize one or more same-scope semantic metrics as a MetricFrame",
     },
     {
         "name": "compare",
@@ -475,7 +479,22 @@ def _session_text(content: dict[str, object]) -> str:
 
 def _observe_content() -> dict[str, object]:
     return {
-        "summary": "Build a MetricFrame from a metric and window.",
+        "summary": "Build a MetricFrame from one metric or a same-scope metric list and window.",
+        "multi_metric": {
+            "input": (
+                "metric accepts a non-empty sequence of simple, unfolded metrics "
+                "over one shared scope; bare strings are rejected"
+            ),
+            "result": (
+                "the frame carries one value column per metric (frame.measures_meta()) "
+                "and one measure per metric in meta"
+            ),
+            "projection": "frame.metric(id) projects one metric out as an arity-1 MetricFrame",
+            "arity_gate": (
+                "analytical intents (compare/discover/correlate/transform/"
+                "assess_quality/hypothesis_test/forecast) require arity-1 frames"
+            ),
+        },
         "sampled_semi_additive": {
             "fold": "sampled semi-additive metrics use their bound sampled time axis",
             "coverage": "return coverage through frame.coverage()",
@@ -498,9 +517,18 @@ def _observe_content() -> dict[str, object]:
 
 
 def _observe_text(content: dict[str, object]) -> str:
-    lines = ["observe: build a MetricFrame from a metric and window", ""]
+    lines = [
+        "observe: build a MetricFrame from one metric or a same-scope metric list and window",
+        "",
+    ]
+    multi = cast("dict[str, object]", content["multi_metric"])
+    lines.append("Multi-metric:")
+    lines.append(f"  input: {multi['input']}")
+    lines.append(f"  result: {multi['result']}")
+    lines.append(f"  projection: {multi['projection']}")
+    lines.append(f"  arity gate: {multi['arity_gate']}")
     sampled = cast("dict[str, object]", content["sampled_semi_additive"])
-    lines.append("Sampled semi-additive metrics:")
+    lines.extend(("", "Sampled semi-additive metrics:"))
     lines.append(f"  fold axis: {sampled['fold']}")
     lines.append(f"  coverage: {sampled['coverage']}")
     lines.append(f"  reaggregation: {sampled['reaggregation']}")

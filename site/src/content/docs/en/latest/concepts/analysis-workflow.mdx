@@ -92,7 +92,7 @@ segments.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `metric` | metric object / ref | Yes | — | The metric to materialize. |
+| `metric` | metric object / ref, or non-empty sequence | Yes | — | The metric to materialize, or a sequence of same-scope metrics for a multi-metric observation. Bare strings are rejected. |
 | `time_scope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
 | `grain` | grain | No | `None` | Time bucket; present ⇒ time series or panel. |
 | `dimensions` | `list[ref]` | No | `None` | Segment axes. |
@@ -107,6 +107,20 @@ current = session.observe(
     grain="month",
     dimensions=[region],
 )
+```
+
+Pass a sequence to observe several same-scope metrics in one frame. Marivo
+fuses same-datasource metrics into one query and outer-joins cross-datasource
+metrics on the time axis. Use `frame.metric(id)` to project an arity-1 frame
+for drill-down on a single metric.
+
+```python
+report = session.observe(
+    [revenue, catalog.get("metric.sales.total_orders")],
+    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+)
+revenue_only = report.metric("sales.revenue")
 ```
 
 ### `compare` → `DeltaFrame`

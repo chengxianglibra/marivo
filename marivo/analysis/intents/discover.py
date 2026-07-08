@@ -50,6 +50,7 @@ from marivo.analysis.intents._discover_scorers import (
     score_point_anomalies,
 )
 from marivo.analysis.intents._types import DiscoverSensitivity
+from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.semantic_inputs import (
     DimensionInput,
@@ -236,6 +237,8 @@ def _discover_dispatch(
             },
         )
     ensure_frame_in_session(source, session=session, label="discover source")
+    if isinstance(source, MetricFrame):
+        require_single_metric(source, intent=f"discover.{objective}")
 
     if not _is_valid_objective(objective):
         raise SemanticKindMismatchError(
@@ -281,6 +284,9 @@ def _discover_dispatch(
     frame_ref = gen_ref("frame")
     job_ref = gen_ref("job")
     finished_at = datetime.now(UTC)
+    # discover operates on arity-1 frames; multi-metric frames are gated out
+    # upstream. Narrow metric_id for CandidateSetMeta.metric_ids (list[str]).
+    assert source.meta.metric_id is not None
     meta = CandidateSetMeta(
         kind="candidate_set",
         ref=frame_ref,

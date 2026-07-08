@@ -409,6 +409,10 @@ def _persist_metric_component_frame(
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
     job_ref: str,
 ) -> ComponentFrame:
+    # Component decomposition operates on arity-1 metric frames; multi-metric
+    # frames are gated out upstream. Narrow metric_id for the ComponentFrameMeta
+    # contract which requires a single metric id.
+    assert parent.meta.metric_id is not None
     frame_ref = make_component_artifact_id(parent.ref)
     component = ComponentFrame(
         _df=df.copy(),
@@ -1719,7 +1723,7 @@ def _metric_planner_scope(catalog: Any, metric_ir: Any) -> set[str]:
 
 
 def observe(
-    metric: MetricInput,
+    metric: MetricInput | list[MetricInput] | tuple[MetricInput, ...],
     *,
     time_scope: TimeScopeInput = None,
     grain: GrainInput = None,
@@ -1730,12 +1734,36 @@ def observe(
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
+    if isinstance(metric, (list, tuple)):
+        metric_items: list[MetricInput] = list(metric)
+        if not metric_items:
+            raise SemanticKindMismatchError(
+                message="observe requires at least one metric",
+                details={"argument": "metric", "got": "empty sequence"},
+            )
+        if len(metric_items) > 1:
+            from marivo.analysis.intents.observe_multi import observe_multi
+
+            return observe_multi(
+                metric_items,
+                time_scope=time_scope,
+                grain=grain,
+                dimensions=dimensions,
+                slice_by=slice_by,
+                time_dimension=time_dimension,
+                expect_shape=expect_shape,
+                analysis_purpose=analysis_purpose,
+                session=session,
+            )
+        single_metric: MetricInput = metric_items[0]
+    else:
+        single_metric = metric
     if session is None:
         session = require_current_session()
     ensure_session_writable(session)
     catalog = session.catalog
     catalog._require_ready()
-    metric_id = _normalize_metric_boundary(catalog, metric)
+    metric_id = _normalize_metric_boundary(catalog, single_metric)
     model_name, metric_name = metric_id.split(".", 1)
     metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
     assert isinstance(metric_details, (SimpleMetricDetails, DerivedMetricDetails))
@@ -2210,18 +2238,27 @@ def _commit_observe_metric_frame(
     session: Session,
     frame: MetricFrame,
     params: dict[str, Any],
-    metric_id: str,
+    metric_id: str | None,
     model_name: str,
     stored_where: dict[str, Any],
     semantic_kind: str,
     subject_grain: str | None = None,
     step_type: str = "observe",
+    metric_ids: list[str] | None = None,
+    models: list[str] | None = None,
 ) -> MetricFrame:
     """Commit a MetricFrame through the evidence pipeline (shared tail).
 
     Shared by observe and derive_metric_frame; both are metric_frame-family
-    commits and must emit the same evidence side effects.
+    commits and must emit the same evidence side effects. When ``metric_ids``
+    is provided (arity-N multi-metric path), the anchors carry the full metric
+    list while the commit subject keeps ``metric=None`` — the extractor reads
+    per-measure subjects from ``meta.measures``.
     """
+    if metric_ids is not None:
+        anchors: dict[str, Any] = {"metrics": metric_ids, "models": models or [model_name]}
+    else:
+        anchors = {"metric_id": metric_id, "model": model_name}
     result = cast(
         "MetricFrame",
         commit_result(
@@ -2231,9 +2268,7 @@ def _commit_observe_metric_frame(
             step_type=step_type,
             inputs=CommitInputs(input_refs=[]),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(
-                values={"metric_id": metric_id, "model": model_name}
-            ),
+            semantic_anchors=CommitSemanticAnchors(values=anchors),
             subject=Subject(
                 metric=metric_id,
                 slice=stored_where or {},

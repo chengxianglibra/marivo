@@ -33,6 +33,7 @@ from marivo.analysis.intents._derived import (
     require_numeric_column,
     resolve_session,
 )
+from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_writable
@@ -64,6 +65,10 @@ def forecast(
         raise ForecastShapeUnsupportedError(
             message="forecast requires MetricFrame time_series or panel input"
         )
+    require_single_metric(history, intent="forecast")
+    # forecast operates on arity-1 metric frames; multi-metric frames are gated
+    # out upstream. Narrow metric_id for downstream ForecastFrameMeta / Subject.
+    assert history.meta.metric_id is not None
     ensure_frame_in_session(history, session=session, label="forecast history")
     if horizon < 1:
         raise ForecastPolicyError(message="horizon must be >= 1", details={"horizon": horizon})
