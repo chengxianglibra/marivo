@@ -1,7 +1,7 @@
 # Semantic Authoring Public Guidance Design
 
 Date: 2026-07-08
-Status: approved design, pending written-spec review
+Status: approved design, review fixes applied
 Related:
 `agent-guide.md`,
 `marivo/skills/marivo-semantic/SKILL.md`,
@@ -110,6 +110,11 @@ workflow topics without embedding a full tutorial:
 - `ms.help("authoring")`
 - `ms.help("<semantic-object>")`, such as `ms.help("measure_column")`
 - `ms.help("readiness")`
+- `mv.help("workflow")` after readiness allows analysis handoff
+
+The `authoring` topics should be pinned entries, or otherwise visually
+prioritized in the top-level `md.help()` and `ms.help()` listings, so an agent
+sees the workflow route before scanning the full symbol catalog.
 
 ### Workflow Level
 
@@ -124,19 +129,33 @@ transcribing every parameter.
 
 Datasource authoring stages:
 
-1. Choose or declare a datasource with `md.help("<backend>")`.
+1. Choose or declare a datasource with `md.help("<backend>")`; call
+   `md.help()` to see available backend constructors such as `clickhouse`,
+   `duckdb`, `mysql`, `postgres`, and `trino`.
 2. Persist it with `md.register(spec)` or a file under `models/datasources/`.
 3. Provide secrets through `*_env` references, not plaintext literals.
 4. Run `md.test(ref)` before semantic authoring.
 5. Inspect physical facts with `md.inspect_table(...)` and
    `md.inspect_partitions(...)`.
-6. Run the matching `md.discover_*` call for semantic evidence.
-7. Use `md.raw_sql(..., reason=...)` only for bounded diagnostics that
+6. Build a physical source with `md.table(...)`, `md.parquet(...)`, or
+   `md.csv(...)` when a call needs a source. If `inspect_table(source=None)`
+   is valid for a configured datasource default, help text should say when
+   explicit source selection can be omitted.
+7. Use scan scopes deliberately: `scope=None` means the API default
+   `md.ScanScope()`, `md.partition({...})` selects a concrete partition, and
+   `md.unpruned()` explicitly records an unpartitioned scan.
+8. Run the matching `md.discover_*` call for semantic evidence.
+9. Use `md.discover_relationship(...)` with `md.JoinSide(...)` pairs; it does
+   not follow the simpler `(datasource, source)` shape used by other discovery
+   calls.
+10. Use `md.raw_sql(..., reason=...)` only for bounded diagnostics that
    inspection/discovery cannot express.
 
 Semantic authoring stages:
 
-1. Load current state with `ms.load()` and browse with `catalog.list(...)`.
+1. Load current state with `ms.load()` and browse with `catalog.list(...)`;
+   scoped browse uses typed strings such as `scope="domain.sales"` or
+   `scope="entity.sales.orders"`.
 2. Read `ms.help("<object>")` before authoring each object.
 3. Use matching `md.discover_*` evidence and project/user context to settle
    constructor values.
@@ -144,17 +163,25 @@ Semantic authoring stages:
 5. Run `ms.verify_object(ref)` and fix failures before advancing.
 6. Close out with `ms.readiness(refs=...)`.
 7. Use `catalog.preview(...)` for runtime smoke checks.
-8. Hand ready refs to `marivo.analysis`; do not guess a `catalog.query(...)`
-   API.
+8. Hand ready refs to `marivo.analysis` by calling `mv.help("workflow")` and
+   opening or reusing an analysis session.
+
+Do not guess a `catalog.query(...)` API. The semantic catalog is for browse,
+preview, readiness, and verification; metric analysis runs through
+`marivo.analysis` sessions.
 
 ### Contract Level
 
 Entrypoints:
 
 - `md.help("clickhouse")`, `md.help("trino")`, etc.
+- `md.help("table")`, `md.help("parquet")`, `md.help("csv")`
+- `md.help("partition")`, `md.help("unpruned")`, `md.help("ScanScope")`
+- `md.help("JoinSide")`
 - `md.help("register")`, `md.help("test")`, `md.help("raw_sql")`
 - `ms.help("entity")`, `ms.help("measure_column")`,
   `ms.help("time_dimension_column")`, `ms.help("aggregate")`, etc.
+- `ms.help("readiness")`
 
 This level answers "how do I call this exact public API?" It should contain:
 
@@ -169,6 +196,23 @@ This level answers "how do I call this exact public API?" It should contain:
 Constructor help remains the source of truth for static authoring contracts.
 Skill docs and docs-site guides should point to it rather than copying the
 same tables.
+
+Datasource contract help should use the same structured help mechanism as the
+semantic side for workflow-critical functions. Add `Descriptor`-backed
+contract topics for `register`, `test`, `raw_sql`, `table`, `parquet`, `csv`,
+`partition`, and `unpruned`, with structured content for signature,
+parameters, constraints, examples, common mistakes, and recovery hints.
+Backend constructor topics, `ScanScope`, and `JoinSide` may continue to reuse
+docstring-derived signatures and field descriptions, but their examples and
+workflow notes should be explicit structured topic content rather than prose
+copied into skills.
+
+`ms.help("readiness")` should be a static semantic closeout contract topic. It
+should define readiness statuses, the difference between blockers and warnings,
+what `ready_with_warnings` means, how `refs=...` dependency closure works, and
+when analysis handoff is allowed. `ReadinessReport.show()` remains the
+state-specific report; the help topic is the stable reference before a report
+exists.
 
 ### State Level
 
@@ -198,6 +242,13 @@ Examples:
 
 State-level guidance may say "decide additivity" or "ask the user if evidence
 is insufficient." It must not recommend business values with confidence scores.
+
+When a result has no specific hint for a blocker, warning, or state, it should
+still show a graceful default next step instead of omitting the guidance
+section. The default should point to a public route such as `ms.help("<object>")`,
+`md.help("authoring")`, `ms.help("authoring")`, `catalog.list(...).show()`, or
+`catalog.get(...).details().show()`. Do not invent a per-kind repair catalog
+just to avoid the default.
 
 ## Public Surface Changes
 
@@ -230,21 +281,65 @@ authoring remains Python-native, and the CLI routes agents to the Python API.
 Add a datasource authoring workflow topic. It should cover:
 
 - import shape: `import marivo.datasource as md`;
-- how to choose backend help with `md.help("<backend>")`;
+- how to list backend constructors with `md.help()` and choose backend help
+  with `md.help("<backend>")`;
 - declaring a typed spec;
 - persisting it with `md.register(spec)` or a model file;
 - `*_env` secret references and the environment/secret-cache resolution model;
 - `md.test(ref)` as the explicit live datasource round trip;
+- source constructors: use `md.table(...)` for warehouse tables,
+  `md.parquet(...)` for parquet files, and `md.csv(...)` for CSV files; pass an
+  explicit source to `inspect_*` / `discover_*` when the datasource definition
+  does not already supply the intended default source;
 - `md.inspect_table(...)` and `md.inspect_partitions(...)` as physical fact
   helpers;
+- scan scopes: `scope=None` uses the default `md.ScanScope()`,
+  `md.partition({...})` is the current explicit partition helper, and
+  `md.unpruned()` is the explicit broad-scan helper;
 - `md.discover_entity`, `md.discover_dimensions`,
   `md.discover_time_dimensions`, `md.discover_measures`,
-  `md.discover_relationship`, and `md.discover_dimension_values`;
+  and `md.discover_dimension_values` for `(datasource, source)` discovery;
+- `md.discover_relationship(...)` separately, because it requires
+  `from_side=md.JoinSide(...)` and `to_side=md.JoinSide(...)`; route agents to
+  `md.help("JoinSide")`;
 - `md.raw_sql(..., reason=...)` as a bounded diagnostic escape hatch;
 - the handoff to `ms.help("authoring")`.
 
 It should explicitly say not to import internal secret classes or backend
-builders.
+builders. It should also explicitly say that `md.latest_partition()` is not a
+current public helper; agents should inspect partition values and choose
+`md.partition({...})`, or deliberately call `md.unpruned()`.
+
+`authoring` should be included in `md.help()` pinned entries, or the equivalent
+top-level priority list.
+
+### Datasource Contract Topics
+
+Add structured datasource help descriptors for the workflow-critical functions
+that agents otherwise discover from source:
+
+- `md.help("table")`, `md.help("parquet")`, and `md.help("csv")`: source
+  constructor purpose, when each source kind applies, how `database=` works for
+  table namespaces, and how these values flow into `inspect_*`, `discover_*`,
+  and semantic entity authoring;
+- `md.help("partition")` and `md.help("unpruned")`: scope helper purpose,
+  bounded defaults from `md.ScanScope`, and the rule that `latest_partition` is
+  not public or automatic;
+- `md.help("register")`: persist a typed datasource spec, expected model-file
+  shape, overwrite behavior, secret-reference rules, and recovery for plaintext
+  secret errors;
+- `md.help("test")`: live round trip, `DatasourceRef` or name input, validated
+  env-sourced secret caching, non-persisting alternatives when applicable, and
+  common connection/secret recovery snippets;
+- `md.help("raw_sql")`: read-only diagnostic escape hatch, required `reason=`,
+  bounded output behavior, when to prefer `inspect_*` or `discover_*`, and
+  examples that do not make raw SQL the normal schema-discovery path, such as
+  `reason="check nullability for orders.amount"`.
+
+These should be real help topics with structured `Descriptor.content`, not only
+enriched function docstrings. That keeps the introspection/render layer, and
+any future `describe()`-style consumers, consistent with the semantic contract
+topics.
 
 ### Backend Help Examples
 
@@ -266,7 +361,12 @@ md.test(spec.ref).show()
 md.inspect_table(spec.ref, md.table("orders", database="analytics")).show()
 ```
 
-Examples must not include plaintext secrets.
+Examples must not include plaintext secrets. They should end with a one-line
+pointer to `md.help("authoring")` for the discovery and semantic-authoring
+stages, so a backend topic read in isolation still exposes the next public
+route. The example text should also explain why the source is explicit here:
+pass `md.table(...)`, `md.parquet(...)`, or `md.csv(...)` when the datasource
+does not already define the intended default source.
 
 ### `md.help("ai_context")`
 
@@ -280,6 +380,13 @@ It should say:
 - raw dicts, `summary=`, and `glossary=` are invalid in the current API;
 - see `ms.help("ai_context")` for the canonical contract.
 
+This topic is a deliberate one-off cross-module alias because datasource
+authoring accepts a semantic value object. Its `Descriptor.content` should
+include the target symbol `ms.ai_context`, the accepted field names, the invalid
+legacy field names, and `see_also=("ms.help('ai_context')",)` or the nearest
+existing equivalent. It should not establish a general rule that datasource
+help duplicates semantic contracts.
+
 This avoids the common mistake of guessing `md.ai_context(...)`.
 
 ### `ms.help("authoring")`
@@ -287,7 +394,9 @@ This avoids the common mistake of guessing `md.ai_context(...)`.
 Add a semantic authoring workflow topic. It should cover:
 
 - import shape: `import marivo.semantic as ms`;
-- current catalog browse commands;
+- current catalog browse commands, including typed scoped browse such as
+  `catalog.list("metric", scope="domain.sales").show()` and
+  `catalog.list("dimension", scope="entity.sales.orders").show()`;
 - object authoring order:
 
 ```text
@@ -300,11 +409,17 @@ domain -> entity -> dimension/time_dimension/measure
 - the one-object-then-verify loop;
 - closeout with `ms.readiness(refs=...)`;
 - runtime smoke checks with `catalog.preview(...)`;
-- analysis handoff through `marivo.analysis` sessions.
+- analysis handoff through `marivo.analysis` sessions: after readiness is not
+  blocked, call `import marivo.analysis as mv; mv.help("workflow")`, then use
+  an analysis session such as `mv.session.get_or_create(...)` and
+  `session.catalog.get(...).ref` / `session.observe(...)`.
 
 This topic should not duplicate constructor parameter tables. It should route
 to `ms.help("entity")`, `ms.help("measure_column")`, and related topics for
 contract details.
+
+`authoring` should be included in `ms.help()` pinned entries, or the equivalent
+top-level priority list.
 
 ### Semantic Constructor Workflow Lines
 
@@ -318,6 +433,26 @@ section short but make it consistently state:
 5. Run `ms.verify_object(ref)`.
 
 The workflow line should not mention any removed public `prepare_*` stage.
+
+### `ms.help("readiness")`
+
+Add a readiness topic because readiness is listed as an index-level closeout
+entry. It should cover:
+
+- statuses: `ready`, `ready_with_warnings`, and `blocked`;
+- blockers versus warnings, with `missing_business_definition` as a blocking
+  handoff example and `sql_parity_unverified` as a warning example when parity
+  is optional;
+- `refs=...` behavior and dependency closure;
+- the boundary between static readiness, runtime smoke checks via
+  `catalog.preview(...)`, parity checks via `ms.parity_check(...)`, and
+  advisory richness via `ms.richness()`;
+- handoff rule: blocked refs do not go to analysis; ready refs, and
+  ready-with-warnings refs only after explicit warning acceptance, can move to
+  `mv.help("workflow")`.
+
+The topic should not enumerate every internal readiness issue kind. Specific
+issue repair remains state-level output from `ReadinessReport.show()`.
 
 ### Result Next-Step Affordances
 
@@ -335,6 +470,25 @@ Required surfaces:
 
 The next-step text should be deterministic and state-derived. It should not
 rank business choices or infer semantic meaning.
+
+Unknown or unsupported state should fall back to generic public routes instead
+of dropping the section: use `md.help("authoring")` for datasource evidence,
+`ms.help("authoring")` for semantic workflow, and catalog browse/detail calls
+for loaded semantic state.
+
+For the observed `catalog.query(...)` mistake, add a narrow failure-point hint
+rather than a broad compatibility API. `SemanticCatalog.__getattr__` may catch
+the exact missing attribute `query` and raise an `AttributeError` that says the
+catalog supports `list`, `get`, `preview`, `readiness`, and verification, and
+that metric analysis runs through `marivo.analysis`. Unknown attributes should
+keep normal Python `AttributeError` behavior.
+
+`VerifyResult` should state the loader boundary clearly: `ms.verify_object(ref)`
+loads the project before validating an object, so invalid source syntax or
+invalid `ai_context` shapes can still fail as load errors before a
+`VerifyResult` exists. The one-object-then-verify loop reduces blast radius,
+but load-error fix hints are the recovery surface for malformed constructor
+inputs.
 
 ## Gap Mapping
 
@@ -363,8 +517,9 @@ internal `LocalPlaintextCache`.
 Design response: `md.help("authoring")`, `md.help("test")`, and doctor fix
 snippets explain the public rule: model files contain only `*_env` references;
 users provide environment variables; `md.test(...)` can cache env-sourced
-secrets after validation. Internal secret classes remain private and should not
-be shown as authoring APIs.
+secrets after validation. Internal secret classes such as `LocalPlaintextCache`,
+`SecretProvider`, and `ResolvedSecret` remain private and should not be shown as
+authoring APIs.
 
 ### `ai_context` Shape Drift
 
@@ -374,7 +529,10 @@ errors and source inspection.
 
 Design response: `md.help("ai_context")` points to `ms.ai_context(...)` and
 names the accepted fields. Load errors for unexpected `ai_context` keywords
-should include the canonical constructor form.
+should include the canonical constructor form. `ms.verify_object(ref)` is not a
+replacement for loader validation: it creates a project and loads authored
+files before object verification, so malformed `ai_context` values must be
+caught by constructor/load errors with public recovery hints.
 
 ### Table And Schema Discovery Bypassing Marivo
 
@@ -382,9 +540,17 @@ Observed problem: the agent used direct ClickHouse SQL to find the real table
 and inspect columns.
 
 Design response: `md.help("authoring")` routes table inspection through
-`md.inspect_table(...)`; failed inspection and raw SQL result text may show a
-bounded diagnostic fallback using `md.raw_sql(..., reason=...)`. This
-incremental design does not add a new table search API.
+`md.inspect_table(...)`. When an inspection failure cannot be repaired through a
+more specific public route such as `md.inspect_partitions(...)`, a concrete
+scope, or a matching `md.discover_*` call, the failure should show a bounded
+diagnostic fallback using `md.raw_sql(..., reason=...)`. This incremental design
+does not add a new table search API.
+
+The authoring topic should also close source and scope gaps before first
+discovery: define `md.table(...)` / `md.parquet(...)` / `md.csv(...)`, show that
+`md.discover_relationship(...)` uses `md.JoinSide(...)`, and state that
+`md.partition({...})` / `md.unpruned()` are the current scan-scope helpers.
+Do not teach `md.latest_partition()`.
 
 ### Discovery-To-Authoring Handoff Gap
 
@@ -418,6 +584,10 @@ blockers:
 - `sql_parity_unverified`: run `ms.parity_check(...)` when parity matters, or
   report the warning as non-blocking when analysis handoff allows it.
 
+Blocker and warning kinds without a specific repair hint should render the
+generic default next step. That keeps the UI consistent without forcing this
+design to enumerate every readiness kind.
+
 ### Catalog Query Misunderstanding
 
 Observed problem: the agent guessed `catalog.query(...)` after loading the
@@ -425,7 +595,14 @@ semantic catalog.
 
 Design response: `ms.help("authoring")` and relevant errors clarify that the
 semantic catalog supports browse, preview, readiness, and verification.
-Metric analysis runs through `marivo.analysis` sessions.
+Metric analysis runs through `marivo.analysis` sessions. Add a targeted
+`catalog.query` missing-attribute hint as described above; do not add a query
+method or a broad fuzzy attribute router.
+
+`ms.help("authoring")` should name the analysis entrypoint explicitly:
+`mv.help("workflow")`, followed by an analysis session and session catalog
+browse/get calls. This keeps ready semantic refs from ending at an undefined
+"analysis handoff" phrase.
 
 ### Semantic Risk Without Structural Failure
 
@@ -452,7 +629,8 @@ not choose the business answer.
 - Do not reintroduce a public `prepare_*` semantic authoring stage.
 - Do not create broad optional-field mega-results for authoring state.
 - Do not make `md.raw_sql(...)` the primary schema discovery path.
-- Do not expose internal secret-store classes as public authoring APIs.
+- Do not expose internal secret-store classes such as `LocalPlaintextCache`,
+  `SecretProvider`, or `ResolvedSecret` as public authoring APIs.
 - Do not change analysis operators as part of this work.
 
 ## Testing And Acceptance Criteria
@@ -466,17 +644,37 @@ not choose the business answer.
 ### Datasource Help
 
 - `md.help()` lists `authoring`.
+- `authoring` is pinned or visually prioritized in the top-level listing.
 - `md.help("authoring")` renders the datasource stages and handoff to
   `ms.help("authoring")`.
+- `md.help("authoring")` names available backend discovery through `md.help()`,
+  source constructors, scan-scope helpers, and the separate JoinSide-based
+  relationship discovery shape.
+- `md.help("authoring")` does not mention `md.latest_partition()` except to
+  state that it is not a current public helper.
 - Backend help examples include `md.register(spec)`, `md.test(spec.ref)`, and
-  an inspection call.
-- `md.help("ai_context")` resolves and points to `ms.ai_context(...)`.
+  an inspection call, then point back to `md.help("authoring")`.
+- `md.help("table")`, `md.help("parquet")`, `md.help("csv")`,
+  `md.help("partition")`, `md.help("unpruned")`, `md.help("register")`,
+  `md.help("test")`, and `md.help("raw_sql")` are structured topic
+  descriptors, not docstring-only output.
+- `md.help("raw_sql")` includes an example `reason=` value that is specific
+  enough for provenance, not just `"debug"`.
+- `md.help("ai_context")` render output contains `ms.ai_context(` and names
+  `business_definition`, `guardrails`, `synonyms`, `examples`, `instructions`,
+  and `owner_notes`.
 
 ### Semantic Help
 
 - `ms.help()` lists `authoring`.
+- `authoring` is pinned or visually prioritized in the top-level listing.
 - `ms.help("authoring")` renders the semantic authoring stages, one-object
   verify loop, readiness closeout, and analysis handoff.
+- `ms.help("authoring")` shows typed catalog scope syntax and points analysis
+  handoff to `mv.help("workflow")`.
+- `ms.help("readiness")` exists and renders status meanings, blockers versus
+  warnings, `refs=...` dependency closure, preview/parity/richness boundaries,
+  and handoff rules for blocked and ready-with-warnings refs.
 - Constructor help topics continue to show signatures and the short workflow,
   without mentioning a public `prepare_*` stage.
 
@@ -485,10 +683,17 @@ not choose the business answer.
 - Discovery result render tests assert the presence of an authoring handoff for
   entity, dimension, time dimension, measure, and relationship discovery.
 - `VerifyResult.render()` includes a pass/fail next-step section.
+- `VerifyResult.render()` or adjacent verify help states that malformed
+  constructor inputs, including invalid `ai_context`, may surface as load
+  errors before a `VerifyResult` exists.
 - `ReadinessReport.render()` includes fix hints for common blocker and warning
   kinds.
+- `ReadinessReport.render()` includes a generic default next step for blocker
+  and warning kinds without a specific hint.
 - Common semantic load errors include public recovery hints for `ai_context`
   shape errors and missing domain files.
+- `catalog.query` raises an `AttributeError` with a public-route hint, while
+  unrelated missing catalog attributes keep normal `AttributeError` behavior.
 
 ### Docs And Skill Alignment
 
@@ -512,8 +717,16 @@ not choose the business answer.
 ### Phase 2: Contract Examples And Aliases
 
 - Expand backend help examples to show register/test/inspect.
+- Add structured datasource source/scope topics for `table`, `parquet`, `csv`,
+  `partition`, and `unpruned`.
+- Add structured datasource contract topics for `register`, `test`, and
+  `raw_sql`.
 - Add `md.help("ai_context")`.
-- Sync docs and skill references with the new authoring topics.
+- Add `ms.help("readiness")`.
+- Audit docs and skill references for stale guidance, and update only the
+  places that duplicate or contradict the new authoring topics. The packaged
+  `marivo-semantic` skill may require no text change if it already stays
+  workflow-only and routes detail to public help/results.
 
 ### Phase 3: State-Level Guidance
 
