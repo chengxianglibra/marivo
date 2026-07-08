@@ -53,16 +53,24 @@ def extract_metric_value_findings(
     committed_at: datetime,
     time_column: str | None = None,
     dimension_columns: list[str] | None = None,
+    item_key_prefix: str | None = None,
 ) -> list[Finding]:
     """Extract metric_value findings from an observation DataFrame.
 
-    Supports scalar and time_series semantic kinds.
+    Supports scalar and time_series semantic kinds. When ``item_key_prefix``
+    is provided (multi-measure frames), it is prepended to each finding's
+    ``canonical_item_key`` so findings from different measures do not collide
+    on the same artifact.
     """
+
+    def _key(base: str) -> str:
+        return f"{item_key_prefix}:{base}" if item_key_prefix else base
+
     if semantic_kind == "scalar":
         if df.empty:
             return []
         value = _to_float(df.iloc[0][measure_column])
-        canonical_item_key = "value"
+        canonical_item_key = _key("value")
         return [
             Finding(
                 finding_id=make_finding_id(artifact_id, "metric_value", canonical_item_key),
@@ -82,7 +90,7 @@ def extract_metric_value_findings(
         findings: list[Finding] = []
         for _, row in df.iterrows():
             bucket_key = _bucket_key(row[time_column])
-            canonical_item_key = f"buckets:{bucket_key}"
+            canonical_item_key = _key(f"buckets:{bucket_key}")
             findings.append(
                 Finding(
                     finding_id=make_finding_id(artifact_id, "metric_value", canonical_item_key),
@@ -298,13 +306,16 @@ def extract_observation_digest_finding(
     window: dict[str, Any] | None = None,
     analysis_purpose: str | None = None,
     additive: bool = False,
+    item_key_prefix: str | None = None,
 ) -> Finding:
     """Build the single observation digest finding for a metric_frame commit.
 
     Emitted for every shape (scalar / time_series / segmented / panel); it is
     the projection source for ``SessionKnowledge.observations()`` and never
     seeds a proposition. ``additive`` gates composition fields; see
-    ``build_observation_digest``.
+    ``build_observation_digest``. When ``item_key_prefix`` is provided
+    (multi-measure frames), it is prepended to the ``canonical_item_key`` so
+    digest findings from different measures do not collide.
     """
     digest = build_observation_digest(
         df=df,
@@ -314,13 +325,14 @@ def extract_observation_digest_finding(
         dimension_columns=dimension_columns,
         additive=additive,
     )
+    canonical_item_key = f"{item_key_prefix}:digest" if item_key_prefix else "digest"
     return Finding(
-        finding_id=make_finding_id(artifact_id, "observation", "digest"),
+        finding_id=make_finding_id(artifact_id, "observation", canonical_item_key),
         finding_type="observation",
         artifact_id=artifact_id,
         session_id=session_id,
         subject=subject,
-        canonical_item_key="digest",
+        canonical_item_key=canonical_item_key,
         payload={
             "digest": digest.model_dump(mode="json"),
             "window": window,

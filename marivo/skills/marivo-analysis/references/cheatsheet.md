@@ -95,6 +95,33 @@ For discovery, first produce a frame, then choose an objective using
 `CandidateSet.contract()` before selecting a candidate or composing another
 operator.
 
+## Report-style Multi-metric Observe
+
+When several same-scope metrics need one window, pass a sequence to
+`session.observe(...)`. The executor fuses same-datasource metrics into one
+query and outer-joins cross-datasource metrics on the time axis. The result
+is a multi-column `MetricFrame` with `frame.metrics` listing the metric ids
+and `frame.meta.measures` carrying per-metric `column` / `unit`. Use
+`frame.metric(id)` to project an arity-1 frame for drill-down on a single
+metric without re-querying the backend.
+
+```python
+frame = session.observe(
+    [
+        session.catalog.get("metric.sales.revenue"),
+        session.catalog.get("metric.sales.total_orders"),
+    ],
+    time_scope={"start": "2026-07-01", "end": "2026-10-01"},
+    grain="month",
+)
+frame.show()                              # bucket_start + revenue + total_orders
+revenue = frame.metric("sales.revenue")  # arity-1 MetricFrame for drill-down
+```
+
+Sequence elements must be simple, unfolded metrics. Derived or folded metrics
+raise a teaching error suggesting a separate arity-1 `observe`. Read
+`mv.help("observe")` for the full contract.
+
 ## Governed Derive
 
 Use `session.derive_metric_frame(...)` when a custom Ibis calculation must

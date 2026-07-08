@@ -35,6 +35,7 @@ from marivo.analysis.intents._derived import (
     require_numeric_column,
     resolve_session,
 )
+from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.intents._window_pairs import (
     _not_nan,
     _panel_grain,
@@ -64,6 +65,12 @@ def hypothesis_test(
     ensure_session_writable(session)
     if not isinstance(a, MetricFrame) or not isinstance(b, MetricFrame):
         raise SemanticKindMismatchError(message="hypothesis_test requires MetricFrame inputs")
+    require_single_metric(a, intent="hypothesis_test")
+    require_single_metric(b, intent="hypothesis_test")
+    # hypothesis_test operates on arity-1 metric frames; multi-metric frames are
+    # gated out upstream. Narrow metric_id for downstream HypothesisTestResultMeta.
+    assert a.meta.metric_id is not None
+    assert b.meta.metric_id is not None
     ensure_frame_in_session(a, session=session, label="hypothesis_test a")
     ensure_frame_in_session(b, session=session, label="hypothesis_test b")
     if hypothesis != "mean_changed":

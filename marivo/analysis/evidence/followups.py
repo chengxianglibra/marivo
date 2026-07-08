@@ -71,6 +71,7 @@ _C1_BY_FAMILY: dict[str, list[tuple[str, dict[str, Any], _OutputFamily]]] = {
     "forecast_frame": [("assess_quality", {}, "quality_report")],
     "forecast_evaluation_result": [("assess_quality", {}, "quality_report")],
     "quality_report": [],
+    "projection": [],
 }
 
 

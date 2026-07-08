@@ -29,6 +29,7 @@ from marivo.analysis.intents._derived import (
     require_numeric_column,
     resolve_session,
 )
+from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
@@ -59,6 +60,12 @@ def correlate(
     ensure_session_writable(session)
     if not isinstance(a, MetricFrame) or not isinstance(b, MetricFrame):
         raise SemanticKindMismatchError(message="correlate requires MetricFrame inputs")
+    require_single_metric(a, intent="correlate")
+    require_single_metric(b, intent="correlate")
+    # correlate operates on arity-1 metric frames; multi-metric frames are gated
+    # out upstream. Narrow metric_id for downstream AssociationResultMeta.
+    assert a.meta.metric_id is not None
+    assert b.meta.metric_id is not None
     ensure_frame_in_session(a, session=session, label="correlate a")
     ensure_frame_in_session(b, session=session, label="correlate b")
     if alignment is None:

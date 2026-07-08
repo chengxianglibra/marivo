@@ -196,6 +196,25 @@ quality = session.assess_quality(delta)
 quality.show()
 ```
 
+当多个 same-scope metric 共享同一窗口时，把 metric 列表传给
+`session.observe(...)`。Marivo 会把同一 datasource 的 metric 合并为一次查询，
+跨 datasource 的 metric 则按时间轴 outer-join。用 `frame.metric(id)` 投影出
+arity-1 frame，对单个 metric 做深入分析时不会重新查询后端。
+
+```python
+report = session.observe(
+    [
+        catalog.get("metric.sales.revenue"),
+        catalog.get("metric.sales.total_orders"),
+        catalog.get("metric.sales.failed_orders"),
+    ],
+    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+)
+report.show()                                  # bucket_start + 三个值列
+revenue = report.metric("sales.revenue")      # arity-1 frame，用于 drill-down
+```
+
 如果自定义 Ibis 计算结果还要回到 Marivo typed metric flow，使用
 `session.derive_metric_frame(...)`。Semantic refs 只用于 metric 与 axis 绑定，
 query 输出列名仍是普通字符串。跨后续脚本时，用 `session.frame_summaries()` 和

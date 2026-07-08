@@ -202,6 +202,26 @@ quality = session.assess_quality(delta)
 quality.show()
 ```
 
+When several same-scope metrics share one window, pass them as a sequence to
+`session.observe(...)`. Marivo fuses same-datasource metrics into one query
+and outer-joins cross-datasource metrics on the time axis. Use
+`frame.metric(id)` to project an arity-1 frame for drill-down on a single
+metric without re-querying the backend.
+
+```python
+report = session.observe(
+    [
+        catalog.get("metric.sales.revenue"),
+        catalog.get("metric.sales.total_orders"),
+        catalog.get("metric.sales.failed_orders"),
+    ],
+    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+)
+report.show()                                  # bucket_start + three value columns
+revenue = report.metric("sales.revenue")      # arity-1 frame for drill-down
+```
+
 For custom Ibis work that must re-enter Marivo's typed metric flow, use
 `session.derive_metric_frame(...)`. Semantic refs identify metric and axis
 bindings, while query output columns are plain strings. Across follow-up

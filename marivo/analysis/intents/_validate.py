@@ -14,6 +14,7 @@ from marivo.analysis.errors import (
     AlignmentPolicyNotApplicableError,
     AnalysisError,
     AxisNotInPanelDimensionsError,
+    MetricArityError,
     PanelGrainMismatchError,
     SegmentDimensionMismatchError,
     SemanticKindMismatchError,
@@ -45,6 +46,29 @@ def to_validation_issues(intent: str, issues: list[AnalysisError]) -> list[Valid
         )
         for error in issues
     ]
+
+
+def require_single_metric(frame: MetricFrame, *, intent: str) -> None:
+    """Raise MetricArityError when a multi-metric frame reaches a single-metric intent."""
+    measures = getattr(frame.meta, "measures", None)
+    if not measures or len(measures) <= 1:
+        return
+    metric_ids = [entry["metric_id"] for entry in measures]
+    raise MetricArityError(
+        message=(
+            f"{intent} expects a single-metric frame, got {len(metric_ids)} metrics {metric_ids!r}"
+        ),
+        hint=(
+            f'call frame.metric("{metric_ids[0]}") (or another id above) to project '
+            "a single-metric frame first"
+        ),
+        details={
+            "intent": intent,
+            "expected_arity": 1,
+            "got_arity": len(metric_ids),
+            "metrics": metric_ids,
+        },
+    )
 
 
 def validate_compare(

@@ -31,6 +31,7 @@ from marivo.analysis.intents._derived import (
     resolve_session,
 )
 from marivo.analysis.intents._quality_checks import run_metric_checks
+from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import (
     persist_frame,
@@ -54,6 +55,7 @@ def assess_quality(
             message="assess_quality v1 only supports MetricFrame inputs",
             details={"frame_kind": frame.meta.kind},
         )
+    require_single_metric(frame, intent="assess_quality")
     ensure_frame_in_session(frame, session=session, label="assess_quality frame")
 
     started_at = datetime.now(UTC)

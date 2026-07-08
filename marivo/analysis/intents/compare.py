@@ -42,7 +42,7 @@ from marivo.analysis.frames.component import (
 )
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
-from marivo.analysis.intents._validate import raise_first, validate_compare
+from marivo.analysis.intents._validate import raise_first, require_single_metric, validate_compare
 from marivo.analysis.intents._window_pairs import (
     _not_nan,
     _panel_grain,
@@ -532,6 +532,12 @@ def compare(
         )
     current = _require_metric_frame("current", current)
     baseline = _require_metric_frame("baseline", baseline)
+    require_single_metric(current, intent="compare")
+    require_single_metric(baseline, intent="compare")
+    # compare operates on arity-1 metric frames; multi-metric frames are gated
+    # out upstream. Narrow metric_id for downstream DeltaFrameMeta / Subject.
+    assert current.meta.metric_id is not None
+    assert baseline.meta.metric_id is not None
     for label, source_frame in (("current", current), ("baseline", baseline)):
         if source_frame.meta.session_id != session.id:
             raise CrossSessionFrameError(

@@ -472,7 +472,7 @@ class Session:
 
     def observe(
         self,
-        metric: MetricInput,
+        metric: MetricInput | list[MetricInput] | tuple[MetricInput, ...],
         *,
         time_scope: TimeScopeInput = None,
         grain: GrainInput = None,
@@ -491,8 +491,10 @@ class Session:
         the session's backend, and persists the result as a MetricFrame on disk.
 
         Args:
-            metric: Catalog metric object or ``SemanticRef`` from ``session.catalog``.
-                Bare strings are rejected.
+            metric: Catalog metric object or ``SemanticRef``, or a non-empty
+                sequence of them for a multi-metric observation over one shared
+                scope. Bare strings are rejected. Sequences accept simple,
+                unfolded metrics only.
             time_scope: Half-open time range ``{"start": ..., "end": ...}`` — start is
                 inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
                 means data from August 1 is **not** included.

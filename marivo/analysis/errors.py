@@ -591,6 +591,10 @@ class FrameMetaInvalidError(AnalysisError):
     pass
 
 
+class MetricArityError(AnalysisError):
+    """An intent that requires a single-metric frame received a multi-metric frame."""
+
+
 class TransformOpUnsupportedError(AnalysisError):
     """Raised when an op is unknown or invalid for the input frame family."""
 
