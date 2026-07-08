@@ -156,8 +156,12 @@ def _build_duckdb(name: str, kwargs: Mapping[str, Any]) -> Any:
     import ibis
 
     path = kwargs.get("path", ":memory:")
-    read_only = bool(kwargs.get("read_only", False))
-    return ibis.duckdb.connect(path, read_only=read_only)
+    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs.pop("path", None)
+    connect_kwargs["database"] = path
+    if "read_only" in connect_kwargs:
+        connect_kwargs["read_only"] = bool(connect_kwargs["read_only"])
+    return ibis.duckdb.connect(**connect_kwargs)
 
 
 def _build_trino(name: str, kwargs: Mapping[str, Any]) -> Any:

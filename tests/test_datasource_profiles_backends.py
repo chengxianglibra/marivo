@@ -66,6 +66,39 @@ def test_build_duckdb_in_memory(project_root: Path) -> None:
     assert backend.list_tables() == []
 
 
+def test_duckdb_extra_kwargs_pass_through(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeDuckdb:
+        @staticmethod
+        def connect(**kwargs: object) -> object:
+            captured.update(kwargs)
+            return object()
+
+    class _FakeIbis:
+        duckdb = _FakeDuckdb()
+
+    monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
+    datasource = datasource_store.save_one(
+        _spec(
+            "local",
+            backend_type="duckdb",
+            path="/tmp/test.duckdb",
+            read_only=True,
+            extra={"force_download": True},
+        )
+    )
+
+    datasource_backends.build_backend(datasource)
+
+    assert captured["database"] == "/tmp/test.duckdb"
+    assert "path" not in captured
+    assert captured["read_only"] is True
+    assert captured["force_download"] is True
+
+
 def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TRINO_AUTH", "shhh")
     datasource = datasource_store.save_one(
