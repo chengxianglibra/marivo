@@ -5,8 +5,9 @@ Status: approved (design review complete; implementation not started)
 
 ## Summary
 
-Consolidate per-engine backend behavior — today scattered across ten touch
-points in three layers — into one `EngineProfile` value object per engine,
+Consolidate per-engine backend behavior — today scattered across three
+layers (inventoried below) — into one `EngineProfile` value object per
+engine,
 registered in a closed registry under `marivo/datasource/engines/`. Adding a
 new engine becomes: one engine module, one registry entry, and the public
 authoring spec/function that is already per-engine by design.
@@ -30,9 +31,11 @@ across the whole repository, and (b) a responsibility-based split of
    `EngineProfile` is a frozen dataclass of data plus precisely typed
    callables with shared identity defaults — not an ABC hierarchy, where
    four of five engines would implement most methods as no-ops.
-2. **Full-repository scope, one effort.** All ten touch points migrate:
-   datasource (connect dispatch, read-only kwargs, timezone probe SQL,
-   metadata introspection, identifier quoting, authoring-function map,
+2. **Full-repository scope, one effort.** Every inventoried touch point
+   migrates: datasource (connect dispatch, read-only connect kwargs,
+   read-only transaction policy, timezone probe SQL, per-engine table
+   inspection, identifier quoting, table SQL reference construction,
+   partition-value inspection strategies, authoring-function map,
    supported-list error guidance, doctor module map), analysis (executor
    quirks, quantile capabilities), semantic (materializer percentile
    branch).
@@ -41,7 +44,8 @@ across the whole repository, and (b) a responsibility-based split of
    approximate-percentile branch as an explicit profile flag. Reconciling
    ClickHouse quantile semantics between the materializer and
    `sampled_fold` is visible after consolidation but explicitly out of
-   scope.
+   scope. The one deliberate exception is dropping dead timezone probe-map
+   aliases (see Registry, Lookup, and Errors).
 4. **Public API zero change.** `md.duckdb(...)` and friends stay where they
    are; profiles never enter any `__all__`; the public-surface snapshot
    test must not change.
@@ -60,8 +64,8 @@ across the whole repository, and (b) a responsibility-based split of
 |-------|------|------------------------------|
 | datasource | `backends.py` | connect builder if/elif chain; read-only kwargs shaping (duckdb `read_only=True` vs clickhouse `settings.access_mode`) |
 | datasource | `timezone.py` | per-engine timezone probe SQL dict (incl. a `"postgresql"` alias key) |
-| datasource | `metadata.py` | cursor row decode (DB-API vs clickhouse `QueryResult`); duckdb view predicate; trino column decode and `SHOW CREATE` partition parsing |
-| datasource | `manage.py:616` | identifier quoting (backtick for mysql/clickhouse, double quote otherwise) |
+| datasource | `metadata.py` | five-way `_inspect_duckdb/mysql/trino/postgres/clickhouse` table-inspection dispatch with `_schema_only` fallback (`:1394`); cursor row decode (DB-API vs clickhouse `QueryResult`); duckdb view predicate; trino column decode and `SHOW CREATE` partition parsing |
+| datasource | `manage.py` | identifier quoting (`:616`); per-engine table SQL reference construction (`_table_sql_ref:643` with `_trino_namespace`/`_clickhouse_database`); trino `$partitions` and clickhouse `system.tables`/Distributed partition-value strategies plus their dispatch (`:760`, `:814`, `:925`); read-only transaction start map (`_READONLY_TX_START:1668`, `:1800`); raw-sql cursor decode mirroring `metadata.py` (`_extract_raw_sql_frame`) |
 | datasource | `store.py:55`, `constraints.py` | backend-to-authoring-function map; hardcoded supported-backend tuples in error guidance |
 | top-level | `doctor.py:109` | per-engine required ibis module map |
 | analysis | `executor/runner.py` | strptime translation for trino/mysql; clickhouse datetime decode policy; `_fix_clickhouse_datetrunc` SQL rewrite; two `if dialect == "clickhouse"` compile-hook branches; `dialect: str = "unknown"` threaded through ~10 signatures |
@@ -105,9 +109,12 @@ methods.
 | `required_modules` | `tuple[str, ...]` | `doctor.py` dependency checks |
 | `connect` | `Callable[[str, Mapping[str, object]], BaseBackend]` | `backends.py` builders |
 | `apply_read_only_kwargs` | `Callable[[dict[str, object]], dict[str, object]]` | `backends.py` read-only shaping (identity default; duckdb/clickhouse override) |
-| `timezone_probe_sql` | `str` | `timezone.py` |
+| `timezone_probe_sql` | `str \| None` | `timezone.py` (`None` = skip the probe and keep the silent system fallback — mysql today) |
 | `identifier_quote` | `str` | `manage.py` quoting (`"` default; mysql/clickhouse backtick) |
-| `metadata` | `EngineMetadataIntrospection` | `metadata.py` (row decode, view predicate, partition discovery; trino's `SHOW CREATE` parsing moves wholesale into `engines/trino.py`) |
+| `table_name_parts` | `Callable[[TableRefRequest], tuple[str, ...]]` | `manage.py` table SQL references (per-engine namespace parts; shared code joins them with `identifier_quote`) |
+| `inspect_partition_values` | `Callable[[PartitionProbeRequest], PartitionProbeResult] \| None` | `manage.py` partition inspection (`None` = bounded-sample fallback only; trino/clickhouse supply metadata-table strategies whose errors still fall back to the shared sample path) |
+| `readonly_tx_start` | `str \| None` | `manage.py` read-only raw SQL (`BEGIN READ ONLY` / `START TRANSACTION READ ONLY`; `None` = read-only enforced at connect or wrapper level) |
+| `metadata` | `EngineMetadataIntrospection` | `metadata.py` table inspection (`inspect_table` strategy — the per-engine `_inspect_*` bodies move into engine modules, `_schema_only` stays as the generic default), cursor row decode (also consumed by `manage.py` raw-sql frame extraction), view predicate, partition discovery; trino's `SHOW CREATE` parsing moves wholesale into `engines/trino.py` |
 | `translate_strptime_format` | `Callable[[str], str]` | executor string-column parsing (identity default; mysql/trino use `python_to_mysql_strptime`) |
 | `postprocess_sql` | `Callable[[str], str]` | executor compile hook (identity default; clickhouse `dateTrunc` rewrite) |
 | `datetime_decode_policy` | `BackendDatetimeDecodePolicy` | executor decode policy (`"local_naive_label"` default; clickhouse `"utc_naive_instant"`) |
@@ -116,12 +123,17 @@ methods.
 
 Typing: no `Any`-valued fields; callables carry concrete signatures. Built
 backends are typed as `ibis.backends.BaseBackend`, tightening the informal
-`Any` returns the current builders use.
+`Any` returns the current builders use. The `TableRefRequest` /
+`PartitionProbeRequest` shapes are sketches; the implementation plan pins
+them, constrained to primitive and datasource-local types so engine
+modules never import semantic or analysis code.
 
-`GENERIC_PROFILE` carries the identity defaults and
-`"local_naive_label"`. It is not in the registry (it cannot be authored);
-it exists only as the default for expression builders invoked without a
-datasource, matching today's `dialect="unknown"` behavior exactly.
+`GENERIC_PROFILE` carries the identity defaults, `timezone_probe_sql=None`,
+and `"local_naive_label"`. It is not in the registry (it cannot be
+authored); it serves as the default for expression builders invoked
+without a datasource and as the lookup fallback for unrecognized backend
+names, matching today's `dialect="unknown"` and unknown-probe behavior
+exactly.
 
 ## Registry, Lookup, and Errors
 
@@ -134,6 +146,15 @@ datasource, matching today's `dialect="unknown"` behavior exactly.
 - Lookup helpers: by `backend_type` (authoring path) and by ibis
   `backend.name` (execution path, alias-aware, falling back to
   `GENERIC_PROFILE` with the same semantics as today's `"unknown"`).
+- Alias policy: the postgres profile carries `"postgresql"`; that is the
+  only alias. The other names the live timezone probe map recognizes
+  (`presto`, `redshift`, `snowflake`) are dropped intentionally: they are
+  not authorable backend types, `backends.py` cannot construct them, and
+  any such backend name resolves to `GENERIC_PROFILE`, whose
+  `timezone_probe_sql=None` produces the same system-fallback answer the
+  unknown-name path produces today. The only behavior delta is for a
+  presto/redshift/snowflake backend object handed to the probe outside
+  supported construction paths — unreachable via Marivo authoring.
 - `runner.py`'s `datasource_backend_dialect` / `_backend_dialect` become a
   single profile resolver in the engines package.
 
@@ -142,10 +163,21 @@ datasource, matching today's `dialect="unknown"` behavior exactly.
 - `backends.py`: if/elif chain becomes `profile.connect(...)` after
   `profile.apply_read_only_kwargs(...)`; builder bodies move to engine
   modules.
-- `timezone.py`: probe SQL dict deleted; reads `profile.timezone_probe_sql`.
-- `metadata.py`: per-engine decode/view/partition functions move to engine
-  modules behind `profile.metadata`; the orchestration stays.
-- `manage.py`: `_quote_backend_identifier` reads `profile.identifier_quote`.
+- `timezone.py`: probe SQL dict deleted; reads
+  `profile.timezone_probe_sql`, where `None` skips the probe and keeps
+  today's silent system fallback (mysql).
+- `metadata.py`: the `_inspect_*` bodies and per-engine decode/view/
+  partition functions move to engine modules behind `profile.metadata`;
+  the orchestration and the `_schema_only` generic path stay.
+- `manage.py`: `_quote_backend_identifier` reads
+  `profile.identifier_quote`; `_table_sql_ref`/`_trino_namespace`/
+  `_clickhouse_database` move behind `profile.table_name_parts`; the
+  trino/clickhouse partition dispatch becomes
+  `profile.inspect_partition_values` with the bounded-sample fallback
+  orchestrated in place; `_READONLY_TX_START` and the
+  `backend_type in ("postgres", "mysql")` check derive from
+  `profile.readonly_tx_start`; `_extract_raw_sql_frame` consumes the same
+  row-decode hook as `metadata.py`.
 - `store.py` / `constraints.py` / `doctor.py`: read
   `authoring_func` / registry keys / `required_modules`.
 - `executor/runner.py`: `_parse_string_column` calls
@@ -186,8 +218,12 @@ commit as each move; production importers (`observe.py`,
 
 - New registry completeness test: registry keys equal
   `SUPPORTED_BACKEND_TYPES`; every profile populates required fields;
-  every authoring spec's `backend_type` resolves to a profile. A new
-  engine that skips registration fails loudly here.
+  aliases are unique across profiles; every authoring spec's
+  `backend_type` resolves to a profile. A new engine that skips
+  registration fails loudly here.
+- The no-probe timezone case keeps a dedicated test: mysql's
+  `timezone_probe_sql=None` resolves via system fallback without
+  executing SQL.
 - Existing per-engine behavior tests re-point at engine modules (e.g. the
   clickhouse `dateTrunc` compat test targets
   `engines/clickhouse.py`); where practical, per-engine assertions
@@ -218,9 +254,10 @@ in-flight worktree branches can rebase at commit granularity.
 - **Private test imports.** Seven test files import executor internals;
   missing one breaks the pre-commit pytest gate. The move commits update
   imports atomically.
-- **Alias drift.** `"postgresql"` appears as an alias key today; the
-  profile `aliases` field plus the registry completeness test make alias
-  handling explicit instead of incidental.
+- **Alias drift.** The live timezone probe map recognizes more names than
+  are authorable; the alias policy above makes the kept (`postgresql`)
+  and dropped (`presto`, `redshift`, `snowflake`) names explicit, and the
+  registry completeness test enforces alias uniqueness.
 
 ## Acceptance Criteria
 
