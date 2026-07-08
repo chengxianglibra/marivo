@@ -41,12 +41,18 @@ ANALYSIS_HELP_ONLY_ENTRIES = {
 }
 
 SURFACES = [
-    pytest.param("marivo.datasource", md, DATASOURCE_CONSTRAINTS, set(), id="datasource"),
+    pytest.param(
+        "marivo.datasource",
+        md,
+        DATASOURCE_CONSTRAINTS,
+        {"authoring", "ai_context"},
+        id="datasource",
+    ),
     pytest.param(
         "marivo.semantic",
         ms,
         SEMANTIC_CONSTRAINTS,
-        {"constraints", "additivity", "composition"},
+        {"constraints", "additivity", "composition", "authoring"},
         id="semantic",
     ),
     pytest.param(

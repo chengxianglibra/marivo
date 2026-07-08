@@ -725,3 +725,115 @@ def test_column_helper_objects_participate_in_readiness(semantic_project_factory
     # Column helper refs are recognized (no unknown_ref blockers).
     blocker_kinds = {b.kind for b in report.blockers}
     assert "unknown_ref" not in blocker_kinds
+
+
+# -- fix hints and ready_with_warnings handoff -------------------------------
+
+
+def test_readiness_render_surfaces_suggested_action_fix_hints(
+    semantic_project_factory,
+) -> None:
+    """render() must surface suggested_action as a per-issue fix hint."""
+    report = _project(semantic_project_factory, _COMMENTLESS_DOMAIN_PY).readiness()
+    assert report.blockers  # missing_business_definition blockers present
+
+    text = report.render()
+    # the listing format appends "-> fix: <suggested_action>" per issue
+    assert "-> fix:" in text
+    assert any(issue.suggested_action in text for issue in report.blockers + report.warnings)
+
+
+def test_readiness_ready_with_warnings_renders_handoff_decision(
+    semantic_project_factory,
+) -> None:
+    """A ready_with_warnings report must render an explicit handoff decision."""
+    domain_py = textwrap.dedent("""\
+        import marivo.datasource as md
+        import marivo.semantic as ms
+
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"), ai_context=ms.ai_context(business_definition="One row per order."))
+
+        @ms.metric(
+            entities=[orders],
+            additivity="additive",
+            provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
+            ai_context=ms.ai_context(business_definition="Sum of amount."),
+        )
+        def total_amount(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": domain_py,
+        }
+    )
+
+    report = project.readiness(refs=("sales.total_amount",))
+    assert report.status == "ready_with_warnings"
+    assert report.warnings  # sql_parity_unverified warning present
+
+    text = report.render()
+    assert "handoff" in text.lower()
+    assert "ready_with_warnings" in text
+
+
+def test_missing_business_definition_suggested_action_mentions_ai_context(
+    semantic_project_factory,
+) -> None:
+    report = _project(semantic_project_factory, _COMMENTLESS_DOMAIN_PY).readiness()
+    issues = [i for i in report.blockers if i.kind == "missing_business_definition"]
+    assert issues
+
+    for issue in issues:
+        assert "ai_context=ms.ai_context(business_definition=...)" in issue.suggested_action
+
+
+def test_unknown_ref_suggested_action_mentions_catalog_browse(
+    semantic_project_factory,
+) -> None:
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
+    report = project.readiness(refs=("sales.missing_metric",))
+
+    issues = [i for i in report.blockers if i.kind == "unknown_ref"]
+    assert issues
+
+    for issue in issues:
+        assert (
+            "catalog.list(...).show()" in issue.suggested_action
+            or "catalog.get(...).details().show()" in issue.suggested_action
+        )
+
+
+def test_sql_parity_unverified_suggested_action_mentions_parity_check_and_non_blocking(
+    semantic_project_factory,
+) -> None:
+    domain_py = textwrap.dedent("""\
+        import marivo.datasource as md
+        import marivo.semantic as ms
+
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"), ai_context=ms.ai_context(business_definition="One row per order."))
+
+        @ms.metric(
+            entities=[orders],
+            additivity="additive",
+            provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
+            ai_context=ms.ai_context(business_definition="Sum of amount."),
+        )
+        def total_amount(table):
+            return table.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": domain_py,
+        }
+    )
+
+    report = project.readiness(refs=("sales.total_amount",))
+    issues = [i for i in report.warnings if i.kind == "sql_parity_unverified"]
+    assert issues
+
+    for issue in issues:
+        assert "ms.parity_check(" in issue.suggested_action
+        assert "non-blocking" in issue.suggested_action

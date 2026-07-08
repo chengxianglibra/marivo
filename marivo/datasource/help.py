@@ -37,6 +37,92 @@ def _constraint_topic() -> Descriptor:
     )
 
 
+def _authoring_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.datasource",
+        kind="topic",
+        symbol="authoring",
+        summary="Datasource authoring workflow: declare, register, validate, discover, then hand off to semantics.",
+        see_also=(
+            "ms.help('authoring')",
+            "md.help('clickhouse')",
+            "md.help('ai_context')",
+        ),
+        doc="\n".join(
+            (
+                "Datasource authoring workflow:",
+                "",
+                "  import marivo.datasource as md",
+                "",
+                '1. Pick a backend and read its constructor help: md.help("<backend>")',
+                "   (clickhouse, trino, postgres, mysql, duckdb). md.help() lists every entry.",
+                '2. Declare a typed spec, e.g. md.clickhouse(name=..., host_env="HOST", ...).',
+                "   Credentials are *_env references: host_env, port_env, user_env, password_env.",
+                "   Environment variables provide the secrets; never inline literal secrets.",
+                "   Do not import internal secret classes or backend builders; author via",
+                "   the public spec constructors only.",
+                "3. Persist the datasource: md.register(spec) writes a model file under",
+                "   models/datasources/, or author that file directly.",
+                "4. Validate the live round trip with md.test(ref). After a validated round",
+                "   trip, md.test may cache env-sourced secrets in plaintext user-global",
+                "   state at ~/.marivo/secrets.toml; unresolved *_env refs stay an error.",
+                "5. Inspect physical facts: md.inspect_table(ref) for schema, comments,",
+                "   nullability, partitions; md.inspect_partitions(ref) for partition values.",
+                "6. Discover semantic-shaped evidence (each returns a DatasourceResult; call",
+                "   .show() to read bounded evidence, never stdout):",
+                "     md.discover_entity(ref)",
+                "     md.discover_dimensions(ref)",
+                "     md.discover_time_dimensions(ref)",
+                "     md.discover_measures(ref)",
+                "     md.discover_relationship(left, right)",
+                "     md.discover_dimension_values(ref, column)",
+                "7. md.raw_sql(ref, sql, reason=...) is a bounded read-only diagnostic only,",
+                "   limited to SHOW/DESCRIBE/EXPLAIN and small SELECT probes.",
+                "",
+                "Once the datasource is registered and validated, hand off to semantics:",
+                '  ms.help("authoring")',
+            )
+        ),
+    )
+
+
+def _ai_context_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.datasource",
+        kind="topic",
+        symbol="ai_context",
+        summary=(
+            "ai_context values accepted by datasource specs are built with "
+            "ms.ai_context(...); the datasource module has no ai_context constructor."
+        ),
+        see_also=(
+            "ms.help('ai_context')",
+            "md.help('authoring')",
+        ),
+        doc="\n".join(
+            (
+                "Datasource specs accept ai_context=... values that annotate a",
+                "table with business meaning for agents. Those values are built",
+                "with ms.ai_context(...), not on the datasource surface.",
+                "",
+                "Accepted fields on ms.ai_context(...):",
+                "  business_definition  plain-language meaning of the table",
+                "  guardrails           do/don't notes for agents using the data",
+                "  synonyms             alternate names for the entity",
+                "  examples             representative values or rows",
+                "  instructions         operational guidance for agents",
+                "  owner_notes          ownership and stewardship context",
+                "",
+                "Invalid in the current API: raw dicts, summary=, and glossary=.",
+                "Build a value with ms.ai_context(...) and pass it as ai_context=...",
+                "to a datasource spec constructor (e.g. md.clickhouse(..., ai_context=...)).",
+                "",
+                'See ms.help("ai_context") for the canonical contract.',
+            )
+        ),
+    )
+
+
 def _resolve(symbol: str) -> object | None:
     import marivo.datasource as md
 
@@ -45,13 +131,18 @@ def _resolve(symbol: str) -> object | None:
     return None
 
 
+_HELP_ONLY_ENTRIES: tuple[str, ...] = ("authoring", "ai_context")
+
+
 @lru_cache(maxsize=1)
 def _surface() -> Surface:
     import marivo.datasource as md
 
-    all_names = tuple(md.__all__)
+    all_names = tuple(dict.fromkeys((*md.__all__, *_HELP_ONLY_ENTRIES)))
     topics = {
         "constraints": _constraint_topic(),
+        "authoring": _authoring_topic(),
+        "ai_context": _ai_context_topic(),
     }
     summaries = derive_summaries(
         all_names,

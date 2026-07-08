@@ -253,3 +253,36 @@ def test_parse_constructor_help_points_back_to_time_dimension_contract() -> None
         see_also = tuple(cast("tuple[str, ...]", data["see_also"]))
         assert "ms.help('time_dimension_column')" in see_also
         assert "ms.help('time_dimension')" in see_also
+
+
+def test_help_lists_authoring_topic() -> None:
+    import marivo.semantic as ms
+
+    text = ms.help_text()
+    assert "authoring" in text
+
+
+def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
+    import marivo.semantic as ms
+
+    text = ms.help_text("authoring")
+    assert "import marivo.semantic as ms" in text
+    # catalog browse
+    assert "ms.load(" in text
+    assert "catalog.list(" in text
+    # authoring order (spec §ms.help("authoring"))
+    assert "domain" in text and "entity" in text and "measure" in text
+    assert "metric" in text and "relationship" in text
+    # one-object-then-verify loop
+    assert "ms.verify_object(" in text
+    # readiness closeout + preview + analysis handoff
+    assert "ms.readiness(" in text
+    assert "catalog.preview(" in text
+    assert "marivo.analysis" in text
+    # routes to constructor help, does not duplicate tables
+    assert 'ms.help("entity")' in text or "ms.help('entity')" in text
+    # no catalog.query guess; no prepare_ stage
+    assert "catalog.query" not in text
+    assert "prepare_" not in text
+    assert "recommend" not in text.lower()
+    assert text.count("\n") <= 80

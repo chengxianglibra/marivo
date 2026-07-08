@@ -151,6 +151,14 @@ def test_semantic_design_docs_teach_discovery_first_contract() -> None:
         assert phrase not in combined, f"semantic docs still contain {phrase!r}"
 
 
+def test_semantic_skill_routes_to_authoring_help_topics() -> None:
+    text = _read("marivo/skills/marivo-semantic/SKILL.md")
+    assert 'md.help("authoring")' in text or "md.help('authoring')" in text
+    assert 'ms.help("authoring")' in text or "ms.help('authoring')" in text
+    # still workflow-only, no parameter tables, no prepare_
+    assert "prepare_" not in text
+
+
 def test_site_docs_cover_discovery_first_semantic_authoring() -> None:
     en_paths = [
         "site/src/content/docs/en/latest/concepts/semantic-layer.mdx",

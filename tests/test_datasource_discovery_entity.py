@@ -322,6 +322,23 @@ def test_entity_result_rejects_non_positive_output_cap() -> None:
         result.render(max_output_bytes=0)
 
 
+def test_entity_result_render_includes_authoring_handoff() -> None:
+    result = build_entity_result(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=_metadata(),
+        scan=_scan(5),
+        scope=ScanScope(),
+        column_profiles=(),
+    )
+
+    text = result.render()
+
+    assert "Authoring handoff" in text
+    assert 'ms.help("entity")' in text
+    assert "ms.verify_object(" in text
+
+
 def test_entity_result_show_uses_full_render_when_requested(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -62,6 +62,8 @@ def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
     rendered = result.render()
     assert "escape_hatch" in rendered
     assert "diagnose order amount sample" in rendered
+    assert "bounded diagnostic" in rendered
+    assert 'md.help("raw_sql")' in rendered
 
 
 def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -> None:

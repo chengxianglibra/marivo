@@ -196,6 +196,80 @@ def test_model_name_mismatch(semantic_project_factory) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Load-error recovery hints (Task 10)
+# ---------------------------------------------------------------------------
+
+
+def test_missing_domain_file_error_names_expected_path_and_help(semantic_project_factory) -> None:
+    """A missing _domain.py error names the expected path and ms.help("authoring")."""
+    project = semantic_project_factory(
+        {
+            "sales/datasets.py": _MINIMAL_DATASET_PY,
+        },
+        load=False,
+    )
+    result = project.load()
+    assert result.status == "errored"
+    domain_errors = [e for e in result.errors if e.kind == ErrorKind.DOMAIN_FILE_MISSING]
+    assert domain_errors, "expected a DOMAIN_FILE_MISSING error"
+    combined = str(domain_errors[0])
+    # Expected path shape and the canonical authoring entry point.
+    assert "models/semantic" in combined
+    assert "_domain.py" in combined
+    assert 'ms.help("authoring")' in combined or "ms.help('authoring')" in combined
+
+
+def test_empty_domain_file_error_names_help(semantic_project_factory) -> None:
+    """A _domain.py that does not call ms.domain() points to ms.help("authoring")."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "# no ms.domain() call here\n",
+        },
+        load=False,
+    )
+    result = project.load()
+    assert result.status == "errored"
+    domain_errors = [e for e in result.errors if e.kind == ErrorKind.DOMAIN_FILE_MISSING]
+    assert domain_errors, "expected a DOMAIN_FILE_MISSING error"
+    combined = str(domain_errors[0])
+    assert 'ms.help("authoring")' in combined or "ms.help('authoring')" in combined
+
+
+def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_factory) -> None:
+    """A raw dict passed to ai_context= during load names ms.ai_context(...) and all fields."""
+    bad_model = textwrap.dedent("""\
+        import marivo.datasource as md
+        import marivo.semantic as ms
+        ms.domain(name="sales", owner='Mina Zhang', default=True)
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        @ms.metric(entities=[orders], additivity="additive", ai_context={"summary": "oops"})
+        def revenue(orders):
+            return orders.amount.sum()
+    """)
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": bad_model,
+        },
+        load=False,
+    )
+    result = project.load()
+    assert result.status == "errored"
+    ai_errors = [e for e in result.errors if e.kind == ErrorKind.INVALID_AI_CONTEXT]
+    assert ai_errors, "expected an INVALID_AI_CONTEXT error"
+    combined = str(ai_errors[0])
+    # Canonical constructor form and all accepted fields.
+    assert "ms.ai_context(" in combined
+    assert "business_definition" in combined
+    assert "guardrails" in combined
+    assert "synonyms" in combined
+    assert "examples" in combined
+    assert "instructions" in combined
+    assert "owner_notes" in combined
+    # Explicitly rejects the legacy summary= field.
+    assert "summary" in combined
+
+
+# ---------------------------------------------------------------------------
 # Excluded files
 # ---------------------------------------------------------------------------
 

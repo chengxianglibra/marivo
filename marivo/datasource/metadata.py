@@ -162,11 +162,25 @@ class TableMetadata(RenderableResult):
             card.status(" ".join(parts))
         if self.comment:
             card.field(label="comment", value=self.comment)
-        return card.lazy_table(
+        card.lazy_table(
             columns=["column", "type", "nullable", "comment"],
             rows_provider=column_rows,
             row_count=len(self.columns),
         )
+        if self.partitions:
+            partition_columns = ", ".join(partition.name for partition in self.partitions)
+            partition_values = ", ".join(
+                f'"{partition.name}": "<value>"' for partition in self.partitions
+            )
+            card.listing(
+                "suggested next calls",
+                (
+                    f'md.inspect_partitions(md.ref("datasource.{self.datasource}"), '
+                    f'md.table("{self.table}")) to list partition values',
+                    f"md.partition({{{partition_values}}}) to scope a scan to {partition_columns}",
+                ),
+            )
+        return card
 
     def to_dict(self) -> dict[str, object]:
         database: str | list[str] | None = (

@@ -299,6 +299,11 @@ def _load_model_dir(
                 kind=ErrorKind.DOMAIN_FILE_MISSING,
                 message=f"Domain directory {model_name!r} is missing _domain.py.",
                 refs=(model_name,),
+                hint=(
+                    f"Create models/semantic/{model_name}/_domain.py with "
+                    'ms.domain(name="<domain>", owner="Mina Zhang"). '
+                    'Run ms.help("authoring") for the domain authoring contract.'
+                ),
             )
         )
         return None
@@ -328,6 +333,11 @@ def _load_model_dir(
                 kind=ErrorKind.DOMAIN_FILE_MISSING,
                 message=f"_domain.py in {model_name!r} did not call ms.domain().",
                 refs=(model_name,),
+                hint=(
+                    f'Call ms.domain(name="{model_name}", owner="<owner>") at the '
+                    "top level of models/semantic/<domain>/_domain.py. "
+                    'Run ms.help("authoring") for the domain authoring contract.'
+                ),
             )
         )
         return None

@@ -89,6 +89,70 @@ def test_datasource_describe_covers_discovery_symbols() -> None:
         assert expected in text, f"md.help_text({symbol!r}) missing {expected!r}"
 
 
+def test_help_lists_authoring_topic() -> None:
+    text = md.help_text()
+    assert "authoring" in text
+
+
+def test_authoring_topic_renders_datasource_stages_and_handoff() -> None:
+    text = md.help_text("authoring")
+    # import shape
+    assert "import marivo.datasource as md" in text
+    # stage APIs named in spec §md.help("authoring")
+    for needle in (
+        "md.help(",
+        "md.register(",
+        "md.test(",
+        "md.inspect_table(",
+        "md.inspect_partitions(",
+        "md.discover_entity",
+        "md.discover_dimensions",
+        "md.discover_time_dimensions",
+        "md.discover_measures",
+        "md.discover_relationship",
+        "md.discover_dimension_values",
+        "md.raw_sql(",
+        'ms.help("authoring")',
+    ):
+        assert needle in text, f"authoring topic missing {needle!r}"
+    # *_env secret rule + no internal secret classes
+    assert "_env" in text
+    assert "SecretStore" not in text
+    assert "LocalPlaintextCache" not in text
+    # budget
+    assert text.count("\n") <= 80
+    # no banned words
+    assert "recommend" not in text.lower()
+    assert "prepare_" not in text
+
+
+def test_clickhouse_help_example_shows_register_test_inspect() -> None:
+    text = md.help_text("clickhouse")
+    assert "md.clickhouse(" in text
+    assert "user_env=" in text and "password_env=" in text
+    assert "md.register(spec)" in text
+    assert "md.test(spec.ref)" in text
+    assert "md.inspect_table(" in text
+    # no plaintext secrets
+    assert "password=" not in text.replace("password_env=", "")
+
+
+def test_backend_help_examples_show_register_test_chain() -> None:
+    """Each backend constructor help shows the register/test/inspect tail."""
+    for backend in ("duckdb", "trino", "mysql", "postgres", "clickhouse"):
+        text = md.help_text(backend)
+        assert f"md.{backend}(" in text, f"{backend} help missing md.{backend}("
+        assert "md.register(spec)" in text, f"{backend} help missing md.register(spec)"
+        assert "md.test(spec.ref)" in text, f"{backend} help missing md.test(spec.ref)"
+        # no plaintext secrets in any backend example
+        assert "password=" not in text.replace("password_env=", ""), (
+            f"{backend} help contains plaintext password= secret"
+        )
+        assert "user=" not in text.replace("user_env=", ""), (
+            f"{backend} help contains plaintext user= secret"
+        )
+
+
 def test_datasource_api_docs_list_public_datasource_result() -> None:
     text = Path("docs/api/datasource.rst").read_text(encoding="utf-8")
 
@@ -111,3 +175,24 @@ def test_datasource_api_docs_list_public_datasource_result() -> None:
         "FormatCandidate",
     ):
         assert removed not in text
+
+
+def test_ai_context_topic_points_to_ms_constructor() -> None:
+    text = md.help_text("ai_context")
+    assert "ms.ai_context(" in text
+    for field in (
+        "business_definition",
+        "guardrails",
+        "synonyms",
+        "examples",
+        "instructions",
+        "owner_notes",
+    ):
+        assert field in text
+    # invalid shapes named
+    assert "summary=" in text
+    assert "glossary=" in text
+    # canonical contract pointer
+    assert 'ms.help("ai_context")' in text or "ms.help('ai_context')" in text
+    # must not imply md.ai_context exists
+    assert "md.ai_context(" not in text

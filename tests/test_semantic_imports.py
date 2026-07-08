@@ -308,6 +308,7 @@ def test_help_json_top_level_returns_compact_directory() -> None:
             "constraints",
             "composition",
             "additivity",
+            "authoring",
         }
     ) - {
         "datetime",

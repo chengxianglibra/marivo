@@ -78,15 +78,24 @@ class ReadinessReport(RenderableResult):
         if self.blockers:
             card = card.listing(
                 label=f"blockers ({len(self.blockers)})",
-                items=tuple(f"{i.kind}: {i.message}" for i in self.blockers),
+                items=tuple(
+                    f"{i.kind}: {i.message} -> fix: {i.suggested_action}" for i in self.blockers
+                ),
             )
         if self.warnings:
             card = card.listing(
                 label=f"warnings ({len(self.warnings)})",
-                items=tuple(f"{i.kind}: {i.message}" for i in self.warnings),
+                items=tuple(
+                    f"{i.kind}: {i.message} -> fix: {i.suggested_action}" for i in self.warnings
+                ),
             )
         if self.analysis_ready_refs:
             card = card.field(label="analysis_ready", value=", ".join(self.analysis_ready_refs))
+        if self.status == "ready_with_warnings":
+            card = card.field(
+                label="handoff",
+                value="ready_with_warnings: warnings are non-blocking; proceed to marivo.analysis only if accepted",
+            )
         return card.field(label="checked_at", value=self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
@@ -220,7 +229,7 @@ def _strict_enrichment_issues(
                     "blocker",
                     (ref,),
                     f"{ref} has no ai_context.business_definition for analysis handoff.",
-                    "Add ai_context.business_definition so analysis can match and reuse this ref.",
+                    "Add ai_context=ms.ai_context(business_definition=...) so analysis can match and reuse this ref.",
                 )
             )
     return blockers, warnings
@@ -405,7 +414,7 @@ def build_structural_readiness_report(
                 "blocker",
                 (ref,),
                 f"Requested semantic ref {ref!r} is not loaded in the project registry.",
-                "Reload the project, fix the ref, or remove it from readiness refs.",
+                "Browse loaded refs with catalog.list(...).show(), inspect a known ref with catalog.get(...).details().show(), then fix or remove the ref from readiness refs.",
             )
         )
 
@@ -463,7 +472,7 @@ def build_structural_readiness_report(
                     "warning",
                     (ref,),
                     f"{ref} has provenance SQL but parity has not been confirmed.",
-                    f"Run ms.parity_check({ref!r}) to verify.",
+                    f"Run ms.parity_check({ref!r}) when parity matters, or report the warning as non-blocking when analysis handoff allows it.",
                 )
             )
 

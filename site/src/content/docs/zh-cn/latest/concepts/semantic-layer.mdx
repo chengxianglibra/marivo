@@ -533,7 +533,10 @@ ms.relationship(
 ## 先发现，再准备
 
 对 datasource-backed 语义对象，先 inspect 表和分区元信息，再用显式分区范围收集有界
-discovery 证据：
+discovery 证据。查阅 `md.help("authoring")` 了解分阶段 datasource 工作流
+（register/test/inspect 再 discover -> settle -> author -> verify），查阅
+`ms.help("authoring")` 了解 semantic 依赖阶梯，查阅 `md.help("ai_context")` 了解共享的
+`ms.ai_context(...)` 契约：
 
 ```python
 warehouse = md.ref("datasource.warehouse")

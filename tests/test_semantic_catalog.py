@@ -517,6 +517,25 @@ def test_semantic_object_list_empty_renders_absence_without_next_step():
     assert "catalog.list().show()" not in rendered  # old signature; no longer emitted
 
 
+def test_semantic_object_list_render_points_to_readiness_and_preview(
+    semantic_project_factory,
+):
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.list("metric", scope="domain.sales")
+    rendered = result.render()
+    assert "ms.readiness(" in rendered or "readiness" in rendered.lower()
+    assert "catalog.preview(" in rendered or "preview" in rendered.lower()
+
+
+def test_semantic_object_details_render_points_to_verify_and_readiness(
+    semantic_project_factory,
+):
+    catalog = _make_catalog(semantic_project_factory)
+    details = catalog.get("metric.sales.revenue").details()
+    rendered = details.render()
+    assert "ms.verify_object(" in rendered or "ms.readiness(" in rendered
+
+
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms

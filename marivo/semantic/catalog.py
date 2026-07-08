@@ -221,6 +221,14 @@ class _DetailsBase(RenderableResult):
         card = Card(identity=self._repr_identity(), available=(".show()",))
         for section in self._detail_sections():
             card = card.section(section)
+        typed_id = _catalog_typed_id(self.ref.id, self.kind)
+        card = card.listing(
+            label="suggested next calls",
+            items=(
+                f"ms.verify_object(catalog.get('{typed_id}').ref) to confirm reachability",
+                f"ms.readiness(refs=[catalog.get('{typed_id}').ref]) to gate analysis handoff",
+            ),
+        )
         return card
 
 
@@ -797,6 +805,14 @@ class SemanticObjectList(RenderableResult):
             else:
                 items.append(f"catalog.get('{typed_id}').details().show()")
             card = card.listing(label=str(obj.kind), items=tuple(items))
+        first_typed_id = _catalog_typed_id(self._items[0].ref.id, self._items[0].kind)
+        card = card.listing(
+            label="suggested next calls",
+            items=(
+                "ms.readiness(refs=result.refs()) to gate analysis handoff",
+                f"catalog.preview(catalog.get('{first_typed_id}').ref) for a runtime smoke check",
+            ),
+        )
         return card
 
     def _repr_identity(self) -> str:

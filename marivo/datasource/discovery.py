@@ -533,6 +533,14 @@ class EntityDiscoveryResult(RenderableResult):
             )
         else:
             card.field("column profiles", "none")
+        card.listing(
+            "Authoring handoff",
+            (
+                'ms.help("entity") for constructor parameters and omit rules',
+                "unresolved decisions: primary key, entity grain",
+                "author one object, then run ms.verify_object(ref)",
+            ),
+        )
         return card
 
 
@@ -573,7 +581,16 @@ class DimensionDiscoveryResult(RenderableResult):
         )
         if self.issues:
             card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
-        return card.table(header, rows)
+        card.table(header, rows)
+        card.listing(
+            "Authoring handoff",
+            (
+                'ms.help("dimension_column") for constructor parameters and omit rules',
+                "unresolved decisions: name, distinctness",
+                "author one object, then run ms.verify_object(ref)",
+            ),
+        )
+        return card
 
 
 @dataclass(frozen=True, repr=False)
@@ -613,6 +630,14 @@ class TimeDimensionDiscoveryResult(RenderableResult):
             )
         else:
             card.field("time column evidence", "none")
+        card.listing(
+            "Authoring handoff",
+            (
+                'ms.help("time_dimension_column") for constructor parameters and omit rules',
+                "unresolved decisions: timezone policy, default axis",
+                "author one object, then run ms.verify_object(ref)",
+            ),
+        )
         return card
 
 
@@ -653,7 +678,16 @@ class MeasureDiscoveryResult(RenderableResult):
         )
         if self.issues:
             card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
-        return card.table(header, rows)
+        card.table(header, rows)
+        card.listing(
+            "Authoring handoff",
+            (
+                'ms.help("measure_column") for constructor parameters and omit rules',
+                "unresolved decisions: name, unit, additivity, ai_context.business_definition",
+                "author one object, then run ms.verify_object(ref)",
+            ),
+        )
+        return card
 
 
 @dataclass(frozen=True, repr=False)
@@ -698,6 +732,14 @@ class RelationshipDiscoveryResult(RenderableResult):
             card.listing("relationship issues", tuple(_format_issue_line(i) for i in e.issues))
         else:
             card.field("relationship issues", "none")
+        card.listing(
+            "Authoring handoff",
+            (
+                'ms.help("relationship") for constructor parameters and omit rules',
+                "unresolved decisions: join keys, cardinality",
+                "author one object, then run ms.verify_object(ref)",
+            ),
+        )
         return card
 
 
@@ -846,4 +888,9 @@ class RawSqlResult(RenderableResult):
             .status(status)
             .field("reason", self.reason)
             .table(self.columns, preview_rows, row_count=self.returned_row_count)
+            .field(
+                "scope",
+                "bounded diagnostic for cases inspect/discovery cannot express; "
+                'see md.help("raw_sql")',
+            )
         )

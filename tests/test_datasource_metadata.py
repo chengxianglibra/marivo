@@ -156,6 +156,9 @@ def test_table_metadata_renders_shared_card_shape_and_uses_default_cap() -> None
             "preview:",
             "order_id | int64 | N | Unique order id.",
             "created_at | timestamp | ? | ",
+            "suggested next calls:",
+            '- md.inspect_partitions(md.ref("datasource.wh"), md.table("orders")) to list partition values',
+            '- md.partition({"order_date": "<value>"}) to scope a scan to order_date',
             "available:",
             "- .render()",
             "- .show()",
@@ -2005,6 +2008,27 @@ def test_table_metadata_render_shows_partitions_and_warnings() -> None:
     rendered = metadata.render()
     assert "partitions=1" in rendered
     assert "warnings=1" in rendered
+
+
+def test_table_metadata_render_with_partitions_suggests_partition_calls() -> None:
+    metadata = _make_table_metadata(
+        partitions=(PartitionMetadata(name="dt", type="date", transform="identity", comment=None),),
+    )
+
+    rendered = metadata.render()
+
+    assert "md.inspect_partitions(" in rendered
+    assert "md.partition(" in rendered
+    assert "dt" in rendered
+
+
+def test_table_metadata_render_without_partitions_omits_partition_calls() -> None:
+    metadata = _make_table_metadata(partitions=())
+
+    rendered = metadata.render()
+
+    assert "md.inspect_partitions(" not in rendered
+    assert "md.partition(" not in rendered
 
 
 def test_table_metadata_render_no_status_when_sparse() -> None:
