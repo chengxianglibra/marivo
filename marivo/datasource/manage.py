@@ -20,6 +20,13 @@ from marivo.datasource.authoring import (
     _storage_name,
 )
 from marivo.datasource.discovery import DatasourceResult, PartitionInspectionResult, RawSqlResult
+from marivo.datasource.engines import require_profile_for_backend_type
+from marivo.datasource.engines.base import (
+    PartitionProbeRequest,
+    TableRefRequest,
+    decode_cursor_frame,
+    quote_identifier,
+)
 from marivo.datasource.errors import (
     DatasourceError,
     DatasourceMissingError,
@@ -614,75 +621,18 @@ def inspect_table(
     )
 
 
-def _quote_metadata_identifier(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
-
-
 _PARTITION_INSPECTION_LIMIT = 100
-_CH_DISTRIBUTED_ENGINE_RE = re.compile(r"^Distributed\('([^']+)',\s*'([^']+)',\s*'([^']+)'")
-
-
-def _quote_sql_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
 
 
 def _quote_backend_identifier(value: str, backend_type: str) -> str:
-    if backend_type in {"mysql", "clickhouse"}:
-        return "`" + value.replace("`", "``") + "`"
-    return _quote_metadata_identifier(value)
-
-
-def _trino_namespace(source: TableSourceIR, datasource_ir: Any) -> tuple[str, str | None]:
-    database = source.database
-    catalog = str(datasource_ir.fields["catalog"])
-    if isinstance(database, tuple):
-        if len(database) >= 2:
-            return str(database[0]), str(database[1])
-        if len(database) == 1:
-            return catalog, str(database[0])
-        return catalog, None
-    if database is not None:
-        return catalog, str(database)
-    schema_value = datasource_ir.fields.get("schema")
-    return catalog, str(schema_value) if schema_value is not None else None
-
-
-def _clickhouse_database(source: TableSourceIR, datasource_ir: Any) -> str:
-    if source.database is not None and not isinstance(source.database, tuple):
-        return str(source.database)
-    database = datasource_ir.fields.get("database")
-    return str(database) if database is not None else "default"
+    profile = require_profile_for_backend_type(backend_type)
+    return quote_identifier(value, profile)
 
 
 def _table_sql_ref(source: TableSourceIR, datasource_ir: Any, *, backend_type: str) -> str:
-    database = source.database
-    parts: builtins.list[str] = []
-    if backend_type == "trino":
-        catalog, schema_name = _trino_namespace(source, datasource_ir)
-        parts = (
-            [catalog, source.table] if schema_name is None else [catalog, schema_name, source.table]
-        )
-    elif backend_type == "mysql":
-        schema_name = (
-            str(database) if database is not None and not isinstance(database, tuple) else None
-        )
-        if schema_name is None:
-            schema_name = str(datasource_ir.fields["database"])
-        parts = [schema_name, source.table]
-    elif backend_type == "postgres":
-        schema_name = (
-            str(database) if database is not None and not isinstance(database, tuple) else None
-        )
-        if schema_name is None:
-            schema_value = datasource_ir.fields.get("schema")
-            schema_name = str(schema_value) if schema_value is not None else None
-        parts = [source.table] if schema_name is None else [schema_name, source.table]
-    elif backend_type == "clickhouse":
-        schema_name = _clickhouse_database(source, datasource_ir)
-        parts = [schema_name, source.table]
-    else:
-        parts = [source.table] if database is None else [str(database), source.table]
-    return ".".join(_quote_backend_identifier(part, backend_type) for part in parts)
+    profile = require_profile_for_backend_type(backend_type)
+    request = TableRefRequest(source=source, datasource_ir=datasource_ir)
+    return ".".join(quote_identifier(part, profile) for part in profile.table_name_parts(request))
 
 
 def _partition_values_unavailable(
@@ -771,86 +721,6 @@ def _extract_partition_rows(cursor: Any) -> tuple[dict[str, object], ...]:
     return raw_rows
 
 
-def _inspect_trino_partition_values(
-    backend: Any,
-    datasource_ir: Any,
-    source: TableSourceIR,
-    partition_columns: tuple[str, ...],
-) -> tuple[tuple[dict[str, object], ...], str | None]:
-    catalog, schema_name = _trino_namespace(source, datasource_ir)
-    if schema_name is None:
-        return (), "trino partition inspection requires database= or datasource schema"
-    quoted_columns = ", ".join(_quote_metadata_identifier(column) for column in partition_columns)
-    table_ref = ".".join(
-        _quote_metadata_identifier(part)
-        for part in (catalog, schema_name, f"{source.table}$partitions")
-    )
-    order_by = ", ".join(
-        f"{_quote_metadata_identifier(column)} DESC" for column in partition_columns
-    )
-    sql = (
-        f"SELECT {quoted_columns} FROM {table_ref} "
-        f"ORDER BY {order_by} LIMIT {_PARTITION_INSPECTION_LIMIT}"
-    )
-    try:
-        return _extract_partition_rows(backend.raw_sql(sql)), None
-    except Exception as exc:
-        return (), str(exc)
-
-
-def _clickhouse_system_parts_target(
-    backend: Any,
-    datasource_ir: Any,
-    source: TableSourceIR,
-) -> tuple[str, str]:
-    database = _clickhouse_database(source, datasource_ir)
-    sql = (
-        "SELECT engine, engine_full FROM system.tables "
-        f"WHERE name = {_quote_sql_literal(source.table)} "
-        f"AND database = {_quote_sql_literal(database)} LIMIT 1"
-    )
-    try:
-        rows = _extract_partition_rows(backend.raw_sql(sql))
-    except Exception:
-        return database, source.table
-    if not rows:
-        return database, source.table
-    engine = str(rows[0].get("engine") or "")
-    if engine != "Distributed":
-        return database, source.table
-    engine_full = str(rows[0].get("engine_full") or "")
-    match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
-    if not match:
-        return database, source.table
-    return match.group(2), match.group(3)
-
-
-def _inspect_clickhouse_partition_values(
-    backend: Any,
-    datasource_ir: Any,
-    source: TableSourceIR,
-    partition_columns: tuple[str, ...],
-) -> tuple[tuple[dict[str, object], ...], str | None]:
-    if len(partition_columns) != 1:
-        return (), "clickhouse system.parts mapping only supports single bare partition columns"
-    column = partition_columns[0]
-    database, table = _clickhouse_system_parts_target(backend, datasource_ir, source)
-    sql = (
-        f"SELECT partition AS {_quote_backend_identifier(column, 'clickhouse')} "
-        "FROM system.parts "
-        "WHERE active "
-        f"AND database = {_quote_sql_literal(database)} "
-        f"AND table = {_quote_sql_literal(table)} "
-        "GROUP BY partition "
-        "ORDER BY partition DESC "
-        f"LIMIT {_PARTITION_INSPECTION_LIMIT}"
-    )
-    try:
-        return _extract_partition_rows(backend.raw_sql(sql)), None
-    except Exception as exc:
-        return (), str(exc)
-
-
 def _inspect_bounded_sample_partition_values(
     backend: Any,
     backend_type: str,
@@ -936,20 +806,28 @@ def inspect_partitions(
     backend_type = datasource_ir.backend_type
     try:
         backend = _backends.build_backend(datasource_ir)
-        if backend_type == "trino":
-            raw_rows, metadata_error = _inspect_trino_partition_values(
-                backend,
-                datasource_ir,
-                source,
-                partition_columns,
-            )
-            if metadata_error is None:
+        profile = require_profile_for_backend_type(backend_type)
+        reason: str
+        if profile.inspect_partition_values is not None:
+            try:
+                probe = profile.inspect_partition_values(
+                    PartitionProbeRequest(
+                        backend=backend,
+                        datasource_ir=datasource_ir,
+                        source=source,
+                        partition_columns=partition_columns,
+                        limit=_PARTITION_INSPECTION_LIMIT,
+                    )
+                )
+            except Exception as exc:
+                metadata_error = str(exc)
+            else:
                 return _partition_inspection_result(
                     datasource=datasource,
                     source=source,
                     partition_columns=partition_columns,
-                    raw_rows=raw_rows,
-                    value_source="metadata",
+                    raw_rows=probe.rows,
+                    value_source=probe.value_source,
                 )
             raw_rows, fallback_error = _inspect_bounded_sample_partition_values(
                 backend,
@@ -966,38 +844,6 @@ def inspect_partitions(
                     raw_rows=raw_rows,
                     value_source="bounded_sample_distinct",
                     warnings=(f"metadata partition value query failed: {metadata_error}",),
-                )
-            reason = f"{metadata_error}; bounded sample fallback failed: {fallback_error}"
-        elif backend_type == "clickhouse":
-            raw_rows, metadata_error = _inspect_clickhouse_partition_values(
-                backend,
-                datasource_ir,
-                source,
-                partition_columns,
-            )
-            if metadata_error is None:
-                return _partition_inspection_result(
-                    datasource=datasource,
-                    source=source,
-                    partition_columns=partition_columns,
-                    raw_rows=raw_rows,
-                    value_source="system_catalog",
-                )
-            raw_rows, fallback_error = _inspect_bounded_sample_partition_values(
-                backend,
-                backend_type,
-                datasource_ir,
-                source,
-                partition_columns,
-            )
-            if fallback_error is None:
-                return _partition_inspection_result(
-                    datasource=datasource,
-                    source=source,
-                    partition_columns=partition_columns,
-                    raw_rows=raw_rows,
-                    value_source="bounded_sample_distinct",
-                    warnings=(f"system.parts partition value query failed: {metadata_error}",),
                 )
             reason = f"{metadata_error}; bounded sample fallback failed: {fallback_error}"
         else:
@@ -1682,16 +1528,6 @@ def _is_metadata_diagnostic_sql(sql: str) -> bool:
     return _raw_sql_keyword(sql) in _RAW_SQL_METADATA_KEYWORDS
 
 
-# Transaction-based backends have no connect-level read-only mode; raw_sql wraps
-# their query in a read-only transaction. DuckDB, ClickHouse, and Trino enforce
-# read-only without a transaction (connection-level for DuckDB/ClickHouse,
-# subquery wrapper for Trino) and need no entry here.
-_READONLY_TX_START: dict[str, str] = {
-    "postgres": "BEGIN READ ONLY",
-    "mysql": "START TRANSACTION READ ONLY",
-}
-
-
 def _execute_readonly(
     backend: Any,
     backend_type: str,
@@ -1707,7 +1543,8 @@ def _execute_readonly(
     READ ONLY`` transaction that is committed on success or rolled back on
     failure.
     """
-    start = _READONLY_TX_START.get(backend_type) if use_transaction else None
+    profile = require_profile_for_backend_type(backend_type)
+    start = profile.readonly_tx_start if use_transaction else None
     if start is None:
         return backend.raw_sql(sql)
     backend.raw_sql(start)
@@ -1729,32 +1566,12 @@ def _extract_raw_sql_frame(
 ) -> tuple[tuple[str, ...], tuple[dict[str, object], ...], dict[str, str]]:
     """Extract columns, rows, and best-effort types from a backend cursor.
 
-    Mirrors the portable cursor-row pattern in ``marivo.datasource.metadata``: the
-    DB-API ``description``+``fetchall`` path (DuckDB/Postgres/Trino/MySQL) and the
+    Delegates to ``decode_cursor_frame`` which handles both the DB-API
+    ``description``+``fetchall`` path (DuckDB/Postgres/Trino/MySQL) and the
     ``column_names``+``result_rows`` path (ClickHouse).
     """
-    description = getattr(cursor, "description", None)
-    row_limit = limit + 1 if limit is not None else None
-    fetchall = getattr(cursor, "fetchall", None)
-    if description is not None and callable(fetchall):
-        columns = tuple(str(item[0]) for item in description)
-        types = {str(item[0]): str(item[1]) for item in description} if include_types else {}
-        fetchmany = getattr(cursor, "fetchmany", None)
-        raw_rows = (
-            fetchmany(row_limit) if row_limit is not None and callable(fetchmany) else fetchall()
-        )
-        if row_limit is not None:
-            raw_rows = raw_rows[:row_limit]
-        rows = tuple(dict(zip(columns, row, strict=True)) for row in raw_rows)
-        return columns, rows, types
-    column_names = getattr(cursor, "column_names", None)
-    result_rows = getattr(cursor, "result_rows", None)
-    if column_names and result_rows is not None:
-        columns = tuple(str(name) for name in column_names)
-        raw_rows = result_rows[:row_limit] if row_limit is not None else result_rows
-        rows = tuple(dict(zip(columns, row, strict=True)) for row in raw_rows)
-        return columns, rows, {}
-    return (), (), {}
+    frame = decode_cursor_frame(cursor, include_types=include_types, max_rows=limit)
+    return frame.columns, frame.rows, frame.types
 
 
 def raw_sql(
@@ -1818,7 +1635,9 @@ def raw_sql(
             if is_metadata_diagnostic
             else f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {limit}"
         )
-        use_transaction = backend_type in ("postgres", "mysql")
+        use_transaction = (
+            require_profile_for_backend_type(backend_type).readonly_tx_start is not None
+        )
         try:
             cursor = _execute_readonly(
                 backend,

@@ -8,13 +8,13 @@ import ibis
 import pytest
 
 from marivo.analysis.errors import BackendError, SliceInvalidError, WindowInvalidError
+from marivo.analysis.executor.bucketing import apply_time_series_bucket
 from marivo.analysis.executor.runner import (
     ExecutionResult,
     apply_slice_to_dataset,
-    apply_time_series_bucket,
-    apply_window_to_dataset,
     execute,
 )
+from marivo.analysis.executor.windowing import apply_window_to_dataset
 from marivo.analysis.session._connections import AnalysisConnectionRuntime
 from marivo.analysis.windows.spec import AbsoluteWindow
 from marivo.datasource import manage as datasource_registry

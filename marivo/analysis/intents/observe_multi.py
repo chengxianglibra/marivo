@@ -19,13 +19,17 @@ from marivo.analysis.evidence.pipeline import (
     compute_prospective_artifact_id,
     frame_exists_on_disk,
 )
-from marivo.analysis.executor.runner import (
+from marivo.analysis.executor.bucketing import (
     apply_time_series_bucket,
-    datasource_backend_dialect,
-    datasource_read_timezone,
     ensure_bucket_start_timestamp,
+)
+from marivo.analysis.executor.runner import (
     execute,
     normalize_slice_for_storage,
+)
+from marivo.analysis.executor.windowing import (
+    datasource_engine_profile,
+    datasource_read_timezone,
     resolve_window_time_field,
 )
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
@@ -174,7 +178,7 @@ def _execute_fused_group(
     plan = first.plan
     primary_datasource = plan.datasource_name
     read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
-    dialect = datasource_backend_dialect(session._connection_runtime, primary_datasource)
+    profile = datasource_engine_profile(session._connection_runtime, primary_datasource)
     resolved_dimensions = [(d.field.entity, d.field) for d in plan.dimensions]
     is_time_series = resolved_window is not None and resolved_window.grain is not None
     table = plan.table
@@ -198,7 +202,7 @@ def _execute_fused_group(
             window=narrowed_window,
             report_tz=cast("ZoneInfo", session.report_tz),
             datasource_read_tz=read_tz,
-            dialect=dialect,
+            profile=profile,
             dataset_ir=root_adapter,
         )
     dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]

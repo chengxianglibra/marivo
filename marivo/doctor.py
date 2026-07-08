@@ -23,7 +23,7 @@ from marivo.config import (
     load_semantic_layer_paths,
 )
 from marivo.datasource.authoring import SENSITIVE_FIELD_STEMS
-from marivo.datasource.backends import SUPPORTED_BACKEND_TYPES
+from marivo.datasource.engines import ENGINE_PROFILES, SUPPORTED_BACKEND_TYPES
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.secrets import conventional_env_var
 
@@ -112,11 +112,7 @@ class DoctorOptions:
 
 
 _BACKEND_IMPORT_PROBES: dict[str, tuple[str, ...]] = {
-    "duckdb": ("ibis.backends.duckdb",),
-    "trino": ("ibis.backends.trino",),
-    "mysql": ("ibis.backends.mysql",),
-    "postgres": ("ibis.backends.postgres",),
-    "clickhouse": ("ibis.backends.clickhouse",),
+    backend_type: profile.required_modules for backend_type, profile in ENGINE_PROFILES.items()
 }
 
 

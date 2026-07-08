@@ -1,0 +1,206 @@
+"""Postgres engine profile."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
+
+from ibis.backends import BaseBackend
+
+from marivo.datasource.engines.base import (
+    EngineMetadataIntrospection,
+    EngineProfile,
+    MetadataInspectRequest,
+    TableRefRequest,
+    identity_read_only_kwargs,
+    identity_str,
+    require_field,
+)
+
+if TYPE_CHECKING:
+    from marivo.datasource.metadata import TableMetadata
+
+
+def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
+    import ibis
+
+    host = require_field(name, kwargs, "host")
+    database = require_field(name, kwargs, "database")
+    connect_kwargs: dict[str, Any] = dict(kwargs)
+    connect_kwargs["host"] = host
+    connect_kwargs["database"] = database
+    return ibis.postgres.connect(**connect_kwargs)
+
+
+def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
+    database = request.source.database
+    schema_name = (
+        str(database) if database is not None and not isinstance(database, tuple) else None
+    )
+    if schema_name is None:
+        schema_value = request.datasource_ir.fields.get("schema")
+        schema_name = str(schema_value) if schema_value is not None else None
+    return (request.source.table,) if schema_name is None else (schema_name, request.source.table)
+
+
+def _inspect_postgres(
+    *,
+    datasource: str,
+    backend: Any,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    table_expr: Any,
+    include_partitions: bool,
+    default_schema: str | None,
+) -> TableMetadata:
+    from marivo.datasource.metadata import (
+        ColumnMetadata,
+        MetadataWarning,
+        PartitionMetadata,
+        TableMetadata,
+        _bool_from_nullable,
+        _database_label,
+        _empty_to_none,
+        _merge_columns,
+        _partition_columns_from_expression,
+        _query_rows,
+        _quote_literal,
+        _schema_columns,
+    )
+
+    schema_columns = _schema_columns(table_expr)
+    schema_name = _database_label(database) or default_schema or "public"
+    warnings: list[MetadataWarning] = []
+    table_comment: str | None = None
+    catalog_columns: dict[str, ColumnMetadata] = {}
+
+    try:
+        table_rows = _query_rows(
+            backend,
+            "SELECT obj_description(to_regclass("
+            f"{_quote_literal(f'{schema_name}.{table}')}), 'pg_class') AS comment",
+        )
+        if table_rows:
+            table_comment = _empty_to_none(table_rows[0].get("comment"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"postgres table comment query failed: {exc}",
+            )
+        )
+
+    try:
+        column_rows = _query_rows(
+            backend,
+            "SELECT column_name, data_type, is_nullable, ordinal_position "
+            "FROM information_schema.columns "
+            f"WHERE table_schema = {_quote_literal(schema_name)} "
+            f"AND table_name = {_quote_literal(table)} "
+            "ORDER BY ordinal_position",
+        )
+        for row in column_rows:
+            name = str(row.get("column_name"))
+            ordinal = row.get("ordinal_position")
+            catalog_columns[name] = ColumnMetadata(
+                name=name,
+                type=str(row.get("data_type") or ""),
+                nullable=_bool_from_nullable(row.get("is_nullable")),
+                comment=None,
+                ordinal_position=int(str(ordinal)) if ordinal is not None else None,
+            )
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"postgres column metadata query failed: {exc}",
+            )
+        )
+
+    columns = _merge_columns(schema_columns, catalog_columns)
+    column_lookup = {column.name: column for column in columns}
+    partitions_by_name: dict[str, PartitionMetadata] = {}
+    if include_partitions:
+        try:
+            partition_rows = _query_rows(
+                backend,
+                "SELECT pg_get_partkeydef(c.oid) AS partition_key "
+                "FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                f"WHERE c.relname = {_quote_literal(table)} "
+                f"AND n.nspname = {_quote_literal(schema_name)} "
+                "LIMIT 1",
+            )
+            for row in partition_rows:
+                partition_key = str(row.get("partition_key") or "")
+                for column_name in _partition_columns_from_expression(partition_key):
+                    column = column_lookup.get(column_name or "")
+                    if column is not None:
+                        partitions_by_name[column.name] = PartitionMetadata(
+                            name=column.name,
+                            type=column.type,
+                            transform=None,
+                            comment=None,
+                        )
+        except Exception as exc:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"postgres partition metadata query failed: {exc}",
+                )
+            )
+        if not partitions_by_name:
+            warnings.append(
+                MetadataWarning(
+                    kind="partitions_unavailable",
+                    message="postgres partition metadata did not expose mappable column partitions",
+                )
+            )
+
+    return TableMetadata(
+        datasource=datasource,
+        table=table,
+        database=database,
+        backend_type="postgres",
+        comment=table_comment,
+        columns=columns,
+        partitions=tuple(partitions_by_name.values()) if include_partitions else (),
+        warnings=tuple(warnings),
+    )
+
+
+def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
+    return _inspect_postgres(
+        datasource=request.datasource,
+        backend=request.backend,
+        table=request.table,
+        database=request.database,
+        table_expr=request.table_expr,
+        include_partitions=request.include_partitions,
+        default_schema=(
+            str(request.datasource_ir.fields["schema"])
+            if request.datasource_ir.fields.get("schema") is not None
+            else None
+        ),
+    )
+
+
+PROFILE = EngineProfile(
+    name="postgres",
+    aliases=("postgresql", "redshift"),
+    authoring_func="postgres",
+    required_modules=("ibis.backends.postgres",),
+    connect=connect,
+    apply_read_only_kwargs=identity_read_only_kwargs,
+    timezone_probe_sql="select current_setting('TimeZone') as timezone",
+    identifier_quote='"',
+    table_name_parts=table_name_parts,
+    inspect_partition_values=None,
+    readonly_tx_start="BEGIN READ ONLY",
+    metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    translate_strptime_format=identity_str,
+    postprocess_sql=identity_str,
+    datetime_decode_policy="local_naive_label",
+    quantile=None,
+    percentile_uses_approx_quantile=False,
+)

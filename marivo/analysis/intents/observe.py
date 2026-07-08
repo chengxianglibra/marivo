@@ -7,7 +7,6 @@ import json
 import secrets
 from dataclasses import replace
 from datetime import UTC, datetime
-from pathlib import Path
 from time import monotonic
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
@@ -31,15 +30,19 @@ from marivo.analysis.evidence.pipeline import (
     frame_exists_on_disk,
 )
 from marivo.analysis.evidence.types import Subject
-from marivo.analysis.executor.runner import (
-    apply_slice_to_dataset,
+from marivo.analysis.executor.bucketing import (
     apply_time_series_bucket,
     bucket_start_expr,
-    datasource_backend_dialect,
-    datasource_read_timezone,
     ensure_bucket_start_timestamp,
+)
+from marivo.analysis.executor.runner import (
+    apply_slice_to_dataset,
     execute,
     normalize_slice_for_storage,
+)
+from marivo.analysis.executor.windowing import (
+    datasource_engine_profile,
+    datasource_read_timezone,
     resolve_window_time_field,
 )
 from marivo.analysis.frames.component import (
@@ -855,7 +858,7 @@ def _execute_cumulative(
     metric_datasets = tuple(base_metric_ir.entities)
     primary_datasource = base_plan.datasource_name
     read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
-    dialect = datasource_backend_dialect(session._connection_runtime, primary_datasource)
+    profile = datasource_engine_profile(session._connection_runtime, primary_datasource)
     root_adapter = _build_entity_adapter(
         catalog,
         resolver,
@@ -952,7 +955,7 @@ def _execute_cumulative(
         window=resolved_window,
         report_tz=cast("ZoneInfo", session.report_tz),
         datasource_read_tz=read_tz,
-        dialect=dialect,
+        profile=profile,
         dataset_ir=root_adapter,
     )
     # Apply dimension projections on the bucketed table
@@ -1236,7 +1239,7 @@ def _execute_sampled_base(
     )
     sample_grain = Grain(count=sample_interval.count, unit=sample_interval.unit)
     read_tz = datasource_read_timezone(session._connection_runtime, plan.datasource_name)
-    dialect = datasource_backend_dialect(session._connection_runtime, plan.datasource_name)
+    profile = datasource_engine_profile(session._connection_runtime, plan.datasource_name)
     table = sample_point_table(
         plan.table,
         time_field_ir=root_time_adapter,
@@ -1245,7 +1248,7 @@ def _execute_sampled_base(
         datasource_read_tz=read_tz,
         window=resolved_window,
         dataset_ir=root_adapter,
-        dialect=dialect,
+        profile=profile,
     )
     dimension_names = [dimension.column for dimension in plan.dimensions]
     metric_datasets = tuple(metric_ir.entities)
@@ -1469,7 +1472,7 @@ def _execute_base(
     metric_datasets = tuple(metric_ir.entities)
     primary_datasource = plan.datasource_name
     read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
-    dialect = datasource_backend_dialect(session._connection_runtime, primary_datasource)
+    profile = datasource_engine_profile(session._connection_runtime, primary_datasource)
     plan = _prune_base_observe_projection(
         plan,
         metric_ir,
@@ -1504,7 +1507,7 @@ def _execute_base(
             window=resolved_window,
             report_tz=cast("ZoneInfo", session.report_tz),
             datasource_read_tz=read_tz,
-            dialect=dialect,
+            profile=profile,
             dataset_ir=root_adapter,
         )
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
@@ -1577,7 +1580,7 @@ def _execute_base(
             window=resolved_window,
             report_tz=cast("ZoneInfo", session.report_tz),
             datasource_read_tz=read_tz,
-            dialect=dialect,
+            profile=profile,
             dataset_ir=root_adapter,
         )
         dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
@@ -1700,7 +1703,7 @@ def _execute_folded_component(
     )
     sample_grain = Grain(count=sample_interval.count, unit=sample_interval.unit)
     read_tz = datasource_read_timezone(session._connection_runtime, cp.base_plan.datasource_name)
-    dialect = datasource_backend_dialect(session._connection_runtime, cp.base_plan.datasource_name)
+    profile = datasource_engine_profile(session._connection_runtime, cp.base_plan.datasource_name)
     table = sample_point_table(
         cp.base_plan.table,
         time_field_ir=root_time_adapter,
@@ -1709,7 +1712,7 @@ def _execute_folded_component(
         datasource_read_tz=read_tz,
         window=resolved_window,
         dataset_ir=root_adapter,
-        dialect=dialect,
+        profile=profile,
     )
     dimension_names = [dimension.column for dimension in cp.base_plan.dimensions]
     dataset_tables = dict.fromkeys(component_datasets, table)
@@ -1961,7 +1964,7 @@ def _execute_derived(
                 read_tz = datasource_read_timezone(
                     session._connection_runtime, cp.base_plan.datasource_name
                 )
-                dialect = datasource_backend_dialect(
+                profile = datasource_engine_profile(
                     session._connection_runtime, cp.base_plan.datasource_name
                 )
                 table = apply_time_series_bucket(
@@ -1970,7 +1973,7 @@ def _execute_derived(
                     window=resolved_window,
                     report_tz=cast("ZoneInfo", session.report_tz),
                     datasource_read_tz=read_tz,
-                    dialect=dialect,
+                    profile=profile,
                     dataset_ir=root_adapter,
                 )
                 group_names = ["bucket_start", *dim_columns]
@@ -2123,16 +2126,6 @@ def _dump_dimensions(dimensions: list[str] | None) -> list[dict[str, Any]] | Non
 
 def _backend_for_datasource(session: Session, datasource_name: str) -> tuple[str, Any]:
     return datasource_name, session._connection_runtime.get_or_create(datasource_name)
-
-
-def _resolve_backend_type(datasource_name: str, project_root: str) -> str | None:
-    """Resolve the backend_type for a named datasource from the project store."""
-    from marivo.datasource import store as _ds_store
-
-    ds_ir = _ds_store.load_one(datasource_name, project_root=Path(project_root))
-    if ds_ir is not None:
-        return ds_ir.backend_type
-    return None
 
 
 def _build_fold_meta(metric_ir: Any, catalog: Any) -> dict[str, Any]:
@@ -2843,13 +2836,8 @@ def observe(
                 message="percentile sampled fold requires a primary datasource to resolve backend type.",
                 details={"metric": metric_ir.semantic_id},
             )
-        backend_type = _resolve_backend_type(primary_datasource, str(session.project_root))
-        if backend_type is None:
-            raise AnalysisError(
-                message="percentile sampled fold could not resolve backend_type for the primary datasource.",
-                details={"metric": metric_ir.semantic_id, "datasource": primary_datasource},
-            )
-        _capability = quantile_capability(backend_type)
+        _profile = datasource_engine_profile(session._connection_runtime, primary_datasource)
+        _capability = quantile_capability(_profile)
     quantile_mode = _capability.mode if _capability is not None else None
     quantile_method = _capability.method if _capability is not None else None
 

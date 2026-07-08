@@ -4,7 +4,7 @@ from datetime import datetime
 
 import ibis
 
-from marivo.analysis.executor.runner import bucket_start_expr
+from marivo.analysis.executor.bucketing import bucket_start_expr
 from marivo.analysis.windows.grain import Grain
 
 

@@ -10,31 +10,24 @@ from typing import Any, Literal
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.intents.observe_errors import raise_observe_planning_error
 from marivo.analysis.windows.grain import Grain
+from marivo.datasource.engines import ENGINE_PROFILES
+from marivo.datasource.engines.base import GENERIC_PROFILE, EngineProfile, QuantileCapability
 
 FoldKind = Literal["mean", "min", "max", "first", "last", "percentile"]
 
 
-@dataclass(frozen=True)
-class QuantileCapability:
-    mode: Literal["exact", "approximate"]
-    method: str
-
-
-QUANTILE_CAPABILITIES: dict[str, QuantileCapability] = {
-    "duckdb": QuantileCapability(mode="exact", method="linear_interpolation"),
-    "trino": QuantileCapability(mode="approximate", method="qdigest"),
-    "clickhouse": QuantileCapability(mode="approximate", method="reservoir_sampling"),
-}
-
-
-def quantile_capability(backend_type: str) -> QuantileCapability:
-    capability = QUANTILE_CAPABILITIES.get(backend_type)
+def quantile_capability(profile: EngineProfile) -> QuantileCapability:
+    capability = profile.quantile
     if capability is None:
         raise AnalysisError(
-            message=f"quantile sampled fold is not registered for backend_type {backend_type!r}",
+            message=f"quantile sampled fold is not registered for backend_type {profile.name!r}",
             details={
-                "backend_type": backend_type,
-                "supported_backend_types": sorted(QUANTILE_CAPABILITIES),
+                "backend_type": profile.name,
+                "supported_backend_types": sorted(
+                    key
+                    for key, candidate in ENGINE_PROFILES.items()
+                    if candidate.quantile is not None
+                ),
             },
         )
     return capability
@@ -187,9 +180,9 @@ def sample_point_table(
     datasource_read_tz: Any,
     window: Any,
     dataset_ir: Any | None = None,
-    dialect: str = "unknown",
+    profile: EngineProfile = GENERIC_PROFILE,
 ) -> Any:
-    from marivo.analysis.executor.runner import (
+    from marivo.analysis.executor.bucketing import (
         bucket_time_expression,
         combine_prefix_hour_to_timestamp,
     )
@@ -213,7 +206,7 @@ def sample_point_table(
             grain=sample_grain,
             report_tz=report_tz,
             datasource_read_tz=datasource_read_tz,
-            dialect=dialect,
+            profile=profile,
             window=window,
         )
         return table.mutate(sample_point=sample_point)
@@ -229,7 +222,7 @@ def sample_point_table(
             table,
             hour_field_ir=time_field_ir,
             dataset_ir=dataset_ir,
-            dialect=dialect,
+            profile=profile,
         )
         import types
 
@@ -245,7 +238,7 @@ def sample_point_table(
             grain=sample_grain,
             report_tz=report_tz,
             datasource_read_tz=datasource_read_tz,
-            dialect=dialect,
+            profile=profile,
             window=window,
         )
         return table.mutate(sample_point=sample_point)

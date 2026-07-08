@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any
 
+from marivo.datasource.engines import SUPPORTED_BACKEND_TYPES
 from marivo.introspection.constraints import Constraint, Phase
 
 __all__ = [
@@ -69,7 +70,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.DATASOURCE_NAME_GLOBAL,
         "DatasourceFieldInvalid",
         "decorator",
-        ("duckdb", "trino", "mysql", "postgres", "clickhouse", "DatasourceRef", "ref"),
+        (*SUPPORTED_BACKEND_TYPES, "DatasourceRef", "ref"),
         "Datasource spec names are global storage keys.",
         "Semantic declarations refer to datasources by stable kind-qualified ids.",
         "Define specs with names like 'warehouse' and reference them with md.ref('datasource.warehouse').",
@@ -79,7 +80,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.DATASOURCE_BACKEND_TYPE_REQUIRED,
         "DatasourceFieldInvalid",
         "decorator",
-        ("duckdb", "trino", "mysql", "postgres", "clickhouse"),
+        SUPPORTED_BACKEND_TYPES,
         "Datasource backend is selected by the convenience function.",
         "Agents should choose the backend function directly instead of passing backend_type as a string.",
         "Use md.trino(name='warehouse', host='...', catalog='...') or md.duckdb(name='warehouse').",
@@ -89,7 +90,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.DATASOURCE_FIELD_JSONABLE,
         "DatasourceFieldInvalid",
         "decorator",
-        ("duckdb", "trino", "mysql", "postgres", "clickhouse"),
+        SUPPORTED_BACKEND_TYPES,
         "Datasource literal fields must be JSON-compatible values.",
         "Datasource project state is persisted as portable metadata and cannot store arbitrary Python objects.",
         "Use strings, numbers, booleans, null, lists, and string-keyed objects for non-secret fields.",
@@ -110,7 +111,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.DATASOURCE_LOADER_CONTEXT,
         "DatasourceFieldInvalid",
         "decorator",
-        ("duckdb", "trino", "mysql", "postgres", "clickhouse"),
+        SUPPORTED_BACKEND_TYPES,
         "Datasource declarations can only be made while loading models/datasources/ files.",
         "Datasource declarations are collected by the project loader, not registered into global process state.",
         "Put datasource declarations under models/datasources/*.py and load them with md.load_datasources(...).",
@@ -120,7 +121,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.DATASOURCE_UNIQUE_NAME,
         "DatasourceDuplicate",
         "assembly",
-        ("duckdb", "trino", "mysql", "postgres", "clickhouse", "load_datasources"),
+        (*SUPPORTED_BACKEND_TYPES, "load_datasources"),
         "Datasource names must be unique within a project.",
         "Duplicate project-level datasource ids make source references ambiguous.",
         "Rename one datasource file entry or merge duplicate declarations into one declaration.",

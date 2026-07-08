@@ -21,12 +21,10 @@ translation layer rather than SQL rewriting.
 
 import ibis
 
-from marivo.analysis.executor.runner import (
-    UTC_ZONE,
-    _parse_string_column,
-    _window_bound_predicates,
-)
+from marivo.analysis.executor.string_time import _parse_string_column
+from marivo.analysis.executor.windowing import UTC_ZONE, _window_bound_predicates
 from marivo.analysis.windows.spec import AbsoluteWindow
+from marivo.datasource.engines import profile_for_backend_name
 
 
 class _FakeMeta:
@@ -58,7 +56,7 @@ def test_parse_string_column_translates_minute_for_trino():
     """
     t = ibis.table([("created_at", "string")], name="orders")
     meta = _FakeMeta("string", "%Y-%m-%d %H:%M:%S")
-    expr = _parse_string_column(t.created_at, meta, dialect="trino")
+    expr = _parse_string_column(t.created_at, meta, profile=profile_for_backend_name("trino"))
     sql = ibis.to_sql(expr, dialect="trino")
     assert "%M" not in sql
     assert "%i" in sql or "%T" in sql
@@ -69,7 +67,7 @@ def test_parse_string_column_translates_minute_for_mysql():
     so %M must translate to %i there too."""
     t = ibis.table([("created_at", "string")], name="orders")
     meta = _FakeMeta("string", "%Y-%m-%d %H:%M:%S")
-    expr = _parse_string_column(t.created_at, meta, dialect="mysql")
+    expr = _parse_string_column(t.created_at, meta, profile=profile_for_backend_name("mysql"))
     sql = ibis.to_sql(expr, dialect="mysql")
     assert "%M" not in sql
     assert "%i" in sql or "%T" in sql
@@ -79,7 +77,7 @@ def test_parse_string_column_leaves_format_unchanged_for_duckdb():
     """DuckDB uses Python strptime natively (%M = minute); no translation."""
     t = ibis.table([("created_at", "string")], name="orders")
     meta = _FakeMeta("string", "%Y-%m-%d %H:%M:%S")
-    expr = _parse_string_column(t.created_at, meta, dialect="duckdb")
+    expr = _parse_string_column(t.created_at, meta, profile=profile_for_backend_name("duckdb"))
     sql = ibis.to_sql(expr, dialect="duckdb")
     assert "%M" in sql
     assert "%i" not in sql
@@ -97,8 +95,19 @@ def test_window_bound_predicates_translate_minute_for_trino():
         meta,
         report_tz=UTC_ZONE,
         datasource_read_tz=UTC_ZONE,
-        dialect="trino",
+        profile=profile_for_backend_name("trino"),
     )
     sql = ibis.to_sql(t.filter(lower, upper), dialect="trino")
+    assert "%M" not in sql
+    assert "%i" in sql or "%T" in sql
+
+
+def test_parse_string_column_translates_minute_for_presto_alias():
+    """The presto alias must resolve to the same profile as trino so that
+    %M -> %i translation is applied for both."""
+    t = ibis.table([("created_at", "string")], name="orders")
+    meta = _FakeMeta("string", "%Y-%m-%d %H:%M:%S")
+    expr = _parse_string_column(t.created_at, meta, profile=profile_for_backend_name("presto"))
+    sql = ibis.to_sql(expr, dialect="trino")
     assert "%M" not in sql
     assert "%i" in sql or "%T" in sql

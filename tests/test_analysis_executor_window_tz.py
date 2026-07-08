@@ -6,10 +6,10 @@ import ibis
 import pytest
 
 from marivo.analysis.errors import DataTypeMismatchError, TimezoneInvalidError, WindowInvalidError
-from marivo.analysis.executor.runner import (
+from marivo.analysis.executor.bucketing import apply_time_series_bucket
+from marivo.analysis.executor.windowing import (
     _validate_time_field_dtype,
     _window_bound_predicates,
-    apply_time_series_bucket,
     apply_window_to_dataset,
 )
 from marivo.analysis.windows.spec import AbsoluteWindow
@@ -635,7 +635,7 @@ def test_validate_time_field_dtype_deferred_integer_without_parse_raises():
 
 
 def test_column_timezone_uses_datasource_read_timezone_when_undeclared() -> None:
-    from marivo.analysis.executor.runner import _column_timezone
+    from marivo.analysis.executor.windowing import _column_timezone
 
     class _TimeMeta:
         timezone = None
@@ -646,7 +646,7 @@ def test_column_timezone_uses_datasource_read_timezone_when_undeclared() -> None
 
 
 def test_column_timezone_prefers_declared_timezone_over_datasource_read_timezone() -> None:
-    from marivo.analysis.executor.runner import _column_timezone
+    from marivo.analysis.executor.windowing import _column_timezone
 
     class _TimeMeta:
         timezone = "UTC"

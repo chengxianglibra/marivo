@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, load_semantic_layer_paths
 from marivo.datasource.authoring import DatasourceSpec, _storage_name
+from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceLoadError,
@@ -55,15 +56,6 @@ def _ai_context_literal(context: AiContextIR) -> str | None:
     return f"ms.ai_context({', '.join(parts)})"
 
 
-_CONVENIENCE_FUNC_BY_BACKEND: dict[str, str] = {
-    "clickhouse": "clickhouse",
-    "duckdb": "duckdb",
-    "mysql": "mysql",
-    "postgres": "postgres",
-    "trino": "trino",
-}
-
-
 def _write_datasource_file(
     *,
     spec: DatasourceSpec,
@@ -71,7 +63,7 @@ def _write_datasource_file(
 ) -> Path:
     path = datasource_path(spec.name, project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    func_name = _CONVENIENCE_FUNC_BY_BACKEND[spec.backend_type]
+    func_name = require_profile_for_backend_type(spec.backend_type).authoring_func
     # Separate declared fields from extra fields.
     declared_names = {
         f.name for f in dataclass_fields(spec) if f.name not in ("fields", "env_refs")
