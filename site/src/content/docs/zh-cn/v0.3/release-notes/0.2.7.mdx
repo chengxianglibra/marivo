@@ -1,0 +1,57 @@
+---
+slug: zh-cn/v0.3/release-notes/0.2.7
+title: Marivo 0.2.7
+description: Marivo 0.2.7 发布说明。
+---
+
+Marivo 0.2.7 是 v0.2 系列的 patch release，聚焦 relationship readiness checks
+和 packaged analysis guidance。它修复了使用 `ms.join_on(...)` 编写的 relationship
+在 readiness expansion 中的依赖展开，并让 packaged `marivo-analysis` skill 专注于
+Marivo evidence，而不是外部 report delivery details。
+
+## 重点
+
+- Relationship readiness 现在会通过 `JoinKey` value object contract 展开依赖。对
+  relationship 运行 readiness checks 时，会包含 source entity、target entity 以及两侧
+  authored join-key dimensions。
+- `marivo-analysis` 的 packaged final-report guidance 现在只描述默认 Markdown report
+  boundary，不再内置由 Marivo package 外部维护的 HTML report style 或 publishing
+  instructions。
+
+## 修复
+
+- 修复使用 `ms.join_on(...)` 编写 relationship 时的 readiness dependency expansion。
+  Marivo 不再把 join keys 当作 raw tuples 读取，从而避免 readiness inspection 漏掉有效的
+  join dimensions。
+
+## 文档
+
+- 从 packaged `marivo-analysis` final-report reference 中移除 HTML-report delivery 和
+  publishing guidance。Agents 只有在用户明确请求对应 delivery surface 时，才应使用这些
+  delivery-specific instructions。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.7 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.3/installation/)
+- [快速开始](/zh-cn/v0.3/quick-start/)
+- [语义层](/zh-cn/v0.3/concepts/semantic-layer/)
+- [分析流程](/zh-cn/v0.3/concepts/analysis-workflow/)

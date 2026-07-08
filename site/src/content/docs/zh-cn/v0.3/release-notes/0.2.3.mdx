@@ -1,0 +1,81 @@
+---
+slug: zh-cn/v0.3/release-notes/0.2.3
+title: Marivo 0.2.3
+description: Marivo 0.2.3 发布说明。
+---
+
+Marivo 0.2.3 是 v0.2 系列的 patch release。这个版本继续收紧面向 agent 的
+semantic 与 analysis contracts，并增加运行侧发布能力。它改进 Trino 聚合兼容性，
+让 semantic help 与 catalog scopes 更明确，并为多层 driver analysis 增加稳定的
+attribution materialization。
+
+## 重点
+
+- 增加 `marivo --version`，CLI 环境可以直接报告已安装的 package version。
+- 增加 Marivo static artifact publishing workflow 使用的内部 S3 publish uploader。
+- 实现 composite attribution materialization，支持需要稳定 multi-tier driver
+  output 的 analysis workflows。
+- 围绕 typed scopes、explicit domain refs 与 percentile naming 收紧 semantic
+  catalog 和 help contracts。
+- 从 public analysis path 移除旧的 report publish surface。
+
+## 变更
+
+- Analysis intent 参数现在统一使用 `time_scope` 与 `slice_by`，不再沿用旧的
+  `timescope` 与 `where` 命名。
+- Semantic fold help 现在统一使用 percentile 术语，不再混用 quantile 与
+  percentile 名称。
+- Catalog list scopes 现在要求 typed string scope objects，不再接受宽松的
+  bare-string inputs。
+- Analysis evidence suites 按 domain 与 per-tier coverage 重新组织，便于解读
+  release checks。
+
+## 修复
+
+- Trino-backed semantic aggregates 现在支持 percentile expressions。
+- Sampled ratio attribution 现在可以在 attribution path 中工作。
+- Analysis help aliases 现在会解析到当前 public names。
+- Semantic authoring 现在会一致拒绝 `domain=` 的 bare strings。
+
+## 文档
+
+- 增加 attribution composite materialization 设计说明。
+- 更新 analysis design 与 skill guidance，以匹配当前 attribution、publishing 和
+  parameter contracts。
+- 刷新 semantic-layer 文档中关于 typed refs、explicit help output 与 percentile
+  folding 的说明。
+
+## 破坏性变更
+
+- Public analysis report publish surface 已移除；artifact publishing 现在通过更窄的
+  static publishing path 执行。
+- Analysis callers 应使用 `time_scope` 与 `slice_by`；旧的 `timescope` 与 `where`
+  不再是文档化 contract。
+- Semantic catalog 与 authoring helpers 要求 typed scope/domain refs，不再接受
+  bare strings。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.3 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.3/installation/)
+- [快速开始](/zh-cn/v0.3/quick-start/)
+- [语义层](/zh-cn/v0.3/concepts/semantic-layer/)
+- [分析流程](/zh-cn/v0.3/concepts/analysis-workflow/)

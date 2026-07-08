@@ -1,0 +1,77 @@
+---
+slug: en/latest/release-notes/0.3.0
+title: Marivo 0.3.0
+description: Release notes for Marivo 0.3.0.
+---
+
+Marivo 0.3.0 is a minor release focused on the public agent-facing authoring
+and analysis surface. It introduces cumulative metric modeling, clearer
+workflow-first analysis affordances, public semantic guidance through help and
+result contracts, and a shared engine-profile layer for datasource behavior.
+
+## Highlights
+
+- Cumulative metrics are now first-class semantic objects. Authors can declare
+  cumulative windows, materialize them through the semantic layer, and observe
+  cumulative frames through the analysis workflow.
+- Analysis guidance now routes agents through workflow-first discovery. Help,
+  result display, and session runtime output expose narrower next steps instead
+  of asking agents to infer workflow state from broad APIs.
+- Semantic authoring now surfaces public help and result affordances for common
+  authoring flows, making it easier to discover valid constructors, required
+  fields, readiness issues, and concrete next actions.
+- Datasource behavior now flows through shared engine profiles for DuckDB,
+  MySQL, PostgreSQL, Trino, and ClickHouse, reducing duplicated backend logic
+  and making engine-specific capabilities more explicit.
+
+## Changed
+
+- Analysis execution internals were split into dedicated bucketing, windowing,
+  string-time, and metric-projection components.
+- Datasource metadata, runtime, and authoring code now use engine-profile values
+  for SQL behavior, connection options, and backend-specific constraints.
+- The bundled `marivo-analysis` and `marivo-semantic` skills now describe the
+  cumulative metric workflow and the updated public guidance surface.
+
+## Fixed
+
+- Derived dimensions are preserved after metric-pruning steps.
+- DuckDB datasource connections now forward authored extra keyword arguments.
+- Semantic layer datasource resolution, readiness checks, time parsing, and
+  catalog details were tightened across several edge cases.
+- Analysis help, observation planning, transform output, and timezone-aware
+  execution paths received compatibility fixes.
+
+## Documentation
+
+- Added design specs for cumulative metrics v2, engine profiles, public
+  semantic authoring guidance, and the analysis agent surface.
+- Updated the latest English and Chinese site docs for installation, quick
+  start, semantic-layer concepts, and analysis workflow concepts.
+- Added a new `v0.3` versioned documentation snapshot.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.0 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/latest/installation/)
+- [Quick Start](/en/latest/quick-start/)
+- [Semantic Layer](/en/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/)

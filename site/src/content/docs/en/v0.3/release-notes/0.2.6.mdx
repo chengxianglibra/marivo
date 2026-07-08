@@ -1,0 +1,57 @@
+---
+slug: en/v0.3/release-notes/0.2.6
+title: Marivo 0.2.6
+description: Release notes for Marivo 0.2.6.
+---
+
+Marivo 0.2.6 is a v0.2 patch release for string-backed time dimensions on
+Trino and MySQL. It lets authors keep using Python `strptime` formats while
+Marivo translates backend-specific date parsing tokens at SQL-emission time.
+
+## Highlights
+
+- Trino and MySQL analysis paths now translate Python `strptime` formats to
+  MySQL-compatible date parsing formats when parsing string time dimensions.
+- Python `%M` now keeps its authored meaning as minute on Trino/MySQL by
+  translating to MySQL `%i`; `%S` also translates to MySQL `%s`.
+- Common timestamp formats such as `%Y-%m-%d %H:%M:%S` now work consistently
+  across DuckDB, Trino, MySQL, and Postgres-backed analysis paths.
+
+## Fixed
+
+- Fixed malformed Trino `date_parse` and MySQL `STR_TO_DATE` SQL for
+  minute-granularity string time dimensions authored with Python `%M`.
+- Unsupported or divergent Python directives on MySQL-family backends now raise
+  a clear analysis error instead of silently emitting SQL with different
+  semantics.
+
+## Documentation
+
+- Updated the semantic-layer time-field format design and docs to describe the
+  backend translation boundary for Python `strptime` formats.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.6 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/v0.3/installation/)
+- [Quick Start](/en/v0.3/quick-start/)
+- [Semantic Layer](/en/v0.3/concepts/semantic-layer/)
+- [Analysis Workflow](/en/v0.3/concepts/analysis-workflow/)

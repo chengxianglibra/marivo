@@ -1,0 +1,270 @@
+---
+slug: zh-cn/v0.3/quick-start
+title: 快速开始
+description: 创建 Marivo project，加载 semantic catalog，并运行第一次以指标为中心的分析。
+---
+
+用 `marivo init` 初始化 project（参见[安装](/zh-cn/v0.3/installation/#初始化一个-project)），
+然后编写 declarations。一个最小 Marivo project 包含 manifest、datasource declarations
+和 semantic declarations：
+
+> Agent：在编写前请先查阅 `md.help("authoring")` 和 `ms.help("authoring")` 了解分阶段
+> authoring 工作流，并查阅 `md.help("ai_context")` 了解共享的 `ms.ai_context(...)` 契约。
+
+```text
+your-project/
+  marivo.toml
+  models/
+    datasources/
+      warehouse.py
+    semantic/
+      sales/
+        _domain.py
+```
+
+先声明 datasource：
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
+)
+```
+
+再声明 semantic objects：
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(
+    name="sales",
+    owner="Mina Zhang",
+    ai_context=ms.ai_context(
+        business_definition="Sales order analysis domain.",
+        guardrails=["Revenue metrics should only use completed orders."],
+    ),
+)
+
+orders = ms.entity(
+    name="orders",
+    datasource=md.ref("datasource.warehouse"),
+    source=ms.table("orders"),
+    primary_key=["order_id"],
+    ai_context=ms.ai_context(
+        business_definition="One row per sales order.",
+        guardrails=["Exclude cancelled test data in metric definitions."],
+    ),
+)
+
+
+region = ms.dimension_column(
+    name="region",
+    entity=orders,
+    column="region",
+    ai_context=ms.ai_context(
+        business_definition="Sales region assigned to the order.",
+        guardrails=["Do not treat missing region as a real region."],
+    ),
+)
+
+
+order_date = ms.time_dimension_column(
+    name="order_date",
+    entity=orders,
+    column="order_date",
+    granularity="day",
+    is_default=True,
+    ai_context=ms.ai_context(
+        business_definition="Calendar date when the order was placed.",
+        guardrails=["Use this as the default time axis for order metrics."],
+    ),
+)
+
+
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity="additive",
+    unit="CNY",
+    ai_context=ms.ai_context(
+        business_definition="Completed order amount at row level.",
+        guardrails=["Use only where order amount is already net of cancellations."],
+    ),
+)
+
+
+revenue = ms.aggregate(
+    name="revenue",
+    measure=amount,
+    agg="sum",
+    ai_context=ms.ai_context(
+        business_definition="Total completed order amount.",
+        guardrails=["Use only where order amount is already net of cancellations."],
+    ),
+)
+```
+
+这些对象不必全部手写。`marivo init` 会把 **`marivo-semantic` skill** 安装到 `.agents/skills/`、
+`.claude/skills/` 和 `.codex/skills/`，因此在 project 中运行的编码 agent 可以协助建设语义层。
+把它指向你的表并提出请求：
+
+> Use the marivo-semantic skill to model the `orders` table in the `sales` domain.
+
+该 skill 会引导 agent 按固定的 authoring 循环工作，每次只处理一个对象：
+
+- **遵循 ladder** —— domain → entity → dimension → time dimension → measure →
+  metric → relationship —— 让每个对象的依赖先于它存在。
+- **先 discovery，再编写。** 对 datasource-backed 对象，agent 先调用匹配的
+  `md.discover_*` API，再结合 `ms.help(...)` 确定 constructor values，并把一个
+  declaration 写入 `models/semantic/<domain>/_domain.py`。默认 metric 路径是
+  `md.discover_measures(...)`，author 并验证 measure，再声明 `ms.aggregate(...)`。
+- **验证后再前进。** 每写完一个对象就运行 `ms.verify_object(ref)`，在它失败时不会继续。
+- **收尾时做就绪检查。** 最后运行 `ms.readiness()`，在把 catalog 交给分析之前解决 blockers。
+
+Agent 只会就那些无法从数据或 project 文档推断的决策征询你，例如某个金额是否已经扣除退款。
+它产出的就是上面展示的 Python declarations，可以像其他代码一样在 git 中评审。
+
+分析前先探索 catalog。对 datasource-backed authoring，discovery-first 流程先收集有界证据，
+再每次 author 一个对象：
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+warehouse = md.ref("datasource.warehouse")
+orders_source = md.table("orders")
+
+md.inspect_table(warehouse, orders_source).show()
+md.inspect_partitions(warehouse, orders_source).show()
+
+scope = md.partition({"dt": "20260629"})
+
+md.discover_entity(warehouse, orders_source, scope=scope).show()
+ms.help("entity")
+```
+
+结合 discovery 证据和 `ms.help("entity")` contract，一次只 author 一个对象，然后运行
+`ms.verify_object(ref)`，通过后再继续。
+
+加载 catalog 并检查就绪状态：
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+catalog.list("domain").show()
+
+report = catalog.readiness()
+if report.status == "blocked":
+    report.show()
+```
+
+Catalog ready 后，开启 analysis session：
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("metric.sales.revenue")
+region = catalog.get("dimension.sales.orders.region")
+
+current = session.observe(
+    revenue,
+    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+baseline = session.observe(
+    revenue,
+    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
+    grain="month",
+    dimensions=[region],
+)
+delta = session.compare(current, baseline)
+attribution = session.attribute(delta, axes=[region])
+attribution.show()
+
+delta.contract().affordances      # mechanical compatibility, not recommendations
+delta.quality_summary             # cheap metadata projection
+quality = session.assess_quality(delta)
+quality.show()
+```
+
+当多个 same-scope metric 共享同一窗口时，把 metric 列表传给
+`session.observe(...)`。Marivo 会把同一 datasource 的 metric 合并为一次查询，
+跨 datasource 的 metric 则按时间轴 outer-join。用 `frame.metric(id)` 投影出
+arity-1 frame，对单个 metric 做深入分析时不会重新查询后端。
+
+```python
+report = session.observe(
+    [
+        catalog.get("metric.sales.revenue"),
+        catalog.get("metric.sales.total_orders"),
+        catalog.get("metric.sales.failed_orders"),
+    ],
+    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
+    grain="month",
+)
+report.show()                                  # bucket_start + 三个值列
+revenue = report.metric("sales.revenue")      # arity-1 frame，用于 drill-down
+```
+
+如果自定义 Ibis 计算结果还要回到 Marivo typed metric flow，使用
+`session.derive_metric_frame(...)`。Semantic refs 只用于 metric 与 axis 绑定，
+query 输出列名仍是普通字符串。跨后续脚本时，用 `session.frame_summaries()` 和
+`session.get_frame(ref)` 恢复已有 artifacts，不要重跑上游查询。用
+`artifact.contract().affordances` 查看机械兼容性事实。
+
+## 使用建议
+
+同样的 project 结构，既可以支撑一次性脚本，也可以逐步沉淀为经过评审、可共享的分析 project。
+差别主要来自下面三个习惯。
+
+### 把语义层当作共享知识库建设
+
+语义层不只是访问表的管道。它是 agent 在分析*之前*读取的知识库。为每个对象补充
+`ms.ai_context(...)`：
+
+- `business_definition` —— 这个 metric 或 dimension 在业务上*意味着什么*。
+- `guardrails` —— agent 必须遵守的规则：必需的过滤、排除项、范围限制。
+- `synonyms` 与 `examples` —— 帮助 agent 把自然语言问题解析到正确对象，而不是靠猜。
+
+上下文足够完整时，对象本身就能回答 agent 的两个基本问题：“我能不能用它？”“应该怎么用？”
+就绪检查负责守住底线：缺失 `business_definition` 会 block 分析，缺失 `guardrails` 会发出 warning。
+完整的 `ms.ai_context(...)` 契约参见 [语义层](/zh-cn/v0.3/concepts/semantic-layer/)。
+
+### 用 git 管理 project
+
+一个 Marivo project 本质上是纯文本：`marivo.toml` 加上 `models/` 下的 Python 文件。因此语义层
+可以像应用代码一样评审、共享和回滚。
+
+- **对契约做版本控制。** 提交 `marivo.toml` 和 `models/`。对 metric 定义或 guardrail 的每一次
+  改动都会以 diff 的形式呈现。
+- **像评审代码一样评审 semantic 改动。** 通过 pull request 合入定义改动，让 domain owner 在
+  agents 使用之前确认 metric 的*含义*。
+- **通过仓库共享。** clone 该 project 的人，以及在其中运行的 agent，都会读取同一份可信 catalog。
+- **把状态与 secrets 排除在 git 之外。** 把 `.marivo/` 加入 `.gitignore`：它保存的是 project
+  本地的 session 与 evidence 状态，不是契约。凭据以 `*_env` references 的形式编写，从环境
+  （或 user-global 的 `~/.marivo/secrets.toml` 缓存）解析，不写入 project。
+
+一个典型的 `.gitignore`：
+
+```text
+.marivo/
+```
+
+### 交接前先做就绪检查
+
+加载后运行 `ms.readiness()`，并在任何分析 session 之前解决 blockers。project 可以在 readiness
+仍为 blocked 时成功加载，因此不要把 blocked catalog 交给 agent。参见
+[就绪检查](/zh-cn/v0.3/concepts/readiness/)。

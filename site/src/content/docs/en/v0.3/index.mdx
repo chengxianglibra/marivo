@@ -1,0 +1,121 @@
+---
+slug: en/v0.3
+title: Marivo
+description: Metric-centered analysis runtime for AI agents.
+template: splash
+hero:
+  tagline: Metric-centered analysis runtime for AI agents.
+  image:
+    alt: Marivo
+    file: ../../../../assets/marivo-mark.svg
+  actions:
+    - text: Install Marivo
+      link: /en/v0.3/installation/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/chengxianglibra/marivo
+      variant: secondary
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Marivo is a Python library — not a hosted service or a chat UI — that turns a data
+warehouse into something an AI agent can analyze *reliably*. It gives agents three
+things they otherwise lack: a typed **semantic layer** that fixes what every metric
+and dimension means, a **metric-centered analysis workflow** of typed operators, and
+an **auditable evidence trail** behind every conclusion.
+
+Marivo is not a text-to-SQL wrapper. Python declarations are the contract, ibis
+expressions are the execution language, and typed frames are the boundary between
+analysis steps — so an agent composes trusted building blocks instead of generating
+raw SQL and hoping it is correct.
+
+<CardGrid>
+  <Card title="Unified semantics" icon="seti:data">
+    Datasources, entities, metrics, dimensions, and relationships are declared in
+    Python and addressed by semantic ref — names and definitions, not raw tables.
+  </Card>
+  <Card title="Metric-centered analysis" icon="seti:python">
+    Agents start from trusted metrics and chain typed intents: observe, compare,
+    attribute, correlate, forecast, and quality checks.
+  </Card>
+  <Card title="Trustworthy evidence" icon="seti:config">
+    Operators record findings, propositions, and assessments so any result can be
+    traced back to the inputs that produced it.
+  </Card>
+  <Card title="Readiness gates" icon="seti:lock">
+    Catalog readiness keeps incomplete semantic objects out of analysis until
+    authoring and access issues are resolved.
+  </Card>
+</CardGrid>
+
+## Why agentic data analysis needs Marivo
+
+Point an agent at a raw warehouse and ask it to write SQL, and the failure modes
+are predictable: it invents joins, silently drops a required filter, misreads an
+ambiguous column, and returns a confident answer no one can verify. Every query
+starts from zero, so nothing accumulates and nothing is reviewable.
+
+Marivo replaces *generate-SQL-and-hope* with a contract the agent works through:
+
+| Without a semantic runtime | With Marivo |
+| --- | --- |
+| Table and column names guessed per query | Trusted **semantic refs** (`sales.revenue`) carrying human-authored meaning and guardrails |
+| Definitions re-derived every time | One **declared contract** in version control, shared across agents and sessions |
+| Free-form SQL; mistakes surface as wrong numbers | **Typed intents and frames** — invalid steps fail loudly, before any backend work |
+| Conclusions you cannot check | An **evidence trail** linking every result to the inputs that produced it |
+| Half-specified models analyzed anyway | A **readiness gate** that blocks incomplete semantics from analysis |
+
+The result is an agent that reasons over *meaning* instead of column names, in a
+loop a human can review, approve, and replay.
+
+## How it works
+
+1. **Declare** datasources in `models/datasources/` and semantics (domains,
+   entities, dimensions, metrics) in `models/semantic/` — using `marivo.datasource`
+   (`md`) and `marivo.semantic` (`ms`).
+2. **Load and gate.** `ms.load()` builds the catalog; `ms.readiness()` blocks
+   analysis until every object an agent needs is complete and reachable.
+3. **Open a session** from a guiding question and resolve a trusted metric from the
+   catalog.
+4. **Chain typed intents** — `observe → compare → attribute`, and more — each
+   returning a typed frame and leaving an evidence trail.
+
+## A first analysis
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
+catalog = session.catalog
+revenue = catalog.get("metric.sales.revenue")
+region = catalog.get("dimension.sales.orders.region")
+
+current = session.observe(revenue, time_scope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
+baseline = session.observe(revenue, time_scope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
+
+delta = session.compare(current, baseline)
+attribution = session.attribute(delta, axes=[region])
+attribution.show()
+```
+
+## Next steps
+
+<CardGrid>
+  <Card title="Install" icon="rocket">
+    [Install Marivo](/en/v0.3/installation/) and pick the backend extra for your
+    datasource.
+  </Card>
+  <Card title="Quick Start" icon="open-book">
+    [Build a project](/en/v0.3/quick-start/): datasource, semantics, and a first
+    metric-centered analysis.
+  </Card>
+  <Card title="Semantic Layer" icon="seti:data">
+    [Declare meaning](/en/v0.3/concepts/semantic-layer/): every object and field,
+    with usage.
+  </Card>
+  <Card title="Analysis Workflow" icon="seti:python">
+    [Run analysis](/en/v0.3/concepts/analysis-workflow/): sessions, intents, and
+    typed frames.
+  </Card>
+</CardGrid>
