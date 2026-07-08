@@ -68,6 +68,14 @@ def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
 
     assert exc.value.details["expected_kind"] == "metric"
     assert exc.value.details["actual_kind"] == "str"
+    # Bare-string path must include available_ids so the agent can discover
+    # the correct metric id from the catalog.
+    assert "available_ids" in exc.value.details
+    assert "sales.revenue" in exc.value.details["available_ids"]
+    # str(error) must also surface available_ids and repair snippets.
+    message = str(exc.value)
+    assert "sales.revenue" in message
+    assert "session.catalog.list(" in message
 
 
 def test_normalize_metric_rejects_wrong_semantic_kind(semantic_project_factory) -> None:
@@ -220,3 +228,150 @@ def test_measure_ref_is_rejected_as_dimension_axis(semantic_project_factory) -> 
     assert "measure" in message
     assert "group-by axis" in message
     assert "categorical dimension" in message
+
+
+def test_measure_rejection_surfaces_repair_in_str(semantic_project_factory) -> None:
+    """A measure-rejection error must surface repair snippets in str(error),
+    not fall through to the generic 'Input frame kind' fallback."""
+    from marivo.analysis.semantic_inputs import normalize_dimension_input
+
+    catalog = _catalog(semantic_project_factory)
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        normalize_dimension_input(
+            catalog,
+            make_ref("sales.orders.amount", SemanticKind.MEASURE),
+        )
+
+    details = exc_info.value.details
+    assert details["actual_kind"] == "measure"
+    assert details["expected_kind"] == "dimension"
+    assert "repair" in details
+    repair = details["repair"]
+    assert isinstance(repair, list)
+    assert any("session.catalog.list(" in snippet for snippet in repair)
+
+    # str(error) must surface the repair snippets — the primary way agents
+    # consume error messages — and must not fall through to the generic
+    # "Input frame kind" fallback cause.
+    message = str(exc_info.value)
+    assert "session.catalog.list(" in message
+    assert "measure" in message
+    assert "group-by axis" in message
+    assert "categorical dimension" in message
+    assert "Input frame kind" not in message
+
+
+# --- Repair guidance tests (Task 4: semantic input error guidance) ---
+
+
+def test_time_dimension_argument_uses_correct_label(semantic_project_factory) -> None:
+    """When argument='time_dimension', the error must say 'time dimension',
+    not 'catalog dimension'."""
+    catalog = _catalog(semantic_project_factory)
+    metric = catalog.get("metric.sales.revenue")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        normalize_dimension_input(catalog, metric, argument="time_dimension")
+
+    message = str(exc_info.value)
+    assert "time dimension" in message
+    assert "catalog dimension" not in message
+
+
+def test_time_dimension_argument_includes_repair_guidance(semantic_project_factory) -> None:
+    """A wrong-kind input for the time_dimension argument must include repair
+    guidance with copyable catalog snippets in both details and str(error)."""
+    catalog = _catalog(semantic_project_factory)
+    metric = catalog.get("metric.sales.revenue")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        normalize_dimension_input(catalog, metric, argument="time_dimension")
+
+    details = exc_info.value.details
+    assert details["argument"] == "time_dimension"
+    assert details["ref"] == "sales.revenue"
+    assert details["expected_kind"] == "dimension"
+    assert details["actual_kind"] == "metric"
+    assert "repair" in details
+    repair = details["repair"]
+    assert isinstance(repair, list)
+    assert any("session.catalog.list(" in snippet for snippet in repair)
+
+    # Repair snippets must be surfaced in str(error) — the primary way agents
+    # consume error messages.
+    message = str(exc_info.value)
+    assert "session.catalog.list(" in message
+    assert "time dimension" in message
+    assert "metric" in message  # actual_kind appears in the cause
+
+
+def test_dimension_argument_label_says_dimension_or_time_dimension(
+    semantic_project_factory,
+) -> None:
+    """When expected_kind='dimension', the error label should mention both
+    'dimension' and 'time dimension' since both are accepted."""
+    catalog = _catalog(semantic_project_factory)
+    metric = catalog.get("metric.sales.revenue")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        normalize_dimension_input(catalog, metric, argument="dimension")
+
+    message = str(exc_info.value)
+    assert "dimension or time dimension" in message
+
+
+def test_wrong_kind_metric_includes_repair_and_available_ids(
+    semantic_project_factory,
+) -> None:
+    """A wrong-kind metric input must carry available_ids and repair guidance,
+    and both must be surfaced in str(error)."""
+    catalog = _catalog(semantic_project_factory)
+    dim = catalog.get("dimension.sales.orders.country")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        normalize_metric_input(catalog, dim.ref)
+
+    details = exc_info.value.details
+    assert details["argument"] == "metric"
+    assert details["ref"] == "sales.orders.country"
+    assert details["expected_kind"] == "metric"
+    assert details["actual_kind"] == "dimension"
+    assert "available_ids" in details
+    assert "repair" in details
+    repair = details["repair"]
+    assert isinstance(repair, list)
+    assert any("session.catalog.list(" in snippet for snippet in repair)
+
+    # str(error) must surface the kind info, available ids, and repair snippets.
+    message = str(exc_info.value)
+    assert "metric" in message  # expected_kind in cause
+    assert "dimension" in message  # actual_kind in cause
+    assert "sales.revenue" in message  # available_ids preview
+    assert "session.catalog.list(" in message  # repair snippets
+
+
+def test_repair_snippets_use_scoped_catalog_list_form(semantic_project_factory) -> None:
+    """Repair snippets must use session.catalog.list(...) with explicit kind/scope
+    arguments, not the no-argument catalog.list() form, and must use placeholders."""
+    catalog = _catalog(semantic_project_factory)
+    metric = catalog.get("metric.sales.revenue")
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        normalize_dimension_input(catalog, metric, argument="time_dimension")
+
+    details = exc_info.value.details
+    repair = details["repair"]
+    assert isinstance(repair, list)
+    # At least one snippet must use the scoped session.catalog.list(...) form
+    assert any("session.catalog.list(" in snippet for snippet in repair)
+    # No snippet should use the bare no-argument catalog.list() form
+    for snippet in repair:
+        if "catalog.list(" in snippet:
+            assert "session.catalog.list(" in snippet
+    # At least one snippet must reference time_dimension kind
+    assert any("time_dimension" in snippet for snippet in repair)
+    # No snippet should hard-code project-specific ids like "sales.orders"
+    for snippet in repair:
+        assert "sales.orders" not in snippet
+        assert "sales.revenue" not in snippet

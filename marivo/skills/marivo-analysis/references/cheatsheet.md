@@ -15,7 +15,7 @@ topic details. Use `artifact.contract()` on concrete artifacts for live
 affordances and mechanically valid next actions:
 
 ```python
-mv.help('agent_surface')                 # default operator surface and artifact protocol
+mv.help('workflow')                      # default workflow, artifact protocol, and recovery
 mv.help('discover')                      # objective compatibility and required kwargs
 mv.help('alignment')                     # AlignmentPolicy variants
 mv.help('MetricFrame')                   # methods and artifact protocol

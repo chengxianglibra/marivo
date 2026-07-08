@@ -23,13 +23,26 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 ```
 
+:::note[Agent discovery]
+From the command line, start with `marivo --help` for the CLI entry point.
+For the full analysis workflow contract, run:
+
+```bash
+.venv/bin/python -c "import marivo.analysis as mv; mv.help('workflow')"
+```
+
+Then drill into specific topics such as `mv.help("observe")`,
+`mv.help("catalog")`, or `mv.help("artifacts")` before authoring a call.
+:::
+
 :::note[Artifacts are immutable]
-An artifact never changes after it is produced. Read it in layers:
-`repr(artifact)` → `artifact.summary()` → `artifact.schema()` /
-`artifact.contract()` → `artifact.preview(limit=n)` when tabular. Call
-`artifact.to_pandas()` only when you need a mutable local copy. Every artifact
-carries lineage and is persisted under project-local `.marivo/`, so later steps
-can recover it by ref without re-querying the datasource.
+An artifact never changes after it is produced. Use `repr(artifact)` for a
+cheap single-line hint, then `artifact.show()` for a bounded read and
+`artifact.contract()` to inspect mechanically valid next actions. Call
+`artifact.to_pandas()` only as a terminal step when you need a mutable local
+copy. Every artifact carries lineage and is persisted under project-local
+`.marivo/`, so later steps can recover it by ref without re-querying the
+datasource.
 :::
 
 ## Open a session
@@ -331,11 +344,10 @@ feed typed Marivo operators.
 The agent read path is layered to keep scripts cheap across loops:
 
 ```python
-repr(delta)
-delta.summary()
-delta.schema()
-delta.contract()
-delta.preview(limit=10)
+repr(delta)          # cheap single-line hint
+delta.show()         # bounded current-state read
+delta.contract()     # mechanically valid next actions
+delta.to_pandas()    # terminal export for custom local analysis
 ```
 
 Use `artifact.contract().affordances` to inspect mechanical compatibility. It

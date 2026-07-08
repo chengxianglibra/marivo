@@ -20,9 +20,9 @@ points, recovery discipline, and final report shape.
 
 `mv.help()` owns the static analysis contract: signatures, artifact families,
 constraints, return types, errors, and runnable examples. Start with
-`mv.help()` or `mv.help("agent_surface")`, then inspect the specific topic
-before calling it, such as `mv.help("observe")`, `mv.help("discover")`,
-`mv.help("alignment")`, or `mv.help("MetricFrame")`.
+`mv.help("workflow")`, then inspect the specific topic before calling it,
+such as `mv.help("observe")`, `mv.help("discover")`, `mv.help("alignment")`,
+or `mv.help("MetricFrame")`.
 
 Frames and results own dynamic guidance. Use `artifact.show()` to inspect the
 current state and `artifact.contract()` to inspect mechanically valid next actions.
@@ -47,10 +47,9 @@ make examples-check
 ## Start Flow
 
 1. Verify the installed analysis surface:
-   `<venv>/bin/python -c 'import marivo.analysis as mv; mv.help()'`.
-2. Inspect the static contract for the task:
-   `mv.help("agent_surface")`, then the specific intent, policy, frame, or
-   topic.
+   `<venv>/bin/python -c 'import marivo.analysis as mv; mv.help("workflow")'`.
+2. Inspect the specific runtime topic before calling it:
+   `mv.help("observe")`, `mv.help("catalog")`, or `mv.help("artifacts")`.
 3. Load or inspect the semantic catalog and confirm the metric ids, dimensions,
    and time dimensions the task needs.
 4. Create or reuse one stable task session:

@@ -107,6 +107,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"marivo/analysis/__init__.py" = [
+    "F401",    # re-exports not in __all__ are intentional facade imports
+]
 "tests/**/*.py" = [
     "S101",    # allow assert in tests
     "RUF012",  # allow mutable class attributes in tests

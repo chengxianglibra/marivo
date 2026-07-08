@@ -19,12 +19,24 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 ```
 
+:::note[Agent discovery]
+从命令行开始，先用 `marivo --help` 查看 CLI 入口。要获取完整的 analysis workflow
+契约，运行：
+
+```bash
+.venv/bin/python -c "import marivo.analysis as mv; mv.help('workflow')"
+```
+
+然后深入具体主题，例如 `mv.help("observe")`、`mv.help("catalog")` 或
+`mv.help("artifacts")`，再编写调用。
+:::
+
 :::note[Artifacts 是不可变的]
-Artifact 一旦产出便不再改变。按层读取它：
-`repr(artifact)` → `artifact.summary()` → `artifact.schema()` /
-`artifact.contract()` → tabular artifact 的 `artifact.preview(limit=n)`。只有需要
-可变本地副本时才调用 `artifact.to_pandas()`。每个 artifact 都携带 lineage，并持久化在
-project 本地 `.marivo/` 下，因此后续脚本可以用 ref 恢复它，而不必重新查询 datasource。
+Artifact 一旦产出便不再改变。用 `repr(artifact)` 获取廉价单行提示，再用
+`artifact.show()` 做有界读取，用 `artifact.contract()` 查看机械有效的下一步操作。
+只有需要可变本地副本时才调用 `artifact.to_pandas()`，且仅作为终端步骤。每个 artifact
+都携带 lineage，并持久化在 project 本地 `.marivo/` 下，因此后续脚本可以用 ref 恢复它，
+而不必重新查询 datasource。
 :::
 
 ## 打开 session
@@ -313,11 +325,10 @@ custom.show()
 Agent 读取 artifact 时按层下钻，以降低跨 loop 成本：
 
 ```python
-repr(delta)
-delta.summary()
-delta.schema()
-delta.contract()
-delta.preview(limit=10)
+repr(delta)          # 廉价单行提示
+delta.show()         # 有界当前状态读取
+delta.contract()     # 机械有效的下一步操作
+delta.to_pandas()    # 终端导出，用于自定义本地分析
 ```
 
 用 `artifact.contract().affordances` 查看机械兼容性。它只说明哪些 public operator

@@ -430,7 +430,7 @@ def test_observe_rejects_bare_metric_string(tmp_path):
     assert exc_info.value.details["expected_kind"] == "metric"
     assert exc_info.value.details["actual_kind"] == "str"
     rendered = str(exc_info.value)
-    assert "catalog metric SemanticRef or SemanticObject" in rendered
+    assert "metric requires a metric SemanticRef or SemanticObject" in rendered
 
 
 def test_session_observe_accepts_catalog_object_and_ref(sales_session, sales_catalog):

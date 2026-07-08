@@ -76,33 +76,57 @@ def test_analysis_exports_non_execution_escape_hatch_types():
 def test_analysis_exports_public_surface_by_layer() -> None:
     import marivo.analysis as mv
 
-    construction_types = {
-        "SemanticRef",
-        "SemanticObject",
-        "CalendarRef",
-        "ArtifactRef",
-        "TimeScope",
-        "AlignmentPolicy",
+    # Default workflow exports — these are the pruned public surface.
+    default_exports = {
+        "help",
+        "help_text",
+        "session",
+        "Session",
+        "MetricFrame",
+        "DeltaFrame",
+        "AttributionFrame",
+        "CandidateSet",
+        "AssociationResult",
+        "HypothesisTestResult",
+        "ForecastFrame",
+        "QualityReport",
         "window_bucket",
         "dow_aligned",
         "holiday_aligned",
         "holiday_and_dow_aligned",
-        "SamplingPolicy",
+        "AlignmentPolicy",
+        "ibis_query",
+        "metric_columns",
+        "time_column",
+        "dimension_column",
+        "SemanticRef",
+        "SemanticObject",
+        "ArtifactRef",
+        "CalendarRef",
+        "TimeScope",
+        "AbsoluteWindow",
     }
-    core_runtime_result_types = {
-        "Session",
-        "SessionSummary",
-        "JobSummary",
+    for name in default_exports:
+        assert name in mv.__all__, name
+        assert hasattr(mv, name), name
+
+    # Advanced/internal types are still importable via explicit attribute
+    # access but are NOT in the default __all__ surface.
+    advanced_internal = {
         "BaseFrame",
         "BaseFrameMeta",
         "FrameSummaryEntry",
+        "JobSummary",
+        "SessionSummary",
         "Lineage",
         "LineageStep",
+        "SamplingPolicy",
+        "errors",
+        "evidence",
+        "frames",
     }
-    namespaces = {"session", "evidence", "frames", "errors"}
-
-    for name in construction_types | core_runtime_result_types | namespaces:
-        assert name in mv.__all__, name
+    for name in advanced_internal:
+        assert name not in mv.__all__, name
         assert hasattr(mv, name), name
 
 

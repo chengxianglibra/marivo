@@ -180,6 +180,19 @@ def test_no_args_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Marivo" in captured.out or "marivo" in captured.out
 
 
+def test_root_help_points_analysis_to_python_workflow(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "Analysis workflow:" in captured.out
+    assert (
+        ".venv/bin/python -c \"import marivo.analysis as mv; mv.help('workflow')\"" in captured.out
+    )
+    assert "marivo doctor --semantic" in captured.out
+    assert "marivo doctor --datasource <name> --connect" in captured.out
+
+
 def test_version_flag_prints_package_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["--version"])

@@ -22,20 +22,23 @@ class _SemanticHelpIR(Protocol):
 
 
 _HELP_ONLY_ENTRIES: tuple[str, ...] = (
-    "agent_surface",
+    "workflow",
+    "session",
+    "catalog",
     "observe",
     "compare",
     "attribute",
     "discover",
-    "transform",
     "correlate",
+    "hypothesis_test",
     "forecast",
     "derive_metric_frame",
     "assess_quality",
-    "hypothesis_test",
     "alignment",
     "calendar",
-    "select",
+    "artifacts",
+    "recovery",
+    "advanced",
     "cumulative_frame",
 )
 
@@ -68,8 +71,12 @@ _CONSTRUCTED_BY: dict[str, str] = {
 _SUMMARIES: dict[str, str] = {
     "help": "this introspection entry point",
     "help_text": "return analysis help text without printing",
-    "agent_surface": "Phase 3 default agent-facing analysis surface and artifact read protocol",
+    "workflow": "default agent runbook: session, catalog discovery, observe, read artifacts, recovery",
     "session": "analysis session lifecycle and persistence helpers",
+    "catalog": "analysis-side semantic catalog consumption: list domains, metrics, dimensions",
+    "artifacts": "artifact read protocol: show(), contract(), to_pandas()",
+    "recovery": "cross-script frame and job recovery helpers",
+    "advanced": "non-default surfaces: transform, select, contract DTO, lineage",
     "datasources": "DEPRECATED: use marivo.datasource (md.*) for datasource registration, validation, and runtime lookup",
     "evidence": "analysis evidence DTOs and session knowledge helpers",
     "errors": "AnalysisError hierarchy and analysis error kinds",
@@ -225,7 +232,7 @@ def _discover_content() -> dict[str, object]:
         "example": (
             'region = session.catalog.get("dimension.sales.orders.region").ref\n'
             "session.discover.driver_axes(\n"
-            '    delta, search_space=[region], analysis_purpose="寻找收入变化的候选归因维度"\n'
+            '    delta, search_space=[region], analysis_purpose="find driver dimensions for revenue change"\n'
             ")"
         ),
     }
@@ -316,7 +323,7 @@ def _transform_content() -> dict[str, object]:
         ],
         "example": (
             "session.transform.topk(\n"
-            '    delta, by="delta", limit=3, order="decrease", analysis_purpose="保留变化最大的地区"\n'
+            '    delta, by="delta", limit=3, order="decrease", analysis_purpose="keep top regions by change"\n'
             ")"
         ),
     }
@@ -449,12 +456,26 @@ def _session_content(constraints: tuple[Constraint, ...]) -> dict[str, object]:
         "lifecycle": lifecycle,
         "methods": [dict(method) for method in _SESSION_METHODS],
         "constraints": [constraint.to_summary_dict() for constraint in constraints],
+        "construction": [
+            "mv.session.get_or_create(...)",
+            "mv.session.list()",
+            "mv.session.current()",
+        ],
+        "frame_recovery": [
+            "session.frame_summaries()",
+            "session.recent_jobs(limit=5)",
+            "session.get_frame(ref)",
+        ],
+        "audit_tools": [
+            "session.knowledge()",
+            "session.evidence",
+        ],
         "example": (
             "session = mv.session.get_or_create(name='analysis')\n"
             "revenue = session.catalog.get('metric.orders.revenue')\n"
             "metric = session.observe(revenue, "
             "time_scope={'start': '2026-01-01', 'end': '2026-01-31'}, "
-            "analysis_purpose='确认 1 月收入水平')"
+            "analysis_purpose='confirm January revenue level')"
         ),
     }
 
@@ -463,7 +484,10 @@ def _session_text(content: dict[str, object]) -> str:
     identity_fields = cast("list[dict[str, str]]", content["identity_fields"])
     lifecycle = cast("list[dict[str, str]]", content["lifecycle"])
     methods = cast("list[dict[str, str]]", content["methods"])
-    lines = ["Identity fields:"]
+    lines = ["Construction:"]
+    for step in cast("list[str]", content["construction"]):
+        lines.append(f"  {step}")
+    lines.extend(("", "Identity fields:"))
     for field in identity_fields:
         lines.append(f"  {field['name']:<24}{field['summary']}")
     lines.extend(("", "Lifecycle:"))
@@ -475,6 +499,12 @@ def _session_text(content: dict[str, object]) -> str:
         for method in methods:
             if method["group"] == group:
                 lines.append(f"    {method['name']:<28}{method['summary']}")
+    lines.extend(("", "Frame recovery:"))
+    for step in cast("list[str]", content["frame_recovery"]):
+        lines.append(f"  {step}")
+    lines.extend(("", "Audit tools (not default authoring path):"))
+    for tool in cast("list[str]", content["audit_tools"]):
+        lines.append(f"  {tool}")
     lines.extend(("", "Example:", cast("str", content["example"])))
     return "\n".join(lines)
 
@@ -512,7 +542,7 @@ def _observe_content() -> dict[str, object]:
         "example": (
             "session.observe(\n"
             '    revenue, time_scope={"start": "2026-01-01", "end": "2026-02-01"}, '
-            'analysis_purpose="确认 1 月收入水平"\n'
+            'analysis_purpose="confirm January revenue level"\n'
             ")"
         ),
     }
@@ -602,39 +632,37 @@ def _cumulative_frame_text(content: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _agent_surface_content() -> dict[str, object]:
+def _workflow_content() -> dict[str, object]:
     return {
-        "summary": "Phase 3 default agent-facing analysis surface.",
+        "summary": "Default agent runbook: session, catalog discovery, observe, read, recover.",
+        "steps": [
+            "import marivo.analysis as mv",
+            "session = mv.session.get_or_create(...)",
+            'session.catalog.list("domain").show()',
+            'session.catalog.list("metric", scope="domain.<domain>").show()',
+            "session.observe(...)",
+            "artifact.show()",
+            "artifact.contract()",
+            "session.frame_summaries()",
+            "session.get_frame(...)",
+            "artifact.to_pandas()",
+        ],
+        "default_operators": [
+            {"operator": "observe", "returns": "MetricFrame"},
+            {"operator": "compare", "returns": "DeltaFrame"},
+            {"operator": "attribute", "returns": "AttributionFrame"},
+            {"operator": "discover.<objective>", "returns": "CandidateSet"},
+            {"operator": "correlate", "returns": "AssociationResult"},
+            {"operator": "hypothesis_test", "returns": "HypothesisTestResult"},
+            {"operator": "forecast", "returns": "ForecastFrame"},
+            {"operator": "derive_metric_frame", "returns": "MetricFrame"},
+            {"operator": "assess_quality", "returns": "QualityReport"},
+        ],
         "catalog_discovery": [
-            'session.catalog.list("metric").show()',
-            'session.catalog.list("dimension", scope="domain.sales").show()',
-            'session.catalog.get("metric.sales.revenue")',
+            'session.catalog.list("domain").show()',
+            'session.catalog.list("metric", scope="domain.<domain>").show()',
         ],
-        "core_operators": [
-            {"operator": "observe", "output": "MetricFrame"},
-            {"operator": "compare", "output": "DeltaFrame"},
-            {"operator": "attribute", "output": "AttributionFrame"},
-            {"operator": "discover.<objective>", "output": "CandidateSet"},
-            {"operator": "correlate", "output": "AssociationResult"},
-            {"operator": "hypothesis_test", "output": "HypothesisTestResult"},
-            {"operator": "forecast", "output": "ForecastFrame"},
-            {"operator": "derive_metric_frame", "output": "MetricFrame"},
-            {"operator": "assess_quality", "output": "QualityReport"},
-        ],
-        "artifact_protocol": [
-            "ref",
-            "kind",
-            "show()",
-            "contract()",
-            "quality_summary",
-            "blocking_issues",
-            "lineage",
-            "state",
-            "to_pandas()",
-        ],
-        "tabular_reads": ["to_pandas()"],
         "read_order": [
-            "repr(artifact)",
             "artifact.show()",
             "artifact.contract()",
             "artifact.to_pandas()",
@@ -643,17 +671,7 @@ def _agent_surface_content() -> dict[str, object]:
             "session.frame_summaries()",
             "session.recent_jobs(limit=5)",
             "session.get_frame(ref)",
-            "session.knowledge().observations() / .facts() / .open_items()",
         ],
-        "derive_boundary": (
-            "derive_metric_frame uses semantic refs for metric and axis bindings; "
-            "query output columns are plain strings. Unbound columns in the build "
-            "output are retained as-is; project within build to limit the column set."
-        ),
-        "quality_boundary": (
-            "quality_summary is a cheap persisted metadata projection; "
-            "session.assess_quality(artifact) runs an explicit auditable quality operator."
-        ),
         "affordance_boundary": (
             "artifact.contract().affordances are mechanical compatibility facts, "
             "not advisory endorsements from Marivo."
@@ -662,39 +680,169 @@ def _agent_surface_content() -> dict[str, object]:
             "Pass analysis_purpose on artifact-producing intents so persisted "
             "frames/results remain easy to identify during session recovery."
         ),
-        "expert_reference": ["transform", "select", "evidence", "knowledge"],
+        "see_also": [
+            'mv.help("catalog")',
+            'mv.help("artifacts")',
+            'mv.help("recovery")',
+            'mv.help("advanced")',
+        ],
     }
 
 
-def _agent_surface_text(content: dict[str, object]) -> str:
-    core = cast("list[dict[str, str]]", content["core_operators"])
-    discovery = cast("list[str]", content["catalog_discovery"])
-    lines = ["Catalog discovery (before observe):"]
-    for step in discovery:
-        lines.append(f"  {step}")
-    lines.extend(("", "Default agent-facing operators:", ""))
-    for item in core:
-        lines.append(f"  session.{item['operator']:<24}-> {item['output']}")
-    lines.extend(("", "Base artifact protocol:"))
-    lines.append("  " + ", ".join(cast("list[str]", content["artifact_protocol"])))
-    lines.extend(("", "Purpose labels:"))
-    lines.append(f"  {content['purpose_guidance']}")
-    lines.extend(("", "Bounded read order:"))
+def _workflow_text(content: dict[str, object]) -> str:
+    steps = cast("list[str]", content["steps"])
+    operators = cast("list[dict[str, str]]", content["default_operators"])
+    lines = ["Default agent workflow:", ""]
+    for i, step in enumerate(steps, 1):
+        lines.append(f"  {i}. {step}")
+    lines.extend(("", "Default operators:"))
+    for item in operators:
+        lines.append(f"  session.{item['operator']:<24}-> {item['returns']}")
+    lines.extend(("", "Artifact read order:"))
     for step in cast("list[str]", content["read_order"]):
         lines.append(f"  {step}")
-    lines.extend(("", "Terminal escape hatch:"))
-    lines.append("  " + ", ".join(cast("list[str]", content["tabular_reads"])))
-    lines.extend(("", "Quality boundary:"))
-    lines.append(f"  {content['quality_boundary']}")
-    lines.extend(("", "Derive boundary:"))
-    lines.append(f"  {content['derive_boundary']}")
-    lines.extend(("", "Affordances:"))
-    lines.append(f"  {content['affordance_boundary']}")
-    lines.extend(("", "Cross-script recovery facts:"))
+    lines.extend(("", f"  {content['affordance_boundary']}"))
+    lines.extend(("", "Purpose labels:"))
+    lines.append(f"  {content['purpose_guidance']}")
+    lines.extend(("", "Recovery (cross-script):"))
     for fact in cast("list[str]", content["recovery"]):
         lines.append(f"  {fact}")
-    lines.extend(("", "Advanced reference, not the default path:"))
-    lines.append("  " + ", ".join(cast("list[str]", content["expert_reference"])))
+    lines.extend(("", "See also:"))
+    for ref in cast("list[str]", content["see_also"]):
+        lines.append(f"  {ref}")
+    return "\n".join(lines)
+
+
+def _catalog_content() -> dict[str, object]:
+    return {
+        "summary": "Analysis-side semantic catalog consumption.",
+        "discovery": [
+            'session.catalog.list("domain").show()',
+            'session.catalog.list("metric", scope="domain.<domain>").show()',
+            'session.catalog.list("dimension", scope="entity.<domain>.<entity>").show()',
+        ],
+        "drilldown": [
+            'session.catalog.get("metric.<domain>.<metric>").details().show()',
+        ],
+        "help_hooks": [
+            "mv.help(metric)",
+            "mv.help(metric.ref)",
+        ],
+        "note": (
+            "Always pass an explicit kind and scope to catalog.list(); "
+            "the no-argument form is not supported on the analysis side."
+        ),
+    }
+
+
+def _catalog_text(content: dict[str, object]) -> str:
+    discovery = cast("list[str]", content["discovery"])
+    drilldown = cast("list[str]", content["drilldown"])
+    hooks = cast("list[str]", content["help_hooks"])
+    lines = ["Analysis-side catalog consumption:", "", "Discovery:"]
+    for step in discovery:
+        lines.append(f"  {step}")
+    lines.extend(("", "Drilldown:"))
+    for step in drilldown:
+        lines.append(f"  {step}")
+    lines.extend(("", "Help hooks:"))
+    for hook in hooks:
+        lines.append(f"  {hook}")
+    lines.extend(("", f"Note: {content['note']}"))
+    return "\n".join(lines)
+
+
+def _artifacts_content() -> dict[str, object]:
+    return {
+        "summary": "Artifact read protocol: show, contract, to_pandas.",
+        "read_order": [
+            "artifact.show()",
+            "artifact.contract()",
+            "artifact.to_pandas()",
+        ],
+        "affordance_boundary": (
+            "artifact.contract().affordances are mechanical compatibility facts, "
+            "not advisory endorsements from Marivo."
+        ),
+        "note": (
+            "Other methods on artifact objects are not default exits; "
+            "use artifact.contract() to inspect available actions."
+        ),
+    }
+
+
+def _artifacts_text(content: dict[str, object]) -> str:
+    lines = ["Artifact read protocol:", "", "Read order:"]
+    for step in cast("list[str]", content["read_order"]):
+        lines.append(f"  {step}")
+    lines.extend(("", f"  {content['affordance_boundary']}"))
+    lines.extend(("", f"Note: {content['note']}"))
+    return "\n".join(lines)
+
+
+def _recovery_content() -> dict[str, object]:
+    return {
+        "summary": "Cross-script frame and job recovery helpers.",
+        "steps": [
+            "session.frame_summaries()",
+            "session.recent_jobs(limit=5)",
+            "session.get_frame(ref)",
+        ],
+        "audit": [
+            "session.knowledge().observations()",
+            "session.knowledge().facts()",
+            "session.knowledge().open_items()",
+            "session.evidence",
+        ],
+        "note": (
+            "knowledge() and evidence are audit/recovery tools, not the default authoring path."
+        ),
+    }
+
+
+def _recovery_text(content: dict[str, object]) -> str:
+    lines = ["Recovery steps:"]
+    for step in cast("list[str]", content["steps"]):
+        lines.append(f"  {step}")
+    lines.extend(("", "Audit tools:"))
+    for tool in cast("list[str]", content["audit"]):
+        lines.append(f"  {tool}")
+    lines.extend(("", f"Note: {content['note']}"))
+    return "\n".join(lines)
+
+
+def _advanced_content() -> dict[str, object]:
+    return {
+        "summary": "Non-default surfaces: transform, select, contract DTO, lineage.",
+        "surfaces": [
+            {
+                "name": "transform",
+                "summary": "family-preserving reshape of a MetricFrame or DeltaFrame",
+            },
+            {
+                "name": "select",
+                "summary": "read typed fields from a CandidateSet row",
+            },
+            {
+                "name": "contract DTO",
+                "summary": "ArtifactContract, ArtifactAffordance, ArtifactSchema descriptors",
+            },
+            {
+                "name": "lineage",
+                "summary": "Lineage and LineageStep provenance chain",
+            },
+        ],
+        "disclaimer": "These are not default workflow surfaces.",
+    }
+
+
+def _advanced_text(content: dict[str, object]) -> str:
+    surfaces = cast("list[dict[str, str]]", content["surfaces"])
+    lines = ["Advanced surfaces (not default workflow):", ""]
+    for surface in surfaces:
+        lines.append(f"  {surface['name']:<20}{surface['summary']}")
+    lines.extend(("", f"Disclaimer: {content['disclaimer']}"))
+    lines.extend(("", 'Reach via mv.help("transform"), mv.help("select"), etc.'))
     return "\n".join(lines)
 
 
@@ -939,7 +1087,11 @@ def _surface() -> Surface:
     transform_content = _transform_content()
     alignment_content = _alignment_content()
     calendar_content = _calendar_content()
-    agent_surface_content = _agent_surface_content()
+    workflow_content = _workflow_content()
+    catalog_topic_content = _catalog_content()
+    artifacts_content = _artifacts_content()
+    recovery_content = _recovery_content()
+    advanced_content = _advanced_content()
     observe_content = _observe_content()
     cumulative_frame_content = _cumulative_frame_content()
     observe_sig, observe_doc = _intent_method_info("observe")
@@ -954,10 +1106,30 @@ def _surface() -> Surface:
         resolve=_resolve,
         catalog=catalog,
         topics={
-            "agent_surface": _topic(
-                "agent_surface",
-                agent_surface_content,
-                _agent_surface_text(agent_surface_content),
+            "workflow": _topic(
+                "workflow",
+                workflow_content,
+                _workflow_text(workflow_content),
+            ),
+            "catalog": _topic(
+                "catalog",
+                catalog_topic_content,
+                _catalog_text(catalog_topic_content),
+            ),
+            "artifacts": _topic(
+                "artifacts",
+                artifacts_content,
+                _artifacts_text(artifacts_content),
+            ),
+            "recovery": _topic(
+                "recovery",
+                recovery_content,
+                _recovery_text(recovery_content),
+            ),
+            "advanced": _topic(
+                "advanced",
+                advanced_content,
+                _advanced_text(advanced_content),
             ),
             "observe": _topic(
                 "observe",

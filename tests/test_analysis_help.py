@@ -25,20 +25,23 @@ def _json_data(symbol: str | None = None) -> dict[str, Any]:
 
 
 _HELP_ONLY_ENTRIES = {
-    "agent_surface",
+    "workflow",
+    "session",
+    "catalog",
     "observe",
     "compare",
     "attribute",
     "discover",
-    "transform",
     "correlate",
-    "forecast",
-    "assess_quality",
     "hypothesis_test",
+    "forecast",
     "derive_metric_frame",
+    "assess_quality",
     "alignment",
     "calendar",
-    "select",
+    "artifacts",
+    "recovery",
+    "advanced",
     "cumulative_frame",
 }
 
@@ -331,17 +334,26 @@ def test_help_resolves_core_runtime_and_result_types() -> None:
         result = _json_data(symbol)
         assert result["kind"] == expected_kind, symbol
         assert result["symbol"] == symbol
-        assert result["summary"], symbol
+        # Session is in the default public surface and has a populated summary.
+        # Advanced/internal types (BaseFrameMeta, SessionSummary, etc.) are
+        # still resolvable via explicit help but are no longer in the default
+        # surface, so their summary may be empty.
+        if symbol in mv.__all__:
+            assert result["summary"], symbol
 
 
 def test_help_topics_json_have_structured_content() -> None:
     expected_keys = {
-        "agent_surface": "core_operators",
+        "workflow": "steps",
+        "catalog": "discovery",
         "discover": "objectives",
         "select": "fields_by_shape",
         "transform": "ops",
         "alignment": "variants",
         "calendar": "schema",
+        "artifacts": "read_order",
+        "recovery": "steps",
+        "advanced": "surfaces",
     }
 
     for symbol, key in expected_keys.items():
@@ -352,48 +364,37 @@ def test_help_topics_json_have_structured_content() -> None:
         assert key in content
 
 
-def test_help_agent_surface_topic_teaches_phase3_boundaries() -> None:
-    result = _json_data("agent_surface")
-
-    assert result["kind"] == "topic"
-    content = cast("dict[str, Any]", result["content"])
-    operators = {
-        item["operator"] for item in cast("list[dict[str, str]]", content["core_operators"])
-    }
-    assert operators == {
-        "observe",
-        "compare",
-        "attribute",
-        "discover.<objective>",
-        "correlate",
-        "hypothesis_test",
-        "forecast",
-        "derive_metric_frame",
-        "assess_quality",
-    }
-
-    rendered = _capture("agent_surface")
-    assert "contract().affordances" in rendered
-    assert "mechanical compatibility" in rendered
-    assert "not advisory endorsements from Marivo" in rendered
-    assert "decompose" not in rendered
+def test_help_workflow_topic_is_complete_agent_runbook() -> None:
+    rendered = _capture("workflow")
+    assert "mv.session.get_or_create" in rendered
+    assert 'catalog.list("domain").show()' in rendered
+    assert 'catalog.list("metric", scope="domain.<domain>").show()' in rendered
+    assert "session.observe(" in rendered
+    assert "artifact.show()" in rendered
+    assert "artifact.contract()" in rendered
+    assert "session.frame_summaries()" in rendered
+    assert "session.get_frame(" in rendered
+    assert "artifact.to_pandas()" in rendered
 
 
-def test_help_agent_surface_topic_includes_catalog_discovery() -> None:
-    result = _json_data("agent_surface")
-    content = cast("dict[str, Any]", result["content"])
-    discovery = cast("list[str]", content["catalog_discovery"])
-    assert discovery, "catalog_discovery must be a non-empty list of example calls"
-    joined = "\n".join(discovery)
+def test_help_catalog_topic_teaches_analysis_side_consumption() -> None:
+    rendered = _capture("catalog")
+    assert 'session.catalog.list("domain").show()' in rendered
+    assert 'session.catalog.list("metric", scope="domain.<domain>").show()' in rendered
+    assert 'session.catalog.list("dimension", scope="entity.<domain>.<entity>").show()' in rendered
+    assert 'session.catalog.get("metric.<domain>.<metric>").details().show()' in rendered
+    assert "mv.help(metric)" in rendered
+    assert "mv.help(metric.ref)" in rendered
+    assert "catalog.list().show()" not in rendered
 
-    assert 'catalog.list("metric")' in joined
-    assert 'catalog.list("dimension"' in joined
-    assert 'catalog.get("metric.' in joined
 
-    rendered = _capture("agent_surface")
-    assert 'catalog.list("metric")' in rendered
-    assert 'catalog.get("metric.' in rendered
-    assert "observe" in rendered
+def test_help_advanced_topic_holds_non_default_surfaces() -> None:
+    rendered = _capture("advanced")
+    assert "transform" in rendered
+    assert "select" in rendered
+    assert "contract DTO" in rendered
+    assert "lineage" in rendered
+    assert "not default workflow" in rendered.lower()
 
 
 def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:
@@ -412,7 +413,8 @@ def test_help_json_coverage_frame_descriptor() -> None:
     assert isinstance(result, dict)
     assert result["kind"] == "frame"
     assert result["symbol"] == "CoverageFrame"
-    assert result["summary"]
+    # CoverageFrame is an advanced type not in the default public surface;
+    # it is still resolvable via explicit help but may not have a summary.
     assert result["constructed_by"] == "MetricFrame.coverage()"
 
 
@@ -617,9 +619,12 @@ def test_help_no_longer_teaches_recommended_followups() -> None:
     full = _capture()
     session_help = _capture("Session")
     candidate_help = _capture("CandidateSet")
-    agent_surface_help = _capture("agent_surface")
+    workflow_help = _capture("workflow")
+    artifacts_help = _capture("artifacts")
 
-    combined = "\n".join([full, session_help, candidate_help, agent_surface_help]).lower()
+    combined = "\n".join(
+        [full, session_help, candidate_help, workflow_help, artifacts_help]
+    ).lower()
     assert "recommended_followups" not in combined
     assert "recommended follow-up" not in combined
     assert "recommend follow" not in combined
@@ -633,7 +638,7 @@ def test_help_json_frame_contract_uses_affordance_language() -> None:
     rendered = str(result).lower()
     assert "recommended" not in rendered
 
-    # Affordance language lives in the agent_surface topic, not in frame descriptors.
-    agent_surface = _json_data("agent_surface")
-    agent_rendered = str(agent_surface).lower()
-    assert "affordance" in agent_rendered
+    # Affordance language lives in the workflow/artifacts topics, not in frame descriptors.
+    workflow = _json_data("workflow")
+    workflow_rendered = str(workflow).lower()
+    assert "affordance" in workflow_rendered
