@@ -1622,6 +1622,15 @@ def _execute_base(
     elif resolved_dimensions:
         table = plan.table
         dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
+        dimension_exprs = {
+            field_ir.name: _validate_field_expr(
+                resolver.dimension_on(_field_details(catalog, field_ir.semantic_id).ref, table),
+                field_id=field_ir.semantic_id,
+            ).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        table = table.mutate(**dimension_exprs)
+        dataset_tables = dict.fromkeys(metric_datasets, table)
         metric_expr = _metric_expr(
             catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables
         )
