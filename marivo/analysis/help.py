@@ -634,18 +634,39 @@ def _cumulative_frame_text(content: dict[str, object]) -> str:
 
 def _workflow_content() -> dict[str, object]:
     return {
-        "summary": "Default agent runbook: session, catalog discovery, observe, read, recover.",
+        "summary": "Default agent runbook: session, catalog discovery, route intent, read, recover.",
         "steps": [
             "import marivo.analysis as mv",
             "session = mv.session.get_or_create(...)",
             'session.catalog.list("domain").show()',
             'session.catalog.list("metric", scope="domain.<domain>").show()',
-            "session.observe(...)",
+            'revenue = session.catalog.get("metric.sales.revenue")',
+            "mv.help(revenue)",
+            "frame = session.observe(...)",
             "artifact.show()",
             "artifact.contract()",
-            "session.frame_summaries()",
-            "session.get_frame(...)",
+            "artifact.meta.evidence_status",
             "artifact.to_pandas()",
+        ],
+        "intent_routing": [
+            {"question": "Value of a metric in one window?", "route": "observe"},
+            {"question": "Current vs baseline change?", "route": "observe x2 -> compare"},
+            {"question": "Why did the metric change?", "route": "compare -> attribute"},
+            {
+                "question": "Spikes, drops, unusual buckets?",
+                "route": "observe -> discover.<objective>",
+            },
+            {"question": "Two metrics move together?", "route": "observe both -> correlate"},
+            {
+                "question": "Mean changed between paired samples?",
+                "route": "observe x2 -> hypothesis_test",
+            },
+            {"question": "Need a future projection?", "route": "observe series -> forecast"},
+            {"question": "Need auditable quality evidence?", "route": "assess_quality"},
+            {
+                "question": "Custom Ibis result must re-enter typed flow?",
+                "route": "derive_metric_frame",
+            },
         ],
         "default_operators": [
             {"operator": "observe", "returns": "MetricFrame"},
@@ -665,12 +686,26 @@ def _workflow_content() -> dict[str, object]:
         "read_order": [
             "artifact.show()",
             "artifact.contract()",
+            "artifact.meta.evidence_status",
             "artifact.to_pandas()",
         ],
         "recovery": [
             "session.frame_summaries()",
             "session.recent_jobs(limit=5)",
             "session.get_frame(ref)",
+        ],
+        "quality_gate": (
+            "Call session.assess_quality(artifact) when you need auditable "
+            "quality evidence, before reporting, or when artifact meta is not clearly ok."
+        ),
+        "cumulative_note": (
+            'Cumulative MetricFrames have intent gates; read mv.help("cumulative_frame") '
+            "when artifact.contract() reports cumulative caveats."
+        ),
+        "operator_boundaries": [
+            "observe/derive_metric_frame and axis-like transform/discover params consume catalog refs or objects.",
+            "compare/correlate/hypothesis_test consume typed MetricFrames.",
+            "attribute consumes a DeltaFrame plus catalog axes.",
         ],
         "affordance_boundary": (
             "artifact.contract().affordances are mechanical compatibility facts, "
@@ -684,6 +719,7 @@ def _workflow_content() -> dict[str, object]:
             'mv.help("catalog")',
             'mv.help("artifacts")',
             'mv.help("recovery")',
+            'mv.help("cumulative_frame")',
             'mv.help("advanced")',
         ],
     }
@@ -692,9 +728,13 @@ def _workflow_content() -> dict[str, object]:
 def _workflow_text(content: dict[str, object]) -> str:
     steps = cast("list[str]", content["steps"])
     operators = cast("list[dict[str, str]]", content["default_operators"])
+    routes = cast("list[dict[str, str]]", content["intent_routing"])
     lines = ["Default agent workflow:", ""]
     for i, step in enumerate(steps, 1):
         lines.append(f"  {i}. {step}")
+    lines.extend(("", "Question -> first operator:"))
+    for item in routes:
+        lines.append(f"  {item['question']} -> {item['route']}")
     lines.extend(("", "Default operators:"))
     for item in operators:
         lines.append(f"  session.{item['operator']:<24}-> {item['returns']}")
@@ -702,9 +742,15 @@ def _workflow_text(content: dict[str, object]) -> str:
     for step in cast("list[str]", content["read_order"]):
         lines.append(f"  {step}")
     lines.extend(("", f"  {content['affordance_boundary']}"))
+    lines.extend(("", "Quality and cumulative gates:"))
+    lines.append(f"  {content['quality_gate']}")
+    lines.append(f"  {content['cumulative_note']}")
+    lines.extend(("", "Operator input boundaries:"))
+    for boundary in cast("list[str]", content["operator_boundaries"]):
+        lines.append(f"  {boundary}")
     lines.extend(("", "Purpose labels:"))
     lines.append(f"  {content['purpose_guidance']}")
-    lines.extend(("", "Recovery (cross-script):"))
+    lines.extend(("", "Recovery branch (cross-script only):"))
     for fact in cast("list[str]", content["recovery"]):
         lines.append(f"  {fact}")
     lines.extend(("", "See also:"))
@@ -754,17 +800,24 @@ def _catalog_text(content: dict[str, object]) -> str:
 
 def _artifacts_content() -> dict[str, object]:
     return {
-        "summary": "Artifact read protocol: show, contract, to_pandas.",
+        "summary": "Artifact read protocol: show, contract, meta status, terminal to_pandas.",
         "read_order": [
             "artifact.show()",
             "artifact.contract()",
             "artifact.to_pandas()",
+        ],
+        "inspection_surfaces": [
+            "artifact.meta.evidence_status",
+            "artifact.meta.blocking_issues",
+            "artifact.meta.confidence_scope",
+            "artifact.meta.quality_summary",
         ],
         "affordance_boundary": (
             "artifact.contract().affordances are mechanical compatibility facts, "
             "not advisory endorsements from Marivo."
         ),
         "note": (
+            "artifact.meta is an inspection/status surface, not a data exit. "
             "Other methods on artifact objects are not default exits; "
             "use artifact.contract() to inspect available actions."
         ),
@@ -775,6 +828,9 @@ def _artifacts_text(content: dict[str, object]) -> str:
     lines = ["Artifact read protocol:", "", "Read order:"]
     for step in cast("list[str]", content["read_order"]):
         lines.append(f"  {step}")
+    lines.extend(("", "Inspection/status surface:"))
+    for field in cast("list[str]", content["inspection_surfaces"]):
+        lines.append(f"  {field}")
     lines.extend(("", f"  {content['affordance_boundary']}"))
     lines.extend(("", f"Note: {content['note']}"))
     return "\n".join(lines)
@@ -813,7 +869,7 @@ def _recovery_text(content: dict[str, object]) -> str:
 
 def _advanced_content() -> dict[str, object]:
     return {
-        "summary": "Non-default surfaces: transform, select, contract DTO, lineage.",
+        "summary": "Non-default surfaces: transform, select, cumulative_frame, contract DTO, lineage.",
         "surfaces": [
             {
                 "name": "transform",
@@ -822,6 +878,10 @@ def _advanced_content() -> dict[str, object]:
             {
                 "name": "select",
                 "summary": "read typed fields from a CandidateSet row",
+            },
+            {
+                "name": "cumulative_frame",
+                "summary": "running-total caveats and intent gates",
             },
             {
                 "name": "contract DTO",

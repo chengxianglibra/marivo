@@ -344,7 +344,7 @@ def test_help_resolves_core_runtime_and_result_types() -> None:
 
 def test_help_topics_json_have_structured_content() -> None:
     expected_keys = {
-        "workflow": "steps",
+        "workflow": "intent_routing",
         "catalog": "discovery",
         "discover": "objectives",
         "select": "fields_by_shape",
@@ -369,12 +369,36 @@ def test_help_workflow_topic_is_complete_agent_runbook() -> None:
     assert "mv.session.get_or_create" in rendered
     assert 'catalog.list("domain").show()' in rendered
     assert 'catalog.list("metric", scope="domain.<domain>").show()' in rendered
+    assert "mv.help(revenue)" in rendered
     assert "session.observe(" in rendered
+    assert "Question -> first operator:" in rendered
+    assert "Current vs baseline change" in rendered
+    assert "observe x2 -> compare" in rendered
     assert "artifact.show()" in rendered
     assert "artifact.contract()" in rendered
+    assert "artifact.meta.evidence_status" in rendered
+    assert "before reporting" in rendered
+    assert 'mv.help("cumulative_frame")' in rendered
+    assert "Recovery branch (cross-script only):" in rendered
     assert "session.frame_summaries()" in rendered
     assert "session.get_frame(" in rendered
     assert "artifact.to_pandas()" in rendered
+
+
+def test_help_workflow_json_records_routing_and_boundaries() -> None:
+    result = _json_data("workflow")
+    content = cast("dict[str, Any]", result["content"])
+
+    routes = cast("list[dict[str, str]]", content["intent_routing"])
+    route_text = "\n".join(f"{item['question']} -> {item['route']}" for item in routes)
+    assert "Value of a metric in one window" in route_text
+    assert "observe x2 -> compare" in route_text
+    assert "derive_metric_frame" in route_text
+
+    operator_boundaries = cast("list[str]", content["operator_boundaries"])
+    joined_boundaries = "\n".join(operator_boundaries)
+    assert "compare/correlate/hypothesis_test consume typed MetricFrames" in joined_boundaries
+    assert "attribute consumes a DeltaFrame plus catalog axes" in joined_boundaries
 
 
 def test_help_catalog_topic_teaches_analysis_side_consumption() -> None:
@@ -392,9 +416,26 @@ def test_help_advanced_topic_holds_non_default_surfaces() -> None:
     rendered = _capture("advanced")
     assert "transform" in rendered
     assert "select" in rendered
+    assert "cumulative_frame" in rendered
     assert "contract DTO" in rendered
     assert "lineage" in rendered
     assert "not default workflow" in rendered.lower()
+
+
+def test_help_artifacts_topic_teaches_meta_without_extra_default_exits() -> None:
+    rendered = _capture("artifacts")
+    assert "artifact.show()" in rendered
+    assert "artifact.contract()" in rendered
+    assert "artifact.to_pandas()" in rendered
+    assert "artifact.meta.evidence_status" in rendered
+    assert "artifact.meta.blocking_issues" in rendered
+    assert "artifact.meta.confidence_scope" in rendered
+    assert "artifact.meta.quality_summary" in rendered
+    assert "inspection/status surface" in rendered
+    assert "third exit" not in rendered.lower()
+    assert "artifact.summary()" not in rendered
+    assert "artifact.schema()" not in rendered
+    assert "artifact.preview(" not in rendered
 
 
 def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:

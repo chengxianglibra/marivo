@@ -186,9 +186,9 @@ def test_root_help_points_analysis_to_python_workflow(capsys: pytest.CaptureFixt
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
     assert "Analysis workflow:" in captured.out
-    assert (
-        ".venv/bin/python -c \"import marivo.analysis as mv; mv.help('workflow')\"" in captured.out
-    )
+    assert "python -c \"import marivo.analysis as mv; mv.help('workflow')\"" in captured.out
+    assert "Use the Python interpreter where marivo is installed." in captured.out
+    assert ".venv/bin/python" not in captured.out
     assert "marivo doctor --semantic" in captured.out
     assert "marivo doctor --datasource <name> --connect" in captured.out
 
