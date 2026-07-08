@@ -339,6 +339,18 @@ def test_semantic_spec_mentions_no_stdout_contract() -> None:
     assert "not write stdout" in spec or "do not write stdout" in spec or "silent" in spec.lower()
 
 
+def test_latest_analysis_docs_use_installed_python_workflow_entrypoint() -> None:
+    docs = [
+        _read("site/src/content/docs/en/latest/concepts/analysis-workflow.mdx"),
+        _read("site/src/content/docs/zh-cn/latest/concepts/analysis-workflow.mdx"),
+    ]
+
+    for doc in docs:
+        assert "python -c \"import marivo.analysis as mv; mv.help('workflow')\"" in doc
+        assert "Python interpreter where `marivo` is installed" in doc
+        assert ".venv/bin/python" not in doc
+
+
 # ---------------------------------------------------------------------------
 # Default public export surface is pruned to workflow objects
 # ---------------------------------------------------------------------------
