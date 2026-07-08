@@ -56,12 +56,12 @@ def forecast(
 ) -> ForecastFrame:
     session = resolve_session(session)
     ensure_session_writable(session)
-    if getattr(
-        getattr(history, "meta", None), "kind", None
-    ) != "metric_frame" or history.meta.semantic_kind not in {
-        "time_series",
-        "panel",
-    }:
+    if getattr(getattr(history, "meta", None), "kind", None) != "metric_frame":
+        raise ForecastShapeUnsupportedError(
+            message="forecast requires MetricFrame time_series or panel input"
+        )
+    semantic_kind = history.meta.semantic_kind
+    if semantic_kind != "time_series" and semantic_kind != "panel":
         raise ForecastShapeUnsupportedError(
             message="forecast requires MetricFrame time_series or panel input"
         )
@@ -100,7 +100,7 @@ def forecast(
     started = monotonic()
     segment_dims = _segment_dimensions(history)
     future_times = _future_times(df[time_col], grain=grain, horizon=horizon)
-    if history.meta.semantic_kind == "panel":
+    if semantic_kind == "panel":
         rows, counts = _forecast_panel(
             df,
             time_col=time_col,
@@ -159,7 +159,7 @@ def forecast(
         source_refs=[history.ref],
         metric_id=history.meta.metric_id,
         semantic_model=history.meta.semantic_model,
-        semantic_kind=cast("Literal['time_series', 'panel']", history.meta.semantic_kind),
+        semantic_kind=semantic_kind,
         measure=history.meta.measure,
         axes=history.meta.axes,
         history_window=history.meta.window or {},
