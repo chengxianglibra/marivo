@@ -15,7 +15,13 @@ from pathlib import Path
 from typing import Literal
 
 from marivo import __version__
-from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, PROJECT_MANIFEST, SEMANTIC_DIR
+from marivo.config import (
+    AUTHORED_DIR,
+    DATASOURCES_DIR,
+    PROJECT_MANIFEST,
+    SEMANTIC_DIR,
+    load_semantic_layer_paths,
+)
 from marivo.datasource.authoring import SENSITIVE_FIELD_STEMS
 from marivo.datasource.backends import SUPPORTED_BACKEND_TYPES
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
@@ -118,6 +124,16 @@ _BACKEND_IMPORT_PROBES: dict[str, tuple[str, ...]] = {
 class _StaticDatasourceLoadResult:
     datasources: tuple[DatasourceIR, ...]
     diagnostics: tuple[DoctorCheck, ...]
+
+
+@dataclass(frozen=True)
+class _LayerPathInspection:
+    roots: tuple[Path, ...]
+    checks: tuple[DoctorCheck, ...]
+
+    @property
+    def ok(self) -> bool:
+        return not any(check.status == "fail" for check in self.checks)
 
 
 def status_from_checks(sections: Sequence[DoctorSection]) -> ReportStatus:
@@ -244,9 +260,130 @@ def _installation_section() -> DoctorSection:
     return DoctorSection(id="installation", label="Installation", checks=checks)
 
 
+def _inspect_layer_paths(root: Path) -> _LayerPathInspection:
+    manifest = root / PROJECT_MANIFEST
+    if not manifest.is_file():
+        return _LayerPathInspection(roots=(), checks=())
+    try:
+        roots = load_semantic_layer_paths(root)
+    except ValueError as exc:
+        return _LayerPathInspection(
+            roots=(),
+            checks=(
+                DoctorCheck(
+                    id="project.semantic.layer_paths",
+                    label="[semantic].layer_paths",
+                    status="fail",
+                    summary=str(exc),
+                    details={"path": str(manifest)},
+                    fix=("Fix marivo.toml [semantic].layer_paths, then run marivo doctor again",),
+                ),
+            ),
+        )
+    if not roots:
+        return _LayerPathInspection(roots=(), checks=())
+
+    checks: list[DoctorCheck] = []
+    valid_roots: list[Path] = []
+    local_models = (root / AUTHORED_DIR).resolve()
+    seen: set[Path] = set()
+    for index, models_root in enumerate(roots):
+        check_id = f"project.semantic.layer_paths.{index}"
+        details = {"path": str(models_root)}
+        if models_root == local_models:
+            checks.append(
+                DoctorCheck(
+                    id=check_id,
+                    label=f"layer path {index}",
+                    status="fail",
+                    summary=(
+                        "configured semantic layer models root duplicates the local "
+                        f"project models root: {models_root}"
+                    ),
+                    details=details,
+                    fix=("Remove the local models/ path from [semantic].layer_paths.",),
+                )
+            )
+            continue
+        if models_root in seen:
+            checks.append(
+                DoctorCheck(
+                    id=check_id,
+                    label=f"layer path {index}",
+                    status="fail",
+                    summary=f"configured semantic layer models root is duplicated: {models_root}",
+                    details=details,
+                    fix=("Keep each [semantic].layer_paths entry unique.",),
+                )
+            )
+            continue
+        seen.add(models_root)
+        if not models_root.exists():
+            checks.append(
+                DoctorCheck(
+                    id=check_id,
+                    label=f"layer path {index}",
+                    status="fail",
+                    summary=f"configured semantic layer models root does not exist: {models_root}",
+                    details=details,
+                    fix=("Point [semantic].layer_paths at existing models/ directories.",),
+                )
+            )
+            continue
+        if not models_root.is_dir():
+            checks.append(
+                DoctorCheck(
+                    id=check_id,
+                    label=f"layer path {index}",
+                    status="fail",
+                    summary=(
+                        f"configured semantic layer models root is not a directory: {models_root}"
+                    ),
+                    details=details,
+                    fix=("Point [semantic].layer_paths at models/ directories.",),
+                )
+            )
+            continue
+        missing: list[str] = []
+        if not (models_root / "datasources").is_dir():
+            missing.append("datasources/")
+        if not (models_root / "semantic").is_dir():
+            missing.append("semantic/")
+        if missing:
+            checks.append(
+                DoctorCheck(
+                    id=check_id,
+                    label=f"layer path {index}",
+                    status="fail",
+                    summary=(
+                        f"configured semantic layer models root {models_root} is missing "
+                        f"{', '.join(missing)}"
+                    ),
+                    details=details,
+                    fix=(
+                        "Create datasources/ and semantic/ under the configured models root, "
+                        "or remove this layer path.",
+                    ),
+                )
+            )
+            continue
+        valid_roots.append(models_root)
+        checks.append(
+            DoctorCheck(
+                id=check_id,
+                label=f"layer path {index}",
+                status="ok",
+                summary=f"{models_root} contains datasources/ and semantic/",
+                details=details,
+            )
+        )
+    return _LayerPathInspection(roots=tuple(valid_roots), checks=tuple(checks))
+
+
 def _project_section(root: Path) -> DoctorSection:
     checks: list[DoctorCheck] = []
     manifest = root / PROJECT_MANIFEST
+    layer_inspection = _inspect_layer_paths(root)
     if not root.exists():
         return DoctorSection(
             id="project",
@@ -316,17 +453,28 @@ def _project_section(root: Path) -> DoctorSection:
                     fix=("Fix marivo.toml syntax, then run marivo doctor again",),
                 )
             )
+    checks.extend(layer_inspection.checks)
+    using_valid_external_layers = layer_inspection.ok and len(layer_inspection.roots) > 0
     for check_id, label, path in (
         ("project.models", "models/", root / AUTHORED_DIR),
         ("project.datasources", "models/datasources/", root / DATASOURCES_DIR),
         ("project.semantic", "models/semantic/", root / SEMANTIC_DIR),
     ):
+        if path.is_dir():
+            status: DoctorStatus = "ok"
+            summary = f"{path} exists"
+        elif using_valid_external_layers:
+            status = "ok"
+            summary = f"{path} is missing; using configured semantic layer paths"
+        else:
+            status = "warning"
+            summary = f"{path} is missing"
         checks.append(
             DoctorCheck(
                 id=check_id,
                 label=label,
-                status="ok" if path.is_dir() else "warning",
-                summary=f"{path} exists" if path.is_dir() else f"{path} is missing",
+                status=status,
+                summary=summary,
                 details={"path": str(path)},
             )
         )
@@ -334,14 +482,22 @@ def _project_section(root: Path) -> DoctorSection:
 
 
 def _candidate_datasource_files(root: Path, only: str | None) -> tuple[Path, ...]:
-    datasource_root = root / DATASOURCES_DIR
-    if not datasource_root.exists() or not datasource_root.is_dir():
-        return ()
-    return tuple(
-        child
-        for child in sorted(datasource_root.iterdir())
-        if child.is_file() and child.suffix == ".py" and not child.name.startswith(".")
-    )
+    datasource_roots = [root / DATASOURCES_DIR]
+    layer_inspection = _inspect_layer_paths(root)
+    if layer_inspection.ok:
+        datasource_roots.extend(
+            models_root / "datasources" for models_root in layer_inspection.roots
+        )
+    files: list[Path] = []
+    for datasource_root in datasource_roots:
+        if not datasource_root.exists() or not datasource_root.is_dir():
+            continue
+        files.extend(
+            child
+            for child in sorted(datasource_root.iterdir())
+            if child.is_file() and child.suffix == ".py" and not child.name.startswith(".")
+        )
+    return tuple(files)
 
 
 def _datasource_parse_check(
@@ -523,7 +679,10 @@ def _static_datasources_from_file(filepath: Path) -> _StaticDatasourceLoadResult
 
 def _load_project_datasources(root: Path, only: str | None) -> _StaticDatasourceLoadResult:
     datasources: list[DatasourceIR] = []
-    diagnostics: list[DoctorCheck] = []
+    layer_inspection = _inspect_layer_paths(root)
+    diagnostics: list[DoctorCheck] = [
+        check for check in layer_inspection.checks if check.status == "fail"
+    ]
     for filepath in _candidate_datasource_files(root, only):
         result = _static_datasources_from_file(filepath)
         if only is None:
@@ -537,24 +696,29 @@ def _load_project_datasources(root: Path, only: str | None) -> _StaticDatasource
         diagnostics.extend(result.diagnostics)
 
     unique_datasources: list[DatasourceIR] = []
-    seen: set[str] = set()
+    seen: dict[str, DatasourceIR] = {}
     for datasource in datasources:
-        if datasource.name in seen:
+        existing = seen.get(datasource.name)
+        if existing is not None:
             diagnostics.append(
                 DoctorCheck(
                     id=f"datasource.{datasource.name}.duplicate",
                     label=f"{datasource.name} datasource",
                     status="fail",
-                    summary=f"duplicate datasource name {datasource.name!r} in static declarations",
+                    summary=(
+                        f"Duplicate datasource name: {datasource.name!r}. "
+                        f"First declaration: {existing.location.file}. "
+                        f"Conflicting declaration: {datasource.location.file}."
+                    ),
                     details={
                         "datasource": datasource.name,
-                        "path": datasource.location.file,
-                        "line": datasource.location.line,
+                        "first": existing.location.file,
+                        "second": datasource.location.file,
                     },
                 )
             )
             continue
-        seen.add(datasource.name)
+        seen[datasource.name] = datasource
         unique_datasources.append(datasource)
     return _StaticDatasourceLoadResult(
         datasources=tuple(unique_datasources),
@@ -847,7 +1011,11 @@ def _connect_section(datasources: Sequence[DatasourceIR], *, project_root: Path)
     from marivo.datasource import manage as datasource_manage
 
     for datasource in sorted(datasources, key=lambda item: item.name):
-        result = datasource_manage.test_no_persist(datasource.name, project_root=project_root)
+        result = datasource_manage.test_no_persist(
+            datasource.name,
+            project_root=project_root,
+            include_semantic_layers=True,
+        )
         latency = "n/a" if result.latency_ms is None else f"{result.latency_ms}ms"
         if result.ok:
             checks.append(

@@ -1,9 +1,10 @@
+import textwrap
 from pathlib import Path
 
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource import runtime
+from marivo.datasource import runtime, store
 
 
 class FakeBackend:
@@ -107,3 +108,67 @@ def test_py_file_datasource_visible_via_list(
     summaries = md.list()
     names = [s.name for s in summaries]
     assert "warehouse" in names
+
+
+def _write_layered_project(tmp_path: Path, *, duplicate_local: bool = False) -> tuple[Path, Path]:
+    project_root = tmp_path / "project"
+    external_models = tmp_path / "external" / "models"
+    project_root.mkdir()
+    (project_root / "marivo.toml").write_text(
+        textwrap.dedent(
+            """
+            [project]
+            name = "demo"
+
+            [semantic]
+            layer_paths = ["../external/models"]
+            """
+        ),
+        encoding="utf-8",
+    )
+    external_ds = external_models / "datasources"
+    external_ds.mkdir(parents=True)
+    (external_models / "semantic").mkdir(parents=True)
+    (external_ds / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+        encoding="utf-8",
+    )
+    if duplicate_local:
+        local_ds = project_root / "models" / "datasources"
+        local_ds.mkdir(parents=True)
+        (local_ds / "warehouse.py").write_text(
+            "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+            encoding="utf-8",
+        )
+    return project_root, external_models
+
+
+def test_session_backend_can_include_configured_semantic_layer_datasources(
+    tmp_path: Path,
+) -> None:
+    project_root, _ = _write_layered_project(tmp_path)
+
+    local_only = runtime.DatasourceConnectionService(project_root=project_root)
+    with pytest.raises(Exception, match="warehouse"):
+        local_only.session_backend("warehouse")
+
+    layered = runtime.DatasourceConnectionService(
+        project_root=project_root,
+        include_semantic_layers=True,
+    )
+    backend = layered.session_backend("warehouse")
+
+    assert backend is layered.session_backend("datasource.warehouse")
+    layered.close_all()
+
+
+def test_layered_datasource_loading_rejects_duplicate_names_with_paths(tmp_path: Path) -> None:
+    project_root, external_models = _write_layered_project(tmp_path, duplicate_local=True)
+
+    with pytest.raises(Exception) as exc_info:
+        store.load_all_layered(project_root)
+
+    message = str(exc_info.value)
+    assert "Duplicate datasource name: 'warehouse'" in message
+    assert str(project_root / "models" / "datasources" / "warehouse.py") in message
+    assert str(external_models / "datasources" / "warehouse.py") in message

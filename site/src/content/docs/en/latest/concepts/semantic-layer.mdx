@@ -58,7 +58,9 @@ layer_paths = ["../finance-domain/models"]
 
 Marivo loads the central project's `models/` first, then each configured external
 `models/` root. All loaded datasources, domains, and semantic objects share one
-catalog, so names must stay globally unique.
+catalog, so names must stay globally unique. `marivo doctor`, `catalog.preview`,
+`ms.verify_object`, and analysis sessions resolve datasource-backed semantic
+objects against the same configured roots.
 
 ## Semantic refs
 

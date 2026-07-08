@@ -55,6 +55,8 @@ layer_paths = ["../finance-domain/models"]
 
 Marivo 会先加载中央 project 的 `models/`，再按配置顺序加载外部 `models/` root。
 所有 datasource、domain 与 semantic object 会进入同一个 catalog，因此名称必须全局唯一。
+`marivo doctor`、`catalog.preview`、`ms.verify_object` 与 analysis session 都会按同一组
+配置 roots 解析 datasource-backed semantic object。
 
 ## Semantic refs
 

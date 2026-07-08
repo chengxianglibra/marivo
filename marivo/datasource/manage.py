@@ -340,12 +340,26 @@ def connect(name: str) -> DatasourceConnection:
     return _connect_internal(name)
 
 
-def _connect_internal(name: str, *, project_root: Path | None = None) -> DatasourceConnection:
-    datasource = _store.load_one(name, project_root=project_root)
+def _connect_internal(
+    name: str,
+    *,
+    project_root: Path | None = None,
+    include_semantic_layers: bool = False,
+) -> DatasourceConnection:
+    datasource = (
+        _store.load_one_layered(name, project_root=project_root)
+        if include_semantic_layers
+        else _store.load_one(name, project_root=project_root)
+    )
     if datasource is None:
+        available = (
+            _store.list_names_layered(project_root)
+            if include_semantic_layers
+            else _store.list_names(project_root)
+        )
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
-            details={"datasource": name, "available": _store.list_names(project_root)},
+            details={"datasource": name, "available": available},
         )
     built = _backends.build_backend_with_secrets(datasource)
     connection = DatasourceConnection(built.backend)
@@ -1583,7 +1597,10 @@ def test(name: str | DatasourceRef) -> DatasourceTestResult:
 
 
 def test_no_persist(
-    name: str | DatasourceRef, *, project_root: Path | None = None
+    name: str | DatasourceRef,
+    *,
+    project_root: Path | None = None,
+    include_semantic_layers: bool = False,
 ) -> DatasourceTestResult:
     """Round-trip the backend without persisting resolved secrets.
 
@@ -1602,7 +1619,11 @@ def test_no_persist(
     start = time.perf_counter()
     backend: Any | None = None
     try:
-        backend = _connect_internal(datasource_name, project_root=project_root)
+        backend = _connect_internal(
+            datasource_name,
+            project_root=project_root,
+            include_semantic_layers=include_semantic_layers,
+        )
         backend.raw_sql("SELECT 1")
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(
