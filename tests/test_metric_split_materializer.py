@@ -180,3 +180,18 @@ def test_metric_on_tier1_applies_to_caller_table(materialized_project):
     table = materialized_project.table("orders")
     value = materialized_project.materializer.metric_on("sales.revenue", table)
     assert materialized_project.execute_scalar(value) == materialized_project.expected_sum("amount")
+
+
+# ---------------------------------------------------------------------------
+# Task 3: measure_on accessor (applies a measure callable to a caller table)
+# ---------------------------------------------------------------------------
+
+
+def test_measure_on_applies_to_caller_table(materialized_project):
+    table = materialized_project.table("orders").filter(lambda t: t.amount > 10)
+
+    value = materialized_project.materializer.measure_on("sales.orders.amount", table)
+
+    assert materialized_project.execute_scalar(value.sum()) == materialized_project.execute_scalar(
+        table.amount.sum()
+    )

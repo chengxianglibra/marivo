@@ -34,6 +34,7 @@ ANALYSIS_HELP_ONLY_ENTRIES = {
     "alignment",
     "calendar",
     "select",
+    "cumulative_frame",
 }
 
 SURFACES = [
@@ -364,6 +365,7 @@ def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
     assert contract["decision_order"] == [
         "count",
         "aggregate",
+        "cumulative",
         "ratio",
         "weighted_average",
         "linear",
@@ -372,6 +374,7 @@ def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
     variants = cast("dict[str, dict[str, Any]]", contract["variants"])
     assert variants["aggregate"]["constructor"] == "ms.aggregate"
     assert variants["expression"]["constructor"] == "@ms.metric"
+    assert variants["cumulative"]["constructor"] == "ms.cumulative"
 
 
 def test_datasource_trino_descriptor_lists_secret_env_constraint() -> None:

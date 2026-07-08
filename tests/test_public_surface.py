@@ -53,6 +53,7 @@ SEMANTIC_PUBLIC = {
     "aggregate",
     "ai_context",
     "count",
+    "cumulative",
     "csv",
     "datetime",
     "dimension",

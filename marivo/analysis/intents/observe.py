@@ -12,6 +12,7 @@ from time import monotonic
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
+import ibis
 from ibis.expr.operations.relations import Field
 
 from marivo.analysis.errors import (
@@ -31,6 +32,7 @@ from marivo.analysis.evidence.pipeline import (
 )
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.executor.runner import (
+    apply_slice_to_dataset,
     apply_time_series_bucket,
     bucket_start_expr,
     datasource_backend_dialect,
@@ -53,6 +55,7 @@ from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.intents.observe_planner import (
     BaseObservePlan,
     ComponentPlan,
+    CumulativeObservePlan,
     DerivedObservePlan,
     _planned_metric,
     _validate_field_expr,
@@ -629,6 +632,544 @@ class _Result:
     def __init__(self, df: Any) -> None:
         self.df = df
         self.row_count = len(df)
+
+
+# ---------------------------------------------------------------------------
+# Cumulative observe execution helpers
+# ---------------------------------------------------------------------------
+
+
+def _base_aggregation_name(metric_ir: Any) -> str:
+    """Return the aggregation name string (e.g. 'sum', 'count_distinct')."""
+    agg = getattr(metric_ir, "aggregation", None)
+    return str(agg) if agg is not None else ""
+
+
+def _base_measure_ref(metric_ir: Any) -> str | None:
+    """Return the base metric's measure semantic_id, or None for count-without-measure."""
+    return getattr(metric_ir, "measure", None)
+
+
+def _count_distinct_key_expr(resolver: Any, metric_ir: Any, table: Any) -> Any:
+    """Resolve the measure column expression for a count_distinct first-seen rewrite."""
+    measure_ref = _base_measure_ref(metric_ir)
+    if measure_ref is None:
+        raise AnalysisError(
+            message="cumulative count_distinct requires a measure-backed base metric",
+            details={"metric": getattr(metric_ir, "semantic_id", None)},
+        )
+    return resolver.measure_on(measure_ref, table)
+
+
+def _apply_where_to_raw_table(
+    table: Any,
+    planned_where: list[Any],
+    *,
+    dataset_ir: Any,
+) -> Any:
+    """Re-apply where/slice_by predicates to a fresh (unwindowed) table.
+
+    The ``base_plan.table`` has window + where/slice_by filters baked in.
+    When ``_execute_cumulative`` needs a raw table with only the where/slice_by
+    filters (no window), it fetches a fresh table and calls this helper to
+    re-apply the same predicates.
+    """
+    if not planned_where:
+        return table
+    where_dict: dict[str, Any] = {}
+    for entry in planned_where:
+        where_dict[entry.field.name] = entry.value
+    if not where_dict:
+        return table
+    return apply_slice_to_dataset(table, where_dict, dataset_ir=dataset_ir)
+
+
+_GRAIN_PANDAS_FREQ: dict[str, str] = {
+    "second": "s",
+    "minute": "min",
+    "hour": "h",
+    "day": "D",
+    "week": "W-MON",
+    "month": "MS",
+    "quarter": "QS",
+    "year": "YS",
+}
+
+# Fixed-frequency grains that can use Timestamp.floor() for alignment.
+_FIXED_GRAINS: frozenset[str] = frozenset({"second", "minute", "hour", "day"})
+
+
+def _align_to_grain_start(ts: Any, unit: str, count: int = 1) -> Any:
+    """Truncate a timestamp to the start of its grain-period.
+
+    For fixed grains (second/minute/hour/day) with ``count == 1`` this uses
+    ``Timestamp.floor``.  For fixed sub-day grains with ``count > 1`` the
+    alignment replicates the day-anchored offset logic in
+    :func:`bucket_start_expr` so that the spine bucket-start values match the
+    SQL-level buckets exactly.
+
+    For calendar grains (week/month/quarter/year) the boundary is computed
+    explicitly because ``floor`` does not support non-fixed frequencies.
+    """
+    import pandas as pd
+
+    if unit in _FIXED_GRAINS:
+        if count > 1 and unit in ("second", "minute", "hour"):
+            width = count * _FIXED_UNIT_SECONDS[unit]
+            day_start = ts.floor("D")
+            elapsed = int((ts - day_start).total_seconds())
+            offset = (elapsed // width) * width
+            return day_start + pd.Timedelta(seconds=offset)
+        return ts.floor(_GRAIN_PANDAS_FREQ[unit])
+    if unit == "week":
+        days_since_monday = ts.weekday()  # 0=Monday
+        return (ts - pd.Timedelta(days=days_since_monday)).normalize()
+    if unit == "month":
+        return pd.Timestamp(year=ts.year, month=ts.month, day=1)
+    if unit == "quarter":
+        quarter_start_month = ((ts.month - 1) // 3) * 3 + 1
+        return pd.Timestamp(year=ts.year, month=quarter_start_month, day=1)
+    if unit == "year":
+        return pd.Timestamp(year=ts.year, month=1, day=1)
+    # Should not reach here for valid Grain units.
+    raise ValueError(f"unsupported grain unit for alignment: {unit!r}")
+
+
+def _bucket_date_range(window: Any) -> list[Any]:
+    """Generate a list of bucket-start timestamps for a window at the given grain.
+
+    The window is half-open [start, end); we emit one bucket per grain
+    interval from start (inclusive, truncated to the grain boundary) to
+    end (exclusive).  The bucket-start values align with what
+    :func:`bucket_start_expr` produces at the SQL level so that the dense
+    spine matches the flow query buckets.
+    """
+    import pandas as pd
+
+    start = pd.Timestamp(window.start)
+    end = pd.Timestamp(window.end)
+    grain = window.grain
+    if grain is None:
+        return [start]
+    unit = grain.unit
+    count = grain.count
+    freq = f"{count}{_GRAIN_PANDAS_FREQ[unit]}" if count > 1 else _GRAIN_PANDAS_FREQ[unit]
+    # Truncate start to the grain boundary so the first bucket matches
+    # what bucket_start_expr produces for events in the first partial bucket.
+    aligned_start = _align_to_grain_start(start, unit, count)
+    bucket_index = pd.date_range(aligned_start, end, freq=freq, inclusive="left")
+    return list(bucket_index)
+
+
+def _dense_cumulative_frame(
+    *,
+    baseline_df: Any,
+    flow_df: Any,
+    bucket_values: list[Any],
+    dimension_columns: list[str],
+    value_column: str = "value",
+) -> Any:
+    """Build a dense cumulative DataFrame from baseline + flow.
+
+    baseline_df: per-slice baseline values (all history before window start).
+    flow_df: per-bucket-per-slice flow values (within window).
+    bucket_values: dense list of bucket_start timestamps.
+    dimension_columns: dimension column names for panel/segmented shapes.
+
+    Returns a DataFrame with columns [bucket_start, *dimension_columns, value]
+    where value = baseline + cumsum(flow) within each slice.
+    """
+    import pandas as pd
+
+    key_columns = list(dimension_columns)
+    if key_columns:
+        combos = pd.concat(
+            [
+                baseline_df[key_columns]
+                if not baseline_df.empty
+                else pd.DataFrame(columns=key_columns),
+                flow_df[key_columns] if not flow_df.empty else pd.DataFrame(columns=key_columns),
+            ],
+            ignore_index=True,
+        ).drop_duplicates()
+    else:
+        combos = pd.DataFrame({"__single__": [0]})
+    bucket_df = pd.DataFrame({"bucket_start": bucket_values})
+    spine = bucket_df.merge(combos, how="cross") if key_columns else bucket_df.assign(__single__=0)
+
+    baseline = baseline_df.copy()
+    flow = flow_df.copy()
+    if not key_columns:
+        baseline["__single__"] = 0
+        flow["__single__"] = 0
+    merge_keys = key_columns or ["__single__"]
+    seed = (
+        baseline.groupby(merge_keys, dropna=False)[value_column].sum().reset_index(name="_baseline")
+    )
+    out = spine.merge(seed, on=merge_keys, how="left")
+    out = out.merge(
+        flow[["bucket_start", *merge_keys, value_column]],
+        on=["bucket_start", *merge_keys],
+        how="left",
+    )
+    out["_baseline"] = out["_baseline"].fillna(0)
+    out[value_column] = out[value_column].fillna(0)
+    out = out.sort_values([*merge_keys, "bucket_start"])
+    out[value_column] = (
+        out.groupby(merge_keys, dropna=False)[value_column].cumsum() + out["_baseline"]
+    )
+    out = out.drop(columns=["_baseline"])
+    if "__single__" in out.columns:
+        out = out.drop(columns=["__single__"])
+    return out.sort_values(["bucket_start", *key_columns]).reset_index(drop=True)
+
+
+def _execute_cumulative(
+    plan: CumulativeObservePlan,
+    *,
+    catalog: Any,
+    resolver: Any,
+    session: Session,
+    resolved_window: AbsoluteWindow | None,
+) -> tuple[
+    Any,
+    dict[str, Any],
+    Literal["scalar", "time_series", "segmented", "panel"],
+]:
+    """Execute a CumulativeObservePlan.
+
+    Returns (result, axes, semantic_kind).
+
+    For scalar/segmented (no time grain): one query up to window end
+    (as-of-end strategy).
+
+    For time-series/panel (with time grain): baseline query (all history
+    before window start) + flow query (per-bucket aggregation within window)
+    + dense spine + cumsum in pandas.
+
+    For count_distinct: first-seen rewrite (find first occurrence of each
+    distinct key, bucket by that first-seen timestamp, count per bucket).
+    """
+    base_plan = plan.base_plan
+    base_metric_ir = plan.base_metric_ir
+    metric_datasets = tuple(base_metric_ir.entities)
+    primary_datasource = base_plan.datasource_name
+    read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
+    dialect = datasource_backend_dialect(session._connection_runtime, primary_datasource)
+    root_adapter = _build_entity_adapter(
+        catalog,
+        resolver,
+        _entity_details(catalog, base_plan.root_entity),
+    )
+    resolved_dimensions = [
+        (dimension.field.entity, dimension.field) for dimension in base_plan.dimensions
+    ]
+    dimension_names = [field_ir.name for _, field_ir in resolved_dimensions]
+    agg = _base_aggregation_name(base_metric_ir)
+    is_time_series = resolved_window is not None and resolved_window.grain is not None
+
+    axes: dict[str, Any] = {}
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
+
+    if not is_time_series:
+        # --- Scalar/segmented: as-of-end strategy ---
+        # For cumulative as-of-end, we want all events up to (but not
+        # including) window.end.  The window is [start, end), but for
+        # cumulative we want everything before end, regardless of start.
+        raw_table = resolver.table(
+            _catalog_object(catalog, base_plan.root_entity, SemanticKind.ENTITY).ref
+        )
+        # Re-apply where/slice_by filters that base_plan.table already has.
+        raw_table = _apply_where_to_raw_table(raw_table, base_plan.where, dataset_ir=root_adapter)
+        if resolved_window is not None:
+            time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+            time_expr = time_dimension_ir.fn(raw_table)
+            raw_table = raw_table.filter(
+                time_expr < ibis.literal(resolved_window.end).cast(time_expr.type())
+            )
+        # Apply dimension projections on the raw table
+        if resolved_dimensions:
+            dimension_exprs = {
+                field_ir.name: _validate_field_expr(
+                    resolver.dimension_on(
+                        _field_details(catalog, field_ir.semantic_id).ref, raw_table
+                    ),
+                    field_id=field_ir.semantic_id,
+                ).name(field_ir.name)
+                for _, field_ir in resolved_dimensions
+            }
+            raw_table = raw_table.mutate(**dimension_exprs)
+            dataset_tables = dict.fromkeys(metric_datasets, raw_table)
+            metric_expr = _metric_expr(
+                catalog, resolver, base_metric_ir.semantic_id, metric_datasets, dataset_tables
+            )
+            grouped_expr = (
+                raw_table.group_by(dimension_names)
+                .aggregate(value=metric_expr)
+                .order_by(dimension_names)
+                .select(*dimension_names, "value")
+            )
+            result = execute(
+                grouped_expr,
+                datasource_name=primary_datasource,
+                cache=session._connection_runtime,
+                session_id=session.id,
+            )
+            axes = {
+                field_ir.name: {"role": "dimension", "column": field_ir.name}
+                for _, field_ir in resolved_dimensions
+            }
+            semantic_kind = "segmented"
+        else:
+            dataset_tables = dict.fromkeys(metric_datasets, raw_table)
+            metric_expr = _metric_expr(
+                catalog, resolver, base_metric_ir.semantic_id, metric_datasets, dataset_tables
+            )
+            grouped_expr = raw_table.aggregate(value=metric_expr)
+            result = execute(
+                grouped_expr,
+                datasource_name=primary_datasource,
+                cache=session._connection_runtime,
+                session_id=session.id,
+            )
+            semantic_kind = "scalar"
+        return result, axes, semantic_kind
+
+    # --- Time-series/panel: baseline + flow + dense spine + cumsum ---
+    assert resolved_window is not None
+    assert resolved_window.grain is not None
+
+    time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
+    base = (
+        time_dimension_ir.time_meta.granularity if time_dimension_ir.time_meta else None
+    ) or "day"
+    ensure_grain_supported(resolved_window.grain, base)
+
+    # Build the bucketed table from the window-filtered table (base_plan.table)
+    bucketed_table = apply_time_series_bucket(
+        base_plan.table,
+        field_ir=time_dimension_ir,
+        window=resolved_window,
+        report_tz=cast("ZoneInfo", session.report_tz),
+        datasource_read_tz=read_tz,
+        dialect=dialect,
+        dataset_ir=root_adapter,
+    )
+    # Apply dimension projections on the bucketed table
+    if resolved_dimensions:
+        dimension_exprs = {
+            field_ir.name: _validate_field_expr(
+                resolver.dimension_on(
+                    _field_details(catalog, field_ir.semantic_id).ref, bucketed_table
+                ),
+                field_id=field_ir.semantic_id,
+            ).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        bucketed_table = bucketed_table.mutate(**dimension_exprs)
+
+    # Get the raw entity table for baseline query
+    raw_table = resolver.table(
+        _catalog_object(catalog, base_plan.root_entity, SemanticKind.ENTITY).ref
+    )
+    # Re-apply where/slice_by filters that base_plan.table already has.
+    raw_table = _apply_where_to_raw_table(raw_table, base_plan.where, dataset_ir=root_adapter)
+    time_expr_raw = time_dimension_ir.fn(raw_table)
+    # Baseline: all history before window.start
+    baseline_table = raw_table.filter(
+        time_expr_raw < ibis.literal(resolved_window.start).cast(time_expr_raw.type())
+    )
+    if resolved_dimensions:
+        dimension_exprs_raw = {
+            field_ir.name: _validate_field_expr(
+                resolver.dimension_on(
+                    _field_details(catalog, field_ir.semantic_id).ref, baseline_table
+                ),
+                field_id=field_ir.semantic_id,
+            ).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        baseline_table = baseline_table.mutate(**dimension_exprs_raw)
+
+    if agg == "count_distinct":
+        # First-seen rewrite: find first occurrence of each distinct key
+        # across ALL history up to window.end, bucket by that first-seen
+        # timestamp, count per bucket.  Keys first-seen before window.start
+        # go into the baseline; keys first-seen within the window go into
+        # the flow.
+
+        # Build a combined raw table: all history up to window.end
+        combined_raw = resolver.table(
+            _catalog_object(catalog, base_plan.root_entity, SemanticKind.ENTITY).ref
+        )
+        # Re-apply where/slice_by filters that base_plan.table already has.
+        combined_raw = _apply_where_to_raw_table(
+            combined_raw, base_plan.where, dataset_ir=root_adapter
+        )
+        combined_time_expr = time_dimension_ir.fn(combined_raw)
+        combined_raw = combined_raw.filter(
+            combined_time_expr < ibis.literal(resolved_window.end).cast(combined_time_expr.type())
+        )
+        if resolved_dimensions:
+            combined_dim_exprs = {
+                field_ir.name: _validate_field_expr(
+                    resolver.dimension_on(
+                        _field_details(catalog, field_ir.semantic_id).ref, combined_raw
+                    ),
+                    field_id=field_ir.semantic_id,
+                ).name(field_ir.name)
+                for _, field_ir in resolved_dimensions
+            }
+            combined_raw = combined_raw.mutate(**combined_dim_exprs)
+
+        # Find first-seen per distinct key (+ dimensions)
+        combined_key_expr = _count_distinct_key_expr(resolver, base_metric_ir, combined_raw)
+        combined_key_name = combined_key_expr.get_name()
+        first_seen = combined_raw.group_by([combined_key_name, *dimension_names]).aggregate(
+            first_seen_ts=combined_time_expr.min()
+        )
+
+        # Baseline: count keys first-seen before window.start
+        baseline_first_seen = first_seen.filter(
+            first_seen["first_seen_ts"]
+            < ibis.literal(resolved_window.start).cast(first_seen["first_seen_ts"].type())
+        )
+        baseline_group_keys = list(dimension_names)
+        if baseline_group_keys:
+            baseline_grouped = (
+                baseline_first_seen.group_by(baseline_group_keys)
+                .aggregate(value=baseline_first_seen[combined_key_name].count())
+                .order_by(baseline_group_keys)
+                .select(*baseline_group_keys, "value")
+            )
+        else:
+            baseline_grouped = baseline_first_seen.aggregate(
+                value=baseline_first_seen[combined_key_name].count()
+            )
+        baseline_result = execute(
+            baseline_grouped,
+            datasource_name=primary_datasource,
+            cache=session._connection_runtime,
+            session_id=session.id,
+        )
+        baseline_df = baseline_result.df
+
+        # Flow: count keys first-seen within [window.start, window.end), bucketed
+        flow_first_seen = first_seen.filter(
+            (
+                first_seen["first_seen_ts"]
+                >= ibis.literal(resolved_window.start).cast(first_seen["first_seen_ts"].type())
+            )
+            & (
+                first_seen["first_seen_ts"]
+                < ibis.literal(resolved_window.end).cast(first_seen["first_seen_ts"].type())
+            )
+        )
+        # Bucket the first-seen timestamp
+        flow_bucketed = flow_first_seen.mutate(
+            bucket_start=bucket_start_expr(flow_first_seen["first_seen_ts"], resolved_window.grain)
+        )
+        group_keys_flow = ["bucket_start", *dimension_names]
+        flow_grouped = (
+            flow_bucketed.group_by(group_keys_flow)
+            .aggregate(value=flow_bucketed[combined_key_name].count())
+            .order_by(group_keys_flow)
+            .select(*group_keys_flow, "value")
+        )
+        flow_result = execute(
+            flow_grouped,
+            datasource_name=primary_datasource,
+            cache=session._connection_runtime,
+            session_id=session.id,
+        )
+        flow_df = flow_result.df
+        if "bucket_start" in flow_df:
+            flow_df["bucket_start"] = ensure_bucket_start_timestamp(
+                flow_df["bucket_start"],
+                time_meta=time_dimension_ir.time_meta,
+                dataset_ir=root_adapter,
+                grain=resolved_window.grain,
+                report_tz=cast("ZoneInfo", session.report_tz),
+                backend_datetime_decode_policy=flow_result.backend_datetime_decode_policy,
+            )
+    else:
+        # sum / count: baseline = aggregate of events before window start.
+        # Flow = aggregate of events per bucket within window.
+        flow_dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
+        flow_metric_expr = _metric_expr(
+            catalog, resolver, base_metric_ir.semantic_id, metric_datasets, flow_dataset_tables
+        )
+        group_names_flow = ["bucket_start", *dimension_names]
+        flow_grouped = (
+            bucketed_table.group_by(group_names_flow)
+            .aggregate(value=flow_metric_expr)
+            .order_by(group_names_flow)
+            .select(*group_names_flow, "value")
+        )
+        flow_result = execute(
+            flow_grouped,
+            datasource_name=primary_datasource,
+            cache=session._connection_runtime,
+            session_id=session.id,
+        )
+        flow_df = flow_result.df
+        if "bucket_start" in flow_df:
+            flow_df["bucket_start"] = ensure_bucket_start_timestamp(
+                flow_df["bucket_start"],
+                time_meta=time_dimension_ir.time_meta,
+                dataset_ir=root_adapter,
+                grain=resolved_window.grain,
+                report_tz=cast("ZoneInfo", session.report_tz),
+                backend_datetime_decode_policy=flow_result.backend_datetime_decode_policy,
+            )
+
+        baseline_dataset_tables = dict.fromkeys(metric_datasets, baseline_table)
+        baseline_metric_expr = _metric_expr(
+            catalog, resolver, base_metric_ir.semantic_id, metric_datasets, baseline_dataset_tables
+        )
+        baseline_group_keys = list(dimension_names)
+        if baseline_group_keys:
+            baseline_grouped = (
+                baseline_table.group_by(baseline_group_keys)
+                .aggregate(value=baseline_metric_expr)
+                .order_by(baseline_group_keys)
+                .select(*baseline_group_keys, "value")
+            )
+        else:
+            baseline_grouped = baseline_table.aggregate(value=baseline_metric_expr)
+        baseline_result = execute(
+            baseline_grouped,
+            datasource_name=primary_datasource,
+            cache=session._connection_runtime,
+            session_id=session.id,
+        )
+        baseline_df = baseline_result.df
+
+    # Build dense spine and cumsum
+    bucket_values = _bucket_date_range(resolved_window)
+    dense_df = _dense_cumulative_frame(
+        baseline_df=baseline_df,
+        flow_df=flow_df,
+        bucket_values=bucket_values,
+        dimension_columns=dimension_names,
+    )
+
+    # Set axes
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": resolved_window.grain.to_token(),
+            "time_dimension": time_dimension_ir.name,
+        },
+        **{
+            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            for _, field_ir in resolved_dimensions
+        },
+    }
+    semantic_kind = "panel" if dimension_names else "time_series"
+
+    return _Result(dense_df), axes, semantic_kind
 
 
 _FIXED_UNIT_SECONDS = {
@@ -1368,6 +1909,21 @@ def _execute_derived(
         component_datasets = tuple(cp.component_metric_ir.entities)
         component_time_fold = getattr(cp.component_metric_ir, "time_fold", None)
 
+        if isinstance(cp.base_plan, CumulativeObservePlan):
+            # Cumulative component: execute via _execute_cumulative and
+            # rename the "value" column to the component name so the
+            # result is shape-compatible with other component DataFrames.
+            cum_result, _cum_axes, _cum_kind = _execute_cumulative(
+                cp.base_plan,
+                catalog=catalog,
+                resolver=resolver,
+                session=session,
+                resolved_window=resolved_window,
+            )
+            df = cum_result.df.rename(columns={"value": component_name})
+            component_frames.append(df)
+            continue
+
         if component_time_fold is not None and has_time:
             # Folded component: execute through two-phase sampled path
             df, coverage_df = _execute_folded_component(
@@ -1619,6 +2175,41 @@ def _build_derived_fold_meta(derived_plan: DerivedObservePlan, catalog: Any) -> 
         "component_folds": component_folds,
         "sample_interval": sample_interval_token_val,
     }
+
+
+def _cumulative_marker_for_plan(plan: CumulativeObservePlan, catalog: Any) -> dict[str, Any]:
+    """Build per-component cumulative marker for a CumulativeObservePlan.
+
+    Resolves the real ``over`` from the catalog registry, mirroring the
+    direct cumulative path.  ``plan.over`` and
+    ``plan.base_metric_ir.composition.over`` are both ``None`` for
+    per-component plans because the metric IR is a ``_MetricDetailsAdapter``
+    whose ``composition.over`` defaults to ``None``.
+    """
+    over = plan.over
+    if over is None and catalog._reg is not None:
+        real_ir = catalog._reg.metrics.get(plan.metric_ir.semantic_id)
+        if real_ir is not None and real_ir.composition is not None:
+            over = getattr(real_ir.composition, "over", None)
+    return {
+        "kind": "cumulative",
+        "base": plan.base_metric_ir.semantic_id,
+        "over": over,
+        "anchor": "all_history",
+        "components": None,
+    }
+
+
+def _derived_cumulative_marker(plan: DerivedObservePlan, catalog: Any) -> dict[str, Any] | None:
+    """Return derived-contains-cumulative metadata if any component is cumulative."""
+    components: dict[str, dict[str, Any]] = {
+        cp.role: _cumulative_marker_for_plan(cp.base_plan, catalog)
+        for cp in plan.component_plans
+        if isinstance(cp.base_plan, CumulativeObservePlan)
+    }
+    if not components:
+        return None
+    return {"kind": "derived_contains_cumulative", "components": components}
 
 
 def _metric_expr(
@@ -1895,52 +2486,117 @@ def observe(
                 time_dimension=planner_time_dimension_id,
                 component_metric_irs=component_metric_irs,
             )
-            # plan_observe always returns DerivedObservePlan for derived metrics
-            assert isinstance(derived_plan, DerivedObservePlan)
-
-            # Build params and check cache before executing the backend query.
-            params_timescope = None
-            if resolved_window is not None:
-                params_timescope = {
-                    "original": original_timescope,
-                    "resolved": dump_window(resolved_window),
-                    "report_tz": session.report_tz_name,
+            # plan_observe returns DerivedObservePlan for ratio/weighted/linear
+            # derived metrics, or CumulativeObservePlan for cumulative metrics.
+            assert isinstance(derived_plan, (DerivedObservePlan, CumulativeObservePlan))
+            if isinstance(derived_plan, CumulativeObservePlan):
+                # --- Cumulative observe execution ---
+                # Resolve the real 'over' from the MetricIR in the registry,
+                # since _MetricDetailsAdapter.composition.over defaults to None.
+                cum_over = derived_plan.over
+                if cum_over is None and catalog._reg is not None:
+                    real_ir = catalog._reg.metrics.get(metric_id)
+                    if real_ir is not None and real_ir.composition is not None:
+                        cum_over = getattr(real_ir.composition, "over", None)
+                cumulative_meta = {
+                    "kind": "cumulative",
+                    "base": derived_plan.base_metric_ir.semantic_id,
+                    "over": cum_over,
+                    "anchor": "all_history",
+                    "components": None,
                 }
-            params = {
-                "metric": metric_id,
-                "timescope": params_timescope,
-                "dimensions": _dump_dimensions(dimension_refs),
-                "where": stored_where,
-                "version_resolutions": [
-                    vr
-                    for cp in derived_plan.component_plans
-                    for vr in cp.base_plan.lineage_metadata.get("version_resolutions", [])
-                ],
-                "warnings": derived_plan.warnings,
-                "lineage_metadata": derived_plan.lineage_metadata,
-            }
-            prospective_id = compute_prospective_artifact_id(
-                step_type="observe",
-                inputs=CommitInputs(input_refs=[]),
-                params=CommitParams(values=params),
-                semantic_anchors=CommitSemanticAnchors(
-                    values={"metric_id": metric_id, "model": model_name}
-                ),
-            )
-            if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
-                session._connection_runtime.take_captured_queries()
-                return cast("MetricFrame", load_frame(prospective_id, session=session))
+                params_timescope_cum = None
+                if resolved_window is not None:
+                    params_timescope_cum = {
+                        "original": original_timescope,
+                        "resolved": dump_window(resolved_window),
+                        "report_tz": session.report_tz_name,
+                    }
+                params = {
+                    "metric": metric_id,
+                    "timescope": params_timescope_cum,
+                    "dimensions": _dump_dimensions(dimension_refs),
+                    "where": stored_where,
+                    "version_resolutions": derived_plan.base_plan.lineage_metadata.get(
+                        "version_resolutions", []
+                    ),
+                    "warnings": derived_plan.warnings,
+                    "lineage_metadata": derived_plan.base_plan.lineage_metadata,
+                    "cumulative": {
+                        "base": derived_plan.base_metric_ir.semantic_id,
+                        "over": cum_over,
+                        "anchor": "all_history",
+                        "spine_synthesized": bool(resolved_window and resolved_window.grain),
+                        "query_strategy": (
+                            "baseline_plus_flow"
+                            if resolved_window and resolved_window.grain
+                            else "as_of_end"
+                        ),
+                    },
+                }
+                prospective_id = compute_prospective_artifact_id(
+                    step_type="observe",
+                    inputs=CommitInputs(input_refs=[]),
+                    params=CommitParams(values=params),
+                    semantic_anchors=CommitSemanticAnchors(
+                        values={"metric_id": metric_id, "model": model_name}
+                    ),
+                )
+                if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
+                    session._connection_runtime.take_captured_queries()
+                    return cast("MetricFrame", load_frame(prospective_id, session=session))
 
-            result, component_df, derived_axes, derived_kind, derived_coverage_df = (
-                _execute_derived(
+                cum_result, cum_axes, cum_kind = _execute_cumulative(
                     derived_plan,
-                    metric_ir,
                     catalog=catalog,
                     resolver=resolver,
                     session=session,
                     resolved_window=resolved_window,
                 )
-            )
+            else:
+                # Build params and check cache before executing the backend query.
+                params_timescope = None
+                if resolved_window is not None:
+                    params_timescope = {
+                        "original": original_timescope,
+                        "resolved": dump_window(resolved_window),
+                        "report_tz": session.report_tz_name,
+                    }
+                params = {
+                    "metric": metric_id,
+                    "timescope": params_timescope,
+                    "dimensions": _dump_dimensions(dimension_refs),
+                    "where": stored_where,
+                    "version_resolutions": [
+                        vr
+                        for cp in derived_plan.component_plans
+                        for vr in cp.base_plan.lineage_metadata.get("version_resolutions", [])
+                    ],
+                    "warnings": derived_plan.warnings,
+                    "lineage_metadata": derived_plan.lineage_metadata,
+                }
+                prospective_id = compute_prospective_artifact_id(
+                    step_type="observe",
+                    inputs=CommitInputs(input_refs=[]),
+                    params=CommitParams(values=params),
+                    semantic_anchors=CommitSemanticAnchors(
+                        values={"metric_id": metric_id, "model": model_name}
+                    ),
+                )
+                if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
+                    session._connection_runtime.take_captured_queries()
+                    return cast("MetricFrame", load_frame(prospective_id, session=session))
+
+                result, component_df, derived_axes, derived_kind, derived_coverage_df = (
+                    _execute_derived(
+                        derived_plan,
+                        metric_ir,
+                        catalog=catalog,
+                        resolver=resolver,
+                        session=session,
+                        resolved_window=resolved_window,
+                    )
+                )
         except BaseException:
             session._connection_runtime.take_captured_queries()
             raise
@@ -1948,82 +2604,136 @@ def observe(
         finished_at = datetime.now(UTC)
         frame_ref = _gen_ref("frame")
         job_ref = _gen_ref("job")
-        # Determine fold metadata for derived metrics with folded components
-        _any_folded = any(
-            getattr(cp.component_metric_ir, "time_fold", None) is not None
-            for cp in derived_plan.component_plans
-        )
-        _derived_fold: dict[str, Any] | None = None
-        if _any_folded:
-            _derived_fold = _build_derived_fold_meta(derived_plan, catalog)
-        meta = MetricFrameMeta(
-            kind="metric_frame",
-            ref=frame_ref,
-            session_id=session.id,
-            project_root=str(session.project_root),
-            produced_by_job=job_ref,
-            analysis_purpose=analysis_purpose,
-            created_at=finished_at,
-            row_count=result.row_count,
-            byte_size=0,
-            lineage=Lineage(
-                steps=[
-                    LineageStep(
-                        intent="observe",
-                        job_ref=job_ref,
-                        inputs=[],
-                        params_digest=_params_digest(params),
-                        analysis_purpose=analysis_purpose,
-                        params=params,
-                    )
-                ]
-            ),
-            metric_id=metric_id,
-            axes=derived_axes,
-            measure={"name": metric_name},
-            window=dump_window(resolved_window),
-            where=stored_where,
-            semantic_kind=derived_kind,
-            semantic_model=model_name,
-            unit=metric_ir.unit,
-            fold=_derived_fold,
-            reaggregatable=not _any_folded,
-            additivity=_meta_additivity(metric_ir.additivity),
-        )
-        frame = MetricFrame(_df=result.df, meta=meta)
-        frame = _commit_observe_metric_frame(
-            session=session,
-            frame=frame,
-            params=params,
-            metric_id=metric_id,
-            model_name=model_name,
-            stored_where=stored_where,
-            semantic_kind=derived_kind,
-        )
-        if component_df is not None:
-            component = _persist_metric_component_frame(
+        if isinstance(derived_plan, CumulativeObservePlan):
+            meta = MetricFrameMeta(
+                kind="metric_frame",
+                ref=frame_ref,
+                session_id=session.id,
+                project_root=str(session.project_root),
+                produced_by_job=job_ref,
+                analysis_purpose=analysis_purpose,
+                created_at=finished_at,
+                row_count=cum_result.row_count,
+                byte_size=0,
+                lineage=Lineage(
+                    steps=[
+                        LineageStep(
+                            intent="observe",
+                            job_ref=job_ref,
+                            inputs=[],
+                            params_digest=_params_digest(params),
+                            analysis_purpose=analysis_purpose,
+                            params=params,
+                        )
+                    ]
+                ),
+                metric_id=metric_id,
+                axes=cum_axes,
+                measure={"name": metric_name},
+                window=dump_window(resolved_window),
+                where=stored_where,
+                semantic_kind=cum_kind,
+                semantic_model=model_name,
+                unit=metric_ir.unit,
+                reaggregatable=False,
+                additivity="non_additive",
+                cumulative=cumulative_meta,
+            )
+            frame = MetricFrame(_df=cum_result.df, meta=meta)
+            _grain_token = (
+                resolved_window.grain.to_token()
+                if resolved_window is not None and resolved_window.grain is not None
+                else None
+            )
+            frame = _commit_observe_metric_frame(
                 session=session,
-                df=component_df,
-                parent=frame,
-                metric_ir=metric_ir,
+                frame=frame,
+                params=params,
+                metric_id=metric_id,
+                model_name=model_name,
+                stored_where=stored_where,
+                semantic_kind=cum_kind,
+                subject_grain=_grain_token,
+            )
+        else:
+            # Determine fold metadata for derived metrics with folded components
+            _any_folded = any(
+                getattr(cp.component_metric_ir, "time_fold", None) is not None
+                for cp in derived_plan.component_plans
+            )
+            _derived_fold: dict[str, Any] | None = None
+            if _any_folded:
+                _derived_fold = _build_derived_fold_meta(derived_plan, catalog)
+            _derived_cumulative = _derived_cumulative_marker(derived_plan, catalog)
+            meta = MetricFrameMeta(
+                kind="metric_frame",
+                ref=frame_ref,
+                session_id=session.id,
+                project_root=str(session.project_root),
+                produced_by_job=job_ref,
+                analysis_purpose=analysis_purpose,
+                created_at=finished_at,
+                row_count=result.row_count,
+                byte_size=0,
+                lineage=Lineage(
+                    steps=[
+                        LineageStep(
+                            intent="observe",
+                            job_ref=job_ref,
+                            inputs=[],
+                            params_digest=_params_digest(params),
+                            analysis_purpose=analysis_purpose,
+                            params=params,
+                        )
+                    ]
+                ),
+                metric_id=metric_id,
                 axes=derived_axes,
+                measure={"name": metric_name},
+                window=dump_window(resolved_window),
+                where=stored_where,
                 semantic_kind=derived_kind,
-                job_ref=job_ref,
+                semantic_model=model_name,
+                unit=metric_ir.unit,
+                fold=_derived_fold,
+                reaggregatable=not _any_folded and _derived_cumulative is None,
+                additivity=_meta_additivity(metric_ir.additivity),
+                cumulative=_derived_cumulative,
             )
-            frame = _attach_metric_component_ref(
+            frame = MetricFrame(_df=result.df, meta=meta)
+            frame = _commit_observe_metric_frame(
                 session=session,
-                parent=frame,
-                component=component,
-                metric_ir=metric_ir,
+                frame=frame,
+                params=params,
+                metric_id=metric_id,
+                model_name=model_name,
+                stored_where=stored_where,
+                semantic_kind=derived_kind,
             )
-        # --- Persist coverage sidecar for derived metrics with folded components ---
-        if derived_coverage_df is not None:
-            frame = _persist_and_attach_coverage_sidecar(
-                session=session,
-                df=derived_coverage_df,
-                parent=frame,
-                job_ref=job_ref,
-            )
+            if component_df is not None:
+                component = _persist_metric_component_frame(
+                    session=session,
+                    df=component_df,
+                    parent=frame,
+                    metric_ir=metric_ir,
+                    axes=derived_axes,
+                    semantic_kind=derived_kind,
+                    job_ref=job_ref,
+                )
+                frame = _attach_metric_component_ref(
+                    session=session,
+                    parent=frame,
+                    component=component,
+                    metric_ir=metric_ir,
+                )
+            # --- Persist coverage sidecar for derived metrics with folded components ---
+            if derived_coverage_df is not None:
+                frame = _persist_and_attach_coverage_sidecar(
+                    session=session,
+                    df=derived_coverage_df,
+                    parent=frame,
+                    job_ref=job_ref,
+                )
         _output_ref = frame.meta.artifact_id or frame.ref
         persist_job_record(
             session,

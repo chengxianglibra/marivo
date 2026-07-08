@@ -2459,3 +2459,67 @@ def test_ratio_unit_rejects_whitespace_and_empty(bad: str) -> None:
         assert ctx.pending_objects == []
     finally:
         _exit_ctx()
+
+
+# ---------------------------------------------------------------------------
+# ms.cumulative() derived registration
+# ---------------------------------------------------------------------------
+
+
+def test_cumulative_returns_ref_and_pushes_body_free_ir() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        orders = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
+        event_time = ms.time_dimension_column(
+            name="event_time", entity=orders, column="created_at", granularity="day"
+        )
+        active_users = ms.count(name="active_users", entity=orders)
+
+        ref = ms.cumulative(name="cumulative_active_users", base=active_users, over=event_time)
+
+        assert isinstance(ref, MetricRef)
+        assert ref.id == "sales.cumulative_active_users"
+        metric_ir = next(
+            ir for ir, _ in ctx.pending_objects if getattr(ir, "semantic_id", None) == ref.id
+        )
+        assert metric_ir.metric_type == "derived"
+        assert metric_ir.entities == ()
+        assert metric_ir.additivity is None
+        assert metric_ir.composition.kind == "cumulative"
+        assert metric_ir.composition.base == "sales.active_users"
+        assert metric_ir.composition.over == "sales.orders.event_time"
+        assert metric_ir.composition.anchor == "all_history"
+    finally:
+        _exit_ctx()
+
+
+def test_cumulative_allows_omitted_over_for_loader_resolution() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        orders = ms.entity(
+            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+        )
+        active_users = ms.count(name="active_users", entity=orders)
+
+        ref = ms.cumulative(name="cumulative_active_users", base=active_users)
+
+        metric_ir = next(
+            ir for ir, _ in ctx.pending_objects if getattr(ir, "semantic_id", None) == ref.id
+        )
+        assert metric_ir.composition.over is None
+    finally:
+        _exit_ctx()
+
+
+def test_cumulative_rejects_string_refs() -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.cumulative(name="bad", base="sales.active_users")  # type: ignore[arg-type]
+
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert "base= accepts a MetricRef" in str(exc_info.value)
+    finally:
+        _exit_ctx()

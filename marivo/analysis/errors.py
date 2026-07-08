@@ -902,6 +902,57 @@ class SessionLockedByAnotherProcessError(AnalysisError): ...
 class PropositionNotFoundError(AnalysisError): ...
 
 
+class CumulativeFrameUnsupportedError(AnalysisError):
+    """Intent received a cumulative frame whose running-total semantics are unsupported.
+
+    Cumulative metrics store monotonically increasing running totals anchored to
+    all history.  Compare, attribute, decompose, and forecast operate on
+    period-level flow values; feeding a cumulative frame produces deltas or
+    forecasts of running totals rather than of the underlying flow.
+
+    The error teaches the agent to re-observe the base flow metric (the
+    ``base`` field in the cumulative marker) and retry the intent on that
+    frame instead.
+    """
+
+    def __init__(
+        self,
+        *,
+        intent: str,
+        frame_ref: str,
+        metric_id: str | None,
+        cumulative: dict[str, Any],
+    ) -> None:
+        base = cumulative.get("base")
+        components = cumulative.get("components")
+        if base is None and isinstance(components, dict):
+            base = ", ".join(
+                sorted(
+                    str(payload.get("base"))
+                    for payload in components.values()
+                    if isinstance(payload, dict)
+                )
+            )
+        if intent == "forecast":
+            hint = "Forecast the base flow metric instead of the all-history running total."
+        else:
+            hint = (
+                "Use the base flow metric for this intent. A cumulative delta over a "
+                "window equals the base total over that window."
+            )
+        super().__init__(
+            message=f"{intent} does not support cumulative metric frames.",
+            hint=hint,
+            details={
+                "intent": intent,
+                "frame_ref": frame_ref,
+                "metric_id": metric_id,
+                "base_metric_id": base,
+                "cumulative": cumulative,
+            },
+        )
+
+
 class ComponentFrameUnavailableError(AnalysisError):
     def _template_fields(self) -> dict[str, str]:
         return {

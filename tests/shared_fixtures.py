@@ -451,6 +451,10 @@ def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:
         "@ms.metric(entities=[users], additivity='additive', name='user_count', )\n"
         "def user_count(users):\n"
         "    return users.user_id.count()\n"
+        "\n"
+        "amount_col = ms.measure_column(name='amount_col', entity=orders, column='amount', additivity='additive', unit='USD')\n"
+        "revenue_agg = ms.aggregate(name='revenue_agg', measure=amount_col, agg='sum')\n"
+        "cumulative_revenue = ms.cumulative(name='cumulative_revenue', base=revenue_agg, over=order_date)\n"
     )
 
 

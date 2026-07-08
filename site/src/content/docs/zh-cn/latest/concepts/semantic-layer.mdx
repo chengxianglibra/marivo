@@ -456,6 +456,33 @@ net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refun
 aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
 
+### 累计 metrics —— `ms.cumulative`
+
+当业务问题是"截至 bucket t 累计了多少"时使用 `ms.cumulative(...)`。
+base 必须是使用 `sum`、`count` 或 `count_distinct` 的 tier-1 `ms.aggregate(...)` 或 `ms.count(...)` metric。
+累计锚点是全部历史：observe 窗口裁剪展示行，但不会重置累计值。
+
+| 参数 | 类型 | 必填 | 默认 | 含义 |
+| --- | --- | --- | --- | --- |
+| `name` | `str` | 是 | — | 语义 metric 名称。 |
+| `base` | `MetricRef` | 是 | — | 使用 `sum`、`count` 或 `count_distinct` 的 tier-1 简单聚合 metric。 |
+| `over` | `TimeDimensionRef \| None` | 否 | `None` | 累计时间轴。除非 base root entity 只有一个时间维度，否则需显式传入。 |
+| `unit` / `domain` / `ai_context` | — | 否 | — | 同其他 metric。 |
+
+```python
+user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity="non_additive")
+active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
+cumulative_active_users = ms.cumulative(
+    name="cumulative_active_users",
+    base=active_users,
+    over=event_time,
+)
+```
+
+对于 `count_distinct` base metric，累计值使用首次出现语义：每个去重实体在最早出现的 bucket
+中计入，因此累计值单调非递减。累计 metric 可作为 ratio 组成成分——用 `ms.ratio(...)` 组合累计
+分子和分母可得到累计比率。
+
 ### Additivity 与 provenance 辅助器
 
 - `ms.semi_additive(over, fold)` —— 用于在大多数轴上可加、但需要在某个时间轴上折叠的

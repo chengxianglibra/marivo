@@ -449,6 +449,32 @@ def _metric_frame() -> MetricFrame:
     return MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
 
 
+def test_metric_frame_contract_warns_for_cumulative_values() -> None:
+    frame = _metric_frame()
+    frame.meta = frame.meta.model_copy(
+        update={
+            "cumulative": {
+                "kind": "cumulative",
+                "base": "sales.gmv",
+                "over": "sales.orders.event_time",
+                "anchor": "all_history",
+                "components": None,
+            }
+        }
+    )
+
+    contract = frame.contract()
+
+    warnings = [
+        pre
+        for aff in contract.affordances
+        for pre in aff.preconditions
+        if pre.check == "running_total_caveat"
+    ]
+    assert warnings
+    assert "shared monotonic trend" in (warnings[0].reason or "")
+
+
 def test_public_analysis_frames_expose_two_agent_exits() -> None:
     frame = _metric_frame()
     assert hasattr(frame, "show")

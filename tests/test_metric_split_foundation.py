@@ -315,3 +315,27 @@ def test_package_exports_new_surface():
         "semi_additive",
     ):
         assert hasattr(ms, present), f"ms.{present} missing"
+
+
+# ---------------------------------------------------------------------------
+# Cumulative composition (Task 1: IR + authoring)
+# ---------------------------------------------------------------------------
+
+
+def test_cumulative_composition_components_and_anchor() -> None:
+    from marivo.semantic.ir import CumulativeComposition, composition_components
+
+    comp = CumulativeComposition(base="sales.active_users", over="sales.events.event_time")
+
+    assert comp.kind == "cumulative"
+    assert comp.anchor == "all_history"
+    assert composition_components(comp) == {"base": "sales.active_users"}
+
+
+def test_cumulative_composition_allows_unresolved_over_for_load_resolution() -> None:
+    from marivo.semantic.ir import CumulativeComposition, composition_components
+
+    comp = CumulativeComposition(base="sales.active_users", over=None)
+
+    assert comp.over is None
+    assert composition_components(comp) == {"base": "sales.active_users"}

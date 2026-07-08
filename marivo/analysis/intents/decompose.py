@@ -12,6 +12,7 @@ import pandas as pd
 
 from marivo.analysis.errors import (
     ComponentDecompositionError,
+    CumulativeFrameUnsupportedError,
     SemanticKindMismatchError,
 )
 from marivo.analysis.frames.attribution import AttributionFrame
@@ -546,6 +547,13 @@ def decompose(
     ensure_session_writable(session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="decompose requires a DeltaFrame input")
+    if frame.meta.cumulative is not None:
+        raise CumulativeFrameUnsupportedError(
+            intent=_intent,
+            frame_ref=frame.ref,
+            metric_id=frame.meta.metric_id,
+            cumulative=frame.meta.cumulative,
+        )
     axis_ids = _normalize_axes_boundary(session, axes, axis)
     params_extra = dict(_params_extra or {})
     ensure_frame_in_session(frame, session=session, label="decompose frame")

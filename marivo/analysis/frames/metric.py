@@ -45,6 +45,7 @@ class MetricFrameMeta(BaseFrameMeta):
     quantile_method: str | None = None
     coverage_ref: str | None = None
     coverage_summary: dict[str, Any] | None = None
+    cumulative: dict[str, Any] | None = None
 
 
 @dataclass(repr=False)
@@ -94,6 +95,7 @@ class MetricFrame(BaseFrame):
                 "unit": self.meta.unit,
                 "additivity": self.meta.additivity,
                 "reaggregatable": self.meta.reaggregatable,
+                "cumulative": self.meta.cumulative,
             }
         ]
 
@@ -130,9 +132,27 @@ class MetricFrame(BaseFrame):
         At arity > 1, gated affordances (compare, correlate, transform,
         assess_quality, hypothesis_test, forecast, discover) carry a
         ``single_metric`` precondition teaching the agent to project to one
-        metric first. Arity-1 frames return the base contract unchanged.
+        metric first. When ``meta.cumulative`` is set, every affordance
+        carries a ``running_total_caveat`` precondition warning that
+        cumulative running totals can pollute correlation and hypothesis-test
+        interpretation.
         """
         contract = super().contract()
+        if self.meta.cumulative is not None:
+            caveat = ArtifactPrecondition(
+                check="running_total_caveat",
+                status="fail",
+                reason=(
+                    "cumulative values are running totals anchored to all history; "
+                    "shared monotonic trend can pollute correlation and "
+                    "hypothesis-test interpretation"
+                ),
+            )
+            affordances = [
+                affordance.model_copy(update={"preconditions": [*affordance.preconditions, caveat]})
+                for affordance in contract.affordances
+            ]
+            contract = contract.model_copy(update={"affordances": affordances})
         if self.arity <= 1:
             return contract
         first_metric = self.metrics[0]

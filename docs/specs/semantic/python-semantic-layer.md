@@ -784,6 +784,32 @@ If a derived calculation needs dimension/time_dimension or row-level intermediat
 first package those values as base metrics. Derived metrics cannot directly
 reference entities, dimensions, or time dimensions.
 
+### Cumulative metrics -- `ms.cumulative`
+
+Use `ms.cumulative(...)` when the business question is "how much accumulated up to bucket t".
+The base must be a tier-1 `ms.aggregate(...)` or `ms.count(...)` metric using `sum`, `count`,
+or `count_distinct`. The accumulation anchor is all history: `session.observe(...,
+time_scope=...)` clips displayed rows but does not reset the running value.
+
+```python
+user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity="non_additive")
+active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
+cumulative_active_users = ms.cumulative(
+    name="cumulative_active_users",
+    base=active_users,
+    over=event_time,
+)
+```
+
+Pass `over=` explicitly unless the base root entity has exactly one time dimension. For
+`count_distinct` base metrics, the cumulative value uses first-seen semantics: each distinct
+entity is counted at the earliest bucket in which it appears, so the running total is
+monotonically non-decreasing.
+
+Cumulative metrics may serve as ratio components. Compose cumulative numerator and
+denominator with `ms.ratio(...)` when the business question is a cumulative rate. Do not use
+cumulative over `mean`, percentile, expression-body metrics, or derived metrics.
+
 ### Provenance
 
 Metric provenance is declared as `provenance=ms.from_sql(sql=..., dialect=...)`.

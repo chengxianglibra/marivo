@@ -196,6 +196,15 @@ def test_phase3_public_help_mentions_measure_details_and_current_metric_shape() 
     assert "ms.aggregate" in metric_topic
 
 
+def test_phase3_cumulative_constructor_is_describable() -> None:
+    assert hasattr(ms, "cumulative")
+
+    cumulative_topic = ms.help_text("cumulative")
+    assert "ms.cumulative" in cumulative_topic
+    assert "running-total" in cumulative_topic.lower()
+    assert "over" in cumulative_topic
+
+
 def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 

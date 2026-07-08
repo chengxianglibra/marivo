@@ -91,7 +91,48 @@ class BaseObservePlan:
 class ComponentPlan:
     component_metric_ir: Any
     role: str
+    base_plan: BaseObservePlan | CumulativeObservePlan
+
+
+@dataclass(frozen=True)
+class CumulativeObservePlan:
+    metric_ir: Any
+    base_metric_ir: Any
     base_plan: BaseObservePlan
+    over: str | None
+    window: Any | None
+
+    @property
+    def dimensions(self) -> list[PlannedDimension]:
+        return self.base_plan.dimensions
+
+    @property
+    def where(self) -> list[PlannedWhere]:
+        return self.base_plan.where
+
+    @property
+    def axes_metadata(self) -> dict[str, Any]:
+        return self.base_plan.axes_metadata
+
+    @property
+    def lineage_metadata(self) -> dict[str, Any]:
+        return self.base_plan.lineage_metadata
+
+    @property
+    def warnings(self) -> list[dict[str, Any]]:
+        return self.base_plan.warnings
+
+    @property
+    def datasource_name(self) -> str:
+        return self.base_plan.datasource_name
+
+    @property
+    def root_entity(self) -> str:
+        return self.base_plan.root_entity
+
+    @property
+    def table(self) -> Any:
+        return self.base_plan.table
 
 
 @dataclass(frozen=True)
@@ -103,7 +144,7 @@ class DerivedObservePlan:
     warnings: list[dict[str, Any]] = field(default_factory=list)
 
 
-ObservePlan = BaseObservePlan | DerivedObservePlan
+ObservePlan = BaseObservePlan | CumulativeObservePlan | DerivedObservePlan
 
 
 @dataclass(frozen=True)
@@ -223,17 +264,27 @@ class _MetricDetailsAdapter:
     def composition(self) -> Any:
         if not isinstance(self.details, DerivedMetricDetails):
             return None
+        components = {
+            role: (ref.id if isinstance(ref, SemanticRef) else str(ref))
+            for role, ref in self.details.components
+        }
         return SimpleNamespace(
             kind=self.details.composition,
-            components={
-                role: (ref.id if isinstance(ref, SemanticRef) else str(ref))
-                for role, ref in self.details.components
-            },
+            components=components,
             signs=(
                 dict(self.details.linear_terms)
                 if self.details.composition == "linear" and self.details.linear_terms
                 else None
             ),
+            # Cumulative-specific fields.  The adapter wraps
+            # DerivedMetricDetails, which carries composition as a string
+            # and components as role-ref pairs; the real CumulativeComposition
+            # IR (with resolved over) lives on MetricIR.  When over is not
+            # available from the details, default to None — the real
+            # MetricIR path provides the resolved value.
+            base=components.get("base") if self.details.composition == "cumulative" else None,
+            over=None,
+            anchor="all_history" if self.details.composition == "cumulative" else None,
         )
 
     @property
@@ -291,6 +342,20 @@ class _TimeFoldDetailsAdapter:
 
 def _planned_metric(details: MetricDetails) -> _MetricDetailsAdapter:
     return _MetricDetailsAdapter(details)
+
+
+def _composition_kind(metric_ir: Any) -> str | None:
+    """Return the composition kind string (e.g. 'ratio', 'cumulative') or None."""
+    composition = getattr(metric_ir, "composition", None)
+    if composition is None:
+        return None
+    kind = getattr(composition, "kind", None)
+    return str(kind) if kind is not None else None
+
+
+def _is_cumulative_metric(metric_ir: Any) -> bool:
+    """True when the metric's composition kind is 'cumulative'."""
+    return _composition_kind(metric_ir) == "cumulative"
 
 
 def _catalog_id(ref: str, kind: SemanticKind) -> str:
@@ -1749,6 +1814,19 @@ def plan_observe(
             resolved_window=resolved_window,
             time_dimension=time_dimension,
         )
+    if _is_cumulative_metric(metric_ir):
+        return _plan_cumulative_observe(
+            catalog=catalog,
+            session=session,
+            metric_ir=metric_ir,
+            dataset_irs=dataset_irs,
+            dataset_fns=dataset_fns,
+            dimensions=dimensions,
+            where=where,
+            resolved_window=resolved_window,
+            time_dimension=time_dimension,
+            component_metric_irs=component_metric_irs,
+        )
     return _plan_derived_observe(
         catalog=catalog,
         session=session,
@@ -2017,6 +2095,62 @@ def _check_version_comparability(component_plans: list[ComponentPlan]) -> None:
             )
 
 
+def _plan_cumulative_observe(
+    *,
+    catalog: SemanticCatalog,
+    session: Any,
+    metric_ir: Any,
+    dataset_irs: dict[str, Any],
+    dataset_fns: dict[str, Any],
+    dimensions: list[Any] | None,
+    where: dict[Any, Any] | None,
+    resolved_window: Any | None,
+    time_dimension: Any,
+    component_metric_irs: dict[str, Any] | None,
+) -> CumulativeObservePlan:
+    """Plan a cumulative observe by delegating to the base metric's plan_base_observe.
+
+    The cumulative metric's composition carries ``base`` (the metric to
+    accumulate) and ``over`` (the time axis to accumulate along).  The base
+    metric is planned via ``plan_base_observe`` using the cumulative's
+    ``over`` as the time dimension when available.
+    """
+    component = metric_ir.composition
+    base_ref = _ref_id(component.base)
+    base_details = _metric(catalog, base_ref)
+    base_ir = component_metric_irs.get(base_ref) if component_metric_irs is not None else None
+    if base_ir is None:
+        base_ir = _planned_metric(base_details)
+    base_dataset_irs, base_dataset_fns = _component_dataset_adapters(
+        base_ir,
+        dataset_irs,
+        dataset_fns,
+    )
+    # Use the cumulative's over axis as the time dimension for the base plan
+    # when it is available; fall back to the caller-supplied time_dimension.
+    cumulative_over = getattr(component, "over", None)
+    base_time_dimension = cumulative_over or time_dimension
+    base_plan = plan_base_observe(
+        catalog=catalog,
+        session=session,
+        metric_ir=base_ir,
+        dataset_irs=base_dataset_irs,
+        dataset_fns=base_dataset_fns,
+        dimensions=dimensions,
+        where=where,
+        resolved_window=resolved_window,
+        time_dimension=base_time_dimension,
+        allow_unqualified_outside_scope=True,
+    )
+    return CumulativeObservePlan(
+        metric_ir=metric_ir,
+        base_metric_ir=base_ir,
+        base_plan=base_plan,
+        over=cumulative_over,
+        window=resolved_window,
+    )
+
+
 def _plan_derived_observe(
     *,
     catalog: SemanticCatalog,
@@ -2042,7 +2176,7 @@ def _plan_derived_observe(
         )
         if component_ir is None:
             component_ir = _planned_metric(component_details)
-        if component_ir.metric_type == "derived":
+        if component_ir.metric_type == "derived" and not _is_cumulative_metric(component_ir):
             raise_observe_planning_error(
                 code="nested-derived-unsupported",
                 message=(
@@ -2067,34 +2201,62 @@ def _plan_derived_observe(
         ):
             component_time_dimension = component_ir.status_time_dimension
         try:
-            base_plan = plan_base_observe(
-                catalog=catalog,
-                session=session,
-                metric_ir=component_ir,
-                dataset_irs=component_dataset_irs,
-                dataset_fns=component_dataset_fns,
-                dimensions=dimensions,
-                where=where,
-                resolved_window=resolved_window,
-                time_dimension=component_time_dimension,
-                allow_unqualified_outside_scope=True,
-            )
+            if _is_cumulative_metric(component_ir):
+                base_plan: BaseObservePlan | CumulativeObservePlan = _plan_cumulative_observe(
+                    catalog=catalog,
+                    session=session,
+                    metric_ir=component_ir,
+                    dataset_irs=component_dataset_irs,
+                    dataset_fns=component_dataset_fns,
+                    dimensions=dimensions,
+                    where=where,
+                    resolved_window=resolved_window,
+                    time_dimension=component_time_dimension,
+                    component_metric_irs=component_metric_irs,
+                )
+            else:
+                base_plan = plan_base_observe(
+                    catalog=catalog,
+                    session=session,
+                    metric_ir=component_ir,
+                    dataset_irs=component_dataset_irs,
+                    dataset_fns=component_dataset_fns,
+                    dimensions=dimensions,
+                    where=where,
+                    resolved_window=resolved_window,
+                    time_dimension=component_time_dimension,
+                    allow_unqualified_outside_scope=True,
+                )
         except WindowInvalidError as _win_exc:
             # Component root has no time field; skip window for this component.
             if "has no @ms.time_dimension" not in (_win_exc.message or ""):
                 raise
-            base_plan = plan_base_observe(
-                catalog=catalog,
-                session=session,
-                metric_ir=component_ir,
-                dataset_irs=component_dataset_irs,
-                dataset_fns=component_dataset_fns,
-                dimensions=dimensions,
-                where=where,
-                resolved_window=None,
-                time_dimension=component_time_dimension,
-                allow_unqualified_outside_scope=True,
-            )
+            if _is_cumulative_metric(component_ir):
+                base_plan = _plan_cumulative_observe(
+                    catalog=catalog,
+                    session=session,
+                    metric_ir=component_ir,
+                    dataset_irs=component_dataset_irs,
+                    dataset_fns=component_dataset_fns,
+                    dimensions=dimensions,
+                    where=where,
+                    resolved_window=None,
+                    time_dimension=component_time_dimension,
+                    component_metric_irs=component_metric_irs,
+                )
+            else:
+                base_plan = plan_base_observe(
+                    catalog=catalog,
+                    session=session,
+                    metric_ir=component_ir,
+                    dataset_irs=component_dataset_irs,
+                    dataset_fns=component_dataset_fns,
+                    dimensions=dimensions,
+                    where=where,
+                    resolved_window=None,
+                    time_dimension=component_time_dimension,
+                    allow_unqualified_outside_scope=True,
+                )
         except ObservePlanningError as exc:
             details = exc.details
             code = details.get("code") if isinstance(details, dict) else None

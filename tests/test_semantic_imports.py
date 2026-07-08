@@ -114,6 +114,7 @@ def test_all_list_matches_expected() -> None:
         "aggregate",
         "ai_context",
         "count",
+        "cumulative",
         "from_sql",
         "hour_prefix",
         "join_on",
@@ -339,6 +340,7 @@ def test_help_json_metric_includes_body_rule_and_related_help() -> None:
     assert contract["decision_order"] == [
         "count",
         "aggregate",
+        "cumulative",
         "ratio",
         "weighted_average",
         "linear",
@@ -349,7 +351,39 @@ def test_help_json_metric_includes_body_rule_and_related_help() -> None:
     assert variants["count"]["constructor"] == "ms.count"
     assert variants["expression"]["constructor"] == "@ms.metric"
     assert variants["expression"]["required"] == ["entities", "additivity", "function_body"]
-    assert "ms.count_distinct" not in str(content)
+    assert variants["cumulative"]["constructor"] == "ms.cumulative"
+
+
+def test_help_json_metric_places_cumulative_between_aggregate_and_ratio() -> None:
+    result = _ms_json_data("metric")
+    content = cast("dict[str, Any]", result["content"])
+    contract = cast("dict[str, Any]", content["authoring_contract"])
+
+    assert contract["decision_order"] == [
+        "count",
+        "aggregate",
+        "cumulative",
+        "ratio",
+        "weighted_average",
+        "linear",
+        "expression",
+    ]
+    variants = cast("dict[str, dict[str, Any]]", contract["variants"])
+    assert variants["cumulative"]["constructor"] == "ms.cumulative"
+    assert "count_distinct" in str(variants["cumulative"])
+
+
+def test_help_json_cumulative_includes_minimal_runnable_path() -> None:
+    result = _ms_json_data("cumulative")
+    content = cast("dict[str, Any]", result["content"])
+    contract = cast("dict[str, Any]", content["authoring_contract"])
+
+    assert contract["constructor"] == "ms.cumulative"
+    assert contract["required"] == ["name", "base"]
+    assert "over" in contract["optional"]
+    assert "active_users = ms.aggregate" in str(content)
+    assert "cum = ms.cumulative" in str(content)
+    assert "rate = ms.ratio" in str(content)
 
 
 def test_help_json_parse_helpers_are_hidden_from_index_but_addressable() -> None:

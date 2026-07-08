@@ -36,6 +36,7 @@ _HELP_ONLY_ENTRIES: tuple[str, ...] = (
     "alignment",
     "calendar",
     "select",
+    "cumulative_frame",
 )
 
 _FRAME_SYMBOLS: set[str] = {
@@ -94,6 +95,7 @@ _SUMMARIES: dict[str, str] = {
     "alignment": "AlignmentPolicy variants and output columns",
     "calendar": "project-local calendar JSON file shape",
     "select": "read typed fields from a CandidateSet row",
+    "cumulative_frame": "cumulative MetricFrame running-total caveats and intent gates",
     "Session": "live analysis session object with execution and artifact methods",
     "SessionSummary": "lightweight row returned by mv.session.list()",
     "JobSummary": "lightweight row returned by Session.jobs() and recent_jobs()",
@@ -539,6 +541,67 @@ def _observe_text(content: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
+def _cumulative_frame_content() -> dict[str, object]:
+    return {
+        "summary": (
+            "Cumulative MetricFrames are running totals anchored to all history. "
+            "The observe window clips displayed rows but does not reset the running value."
+        ),
+        "allowed": [
+            "show()",
+            "contract()",
+            "transform.window(...)",
+            "correlate",
+            "discover",
+            "assess_quality",
+            "derive",
+            "hypothesis_test (with running-total caveat in mind)",
+        ],
+        "rejected_in_v1": [
+            "compare",
+            "attribute",
+            "decompose",
+            "forecast",
+        ],
+        "hint": (
+            "Use the base flow metric for rejected intents. "
+            "A cumulative delta over a window equals the base total over that window."
+        ),
+        "example": (
+            "cum_frame = session.observe(\n"
+            "    cumulative_active_users,\n"
+            '    time_scope={"start": "2026-01-01", "end": "2026-04-01"},\n'
+            '    grain="day",\n'
+            ")\n"
+            "cum_frame.contract()  # shows running_total_caveat\n"
+            'windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})\n'
+            "# For compare/attribute/forecast, observe the base metric instead:\n"
+            "base_frame = session.observe(active_users, ...)"
+        ),
+    }
+
+
+def _cumulative_frame_text(content: dict[str, object]) -> str:
+    allowed = cast("list[str]", content["allowed"])
+    rejected = cast("list[str]", content["rejected_in_v1"])
+    lines = [
+        "Cumulative MetricFrames:",
+        "",
+        str(content["summary"]),
+        "",
+        "Allowed in v1:",
+    ]
+    for item in allowed:
+        lines.append(f"  - {item}")
+    lines.extend(("", "Rejected in v1:"))
+    for item in rejected:
+        lines.append(f"  - {item}")
+    lines.extend(("", "Hint:"))
+    lines.append(f"  {content['hint']}")
+    lines.extend(("", "Example:", cast("str", content["example"])))
+    return "\n".join(lines)
+
+
 def _agent_surface_content() -> dict[str, object]:
     return {
         "summary": "Phase 3 default agent-facing analysis surface.",
@@ -878,6 +941,7 @@ def _surface() -> Surface:
     calendar_content = _calendar_content()
     agent_surface_content = _agent_surface_content()
     observe_content = _observe_content()
+    cumulative_frame_content = _cumulative_frame_content()
     observe_sig, observe_doc = _intent_method_info("observe")
     select_sig, select_doc = _intent_method_info("select")
     transform_sig, transform_doc = _intent_method_info("transform")
@@ -923,6 +987,11 @@ def _surface() -> Surface:
                 _alignment_text(alignment_content),
             ),
             "calendar": _topic("calendar", calendar_content, _calendar_text(calendar_content)),
+            "cumulative_frame": _topic(
+                "cumulative_frame",
+                cumulative_frame_content,
+                _cumulative_frame_text(cumulative_frame_content),
+            ),
             "session": _topic(
                 "session",
                 session_content,

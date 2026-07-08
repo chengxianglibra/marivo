@@ -39,6 +39,7 @@ _HELP_ONLY_ENTRIES = {
     "alignment",
     "calendar",
     "select",
+    "cumulative_frame",
 }
 
 

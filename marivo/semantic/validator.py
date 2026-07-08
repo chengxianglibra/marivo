@@ -27,9 +27,11 @@ from marivo.semantic.errors import (
     WarningKind,
 )
 from marivo.semantic.ir import (
+    CumulativeComposition,
     DateParse,
     DatetimeParse,
     DimensionIR,
+    DimensionKind,
     DomainIR,
     EntityIR,
     HourPrefixParse,
@@ -748,6 +750,177 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
             )
 
 
+def _time_dimensions_for_entity(entity_id: str, registry: Registry) -> list[DimensionIR]:
+    """Return time dimensions on *entity_id*, sorted by semantic_id."""
+    return sorted(
+        (
+            dim
+            for dim in registry.dimensions.values()
+            if dim.entity == entity_id and dim.kind == DimensionKind.TIME
+        ),
+        key=lambda dim: dim.semantic_id,
+    )
+
+
+def _validate_cumulative_metric(
+    *,
+    metric_id: str,
+    metric_ir: MetricIR,
+    registry: Registry,
+) -> list[SemanticError]:
+    """Validate a cumulative metric's base, aggregation, and over axis."""
+    comp = metric_ir.composition
+    if not isinstance(comp, CumulativeComposition):
+        return []
+    errors: list[SemanticError] = []
+    base = registry.metrics.get(comp.base)
+    if base is None:
+        return errors
+    if base.metric_type == "derived":
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPOSITION,
+                message=(
+                    f"Metric {metric_id!r} cumulative base {comp.base!r} is derived; "
+                    "cumulative base must be a tier-1 simple aggregate."
+                ),
+                refs=(metric_id, comp.base),
+                constraint_id=ConstraintId.COMPOSITION_SHAPE,
+                hint=(
+                    "Compose in the other direction, for example a ratio of two cumulative metrics."
+                ),
+                details={
+                    "metric": metric_id,
+                    "base": comp.base,
+                    "composition": "cumulative",
+                },
+            )
+        )
+        return errors
+    if base.aggregation is None:
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPOSITION,
+                message=(
+                    f"Metric {metric_id!r} cumulative base {comp.base!r} is a tier-2 "
+                    "body metric; cumulative base must be a tier-1 simple aggregate."
+                ),
+                refs=(metric_id, comp.base),
+                constraint_id=ConstraintId.COMPOSITION_SHAPE,
+                hint=(
+                    "Use ms.aggregate(...) or ms.count(...) for the base metric so "
+                    "Marivo can rewrite baseline and first-seen queries."
+                ),
+                details={
+                    "metric": metric_id,
+                    "base": comp.base,
+                    "composition": "cumulative",
+                },
+            )
+        )
+        return errors
+    agg = base.aggregation
+    agg_name = agg[0] if isinstance(agg, tuple) else agg
+    if agg_name not in {"sum", "count", "count_distinct"}:
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPOSITION,
+                message=(
+                    f"Metric {metric_id!r} cumulative base {comp.base!r} uses "
+                    f"unsupported aggregation {agg_name!r}; cumulative base must "
+                    "use sum, count, or count_distinct."
+                ),
+                refs=(metric_id, comp.base),
+                constraint_id=ConstraintId.COMPOSITION_SHAPE,
+                hint=(
+                    "For means, model cumulative sum over cumulative count and "
+                    "compose the rate as ms.ratio(...)."
+                ),
+                details={
+                    "metric": metric_id,
+                    "base": comp.base,
+                    "aggregation": agg_name,
+                    "composition": "cumulative",
+                },
+            )
+        )
+    if comp.over is None:
+        candidates = _time_dimensions_for_entity(base.root_entity or "", registry)
+        candidate_ids = [dim.semantic_id for dim in candidates]
+        default_candidates = [dim.semantic_id for dim in candidates if dim.is_default]
+        default_label = (
+            f" (default: {', '.join(default_candidates)})"
+            if default_candidates
+            else " (no default time dimension declared)"
+        )
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPOSITION,
+                message=(
+                    f"Metric {metric_id!r} omits over= but base root entity "
+                    f"{base.root_entity!r} has {len(candidates)} time dimensions: "
+                    f"{', '.join(candidate_ids)}{default_label}; "
+                    "pass over=<TimeDimensionRef> explicitly."
+                ),
+                refs=(metric_id, comp.base),
+                constraint_id=ConstraintId.COMPOSITION_SHAPE,
+                hint=(
+                    "Entity defaults do not silently choose the business "
+                    "accumulation axis. Pass over=<TimeDimensionRef> explicitly."
+                ),
+                details={
+                    "metric": metric_id,
+                    "base": comp.base,
+                    "candidates": candidate_ids,
+                    "default_candidates": default_candidates,
+                    "composition": "cumulative",
+                },
+            )
+        )
+    elif (
+        comp.over not in registry.dimensions or not registry.dimensions[comp.over].is_time_dimension
+    ):
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.MISSING_DIMENSION_REF,
+                message=(
+                    f"Metric {metric_id!r} cumulative over={comp.over!r} is not a "
+                    "known time dimension."
+                ),
+                refs=(metric_id, comp.over),
+                constraint_id=ConstraintId.COMPOSITION_SHAPE,
+                details={
+                    "metric": metric_id,
+                    "over": comp.over,
+                    "missing_ref": comp.over,
+                    "did_you_mean": did_you_mean(comp.over, sorted(registry.dimensions.keys())),
+                    "composition": "cumulative",
+                },
+            )
+        )
+    elif base.root_entity is not None and registry.dimensions[comp.over].entity != base.root_entity:
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPOSITION,
+                message=(
+                    f"Metric {metric_id!r} cumulative over={comp.over!r} belongs to "
+                    f"{registry.dimensions[comp.over].entity!r}, not base root entity "
+                    f"{base.root_entity!r}."
+                ),
+                refs=(metric_id, comp.over),
+                constraint_id=ConstraintId.COMPOSITION_SHAPE,
+                hint="Choose the time dimension on the base metric root entity.",
+                details={
+                    "metric": metric_id,
+                    "over": comp.over,
+                    "root_entity": base.root_entity,
+                    "composition": "cumulative",
+                },
+            )
+        )
+    return errors
+
+
 def assembly_validate(
     registry: Registry,
     sidecar: Sidecar | None = None,
@@ -1074,6 +1247,14 @@ def assembly_validate(
                             },
                         )
                     )
+
+        errors.extend(
+            _validate_cumulative_metric(
+                metric_id=m_id,
+                metric_ir=m_ir,
+                registry=registry,
+            )
+        )
 
         if isinstance(m_ir.composition, LinearComposition):
             from marivo.semantic.unit_algebra import linear_units_conflict

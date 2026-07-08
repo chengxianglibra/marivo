@@ -245,6 +245,27 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
 | `normalize` | `mode`、`baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score`（仅 MetricFrame）。 |
 | `window` | `window` | 限制到一个时间窗口。 |
 
+## 累计 frame 注意事项
+
+累计 MetricFrame 包含锚定到全部历史的累计值。observe 窗口仅裁剪展示行；累计值本身不会被重置。
+
+- `show()`、`contract()` 和 `transform.window(...)` 在累计 frame 上正常工作。
+- `correlate`、`discover`、`assess_quality` 和 `hypothesis_test` 允许使用，但解读结果时需注意累计语义。
+- `compare`、`attribute` 和 `forecast` 在 v1 中拒绝累计 frame。请使用 base 流量 metric
+  执行这些意图——一个窗口内的累计差值等于该窗口内的 base 总量。
+
+```python
+cum_frame = session.observe(
+    cumulative_active_users,
+    time_scope={"start": "2026-01-01", "end": "2026-04-01"},
+    grain="day",
+)
+cum_frame.contract()  # 显示 running_total_caveat
+windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})
+# 对于 compare/attribute/forecast，请改为 observe base metric：
+base_frame = session.observe(active_users, ...)
+```
+
 ## Governed derive —— `session.derive_metric_frame(...)`
 
 当自定义 Ibis 计算结果必须回到 typed metric flow 时，使用 `derive_metric_frame`。它总是返回

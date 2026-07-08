@@ -497,7 +497,7 @@ class DerivedMetricDetails(_DetailsBase):
 
     entities: tuple[SemanticRef, ...]
     root_entity: SemanticRef | None
-    composition: Literal["ratio", "weighted_average", "linear"]
+    composition: Literal["ratio", "weighted_average", "linear", "cumulative"]
     components: tuple[tuple[str, SemanticRef], ...]
     linear_terms: tuple[tuple[str, str], ...]
     required_relationships: tuple[SemanticRef, ...]

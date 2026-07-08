@@ -309,6 +309,32 @@ class Materializer:
         self._measure_cache[semantic_id] = value
         return value
 
+    def measure_on(self, semantic_id: str, table: ibis.Table) -> ir.Value:
+        """Apply a measure callable to a caller-supplied table without caching.
+
+        Unlike ``measure``, this does not materialize or cache the parent
+        entity table; the caller supplies the table to evaluate against.
+        Needed for count-distinct first-seen rewrites in cumulative observe.
+        """
+        registry, sidecar = self._get_registry_and_sidecar()
+        measure_ir = registry.measures.get(semantic_id)
+        if measure_ir is None:
+            _raise(
+                ErrorKind.DIMENSION_NOT_FOUND,
+                f"Measure {semantic_id!r} not found in registry.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        callable_ = sidecar.get(semantic_id)
+        if callable_ is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"Measure {semantic_id!r} has no sidecar callable.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        return self._call_field_callable(semantic_id, measure_ir.name, callable_, table)
+
     def _call_field_callable(
         self,
         semantic_id: str,

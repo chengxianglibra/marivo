@@ -6,6 +6,8 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.intents.observe import observe
+from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.refs import make_ref
 from tests.shared_fixtures import (
     bootstrap_multi_metric_sales_project,
     seed_multi_metric_tables,
@@ -219,3 +221,22 @@ def test_evidence_findings_per_metric(sales_session):
     ]
     subjects = {f.subject.metric for f in findings}
     assert subjects == {"sales.revenue", "sales.order_count"}
+
+
+# --- Task 5: multi-metric cumulative rejection ---
+
+
+def test_multi_metric_observe_rejects_cumulative_metric(sales_session):
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        observe(
+            [
+                make_ref("sales.revenue", SemanticKind.METRIC),
+                make_ref("sales.cumulative_revenue", SemanticKind.METRIC),
+            ],
+            time_scope=WINDOW,
+            grain="day",
+            session=sales_session,
+        )
+
+    assert "cumulative" in str(exc_info.value)
+    assert "single metric" in str(exc_info.value)

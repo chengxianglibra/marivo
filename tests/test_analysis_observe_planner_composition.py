@@ -305,3 +305,51 @@ def test_evidence_composition_module_imports():
     from marivo.analysis.evidence.extraction import composition
 
     assert hasattr(composition, "__name__")
+
+
+# ---------------------------------------------------------------------------
+# Task 3 (cumulative): planner adapter exposes cumulative composition;
+# _is_cumulative_metric identifies only cumulative composition.
+# ---------------------------------------------------------------------------
+
+
+def test_planned_metric_exposes_cumulative_composition() -> None:
+    d = metric_details_factory(
+        metric_type="derived",
+        composition="cumulative",
+        components=[("base", "sales.revenue")],
+        ref=_make_ref("sales.cumulative_revenue"),
+        additivity="non_additive",
+    )
+
+    planned = _planned_metric(d)
+
+    assert planned.metric_type == "derived"
+    assert planned.composition.kind == "cumulative"
+    assert planned.composition.components == {"base": "sales.revenue"}
+
+
+def test_cumulative_helpers_identify_only_cumulative_composition() -> None:
+    from marivo.analysis.intents.observe_planner import _is_cumulative_metric
+
+    cumulative = _planned_metric(
+        metric_details_factory(
+            metric_type="derived",
+            composition="cumulative",
+            components=[("base", "sales.revenue")],
+            ref=_make_ref("sales.cumulative_revenue"),
+            additivity="non_additive",
+        )
+    )
+    ratio = _planned_metric(
+        metric_details_factory(
+            metric_type="derived",
+            composition="ratio",
+            components=[("numerator", "sales.revenue"), ("denominator", "sales.orders")],
+            ref=_make_ref("sales.aov"),
+            additivity="non_additive",
+        )
+    )
+
+    assert _is_cumulative_metric(cumulative) is True
+    assert _is_cumulative_metric(ratio) is False
