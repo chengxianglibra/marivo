@@ -1,0 +1,67 @@
+---
+slug: zh-cn/v0.3/release-notes/0.2.5
+title: Marivo 0.2.5
+description: Marivo 0.2.5 发布说明。
+---
+
+Marivo 0.2.5 是 v0.2 系列的 patch release，聚焦 agent-facing semantic
+authoring、catalog browsing 和本地 runtime observability。这个版本收紧了围绕
+project-local files 的 semantic surface，让 catalog traversal 更直接，并从 public
+contract 中移除了旧的 decision ledger。
+
+## 重点
+
+- Semantic projects 现在可以从 `layer_paths` 加载多个 layer roots，因此 teams 可以把
+  datasource、domain 和 metric declarations 拆到多个文件，而不必压平成单个 module。
+- Semantic decision ledger 已从 public surface 移除。Readiness 和 verification 现在聚焦
+  已声明的 semantic objects 与 source evidence，而不是额外的 internal decision log。
+- `catalog.list()` 现在使用 kind-first browsing model，提供 bounded output、明确的
+  drill-down keys，以及指向下一步具体调用的 agent-facing help。
+- Local usage telemetry 现在记录在 project-local state 中，因此 CLI 和 runtime usage
+  可以被检查，而不会发送到外部服务。
+
+## 变更
+
+- Catalog discovery output 现在围绕 datasources、domains、entities、dimensions、
+  measures、metrics 和 relationships 等 kinds 组织。
+- Semantic loader 和 reader 行为现在把 configured layer roots 作为 project contract，并在
+  ambiguous names 上 fail closed。
+- Agent help 与内置 semantic/analysis skills 现在引导作者使用当前的 help、discovery、
+  verification 和 catalog-browsing surfaces。
+
+## 修复
+
+- Scalar row-count quality checks 不再为有效的 single-row aggregate outputs 产生噪音警告。
+- Analysis error rendering 与 frame guidance 围绕当前 semantic-input contract 进一步收紧。
+
+## 文档
+
+- 增加 multi-root semantic projects 与 kind-first catalog browsing 的 design notes。
+- 更新 `latest` 与 `v0.2` installation、quick start、semantic-layer 和 readiness
+  documentation，使其匹配当前 semantic project model。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.2.5 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.3/installation/)
+- [快速开始](/zh-cn/v0.3/quick-start/)
+- [语义层](/zh-cn/v0.3/concepts/semantic-layer/)
+- [分析流程](/zh-cn/v0.3/concepts/analysis-workflow/)

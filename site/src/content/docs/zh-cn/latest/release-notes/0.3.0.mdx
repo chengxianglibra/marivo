@@ -1,0 +1,74 @@
+---
+slug: zh-cn/latest/release-notes/0.3.0
+title: Marivo 0.3.0
+description: Marivo 0.3.0 发布说明。
+---
+
+Marivo 0.3.0 是一个 minor release，重点收紧面向 agent 的 public authoring
+和 analysis surface。它引入 cumulative metric modeling、更清晰的 workflow-first
+analysis affordances、通过 help 与 result contracts 暴露的 public semantic guidance，以及
+用于 datasource behavior 的共享 engine-profile 层。
+
+## 重点
+
+- Cumulative metrics 现在是一等 semantic objects。作者可以声明 cumulative windows，
+  通过 semantic layer materialize，并在 analysis workflow 中 observe cumulative frames。
+- Analysis guidance 现在会引导 agents 走 workflow-first discovery。Help、result display
+  和 session runtime output 会暴露更窄的 next steps，而不是让 agents 从宽泛 API 中推断
+  workflow state。
+- Semantic authoring 现在通过 public help 和 result affordances 覆盖常见 authoring flows，
+  更容易发现有效 constructors、required fields、readiness issues 和具体 next actions。
+- Datasource behavior 现在通过 DuckDB、MySQL、PostgreSQL、Trino 和 ClickHouse 的共享
+  engine profiles 表达，减少重复 backend logic，并更明确地呈现 engine-specific capabilities。
+
+## 变更
+
+- Analysis execution internals 被拆分为专门的 bucketing、windowing、string-time 和
+  metric-projection components。
+- Datasource metadata、runtime 和 authoring code 现在通过 engine-profile values 处理 SQL
+  behavior、connection options 和 backend-specific constraints。
+- Bundled `marivo-analysis` 与 `marivo-semantic` skills 现在描述 cumulative metric workflow
+  和更新后的 public guidance surface。
+
+## 修复
+
+- Metric-pruning steps 后会保留 derived dimensions。
+- DuckDB datasource connections 现在会转发 authored extra keyword arguments。
+- Semantic layer datasource resolution、readiness checks、time parsing 和 catalog details
+  在多个边界情况上更严格。
+- Analysis help、observation planning、transform output 和 timezone-aware execution paths
+  收到兼容性修复。
+
+## 文档
+
+- 新增 cumulative metrics v2、engine profiles、public semantic authoring guidance 和 analysis
+  agent surface 的 design specs。
+- 更新 latest 英文和中文站点中的 installation、quick start、semantic-layer concepts 和
+  analysis workflow concepts。
+- 新增 `v0.3` 版本化文档快照。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+按 datasource 选择对应 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.0 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/latest/installation/)
+- [快速开始](/zh-cn/latest/quick-start/)
+- [语义层](/zh-cn/latest/concepts/semantic-layer/)
+- [分析流程](/zh-cn/latest/concepts/analysis-workflow/)
