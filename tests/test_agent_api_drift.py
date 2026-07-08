@@ -308,6 +308,12 @@ def test_mv_help_topic_within_budget(capsys) -> None:
     assert len(captured.out.splitlines()) <= 80
 
 
+def test_mv_help_workflow_topic_within_budget(capsys) -> None:
+    mv.help("workflow")
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) <= 80
+
+
 def test_ms_help_topic_within_budget(capsys) -> None:
     ms.help("metric")
     captured = capsys.readouterr()
@@ -331,3 +337,66 @@ def test_analysis_spec_mentions_no_stdout_contract() -> None:
 def test_semantic_spec_mentions_no_stdout_contract() -> None:
     spec = _read("docs/specs/semantic/python-semantic-layer.md")
     assert "not write stdout" in spec or "do not write stdout" in spec or "silent" in spec.lower()
+
+
+# ---------------------------------------------------------------------------
+# Default public export surface is pruned to workflow objects
+# ---------------------------------------------------------------------------
+
+
+def test_analysis_public_exports_are_default_workflow_surface() -> None:
+    expected = {
+        "help",
+        "help_text",
+        "session",
+        "Session",
+        "MetricFrame",
+        "DeltaFrame",
+        "AttributionFrame",
+        "CandidateSet",
+        "AssociationResult",
+        "HypothesisTestResult",
+        "ForecastFrame",
+        "QualityReport",
+        "window_bucket",
+        "dow_aligned",
+        "holiday_aligned",
+        "holiday_and_dow_aligned",
+        "AlignmentPolicy",
+        "ibis_query",
+        "metric_columns",
+        "time_column",
+        "dimension_column",
+        "SemanticRef",
+        "SemanticObject",
+        "ArtifactRef",
+        "CalendarRef",
+        "TimeScope",
+        "AbsoluteWindow",
+    }
+    assert set(mv.__all__) == expected
+    assert set(dir(mv)) == expected
+
+
+def test_analysis_dir_hides_advanced_and_internal_objects() -> None:
+    hidden = {
+        "BaseFrame",
+        "BaseFrameMeta",
+        "FrameSummaryEntry",
+        "JobSummary",
+        "SessionSummary",
+        "Lineage",
+        "LineageStep",
+        "BlockingIssue",
+        "ConfidenceScope",
+        "ComponentFrame",
+        "CoverageFrame",
+        "errors",
+        "evidence",
+        "frames",
+        "DeriveContext",
+        "IbisQuerySpec",
+        "MetricColumnBinding",
+        "MetricColumns",
+    }
+    assert hidden.isdisjoint(dir(mv))

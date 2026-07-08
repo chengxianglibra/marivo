@@ -31,9 +31,9 @@ Alignment & window helpers
 Help and agent surface
 ----------------------
 
-Start with ``help_text("agent_surface")`` or ``help("agent_surface")`` to see
-the Phase 3 default operator surface, base artifact protocol, bounded read
-order, governed derive boundary, and mechanical affordance language.
+Start with ``mv.help("workflow")`` to see the default operator surface, base
+artifact protocol, bounded read order, governed derive boundary, and mechanical
+affordance language.
 
 .. autosummary::
    :toctree: api/
@@ -65,10 +65,10 @@ bindings; query output columns are plain strings.
 Frames
 ------
 
-Public analysis artifacts expose ``ref``, ``kind``, ``summary()``, ``schema()``,
-``contract()``, ``quality_summary``, ``blocking_issues``, ``lineage``, ``state``,
-and ``show()``. ``contract().affordances`` describes mechanical compatibility
-only; it is not ranked and is not a recommendation.
+Public analysis artifacts expose ``ref``, ``kind``, ``show()``,
+``contract()``, ``quality_summary``, ``blocking_issues``, ``lineage``,
+``state``, and ``to_pandas()``. ``contract().affordances`` describes
+mechanical compatibility only; it is not ranked and is not a recommendation.
 
 .. autosummary::
    :toctree: api/

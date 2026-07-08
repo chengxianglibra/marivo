@@ -147,6 +147,19 @@ class SliceAmbiguousError(AnalysisError): ...
 
 
 class SemanticKindMismatchError(AnalysisError):
+    @staticmethod
+    def _catalog_expected_label(argument: str, expected_kind: str) -> str:
+        """Return the human-readable label for what a catalog argument requires.
+
+        Mirrors ``_expected_label`` in semantic_inputs.py so the rendered
+        error string uses the same vocabulary as the exception message.
+        """
+        if argument == "time_dimension":
+            return "time dimension"
+        if expected_kind == "dimension":
+            return "dimension or time dimension"
+        return expected_kind
+
     def _template_fields(self) -> dict[str, str]:
         if str(self.details.get("missing")) == "search_space":
             return {
@@ -312,6 +325,87 @@ class SemanticKindMismatchError(AnalysisError):
                 ),
                 "doc": "docs/specs/analysis/python-analysis-design.md",
             }
+        # Measure-rejection shape: a measure SemanticRef was passed where a
+        # dimension group-by axis is required.  These errors are raised
+        # directly (not through _reject_kind) and carry a measure-specific
+        # message plus repair snippets, but lack the ``argument`` field.
+        actual_kind_raw = self.details.get("actual_kind")
+        expected_kind_raw_2 = self.details.get("expected_kind")
+        argument_raw = self.details.get("argument")
+        repair_raw = self.details.get("repair")
+        if (
+            isinstance(actual_kind_raw, str)
+            and actual_kind_raw == "measure"
+            and isinstance(expected_kind_raw_2, str)
+            and expected_kind_raw_2 == "dimension"
+            and not (isinstance(argument_raw, str) and argument_raw)
+            and "got_kind" not in self.details
+        ):
+            ref = self.details.get("ref")
+            ref_text = ref if isinstance(ref, str) and ref else "<ref>"
+            cause = (
+                f"{ref_text!r} is a measure, which is aggregated, not a group-by "
+                "axis; slice by a categorical dimension or aggregate it into a metric."
+            )
+            available = self.details.get("available_ids")
+            if isinstance(available, list) and available:
+                preview = ", ".join(str(item) for item in available[:10])
+                suffix = f" Available dimensions: {preview}"
+                if len(available) > 10:
+                    suffix += f" (+{len(available) - 10} more)"
+                cause += suffix
+            fix_snippet = (
+                "\n".join(str(line) for line in repair_raw)
+                if isinstance(repair_raw, list) and repair_raw
+                else ""
+            )
+            measure_fields: dict[str, str] = {
+                "location": "session call dimension argument",
+                "cause": cause,
+                "fix_snippet": fix_snippet,
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
+            }
+            return measure_fields
+        # _reject_kind details shape: catalog semantic-kind mismatch at input
+        # normalization boundaries (has argument/expected_kind/actual_kind, not
+        # got_kind which is for frame-kind mismatches).
+        argument = self.details.get("argument")
+        actual_kind_value = self.details.get("actual_kind")
+        expected_kind_for_catalog = self.details.get("expected_kind")
+        if (
+            isinstance(argument, str)
+            and argument
+            and isinstance(actual_kind_value, str)
+            and actual_kind_value
+            and isinstance(expected_kind_for_catalog, str)
+            and expected_kind_for_catalog
+            and "got_kind" not in self.details
+        ):
+            label = self._catalog_expected_label(argument, expected_kind_for_catalog)
+            cause = (
+                f"{argument} requires a {label} SemanticRef or SemanticObject, "
+                f"received a {actual_kind_value}."
+            )
+            available = self.details.get("available_ids")
+            if isinstance(available, list) and available:
+                preview = ", ".join(str(item) for item in available[:10])
+                suffix = f" Available {label}s: {preview}"
+                if len(available) > 10:
+                    suffix += f" (+{len(available) - 10} more)"
+                cause += suffix
+            repair = self.details.get("repair")
+            fix_snippet = (
+                "\n".join(str(line) for line in repair)
+                if isinstance(repair, list) and repair
+                else ""
+            )
+            fields: dict[str, str] = {
+                "location": f"session call {argument} argument",
+                "cause": cause,
+                "fix_snippet": fix_snippet,
+                "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
+            }
+            return fields
         got_kind = self.details.get("got_kind")
         expected_kind = self.details.get("expected_kind")
         if not (

@@ -126,52 +126,21 @@ def test_analysis_fold_partition() -> None:
     assert fams["References"] == ["ArtifactRef", "CalendarRef", "SemanticRef"]
     assert fams["Frames"] == [
         "AttributionFrame",
-        "BaseFrame",
-        "ComponentFrame",
-        "CoverageFrame",
         "DeltaFrame",
         "ForecastFrame",
         "MetricFrame",
     ]
-    assert fams["Type aliases"] == ["TimeScopeInput"]
-    assert set(fams["Other types"]) == {
+    assert "Type aliases" not in fams
+    assert fams["Other types"] == [
         "AbsoluteWindow",
-        "AlignmentKind",
         "AlignmentPolicy",
-        "ArtifactAffordance",
-        "ArtifactColumn",
-        "ArtifactContract",
-        "ArtifactParamTemplate",
-        "ArtifactPrecondition",
-        "ArtifactSchema",
-        "ArtifactState",
         "AssociationResult",
-        "BaseFrameMeta",
-        "BlockingIssue",
-        "CalendarPolicy",
-        "CandidateObjective",
         "CandidateSet",
-        "ConfidenceScope",
-        "DeriveContext",
-        "DiscoverSensitivity",
-        "FrameSummaryEntry",
         "HypothesisTestResult",
-        "IbisQuerySpec",
-        "JobSummary",
-        "Lineage",
-        "LineageStep",
-        "MetricColumnBinding",
-        "MetricColumns",
         "QualityReport",
-        "SamplingPolicy",
         "SemanticObject",
-        "SessionSummary",
-        "SlicePredicate",
-        "SlicePredicateOp",
-        "SliceScalar",
-        "SliceValue",
         "TimeScope",
-    }
+    ]
     enumerated = _enumerated(surface)
     assert "Session" in enumerated
     _assert_no_value_family_leaks(enumerated)

@@ -183,6 +183,14 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="marivo",
         description="Marivo project tooling",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Analysis workflow:\n"
+            "  .venv/bin/python -c \"import marivo.analysis as mv; mv.help('workflow')\"\n\n"
+            "Common diagnostics before live analysis:\n"
+            "  marivo doctor --semantic\n"
+            "  marivo doctor --datasource <name> --connect"
+        ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
