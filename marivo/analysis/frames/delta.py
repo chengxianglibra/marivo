@@ -30,6 +30,7 @@ class DeltaFrameMeta(BaseFrameMeta):
     composition: dict[str, Any] | None = None
     fold: dict[str, Any] | None = None
     component_folds: list[dict[str, Any]] = Field(default_factory=list)
+    cumulative: dict[str, Any] | None = None
 
 
 @dataclass(repr=False)

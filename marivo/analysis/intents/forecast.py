@@ -33,7 +33,7 @@ from marivo.analysis.intents._derived import (
     require_numeric_column,
     resolve_session,
 )
-from marivo.analysis.intents._validate import require_single_metric
+from marivo.analysis.intents._validate import cumulative_issue, require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import persist_job_record, register_frame_artifact
 from marivo.analysis.session.core import Session, ensure_session_writable
@@ -70,6 +70,9 @@ def forecast(
     # out upstream. Narrow metric_id for downstream ForecastFrameMeta / Subject.
     assert history.meta.metric_id is not None
     ensure_frame_in_session(history, session=session, label="forecast history")
+    cumulative_gate = cumulative_issue(history, intent="forecast")
+    if cumulative_gate is not None:
+        raise cumulative_gate
     if horizon < 1:
         raise ForecastPolicyError(message="horizon must be >= 1", details={"horizon": horizon})
     if not 0 < interval_level < 1:

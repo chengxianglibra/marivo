@@ -29,6 +29,7 @@ from marivo.semantic.ir import (
     AiContextIR,
     Composition,
     CsvSourceIR,
+    CumulativeComposition,
     DateParse,
     DatetimeParse,
     DimensionIR,
@@ -80,6 +81,7 @@ __all__ = [
     "ai_context",
     "count",
     "csv",
+    "cumulative",
     "datetime",
     "dimension",
     "dimension_column",
@@ -1895,6 +1897,8 @@ def _compute_composition_hash(composition: Composition) -> str:
         text = repr(("ratio", composition.numerator, composition.denominator))
     elif isinstance(composition, WeightedAverageComposition):
         text = repr(("weighted_average", composition.value, composition.weight))
+    elif isinstance(composition, CumulativeComposition):
+        text = repr(("cumulative", composition.base, composition.over, composition.anchor))
     else:  # LinearComposition
         text = repr(("linear", tuple((t.sign, t.metric) for t in composition.terms)))
     return hashlib.sha256(text.encode()).hexdigest()[:16]
@@ -2025,6 +2029,70 @@ def linear(
     return _derived(
         name=name,
         composition=LinearComposition(terms=terms),
+        unit=unit,
+        domain=domain,
+        ai_context=ai_context,
+    )
+
+
+def cumulative(
+    *,
+    name: str,
+    base: MetricRef,
+    over: TimeDimensionRef | None = None,
+    unit: str | None = None,
+    domain: DomainRef | None = None,
+    ai_context: AiContextValue | None = None,
+) -> MetricRef:
+    """Declare an all-history cumulative metric over a tier-1 base metric.
+
+    Args:
+        name: Metric name.
+        base: Tier-1 simple aggregate metric ref to accumulate.
+        over: Time dimension ref defining the accumulation axis. Prefer passing this
+            explicitly. When omitted, load succeeds only if the base metric root entity
+            has exactly one time dimension.
+        unit: Optional output unit override. Defaults to the base metric unit at load.
+        domain: Override the active domain namespace.
+        ai_context: Optional agent-facing context.
+
+    Returns:
+        A ``MetricRef`` for the derived cumulative metric.
+
+    Example:
+        >>> active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
+        >>> cumulative_active_users = ms.cumulative(
+        ...     name="cumulative_active_users",
+        ...     base=active_users,
+        ...     over=event_time,
+        ... )
+
+    Constraints:
+        Accumulation is anchored to all history. The observe window only clips displayed
+        rows; it does not reset the cumulative value.
+    """
+    if not isinstance(base, MetricRef):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "base= accepts a MetricRef returned by ms.count(...), ms.aggregate(...), "
+            "or catalog.get(...).ref.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    if over is not None and not isinstance(over, TimeDimensionRef):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "over= accepts a TimeDimensionRef returned by ms.time_dimension(...) "
+            "or ms.time_dimension_column(...).",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    return _derived(
+        name=name,
+        composition=CumulativeComposition(
+            base=base.id,
+            over=over.id if over is not None else None,
+        ),
         unit=unit,
         domain=domain,
         ai_context=ai_context,

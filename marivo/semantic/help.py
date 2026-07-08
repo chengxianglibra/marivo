@@ -640,6 +640,48 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             },
             "static_constraints": ["entity must be an EntityRef"],
         },
+        "cumulative": {
+            "summary": ("Declare an all-history running-total metric over a tier-1 base metric."),
+            "constructor": "ms.cumulative",
+            "required": ["name", "base"],
+            "optional": ["over", "unit", "domain", "ai_context"],
+            "discover": None,
+            "parameters": {
+                "name": name,
+                "base": _param(
+                    "MetricRef",
+                    "tier-1 simple aggregate metric using sum, count, or count_distinct",
+                ),
+                "over": _param(
+                    "TimeDimensionRef | None",
+                    (
+                        "time axis to accumulate over; pass explicitly unless the base "
+                        "root entity has exactly one time dimension"
+                    ),
+                    default="None",
+                ),
+                "unit": unit,
+                "domain": domain,
+                "ai_context": ai_context,
+            },
+            "static_constraints": [
+                "base must be a tier-1 simple aggregate metric",
+                "base aggregation must be sum, count, or count_distinct",
+                "observe window start clips displayed rows only; values remain anchored to all history",
+            ],
+            "minimal_example": (
+                "user_id = ms.measure_column(name='user_id', entity=events, "
+                "column='user_id', additivity='non_additive')\n"
+                "active_users = ms.aggregate(name='active_users', measure=user_id, "
+                "agg='count_distinct')\n"
+                "cum = ms.cumulative(name='cumulative_active_users', base=active_users, "
+                "over=event_time)\n"
+                "cum_payers = ms.cumulative(name='cumulative_payers', base=payers, "
+                "over=event_time)\n"
+                "rate = ms.ratio(name='cumulative_conversion_rate', numerator=cum_payers, "
+                "denominator=cum)"
+            ),
+        },
         "metric": {
             "summary": "Choose the correct metric constructor before authoring a metric.",
             "constructor": "metric family",
@@ -650,6 +692,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "decision_order": [
                 "count",
                 "aggregate",
+                "cumulative",
                 "ratio",
                 "weighted_average",
                 "linear",
@@ -667,6 +710,12 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                     "constructor": "ms.aggregate",
                     "required": ["name", "measure", "agg"],
                     "optional": ["domain", "ai_context"],
+                },
+                "cumulative": {
+                    "when": "metric is an all-history running total over a tier-1 base metric using sum, count, or count_distinct",
+                    "constructor": "ms.cumulative",
+                    "required": ["name", "base"],
+                    "optional": ["over", "unit", "domain", "ai_context"],
                 },
                 "ratio": {
                     "when": "metric divides one existing metric by another",
@@ -810,7 +859,14 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
     }
 
 
-_ENRICHMENT_KEYS = ("default_path", "tier1", "tier2", "body_rule", "authoring_guidance")
+_ENRICHMENT_KEYS = (
+    "default_path",
+    "tier1",
+    "tier2",
+    "body_rule",
+    "authoring_guidance",
+    "minimal_example",
+)
 
 
 def _contract_text(symbol: str, content: dict[str, object]) -> str:
@@ -876,6 +932,9 @@ def _contract_text(symbol: str, content: dict[str, object]) -> str:
     if "authoring_guidance" in content:
         lines.extend(("", "Authoring guidance:"))
         lines.append(f"  {content['authoring_guidance']}")
+    if "minimal_example" in content:
+        lines.extend(("", "Minimal example:"))
+        lines.append(str(content["minimal_example"]))
     lines.extend(("", "Static constraints:"))
     for constraint in cast("list[str]", contract["static_constraints"]):
         lines.append(f"  - {constraint}")

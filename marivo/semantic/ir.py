@@ -34,6 +34,7 @@ __all__ = [
     "AiContextIR",
     "Composition",
     "CsvSourceIR",
+    "CumulativeComposition",
     "DatasourceAiContextIR",
     "DatasourceIR",
     "DatasourceSourceLocation",
@@ -494,6 +495,23 @@ class WeightedAverageComposition:
 
 
 @dataclass(frozen=True)
+class CumulativeComposition:
+    base: str
+    over: str | None
+    anchor: Literal["all_history"] = "all_history"
+    kind: Literal["cumulative"] = "cumulative"
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.base, "CumulativeComposition.base")
+        if self.over is not None:
+            _require_non_empty_str(self.over, "CumulativeComposition.over")
+        _require_kind(
+            self.anchor, field_name="CumulativeComposition.anchor", expected="all_history"
+        )
+        _require_kind(self.kind, field_name="CumulativeComposition.kind", expected="cumulative")
+
+
+@dataclass(frozen=True)
 class LinearTerm:
     sign: Literal["+", "-"]
     metric: str
@@ -509,7 +527,9 @@ class LinearComposition:
             raise ValueError("LinearComposition requires at least two terms")
 
 
-Composition = RatioComposition | WeightedAverageComposition | LinearComposition
+Composition = (
+    RatioComposition | WeightedAverageComposition | LinearComposition | CumulativeComposition
+)
 
 
 def additivity_bucket(
@@ -527,6 +547,8 @@ def composition_components(composition: Composition) -> dict[str, str]:
         return {"numerator": composition.numerator, "denominator": composition.denominator}
     if isinstance(composition, WeightedAverageComposition):
         return {"value": composition.value, "weight": composition.weight}
+    if isinstance(composition, CumulativeComposition):
+        return {"base": composition.base}
     return {f"term{i}": term.metric for i, term in enumerate(composition.terms)}
 
 

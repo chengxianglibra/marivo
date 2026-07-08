@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from marivo.analysis.errors import (
     AttributionMaterializationError,
+    CumulativeFrameUnsupportedError,
     SemanticKindMismatchError,
 )
 from marivo.analysis.frames.attribution import AttributionFrame
@@ -100,6 +101,13 @@ def attribute(
     ensure_session_writable(resolved_session)
     if not isinstance(frame, DeltaFrame):
         raise SemanticKindMismatchError(message="attribute requires a DeltaFrame input")
+    if frame.meta.cumulative is not None:
+        raise CumulativeFrameUnsupportedError(
+            intent="attribute",
+            frame_ref=frame.ref,
+            metric_id=frame.meta.metric_id,
+            cumulative=frame.meta.cumulative,
+        )
     ensure_frame_in_session(frame, session=resolved_session, label="attribute frame")
     axis_ids = _normalize_attribute_axes(resolved_session, axes)
     missing_axes = _missing_axis_ids(frame, axis_ids)

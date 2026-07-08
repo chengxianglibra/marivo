@@ -258,6 +258,30 @@ Transforms reshape a frame while preserving its family (`MetricFrame` →
 | `normalize` | `mode`, `baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score` (MetricFrame only). |
 | `window` | `window` | Restrict to a time window. |
 
+## Cumulative frame caveats
+
+Cumulative MetricFrames contain running-total values anchored to all history. The observe
+window clips displayed rows only; the running total itself is never reset.
+
+- `show()`, `contract()`, and `transform.window(...)` work normally on cumulative frames.
+- `correlate`, `discover`, `assess_quality`, and `hypothesis_test` are allowed, but keep the
+  running-total semantics in mind when interpreting results.
+- `compare`, `attribute`, and `forecast` reject cumulative frames in v1. Use the
+  base flow metric for those intents — a cumulative delta over a window equals the base total
+  over that window.
+
+```python
+cum_frame = session.observe(
+    cumulative_active_users,
+    time_scope={"start": "2026-01-01", "end": "2026-04-01"},
+    grain="day",
+)
+cum_frame.contract()  # shows running_total_caveat
+windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})
+# For compare/attribute/forecast, observe the base metric instead:
+base_frame = session.observe(active_users, ...)
+```
+
 ## Governed derive — `session.derive_metric_frame(...)`
 
 Use `derive_metric_frame` when a custom Ibis calculation must re-enter the typed

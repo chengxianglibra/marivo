@@ -52,6 +52,7 @@ from marivo.analysis.intents.observe import (
 )
 from marivo.analysis.intents.observe_planner import (
     BaseObservePlan,
+    _is_cumulative_metric,
     _planned_metric,
     _validate_field_expr,
     plan_base_observe,
@@ -100,6 +101,20 @@ def _normalize_metric_list(catalog: Any, metrics: list[Any]) -> list[str]:
 
 
 def _reject_unsupported_metric(metric_id: str, metric_details: Any, metric_ir: Any) -> None:
+    if _is_cumulative_metric(metric_ir):
+        raise SemanticKindMismatchError(
+            message=(
+                "observe with multiple metrics accepts simple, unfolded metrics; "
+                f"{metric_id!r} is a cumulative metric and must be observed "
+                "as a single metric"
+            ),
+            hint=(
+                f"observe {metric_id!r} separately: observe(catalog.get({metric_id!r}), ...). "
+                "Observe cumulative metrics one at a time so the baseline/flow "
+                "query cost and frame metadata are explicit."
+            ),
+            details={"metric": metric_id, "reason": "cumulative"},
+        )
     if isinstance(metric_details, DerivedMetricDetails) or metric_ir.metric_type == "derived":
         raise SemanticKindMismatchError(
             message=(

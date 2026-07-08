@@ -14,6 +14,7 @@ from marivo.analysis.errors import (
     AlignmentPolicyNotApplicableError,
     AnalysisError,
     AxisNotInPanelDimensionsError,
+    CumulativeFrameUnsupportedError,
     MetricArityError,
     PanelGrainMismatchError,
     SegmentDimensionMismatchError,
@@ -71,6 +72,19 @@ def require_single_metric(frame: MetricFrame, *, intent: str) -> None:
     )
 
 
+def cumulative_issue(frame: MetricFrame, *, intent: str) -> AnalysisError | None:
+    """Return a CumulativeFrameUnsupportedError when the frame is cumulative, else None."""
+    cumulative = getattr(frame.meta, "cumulative", None)
+    if cumulative is None:
+        return None
+    return CumulativeFrameUnsupportedError(
+        intent=intent,
+        frame_ref=frame.ref,
+        metric_id=frame.meta.metric_id,
+        cumulative=cumulative,
+    )
+
+
 def validate_compare(
     current: MetricFrame,
     baseline: MetricFrame,
@@ -81,6 +95,10 @@ def validate_compare(
     from marivo.analysis.intents._window_pairs import _panel_grains
     from marivo.analysis.intents.compare import _dimension_columns
 
+    for frame in (current, baseline):
+        issue = cumulative_issue(frame, intent="compare")
+        if issue is not None:
+            return [issue]
     if current.meta.metric_id != baseline.meta.metric_id:
         return [
             SemanticKindMismatchError(

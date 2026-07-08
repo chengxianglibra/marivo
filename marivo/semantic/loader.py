@@ -32,7 +32,15 @@ from marivo.semantic.errors import (
     StructuredWarning,
     _raise,
 )
-from marivo.semantic.ir import Additivity, DimensionIR, DomainIR, MeasureIR, MetricIR
+from marivo.semantic.ir import (
+    Additivity,
+    CumulativeComposition,
+    DimensionIR,
+    DimensionKind,
+    DomainIR,
+    MeasureIR,
+    MetricIR,
+)
 from marivo.semantic.validator import Registry, Sidecar, assembly_validate
 
 __all__ = [
@@ -373,6 +381,44 @@ def _load_model_dir(
 # ---------------------------------------------------------------------------
 
 
+def _time_dimensions_for_entity(entity_id: str, registry: Registry) -> list[DimensionIR]:
+    """Return time dimensions on *entity_id*, sorted by semantic_id."""
+    return sorted(
+        (
+            dim
+            for dim in registry.dimensions.values()
+            if dim.entity == entity_id and dim.kind == DimensionKind.TIME
+        ),
+        key=lambda dim: dim.semantic_id,
+    )
+
+
+def _resolve_cumulative_over(metric: MetricIR, registry: Registry) -> MetricIR:
+    """Resolve omitted over= when exactly one time dimension exists on the base root entity."""
+    import dataclasses
+
+    if not isinstance(metric.composition, CumulativeComposition):
+        return metric
+    comp = metric.composition
+    if comp.over is not None:
+        return metric
+    base = registry.metrics.get(comp.base)
+    if base is None or base.root_entity is None:
+        return metric
+    candidates = _time_dimensions_for_entity(base.root_entity, registry)
+    if len(candidates) != 1:
+        return metric
+    resolved = dataclasses.replace(comp, over=candidates[0].semantic_id)
+    return dataclasses.replace(metric, composition=resolved)
+
+
+def _resolve_cumulative_over_axes(registry: Registry) -> None:
+    """Resolve omitted over= for all cumulative metrics in the registry."""
+    for sid, metric in list(registry.metrics.items()):
+        if isinstance(metric.composition, CumulativeComposition):
+            registry.metrics[sid] = _resolve_cumulative_over(metric, registry)
+
+
 def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
     from marivo.semantic.ir import SemiAdditive
 
@@ -412,6 +458,7 @@ def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivit
 
 def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:
     from marivo.semantic.ir import (
+        CumulativeComposition,
         LinearComposition,
         RatioComposition,
         WeightedAverageComposition,
@@ -419,7 +466,7 @@ def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additiv
     )
 
     comp = metric.composition
-    if isinstance(comp, (RatioComposition, WeightedAverageComposition)):
+    if isinstance(comp, (RatioComposition, WeightedAverageComposition, CumulativeComposition)):
         return "non_additive"
     assert isinstance(comp, LinearComposition)
     buckets: list[str] = []
@@ -475,6 +522,7 @@ def _resolve_tier1_unit(metric: MetricIR, registry: Registry) -> str | None:
 
 def _resolve_derived_unit(metric: MetricIR, registry: Registry) -> str | None:
     from marivo.semantic.ir import (
+        CumulativeComposition,
         LinearComposition,
         RatioComposition,
         WeightedAverageComposition,
@@ -495,6 +543,9 @@ def _resolve_derived_unit(metric: MetricIR, registry: Registry) -> str | None:
     if isinstance(comp, WeightedAverageComposition):
         value = registry.metrics.get(comp.value)
         return weighted_average_unit(value.unit) if value is not None else None
+    if isinstance(comp, CumulativeComposition):
+        base = registry.metrics.get(comp.base)
+        return base.unit if base is not None else None
     assert isinstance(comp, LinearComposition)
     units: list[str | None] = []
     for term in comp.terms:
@@ -602,6 +653,7 @@ def _build_registry(
             if isinstance(ref, (DimensionRef, TimeDimensionRef, MeasureRef)):
                 ref._resolver = resolver
 
+    _resolve_cumulative_over_axes(registry)
     _resolve_metric_additivity(registry)
     _resolve_metric_unit(registry)
     return registry, sidecar

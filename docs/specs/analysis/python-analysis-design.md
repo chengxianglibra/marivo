@@ -427,6 +427,13 @@ Derived dispatch enforces three fail-closed comparability checks:
   components must share derived version mode + anchor + resolved partition
   or interval predicate + mapping digest.
 
+### Cumulative frame caveats
+
+Cumulative MetricFrames are running totals anchored to all history. `transform.window(...)`
+may clip display rows safely, but `compare`, `attribute`, `decompose`, and `forecast` reject
+cumulative frames in v1. Use the base flow metric for those intents; the cumulative delta over
+a window equals the base total over that window.
+
 ## Versioned Joins
 
 `ms.snapshot()` and `ms.validity()` declare dataset versioning. The

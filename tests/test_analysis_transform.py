@@ -1488,6 +1488,47 @@ def test_transform_metric_frame_drops_component_contract(tmp_path):
     assert out.meta.composition is None
 
 
+def test_transform_window_preserves_cumulative_marker(tmp_path):
+    session = session_attach.get_or_create(name="cum_transform")
+    frame = make_metric_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+                "value": [10.0, 12.0],
+            }
+        ),
+        metric_id="sales.cum_gmv",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "1day"}},
+        measure={"name": "cum_gmv"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        session=session,
+    )
+    cumulative_payload = {
+        "kind": "cumulative",
+        "base": "sales.gmv",
+        "over": "sales.orders.event_time",
+        "anchor": "all_history",
+        "components": None,
+    }
+    frame.meta = frame.meta.model_copy(
+        update={
+            "cumulative": cumulative_payload,
+            "component_ref": "frame_component",
+            "composition": {"kind": "ratio", "components": {}},
+        }
+    )
+
+    clipped = _active_transform(
+        frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"}
+    )
+
+    assert clipped.meta.cumulative == cumulative_payload
+    assert clipped.meta.component_ref is None
+    assert clipped.meta.composition is None
+
+
 # ---------------------------------------------------------------------------
 # Sampled semi-additive rollup gate
 # ---------------------------------------------------------------------------

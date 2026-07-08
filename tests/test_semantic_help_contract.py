@@ -200,6 +200,7 @@ def test_metric_help_is_unified_family_entry() -> None:
     assert contract["decision_order"] == [
         "count",
         "aggregate",
+        "cumulative",
         "ratio",
         "weighted_average",
         "linear",
@@ -209,6 +210,7 @@ def test_metric_help_is_unified_family_entry() -> None:
     variants = cast("dict[str, dict[str, Any]]", contract["variants"])
     assert variants["count"]["constructor"] == "ms.count"
     assert variants["aggregate"]["constructor"] == "ms.aggregate"
+    assert variants["cumulative"]["constructor"] == "ms.cumulative"
     assert variants["expression"]["constructor"] == "@ms.metric"
     assert variants["ratio"]["constructor"] == "ms.ratio"
     assert variants["weighted_average"]["constructor"] == "ms.weighted_average"

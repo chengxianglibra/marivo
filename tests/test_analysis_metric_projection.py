@@ -108,6 +108,7 @@ def test_single_frame_measures_meta_derived_from_scalars():
             "unit": "usd",
             "additivity": None,
             "reaggregatable": True,
+            "cumulative": None,
         }
     ]
 
