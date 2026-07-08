@@ -67,10 +67,13 @@ ms.cumulative(
 ```
 
 `anchor` is not exposed on the v1 surface (single allowed value; YAGNI). The
-docstring states the all-history semantics. `over` defaults to the base
-metric's root-entity default time dimension, resolved at load; when
-unresolvable or ambiguous, the loader error lists the real time-dimension
-candidates for that entity.
+docstring states the all-history semantics. `over` may be omitted ONLY when
+the base metric's root entity has exactly one time dimension; with several,
+the load fails and the error lists the real candidates, noting which one is
+the entity default. A marked default does not silently win: an entity's
+default reporting axis and the business-correct accumulation axis are
+different decisions. `ms.help('cumulative')` instructs agents to pass
+`over=` explicitly as the preferred form.
 
 ### Base constraints
 
@@ -109,9 +112,30 @@ Validated at authoring and load with teaching errors built from real state:
 
 ### Surface obligations
 
-New symbol in `__all__` plus snapshot-test update; `ms.help('cumulative')`
-topic; a new line in the `ms.help('metric')` constructor decision order;
-`mv.help(ref)` consumption briefing covers cumulative frames.
+- New symbol in `__all__` plus snapshot-test update, and
+  `describe(ms.cumulative)` coverage per the public-API rule (docstring with
+  purpose, parameters, return, example, constraints).
+- `ms.help('metric')` decision order gains `cumulative` between `aggregate`
+  and `ratio` (current order: count, aggregate, ratio, weighted_average,
+  linear, expression), with "when": the metric accumulates an existing
+  additive or distinct-count metric along a time axis. The placement encodes
+  the canonical authoring path so agents neither detour into expression
+  bodies nor attempt cumulative-over-ratio:
+
+  ```python
+  base = ms.aggregate(name="active_users", measure=user_id,
+                      agg="count_distinct")
+  cum = ms.cumulative(name="cumulative_active_users", base=base,
+                      over=event_time)
+  rate = ms.ratio(name="cumulative_conversion_rate",
+                  numerator=cum_payers, denominator=cum)
+  ```
+
+- `ms.help('cumulative')` includes that three-step path as its minimal
+  runnable example (measure -> count_distinct aggregate -> cumulative ->
+  optional ratio over cumulatives), not just the constructor table.
+- `mv.help(ref)` consumption briefing covers cumulative frames, including
+  the running-total caveat for correlation / hypothesis-test use.
 
 ## Execution Layer (observe)
 
@@ -189,12 +213,19 @@ unrestricted.
 
 ### Frame result
 
-`semantic_kind` as usual. `reaggregatable=False`. No new field on
-`MetricFrameMeta` (it is `extra="forbid"`): the marker rides the existing
-dict-typed `composition` payload — `{kind: "cumulative", base, over, anchor}`
-for a directly observed cumulative metric, plus per-component kinds inside
-derived payloads so a ratio-over-cumulative frame is detectable too. The
-frame is dense (spine-synthesized);
+`semantic_kind` as usual. `reaggregatable=False`. The marker is a new
+explicit `MetricFrameMeta` field — `cumulative: dict | None = None` —
+carrying the base/over/anchor identity for a directly observed cumulative
+metric and the per-component identities for derived frames containing
+cumulative components (so a ratio-over-cumulative frame is detectable too).
+It deliberately does NOT ride the existing `composition` payload: transforms
+intentionally clear `composition`/`component_ref` because component links
+stop applying to reshaped data, while cumulative-ness is a property of the
+values that survives slicing and windowing — the two have different
+lifecycles. Transforms preserve the `cumulative` field, which is what keeps
+the intent gates armed after `transform.window`. This is an additive schema
+change to an `extra="forbid"` model, called out as such. The frame is dense
+(spine-synthesized);
 params record the spine-synthesis fact and attribute the baseline/flow
 queries (both recorded as ordinary `QueryExecution`s). Cost is visible, not
 sampled: the baseline is a full-history scan (for `count_distinct`, the
@@ -205,8 +236,8 @@ dedup is a full-table GROUP BY).
 Four explicit teaching errors, each built from real state. All four intents
 consume frames (compare takes current/baseline MetricFrames; forecast takes
 a history MetricFrame), so every gate lives at the intent entrypoint and
-reads the frame meta composition marker — there is no metric-resolution hook
-to gate at.
+reads the `cumulative` meta field — there is no metric-resolution hook to
+gate at.
 
 - **compare**: rejected when either input frame carries the cumulative
   marker. The delta between two windows of an all-history cumulative is
@@ -222,10 +253,14 @@ to gate at.
   (`transform.py:1769`) — zero new code.
 
 `transform.window` (display-window clipping) stays allowed: values are
-anchored to all history, so clipping is safe. The meta marker propagates
-through transforms via the existing meta-propagation machinery. All other
-intents (correlate, discover, quality, derive, hypothesis_test) consume
-cumulative frames as ordinary data with no gates.
+anchored to all history, so clipping is safe, and transforms preserve the
+`cumulative` field so gates stay armed downstream. All other intents
+(correlate, discover, quality, derive, hypothesis_test) consume cumulative
+frames without gates, but not silently: the frame's `show()` and
+`contract()` surface a running-total caveat (shared monotonic trends
+pollute correlation and hypothesis tests), and `mv.help(ref)` carries the
+same caveat — explanatory guardrails on the allowed path, with judgment
+left to the agent.
 
 ## V2 Capabilities and Forward Compatibility
 
@@ -308,8 +343,8 @@ v1 locks only persistent contracts:
 
 1. `anchor` lives in the IR and the composition hash from v1. New kinds are
    additive and never re-hash existing objects.
-2. The frame meta marker (composition payload) and `reaggregatable` are the
-   compatibility surface consumers see; v2 extends payloads, it never
+2. The frame meta marker (the `cumulative` field) and `reaggregatable` are
+   the compatibility surface consumers see; v2 extends payloads, it never
    reshapes them.
 3. Intent gates (compare/attribute/decompose/forecast) and the multi-metric
    arity restriction are teaching errors; later support means relaxing or
@@ -344,6 +379,11 @@ Narrowest first; DuckDB fixture golden tests as the core.
   - ratio-over-cumulative end-to-end;
   - multi-metric arity-N rejection.
 - Intent gates: compare / attribute / decompose / forecast teaching errors.
+- Agent surface: `ms.help('metric')` decision order places cumulative
+  between aggregate and ratio; the `ms.help('cumulative')` example runs;
+  `describe(ms.cumulative)` resolves; `mv.help(<cumulative ref>)` renders
+  the briefing; the `cumulative` meta field survives `transform.window`
+  (gates stay armed on the transformed frame).
 - No new SQL feature dependency (plain GROUP BY only), but the baseline,
   flow, and first-seen dedup queries are new SQL shapes that compile through
   ibis per dialect: add compiled-SQL tests for the three shapes on
