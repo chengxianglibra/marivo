@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from marivo.datasource.engines import profile_for_backend
+
 ReadTimezoneResolution = Literal["engine", "system_fallback"]
 
 
@@ -21,18 +23,6 @@ class DatasourceEngineTimezone:
     engine_timezone_resolution: str
     read_tz_resolution: ReadTimezoneResolution
     warning: str | None = None
-
-
-_PROBE_SQL: dict[str, str] = {
-    "duckdb": "select current_setting('TimeZone') as timezone",
-    "clickhouse": "select timezone() as timezone",
-    "trino": "select current_timezone() as timezone",
-    "presto": "select current_timezone() as timezone",
-    "postgres": "select current_setting('TimeZone') as timezone",
-    "postgresql": "select current_setting('TimeZone') as timezone",
-    "redshift": "select current_setting('TimeZone') as timezone",
-    "snowflake": "select CURRENT_TIMEZONE() as timezone",
-}
 
 
 def _resolve_system_timezone() -> DatasourceEngineTimezone:
@@ -120,11 +110,11 @@ def _execute_scalar(backend: Any, query: str) -> object:
     return _scalar_from_result(execute())
 
 
-def probe_engine_timezone(backend: Any) -> DatasourceEngineTimezone:
+def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:
     """Probe the backend's default timezone, falling back to system timezone."""
 
-    dialect = str(getattr(backend, "name", "")).lower()
-    query = _PROBE_SQL.get(dialect)
+    profile = profile_for_backend(backend)
+    query = profile.timezone_probe_sql
     if query is None:
         return _fallback()
     try:

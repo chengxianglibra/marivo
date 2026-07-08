@@ -15,6 +15,7 @@ import ibis
 import ibis.expr.types as ir
 from ibis.expr.operations.relations import SQLQueryResult
 
+from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceConfigError
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
@@ -467,7 +468,10 @@ class Materializer:
         if agg_name == "median":
             return column.median()
         if agg_name == "percentile":
-            if backend_type == "trino":
+            profile = (
+                require_profile_for_backend_type(backend_type) if backend_type is not None else None
+            )
+            if profile is not None and profile.percentile_uses_approx_quantile:
                 return column.approx_quantile(agg[1])
             return column.quantile(agg[1])
         _raise(

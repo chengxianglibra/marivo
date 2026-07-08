@@ -85,3 +85,36 @@ def test_datasource_connection_service_caches_engine_timezone(
     assert first is second
     assert first.engine_timezone_name == "Asia/Shanghai"
     assert backend.sql_calls == ["select current_setting('TimeZone') as timezone"]
+
+
+def test_probe_engine_timezone_resolves_presto_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TZ", "UTC")
+    backend = _Backend(name="presto", value="Asia/Shanghai")
+
+    resolved = probe_engine_timezone(backend)
+
+    assert resolved.engine_timezone_name == "Asia/Shanghai"
+    assert resolved.read_tz_resolution == "engine"
+    assert backend.sql_calls == ["select current_timezone() as timezone"]
+
+
+def test_probe_engine_timezone_does_not_probe_snowflake(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TZ", "Asia/Tokyo")
+    backend = _Backend(name="snowflake", value="UTC")
+
+    resolved = probe_engine_timezone(backend)
+
+    assert resolved.engine_timezone_name == "Asia/Tokyo"
+    assert resolved.read_tz_resolution == "system_fallback"
+    assert backend.sql_calls == []
+
+
+def test_probe_engine_timezone_skips_mysql_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TZ", "Asia/Tokyo")
+    backend = _Backend(name="mysql", value="UTC")
+
+    resolved = probe_engine_timezone(backend)
+
+    assert resolved.engine_timezone_name == "Asia/Tokyo"
+    assert resolved.read_tz_resolution == "system_fallback"
+    assert backend.sql_calls == []

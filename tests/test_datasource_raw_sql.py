@@ -10,7 +10,8 @@ import pytest
 import marivo.datasource as md
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
-from marivo.datasource.backends import _with_read_only_kwargs, build_backend
+from marivo.datasource.backends import build_backend
+from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.datasource.errors import DatasourceError, DatasourceRawSqlError
 from marivo.datasource.manage import _execute_readonly
 
@@ -124,22 +125,25 @@ def test_build_backend_read_only_rejects_writes(tmp_path: Path) -> None:
             disconnect()
 
 
-def test_with_read_only_kwargs_injects_connection_level_read_only() -> None:
-    assert _with_read_only_kwargs("duckdb", {"path": "x"}, True) == {
+def test_apply_read_only_kwargs_injects_connection_level_read_only() -> None:
+    duckdb_profile = ENGINE_PROFILES["duckdb"]
+    assert duckdb_profile.apply_read_only_kwargs({"path": "x"}) == {
         "path": "x",
         "read_only": True,
     }
-    clickhouse = _with_read_only_kwargs(
-        "clickhouse", {"host": "h", "settings": {"max_threads": 8}}, True
+    clickhouse_profile = ENGINE_PROFILES["clickhouse"]
+    clickhouse = clickhouse_profile.apply_read_only_kwargs(
+        {"host": "h", "settings": {"max_threads": 8}}
     )
     assert clickhouse["settings"]["access_mode"] == "read_only"
     assert clickhouse["settings"]["max_threads"] == 8
     # Transaction-based backends enforce read-only via transaction, not kwargs.
-    assert _with_read_only_kwargs("postgres", {"host": "h"}, True) == {"host": "h"}
-    assert _with_read_only_kwargs("trino", {"host": "h"}, True) == {"host": "h"}
-    assert _with_read_only_kwargs("mysql", {"host": "h"}, True) == {"host": "h"}
-    # read_only=False leaves kwargs untouched.
-    assert _with_read_only_kwargs("duckdb", {"path": "x"}, False) == {"path": "x"}
+    postgres_profile = ENGINE_PROFILES["postgres"]
+    assert postgres_profile.apply_read_only_kwargs({"host": "h"}) == {"host": "h"}
+    trino_profile = ENGINE_PROFILES["trino"]
+    assert trino_profile.apply_read_only_kwargs({"host": "h"}) == {"host": "h"}
+    mysql_profile = ENGINE_PROFILES["mysql"]
+    assert mysql_profile.apply_read_only_kwargs({"host": "h"}) == {"host": "h"}
 
 
 class _FakeBackend:

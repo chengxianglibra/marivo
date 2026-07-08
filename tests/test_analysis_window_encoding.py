@@ -7,14 +7,16 @@ import pandas as pd
 import pytest
 
 from marivo.analysis.errors import WindowInvalidError
-from marivo.analysis.executor.runner import (
+from marivo.analysis.executor.bucketing import (
+    apply_time_series_bucket,
+    ensure_bucket_start_timestamp,
+)
+from marivo.analysis.executor.string_time import _classify_strptime_format, _parse_string_column
+from marivo.analysis.executor.windowing import (
     UTC_ZONE,
-    _classify_strptime_format,
     _encode_window_bound,
     _window_bound_predicates,
-    apply_time_series_bucket,
     apply_window_to_dataset,
-    ensure_bucket_start_timestamp,
 )
 from marivo.analysis.windows.grain import Grain
 from marivo.analysis.windows.spec import AbsoluteWindow, normalize_timescope_input
@@ -445,15 +447,11 @@ def test_strptime_report_tz_none_raises():
 
 
 def test_parse_string_column_unresolvable_format_raises():
-    from marivo.analysis.executor.runner import _parse_string_column
-
     with pytest.raises(WindowInvalidError, match="strptime format"):
         _parse_string_column(ibis.literal("x"), FakeMeta("string", "made_up"))
 
 
 def test_parse_string_column_unsupported_data_type_raises():
-    from marivo.analysis.executor.runner import _parse_string_column
-
     with pytest.raises(WindowInvalidError, match="only supports string/integer"):
         _parse_string_column(ibis.literal("x"), FakeMeta("timestamp", "%Y-%m-%d"))
 

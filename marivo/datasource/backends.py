@@ -2,25 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any
 
 from marivo.datasource import secrets
 from marivo.datasource.authoring import SENSITIVE_FIELD_STEMS
-from marivo.datasource.errors import (
-    DatasourceBackendTypeUnsupportedError,
-    DatasourceFieldInvalidError,
+from marivo.datasource.engines import (
+    SUPPORTED_BACKEND_TYPES as SUPPORTED_BACKEND_TYPES,
 )
+from marivo.datasource.engines import (
+    require_profile_for_backend_type,
+)
+from marivo.datasource.errors import DatasourceFieldInvalidError
 from marivo.datasource.ir import DatasourceIR
-
-SUPPORTED_BACKEND_TYPES: Final[tuple[str, ...]] = (
-    "duckdb",
-    "trino",
-    "mysql",
-    "postgres",
-    "clickhouse",
-)
 
 
 @dataclass(frozen=True)
@@ -72,66 +66,18 @@ class BuiltDatasourceBackend:
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
 
 
-def _with_read_only_kwargs(
-    backend_type: str,
-    kwargs: Mapping[str, Any],
-    read_only: bool,
-) -> dict[str, Any]:
-    """Return kwargs forced into read-only mode for connection-level backends.
-
-    DuckDB and ClickHouse enforce read-only at connect time. Postgres, Trino, and
-    MySQL have no connect-level read-only flag; they are enforced by the caller via
-    a ``BEGIN/START TRANSACTION READ ONLY`` transaction, so their kwargs are unchanged.
-    """
-    if not read_only:
-        return dict(kwargs)
-    out = dict(kwargs)
-    if backend_type == "duckdb":
-        out["read_only"] = True
-    elif backend_type == "clickhouse":
-        settings = dict(out.get("settings") or {})
-        settings["access_mode"] = "read_only"
-        out["settings"] = settings
-    return out
-
-
 def build_backend_with_secrets(
     datasource: DatasourceIR,
     *,
     read_only: bool = False,
 ) -> BuiltDatasourceBackend:
     """Open an ibis backend and return any env-sourced secret provenance."""
-    if datasource.backend_type not in SUPPORTED_BACKEND_TYPES:
-        raise DatasourceBackendTypeUnsupportedError(
-            message=(
-                f"datasource {datasource.name!r} backend_type={datasource.backend_type!r} "
-                "is not supported by md"
-            ),
-            details={
-                "backend_type": datasource.backend_type,
-                "supported": list(SUPPORTED_BACKEND_TYPES),
-            },
-        )
+    profile = require_profile_for_backend_type(datasource.backend_type)
     effective = _effective_kwargs(datasource)
-    kwargs = _with_read_only_kwargs(datasource.backend_type, effective.kwargs, read_only)
-    if datasource.backend_type == "duckdb":
-        backend = _build_duckdb(datasource.name, kwargs)
-    elif datasource.backend_type == "trino":
-        backend = _build_trino(datasource.name, kwargs)
-    elif datasource.backend_type == "mysql":
-        backend = _build_mysql(datasource.name, kwargs)
-    elif datasource.backend_type == "postgres":
-        backend = _build_postgres(datasource.name, kwargs)
-    elif datasource.backend_type == "clickhouse":
-        backend = _build_clickhouse(datasource.name, kwargs)
-    else:
-        raise DatasourceBackendTypeUnsupportedError(  # pragma: no cover
-            message=f"backend_type={datasource.backend_type!r} unhandled",
-            details={
-                "backend_type": datasource.backend_type,
-                "supported": list(SUPPORTED_BACKEND_TYPES),
-            },
-        )
+    kwargs = dict(effective.kwargs)
+    if read_only:
+        kwargs = profile.apply_read_only_kwargs(kwargs)
+    backend = profile.connect(datasource.name, kwargs)
     return BuiltDatasourceBackend(
         backend=backend,
         env_sourced_secrets=effective.env_sourced_secrets,
@@ -141,80 +87,3 @@ def build_backend_with_secrets(
 def build_backend(datasource: DatasourceIR, *, read_only: bool = False) -> Any:
     """Open and return a live ibis backend for the given datasource."""
     return build_backend_with_secrets(datasource, read_only=read_only).backend
-
-
-def _require(name: str, kwargs: Mapping[str, Any], key: str) -> Any:
-    if key not in kwargs:
-        raise DatasourceFieldInvalidError(
-            message=f"datasource {name!r} missing required field {key!r}",
-            details={"datasource": name, "field": key, "reason": "required field missing"},
-        )
-    return kwargs[key]
-
-
-def _build_duckdb(name: str, kwargs: Mapping[str, Any]) -> Any:
-    import ibis
-
-    path = kwargs.get("path", ":memory:")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
-    connect_kwargs.pop("path", None)
-    connect_kwargs["database"] = path
-    if "read_only" in connect_kwargs:
-        connect_kwargs["read_only"] = bool(connect_kwargs["read_only"])
-    return ibis.duckdb.connect(**connect_kwargs)
-
-
-def _build_trino(name: str, kwargs: Mapping[str, Any]) -> Any:
-    import ibis
-
-    host = _require(name, kwargs, "host")
-    catalog = _require(name, kwargs, "catalog")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
-    connect_kwargs.pop("catalog", None)
-    connect_kwargs["host"] = host
-    connect_kwargs["database"] = catalog
-    if "client_tags" in kwargs:
-        tags = kwargs["client_tags"]
-        if isinstance(tags, str):
-            tags = [t.strip() for t in tags.split(",") if t.strip()]
-        connect_kwargs["client_tags"] = list(tags)
-    if "session_properties" in kwargs and isinstance(kwargs["session_properties"], dict):
-        connect_kwargs["session_properties"] = dict(kwargs["session_properties"])
-    return ibis.trino.connect(**connect_kwargs)
-
-
-def _build_mysql(name: str, kwargs: Mapping[str, Any]) -> Any:
-    import ibis
-
-    host = _require(name, kwargs, "host")
-    database = _require(name, kwargs, "database")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
-    connect_kwargs["host"] = host
-    connect_kwargs["database"] = database
-    return ibis.mysql.connect(**connect_kwargs)
-
-
-def _build_postgres(name: str, kwargs: Mapping[str, Any]) -> Any:
-    import ibis
-
-    host = _require(name, kwargs, "host")
-    database = _require(name, kwargs, "database")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
-    connect_kwargs["host"] = host
-    connect_kwargs["database"] = database
-    return ibis.postgres.connect(**connect_kwargs)
-
-
-def _build_clickhouse(name: str, kwargs: Mapping[str, Any]) -> Any:
-    import ibis
-
-    host = _require(name, kwargs, "host")
-    connect_kwargs: dict[str, Any] = dict(kwargs)
-    connect_kwargs["host"] = host
-    connect_kwargs["database"] = kwargs.get("database", "default")
-    connect_kwargs.setdefault("autogenerate_session_id", False)
-    if "secure" in kwargs:
-        connect_kwargs["secure"] = bool(kwargs["secure"])
-    if "settings" in kwargs and isinstance(kwargs["settings"], dict):
-        connect_kwargs["settings"] = dict(kwargs["settings"])
-    return ibis.clickhouse.connect(**connect_kwargs)

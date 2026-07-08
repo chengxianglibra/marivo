@@ -19,10 +19,12 @@ import ibis.expr.types as ir_types
 from marivo.analysis.errors import WindowInvalidError
 from marivo.analysis.executor.runner import (
     apply_slice_to_dataset,
-    apply_window_to_dataset,
-    datasource_backend_dialect,
-    datasource_read_timezone,
     execute,
+)
+from marivo.analysis.executor.windowing import (
+    apply_window_to_dataset,
+    datasource_engine_profile,
+    datasource_read_timezone,
 )
 from marivo.analysis.intents.observe_errors import (
     ObservePlanningError,
@@ -1478,7 +1480,7 @@ def plan_base_observe(
         datasource_read_tz=datasource_read_timezone(
             session._connection_runtime, dataset_irs[root].datasource_name
         ),
-        dialect=datasource_backend_dialect(
+        profile=datasource_engine_profile(
             session._connection_runtime, dataset_irs[root].datasource_name
         ),
     )

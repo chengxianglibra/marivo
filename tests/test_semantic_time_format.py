@@ -2,7 +2,8 @@ import re
 
 import pytest
 
-from marivo.semantic.time_format import normalize_strptime, python_to_mysql_strptime
+from marivo.datasource.strptime import python_to_mysql_strptime
+from marivo.semantic.time_format import normalize_strptime
 
 
 def test_normalize_strips_whitespace():
