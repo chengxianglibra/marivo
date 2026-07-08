@@ -137,7 +137,12 @@ query.
   partitioned by (dims x reset-period key derived from `bucket_start` via
   report_tz date-trunc) -> add seed to first-period buckets.
 - Scalar / segmented (no grain): single query over
-  `[period_start(end), end)` — "this period so far".
+  `[period_start(end - epsilon), end)`, where `end - epsilon` is the final
+  INCLUDED instant under the half-open `[start, end)` window convention —
+  observing a full July (`end="2026-08-01"`, exclusive) must aggregate
+  July, not an empty August MTD. This rule applies wherever V2 derives a
+  reset period from a window END (rollup tail-period detection included);
+  derivation from window STARTS uses the raw inclusive bound.
 
 ### grain_to_date x count_distinct
 
@@ -187,16 +192,42 @@ dedup, NULL keys dropped, per-slice keys) carry over unchanged.
 - Multi-metric observe arity-N exclusion unchanged from v1.
 - Trailing with no grain is still rejected (teaching error points to a
   plain windowed observe — one path per capability).
+- **Coverage contract widening**: today's CoverageFrame is pinned to
+  sampled time-slot coverage (`coverage_kind: Literal["time_slot"]` with a
+  required `sample_interval`). Trailing data-start partiality is a
+  different quality signal, so `coverage_kind` widens to the closed set
+  `"time_slot" | "window_coverage"` and `sample_interval` becomes optional
+  (None for window_coverage). window_coverage rows carry (bucket_start,
+  expected_span, covered_span, coverage_ratio, coverage_status); producers
+  are trailing observe (data-start) and grain rollup (tail period).
+  `MetricFrame.coverage()` documentation becomes kind-dispatched; the two
+  signal kinds never share one summary payload.
+- **Fixed-duration arithmetic** (span / grain, `W_buckets`) uses one shared
+  helper promoted from the sampled-fold private seconds table into the
+  windows module: `Grain.width_seconds()` is sub-day-only today and
+  day/week widths live only in `sampled_fold`, so observe, coverage, and
+  compare would otherwise each grow their own conversion. Day/week are
+  fixed 86400/604800-second widths, matching the existing sampled coverage
+  math (DST-transition buckets share that approximation).
 
 ## Rollup Re-aggregation
 
+- **Public API change** (today's `session.transform.rollup(frame, *,
+  drop_axes)` accepts nothing else, forbids dropping the time axis, and
+  aggregates with `.sum()` only — `rollup_fold` alone would have no
+  callable entry point): `rollup` gains an optional
+  `grain: str | None = None` target time-grain token, and at least one of
+  `drop_axes` / `grain` must be given. `grain` re-buckets the time axis
+  (report_tz date-trunc) with one uniform value-aggregation dispatch:
+  reaggregatable frames sum (the existing additive semantics extended to
+  the time axis); frames with `rollup_fold="last"` take period ends;
+  non-reaggregatable frames without `rollup_fold` keep the v1 rejection
+  verbatim. Target-grain validation (grain-compatibility rule, must be
+  coarser than the current grain) teaches.
 - `MetricFrameMeta` gains a top-level optional field
   `rollup_fold: Literal["last"] | None = None` (an additive schema change
   to an `extra="forbid"` model, called out as in v1). V2 sets it only on
   cumulative frames.
-- The existing rollup gate upgrades: `reaggregatable=False` WITH
-  `rollup_fold` present -> roll up by that fold; without it -> the v1
-  rejection stands verbatim.
 - Semantics per anchor: all_history -> period-end running total;
   grain_to_date -> rolling up to the reset grain yields per-period totals
   (day-MTD to month = full-month totals); trailing -> "rolling value as of
@@ -264,15 +295,20 @@ DuckDB golden tests as the core, plus two new regression classes:
   partial period (boundary-started windows run zero seed queries);
   within-period returning user counts once, next period counts again
   (keystone); grain-compatibility teaching error (week under month);
-  month-at-month = period totals; report_tz period boundaries.
+  month-at-month = period totals; report_tz period boundaries; scalar
+  boundary regression — a full-July window (`end="2026-08-01"`, exclusive)
+  yields the July total, not an empty August MTD (keystone).
 - trailing: integer-multiple rule error; partial windows show actual values
   with `partial` coverage (data-start query); empty window = 0 with an
   explicit contrast test against all_history carry-forward; expansion-join
   distinct correctness (a user active on day 1 and day 5 counts once in any
   7d window containing both, and drops out after the window passes —
   keystone); bucket-cap teaching error; display-window clipping.
-- rollup: last per period per dims; chains (day -> month -> quarter);
-  partial tail-period coverage; still rejected without `rollup_fold`;
+- rollup: the new `grain` parameter's aggregation dispatch (sum for
+  reaggregatable / last for `rollup_fold` / reject otherwise) and the
+  at-least-one-of drop_axes/grain argument error; last per period per
+  dims; chains (day -> month -> quarter); partial tail-period coverage
+  (window_coverage kind); still rejected without `rollup_fold`;
   target-grain compatibility rule.
 - compare: matched-prefix deltas with tail truncation recorded in
   `alignment_dump.to_date`; the four teaching errors (boundary,
