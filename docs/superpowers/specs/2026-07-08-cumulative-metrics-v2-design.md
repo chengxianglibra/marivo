@@ -263,7 +263,11 @@ observed arity-1 cumulative frames only:
   baseline tail beyond the current frame's length produces no delta rows
   and is recorded in
   `alignment_dump.to_date = {reset_grain, matched_buckets,
-  baseline_tail_buckets}` — truncation is visible, never silent.
+  baseline_tail_buckets}` — truncation is visible, never silent. Visible
+  means the agent-facing surface, not raw meta: whenever the tail is
+  non-empty, the DeltaFrame's `show()` card and `contract()` state
+  `matched_buckets` and `baseline_tail_buckets` — agents read cards, they
+  do not dig `alignment_dump`.
 - **Scalars**: grain_to_date scalars ("this period so far") compare when
   both frames' elapsed-within-period spans are equal (derived from window
   meta); on mismatch the teaching error states the exact baseline window to
@@ -283,6 +287,25 @@ observed arity-1 cumulative frames only:
 | attribute / decompose / forecast | reject | unchanged (relaxation needs evidence) |
 | ungated intents caveat | running-total wording | anchor-aware wording (trailing: rolling-series autocorrelation pollutes hypothesis tests) |
 | multi-metric observe | exclude cumulative at arity N | unchanged |
+
+### Anchor-aware dynamic guidance
+
+V1 shipped a fixed `running_total_caveat` on every affordance of a
+cumulative frame's `contract()` (all-history wording). V2 makes the dynamic
+next-step surface anchor-aware — `frame.contract()`, `frame.show()`, and the
+`mv.help(ref)` briefing all dispatch on the anchor in `meta.cumulative`:
+
+- **all_history**: compare stays gated with the compare-the-base teaching
+  text; the running-total caveat keeps its current wording.
+- **grain_to_date**: compare becomes a conditional affordance stating its
+  preconditions (single-period boundary-anchored windows, same reset and
+  query grain); the caveat keeps non-stationarity wording.
+- **trailing**: compare becomes a conditional affordance requiring an
+  identical-anchor baseline; the caveat swaps to rolling-window
+  autocorrelation wording (correlation / hypothesis tests).
+- **rollup**: frames carrying `rollup_fold` surface rollup as an available
+  affordance with the target-grain rules; frames without it keep the
+  re-observe hint.
 
 ## Testing
 
@@ -321,7 +344,13 @@ DuckDB golden tests as the core, plus two new regression classes:
   live integration suite.
 - Agent surface: `describe(ms.grain_to_date)` / `describe(ms.trailing)`
   resolve; `ms.help('cumulative')` anchor examples run; the cumulative
-  marker and `rollup_fold` survive `transform.window` and rollup.
+  marker and `rollup_fold` survive `transform.window` and rollup;
+  `contract()` / `show()` wording dispatches per anchor (all_history
+  compare gated, grain_to_date / trailing conditional compare affordances,
+  trailing autocorrelation caveat, rollup affordance present iff
+  `rollup_fold`); `mv.help('transform')` reflects the rollup argument
+  change; DeltaFrame `show()` / `contract()` state matched and tail bucket
+  counts whenever to-date truncation occurred.
 
 ## Documentation Obligations (same change)
 
@@ -330,6 +359,13 @@ DuckDB golden tests as the core, plus two new regression classes:
 - `docs/specs/semantic/python-semantic-layer.md` and
   `docs/specs/analysis/python-analysis-design.md` sections.
 - `site/` example code, English and Chinese editions in sync.
+- Rollup entry-point discoverability (entry-level change, same-change
+  acceptance items): the `mv.help('transform')` matrix updates rollup's
+  argument contract from required `drop_axes` to at-least-one-of
+  `drop_axes` / `grain`; `SessionTransformNamespace.rollup`'s signature,
+  docstring, and `describe` coverage gain the `grain` parameter and its
+  aggregation dispatch; a grain-rollup example lands in the analysis
+  examples (executed by pytest).
 - Skill references: new grill points (reset-grain choice, window-span
   caliber, partial-window explanation) under `references/`, not SKILL.md.
 - One-line pointer from the v1 design's V2 section to this spec.
