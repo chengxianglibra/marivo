@@ -81,3 +81,36 @@ def test_segmented_observe_keeps_metric_results_after_projection_pruning() -> No
         for row in frame.to_pandas()[["region", "value"]].to_dict("records")
     }
     assert rows == {("NORTH", 40.0), ("SOUTH", 20.0)}
+
+
+def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
+    tmp_path,
+) -> None:
+    semantic_file = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
+    semantic_file.write_text(
+        semantic_file.read_text()
+        + "\n"
+        + "@ms.dimension(name='market', entity=orders)\n"
+        + "def market(orders):\n"
+        + "    return (orders.region == 'north').ifelse('core', 'expansion')\n"
+    )
+    session = _session_with_unused_columns()
+
+    frame = session.observe(
+        make_ref("sales.revenue", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-03"},
+        dimensions=[make_ref("sales.orders.market", SemanticKind.DIMENSION)],
+    )
+
+    rows = {
+        (row["market"], row["value"])
+        for row in frame.to_pandas()[["market", "value"]].to_dict("records")
+    }
+    assert rows == {("core", 40.0), ("expansion", 20.0)}
+
+    job = session.job(frame.meta.produced_by_job)
+    sql = job["queries"][0]["sql"]
+    assert '"t0"."amount"' in sql
+    assert '"t0"."region"' in sql
+    assert '"t0"."unused_metric"' not in sql
+    assert '"t0"."unused_text"' not in sql
