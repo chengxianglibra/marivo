@@ -663,7 +663,7 @@ def _workflow_content() -> dict[str, object]:
         "summary": "Default agent runbook: session, catalog discovery, route intent, read, recover.",
         "steps": [
             "import marivo.analysis as mv",
-            "session = mv.session.get_or_create(...)",
+            "session = mv.session.get_or_create(name='analysis')",
             'session.catalog.list("domain").show()',
             'session.catalog.list("metric", scope="domain.<domain>").show()',
             'revenue = session.catalog.get("metric.sales.revenue")',

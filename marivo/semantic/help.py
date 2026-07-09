@@ -686,12 +686,11 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "summary": "Declare a tier-1 row-count metric over an entity.",
             "constructor": "ms.count",
             "required": ["name", "entity"],
-            "optional": ["domain", "ai_context"],
+            "optional": ["ai_context"],
             "discover": None,
             "parameters": {
                 "name": name,
                 "entity": entity_ref,
-                "domain": domain,
                 "ai_context": ai_context,
             },
             "static_constraints": ["entity must be an EntityRef"],
