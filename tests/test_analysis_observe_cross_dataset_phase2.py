@@ -236,7 +236,7 @@ def test_snapshot_latest_when_root_has_no_time_field(tmp_path, monkeypatch):
     """
     _bootstrap_snapshot_latest_no_root_time(tmp_path)
     monkeypatch.setattr(
-        "marivo.analysis.intents.observe_planner._utc_now",
+        "marivo.analysis.intents._observe_planner_versioning._utc_now",
         lambda: dt.datetime(2026, 7, 1, 12, 0, tzinfo=dt.UTC),
     )
     con = ibis.duckdb.connect(":memory:")

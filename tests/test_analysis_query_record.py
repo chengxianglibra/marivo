@@ -539,7 +539,7 @@ def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
         )
 
     with (
-        patch("marivo.analysis.intents.observe.execute", _failing_execute),
+        patch("marivo.analysis.intents._observe_base.execute", _failing_execute),
         pytest.raises(mv.errors.BackendError),
     ):
         s.observe(
