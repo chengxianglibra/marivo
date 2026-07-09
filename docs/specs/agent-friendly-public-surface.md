@@ -6,7 +6,7 @@ layered, and how each core API progressively discloses itself to a coding agent.
 It is a conceptual overview, not an API reference. The generated API reference
 lives under [`docs/api/`](../api/README.md) and in each surface's `help()`
 output; the per-surface contracts live in
-[`specs/semantic/python-semantic-layer.md`](semantic/python-semantic-layer.md)
+[`specs/semantic/overview.md`](semantic/overview.md)
 and [`specs/analysis/python-analysis-design.md`](analysis/python-analysis-design.md).
 
 It synthesizes several committed design documents rather than introducing new
@@ -408,7 +408,7 @@ snapshot-with-allowlist spirit throughout:
 - Skill vs. library division of labor:
   [skill/library surface coordination](../superpowers/specs/2026-06-13-skill-library-surface-coordination-design.md)
 - Per-surface contracts:
-  [python semantic layer](semantic/python-semantic-layer.md),
+  [semantic and datasource overview](semantic/overview.md),
   [python analysis design](analysis/python-analysis-design.md)
 - The committed invariants: the "Agent-Facing Surface Principles",
   "Authoring Guidance Layering", and "Analysis Guidance Layering" sections of

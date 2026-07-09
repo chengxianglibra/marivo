@@ -9,7 +9,7 @@ is a design document; not every stated capability is fully implemented.
 `marivo.analysis` is consumed primarily by general coding agents (Claude Code,
 Codex) through a write-run-read loop. The alias throughout is `mv`
 (`import marivo.analysis as mv`). It builds on the semantic layer
-([`../semantic/python-semantic-layer.md`](../semantic/python-semantic-layer.md)):
+([`../semantic/overview.md`](../semantic/overview.md)):
 analysis consumes stable semantic refs and materialized metrics and never guesses
 business meaning from column or table names.
 

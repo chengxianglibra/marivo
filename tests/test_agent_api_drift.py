@@ -346,7 +346,7 @@ def test_analysis_spec_mentions_no_stdout_contract() -> None:
 
 
 def test_semantic_spec_mentions_no_stdout_contract() -> None:
-    spec = _read("docs/specs/semantic/python-semantic-layer.md")
+    spec = _read("docs/specs/semantic/loading-validation-introspection.md")
     assert "not write stdout" in spec or "do not write stdout" in spec or "silent" in spec.lower()
 
 

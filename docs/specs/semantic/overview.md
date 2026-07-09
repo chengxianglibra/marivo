@@ -1,0 +1,122 @@
+# Semantic and Datasource Layer — Design Overview
+
+Status: draft design. This is the entry point for the design of Marivo's
+datasource and semantic layers (`marivo.datasource` and `marivo.semantic`). It
+states the design goals, the layered architecture, and the principles that the
+per-topic documents below elaborate. Read it first, then follow the topic that
+matches your task.
+
+## This directory
+
+| Document | Owns |
+|---|---|
+| [overview.md](overview.md) | Design goals, architecture, and principles (this file). |
+| [datasource-layer.md](datasource-layer.md) | `marivo.datasource` — connections, typed specs, file sources, secrets, discovery/evidence. |
+| [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — domain, entity, dimension, time dimension, measure, metric, derived/cumulative metrics, relationship, provenance, `ai_context`. |
+| [authoring-workflow.md](authoring-workflow.md) | The write loop — `help -> discover -> settle/grill -> author -> verify`, file layout, decision rules, verification. |
+| [loading-validation-introspection.md](loading-validation-introspection.md) | The runtime — loader/registry, catalog reader, result contract, materialization, multi-stage validation, readiness/richness. |
+
+For the cross-module (datasource + semantic + analysis) result and guidance
+protocol, see [`../agent-friendly-public-surface.md`](../agent-friendly-public-surface.md).
+For the analysis layer, see [`../analysis/python-analysis-design.md`](../analysis/python-analysis-design.md).
+
+## Audience and intent
+
+These layers are consumed primarily by general coding agents (Claude Code, Codex)
+through a write–run–read loop. The goal is not to make an agent memorize a private
+DSL, but to let it maintain business semantics like an ordinary Python project:
+read the existing objects, declare explicit models, express calculation caliber in
+Ibis, retain SQL provenance, run validation, and hand stable semantic refs to
+`marivo.analysis`.
+
+## Design goals
+
+`marivo.semantic` is the business-object contract of the Python-native analysis
+stack. It answers "which stably referenceable business objects exist in this
+project" — not "how to wrap YAML, SQL, or a runtime API into another entry point".
+`marivo.datasource` is the connection and evidence layer underneath it.
+
+The design holds to these goals:
+
+- **Python is the source of truth.** Changing a business caliber means editing a
+  Python authoring file, not a generated artifact or a runtime store.
+- **Datasources are shareable project config.** They live in
+  `models/datasources/*.py` and are referenced by global name; a semantic domain
+  only references a datasource, it does not define one.
+- **Objects are statically readable.** Entities, dimensions, time dimensions,
+  measures, metrics, relationships, decompositions, and provenance all have
+  explicit Python declarations.
+- **Caliber is never guessed.** Business meaning is not inferred from column
+  names, table names, or natural language. An agent converges through decorated
+  refs, function signatures, `provenance=ms.from_sql(...)`, parity results, and
+  structured errors.
+- **Ownership is explicit.** Domain membership comes from an explicit `domain=`
+  or an explicit default domain — never from a file path. A metric's entity comes
+  from `entities=[...]`, not a parameter name. The reader binds to a project root,
+  not a thread-local guess.
+- **Ibis is the only expression language.** SQL is retained as provenance and a
+  parity oracle, but it is metadata, never an executable authoring body.
+- **Downstream depends only on refs.** Analysis, operators, skills, and scripts
+  consume stable semantic refs and materialized Ibis expressions, not a project's
+  internal file layout.
+- **Fail closed.** When decoration, loading, assembly, materialization, or parity
+  cannot prove a contract holds, the layer emits a structured error rather than a
+  best-effort guess.
+
+The governing test: if a business object will be referenced by downstream
+analysis, it must first enter the semantic layer; a rule that lives only in an
+agent's prompt or a SQL draft is not yet stable semantics.
+
+## Layered architecture
+
+Marivo's Python-native stack is three layers with a strict, one-directional
+dependency:
+
+```text
+marivo.datasource   connection + physical source + evidence
+        ↓ DatasourceRef + TableSource + DatasourceResult
+marivo.semantic     domain / entity / dimension / metric / relationship
+        ↓ Ibis materialization + typed semantic refs
+marivo.analysis     observe / compare / attribute / correlate / ...
+        ↓ typed frames + session persistence + lineage
+```
+
+- The **datasource** layer owns *how to reach the data and what it physically
+  looks like* — and nothing about business meaning. A datasource is the execution
+  source of an entity, never the caliber of a metric.
+- The **semantic** layer owns *what each business object is and how it
+  materializes*. It produces Ibis expressions and typed refs, not frames.
+- The **analysis** layer owns *what to do with those objects*. It reads through
+  refs and never re-defines a caliber, guesses an entity/time dimension, or reads
+  a table behind the registry.
+
+If an analysis needs a new business object, extend the semantic layer first, then
+let analysis consume it — business definitions never hide in one-off scripts.
+
+## Guidance layering
+
+Authoring guidance is split so each surface has one job (elaborated in
+[authoring-workflow.md](authoring-workflow.md)):
+
+- **`ms.help` / `md.help` — static contract.** Constructors, required and
+  optional parameters, allowed values, defaults, omit rules, and static
+  constraints. Help says *what must be settled*; it carries no runtime data.
+- **`md.discover_*` — runtime evidence.** Bounded, evidence-only
+  `DatasourceResult` objects (profiles, signals, issues, detected formats). Read
+  with `.show()`; never parameter tables or selection judgments.
+- **`ms.verify_object` / `ms.readiness` / load errors — validation.** Blockers,
+  registry state, object validity, and handoff readiness, exposed after
+  authoring.
+
+The `marivo-semantic` skill owns workflow and routing only
+(`help -> discover -> settle/grill -> author -> verify`); it does not duplicate
+the parameter tables that `ms.help` / `md.help` own.
+
+## Relationship to prior schema designs
+
+Earlier (removed) schema designs are a semantic reference for object boundaries —
+domain, entity, dimension, relationship, metric, time granularity, AI context,
+and decomposition — but they are not a compatibility target. Python is the source
+of truth for this stack; there is no promised round-trip to a legacy YAML/JSON or
+metadata store, and the Python API is free to make different ergonomic choices for
+agents.
