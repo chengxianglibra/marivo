@@ -21,6 +21,7 @@ from marivo.render import Card
 if TYPE_CHECKING:
     from marivo.analysis.frames.component import ComponentFrame
     from marivo.analysis.frames.coverage import CoverageFrame
+    from marivo.analysis.frames.transforms import MetricFrameTransforms
 
 
 def _cumulative_anchor(meta_cumulative: dict[str, Any] | None) -> object | None:
@@ -374,6 +375,13 @@ class MetricFrame(BaseFrame):
             artifact_id=self.meta.artifact_id,
             coverage_ref=self.meta.coverage_ref,
         )
+
+    @property
+    def transform(self) -> MetricFrameTransforms:
+        """Return typed transforms for this MetricFrame."""
+        from marivo.analysis.frames.transforms import MetricFrameTransforms
+
+        return MetricFrameTransforms(self)
 
     def metric(self, metric_id: str) -> MetricFrame:
         """Project one metric out of this frame as an arity-1 MetricFrame.

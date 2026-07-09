@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 from marivo.analysis.session._layout import PersistenceLayout, read_job_record
 from marivo.analysis.timezone import resolve_system_timezone
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.intents._shape import SemanticShape
     from marivo.analysis.intents._types import SliceValue
-    from marivo.analysis.intents.transform import NormalizeKind
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.semantic_inputs import DimensionInput, MetricInput
     from marivo.analysis.session._store import SessionStore
@@ -464,11 +463,6 @@ class Session:
     def discover(self) -> SessionDiscoverNamespace:
         """Return session-bound candidate discovery helpers."""
         return SessionDiscoverNamespace(self)
-
-    @property
-    def transform(self) -> SessionTransformNamespace:
-        """Return session-bound transform helpers."""
-        return SessionTransformNamespace(self)
 
     def observe(
         self,
@@ -1195,250 +1189,6 @@ class SessionDiscoverNamespace:
                 peer_scope=peer_scope,
                 value=value,
                 threshold=threshold,
-                analysis_purpose=analysis_purpose,
-                session=self._session,
-            )
-
-
-@dataclass(frozen=True)
-class SessionTransformNamespace:
-    """Session-bound family-preserving transform helpers."""
-
-    _session: Session
-
-    def filter(
-        self,
-        frame: object,
-        *,
-        predicate: Callable[[Any], Any],
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        """Filter rows using a predicate function.
-
-        The predicate receives the underlying DataFrame and must return a
-        boolean Series of the same length.
-        """
-        from marivo.analysis.intents.transform import transform
-
-        with _track_session_operation(
-            self._session,
-            "marivo.analysis.transform.filter",
-            family="transform",
-            intent="filter",
-        ):
-            return transform.filter(
-                frame,
-                predicate=predicate,
-                analysis_purpose=analysis_purpose,
-                session=self._session,
-            )
-
-    def slice(
-        self,
-        frame: object,
-        *,
-        slice_by: dict[DimensionInput, Any],
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        """Filter rows by exact axis values.
-
-        ``slice_by`` maps catalog dimension refs/objects to the value(s) to keep.
-        Unlike ``filter``, operates on raw axis values without a callable.
-        """
-        from marivo.analysis.intents.transform import transform
-
-        with _track_session_operation(
-            self._session,
-            "marivo.analysis.transform.slice",
-            family="transform",
-            intent="slice",
-            attributes={"marivo.analysis.slice_count": len(slice_by)},
-        ):
-            return transform.slice(
-                frame,
-                slice_by=slice_by,
-                analysis_purpose=analysis_purpose,
-                session=self._session,
-            )
-
-    def rollup(
-        self,
-        frame: object,
-        *,
-        drop_axes: list[DimensionInput] | None = None,
-        grain: str | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        """Aggregate to coarser segments by dropping axes or re-bucketing time.
-
-        Removes the listed catalog dimensions (``drop_axes``) and re-aggregates
-        measures over the remaining axes, OR re-buckets the time axis to a
-        coarser ``grain`` (e.g. ``"month"``). At least one of ``drop_axes`` or
-        ``grain`` is required. Cumulative frames (``rollup_fold="last"``) take
-        the last bucket per period; reaggregatable frames sum.
-        """
-        from marivo.analysis.intents.transform import transform
-
-        axis_count = len(drop_axes) if drop_axes is not None else 0
-        with _track_session_operation(
-            self._session,
-            "marivo.analysis.transform.rollup",
-            family="transform",
-            intent="rollup",
-            attributes={"marivo.analysis.axis_count": axis_count},
-        ):
-            return transform.rollup(
-                frame,
-                drop_axes=drop_axes,
-                grain=grain,
-                analysis_purpose=analysis_purpose,
-                session=self._session,
-            )
-
-    def topk(
-        self,
-        frame: object,
-        *,
-        by: str,
-        limit: int,
-        order: str | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        """Keep the top N rows ranked by a measure column.
-
-        ``order`` defaults to ``"decrease"`` (largest first). Use
-        ``"increase"`` to select the smallest values instead.
-        """
-        from marivo.analysis.intents.transform import transform
-
-        with _track_session_operation(
-            self._session,
-            "marivo.analysis.transform.topk",
-            family="transform",
-            intent="topk",
-            attributes={"marivo.analysis.limit": limit},
-        ):
-            return transform.topk(
-                frame,
-                by=by,
-                limit=limit,
-                order=cast("Any", order),
-                analysis_purpose=analysis_purpose,
-                session=self._session,
-            )
-
-    def bottomk(
-        self,
-        frame: object,
-        *,
-        by: str,
-        limit: int,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        """Keep the bottom N rows ranked by a measure column.
-
-        Equivalent to ``topk(..., order="increase")``. Returns the rows with
-        the smallest values in the ``by`` column.
-        """
-        from marivo.analysis.intents.transform import transform
-
-        with _track_session_operation(
-            self._session,
-            "marivo.analysis.transform.bottomk",
-            family="transform",
-            intent="bottomk",
-            attributes={"marivo.analysis.limit": limit},
-        ):
-            return transform.bottomk(
-                frame,
-                by=by,
-                limit=limit,
-                analysis_purpose=analysis_purpose,
-                session=self._session,
-            )
-
-    def rank(
-        self,
-        frame: object,
-        *,
-        by: str,
-        method: str = "ordinal",
-        rank_column: str = "rank",
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        """Add a rank column ordered by a measure.
-
-        ``method`` controls tie-breaking: ``"ordinal"``, ``"dense"``,
-        ``"min"``, or ``"max"``. The new column is named ``rank_column``.
-        """
-        from marivo.analysis.intents.transform import transform
-
-        with _track_session_operation(
-            self._session,
-            "marivo.analysis.transform.rank",
-            family="transform",
-            intent="rank",
-        ):
-            return transform.rank(
-                frame,
-                by=by,
-                method=cast("Any", method),
-                rank_column=rank_column,
-                analysis_purpose=analysis_purpose,
-                session=self._session,
-            )
-
-    def normalize(
-        self,
-        frame: MetricFrame,
-        *,
-        mode: NormalizeKind,
-        baseline: object | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame:
-        """Convert measure values to a normalized form (MetricFrame only).
-
-        Supported modes: ``"index"``, ``"share"``, ``"pct_change"``,
-        ``"per_unit"``, ``"z_score"``. ``baseline`` sets the reference point
-        when required by the mode.
-        """
-        from marivo.analysis.intents.transform import transform
-
-        with _track_session_operation(
-            self._session,
-            "marivo.analysis.transform.normalize",
-            family="transform",
-            intent="normalize",
-            attributes={"marivo.analysis.normalize_mode": str(mode)},
-        ):
-            return transform.normalize(
-                frame,
-                mode=mode,
-                baseline=baseline,
-                analysis_purpose=analysis_purpose,
-                session=self._session,
-            )
-
-    def window(
-        self, frame: object, *, window: object, analysis_purpose: str | None = None
-    ) -> MetricFrame | DeltaFrame:
-        """Restrict a frame to a time window.
-
-        ``window`` is an ``AbsoluteWindow`` or compatible specification that
-        defines the start/end bounds. The returned frame contains only rows
-        within those bounds, preserving the original frame kind.
-        """
-        from marivo.analysis.intents.transform import transform
-
-        with _track_session_operation(
-            self._session,
-            "marivo.analysis.transform.window",
-            family="transform",
-            intent="window",
-        ):
-            return transform.window(
-                frame,
-                window=window,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )

@@ -662,7 +662,7 @@ class ForecastInputQualityError(AnalysisError):
         return {
             "location": "session.forecast history data",
             "cause": "forecast does not silently impute NaN values or fill missing time buckets.",
-            "fix_snippet": "clean = session.transform.window(history, window={...})  # or impute upstream before forecasting",
+            "fix_snippet": "clean = history.transform.window(window={...})  # or impute upstream before forecasting",
             "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
         }
 
@@ -687,10 +687,6 @@ class FrameMetaInvalidError(AnalysisError):
 
 class MetricArityError(AnalysisError):
     """An intent that requires a single-metric frame received a multi-metric frame."""
-
-
-class TransformOpUnsupportedError(AnalysisError):
-    """Raised when an op is unknown or invalid for the input frame family."""
 
 
 class TransformShapeUnsupportedError(AnalysisError):

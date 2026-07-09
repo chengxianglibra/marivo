@@ -8,10 +8,9 @@ import hashlib
 import json
 import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
-from typing import Any, Literal, TypeGuard, cast
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -23,7 +22,6 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
     TransformArgError,
     TransformDimensionNotFoundError,
-    TransformOpUnsupportedError,
     TransformShapeUnsupportedError,
     WindowInvalidError,
 )
@@ -36,6 +34,7 @@ from marivo.analysis.evidence.pipeline import (
 from marivo.analysis.evidence.types import Subject, TriggeredByFollowup
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.semantic_inputs import DimensionInput
@@ -50,19 +49,19 @@ from marivo.analysis.session._runtime import (
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.analysis.windows import (
     AbsoluteWindow,
+    TimeScopeInput,
     dump_window,
     make_absolute_window,
     normalize_timescope_input,
 )
 from marivo.semantic.catalog import SemanticKind, SemanticObject, SemanticRef
 
-TransformOp = Literal["filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window"]
 TransformFrame = MetricFrame | DeltaFrame
-TopKDirection = Literal["increase", "decrease"]
 RankMethod = Literal["ordinal", "dense", "min", "max"]
 NormalizeKind = Literal["index", "share", "pct_change", "per_unit", "z_score"]
+NormalizeBaseline = dict[str, str | int | float | bool | None]
 
-_SUPPORTED_OPS: tuple[TransformOp, ...] = (
+_SUPPORTED_OPS: tuple[str, ...] = (
     "filter",
     "slice",
     "rollup",
@@ -73,126 +72,16 @@ _SUPPORTED_OPS: tuple[TransformOp, ...] = (
     "window",
 )
 
-
-@dataclass(frozen=True)
-class _TransformParams:
-    op: TransformOp
-    session: Session
-    where: Any
-    predicate: Any
-    drop_axes: Any
-    by: Any
-    limit: int | None
-    order: str | None
-    method: str
-    rank_column: str
-    mode: str | None
-    baseline: Any
-    window: Any
-    grain: str | None = None
-
-
 _TransformHandlerResult = tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]
-_TransformHandler = Callable[[TransformFrame, _TransformParams], _TransformHandlerResult]
-_OP_DISPATCH: dict[TransformOp, _TransformHandler] = {}
 
 
-def _is_supported_op(op: str) -> TypeGuard[TransformOp]:
-    return op in _SUPPORTED_OPS
-
-
-def _transform_dispatch(
-    frame: object,
-    *,
-    op: TransformOp | str,
-    session: Session | None = None,
-    where: Any = None,
-    predicate: Any = None,
-    drop_axes: Any = None,
-    by: Any = None,
-    limit: int | None = None,
-    order: str | None = None,
-    method: str = "ordinal",
-    rank_column: str = "rank",
-    mode: str | None = None,
-    baseline: Any = None,
-    window: Any = None,
-    grain: str | None = None,
-    analysis_purpose: str | None = None,
-    _triggered_by: TriggeredByFollowup | None = None,
-) -> MetricFrame | DeltaFrame:
-    """Family-preserving reshape of a MetricFrame or DeltaFrame.
-
-    When to use: reshape a frame without changing its family; prefer typed sub-methods (session.transform.topk, etc.).
-
-    The operator preserves the frame family: MetricFrame → MetricFrame and
-    DeltaFrame → DeltaFrame. Each ``op`` consumes a subset of the kwargs below;
-    pass only those listed for the chosen op.
-
-    Args:
-        frame: A MetricFrame or DeltaFrame to reshape.
-        op: One of:
-
-            - ``filter``: row filter on a derived ``predicate``.
-            - ``slice``: row filter on raw axis values; pass ``where``.
-            - ``rollup``: aggregate to coarser segments; pass ``drop_axes``
-              and/or ``grain`` (re-bucket the time axis). At least one is
-              required.
-            - ``topk`` / ``bottomk``: keep best/worst N rows; pass ``limit``,
-              optional ``order``.
-            - ``rank``: add a rank column; pass ``method``, ``rank_column``.
-            - ``normalize``: convert metric values to a share (MetricFrame only
-              in v1); pass ``baseline``.
-            - ``window``: re-bucket along time; pass ``window``.
-        session: Defaults to the currently-attached session.
-        where: ``op="slice"`` — mapping of axis → value or predicate dict.
-        predicate: ``op="filter"`` — a derived boolean expression.
-        drop_axes: ``op="rollup"`` — axes to drop after aggregation.
-        by: ``op="rollup"`` — axes to retain.
-        limit: ``op="topk"``/``"bottomk"`` — number of rows.
-        order: ``op="topk"``/``"bottomk"`` — ``"increase"`` or ``"decrease"``.
-        method: ``op="rank"`` — ``"ordinal"`` (default) or other supported method.
-        rank_column: ``op="rank"`` — output column name.
-        mode: ``op="normalize"`` — normalization mode.
-        baseline: ``op="normalize"`` — baseline/reference for normalization.
-        window: ``op="window"`` — new window spec.
-
-    Raises:
-        TransformOpUnsupportedError: ``frame`` is not a MetricFrame/DeltaFrame, or
-            ``op`` is unknown / not implemented in v1.
-        TransformArgError: Kwargs are missing or invalid for the chosen ``op``.
-        TransformDimensionNotFoundError: A referenced axis is not in ``frame``.
-        TransformShapeUnsupportedError: The frame shape does not support ``op``.
-        WindowInvalidError: ``window`` argument is malformed.
-        CrossSessionFrameError: ``frame`` belongs to a different session.
-
-    Example:
-        >>> top = session.transform.topk(
-        ...     delta,
-        ...     by="delta",
-        ...     limit=10,
-        ...     order="decrease",
-        ...     analysis_purpose="保留变化最大的细分项",
-        ... )
-        >>> top.show()
-    """
-
-    if session is None:
-        session = require_current_session()
+def _prepare_transform[TTransformFrame: TransformFrame](
+    frame: TTransformFrame,
+) -> tuple[Session, TTransformFrame]:
+    session = require_current_session()
     ensure_session_writable(session)
-
-    if not isinstance(frame, (MetricFrame, DeltaFrame)):
-        raise TransformOpUnsupportedError(
-            message=(
-                "transform v1 accepts only MetricFrame and DeltaFrame inputs, "
-                f"got {type(frame).__name__}"
-            ),
-            details={"expected_families": ["MetricFrame", "DeltaFrame"]},
-        )
-
     if isinstance(frame, MetricFrame):
         require_single_metric(frame, intent="transform")
-
     if frame.meta.session_id != session.id:
         raise CrossSessionFrameError(
             message=(
@@ -205,56 +94,39 @@ def _transform_dispatch(
                 "frame_ref": frame.ref,
             },
         )
+    return session, frame
 
-    if not _is_supported_op(op):
-        raise TransformOpUnsupportedError(
-            message=f"unknown transform op {op!r}",
-            hint=f"Supported transform ops: {', '.join(_SUPPORTED_OPS)}.",
-            details={"op": op, "supported_ops": list(_SUPPORTED_OPS)},
-        )
 
-    transform_op = op
-    handler = _OP_DISPATCH.get(transform_op)
-    if handler is None:
-        raise TransformOpUnsupportedError(
-            message=f"op '{transform_op}' is declared but not implemented in v1",
-            details={"op": transform_op},
-        )
-
-    params = _TransformParams(
-        op=transform_op,
-        session=session,
-        where=where,
-        predicate=predicate,
-        drop_axes=drop_axes,
-        by=by,
-        limit=limit,
-        order=order,
-        method=method,
-        rank_column=rank_column,
-        mode=mode,
-        baseline=baseline,
-        window=window,
-        grain=grain,
-    )
-    started_at = datetime.now(UTC)
-    started_monotonic = monotonic()
-    new_df, meta_overrides, op_params = handler(frame, params)
-    result = _persist_transform_frame(
-        session=session,
-        parent=frame,
-        df=new_df,
-        params=op_params,
-        started_at=started_at,
-        started_monotonic=started_monotonic,
-        axes=meta_overrides.get("axes"),
-        semantic_kind=meta_overrides.get("semantic_kind"),
-        where_scope=meta_overrides.get("where"),
-        alignment=meta_overrides.get("alignment"),
-        normalization=meta_overrides.get("normalization"),
-        window=meta_overrides.get("window"),
-        analysis_purpose=analysis_purpose,
-        triggered_by_followup=_triggered_by,
+def _finish_transform[TTransformFrame: TransformFrame](
+    *,
+    session: Session,
+    parent: TTransformFrame,
+    df: pd.DataFrame,
+    meta_overrides: dict[str, Any],
+    op_params: dict[str, Any],
+    started_at: datetime,
+    started_monotonic: float,
+    analysis_purpose: str | None,
+    triggered_by_followup: TriggeredByFollowup | None = None,
+) -> TTransformFrame:
+    result = cast(
+        "TTransformFrame",
+        _persist_transform_frame(
+            session=session,
+            parent=parent,
+            df=df,
+            params=op_params,
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            axes=meta_overrides.get("axes"),
+            semantic_kind=meta_overrides.get("semantic_kind"),
+            where_scope=meta_overrides.get("where"),
+            alignment=meta_overrides.get("alignment"),
+            normalization=meta_overrides.get("normalization"),
+            window=meta_overrides.get("window"),
+            analysis_purpose=analysis_purpose,
+            triggered_by_followup=triggered_by_followup,
+        ),
     )
     coverage_df = meta_overrides.get("coverage_df")
     if coverage_df is not None and isinstance(result, MetricFrame):
@@ -263,8 +135,11 @@ def _transform_dispatch(
         )
 
         job_ref = result.meta.produced_by_job or result.ref
-        result = _persist_and_attach_coverage_sidecar(
-            session=session, df=coverage_df, parent=result, job_ref=job_ref
+        result = cast(
+            "TTransformFrame",
+            _persist_and_attach_coverage_sidecar(
+                session=session, df=coverage_df, parent=result, job_ref=job_ref
+            ),
         )
     return result
 
@@ -322,164 +197,201 @@ def _normalize_drop_axes_boundary(
     ]
 
 
-class TransformAPI:
-    """Callable namespace for family-preserving MetricFrame / DeltaFrame transforms."""
+def transform_filter[TTransformFrame: TransformFrame](
+    frame: TTransformFrame,
+    *,
+    predicate: Callable[[pd.DataFrame], pd.Series],
+    analysis_purpose: str | None = None,
+) -> TTransformFrame:
+    session, prepared = _prepare_transform(frame)
+    started_at = datetime.now(UTC)
+    started_monotonic = monotonic()
+    new_df, meta_overrides, op_params = _op_filter(prepared, predicate=predicate)
+    return _finish_transform(
+        session=session,
+        parent=prepared,
+        df=new_df,
+        meta_overrides=meta_overrides,
+        op_params=op_params,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        analysis_purpose=analysis_purpose,
+    )
 
-    def filter(
-        self,
-        frame: object,
-        *,
-        predicate: Callable[[pd.DataFrame], pd.Series],
-        session: Session | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        return _transform_dispatch(
-            frame,
-            op="filter",
-            predicate=predicate,
-            analysis_purpose=analysis_purpose,
-            session=session,
+
+def transform_slice[TTransformFrame: TransformFrame](
+    frame: TTransformFrame,
+    *,
+    slice_by: dict[DimensionInput, SliceValue],
+    analysis_purpose: str | None = None,
+) -> TTransformFrame:
+    session, prepared = _prepare_transform(frame)
+    where_by_id = _normalize_where_boundary(session, slice_by)
+    started_at = datetime.now(UTC)
+    started_monotonic = monotonic()
+    new_df, meta_overrides, op_params = _op_slice(prepared, where=where_by_id)
+    return _finish_transform(
+        session=session,
+        parent=prepared,
+        df=new_df,
+        meta_overrides=meta_overrides,
+        op_params=op_params,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        analysis_purpose=analysis_purpose,
+    )
+
+
+def transform_rollup[TTransformFrame: TransformFrame](
+    frame: TTransformFrame,
+    *,
+    drop_axes: list[DimensionInput] | None = None,
+    grain: str | None = None,
+    analysis_purpose: str | None = None,
+) -> TTransformFrame:
+    if drop_axes is None and grain is None:
+        raise TransformArgError(
+            message="transform(op='rollup') requires at least one of drop_axes= or grain=",
+            hint="Pass drop_axes=[...] to drop dimensions, or grain='month' to re-bucket the time axis.",
+            details={"op": "rollup", "argument": "drop_axes_or_grain"},
         )
-
-    def slice(
-        self,
-        frame: object,
-        *,
-        slice_by: dict[DimensionInput, Any],
-        session: Session | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        resolved_session = session if session is not None else require_current_session()
-        where_by_id = _normalize_where_boundary(resolved_session, slice_by)
-        return _transform_dispatch(
-            frame,
-            op="slice",
-            where=where_by_id,
-            analysis_purpose=analysis_purpose,
-            session=resolved_session,
-        )
-
-    def rollup(
-        self,
-        frame: object,
-        *,
-        drop_axes: list[DimensionInput] | None = None,
-        grain: str | None = None,
-        session: Session | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        if drop_axes is None and grain is None:
-            raise TransformArgError(
-                message="transform(op='rollup') requires at least one of drop_axes= or grain=",
-                hint="Pass drop_axes=[...] to drop dimensions, or grain='month' to re-bucket the time axis.",
-                details={"op": "rollup", "argument": "drop_axes_or_grain"},
-            )
-        resolved_session = session if session is not None else require_current_session()
-        drop_axis_ids = _normalize_drop_axes_boundary(resolved_session, drop_axes)
-        return _transform_dispatch(
-            frame,
-            op="rollup",
-            drop_axes=drop_axis_ids,
-            grain=grain,
-            analysis_purpose=analysis_purpose,
-            session=resolved_session,
-        )
-
-    def topk(
-        self,
-        frame: object,
-        *,
-        by: str,
-        limit: int,
-        order: TopKDirection | None = None,
-        session: Session | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        return _transform_dispatch(
-            frame,
-            op="topk",
-            by=by,
-            limit=limit,
-            order=order,
-            analysis_purpose=analysis_purpose,
-            session=session,
-        )
-
-    def bottomk(
-        self,
-        frame: object,
-        *,
-        by: str,
-        limit: int,
-        session: Session | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        return _transform_dispatch(
-            frame,
-            op="bottomk",
-            by=by,
-            limit=limit,
-            analysis_purpose=analysis_purpose,
-            session=session,
-        )
-
-    def rank(
-        self,
-        frame: object,
-        *,
-        by: str,
-        method: RankMethod = "ordinal",
-        rank_column: str = "rank",
-        session: Session | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        return _transform_dispatch(
-            frame,
-            op="rank",
-            by=by,
-            method=method,
-            rank_column=rank_column,
-            analysis_purpose=analysis_purpose,
-            session=session,
-        )
-
-    def normalize(
-        self,
-        frame: MetricFrame,
-        *,
-        mode: NormalizeKind,
-        baseline: Any = None,
-        session: Session | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame:
-        result = _transform_dispatch(
-            frame,
-            op="normalize",
-            mode=mode,
-            baseline=baseline,
-            analysis_purpose=analysis_purpose,
-            session=session,
-        )
-        return cast("MetricFrame", result)
-
-    def window(
-        self,
-        frame: object,
-        *,
-        window: Any,
-        session: Session | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame | DeltaFrame:
-        return _transform_dispatch(
-            frame,
-            op="window",
-            window=window,
-            analysis_purpose=analysis_purpose,
-            session=session,
-        )
+    session, prepared = _prepare_transform(frame)
+    drop_axis_ids = (
+        _normalize_drop_axes_boundary(session, drop_axes) if drop_axes is not None else None
+    )
+    started_at = datetime.now(UTC)
+    started_monotonic = monotonic()
+    new_df, meta_overrides, op_params = _op_rollup(prepared, drop_axes=drop_axis_ids, grain=grain)
+    return _finish_transform(
+        session=session,
+        parent=prepared,
+        df=new_df,
+        meta_overrides=meta_overrides,
+        op_params=op_params,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        analysis_purpose=analysis_purpose,
+    )
 
 
-transform = TransformAPI()
+def transform_topk[TTransformFrame: TransformFrame](
+    frame: TTransformFrame,
+    *,
+    by: str,
+    limit: int,
+    analysis_purpose: str | None = None,
+) -> TTransformFrame:
+    session, prepared = _prepare_transform(frame)
+    started_at = datetime.now(UTC)
+    started_monotonic = monotonic()
+    new_df, meta_overrides, op_params = _op_topk(prepared, by=by, limit=limit)
+    return _finish_transform(
+        session=session,
+        parent=prepared,
+        df=new_df,
+        meta_overrides=meta_overrides,
+        op_params=op_params,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        analysis_purpose=analysis_purpose,
+    )
+
+
+def transform_bottomk[TTransformFrame: TransformFrame](
+    frame: TTransformFrame,
+    *,
+    by: str,
+    limit: int,
+    analysis_purpose: str | None = None,
+) -> TTransformFrame:
+    session, prepared = _prepare_transform(frame)
+    started_at = datetime.now(UTC)
+    started_monotonic = monotonic()
+    new_df, meta_overrides, op_params = _op_bottomk(prepared, by=by, limit=limit)
+    return _finish_transform(
+        session=session,
+        parent=prepared,
+        df=new_df,
+        meta_overrides=meta_overrides,
+        op_params=op_params,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        analysis_purpose=analysis_purpose,
+    )
+
+
+def transform_rank[TTransformFrame: TransformFrame](
+    frame: TTransformFrame,
+    *,
+    by: str,
+    method: RankMethod = "ordinal",
+    rank_column: str = "rank",
+    analysis_purpose: str | None = None,
+) -> TTransformFrame:
+    session, prepared = _prepare_transform(frame)
+    started_at = datetime.now(UTC)
+    started_monotonic = monotonic()
+    new_df, meta_overrides, op_params = _op_rank(
+        prepared,
+        by=by,
+        method=method,
+        rank_column=rank_column,
+    )
+    return _finish_transform(
+        session=session,
+        parent=prepared,
+        df=new_df,
+        meta_overrides=meta_overrides,
+        op_params=op_params,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        analysis_purpose=analysis_purpose,
+    )
+
+
+def transform_window[TTransformFrame: TransformFrame](
+    frame: TTransformFrame,
+    *,
+    window: TimeScopeInput,
+    analysis_purpose: str | None = None,
+) -> TTransformFrame:
+    session, prepared = _prepare_transform(frame)
+    started_at = datetime.now(UTC)
+    started_monotonic = monotonic()
+    new_df, meta_overrides, op_params = _op_window(prepared, window=window, session=session)
+    return _finish_transform(
+        session=session,
+        parent=prepared,
+        df=new_df,
+        meta_overrides=meta_overrides,
+        op_params=op_params,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        analysis_purpose=analysis_purpose,
+    )
+
+
+def transform_normalize(
+    frame: MetricFrame,
+    *,
+    mode: NormalizeKind,
+    baseline: NormalizeBaseline | None = None,
+    analysis_purpose: str | None = None,
+) -> MetricFrame:
+    session, prepared = _prepare_transform(frame)
+    started_at = datetime.now(UTC)
+    started_monotonic = monotonic()
+    new_df, meta_overrides, op_params = _op_normalize(prepared, mode=mode, baseline=baseline)
+    return _finish_transform(
+        session=session,
+        parent=prepared,
+        df=new_df,
+        meta_overrides=meta_overrides,
+        op_params=op_params,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        analysis_purpose=analysis_purpose,
+    )
 
 
 def _gen_ref(prefix: str) -> str:
@@ -1128,28 +1040,13 @@ def _align_window_bound_to_series(
     return bound
 
 
-def _op_window(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
-    unsupported_kwargs = [
-        name
-        for name in ("baseline", "by", "order", "drop_axes", "mode", "limit", "predicate", "where")
-        if getattr(params, name) is not None
-    ]
-    if params.method != "ordinal":
-        unsupported_kwargs.append("method")
-    if params.rank_column != "rank":
-        unsupported_kwargs.append("rank_column")
-    unsupported_kwargs = sorted(unsupported_kwargs)
-    if unsupported_kwargs:
-        raise TransformArgError(
-            message=(
-                "transform(op='window') received unsupported kwargs: "
-                f"{', '.join(unsupported_kwargs)}"
-            ),
-            hint="Use only window=... with window.",
-            details={"op": "window", "unsupported_kwargs": unsupported_kwargs},
-        )
-
-    resolved_window = _resolve_transform_window(params.window, session=params.session)
+def _op_window(
+    frame: TransformFrame,
+    *,
+    window: TimeScopeInput,
+    session: Session,
+) -> _TransformHandlerResult:
+    resolved_window = _resolve_transform_window(window, session=session)
     df = frame.to_pandas()
     time_axis = _window_time_axis(frame, df)
     time_column = time_axis.get("column")
@@ -1163,7 +1060,7 @@ def _op_window(frame: TransformFrame, params: _TransformParams) -> _TransformHan
     start = _coerce_window_bound(resolved_window.start, bound_name="start")
     end = _coerce_window_bound(resolved_window.end, bound_name="end")
     series = pd.to_datetime(df[time_column], errors="raise")
-    comparison_tz = _window_comparison_tz(resolved_window, session=params.session)
+    comparison_tz = _window_comparison_tz(resolved_window, session=session)
     start = _align_window_bound_to_series(start, series=series, comparison_tz=comparison_tz)
     end = _align_window_bound_to_series(end, series=series, comparison_tz=comparison_tz)
     if start >= end:
@@ -1214,31 +1111,12 @@ def _op_window(frame: TransformFrame, params: _TransformParams) -> _TransformHan
     )
 
 
-_OP_DISPATCH["window"] = _op_window
-
-
-def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
-    unsupported_kwargs = [
-        name
-        for name in ("by", "order", "drop_axes", "limit", "predicate", "where", "window")
-        if getattr(params, name) is not None
-    ]
-    if params.method != "ordinal":
-        unsupported_kwargs.append("method")
-    if params.rank_column != "rank":
-        unsupported_kwargs.append("rank_column")
-    unsupported_kwargs = sorted(unsupported_kwargs)
-    if unsupported_kwargs:
-        raise TransformArgError(
-            message=(
-                "transform(op='normalize') received unsupported kwargs: "
-                f"{', '.join(unsupported_kwargs)}"
-            ),
-            hint="Use only mode=... and optional baseline=... with normalize.",
-            details={"op": "normalize", "unsupported_kwargs": unsupported_kwargs},
-        )
-
-    mode = params.mode
+def _op_normalize(
+    frame: MetricFrame,
+    *,
+    mode: NormalizeKind,
+    baseline: NormalizeBaseline | None = None,
+) -> _TransformHandlerResult:
     if not isinstance(mode, str):
         raise TransformArgError(
             message="transform(op='normalize') requires mode",
@@ -1277,7 +1155,7 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
             },
         )
 
-    if mode in {"share", "pct_change", "z_score"} and params.baseline is not None:
+    if mode in {"share", "pct_change", "z_score"} and baseline is not None:
         raise TransformArgError(
             message=f"transform(op='normalize', mode={mode!r}) does not accept baseline",
             hint="Use baseline only with mode='index' or mode='per_unit'.",
@@ -1300,7 +1178,7 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
         base_values = _resolve_grouped_normalize_base(
             df,
             column=column,
-            baseline=params.baseline,
+            baseline=baseline,
             mode=mode,
             group_columns=dimension_group_columns,
             time_columns=time_columns,
@@ -1341,7 +1219,7 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
     elif mode == "pct_change":
         new_df[column] = _pct_change_series(frame, new_df, column)
     elif mode == "per_unit":
-        base_value = _resolve_normalize_base(df, column=column, baseline=params.baseline, mode=mode)
+        base_value = _resolve_normalize_base(df, column=column, baseline=baseline, mode=mode)
         if not _finite_non_zero(base_value):
             raise TransformArgError(
                 message=(
@@ -1385,9 +1263,7 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
                 )
             new_df[column] = (new_df[column] - mean) / std
 
-    normalized_baseline = (
-        _normalize_param_value(params.baseline) if params.baseline is not None else None
-    )
+    normalized_baseline = _normalize_param_value(baseline) if baseline is not None else None
     normalization = {
         "mode": mode,
         "baseline": normalized_baseline,
@@ -1396,11 +1272,8 @@ def _op_normalize(frame: TransformFrame, params: _TransformParams) -> _Transform
     return (
         new_df,
         {"normalization": normalization},
-        {"op": "normalize", "mode": mode, "baseline": params.baseline, "column": column},
+        {"op": "normalize", "mode": mode, "baseline": baseline, "column": column},
     )
-
-
-_OP_DISPATCH["normalize"] = _op_normalize
 
 
 def _resolve_slice_column(
@@ -1492,34 +1365,15 @@ def _series_supports_range_slice(series: pd.Series) -> bool:
 
 
 def _op_filter(
-    frame: TransformFrame, params: _TransformParams
-) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
-    unsupported_kwargs = [
-        name
-        for name in ("baseline", "by", "order", "drop_axes", "mode", "limit", "where", "window")
-        if getattr(params, name) is not None
-    ]
-    if params.method != "ordinal":
-        unsupported_kwargs.append("method")
-    if params.rank_column != "rank":
-        unsupported_kwargs.append("rank_column")
-    unsupported_kwargs = sorted(unsupported_kwargs)
-    if unsupported_kwargs:
-        raise TransformArgError(
-            message=(
-                "transform(op='filter') received unsupported kwargs: "
-                f"{', '.join(unsupported_kwargs)}"
-            ),
-            hint="Use predicate=... with filter; slice_by belongs to op='slice'.",
-            details={"op": "filter", "unsupported_kwargs": unsupported_kwargs},
-        )
-
-    predicate = params.predicate
+    frame: TransformFrame,
+    *,
+    predicate: Callable[[pd.DataFrame], pd.Series],
+) -> _TransformHandlerResult:
     if not callable(predicate):
         raise TransformArgError(
             message="transform(op='filter') requires a callable predicate",
             hint="Pass predicate=lambda df: ... returning a boolean pandas Series.",
-            details={"op": params.op, "argument": "predicate"},
+            details={"op": "filter", "argument": "predicate"},
         )
 
     df = frame.to_pandas()
@@ -1529,7 +1383,7 @@ def _op_filter(
             message="transform(op='filter') predicate must return a pandas Series",
             hint="Return a boolean Series with one value per input row.",
             details={
-                "op": params.op,
+                "op": "filter",
                 "argument": "predicate",
                 "actual_type": type(mask).__name__,
             },
@@ -1545,7 +1399,7 @@ def _op_filter(
             message="transform(op='filter') predicate returned a mask with the wrong length",
             hint="Return a boolean Series with one value per input row.",
             details={
-                "op": params.op,
+                "op": "filter",
                 "expected_length": len(df),
                 "actual_length": len(mask),
             },
@@ -1554,39 +1408,20 @@ def _op_filter(
         raise TransformArgError(
             message="transform(op='filter') predicate mask must be boolean-like",
             hint="Return expressions such as df['column'] > value, not filtered data.",
-            details={"op": params.op, "actual_dtype": str(mask.dtype)},
+            details={"op": "filter", "actual_dtype": str(mask.dtype)},
         )
 
-    return df[mask].reset_index(drop=True), {}, {"op": params.op, "predicate": predicate}
-
-
-_OP_DISPATCH["filter"] = _op_filter
+    return df[mask].reset_index(drop=True), {}, {"op": "filter", "predicate": predicate}
 
 
 def _ordered_take(
-    frame: TransformFrame, params: _TransformParams, *, ascending: bool, op_name: str
+    frame: TransformFrame,
+    *,
+    by: str,
+    limit: int,
+    ascending: bool,
+    op_name: str,
 ) -> _TransformHandlerResult:
-    unsupported_kwargs = [
-        name
-        for name in ("baseline", "drop_axes", "mode", "predicate", "where", "window")
-        if getattr(params, name) is not None
-    ]
-    if params.method != "ordinal":
-        unsupported_kwargs.append("method")
-    if params.rank_column != "rank":
-        unsupported_kwargs.append("rank_column")
-    unsupported_kwargs = sorted(unsupported_kwargs)
-    if unsupported_kwargs:
-        raise TransformArgError(
-            message=(
-                f"transform(op='{op_name}') received unsupported kwargs: "
-                f"{', '.join(unsupported_kwargs)}"
-            ),
-            hint=f"Use only by=... and limit=... with {op_name}.",
-            details={"op": op_name, "unsupported_kwargs": unsupported_kwargs},
-        )
-
-    by = params.by
     if not isinstance(by, str):
         raise TransformArgError(
             message=f"transform(op='{op_name}') requires by to be a column name",
@@ -1598,7 +1433,6 @@ def _ordered_take(
             },
         )
 
-    limit = params.limit
     if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
         raise TransformArgError(
             message=f"transform(op='{op_name}') requires a positive integer limit",
@@ -1622,70 +1456,25 @@ def _ordered_take(
     return (
         sorted_df,
         {},
-        {"op": op_name, "by": by, "limit": limit, "order": params.order},
+        {"op": op_name, "by": by, "limit": limit},
     )
 
 
-def _op_topk(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
-    if params.order not in (None, "decrease", "increase"):
-        raise TransformArgError(
-            message="transform(op='topk') order must be 'increase' or 'decrease'",
-            hint=(
-                "Omit order for descending topk, pass order='increase' "
-                "for largest positive deltas, or order='decrease' for most negative deltas."
-            ),
-            details={"op": "topk", "argument": "order", "order": params.order},
-        )
-    return _ordered_take(
-        frame,
-        params,
-        ascending=params.order == "decrease",
-        op_name="topk",
-    )
+def _op_topk(frame: TransformFrame, *, by: str, limit: int) -> _TransformHandlerResult:
+    return _ordered_take(frame, by=by, limit=limit, ascending=False, op_name="topk")
 
 
-_OP_DISPATCH["topk"] = _op_topk
+def _op_bottomk(frame: TransformFrame, *, by: str, limit: int) -> _TransformHandlerResult:
+    return _ordered_take(frame, by=by, limit=limit, ascending=True, op_name="bottomk")
 
 
-def _op_bottomk(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
-    if params.order is not None:
-        raise TransformArgError(
-            message="transform(op='bottomk') does not accept order",
-            hint="Use topk(order='increase') if you need explicit increasing order semantics.",
-            details={"op": "bottomk", "unsupported_kwargs": ["order"]},
-        )
-    return _ordered_take(frame, params, ascending=True, op_name="bottomk")
-
-
-_OP_DISPATCH["bottomk"] = _op_bottomk
-
-
-def _op_rank(frame: TransformFrame, params: _TransformParams) -> _TransformHandlerResult:
-    unsupported_kwargs = [
-        name
-        for name in (
-            "baseline",
-            "order",
-            "drop_axes",
-            "mode",
-            "limit",
-            "predicate",
-            "where",
-            "window",
-        )
-        if getattr(params, name) is not None
-    ]
-    unsupported_kwargs = sorted(unsupported_kwargs)
-    if unsupported_kwargs:
-        raise TransformArgError(
-            message=(
-                f"transform(op='rank') received unsupported kwargs: {', '.join(unsupported_kwargs)}"
-            ),
-            hint="Use only by=..., method=..., and rank_column=... with rank.",
-            details={"op": "rank", "unsupported_kwargs": unsupported_kwargs},
-        )
-
-    by = params.by
+def _op_rank(
+    frame: TransformFrame,
+    *,
+    by: str,
+    method: RankMethod = "ordinal",
+    rank_column: str = "rank",
+) -> _TransformHandlerResult:
     if not isinstance(by, str):
         raise TransformArgError(
             message="transform(op='rank') requires by to be a column name",
@@ -1699,7 +1488,6 @@ def _op_rank(frame: TransformFrame, params: _TransformParams) -> _TransformHandl
         "min": "min",
         "max": "max",
     }
-    method = params.method
     pandas_method = method_map.get(method)
     if pandas_method is None:
         raise TransformArgError(
@@ -1713,7 +1501,6 @@ def _op_rank(frame: TransformFrame, params: _TransformParams) -> _TransformHandl
             },
         )
 
-    rank_column = params.rank_column
     if not isinstance(rank_column, str) or not rank_column:
         raise TransformArgError(
             message="transform(op='rank') rank_column must be a non-empty string",
@@ -1767,32 +1554,12 @@ def _op_rank(frame: TransformFrame, params: _TransformParams) -> _TransformHandl
     )
 
 
-_OP_DISPATCH["rank"] = _op_rank
-
-
 def _op_rollup(
-    frame: TransformFrame, params: _TransformParams
-) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
-    unsupported_kwargs = [
-        name
-        for name in ("baseline", "by", "order", "mode", "limit", "predicate", "where", "window")
-        if getattr(params, name) is not None
-    ]
-    if params.method != "ordinal":
-        unsupported_kwargs.append("method")
-    if params.rank_column != "rank":
-        unsupported_kwargs.append("rank_column")
-    unsupported_kwargs = sorted(unsupported_kwargs)
-    if unsupported_kwargs:
-        raise TransformArgError(
-            message=(
-                "transform(op='rollup') received unsupported kwargs: "
-                f"{', '.join(unsupported_kwargs)}"
-            ),
-            hint="Use drop_axes=... and/or grain=... with rollup.",
-            details={"op": "rollup", "unsupported_kwargs": unsupported_kwargs},
-        )
-
+    frame: TransformFrame,
+    *,
+    drop_axes: list[str] | None,
+    grain: str | None,
+) -> _TransformHandlerResult:
     reaggregatable = getattr(frame.meta, "reaggregatable", True)
     rollup_fold = getattr(frame.meta, "rollup_fold", None)
     if reaggregatable is False and rollup_fold is None:
@@ -1803,16 +1570,16 @@ def _op_rollup(
             details={"op": "rollup", "reason": "non_reaggregatable", "frame_ref": frame.ref},
         )
 
-    if params.grain is not None:
-        return _op_rollup_grain(frame, params, rollup_fold)
-    return _op_rollup_drop_axes(frame, params)
+    if grain is not None:
+        return _op_rollup_grain(frame, grain=grain, rollup_fold=rollup_fold)
 
-
-def _op_rollup_drop_axes(
-    frame: TransformFrame, params: _TransformParams
-) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
-    """v1 drop_axes rollup: group by remaining axes and sum measures."""
-    drop_ids = _normalize_rollup_drop_axes(frame, params.drop_axes)
+    if not drop_axes:
+        raise TransformArgError(
+            message="transform(op='rollup') requires a non-empty drop_axes list",
+            hint='Pass drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
+            details={"op": "rollup", "argument": "drop_axes"},
+        )
+    drop_ids = _normalize_rollup_drop_axes(frame, drop_axes)
     axes = copy.deepcopy(_frame_axes(frame))
     new_axes = {axis_id: axis for axis_id, axis in axes.items() if axis_id not in drop_ids}
     axis_columns = _axis_columns_by_id(axes)
@@ -1946,8 +1713,6 @@ def _trunc_to_grain_tz(values: pd.Series, grain: str) -> pd.Series:
     if grain == "week":
         return ts.dt.to_period("W").dt.start_time
     if grain == "month":
-        import numpy as np
-
         return pd.Series(
             ts.values.astype(np.dtype("datetime64[M]")).astype(np.dtype("datetime64[s]")),
             index=ts.index,
@@ -2022,24 +1787,18 @@ def _grain_period_end(start: pd.Timestamp, grain: str) -> pd.Timestamp:
 
 def _op_rollup_grain(
     frame: TransformFrame,
-    params: _TransformParams,
+    *,
+    grain: str,
     rollup_fold: str | None,
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
-    """Re-bucket the time axis to ``params.grain`` and aggregate per fold.
+    """Re-bucket the time axis to ``grain`` and aggregate per fold.
 
     - ``rollup_fold == "last"`` (cumulative): take the last bucket per period
       per dims (period-end running total), preserving the cumulative marker
       and ``rollup_fold`` so chains keep the fold.
     - otherwise (reaggregatable additive): sum measures per period.
     """
-    target_grain = params.grain
-    if target_grain is None:
-        # Unreachable: _op_rollup only routes here when params.grain is not None.
-        raise TransformArgError(
-            message="transform(op='rollup') grain= path requires a non-None grain",
-            details={"op": "rollup", "argument": "grain"},
-        )
-    _require_target_grain_compatible(frame, target_grain)
+    _require_target_grain_compatible(frame, grain)
 
     df = frame.to_pandas()
     time_axis = _window_time_axis(frame, df)
@@ -2054,7 +1813,7 @@ def _op_rollup_grain(
     dims = [c for c in dims if c in df.columns]
 
     df = df.copy()
-    df["_target_period"] = _trunc_to_grain_tz(df[time_col], target_grain)
+    df["_target_period"] = _trunc_to_grain_tz(df[time_col], grain)
     group_keys = [*dims, "_target_period"]
 
     if rollup_fold == "last":
@@ -2067,7 +1826,7 @@ def _op_rollup_grain(
         # Restore the time column name as the period-start bucket. The .last()
         # above keeps the original time_col values; replace with the period
         # start so the rolled frame's time axis is the target grain.
-        new_df[time_col] = _trunc_to_grain_tz(new_df[time_col], target_grain).values
+        new_df[time_col] = _trunc_to_grain_tz(new_df[time_col], grain).values
         fold_meta: dict[str, Any] = {"rollup_fold": "last"}
     else:
         axis_columns = set(_axis_columns_by_id(_frame_axes(frame)).values())
@@ -2087,18 +1846,18 @@ def _op_rollup_grain(
     new_axes = copy.deepcopy(_frame_axes(frame))
     for axis in new_axes.values():
         if isinstance(axis, dict) and axis.get("role") == "time":
-            axis["grain"] = target_grain
+            axis["grain"] = grain
             axis["column"] = time_col
     new_kind = _semantic_kind_from_axes(new_axes)
 
-    op_params: dict[str, Any] = {"op": "rollup", "grain": target_grain}
+    op_params: dict[str, Any] = {"op": "rollup", "grain": grain}
     op_params.update(fold_meta)
     meta_overrides: dict[str, Any] = {"axes": new_axes, "semantic_kind": new_kind}
     coverage_df = _rollup_grain_coverage_df(
         new_df=new_df,
         time_col=time_col,
         parent_df=df,
-        target_grain=target_grain,
+        target_grain=grain,
         frame=frame,
     )
     if coverage_df is not None and not coverage_df.empty:
@@ -2106,49 +1865,15 @@ def _op_rollup_grain(
     return new_df, meta_overrides, op_params
 
 
-_OP_DISPATCH["rollup"] = _op_rollup
-
-
 def _op_slice(
-    frame: TransformFrame, params: _TransformParams
-) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
-    unsupported_kwargs = [
-        name
-        for name in (
-            "baseline",
-            "by",
-            "order",
-            "drop_axes",
-            "mode",
-            "limit",
-            "predicate",
-            "window",
-        )
-        if getattr(params, name) is not None
-    ]
-    if params.method != "ordinal":
-        unsupported_kwargs.append("method")
-    if params.rank_column != "rank":
-        unsupported_kwargs.append("rank_column")
-    unsupported_kwargs = sorted(unsupported_kwargs)
-    if unsupported_kwargs:
-        raise TransformArgError(
-            message=(
-                "transform(op='slice') received unsupported kwargs: "
-                f"{', '.join(unsupported_kwargs)}"
-            ),
-            hint="Use slice_by=... with slice; predicate belongs to op='filter'.",
-            details={"op": "slice", "unsupported_kwargs": unsupported_kwargs},
-        )
-
-    where = params.where
-    if not isinstance(where, dict) or not where:
+    frame: TransformFrame,
+    *,
+    where: dict[str, Any],
+) -> _TransformHandlerResult:
+    if not where:
         raise TransformArgError(
             message="transform(op='slice') requires a non-empty slice_by dict",
-            hint=(
-                'Pass slice_by={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
-                "or slice_by={'value': (10, 20)}."
-            ),
+            hint='Pass slice_by={session.catalog.get("dimension.<dimension_id>").ref: "US"}.',
             details={"op": "slice", "argument": "slice_by"},
         )
 
@@ -2239,10 +1964,7 @@ def _op_slice(
             alignment["where"] = {**existing_where, **selector}
             meta_overrides["alignment"] = alignment
 
-    return new_df, meta_overrides, {"op": params.op, "where": where}
-
-
-_OP_DISPATCH["slice"] = _op_slice
+    return new_df, meta_overrides, {"op": "slice", "where": where}
 
 
 def _persist_transform_frame(
@@ -2340,6 +2062,7 @@ def _persist_transform_frame(
                 ),
                 extractor_family="metric_frame",
                 triggered_by_followup=triggered_by_followup,
+                emit_evidence=False,
             ),
         )
         register_frame_artifact(session, frame)
@@ -2359,6 +2082,7 @@ def _persist_transform_frame(
                 subject=Subject(metric=delta_meta.metric_id, analysis_axis="change"),
                 extractor_family="delta_frame",
                 triggered_by_followup=triggered_by_followup,
+                emit_evidence=False,
             ),
         )
         register_frame_artifact(session, frame)

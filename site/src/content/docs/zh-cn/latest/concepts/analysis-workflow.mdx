@@ -242,21 +242,24 @@ candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 ```
 
-## Advanced reference —— `session.transform.*`
+## Advanced reference —— `frame.transform.*`
 
 Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFrame` →
-`DeltaFrame`）的前提下重塑 frame。
+`DeltaFrame`）的前提下重塑 frame。每个 transform 是 frame 自身的方法——调用
+`frame.transform.<op>(...)`，而非 session 级别的 helper。
 
 | Transform | 关键参数 | 效果 |
 | --- | --- | --- |
 | `filter` | `predicate`（callable） | 保留谓词为真的行。 |
 | `slice` | `slice_by`（轴 → 值/列表/区间） | 保留匹配精确轴值的行。 |
 | `rollup` | `drop_axes` 和/或 `grain` | 删除轴并重新聚合，或将时间轴重新分桶到更粗的 `grain`。累计 frame 取每个周期的最后一个 bucket（`rollup_fold="last"`）。 |
-| `topk` | `by`、`limit`、`order` | 按某个 measure 取前 N 行（默认 `order="decrease"`）。 |
+| `topk` | `by`、`limit` | 按某个 measure 取前 N 行。 |
 | `bottomk` | `by`、`limit` | 取后 N 行。 |
 | `rank` | `by`、`method`、`rank_column` | 按某个 measure 排序并加一列 rank。 |
 | `normalize` | `mode`、`baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score`（仅 MetricFrame）。 |
 | `window` | `window` | 限制到一个时间窗口。 |
+
+对于 delta frame，`bottomk(by="delta")` 返回最大下降项，因为它选择最负的 delta 值。
 
 ## 累计 frame 注意事项
 
@@ -288,9 +291,9 @@ cum_frame = session.observe(
     grain="day",
 )
 cum_frame.contract()  # 显示锚点特定的注意事项
-windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})
+windowed = cum_frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})
 # 将累计 frame rollup 到更粗的粒度（周期末语义）：
-monthly = session.transform.rollup(cum_frame, grain="month")
+monthly = cum_frame.transform.rollup(grain="month")
 # 对于 attribute/forecast，请改为 observe base metric：
 base_frame = session.observe(active_users, ...)
 ```

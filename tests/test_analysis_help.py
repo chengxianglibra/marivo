@@ -161,7 +161,7 @@ def test_help_for_session_intent_aliases_matches_canonical_target() -> None:
 
 
 def test_help_for_session_namespace_aliases_matches_canonical_target() -> None:
-    for topic in ("discover", "transform"):
+    for topic in ("discover",):
         expected = _capture(topic)
         for alias in (
             f"mv.Session.{topic}",
@@ -179,9 +179,10 @@ def test_help_for_observe_documents_empty_dimensions_as_no_axes() -> None:
 
 def test_help_for_transform_and_discover_lists_namespace_methods() -> None:
     transform_out = _capture("transform")
-    assert "session.transform op helper matrix" in transform_out
-    assert "session.transform.topk" in transform_out
-    assert "session.transform.rollup" in transform_out
+    assert "frame.transform op helper matrix" in transform_out
+    assert "frame.transform.topk" in transform_out
+    assert "frame.transform.rollup" in transform_out
+    assert "session.transform" not in transform_out
 
     discover_out = _capture("discover")
     assert "session.discover objective helper matrix" in discover_out
@@ -774,7 +775,7 @@ def test_ms_help_cumulative_has_anchor_section_and_mtd_rolling_examples(
 def test_mv_help_transform_reflects_rollup_grain_and_drop_axes() -> None:
     """mv.help('transform') teaches the rollup grain + drop_axes contract.
 
-    Task 9 widened session.transform.rollup from required drop_axes to
+    Task 9 widened frame.transform.rollup from required drop_axes to
     at-least-one-of drop_axes / grain. The transform help matrix must reflect
     both arguments so agents author the new grain re-aggregation path.
     """

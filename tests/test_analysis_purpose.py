@@ -94,8 +94,7 @@ def test_analysis_purpose_propagates_to_core_discover_and_transform(tmp_path) ->
         candidates.lineage.steps[-1].analysis_purpose == "find driver dimensions for revenue change"
     )
 
-    top_delta = session.transform.topk(
-        delta,
+    top_delta = delta.transform.topk(
         by="delta",
         limit=1,
         analysis_purpose="keep top regions by revenue change",
@@ -124,7 +123,7 @@ def test_transform_without_analysis_purpose_does_not_inherit_parent_purpose(tmp_
         analysis_purpose="generate revenue breakdown by region",
     )
 
-    transformed = session.transform.topk(parent, by="value", limit=1)
+    transformed = parent.transform.topk(by="value", limit=1)
 
     assert parent.meta.analysis_purpose == "generate revenue breakdown by region"
     assert transformed.meta.analysis_purpose is None

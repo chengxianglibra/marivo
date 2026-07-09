@@ -666,6 +666,7 @@ def commit_result(
     comparison_basis: str | None = None,
     seeding_context: dict[str, Any] | None = None,
     triggered_by_followup: TriggeredByFollowup | None = None,
+    emit_evidence: bool = True,
 ) -> BaseFrame:
     """Commit a computed frame to the evidence store.
 
@@ -673,6 +674,11 @@ def commit_result(
     SQLite transaction (artifact + findings), SAVEPOINT (seeding +
     assessment + followups), partial-failure handling, and Surface 1
     field population on frame.meta.
+
+    When ``emit_evidence`` is ``False``, findings extraction, proposition
+    seeding, assessment, and followup generation are all skipped; the
+    artifact row is still inserted with its true ``extractor_family`` and
+    ``evidence_status`` remains ``"complete"``.
     """
     now = datetime.now(UTC)
     session_id = frame.meta.session_id
@@ -727,15 +733,19 @@ def commit_result(
         )
         return frame
 
-    # 4. Extract findings
-    findings = _extract_findings(
-        df=df,
-        artifact_id=artifact_id,
-        session_id=session_id,
-        subject=subject,
-        extractor_family=extractor_family,
-        frame=frame,
-        committed_at=now,
+    # 4. Extract findings (suppressed when emit_evidence=False)
+    findings = (
+        _extract_findings(
+            df=df,
+            artifact_id=artifact_id,
+            session_id=session_id,
+            subject=subject,
+            extractor_family=extractor_family,
+            frame=frame,
+            committed_at=now,
+        )
+        if emit_evidence
+        else []
     )
 
     # 5. Open transaction: insert artifact + findings
@@ -783,76 +793,79 @@ def commit_result(
         # Insert findings
         _insert_findings(tx, findings, session_id=session_id)
 
-        # SAVEPOINT: seeding + assessment + followups
-        try:
-            with tx.savepoint("evidence_phase2"):
-                if findings:
-                    for finding in findings:
-                        prop, assessment_fn = _seed_for_finding(
-                            finding=finding,
-                            step_type=step_type,
-                            comparison_window=comparison_window,
-                            comparison_basis=comparison_basis,
-                            seeding_context=seeding_context,
-                        )
-                        if prop is None or assessment_fn is None:
-                            continue
-                        _insert_proposition(tx, prop)
-                        assessment, edges = assessment_fn(
-                            proposition=prop,
-                            seed_findings=[finding],
-                            snapshot_seq=1,
-                            previous=None,
-                        )
-                        _insert_assessment(tx, assessment, edges)
+        # SAVEPOINT: seeding + assessment + followups (skipped when emit_evidence=False)
+        if emit_evidence:
+            try:
+                with tx.savepoint("evidence_phase2"):
+                    if findings:
+                        for finding in findings:
+                            prop, assessment_fn = _seed_for_finding(
+                                finding=finding,
+                                step_type=step_type,
+                                comparison_window=comparison_window,
+                                comparison_basis=comparison_basis,
+                                seeding_context=seeding_context,
+                            )
+                            if prop is None or assessment_fn is None:
+                                continue
+                            _insert_proposition(tx, prop)
+                            assessment, edges = assessment_fn(
+                                proposition=prop,
+                                seed_findings=[finding],
+                                snapshot_seq=1,
+                                previous=None,
+                            )
+                            _insert_assessment(tx, assessment, edges)
 
-                # Generate followups
-                semantic_kind = getattr(frame.meta, "semantic_kind", "scalar")
-                ctx = GenerationContext(
-                    source_artifact_id=artifact_id,
-                    source_family=extractor_family,
-                    source_semantic_kind=semantic_kind,
-                    blocking_issues=[] if extractor_family == "quality_report" else blocking_issues,
+                    # Generate followups
+                    semantic_kind = getattr(frame.meta, "semantic_kind", "scalar")
+                    ctx = GenerationContext(
+                        source_artifact_id=artifact_id,
+                        source_family=extractor_family,
+                        source_semantic_kind=semantic_kind,
+                        blocking_issues=[]
+                        if extractor_family == "quality_report"
+                        else blocking_issues,
+                    )
+                    followups = generate_followups(ctx)
+
+                    # Insert followups
+                    _insert_followups(
+                        tx,
+                        followups,
+                        session_id=session_id,
+                        source_artifact_id=artifact_id,
+                        committed_at=now,
+                    )
+            except Exception:
+                # SAVEPOINT rolled back; artifact + findings retained
+                evidence_status = "partial"
+                issue_id = make_issue_id(
+                    artifact_id=artifact_id,
+                    kind="evidence_partial",
+                    source_refs=[artifact_id],
                 )
-                followups = generate_followups(ctx)
-
-                # Insert followups
-                _insert_followups(
+                partial_issue = BlockingIssue(
+                    issue_id=issue_id,
+                    kind="evidence_partial",
+                    severity="warning",
+                    source_refs=[artifact_id],
+                    message="evidence pipeline phase 2 failed; artifact and findings retained",
+                )
+                blocking_issues = [partial_issue]
+                followups = []
+                _insert_blocking_issue(
                     tx,
-                    followups,
+                    partial_issue,
                     session_id=session_id,
-                    source_artifact_id=artifact_id,
+                    artifact_id=artifact_id,
                     committed_at=now,
                 )
-        except Exception:
-            # SAVEPOINT rolled back; artifact + findings retained
-            evidence_status = "partial"
-            issue_id = make_issue_id(
-                artifact_id=artifact_id,
-                kind="evidence_partial",
-                source_refs=[artifact_id],
-            )
-            partial_issue = BlockingIssue(
-                issue_id=issue_id,
-                kind="evidence_partial",
-                severity="warning",
-                source_refs=[artifact_id],
-                message="evidence pipeline phase 2 failed; artifact and findings retained",
-            )
-            blocking_issues = [partial_issue]
-            followups = []
-            _insert_blocking_issue(
-                tx,
-                partial_issue,
-                session_id=session_id,
-                artifact_id=artifact_id,
-                committed_at=now,
-            )
-            # Update artifact evidence_status
-            tx.execute(
-                "UPDATE artifacts SET evidence_status = ? WHERE artifact_id = ?",
-                ("partial", artifact_id),
-            )
+                # Update artifact evidence_status
+                tx.execute(
+                    "UPDATE artifacts SET evidence_status = ? WHERE artifact_id = ?",
+                    ("partial", artifact_id),
+                )
 
     # 6. Mark followup as executed (after main transaction)
     if triggered_by_followup is not None:

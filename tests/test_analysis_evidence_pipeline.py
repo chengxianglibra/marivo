@@ -332,6 +332,41 @@ def test_commit_partial_when_seeding_fails(tmp_session, monkeypatch) -> None:
     assert propositions == 0
 
 
+def test_commit_result_can_skip_evidence_emission(tmp_session) -> None:
+    session_id, session_dir, frames_dir, db_path = tmp_session
+    store = open_judgment_store(db_path)
+    try:
+        frame = _metric_frame(session_id=session_id, project_root=session_dir)
+        result = commit_result(
+            store=store,
+            frames_dir=frames_dir,
+            frame=frame,
+            step_type="transform",
+            inputs=CommitInputs(input_refs=["parent_frame"]),
+            params=CommitParams(values={"op": "topk", "by": "value", "limit": 1}),
+            semantic_anchors=CommitSemanticAnchors(values={"metric": "sales.revenue@v1"}),
+            subject=Subject(metric="sales.revenue", analysis_axis="time"),
+            extractor_family="metric_frame",
+            emit_evidence=False,
+        )
+    finally:
+        store.close()
+
+    with sqlite3.connect(db_path) as conn:
+        artifact = conn.execute(
+            "SELECT step_type, artifact_type, evidence_status FROM artifacts WHERE artifact_id = ?",
+            (result.meta.artifact_id,),
+        ).fetchone()
+        finding_count = conn.execute("SELECT count(*) FROM findings").fetchone()[0]
+        proposition_count = conn.execute("SELECT count(*) FROM propositions").fetchone()[0]
+        followup_count = conn.execute("SELECT count(*) FROM followups").fetchone()[0]
+
+    assert artifact == ("transform", "metric_frame", "complete")
+    assert finding_count == 0
+    assert proposition_count == 0
+    assert followup_count == 0
+
+
 def test_commit_unavailable_when_store_is_none(tmp_session) -> None:
     session_id, session_dir, frames_dir, _ = tmp_session
     frame = _metric_frame(session_id=session_id, project_root=session_dir)

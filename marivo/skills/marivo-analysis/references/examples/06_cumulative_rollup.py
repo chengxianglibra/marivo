@@ -29,7 +29,7 @@ day_frame.show()
 
 # Roll up the time axis to month grain. Each month contributes its last day's
 # MTD value — i.e. the full-month total, since MTD resets at each month start.
-monthly = session.transform.rollup(day_frame, grain="month")
+monthly = day_frame.transform.rollup(grain="month")
 monthly.show()
 print(f"kind={monthly.kind!r}")
 print(f"row_count={len(monthly)}")

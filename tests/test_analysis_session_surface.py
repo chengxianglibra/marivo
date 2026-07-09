@@ -58,7 +58,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "compare",
         "attribute",
         "discover",
-        "transform",
         "correlate",
         "forecast",
         "assess_quality",
@@ -132,7 +131,6 @@ def test_help_session_lists_object_methods():
         "hypothesis_test",
         "derive_metric_frame",
         "discover",
-        "transform",
         "evidence",
         "knowledge",
         "jobs",
@@ -151,16 +149,18 @@ def test_help_session_lists_object_methods():
     assert "Constraints:" in mv.help_text("session")
 
 
+def test_session_no_longer_exposes_transform_namespace(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+
+    assert not hasattr(session, "transform")
+
+
 def test_session_namespaces_are_typed_helpers_only(tmp_path, monkeypatch):
     session = _session(tmp_path, monkeypatch)
 
     assert not callable(session.discover)
     assert callable(session.discover.point_anomalies)
     assert callable(session.discover.driver_axes)
-
-    assert not callable(session.transform)
-    assert callable(session.transform.topk)
-    assert callable(session.transform.slice)
 
 
 def test_help_session_lists_identity_fields():
