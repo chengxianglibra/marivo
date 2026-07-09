@@ -139,7 +139,11 @@ When working on a task, read the right docs first:
 
 | Task Type | Read First |
 |-----------|------------|
-| Python semantic declarations | `docs/specs/semantic/python-semantic-layer.md` |
+| Datasource + semantic design (start here) | `docs/specs/semantic/overview.md` |
+| Datasource declarations, discovery | `docs/specs/semantic/datasource-layer.md` |
+| Python semantic object model | `docs/specs/semantic/semantic-object-model.md` |
+| Semantic authoring workflow | `docs/specs/semantic/authoring-workflow.md` |
+| Semantic loading, validation, runtime | `docs/specs/semantic/loading-validation-introspection.md` |
 | Python analysis design | `docs/specs/analysis/python-analysis-design.md` |
 | Agent usage examples | `marivo/skills/marivo-semantic/` or `marivo/skills/marivo-analysis/` |
 

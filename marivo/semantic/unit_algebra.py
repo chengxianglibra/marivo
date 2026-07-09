@@ -5,7 +5,7 @@ linear-commensurability check, and the authoring brief unit preview. These
 functions operate on unit strings only — no registry or IR dependencies —
 so they are trivially testable and reusable.
 
-Conventions (see docs/specs/semantic/python-semantic-layer.md):
+Conventions (see docs/specs/semantic/semantic-object-model.md):
 - ``None`` means "no unit declared/derivable" (honest absence, never a guess).
 - ``"1"`` is the UCUM dimensionless unit (a ratio of equal units cancels to it).
 """
