@@ -119,7 +119,7 @@ def test_derive_version_mode_falls_back_to_latest_with_timescope(monkeypatch):
 
 def test_derive_version_mode_falls_back_to_latest_with_plan_time(monkeypatch):
     monkeypatch.setattr(
-        "marivo.analysis.intents.observe_planner._utc_now",
+        "marivo.analysis.intents._observe_planner_versioning._utc_now",
         lambda: dt.datetime(2026, 7, 5, 12, 0, tzinfo=dt.UTC),
     )
     mode, anchor_source, anchor_value = _derive_version_mode(
