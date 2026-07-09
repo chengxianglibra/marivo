@@ -104,6 +104,15 @@ Catalog & refs
    DatasourceSummary
    DatasourceDescription
 
+Datasource vs source
+--------------------
+
+``md.duckdb(...)`` declares a datasource. ``md.table(...)`` is the source
+descriptor for internal tables/views inside that datasource. ``md.parquet(...)``,
+``md.csv(...)``, and ``md.json(...)`` are DuckDB file sources used with a
+datasource ref in inspection and discovery calls; they are not datasource
+declarations.
+
 Metadata & sources
 ------------------
 

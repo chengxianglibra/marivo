@@ -136,6 +136,29 @@ def test_authoring_topic_renders_datasource_stages_and_handoff() -> None:
     assert "prepare_" not in text
 
 
+def test_authoring_topic_distinguishes_duckdb_datasource_from_sources() -> None:
+    text = md.help_text("authoring")
+
+    for needle in (
+        "md.duckdb(name=",
+        'md.table("orders")',
+        'md.parquet("data/orders/*.parquet")',
+        'md.csv("data/orders/*.csv")',
+        'md.json("data/events/*.json"',
+        "internal table or view",
+        "DuckDB file source",
+        "not a datasource declaration",
+    ):
+        assert needle in text, f"authoring topic missing {needle!r}"
+
+    for forbidden in (
+        "md.duckdb.parquet",
+        "md.duckdb.csv",
+        "md.duckdb.json",
+    ):
+        assert forbidden not in text
+
+
 def test_clickhouse_help_example_shows_register_test_inspect() -> None:
     text = md.help_text("clickhouse")
     assert "md.clickhouse(" in text
@@ -163,6 +186,28 @@ def test_backend_help_examples_show_register_test_chain() -> None:
         )
 
 
+def test_duckdb_help_examples_show_internal_table_and_file_source() -> None:
+    text = md.help_text("duckdb")
+
+    assert 'md.inspect_table(spec.ref, md.table("orders")).show()' in text
+    assert 'md.inspect_table(spec.ref, md.parquet("data/orders/*.parquet")).show()' in text
+    assert "internal table or view" in text
+    assert "DuckDB file source" in text
+
+
+def test_source_builder_help_distinguishes_sources_from_datasources() -> None:
+    expectations = {
+        "table": ("internal table or view", "not a datasource declaration"),
+        "parquet": ("DuckDB file source", "not a datasource declaration"),
+        "csv": ("DuckDB file source", "not a datasource declaration"),
+        "json": ("DuckDB file source", "not a datasource declaration"),
+    }
+    for symbol, needles in expectations.items():
+        text = md.help_text(symbol)
+        for needle in needles:
+            assert needle in text, f"md.help_text({symbol!r}) missing {needle!r}"
+
+
 def test_datasource_api_docs_list_public_datasource_result() -> None:
     text = Path("docs/api/datasource.rst").read_text(encoding="utf-8")
 
@@ -172,6 +217,14 @@ def test_datasource_api_docs_list_public_datasource_result() -> None:
     assert "latest_partition" not in text
     assert "DiscoveryResult" not in text
     assert "DatasourceConnection" in text
+    assert "Datasource vs source" in text
+    assert "md.duckdb(...)" in text
+    assert "md.table(...)" in text
+    assert "md.parquet(...)" in text
+    assert "md.csv(...)" in text
+    assert "md.json(...)" in text
+    assert "internal tables/views" in text
+    assert "DuckDB file sources" in text
     for removed in (
         "EntityDiscoveryResult",
         "DimensionDiscoveryResult",

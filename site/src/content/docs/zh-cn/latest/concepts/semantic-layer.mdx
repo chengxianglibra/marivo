@@ -608,6 +608,20 @@ dimension_evidence.show()
 measure_evidence.show()
 ```
 
+`md.duckdb(...)` 声明 datasource。`md.table(...)` 选择该 datasource 内部的
+table 或 view。`md.parquet(...)`、`md.csv(...)` 和 `md.json(...)` 是配合
+datasource ref 使用的 DuckDB file source descriptor；它们不是 datasource
+declaration。
+
+```python
+events = md.json("data/events/*.json", format="newline_delimited")
+orders_parquet = md.parquet("data/orders/*.parquet")
+orders_csv = md.csv("data/orders/*.csv")
+
+md.inspect_table(warehouse, events).show()
+md.discover_entity(warehouse, events).show()
+```
+
 Discovery 返回有界证据、signals 和 issues；它不会替你决定业务含义、单位、additivity，
 或自动创建语义对象。Agent 通过 `.show()` / `.render()` 阅读 discovery 证据；
 具体 result class 和内部 evidence 字段不是公开 authoring 输入。`ms.help(...)`
