@@ -185,10 +185,7 @@ _SESSION_INTENT_HELP_TARGETS: tuple[str, ...] = (
     "derive_metric_frame",
 )
 
-_SESSION_NAMESPACE_HELP_TARGETS: tuple[str, ...] = (
-    "discover",
-    "transform",
-)
+_SESSION_NAMESPACE_HELP_TARGETS: tuple[str, ...] = ("discover",)
 
 _SESSION_HELP_ALIASES: dict[str, str] = {
     alias: target
@@ -309,22 +306,23 @@ def _transform_content() -> dict[str, object]:
         "window": ("window",),
     }
     return {
-        "summary": "session.transform op helper matrix (v1).",
+        "summary": "frame.transform op helper matrix.",
         "ops": [
             {
                 "op": op,
-                "helper": f"session.transform.{op}",
+                "helper": f"frame.transform.{op}",
                 "required_kwargs": list(required_args.get(op, ())),
             }
             for op in _SUPPORTED_OPS
         ],
         "notes": [
-            "normalize is MetricFrame-only in v1; DeltaFrame normalize is reserved.",
+            "normalize is MetricFrame-only; DeltaFrame.transform has no normalize method.",
             "rollup requires at least one of drop_axes= or grain= (grain re-buckets the time axis).",
+            "bottomk(by='delta') returns the most-negative deltas: largest declines.",
         ],
         "example": (
-            "session.transform.topk(\n"
-            '    delta, by="delta", limit=3, order="decrease", analysis_purpose="keep top regions by change"\n'
+            "delta.transform.bottomk(\\n"
+            '    by="delta", limit=3, analysis_purpose="keep largest declines"\\n'
             ")"
         ),
     }
@@ -332,7 +330,7 @@ def _transform_content() -> dict[str, object]:
 
 def _transform_text(content: dict[str, object]) -> str:
     ops = cast("list[dict[str, object]]", content["ops"])
-    lines = ["session.transform op helper matrix (v1):", ""]
+    lines = ["frame.transform op helper matrix:", ""]
     for op in ops:
         required = ", ".join(cast("list[str]", op["required_kwargs"])) or "-"
         if op["op"] == "rollup":
@@ -386,11 +384,6 @@ _SESSION_METHODS: tuple[dict[str, str], ...] = (
         "name": "discover",
         "group": "namespaces/evidence",
         "summary": "objective helpers for deterministic candidate discovery",
-    },
-    {
-        "name": "transform",
-        "group": "expert",
-        "summary": "family-preserving frame transforms for exact-control workflows",
     },
     {
         "name": "evidence",
@@ -629,7 +622,7 @@ def _cumulative_frame_content() -> dict[str, object]:
             '    grain="day",\n'
             ")\n"
             "cum_frame.contract()  # anchor-aware running_total_caveat\n"
-            'windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})\n'
+            'windowed = cum_frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})\n'
             "# For compare/attribute/forecast, observe the base metric instead:\n"
             "base_frame = session.observe(active_users, ...)"
         ),
@@ -1129,9 +1122,9 @@ def _resolve(symbol: str) -> object | None:
 
         return discover
     if symbol == "transform":
-        from marivo.analysis.intents.transform import transform
+        from marivo.analysis.frames.transforms import MetricFrameTransforms
 
-        return transform
+        return MetricFrameTransforms
     if symbol == "select":
         from marivo.analysis.intents.select import select
 

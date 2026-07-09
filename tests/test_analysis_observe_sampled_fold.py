@@ -437,8 +437,7 @@ def test_rollup_rejects_non_reaggregatable_folded_frame(sampled_bandwidth_projec
     )
 
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
-        sampled_bandwidth_project.transform.rollup(
-            frame,
+        frame.transform.rollup(
             drop_axes=[make_ref("province", SemanticKind.DIMENSION)],
         )
 

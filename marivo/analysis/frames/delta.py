@@ -18,6 +18,7 @@ from marivo.render import Card
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import ArtifactContract
     from marivo.analysis.frames.component import ComponentFrame
+    from marivo.analysis.frames.transforms import DeltaFrameTransforms
     from marivo.analysis.intents._shape import AttributionShape
 
 
@@ -141,6 +142,13 @@ class DeltaFrame(BaseFrame):
         from marivo.analysis.intents._shape import attribution_output_shape
 
         return attribution_output_shape(self.meta)
+
+    @property
+    def transform(self) -> DeltaFrameTransforms:
+        """Return typed transforms for this DeltaFrame."""
+        from marivo.analysis.frames.transforms import DeltaFrameTransforms
+
+        return DeltaFrameTransforms(self)
 
     def components(self) -> ComponentFrame:
         """Load the linked ComponentFrame for component-aware deltas."""

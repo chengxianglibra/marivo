@@ -80,19 +80,10 @@ def test_optional_hint_and_details():
     assert err.details == {}
 
 
-def test_transform_op_unsupported_error_is_analysis_error():
-    from marivo.analysis.errors import AnalysisError, TransformOpUnsupportedError
+def test_transform_op_unsupported_error_removed_from_public_errors() -> None:
+    import marivo.analysis.errors as errors
 
-    err = TransformOpUnsupportedError(
-        message="op 'explode' is not supported",
-        hint="use one of: filter, slice, rollup, topk, bottomk, rank, normalize, window",
-        details={"op": "explode", "supported_ops": ["filter", "slice"]},
-    )
-    assert isinstance(err, AnalysisError)
-    assert err.kind == "TransformOpUnsupported"
-    assert err.hint == "use one of: filter, slice, rollup, topk, bottomk, rank, normalize, window"
-    assert err.details["op"] == "explode"
-    assert err.details["supported_ops"] == ["filter", "slice"]
+    assert not hasattr(errors, "TransformOpUnsupportedError")
 
 
 def test_transform_shape_unsupported_error_carries_axes():

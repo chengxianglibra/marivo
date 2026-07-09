@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import importlib
 import inspect
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from time import monotonic
 
 import ibis
@@ -26,9 +26,9 @@ from marivo.semantic.refs import make_ref
 from tests.shared_fixtures import make_metric_frame
 
 
-def _active_transform(frame: object, **kwargs):
+def _active_transform(frame: MetricFrame | DeltaFrame, **kwargs):
     op = kwargs.pop("op")
-    return getattr(session_attach.current().transform, op)(frame, **kwargs)
+    return getattr(frame.transform, op)(**kwargs)
 
 
 def _positive_delta_predicate(row):
@@ -255,19 +255,41 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
     return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
 
-def test_transform_api_exposes_typed_method_signatures():
-    session = session_attach.get_or_create(name="demo")
-    assert not callable(session.transform)
+def test_frame_transform_exposes_typed_method_signatures(tmp_path):
+    metric = _make_time_series(tmp_path)
+    delta = _make_topk_delta_time_series()
 
-    topk_signature = inspect.signature(session.transform.topk)
+    assert callable(metric.transform.topk)
+    assert callable(delta.transform.topk)
+    assert callable(metric.transform.normalize)
+    assert not hasattr(delta.transform, "normalize")
+
+    topk_signature = inspect.signature(metric.transform.topk)
     assert "op" not in topk_signature.parameters
+    assert "session" not in topk_signature.parameters
+    assert "frame" not in topk_signature.parameters
     assert topk_signature.parameters["by"].default is inspect.Parameter.empty
     assert topk_signature.parameters["limit"].default is inspect.Parameter.empty
 
-    rollup_signature = inspect.signature(session.transform.rollup)
+    rollup_signature = inspect.signature(metric.transform.rollup)
     assert "op" not in rollup_signature.parameters
     assert rollup_signature.parameters["drop_axes"].default is None
     assert rollup_signature.parameters["grain"].default is None
+
+    normalize_signature = inspect.signature(metric.transform.normalize)
+    assert "baseline" in normalize_signature.parameters
+    assert normalize_signature.return_annotation in (MetricFrame, "MetricFrame")
+
+
+def test_frame_transform_methods_preserve_family(tmp_path):
+    metric = _make_time_series(tmp_path)
+    delta = _make_topk_delta_time_series()
+
+    metric_out = metric.transform.topk(by="value", limit=1)
+    delta_out = delta.transform.bottomk(by="delta", limit=1)
+
+    assert isinstance(metric_out, MetricFrame)
+    assert isinstance(delta_out, DeltaFrame)
 
 
 def test_transform_api_methods_cover_supported_ops(tmp_path):
@@ -280,19 +302,19 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
     )
-    filtered = session.transform.filter(series, predicate=lambda d: d["value"] > 10)
+    filtered = series.transform.filter(predicate=lambda d: d["value"] > 10)
     assert filtered.to_pandas()["value"].tolist() == [40.0, 60.0]
 
-    windowed = session.transform.window(series, window={"start": "2026-07-02", "end": "2026-07-03"})
+    windowed = series.transform.window(window={"start": "2026-07-02", "end": "2026-07-03"})
     assert windowed.to_pandas()["value"].tolist() == [60.0]
 
-    top = session.transform.topk(series, by="value", limit=1)
+    top = series.transform.topk(by="value", limit=1)
     assert top.to_pandas()["value"].tolist() == [60.0]
 
-    bottom = session.transform.bottomk(series, by="value", limit=1)
+    bottom = series.transform.bottomk(by="value", limit=1)
     assert bottom.to_pandas()["value"].tolist() == [40.0]
 
-    ranked = session.transform.rank(series, by="value", method="dense", rank_column="r")
+    ranked = series.transform.rank(by="value", method="dense", rank_column="r")
     assert ranked.to_pandas()["r"].tolist() == [2, 1]
 
     segmented = make_metric_frame(
@@ -304,7 +326,7 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         semantic_model="sales",
         session=session,
     )
-    share = session.transform.normalize(segmented, mode="share")
+    share = segmented.transform.normalize(mode="share")
     assert share.to_pandas()["value"].round(6).tolist() == [0.428571, 0.571429]
 
     panel = make_metric_frame(
@@ -325,15 +347,11 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         semantic_model="sales",
         session=session,
     )
-    rolled = session.transform.rollup(
-        panel, drop_axes=[make_ref("country", SemanticKind.DIMENSION)]
-    )
+    rolled = panel.transform.rollup(drop_axes=[make_ref("country", SemanticKind.DIMENSION)])
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.to_pandas().columns
 
-    sliced = session.transform.slice(
-        panel, slice_by={make_ref("country", SemanticKind.DIMENSION): "US"}
-    )
+    sliced = panel.transform.slice(slice_by={make_ref("country", SemanticKind.DIMENSION): "US"})
     assert sliced.meta.semantic_kind == "time_series"
     assert "country" not in sliced.to_pandas().columns
 
@@ -431,23 +449,20 @@ def _assert_persisted_metric_frame(frame: MetricFrame) -> None:
     assert job_record["output_frame_ref"] == frame.ref
 
 
-def test_transform_unknown_op_is_not_a_typed_helper(tmp_path):
+def test_frame_transform_unknown_op_is_plain_attribute_error(tmp_path):
     frame = _make_time_series(tmp_path)
     _assert_persisted_metric_frame(frame)
+
     with pytest.raises(AttributeError) as excinfo:
-        _active_transform(frame, op="explode")
+        frame.transform.explode  # noqa: B018
+
     assert "explode" in str(excinfo.value)
 
 
-def test_transform_rejects_attribution_frame(tmp_path):
-    from marivo.analysis.errors import TransformOpUnsupportedError
-
+def test_attribution_frame_has_no_transform_receiver(tmp_path):
     attribution = _make_attribution_frame(tmp_path)
 
-    with pytest.raises(TransformOpUnsupportedError) as excinfo:
-        _active_transform(attribution, op="filter", predicate=lambda d: d.index >= 0)
-
-    assert "AttributionFrame" in str(excinfo.value)
+    assert not hasattr(attribution, "transform")
 
 
 def test_transform_cross_session_rejected(tmp_path):
@@ -970,21 +985,15 @@ def test_transform_normalize_z_score(tmp_path):
 
 
 def test_transform_normalize_share_rejected_on_delta():
-    from marivo.analysis.errors import TransformArgError
-
     frame = _make_topk_delta_time_series()
-    with pytest.raises(TransformArgError):
+    with pytest.raises(AttributeError):
         _active_transform(frame, op="normalize", mode="share")
 
 
 def test_transform_normalize_index_rejected_on_delta():
-    from marivo.analysis.errors import TransformArgError
-
     frame = _make_topk_delta_time_series()
-    with pytest.raises(TransformArgError) as excinfo:
+    with pytest.raises(AttributeError):
         _active_transform(frame, op="normalize", mode="index")
-    assert excinfo.value.details["op"] == "normalize"
-    assert excinfo.value.details["frame_kind"] == "delta_frame"
 
 
 def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
@@ -1014,38 +1023,6 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
     job_record = read_job_record(session_attach.current()._layout, sliced.meta.produced_by_job)
     json.dumps(job_record["params"])
     assert job_record["params"]["where"]["event_date"] == "2026-07-01"
-
-
-def test_transform_dispatcher_persists_handler_result(tmp_path, monkeypatch):
-    transform_mod = importlib.import_module("marivo.analysis.intents.transform")
-    parent = _make_time_series(tmp_path)
-    session = session_attach.current()
-
-    def handler(frame, params):
-        assert frame is parent
-        assert params.op == "filter"
-        return (
-            parent.to_pandas().head(1),
-            {"semantic_kind": "time_series", "axes": parent.meta.axes},
-            {"op": params.op, "predicate": _positive_delta_predicate},
-        )
-
-    monkeypatch.setitem(transform_mod._OP_DISPATCH, "filter", handler)
-
-    out = _active_transform(parent, op="filter", predicate=_positive_delta_predicate)
-
-    assert isinstance(out, MetricFrame)
-    assert out.ref != parent.ref
-    assert out.meta.produced_by_job is not None
-    assert out.meta.lineage.steps[-1].intent == "transform"
-    job_record = read_job_record(session._layout, out.meta.produced_by_job)
-    assert job_record["intent"] == "transform"
-    assert job_record["input_frame_refs"] == [parent.ref]
-    assert job_record["output_frame_ref"] == out.ref
-    assert job_record["params"]["predicate"] == {
-        "type": "callable",
-        "name": f"{__name__}._positive_delta_predicate",
-    }
 
 
 def test_transform_filter_preserves_metric_frame(tmp_path):
@@ -1198,12 +1175,12 @@ def test_transform_topk_on_delta_frame_orders_and_leaves_nan_last():
     assert top.to_pandas()["delta"].tolist() == [8.0, 3.0]
 
 
-def test_transform_topk_decrease_on_delta_frame_takes_most_negative_delta():
+def test_transform_bottomk_on_delta_frame_takes_most_negative_delta():
     delta = _make_topk_delta_time_series()
-    top = _active_transform(delta, op="topk", by="delta", limit=1, order="decrease")
-    assert isinstance(top, DeltaFrame)
-    assert top.meta.row_count == 1
-    assert top.to_pandas()["delta"].tolist() == [-1.0]
+    bottom = _active_transform(delta, op="bottomk", by="delta", limit=1)
+    assert isinstance(bottom, DeltaFrame)
+    assert bottom.meta.row_count == 1
+    assert bottom.to_pandas()["delta"].tolist() == [-1.0]
 
 
 def test_transform_topk_requires_positive_limit(tmp_path):
@@ -1483,7 +1460,7 @@ def test_transform_metric_frame_drops_component_contract(tmp_path):
         }
     )
 
-    out = session.transform.topk(frame, by="value", limit=1)
+    out = frame.transform.topk(by="value", limit=1)
 
     assert out.meta.component_ref is None
     assert out.meta.composition is None
@@ -1725,8 +1702,7 @@ def test_rollup_rejects_non_reaggregatable_metric_frame(sampled_bandwidth_for_ro
     )
 
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
-        sampled_bandwidth_for_rollup.transform.rollup(
-            frame,
+        frame.transform.rollup(
             drop_axes=[make_ref("province", SemanticKind.DIMENSION)],
         )
 
@@ -1851,7 +1827,7 @@ def test_rollup_grain_takes_period_ends_for_cumulative(cumulative_day_session):
     )
     assert feb_last_day_value == sum(_DAY_AMOUNTS_T9["2026-02"].values())
 
-    rolled = session.transform.rollup(frame, grain="month")
+    rolled = frame.transform.rollup(grain="month")
     df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
 
     assert (
@@ -1869,7 +1845,7 @@ def test_rollup_grain_sums_reaggregatable_frame(cumulative_day_session):
     frame = _observe_additive_day(session)
     feb_total = sum(_DAY_AMOUNTS_T9["2026-02"].values())
 
-    rolled = session.transform.rollup(frame, grain="month")
+    rolled = frame.transform.rollup(grain="month")
     df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
 
     assert df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01"), "value"].iloc[0] == feb_total
@@ -1883,7 +1859,7 @@ def test_rollup_requires_at_least_one_of_drop_axes_or_grain(cumulative_day_sessi
     session = cumulative_day_session
     frame = _observe_additive_day(session)
     with pytest.raises(TransformArgError) as exc_info:
-        session.transform.rollup(frame)
+        frame.transform.rollup()
     msg = str(exc_info.value)
     assert "drop_axes" in msg and "grain" in msg
 
@@ -1899,7 +1875,7 @@ def test_rollup_rejects_non_reaggregatable_without_fold(sampled_bandwidth_for_ro
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
-        sampled_bandwidth_for_rollup.transform.rollup(frame, grain="day")
+        frame.transform.rollup(grain="day")
     assert exc_info.value.details["reason"] == "non_reaggregatable"
     assert exc_info.value.details["op"] == "rollup"
 
@@ -1911,7 +1887,7 @@ def test_rollup_grain_target_must_be_coarser(cumulative_day_session):
     session = cumulative_day_session
     frame = _observe_cumulative_day(session)
     with pytest.raises(TransformArgError) as exc_info:
-        session.transform.rollup(frame, grain="hour")  # finer than day
+        frame.transform.rollup(grain="hour")  # finer than day
     assert exc_info.value.details["op"] == "rollup"
     assert exc_info.value.details["argument"] == "grain"
     assert exc_info.value.details["target_grain"] == "hour"
@@ -1926,7 +1902,7 @@ def test_rollup_grain_compat_rule(cumulative_day_session):
     session = cumulative_day_session
     frame = _observe_cumulative_day(session)
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
-        session.transform.rollup(frame, grain="week")
+        frame.transform.rollup(grain="week")
     assert exc_info.value.details["op"] == "rollup"
     assert exc_info.value.details["reason"] == "grain_incompatible"
     assert exc_info.value.details["target_grain"] == "week"
@@ -1938,8 +1914,8 @@ def test_rollup_chains_day_month_quarter(cumulative_day_session):
     quarter (period ends chain)."""
     session = cumulative_day_session
     frame = _observe_cumulative_day(session, end="2026-04-01")
-    day_to_month = session.transform.rollup(frame, grain="month")
-    month_to_quarter = session.transform.rollup(day_to_month, grain="quarter")
+    day_to_month = frame.transform.rollup(grain="month")
+    month_to_quarter = day_to_month.transform.rollup(grain="quarter")
 
     month_df = day_to_month.to_pandas().sort_values("bucket_start").reset_index(drop=True)
     mar_value = float(
@@ -1958,7 +1934,7 @@ def test_rollup_partial_tail_coverage(cumulative_day_session):
     period's rollup row partial in coverage — asserted unconditionally."""
     session = cumulative_day_session
     frame = _observe_cumulative_day(session, end="2026-02-15")
-    rolled = session.transform.rollup(frame, grain="month")
+    rolled = frame.transform.rollup(grain="month")
     cov = rolled.coverage()
     assert cov is not None
     cov_df = cov.to_pandas().sort_values("bucket_start").reset_index(drop=True)
@@ -1972,3 +1948,79 @@ def test_rollup_partial_tail_coverage(cumulative_day_session):
     jan_row = cov_df[cov_df["bucket_start"] == pd.Timestamp("2026-01-01")]
     assert not jan_row.empty
     assert (jan_row["coverage_status"] == "complete").iloc[0]
+
+
+def test_transform_persists_artifact_job_and_lineage_without_observation_findings(tmp_path):
+    frame = _make_time_series(tmp_path)
+    session = session_attach.current()
+    before_observations = session.knowledge().observations()
+
+    out = frame.transform.topk(by="value", limit=1)
+
+    stored_df, stored_meta = read_frame_from_disk(session._layout, out.ref)
+    assert isinstance(stored_df, pd.DataFrame)
+    assert stored_meta["ref"] == out.ref
+    assert out.meta.produced_by_job is not None
+    job_record = read_job_record(session._layout, out.meta.produced_by_job)
+    assert job_record["intent"] == "transform"
+    assert job_record["output_frame_ref"] == out.ref
+    assert out.meta.lineage.steps[-1].intent == "transform"
+
+    after_observations = session.knowledge().observations()
+    assert [obs.id for obs in after_observations] == [obs.id for obs in before_observations]
+
+    store = session._evidence_store()
+    assert store is not None
+    conn = store.read()
+    artifact = conn.execute(
+        "SELECT step_type, artifact_type FROM artifacts WHERE artifact_id = ?",
+        (out.meta.artifact_id,),
+    ).fetchone()
+    finding_count = conn.execute(
+        "SELECT count(*) FROM findings WHERE artifact_id = ?",
+        (out.meta.artifact_id,),
+    ).fetchone()[0]
+    followup_count = conn.execute(
+        "SELECT count(*) FROM followups WHERE source_artifact_id = ?",
+        (out.meta.artifact_id,),
+    ).fetchone()[0]
+
+    assert artifact == ("transform", "metric_frame")
+    assert finding_count == 0
+    assert followup_count == 0
+
+
+def test_delta_transform_normalize_is_rejected_by_mypy(tmp_path):
+    fixture = tmp_path / "delta_transform_normalize_check.py"
+    fixture.write_text(
+        "\n".join(
+            [
+                "from marivo.analysis.frames.delta import DeltaFrame",
+                "",
+                "def use_delta(delta: DeltaFrame) -> None:",
+                "    delta.transform.normalize(mode='share')",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    import subprocess
+
+    result = subprocess.run(
+        [
+            ".venv/bin/mypy",
+            "--show-error-codes",
+            "--strict",
+            str(fixture),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "DeltaFrameTransforms" in result.stdout
+    assert "normalize" in result.stdout
+    assert "[attr-defined]" in result.stdout

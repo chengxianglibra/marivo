@@ -256,21 +256,24 @@ candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 ```
 
-## Advanced reference — `session.transform.*`
+## Advanced reference — `frame.transform.*`
 
 Transforms reshape a frame while preserving its family (`MetricFrame` →
-`MetricFrame`, `DeltaFrame` → `DeltaFrame`).
+`MetricFrame`, `DeltaFrame` → `DeltaFrame`). Each transform is a method on the
+frame itself — call `frame.transform.<op>(...)`, not a session-level helper.
 
 | Transform | Key parameters | Effect |
 | --- | --- | --- |
 | `filter` | `predicate` (callable) | Keep rows where the predicate returns true. |
 | `slice` | `slice_by` (axis → value/list/range) | Keep rows matching exact axis values. |
 | `rollup` | `drop_axes` and/or `grain` | Drop axes and re-aggregate, or re-bucket the time axis to a coarser `grain`. Cumulative frames take the last bucket per period (`rollup_fold="last"`). |
-| `topk` | `by`, `limit`, `order` | Keep the top N rows by a measure (`order="decrease"` default). |
+| `topk` | `by`, `limit` | Keep the top N rows by a measure. |
 | `bottomk` | `by`, `limit` | Keep the bottom N rows. |
 | `rank` | `by`, `method`, `rank_column` | Add a rank column ordered by a measure. |
 | `normalize` | `mode`, `baseline` | `index` / `share` / `pct_change` / `per_unit` / `z_score` (MetricFrame only). |
 | `window` | `window` | Restrict to a time window. |
+
+For deltas, `bottomk(by="delta")` returns the largest declines because it selects the most-negative values.
 
 ## Cumulative frame caveats
 
@@ -307,9 +310,9 @@ cum_frame = session.observe(
     grain="day",
 )
 cum_frame.contract()  # shows the anchor-specific caveat
-windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})
+windowed = cum_frame.transform.window(window={"start": "2026-02-01", "end": "2026-03-01"})
 # Roll up a cumulative frame to a coarser grain (period-end semantics):
-monthly = session.transform.rollup(cum_frame, grain="month")
+monthly = cum_frame.transform.rollup(grain="month")
 # For attribute/forecast, observe the base metric instead:
 base_frame = session.observe(active_users, ...)
 ```

@@ -16,18 +16,20 @@ from typing import Any
 import pytest
 
 import marivo.analysis.intents as intents
+from marivo.analysis.frames.transforms import DeltaFrameTransforms, MetricFrameTransforms
 from marivo.analysis.session.core import (
     Session,
     SessionDiscoverNamespace,
-    SessionTransformNamespace,
 )
 
 _HIDDEN = {"self", "session", "_triggered_by"}
 
 _INTENT_TO_METHOD: dict[str, str] = {}
 
-# Discover and transform are exposed as namespace properties, not plain methods.
-_NAMESPACE_CLASSES = (SessionDiscoverNamespace, SessionTransformNamespace)
+# Discover is exposed as a session namespace property.
+# Frame transforms live on frame.transform (MetricFrameTransforms / DeltaFrameTransforms).
+_NAMESPACE_CLASSES = (SessionDiscoverNamespace,)
+_FRAME_NAMESPACE_CLASSES = (MetricFrameTransforms, DeltaFrameTransforms)
 
 
 def _delegating_methods() -> list[tuple[str, Any, Any]]:
@@ -95,16 +97,17 @@ def test_discover_namespace_methods_have_docstrings() -> None:
         assert inspect.getdoc(method), f"SessionDiscoverNamespace.{name} has no docstring"
 
 
-def test_transform_namespace_methods_have_docstrings() -> None:
-    for name in (
-        "filter",
-        "slice",
-        "rollup",
-        "topk",
-        "bottomk",
-        "rank",
-        "normalize",
-        "window",
+def test_frame_transform_namespace_methods_have_docstrings() -> None:
+    for cls, names in (
+        (
+            MetricFrameTransforms,
+            ("filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window"),
+        ),
+        (
+            DeltaFrameTransforms,
+            ("filter", "slice", "rollup", "topk", "bottomk", "rank", "window"),
+        ),
     ):
-        method = getattr(SessionTransformNamespace, name)
-        assert inspect.getdoc(method), f"SessionTransformNamespace.{name} has no docstring"
+        for name in names:
+            method = getattr(cls, name)
+            assert inspect.getdoc(method), f"{cls.__name__}.{name} has no docstring"

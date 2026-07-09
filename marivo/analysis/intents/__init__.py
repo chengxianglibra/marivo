@@ -8,7 +8,6 @@ from marivo.analysis.intents.discover import discover
 from marivo.analysis.intents.forecast import forecast
 from marivo.analysis.intents.hypothesis_test import hypothesis_test
 from marivo.analysis.intents.observe import observe
-from marivo.analysis.intents.transform import transform
 
 __all__ = [
     "assess_quality",
@@ -19,5 +18,4 @@ __all__ = [
     "forecast",
     "hypothesis_test",
     "observe",
-    "transform",
 ]

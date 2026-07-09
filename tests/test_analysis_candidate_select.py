@@ -365,7 +365,7 @@ def test_select_window_feeds_transform_window():
         threshold=2.0,
     )
     window = windows.select(rank=1, attribute="window")
-    local = session.transform.window(metric, window=window)
+    local = metric.transform.window(window=window)
     assert local.meta.kind == "metric_frame"
 
 
@@ -391,7 +391,7 @@ def test_select_selector_feeds_transform_slice(tmp_path):
     assert selector == {
         make_ref("sales.orders.region", SemanticKind.DIMENSION): "US",
     }
-    focus = session.transform.slice(src, slice_by=selector)
+    focus = src.transform.slice(slice_by=selector)
     assert focus.meta.kind == "delta_frame"
 
 
@@ -416,7 +416,7 @@ def test_select_selector_without_search_space_returns_catalog_ref(tmp_path):
     assert selector == {
         make_ref("sales.orders.region", SemanticKind.DIMENSION): "US",
     }
-    focus = session.transform.slice(src, slice_by=selector)
+    focus = src.transform.slice(slice_by=selector)
     assert focus.meta.kind == "delta_frame"
 
 
