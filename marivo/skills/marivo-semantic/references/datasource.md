@@ -57,15 +57,25 @@ md.discover_time_dimensions(warehouse, orders, columns=("dt",), scope=scope).sho
 md.discover_measures(warehouse, orders, columns=("amount",), scope=scope).show()
 ```
 
-File sources use the datasource constructors first, then the same discovery loop:
+`md.table(...)` is the source descriptor for an internal table or view inside
+the datasource. It is not a datasource declaration.
+
+DuckDB file sources use the datasource constructor first, then the same
+discovery loop. `md.parquet(...)`, `md.csv(...)`, and `md.json(...)` build
+DuckDB file source descriptors; they are not datasource declarations:
 
 ```python
 events = md.json("data/events/*.json", format="newline_delimited")
+orders_parquet = md.parquet("data/orders/*.parquet")
+orders_csv = md.csv("data/orders/*.csv")
+
 md.inspect_table(warehouse, events).show()
 md.discover_entity(warehouse, events).show()
 ```
 
-Use `md.help("json")` for the exact static contract. The skill owns workflow only; parameter defaults and omit rules live in `md.help`.
+Use `md.help("table")`, `md.help("parquet")`, `md.help("csv")`, or
+`md.help("json")` for the exact static contract. The skill owns workflow only;
+parameter defaults and omit rules live in `md.help`.
 
 `md.inspect_table(...)` is the first-class schema path for entity authoring.
 Read rendered schema columns and partition columns before asking the user or

@@ -309,10 +309,13 @@ class JoinKeyProbe:
 
 
 def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> TableSourceIR:
-    """Build a structured table source reference.
+    """Build a source descriptor for an internal table or view.
+
+    This is not a datasource declaration. Pair the returned descriptor with a
+    datasource ref in ``md.inspect_table(...)`` or ``md.discover_*`` calls.
 
     Args:
-        name: Table name.
+        name: Table or view name inside the datasource.
         database: Optional database/catalog name or tuple of namespace
             parts (e.g. ``("catalog", "schema")``).
 
@@ -344,7 +347,11 @@ def parquet(
     hive_partitioning: bool = False,
     columns: tuple[str, ...] | list[str] | None = None,
 ) -> ParquetSourceIR:
-    """Build a structured parquet source reference.
+    """Build a DuckDB file source descriptor for parquet files.
+
+    This is not a datasource declaration. Pair the returned descriptor with a
+    DuckDB datasource ref in ``md.inspect_table(...)`` or ``md.discover_*``
+    calls.
 
     Args:
         path: File path or glob pattern.
@@ -370,7 +377,11 @@ def csv(
     delimiter: str = ",",
     columns: tuple[str, ...] | list[str] | None = None,
 ) -> CsvSourceIR:
-    """Build a structured CSV source reference.
+    """Build a DuckDB file source descriptor for CSV files.
+
+    This is not a datasource declaration. Pair the returned descriptor with a
+    DuckDB datasource ref in ``md.inspect_table(...)`` or ``md.discover_*``
+    calls.
 
     Args:
         path: File path or glob pattern.
@@ -396,7 +407,11 @@ def json(
     *,
     format: Literal["auto", "newline_delimited", "array"] = "auto",
 ) -> JsonSourceIR:
-    """Build a structured JSON source reference.
+    """Build a DuckDB file source descriptor for JSON files.
+
+    This is not a datasource declaration. Pair the returned descriptor with a
+    DuckDB datasource ref in ``md.inspect_table(...)`` or ``md.discover_*``
+    calls.
 
     Args:
         path: File path, glob pattern, or http(s):// URL.

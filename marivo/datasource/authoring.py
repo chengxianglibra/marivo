@@ -530,6 +530,12 @@ def duckdb(
         >>> md.register(spec)
         >>> md.test(spec.ref).show()
         >>> md.inspect_table(spec.ref, md.table("orders")).show()
+        >>> md.inspect_table(spec.ref, md.parquet("data/orders/*.parquet")).show()
+
+        ``md.table(...)`` selects an internal table or view in the DuckDB
+        datasource. ``md.parquet(...)``, ``md.csv(...)``, and ``md.json(...)``
+        build DuckDB file source descriptors; they are not datasource
+        declarations.
 
     Constraints:
         When called while loading a datasource file, the spec is automatically

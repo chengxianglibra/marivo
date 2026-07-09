@@ -159,6 +159,25 @@ def test_semantic_skill_routes_to_authoring_help_topics() -> None:
     assert "prepare_" not in text
 
 
+def test_semantic_skill_datasource_reference_distinguishes_table_and_file_sources() -> None:
+    text = _read("marivo/skills/marivo-semantic/references/datasource.md")
+
+    for required in (
+        "md.duckdb(",
+        "md.table(",
+        "md.parquet(",
+        "md.csv(",
+        "md.json(",
+        "internal table or view",
+        "DuckDB file source",
+        "not a datasource declaration",
+    ):
+        assert required in text, f"datasource reference missing {required!r}"
+
+    for forbidden in ("md.duckdb.parquet", "md.duckdb.csv", "md.duckdb.json"):
+        assert forbidden not in text
+
+
 def test_site_docs_cover_discovery_first_semantic_authoring() -> None:
     en_paths = [
         "site/src/content/docs/en/latest/concepts/semantic-layer.mdx",
@@ -181,8 +200,13 @@ def test_site_docs_cover_discovery_first_semantic_authoring() -> None:
             "md.inspect_table",
             "md.inspect_partitions",
             "md.partition",
+            "md.table",
+            "md.parquet",
+            "md.csv",
+            "md.json",
             "ms.help",
             "ms.verify_object",
+            "file source",
         ):
             assert required in text, f"{label} missing {required}"
         for forbidden in (

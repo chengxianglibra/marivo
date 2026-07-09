@@ -73,6 +73,7 @@ __all__ = [
     "grain_to_date",
     "hour_prefix",
     "join_on",
+    "json",
     "linear",
     "measure",
     "measure_column",

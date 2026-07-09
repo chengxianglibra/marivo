@@ -636,6 +636,20 @@ dimension_evidence.show()
 measure_evidence.show()
 ```
 
+`md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
+table or view inside that datasource. `md.parquet(...)`, `md.csv(...)`, and
+`md.json(...)` are DuckDB file source descriptors used with the datasource ref;
+they are not datasource declarations.
+
+```python
+events = md.json("data/events/*.json", format="newline_delimited")
+orders_parquet = md.parquet("data/orders/*.parquet")
+orders_csv = md.csv("data/orders/*.csv")
+
+md.inspect_table(warehouse, events).show()
+md.discover_entity(warehouse, events).show()
+```
+
 Discovery returns evidence, signals, and issues — it does not choose business
 meaning, unit, additivity, or the object to author. Agents read discovery
 evidence through `.show()` / `.render()`; concrete result classes and internal

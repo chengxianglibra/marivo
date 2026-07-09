@@ -56,7 +56,7 @@ def _authoring_topic() -> Descriptor:
                 "",
                 '1. Pick a backend and read its constructor help: md.help("<backend>")',
                 "   (clickhouse, trino, postgres, mysql, duckdb). md.help() lists every entry.",
-                "   File sources use the DuckDB family: md.parquet(...), md.csv(...), md.json(...).",
+                '   Example DuckDB datasource: spec = md.duckdb(name="warehouse", path="warehouse.duckdb").',
                 '2. Declare a typed spec, e.g. md.clickhouse(name=..., host_env="HOST", ...).',
                 "   Credentials are *_env references: host_env, port_env, user_env, password_env.",
                 "   Environment variables provide the secrets; never inline literal secrets.",
@@ -67,9 +67,13 @@ def _authoring_topic() -> Descriptor:
                 "4. Validate the live round trip with md.test(ref). After a validated round",
                 "   trip, md.test may cache env-sourced secrets in plaintext user-global",
                 "   state at ~/.marivo/secrets.toml; unresolved *_env refs stay an error.",
-                "5. Inspect physical facts: md.inspect_table(ref) for schema, comments,",
+                "5. Choose a source descriptor; it is not a datasource declaration:",
+                '   md.table("orders") for an internal table or view inside the datasource;',
+                '   md.parquet("data/orders/*.parquet"), md.csv("data/orders/*.csv"), or',
+                '   md.json("data/events/*.json", format="newline_delimited") for a DuckDB file source.',
+                "6. Inspect physical facts: md.inspect_table(ref) for schema, comments,",
                 "   nullability, partitions; md.inspect_partitions(ref) for partition values.",
-                "6. Discover semantic-shaped evidence (each returns a DatasourceResult; call",
+                "7. Discover semantic-shaped evidence (each returns a DatasourceResult; call",
                 "   .show() to read bounded evidence, never stdout):",
                 "     md.discover_entity(ref)",
                 "     md.discover_dimensions(ref)",
@@ -77,7 +81,7 @@ def _authoring_topic() -> Descriptor:
                 "     md.discover_measures(ref)",
                 "     md.discover_relationship(left, right)",
                 "     md.discover_dimension_values(ref, column)",
-                "7. md.raw_sql(ref, sql, reason=...) is a bounded read-only diagnostic only,",
+                "8. md.raw_sql(ref, sql, reason=...) is a bounded read-only diagnostic only,",
                 "   limited to SHOW/DESCRIBE/EXPLAIN and small SELECT probes.",
                 "",
                 "Once the datasource is registered and validated, hand off to semantics:",
@@ -152,11 +156,12 @@ def _surface() -> Surface:
         overrides={
             "TableSource": (
                 "Union of table, parquet, CSV, and JSON source IRs returned by "
-                "md.table(), md.parquet(), md.csv(), and md.json()."
+                "md.table(), md.parquet(), md.csv(), and md.json(); source descriptors "
+                "are not datasource declarations."
             ),
             "json": (
-                "Build a JsonSourceIR for local files, glob patterns, or http(s):// URLs; "
-                "supports format='auto', 'newline_delimited', or 'array'."
+                "Build a DuckDB file source JsonSourceIR for local files, glob patterns, "
+                "or http(s):// URLs; not a datasource declaration."
             ),
         },
     )
