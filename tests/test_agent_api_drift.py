@@ -314,6 +314,17 @@ def test_mv_help_workflow_topic_within_budget(capsys) -> None:
     assert len(captured.out.splitlines()) <= 80
 
 
+def test_mv_help_workflow_reads_context_before_observe(capsys) -> None:
+    mv.help("workflow")
+    output = capsys.readouterr().out
+
+    assert "revenue.details().show()" in output
+    assert "region.details().show()" in output
+    assert "session.catalog.readiness(refs=[revenue.ref, region.ref]).show()" in output
+    assert output.index("revenue.details().show()") < output.index("frame = session.observe(")
+    assert output.index("session.catalog.readiness(") < output.index("frame = session.observe(")
+
+
 def test_ms_help_topic_within_budget(capsys) -> None:
     ms.help("metric")
     captured = capsys.readouterr()
@@ -348,6 +359,8 @@ def test_latest_analysis_docs_use_installed_python_workflow_entrypoint() -> None
     for doc in docs:
         assert "python -c \"import marivo.analysis as mv; mv.help('workflow')\"" in doc
         assert "Python interpreter where `marivo` is installed" in doc
+        assert ".details().show()" in doc
+        assert "readiness(refs=" in doc
         assert ".venv/bin/python" not in doc
 
 

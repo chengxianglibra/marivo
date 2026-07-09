@@ -370,7 +370,11 @@ def test_help_workflow_topic_is_complete_agent_runbook() -> None:
     assert "mv.session.get_or_create" in rendered
     assert 'catalog.list("domain").show()' in rendered
     assert 'catalog.list("metric", scope="domain.<domain>").show()' in rendered
+    assert 'region = session.catalog.get("dimension.sales.orders.region")' in rendered
     assert "mv.help(revenue)" in rendered
+    assert "revenue.details().show()" in rendered
+    assert "region.details().show()" in rendered
+    assert "session.catalog.readiness(refs=[revenue.ref, region.ref]).show()" in rendered
     assert "session.observe(" in rendered
     assert "Question -> first operator:" in rendered
     assert "Current vs baseline change" in rendered
@@ -408,6 +412,8 @@ def test_help_catalog_topic_teaches_analysis_side_consumption() -> None:
     assert 'session.catalog.list("metric", scope="domain.<domain>").show()' in rendered
     assert 'session.catalog.list("dimension", scope="entity.<domain>.<entity>").show()' in rendered
     assert 'session.catalog.get("metric.<domain>.<metric>").details().show()' in rendered
+    assert "catalog.list(...) discovers refs" in rendered
+    assert "business_definition, guardrails, instructions" in rendered
     assert "mv.help(metric)" in rendered
     assert "mv.help(metric.ref)" in rendered
     assert "catalog.list().show()" not in rendered

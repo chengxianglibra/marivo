@@ -50,11 +50,16 @@ make examples-check
    `<venv>/bin/python -c 'import marivo.analysis as mv; mv.help("workflow")'`.
 2. Inspect the specific runtime topic before calling it:
    `mv.help("observe")`, `mv.help("catalog")`, or `mv.help("artifacts")`.
-3. Load or inspect the semantic catalog and confirm the metric ids, dimensions,
-   and time dimensions the task needs.
-4. Create or reuse one stable task session:
+3. Create or reuse one stable task session:
    `session = mv.session.get_or_create(name="revenue_drop_investigation")`.
-5. Stay in typed artifact flow until terminal analysis requires
+4. Browse the semantic catalog with `session.catalog.list(...)`, then inspect
+   every metric, dimension, and time dimension the task will use with
+   `obj.details().show()`. Read the displayed `ai_context` before composing
+   analysis intents.
+5. Gate the scoped handoff with
+   `session.catalog.readiness(refs=[...]).show()` and resolve blockers before
+   observing.
+6. Stay in typed artifact flow until terminal analysis requires
    `artifact.to_pandas()`.
 
 Examples are smoke tests and copyable starting points, not the analysis methodology.

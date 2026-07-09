@@ -47,11 +47,19 @@ session = mv.session.get_or_create(name="revenue-investigation", question="Why d
 catalog = session.catalog
 revenue = catalog.get("metric.sales.revenue")           # a metric object
 region = catalog.get("dimension.sales.orders.region")      # a dimension object
+
+revenue.details().show()     # 读取 business_definition、guardrails、instructions
+region.details().show()
+catalog.readiness(refs=[revenue.ref, region.ref]).show()
 ```
 
 `get_or_create` 是幂等的：它会附着到同名的已有 session，或创建一个新 session，并设为当前
 session。
 session 的精简 API 为 `get_or_create`、`current()`、`list()` 和 `delete(name)`。
+
+用 `catalog.list(...)` 发现 refs，然后对本次分析会使用的每个 metric、dimension 和
+time dimension 调用 `.details().show()`。`details` 输出会展示已编写的 `ai_context`；
+首次 `observe` 前先解决限定范围内的 readiness blockers。
 
 :::caution[先通过就绪检查]
 session 只能在通过 `ms.readiness()` 的 catalog 上进行推理。在 observe 之前，先在

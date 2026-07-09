@@ -53,11 +53,20 @@ session = mv.session.get_or_create(name="revenue-investigation", question="Why d
 catalog = session.catalog
 revenue = catalog.get("metric.sales.revenue")           # a metric object
 region = catalog.get("dimension.sales.orders.region")      # a dimension object
+
+revenue.details().show()     # read business_definition, guardrails, instructions
+region.details().show()
+catalog.readiness(refs=[revenue.ref, region.ref]).show()
 ```
 
 `get_or_create` is idempotent: it attaches to an existing session of that name or
 creates one, and sets it current. The narrow session API is `get_or_create`,
 `current()`, `list()`, and `delete(name)`.
+
+Use `catalog.list(...)` to discover refs, then inspect every metric, dimension,
+and time dimension used by the analysis with `.details().show()`. The details
+output is where authored `ai_context` appears; resolve scoped readiness blockers
+before the first `observe`.
 
 :::caution[Readiness first]
 A session can only reason over a catalog that passes `ms.readiness()`. Resolve

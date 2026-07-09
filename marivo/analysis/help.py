@@ -667,7 +667,11 @@ def _workflow_content() -> dict[str, object]:
             'session.catalog.list("domain").show()',
             'session.catalog.list("metric", scope="domain.<domain>").show()',
             'revenue = session.catalog.get("metric.sales.revenue")',
+            'region = session.catalog.get("dimension.sales.orders.region")',
+            "revenue.details().show()",
+            "region.details().show()",
             "mv.help(revenue)",
+            "session.catalog.readiness(refs=[revenue.ref, region.ref]).show()",
             "frame = session.observe(...)",
             "artifact.show()",
             "artifact.contract()",
@@ -801,7 +805,9 @@ def _catalog_content() -> dict[str, object]:
             "mv.help(metric.ref)",
         ],
         "note": (
-            "Always pass an explicit kind and scope to catalog.list(); "
+            "catalog.list(...) discovers refs; catalog.get(...).details().show() "
+            "reads business_definition, guardrails, instructions, and other ai_context "
+            "before analysis. Always pass an explicit kind and scope to catalog.list(); "
             "the no-argument form is not supported on the analysis side."
         ),
     }
