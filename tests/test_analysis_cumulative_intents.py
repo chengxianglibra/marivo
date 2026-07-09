@@ -9,8 +9,9 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import CumulativeFrameUnsupportedError
+from marivo.analysis.errors import AnalysisError, CumulativeFrameUnsupportedError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.attribute import attribute
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.decompose import decompose
@@ -183,3 +184,494 @@ def test_attribute_rejects_cumulative_delta(tmp_path, monkeypatch) -> None:
 
     assert exc_info.value.details["intent"] == "attribute"
     assert exc_info.value.details["base_metric_id"] == "sales.gmv"
+
+
+# ---------------------------------------------------------------------------
+# Task 10: compare to-date alignment (anchor-dispatched gate)
+# ---------------------------------------------------------------------------
+
+
+def _cum_marker_anchor(anchor: object) -> dict:
+    """Cumulative marker with a specific anchor payload."""
+    return {
+        "kind": "cumulative",
+        "base": "sales.gmv",
+        "over": "sales.orders.event_time",
+        "anchor": anchor,
+        "components": None,
+    }
+
+
+def _ts_frame(
+    session,
+    *,
+    bucket_starts: list[str],
+    values: list[float],
+    window_start: str,
+    window_end: str,
+    grain: str = "day",
+    metric_id: str = "sales.cum_gmv",
+    anchor: object = "all_history",
+) -> MetricFrame:
+    """Build a persisted time_series MetricFrame carrying a cumulative marker."""
+    frame = make_metric_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(bucket_starts),
+                "value": values,
+            }
+        ),
+        metric_id=metric_id,
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": grain}},
+        measure={"name": "cum_gmv"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": window_start, "end": window_end, "grain": grain},
+        session=session,
+    )
+    frame.meta = frame.meta.model_copy(update={"cumulative": _cum_marker_anchor(anchor)})
+    return frame
+
+
+def test_compare_all_history_still_rejected(tmp_path, monkeypatch) -> None:
+    """all_history cumulative frames stay compare-gated (names base ref)."""
+    session = _session(tmp_path, monkeypatch)
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        anchor="all_history",
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor="all_history",
+    )
+    with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
+        compare(current, baseline, session=session)
+    assert "base" in str(exc_info.value).lower()
+
+
+def test_compare_trailing_same_anchor_allowed(tmp_path, monkeypatch) -> None:
+    """trailing frames with identical anchor payloads are allowed through compare."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("trailing", 7, "day")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=anchor,
+    )
+    delta = compare(current, baseline, session=session)
+    assert delta is not None
+
+
+def test_compare_trailing_anchor_mismatch_rejected(tmp_path, monkeypatch) -> None:
+    """trailing frames with different anchor payloads are rejected."""
+    session = _session(tmp_path, monkeypatch)
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        anchor=("trailing", 7, "day"),
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=("trailing", 30, "day"),
+    )
+    with pytest.raises(Exception) as exc_info:
+        compare(current, baseline, session=session)
+    assert "anchor" in str(exc_info.value).lower()
+
+
+def test_compare_grain_to_date_single_period_aligned(tmp_path, monkeypatch) -> None:
+    """This month so far vs the full prior month, both boundary-anchored single-period."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    # Current: July 1..3 (MTD so far, window starts on month boundary).
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        anchor=anchor,
+    )
+    # Baseline: full prior month June 1..3 (also starts on month boundary).
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=anchor,
+    )
+    delta = compare(current, baseline, session=session)
+    df = delta.to_pandas()
+    # Bucket i pairs with bucket i (period-position alignment).
+    assert len(df) == current.meta.row_count
+    assert delta.meta.alignment["to_date"]["matched_buckets"] == current.meta.row_count
+    assert delta.meta.alignment["to_date"]["baseline_tail_buckets"] >= 0
+
+
+def test_compare_grain_to_date_boundary_required(tmp_path, monkeypatch) -> None:
+    """Validation 2: window must start on a reset boundary."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    # Current window starts mid-month (July 2), not on a month boundary.
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-02", "2026-07-03"],
+        values=[22.0, 40.0],
+        window_start="2026-07-02",
+        window_end="2026-07-04",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02"],
+        values=[5.0, 11.0],
+        window_start="2026-06-01",
+        window_end="2026-06-03",
+        anchor=anchor,
+    )
+    with pytest.raises(Exception) as exc_info:
+        compare(current, baseline, session=session)
+    assert "boundary" in str(exc_info.value).lower()
+
+
+def test_compare_grain_to_date_multi_period_rejected(tmp_path, monkeypatch) -> None:
+    """Validation 3: window spanning >1 reset period is ambiguous; teach single-period observe."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    # Current window spans June 30 .. July 2 (two months), starts on a boundary
+    # (June 30 is not a month boundary; July 1 is). Use June 1 .. July 2 to
+    # start on a boundary but span >1 month.
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-07-01"],
+        values=[5.0, 11.0, 40.0],
+        window_start="2026-06-01",
+        window_end="2026-07-02",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-05-01", "2026-05-02", "2026-06-01"],
+        values=[1.0, 2.0, 5.0],
+        window_start="2026-05-01",
+        window_end="2026-06-02",
+        anchor=anchor,
+    )
+    with pytest.raises(Exception) as exc_info:
+        compare(current, baseline, session=session)
+    text = str(exc_info.value).lower()
+    assert "single" in text or "period" in text
+
+
+def test_compare_grain_to_date_grain_mismatch_rejected(tmp_path, monkeypatch) -> None:
+    """Validation 1: both frames share reset grain and query grain."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        grain="day",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01T00:00", "2026-06-01T01:00", "2026-06-01T02:00"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01T00:00",
+        window_end="2026-06-01T03:00",
+        grain="1hour",
+        anchor=anchor,
+    )
+    with pytest.raises(AnalysisError) as exc_info:
+        compare(current, baseline, session=session)
+    assert exc_info.value.details["kind"] == "GrainToDateQueryGrainMismatch"
+    assert (
+        exc_info.value.details["current_query_grain"]
+        != exc_info.value.details["baseline_query_grain"]
+    )
+
+
+def test_compare_grain_to_date_scalar_elapsed_span_mismatch(tmp_path, monkeypatch) -> None:
+    """Scalar elapsed-span check: current elapsed span must equal baseline elapsed span."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    # Scalar frames (no grain) with different elapsed spans.
+    from tests.shared_fixtures import make_metric_frame as _mmf
+
+    cur_df = pd.DataFrame({"value": [40.0]})
+    cur_frame = _mmf(
+        cur_df,
+        metric_id="sales.cum_gmv",
+        axes={},
+        measure={"name": "cum_gmv"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-04"},
+        session=session,
+    )
+    cur_frame.meta = cur_frame.meta.model_copy(update={"cumulative": _cum_marker_anchor(anchor)})
+    base_df = pd.DataFrame({"value": [18.0]})
+    base_frame = _mmf(
+        base_df,
+        metric_id="sales.cum_gmv",
+        axes={},
+        measure={"name": "cum_gmv"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        window={"start": "2026-06-01", "end": "2026-06-10"},
+        session=session,
+    )
+    base_frame.meta = base_frame.meta.model_copy(update={"cumulative": _cum_marker_anchor(anchor)})
+    with pytest.raises(Exception) as exc_info:
+        compare(cur_frame, base_frame, session=session)
+    text = str(exc_info.value).lower()
+    assert "elapsed" in text or "window" in text
+
+
+def test_compare_grain_to_date_delta_carries_marker(tmp_path, monkeypatch) -> None:
+    """The cumulative marker propagates onto the DeltaFrameMeta when compare is allowed."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=anchor,
+    )
+    delta = compare(current, baseline, session=session)
+    assert delta.meta.cumulative is not None
+
+
+def test_compare_grain_to_date_delta_attribute_still_gated(tmp_path, monkeypatch) -> None:
+    """A cumulative DeltaFrame stays attribute-gated even after compare is allowed."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=anchor,
+    )
+    delta = compare(current, baseline, session=session)
+    with pytest.raises(CumulativeFrameUnsupportedError):
+        attribute(delta, axes=["sales.orders.region"], session=session)
+
+
+def test_compare_grain_to_date_tail_shown_in_delta_card(tmp_path, monkeypatch) -> None:
+    """DeltaFrame show/contract surfaces matched/tail when baseline tail is non-empty."""
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    # Current has 2 buckets; baseline has 3 -> baseline_tail_buckets == 1.
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 22.0],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        anchor=anchor,
+    )
+    delta = compare(current, baseline, session=session)
+    text = delta.render()
+    assert "matched_buckets" in text
+    assert "baseline_tail_buckets" in text
+    # The contract affordances should carry a to_date tail note (prose).
+    contract = delta.contract()
+    rendered_contract = "\n".join(
+        f"{a.operator}: {[p.reason for p in a.preconditions]}" for a in contract.affordances
+    )
+    assert "tail bucket" in rendered_contract
+    assert "ordinal alignment matched" in rendered_contract
+
+
+def test_compare_derived_with_cumulative_components_still_rejected(tmp_path, monkeypatch) -> None:
+    """Derived frames containing cumulative components stay compare-gated in V2."""
+    session = _session(tmp_path, monkeypatch)
+    derived_marker = {"kind": "derived_contains_cumulative", "components": {}}
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
+        values=[10.0, 22.0, 40.0],
+        window_start="2026-07-01",
+        window_end="2026-07-04",
+        metric_id="sales.derived_over_cum",
+    )
+    current.meta = current.meta.model_copy(update={"cumulative": derived_marker})
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02", "2026-06-03"],
+        values=[5.0, 11.0, 18.0],
+        window_start="2026-06-01",
+        window_end="2026-06-04",
+        metric_id="sales.derived_over_cum",
+    )
+    with pytest.raises(CumulativeFrameUnsupportedError):
+        compare(current, baseline, session=session)
+
+
+# ---------------------------------------------------------------------------
+# Task 11: anchor-aware dynamic guidance (contract / show / card)
+# ---------------------------------------------------------------------------
+
+
+def _anchor_frame(
+    session,
+    *,
+    anchor: object,
+    rollup_fold: str | None = "last",
+    metric_id: str = "sales.cum_gmv",
+) -> MetricFrame:
+    """Build a persisted cumulative MetricFrame with a specific anchor + fold."""
+    frame = make_metric_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02", "2026-07-03"]),
+                "value": [10.0, 22.0, 40.0],
+            }
+        ),
+        metric_id=metric_id,
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "day"}},
+        measure={"name": "cum_gmv"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-04", "grain": "day"},
+        session=session,
+    )
+    frame.meta = frame.meta.model_copy(
+        update={
+            "cumulative": _cum_marker_anchor(anchor),
+            "rollup_fold": rollup_fold,
+        }
+    )
+    return frame
+
+
+def test_contract_all_history_compare_gated(tmp_path, monkeypatch) -> None:
+    """all_history compare stays a hard caveat (running_total_caveat on compare)."""
+    session = _session(tmp_path, monkeypatch)
+    frame = _anchor_frame(session, anchor="all_history")
+    c = frame.contract()
+    cmp = next(a for a in c.affordances if a.operator == "compare")
+    assert any(p.check == "running_total_caveat" for p in cmp.preconditions)
+
+
+def test_contract_grain_to_date_compare_condional(tmp_path, monkeypatch) -> None:
+    """grain_to_date compare is a conditional affordance stating preconditions."""
+    session = _session(tmp_path, monkeypatch)
+    frame = _anchor_frame(session, anchor=("grain_to_date", "month"))
+    c = frame.contract()
+    cmp = next(a for a in c.affordances if a.operator == "compare")
+    # compare is a conditional affordance stating preconditions (not a hard fail)
+    reasons = " ".join(p.reason or "" for p in cmp.preconditions)
+    assert "single-period" in reasons.lower() or "boundary" in reasons.lower()
+
+
+def test_contract_trailing_autocorrelation_caveat(tmp_path, monkeypatch) -> None:
+    """trailing frames surface an autocorrelation caveat in contract preconditions."""
+    session = _session(tmp_path, monkeypatch)
+    frame = _anchor_frame(session, anchor=("trailing", 7, "day"))
+    c = frame.contract()
+    reasons = " ".join(p.reason or "" for a in c.affordances for p in a.preconditions)
+    assert "autocorrelation" in reasons.lower()
+
+
+def test_contract_rollup_affordance_iff_rollup_fold(tmp_path, monkeypatch) -> None:
+    """Rollup affordance IS present on a rollup_fold='last' frame and ABSENT otherwise."""
+    session = _session(tmp_path, monkeypatch)
+    fold_frame = _anchor_frame(session, anchor="all_history", rollup_fold="last")
+    plain_frame = _anchor_frame(
+        session,
+        anchor="all_history",
+        rollup_fold=None,
+        metric_id="sales.cum_gmv_plain",
+    )
+    # Fold frame: rollup affordance present.
+    c_fold = fold_frame.contract()
+    assert any(
+        a.operator == "transform"
+        and "rollup" in (a.param_template.deterministic_slots.get("op", "") or "")
+        for a in c_fold.affordances
+    )
+    # Non-fold frame: no rollup affordance.
+    c_plain = plain_frame.contract()
+    assert not any(
+        a.operator == "transform"
+        and "rollup" in (a.param_template.deterministic_slots.get("op", "") or "")
+        for a in c_plain.affordances
+    )
+
+
+def test_show_card_dispatches_on_anchor(tmp_path, monkeypatch) -> None:
+    """_card() renders an anchor-dispatched cumulative status line."""
+    session = _session(tmp_path, monkeypatch)
+    rolling7 = _anchor_frame(
+        session,
+        anchor=("trailing", 7, "day"),
+        metric_id="sales.cum_rolling7",
+    )
+    all_history = _anchor_frame(session, anchor="all_history")
+    mtd = _anchor_frame(
+        session,
+        anchor=("grain_to_date", "month"),
+        metric_id="sales.cum_mtd",
+    )
+    assert "autocorrelation" in rolling7._card().render(max_output_bytes=None).lower()
+    assert "running total" in all_history._card().render(max_output_bytes=None).lower()
+    assert "reset" in mtd._card().render(max_output_bytes=None).lower()

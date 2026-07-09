@@ -301,7 +301,7 @@ def _transform_content() -> dict[str, object]:
     required_args: dict[str, tuple[str, ...]] = {
         "filter": ("predicate",),
         "slice": ("slice_by",),
-        "rollup": ("drop_axes",),
+        "rollup": (),  # at least one of drop_axes/grain — see notes
         "topk": ("by", "limit"),
         "bottomk": ("by", "limit"),
         "rank": ("by",),
@@ -320,6 +320,7 @@ def _transform_content() -> dict[str, object]:
         ],
         "notes": [
             "normalize is MetricFrame-only in v1; DeltaFrame normalize is reserved.",
+            "rollup requires at least one of drop_axes= or grain= (grain re-buckets the time axis).",
         ],
         "example": (
             "session.transform.topk(\n"
@@ -334,6 +335,8 @@ def _transform_text(content: dict[str, object]) -> str:
     lines = ["session.transform op helper matrix (v1):", ""]
     for op in ops:
         required = ", ".join(cast("list[str]", op["required_kwargs"])) or "-"
+        if op["op"] == "rollup":
+            required = "drop_axes|grain"
         lines.append(f"  {op['helper']:<32}required: {required}")
     lines.append("")
     lines.append(f"Example: {content['example']}")
@@ -574,25 +577,47 @@ def _observe_text(content: dict[str, object]) -> str:
 def _cumulative_frame_content() -> dict[str, object]:
     return {
         "summary": (
-            "Cumulative MetricFrames are running totals anchored to all history. "
-            "The observe window clips displayed rows but does not reset the running value."
+            "Cumulative MetricFrames carry running totals whose statistical "
+            "hazards depend on the anchor: all_history (monotonic trend), "
+            "trailing (rolling-window autocorrelation), grain_to_date "
+            "(non-stationary period reset). contract() dispatches the caveat "
+            "wording and compare affordance on the anchor."
         ),
         "allowed": [
             "show()",
             "contract()",
             "transform.window(...)",
-            "correlate",
+            "transform.rollup(...) when meta.rollup_fold is set",
+            "correlate (with anchor caveat in mind)",
             "discover",
             "assess_quality",
             "derive",
-            "hypothesis_test (with running-total caveat in mind)",
+            "hypothesis_test (with anchor caveat in mind)",
+        ],
+        "conditional": [
+            "compare (trailing: identical anchor; grain_to_date: single-period boundary-anchored)",
         ],
         "rejected_in_v1": [
-            "compare",
+            "compare (all_history: hard caveat)",
             "attribute",
             "decompose",
             "forecast",
         ],
+        "anchor_caveats": {
+            "all_history": (
+                "running totals anchored to all history; shared monotonic trend "
+                "can pollute correlation and hypothesis-test interpretation"
+            ),
+            "trailing": (
+                "rolling window; rolling-series autocorrelation can pollute "
+                "correlation and hypothesis-test interpretation"
+            ),
+            "grain_to_date": (
+                "values reset at period boundaries; non-stationary within and "
+                "across periods, which can pollute correlation and hypothesis-test "
+                "interpretation"
+            ),
+        },
         "hint": (
             "Use the base flow metric for rejected intents. "
             "A cumulative delta over a window equals the base total over that window."
@@ -603,7 +628,7 @@ def _cumulative_frame_content() -> dict[str, object]:
             '    time_scope={"start": "2026-01-01", "end": "2026-04-01"},\n'
             '    grain="day",\n'
             ")\n"
-            "cum_frame.contract()  # shows running_total_caveat\n"
+            "cum_frame.contract()  # anchor-aware running_total_caveat\n"
             'windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})\n'
             "# For compare/attribute/forecast, observe the base metric instead:\n"
             "base_frame = session.observe(active_users, ...)"
@@ -613,7 +638,9 @@ def _cumulative_frame_content() -> dict[str, object]:
 
 def _cumulative_frame_text(content: dict[str, object]) -> str:
     allowed = cast("list[str]", content["allowed"])
+    conditional = cast("list[str]", content["conditional"])
     rejected = cast("list[str]", content["rejected_in_v1"])
+    anchor_caveats = cast("dict[str, str]", content["anchor_caveats"])
     lines = [
         "Cumulative MetricFrames:",
         "",
@@ -623,9 +650,15 @@ def _cumulative_frame_text(content: dict[str, object]) -> str:
     ]
     for item in allowed:
         lines.append(f"  - {item}")
+    lines.extend(("", "Conditional (anchor-dispatched):"))
+    for item in conditional:
+        lines.append(f"  - {item}")
     lines.extend(("", "Rejected in v1:"))
     for item in rejected:
         lines.append(f"  - {item}")
+    lines.extend(("", "Anchor caveats:"))
+    for anchor, caveat in anchor_caveats.items():
+        lines.append(f"  - {anchor}: {caveat}")
     lines.extend(("", "Hint:"))
     lines.append(f"  {content['hint']}")
     lines.extend(("", "Example:", cast("str", content["example"])))
@@ -1413,9 +1446,45 @@ def _semantic_ir_help_lines(ir: object, *, kind: str) -> list[str]:
             lines.append("examples:")
             for ex in list(ai.examples)[:3]:
                 lines.append(f"  - {ex}")
+    composition = getattr(ir, "composition", None)
+    comp_kind = getattr(composition, "kind", None)
+    if comp_kind == "cumulative":
+        lines.extend(_cumulative_composition_briefing(composition))
     lines.append("")
     lines.append(
         'use: catalog.list("metric").ids() to enumerate; '
         f"pass catalog.get('{kind}.{semantic_id}') to session.observe(...)"
     )
     return lines
+
+
+def _cumulative_composition_briefing(composition: object) -> list[str]:
+    """Anchor-aware briefing lines for a CumulativeComposition IR."""
+    anchor = getattr(composition, "anchor", "all_history")
+    if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
+        return [
+            "cumulative: trailing rolling-window",
+            (
+                "note: trailing values are a rolling window; rolling-series "
+                "autocorrelation can pollute correlation and hypothesis-test "
+                "interpretation. compare requires an identical anchor payload."
+            ),
+        ]
+    if isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
+        grain = anchor[1] if len(anchor) > 1 else "?"
+        return [
+            f"cumulative: grain_to_date reset grain={grain}",
+            (
+                "note: grain_to_date values reset at period boundaries; "
+                "non-stationary within and across periods. compare is conditional "
+                "(single-period, boundary-anchored windows)."
+            ),
+        ]
+    return [
+        "cumulative: all_history running total",
+        (
+            "note: cumulative values are running totals anchored to all history; "
+            "shared monotonic trend can pollute correlation and hypothesis-test "
+            "interpretation. compare is gated; observe the base flow metric instead."
+        ),
+    ]

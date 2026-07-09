@@ -182,4 +182,6 @@ when you need to modify them or debug implementation expressions.
 | Datasource prerequisite and discovery budgets | `references/datasource.md` |
 | Analysis handoff readiness | `references/closeout.md` |
 | Workflow-level failure modes | `references/pitfalls.md` |
+| Cumulative metric authoring (all-history, MTD, trailing) | `references/cumulative-metrics.md` |
+| Cumulative anchor grill points (reset-grain, window-span, partial-window) | `references/cumulative-anchors-v2.md` |
 | Runnable examples | `references/examples/` |

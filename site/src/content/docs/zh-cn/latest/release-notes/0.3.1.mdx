@@ -1,0 +1,62 @@
+---
+slug: zh-cn/latest/release-notes/0.3.1
+title: Marivo 0.3.1
+description: Marivo 0.3.1 发布说明。
+---
+
+Marivo 0.3.1 将 cumulative metrics 从单一的 all-history 锚点扩展到完整的窗口词汇，并打开了
+0.3.0 有意阻断的两条消费路径：rollup 重新聚合与跨周期比较。
+
+## 重点
+
+- Cumulative metrics 现在通过 `ms.cumulative(...)` 上新增的 `anchor=` 参数支持三种累计锚点。
+  `anchor=None` 保留 v1 的全部历史累计。`ms.grain_to_date(grain=...)` 在每个重置粒度边界重置
+  累计值（MTD / QTD / YTD / WTD）。`ms.trailing(count=..., unit=...)` 是固定大小的滚动窗口，
+  空窗口为真零，部分窗口展示实际累计值。
+- `transform.rollup(...)` 现在可以重新聚合累计 frame。传入 `grain=` 将时间轴重新分桶；累计
+  frame 携带 `rollup_fold="last"`，因此每个周期贡献其周期末值。未携带 fold 且不可重新聚合的
+  frame 仍会被拒绝并给出教学错误。
+- `compare` 现在按锚点分派。`all_history` 维持拒绝；当两个 frame 共享相同锚点 payload 时
+  `trailing` 允许；对单周期、边界锚定的窗口 `grain_to_date` 允许，并在结果 DeltaFrame 上记录
+  to-date 对齐信息。
+
+## 变更
+
+- `contract()`、`show()` 和 `mv.help(ref)` 现在会呈现锚点特定的注意事项，因此在你正在阅读的
+  frame 上即可看到允许的路径。
+- `rollup` 转换表条目现在将 `grain` 与 `drop_axes` 一并列出。
+- semantic-layer 与 analysis-workflow 站点文档（EN + CN）记录了粒度兼容规则（在
+  month/quarter/year 重置下使用 week 粒度是非法的）与整数倍规则（trailing span 必须是查询
+  粒度的整数倍）。
+
+## 文档
+
+- 更新了 semantic-layer 与 analysis-workflow 概念文档（EN + CN），覆盖 v2 锚点 surface、
+  rollup 重新聚合与按锚点分派的 compare。
+- 新增 cumulative metrics v2 锚点、rollup 与 compare 的设计 spec。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+安装你计划使用的 datasource 对应的 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.1 要求 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/latest/installation/)
+- [快速开始](/zh-cn/latest/quick-start/)
+- [Semantic Layer](/zh-cn/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/zh-cn/latest/concepts/analysis-workflow/)

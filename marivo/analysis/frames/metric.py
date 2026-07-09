@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import ConfigDict
 
 from marivo.analysis.frames.base import (
+    ArtifactAffordance,
     ArtifactContract,
+    ArtifactParamTemplate,
     ArtifactPrecondition,
     BaseFrame,
     BaseFrameMeta,
@@ -19,6 +21,125 @@ from marivo.render import Card
 if TYPE_CHECKING:
     from marivo.analysis.frames.component import ComponentFrame
     from marivo.analysis.frames.coverage import CoverageFrame
+
+
+def _cumulative_anchor(meta_cumulative: dict[str, Any] | None) -> object | None:
+    """Return the anchor payload from a cumulative marker, or None."""
+    if meta_cumulative is None:
+        return None
+    if meta_cumulative.get("kind") == "derived_contains_cumulative":
+        # Derived wrapper: the contained cumulative is all_history-shaped for
+        # guidance purposes (no per-anchor dispatch on the wrapper).
+        return "all_history"
+    return meta_cumulative.get("anchor")
+
+
+def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
+    """Anchor-dispatched running_total_caveat precondition.
+
+    all_history frames keep the v1 monotonic-trend caveat; trailing frames
+    surface rolling-window autocorrelation; grain_to_date frames surface the
+    non-stationary period-reset caveat.
+    """
+    if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
+        reason = (
+            "trailing values are a rolling window; rolling-series autocorrelation "
+            "can pollute correlation and hypothesis-test interpretation"
+        )
+    elif isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
+        reason = (
+            "grain_to_date values reset at period boundaries; non-stationary within "
+            "and across periods, which can pollute correlation and hypothesis-test interpretation"
+        )
+    else:
+        reason = (
+            "cumulative values are running totals anchored to all history; "
+            "shared monotonic trend can pollute correlation and "
+            "hypothesis-test interpretation"
+        )
+    return ArtifactPrecondition(check="running_total_caveat", status="fail", reason=reason)
+
+
+def _cumulative_status_line(anchor: object) -> str:
+    """Anchor-dispatched one-line cumulative status for the show() card."""
+    if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
+        return (
+            "cumulative=trailing rolling-window; rolling-series autocorrelation "
+            "can pollute correlation and hypothesis-test interpretation"
+        )
+    if isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
+        return (
+            "cumulative=grain_to_date; values reset at period boundaries "
+            "(non-stationary within and across periods)"
+        )
+    return (
+        "cumulative=all_history running total; shared monotonic trend can "
+        "pollute correlation and hypothesis-test interpretation"
+    )
+
+
+def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondition]:
+    """Conditional compare preconditions for trailing/grain_to_date frames.
+
+    For trailing the precondition states the identical-anchor requirement; for
+    grain_to_date it states the single-period boundary-anchored requirement.
+    The running_total_caveat is still attached so the agent sees the statistical
+    hazard alongside the mechanical precondition.
+    """
+    caveat = _cumulative_caveat(anchor)
+    if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
+        conditional = ArtifactPrecondition(
+            check="compare_anchor_match",
+            status="fail",
+            reason=(
+                "trailing cumulative compare requires an identical anchor payload "
+                "(same count and unit) on both frames"
+            ),
+        )
+    elif isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
+        conditional = ArtifactPrecondition(
+            check="compare_single_period_boundary",
+            status="fail",
+            reason=(
+                "grain_to_date cumulative compare requires single-period, "
+                "boundary-anchored windows on both frames (window starts on a "
+                "reset boundary and spans exactly one reset period)"
+            ),
+        )
+    else:
+        return [caveat]
+    return [caveat, conditional]
+
+
+def _attach_rollup_affordance(contract: ArtifactContract) -> ArtifactContract:
+    """Replace the plain transform affordance with a rollup-tagged one.
+
+    Cumulative frames with ``rollup_fold="last"`` support grain re-aggregation
+    (take the last bucket per coarser period). The rollup affordance is a
+    transform whose ``param_template.deterministic_slots["op"]`` is ``"rollup"``
+    so agents can detect it mechanically. Frames without ``rollup_fold`` keep the
+    plain transform re-observe hint.
+    """
+    affordances: list[ArtifactAffordance] = []
+    for affordance in contract.affordances:
+        if affordance.operator == "transform":
+            updated_slots = {
+                **affordance.param_template.deterministic_slots,
+                "op": "rollup",
+            }
+            affordances.append(
+                affordance.model_copy(
+                    update={
+                        "param_template": ArtifactParamTemplate(
+                            deterministic_slots=updated_slots,
+                            judgment_slots=affordance.param_template.judgment_slots,
+                        )
+                    }
+                )
+            )
+        else:
+            affordances.append(affordance)
+    return contract.model_copy(update={"affordances": affordances})
 
 
 class MetricFrameMeta(BaseFrameMeta):
@@ -46,6 +167,7 @@ class MetricFrameMeta(BaseFrameMeta):
     coverage_ref: str | None = None
     coverage_summary: dict[str, Any] | None = None
     cumulative: dict[str, Any] | None = None
+    rollup_fold: Literal["last"] | None = None
 
 
 @dataclass(repr=False)
@@ -115,6 +237,9 @@ class MetricFrame(BaseFrame):
 
     def _card(self) -> Card:
         card = super()._card()
+        anchor = _cumulative_anchor(self.meta.cumulative)
+        if anchor is not None:
+            card.field("cumulative", _cumulative_status_line(anchor))
         if self.arity > 1:
             card.listing(
                 label="measures",
@@ -132,27 +257,37 @@ class MetricFrame(BaseFrame):
         At arity > 1, gated affordances (compare, correlate, transform,
         assess_quality, hypothesis_test, forecast, discover) carry a
         ``single_metric`` precondition teaching the agent to project to one
-        metric first. When ``meta.cumulative`` is set, every affordance
-        carries a ``running_total_caveat`` precondition warning that
-        cumulative running totals can pollute correlation and hypothesis-test
-        interpretation.
+        metric first. When ``meta.cumulative`` is set, affordances carry an
+        anchor-dispatched ``running_total_caveat`` precondition: all_history
+        keeps the v1 monotonic-trend caveat (hard fail on compare); trailing
+        surfaces rolling-window autocorrelation and grain_to_date surfaces
+        the non-stationary period-reset caveat, with compare downgraded to a
+        conditional affordance stating the mechanical preconditions. A rollup
+        transform affordance appears iff ``meta.rollup_fold`` is set.
         """
         contract = super().contract()
-        if self.meta.cumulative is not None:
-            caveat = ArtifactPrecondition(
-                check="running_total_caveat",
-                status="fail",
-                reason=(
-                    "cumulative values are running totals anchored to all history; "
-                    "shared monotonic trend can pollute correlation and "
-                    "hypothesis-test interpretation"
-                ),
-            )
-            affordances = [
-                affordance.model_copy(update={"preconditions": [*affordance.preconditions, caveat]})
-                for affordance in contract.affordances
-            ]
-            contract = contract.model_copy(update={"affordances": affordances})
+        anchor = _cumulative_anchor(self.meta.cumulative)
+        if anchor is not None:
+            caveat = _cumulative_caveat(anchor)
+            compare_preconditions = _compare_conditional_preconditions(anchor)
+            updated: list[ArtifactAffordance] = []
+            for affordance in contract.affordances:
+                if affordance.operator == "compare":
+                    # all_history: hard caveat only. trailing/grain_to_date:
+                    # conditional affordance (caveat + mechanical preconditions).
+                    preconditions = (
+                        [caveat]
+                        if not isinstance(anchor, tuple)
+                        else [*affordance.preconditions, *compare_preconditions]
+                    )
+                else:
+                    preconditions = [*affordance.preconditions, caveat]
+                updated.append(affordance.model_copy(update={"preconditions": preconditions}))
+            contract = contract.model_copy(update={"affordances": updated})
+        # Rollup affordance iff meta.rollup_fold is set; replaces the plain
+        # transform re-observe hint with a rollup-tagged transform affordance.
+        if self.meta.rollup_fold is not None:
+            contract = _attach_rollup_affordance(contract)
         if self.arity <= 1:
             return contract
         first_metric = self.metrics[0]
@@ -212,7 +347,24 @@ class MetricFrame(BaseFrame):
         )
 
     def coverage(self) -> CoverageFrame:
-        """Load the linked CoverageFrame for sampled time-slot coverage."""
+        """Load the linked CoverageFrame for this metric frame.
+
+        The sidecar's ``coverage_kind`` is kind-dispatched and the two kinds
+        never share one summary payload:
+
+        - ``time_slot``: sampled semi-additive (time_fold) coverage. Rows carry
+          ``(bucket_start, actual_samples, expected_samples, coverage_ratio,
+          coverage_status)``; ``meta.sample_interval`` is the fold's sample
+          interval (e.g. ``"5minute"``).
+        - ``window_coverage``: trailing (rolling N) cumulative coverage. Rows
+          carry ``(bucket_start, expected_span, covered_span, coverage_ratio,
+          coverage_status)`` where ``expected_span`` is the window span in
+          seconds and ``covered_span`` is clipped by the data start;
+          ``meta.sample_interval`` is ``None``.
+
+        Returns ``None`` coverage (no sidecar) when the parent frame has no
+        ``coverage_ref`` (e.g. all_history and grain_to_date cumulatives).
+        """
         from marivo.analysis.frames._coverage import _load_coverage_frame
 
         return _load_coverage_frame(

@@ -87,7 +87,12 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session, ensure_session_writable
-from marivo.analysis.windows.grain import Grain, ensure_grain_supported
+from marivo.analysis.windows.grain import (
+    _FIXED_UNIT_SECONDS,
+    _TRUNCATE_CODE,
+    Grain,
+    ensure_grain_supported,
+)
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     GrainInput,
@@ -473,7 +478,14 @@ def _persist_and_attach_coverage_sidecar(
     parent: MetricFrame,
     job_ref: str,
 ) -> MetricFrame:
-    """Persist a CoverageFrame sidecar and attach it to the parent MetricFrame."""
+    """Persist a CoverageFrame sidecar and attach it to the parent MetricFrame.
+
+    The sidecar's ``coverage_kind`` is dispatched from the coverage DataFrame's
+    column shape: a trailing ``window_coverage`` df carries ``expected_span`` /
+    ``covered_span`` (and ``sample_interval`` is ``None``); a sampled
+    ``time_slot`` df carries ``actual_samples`` / ``expected_samples`` (and
+    ``sample_interval`` is the fold's sample interval).
+    """
     from marivo.analysis.evidence.identity import make_coverage_artifact_id
 
     frame_ref = make_coverage_artifact_id(parent.ref)
@@ -486,10 +498,18 @@ def _persist_and_attach_coverage_sidecar(
             "avg": sum(coverage_ratios) / len(coverage_ratios),
             "partial_buckets": sum(1 for r in coverage_ratios if r != 1.0),
         }
-    sample_interval_val = None
-    fold_meta = getattr(parent.meta, "fold", None)
-    if isinstance(fold_meta, dict):
-        sample_interval_val = fold_meta.get("sample_interval")
+    is_window_coverage = "expected_span" in df.columns and "covered_span" in df.columns
+    if is_window_coverage:
+        coverage_kind: Literal["time_slot", "window_coverage"] = "window_coverage"
+        sample_interval_val: str | None = None
+    else:
+        coverage_kind = "time_slot"
+        fold_meta = getattr(parent.meta, "fold", None)
+        sample_interval_val = (
+            fold_meta.get("sample_interval") if isinstance(fold_meta, dict) else None
+        )
+        if sample_interval_val is None:
+            sample_interval_val = "unknown"
     coverage = CoverageFrame(
         _df=df.copy(),
         meta=CoverageFrameMeta(
@@ -502,9 +522,9 @@ def _persist_and_attach_coverage_sidecar(
             byte_size=0,
             lineage=parent.lineage,
             parent_ref=parent.ref,
-            coverage_kind="time_slot",
+            coverage_kind=coverage_kind,
             axes=parent.meta.axes,
-            sample_interval=sample_interval_val or "unknown",
+            sample_interval=sample_interval_val,
         ),
     )
     coverage.meta = cast("CoverageFrameMeta", persist_frame(session, coverage))
@@ -827,6 +847,727 @@ def _dense_cumulative_frame(
     return out.sort_values(["bucket_start", *key_columns]).reset_index(drop=True)
 
 
+def _require_grain_to_date_compat(query_grain_token: str, reset_grain: str) -> None:
+    """Reject grain_to_date resets whose reset period straddles query buckets.
+
+    Week buckets straddle month/quarter/year boundaries, so a week query grain
+    under a month/quarter/year reset is illegal: a single bucket would span two
+    reset periods and the period-to-date value is undefined. Day and hour grains
+    are always legal; week-under-week is legal.
+    """
+    if query_grain_token == "week" and reset_grain in ("month", "quarter", "year"):
+        raise AnalysisError(
+            message=(
+                f"grain_to_date(grain={reset_grain!r}) is incompatible with query grain "
+                f"{query_grain_token!r}: week buckets straddle {reset_grain} boundaries."
+            ),
+            hint=("Use day or hour query grain, or grain_to_date(grain='week') for a week reset."),
+            details={"reset_grain": reset_grain, "query_grain": query_grain_token},
+        )
+
+
+def _trunc_series_to_grain(values: Any, grain: str) -> Any:
+    """Truncate a pandas Series of timestamps to the start of the reset period.
+
+    Mirrors :func:`_align_to_grain_start` but vectorized over a Series, for
+    deriving the reset-period key of each bucket_start in a dense spine.
+    Always returns a pandas Series so callers can use ``.iloc`` / boolean masks.
+    """
+    import pandas as pd
+
+    ts = pd.to_datetime(pd.Series(values))
+    if grain == "week":
+        return ts.dt.to_period("W").dt.start_time
+    if grain == "month":
+        import numpy as np
+
+        return pd.Series(
+            ts.values.astype(np.dtype("datetime64[M]")).astype(np.dtype("datetime64[s]")),
+            index=ts.index,
+            name=ts.name,
+        )
+    if grain == "quarter":
+        month = ts.dt.month
+        quarter_start_month = ((month - 1) // 3) * 3 + 1
+        return pd.to_datetime(
+            pd.DataFrame({"year": ts.dt.year, "month": quarter_start_month, "day": 1})
+        )
+    if grain == "year":
+        return pd.to_datetime(pd.DataFrame({"year": ts.dt.year, "month": 1, "day": 1}))
+    raise ValueError(f"unsupported reset grain for truncation: {grain!r}")
+
+
+def _grain_to_date_dense_frame(
+    *,
+    seed_df: Any,
+    flow_df: Any,
+    bucket_values: list[Any],
+    dimension_columns: list[str],
+    reset_grain: str,
+    value_column: str = "value",
+) -> Any:
+    """Densify + fill 0 + cumsum partitioned by (dims x reset period) + seed.
+
+    Unlike :func:`_dense_cumulative_frame` (all-history), the cumsum resets at
+    each reset-period boundary, and the seed scalar is added only to the first
+    (partial) reset period's buckets.
+
+    seed_df: per-slice seed scalars (sum over the first partial period before
+        window.start). Empty/None when window.start is on a reset boundary.
+    flow_df: per-bucket-per-slice flow values within [window.start, window.end).
+    bucket_values: dense list of bucket_start timestamps.
+    dimension_columns: dimension column names for panel/segmented shapes.
+    reset_grain: the reset grain string (week/month/quarter/year).
+    """
+    import pandas as pd
+
+    key_columns = list(dimension_columns)
+    if key_columns:
+        combos = pd.concat(
+            [
+                seed_df[key_columns] if not seed_df.empty else pd.DataFrame(columns=key_columns),
+                flow_df[key_columns] if not flow_df.empty else pd.DataFrame(columns=key_columns),
+            ],
+            ignore_index=True,
+        ).drop_duplicates()
+    else:
+        combos = pd.DataFrame({"__single__": [0]})
+    bucket_df = pd.DataFrame({"bucket_start": bucket_values})
+    spine = bucket_df.merge(combos, how="cross") if key_columns else bucket_df.assign(__single__=0)
+
+    flow = flow_df.copy()
+    if not key_columns:
+        flow["__single__"] = 0
+    merge_keys = key_columns or ["__single__"]
+
+    # Reset-period key per bucket.
+    spine["_reset_key"] = _trunc_series_to_grain(spine["bucket_start"], reset_grain)
+    out = spine.merge(
+        flow[["bucket_start", *merge_keys, value_column]],
+        on=["bucket_start", *merge_keys],
+        how="left",
+    )
+    out[value_column] = out[value_column].fillna(0)
+
+    # cumsum partitioned by (dims x reset period): resets at each boundary.
+    out = out.sort_values([*merge_keys, "bucket_start"])
+    out[value_column] = out.groupby([*merge_keys, "_reset_key"], dropna=False)[
+        value_column
+    ].cumsum()
+
+    # Add the seed scalar to the first (partial) reset period's buckets only.
+    if seed_df is not None and not seed_df.empty:
+        seed = seed_df.copy()
+        if not key_columns:
+            seed["__single__"] = 0
+        seed_map = (
+            seed.groupby(merge_keys, dropna=False)[value_column].sum().reset_index(name="_seed")
+        )
+        out = out.merge(seed_map, on=merge_keys, how="left")
+        out["_seed"] = out["_seed"].fillna(0)
+        first_period_key = _trunc_series_to_grain(pd.Series([bucket_values[0]]), reset_grain).iloc[
+            0
+        ]
+        mask = out["_reset_key"] == first_period_key
+        out.loc[mask, value_column] = out.loc[mask, value_column] + out.loc[mask, "_seed"]
+        out = out.drop(columns=["_seed"])
+
+    out = out.drop(columns=["_reset_key"])
+    if "__single__" in out.columns:
+        out = out.drop(columns=["__single__"])
+    return out.sort_values(["bucket_start", *key_columns]).reset_index(drop=True)
+
+
+def _trailing_rolling_frame(
+    *,
+    flow_df: Any,
+    bucket_values: list[Any],
+    dimension_columns: list[str],
+    w_buckets: int,
+    display_start: Any,
+    display_end: Any,
+    value_column: str = "value",
+) -> Any:
+    """Densify + fill 0 + rolling sum with min_periods=1, clipped to display window.
+
+    Trailing (rolling N) post-process. Each bucket's value is the base
+    aggregation over the W_buckets-wide span ending at that bucket's end
+    boundary. Empty windows are TRUE ZERO (fill 0 then rolling-sum with
+    min_periods=1 yields 0 for a gap). Partial windows (span reaches before
+    data start) show the actual partial accumulation because min_periods=1
+    sums whatever falls in the span.
+
+    The spine covers the EXTENDED fetch range [display_start - span,
+    display_end); the result is clipped back to [display_start, display_end)
+    so the displayed frame matches the requested window.
+    """
+    import pandas as pd
+
+    key_columns = list(dimension_columns)
+    if key_columns:
+        combos = (
+            flow_df[key_columns] if not flow_df.empty else pd.DataFrame(columns=key_columns)
+        ).drop_duplicates()
+    else:
+        combos = pd.DataFrame({"__single__": [0]})
+    bucket_df = pd.DataFrame({"bucket_start": bucket_values})
+    spine = bucket_df.merge(combos, how="cross") if key_columns else bucket_df.assign(__single__=0)
+
+    flow = flow_df.copy()
+    if not key_columns:
+        flow["__single__"] = 0
+    merge_keys = key_columns or ["__single__"]
+
+    out = spine.merge(
+        flow[["bucket_start", *merge_keys, value_column]],
+        on=["bucket_start", *merge_keys],
+        how="left",
+    )
+    # Empty windows are true zero: fill missing flow with 0 (NOT carry-forward).
+    out[value_column] = out[value_column].fillna(0)
+    out = out.sort_values([*merge_keys, "bucket_start"])
+    # Rolling sum with min_periods=1: partial windows produce actual values,
+    # not NaN; empty windows produce 0.
+    out[value_column] = (
+        out.groupby(merge_keys, dropna=False)[value_column]
+        .rolling(window=w_buckets, min_periods=1)
+        .sum()
+        .reset_index(level=merge_keys, drop=True)
+    )
+    if "__single__" in out.columns:
+        out = out.drop(columns=["__single__"])
+    # Clip the extended fetch range back to the display window.
+    mask = (out["bucket_start"] >= display_start) & (out["bucket_start"] < display_end)
+    return out.loc[mask].sort_values(["bucket_start", *key_columns]).reset_index(drop=True)
+
+
+def _trailing_coverage_df(
+    *,
+    dense_df: Any,
+    bucket_values: list[Any],
+    data_start: Any,
+    span_seconds: int,
+) -> Any:
+    """Build a trailing ``window_coverage`` sidecar with precise span ratios.
+
+    Each display bucket ``b`` aggregates the span ending at ``b``'s end
+    boundary, i.e. the window ``[bucket_end - span_seconds, bucket_end)`` where
+    ``bucket_end = bucket_start + grain``. The span is fully covered by data
+    when ``bucket_end - data_start >= span_seconds``; otherwise the covered
+    portion is the tail ``bucket_end - data_start`` (clipped to ``[0, span]``).
+
+    Rows carry ``(bucket_start, expected_span, covered_span, coverage_ratio,
+    coverage_status)`` where ``expected_span = span_seconds``,
+    ``covered_span = min(span_seconds, max(0, bucket_end - data_start))``,
+    ``coverage_ratio = covered_span / expected_span``, and
+    ``coverage_status = "partial" if covered_span < expected_span else "complete"``.
+
+    Buckets with no data in their span are still ``complete`` coverage-wise (the
+    empty window is a true zero, not a coverage gap) — partiality is strictly
+    about the window reaching before the data start.
+    """
+    import pandas as pd
+
+    grain_seconds: int | None = None
+    if len(bucket_values) >= 2:
+        grain_seconds = int(
+            (pd.Timestamp(bucket_values[1]) - pd.Timestamp(bucket_values[0])).total_seconds()
+        )
+    out = dense_df.copy()
+    out["expected_span"] = span_seconds
+    if grain_seconds is None or data_start is None:
+        out["covered_span"] = span_seconds
+        out["coverage_ratio"] = 1.0
+        out["coverage_status"] = "complete"
+        return out
+    bucket_start_ts = pd.to_datetime(out["bucket_start"])
+    bucket_end_ts = bucket_start_ts + pd.Timedelta(seconds=grain_seconds)
+    data_start_ts = pd.Timestamp(data_start)
+    covered = (bucket_end_ts - data_start_ts).dt.total_seconds()
+    # Clip to [0, span_seconds]: buckets ending at/before data start have no
+    # covered span; buckets whose full span is inside data have the full span.
+    covered = covered.clip(lower=0, upper=span_seconds).astype("int64")
+    out["covered_span"] = covered
+    out["coverage_ratio"] = covered / span_seconds
+    out["coverage_status"] = "partial"
+    out.loc[covered >= span_seconds, "coverage_status"] = "complete"
+    return out
+
+
+# Upper bound on the memtable-spine expansion join size for trailing
+# count_distinct. The join produces up to (W_buckets * display_buckets * rows)
+# rows; a runaway expansion (e.g. year-scale trailing at hour grain) is rejected
+# before execution with a teaching error rather than exhausting memory.
+_MAX_TRAILING_DISTINCT_EXPANSION = 1_000_000
+
+
+def _execute_trailing_distinct(
+    *,
+    plan: CumulativeObservePlan,
+    catalog: Any,
+    resolver: Any,
+    session: Session,
+    resolved_window: AbsoluteWindow,
+    time_dimension_ir: Any,
+    root_adapter: Any,
+    dimension_names: list[str],
+    resolved_dimensions: list[tuple[Any, Any]],
+) -> tuple[
+    Any,
+    dict[str, Any],
+    Literal["scalar", "time_series", "segmented", "panel"],
+    Any | None,
+]:
+    """Execute a trailing (rolling N) cumulative for a count_distinct base.
+
+    Each display bucket's value is the distinct count of the base key over the
+    trailing span. Because distinct counts are not additive over buckets, this
+    cannot reuse the additive rolling-sum path. Instead it builds an inline ibis
+    memtable spine (one row per display bucket), joins the filtered source so
+    each event fans out to every bucket whose trailing span contains it, then
+    groups by ``(bucket_start, dims)`` with ``nunique``. Empty buckets fill 0
+    via the spine. A bucket-count cap guards against runaway expansion.
+
+    The compiled SQL is a plain JOIN + GROUP BY + count_distinct (no window
+    functions): the join is a cross join between the spine memtable and the
+    filtered source, filtered by a half-open range predicate.
+    """
+    import pandas as pd
+
+    assert resolved_window.grain is not None
+    base_plan = plan.base_plan
+    base_metric_ir = plan.base_metric_ir
+    primary_datasource = base_plan.datasource_name
+    anchor = plan.composition.anchor
+    trailing_count = anchor[1]
+    trailing_unit = anchor[2]
+
+    # 1. Integer-multiple rule (same guard as the additive path).
+    span_grain = Grain(count=1, unit=trailing_unit)
+    span_seconds = trailing_count * span_grain.width_seconds()
+    grain_seconds = resolved_window.grain.width_seconds()
+    if span_seconds % grain_seconds != 0:
+        raise AnalysisError(
+            message=(
+                f"trailing(count={trailing_count}, unit={trailing_unit!r}) span "
+                f"({span_seconds}s) is not an integer multiple of query grain "
+                f"{resolved_window.grain.to_token()!r} ({grain_seconds}s)."
+            ),
+            hint=(
+                "Choose a trailing span that divides evenly into the query "
+                "grain (e.g. trailing(count=7, unit='day') at day or hour grain)."
+            ),
+            details={
+                "anchor": anchor,
+                "span_seconds": span_seconds,
+                "grain": resolved_window.grain.to_token(),
+                "grain_seconds": grain_seconds,
+            },
+        )
+    w_buckets = span_seconds // grain_seconds
+
+    # 2. Display buckets (the spine). One memtable row per display bucket.
+    display_bucket_values = _bucket_date_range(resolved_window)
+    display_bucket_count = len(display_bucket_values)
+    # Cap the expansion: W_buckets * display_buckets is the worst-case fan-out
+    # per source row. Reject before executing when this exceeds the limit.
+    expansion = w_buckets * display_bucket_count
+    if expansion > _MAX_TRAILING_DISTINCT_EXPANSION:
+        raise AnalysisError(
+            message=(
+                f"trailing count_distinct expansion too large: the join would "
+                f"produce up to {expansion} bucket-event combinations (cap "
+                f"{_MAX_TRAILING_DISTINCT_EXPANSION})."
+            ),
+            hint=(
+                "Reduce the trailing span, the query window, or move to a "
+                "coarser grain. For wide ranges prefer all_history or "
+                "grain_to_date over a count_distinct base."
+            ),
+            details={
+                "anchor": anchor,
+                "w_buckets": w_buckets,
+                "display_buckets": display_bucket_count,
+                "expansion": expansion,
+                "cap": _MAX_TRAILING_DISTINCT_EXPANSION,
+            },
+        )
+
+    # 3. Filtered source: raw entity table with where/slice_by filters applied,
+    #    projected with dimension columns. The time filter is applied via the
+    #    join predicate (not here) so each event can fan out to multiple buckets.
+    raw_table = resolver.table(
+        _catalog_object(catalog, base_plan.root_entity, SemanticKind.ENTITY).ref
+    )
+    raw_table = _apply_where_to_raw_table(raw_table, base_plan.where, dataset_ir=root_adapter)
+    time_expr_raw = time_dimension_ir.fn(raw_table)
+    time_expr_name = time_expr_raw.get_name()
+    # Restrict to events that could land in any display bucket's span to bound
+    # the join: [display_start - span, display_end).
+    window_start_ts = pd.Timestamp(resolved_window.start)
+    window_end_ts = pd.Timestamp(resolved_window.end)
+    fetch_start_ts = window_start_ts - pd.Timedelta(seconds=span_seconds)
+    fetch_start = fetch_start_ts.strftime("%Y-%m-%dT%H:%M:%S")
+    fetch_end = window_end_ts.strftime("%Y-%m-%dT%H:%M:%S")
+    source_table = raw_table.filter(
+        (time_expr_raw >= ibis.literal(fetch_start).cast(time_expr_raw.type()))
+        & (time_expr_raw < ibis.literal(fetch_end).cast(time_expr_raw.type()))
+    )
+    # Project dimension columns onto the source for grouping.
+    if dimension_names:
+        dimension_exprs = {
+            field_ir.name: _validate_field_expr(
+                resolver.dimension_on(
+                    _field_details(catalog, field_ir.semantic_id).ref, source_table
+                ),
+                field_id=field_ir.semantic_id,
+            ).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        source_table = source_table.mutate(**dimension_exprs)
+
+    # Resolve the distinct key expression on the (filtered, projected) source.
+    key_expr = _count_distinct_key_expr(resolver, base_metric_ir, source_table)
+    key_name = key_expr.get_name()
+    # Ensure the key column is materialized on the source for the join + nunique.
+    if key_name not in source_table.columns:
+        source_table = source_table.mutate(_distinct_key=key_expr)
+        key_name = "_distinct_key"
+
+    # 4. Memtable spine: one row per display bucket, with the trailing span
+    #    boundaries precomputed. The span for bucket B (start = B, end = B +
+    #    grain) is the half-open interval [B - (span - grain), B + grain): it
+    #    reaches back (W-1)*grain from the bucket start and includes the full
+    #    current bucket, for a total span of W*grain. This is the SAME window the
+    #    additive trailing path uses (a W_buckets-wide rolling window ending at
+    #    the bucket's end boundary, per the brief sketch (bucket_end - span,
+    #    bucket_end]): sum and count_distinct define the same trailing window, so
+    #    a key active on the last day of a window is counted in every bucket
+    #    whose span contains it and drops out once the span no longer reaches it.
+    span_lead_seconds = span_seconds - grain_seconds
+    spine_df = pd.DataFrame(
+        {
+            "bucket_start": pd.to_datetime(display_bucket_values),
+        }
+    )
+    spine = ibis.memtable(spine_df)
+    spine = spine.mutate(
+        _span_start=(spine["bucket_start"] - ibis.interval(seconds=int(span_lead_seconds))),
+        _span_end=(spine["bucket_start"] + ibis.interval(seconds=int(grain_seconds))),
+    )
+
+    # 5. Cross join + range filter. A plain inner join on a tautology followed
+    #    by the half-open range predicate compiles to JOIN + WHERE (no window
+    #    functions). Each event fans out to every bucket whose span contains it.
+    joined = source_table.cross_join(spine)
+    joined = joined.filter(
+        (source_table[time_expr_name] >= spine["_span_start"])
+        & (source_table[time_expr_name] < spine["_span_end"])
+    )
+
+    # 6. Per (bucket, dims) distinct count. nunique drops NULL keys (v1 parity).
+    group_names = ["bucket_start", *dimension_names]
+    aggregated = (
+        joined.group_by(group_names)
+        .aggregate(value=joined[key_name].nunique())
+        .order_by(group_names)
+        .select(*group_names, "value")
+    )
+    result = execute(
+        aggregated,
+        datasource_name=primary_datasource,
+        cache=session._connection_runtime,
+        session_id=session.id,
+    )
+    agg_df = result.df
+    if "bucket_start" in agg_df:
+        agg_df["bucket_start"] = ensure_bucket_start_timestamp(
+            agg_df["bucket_start"],
+            time_meta=time_dimension_ir.time_meta,
+            dataset_ir=root_adapter,
+            grain=resolved_window.grain,
+            report_tz=cast("ZoneInfo", session.report_tz),
+            backend_datetime_decode_policy=result.backend_datetime_decode_policy,
+        )
+
+    # 7. Densify: left-join the spine onto the aggregated result so buckets with
+    #    no matching events fill 0 (true zero, not missing).
+    if dimension_names:
+        dim_combos = (
+            agg_df[dimension_names].drop_duplicates()
+            if not agg_df.empty
+            else pd.DataFrame(columns=dimension_names)
+        )
+        bucket_df = pd.DataFrame({"bucket_start": display_bucket_values})
+        spine_full = bucket_df.merge(dim_combos, how="cross")
+        dense_df = spine_full.merge(
+            agg_df[["bucket_start", *dimension_names, "value"]],
+            on=["bucket_start", *dimension_names],
+            how="left",
+        )
+    else:
+        bucket_df = pd.DataFrame({"bucket_start": display_bucket_values})
+        dense_df = bucket_df.merge(
+            agg_df[["bucket_start", "value"]],
+            on="bucket_start",
+            how="left",
+        )
+    dense_df["value"] = dense_df["value"].fillna(0)
+    dense_df = dense_df.sort_values(["bucket_start", *dimension_names]).reset_index(drop=True)
+
+    # 8. Data-start scalar query: min(over) under the same filters. Buckets whose
+    #    span reaches before the data start are labeled partial in coverage.
+    data_start: Any = None
+    min_expr = time_expr_raw.min()
+    data_start_result = execute(
+        raw_table.aggregate(value=min_expr),
+        datasource_name=primary_datasource,
+        cache=session._connection_runtime,
+        session_id=session.id,
+    )
+    if not data_start_result.df.empty:
+        data_start = data_start_result.df.iloc[0]["value"]
+
+    coverage_df = _trailing_coverage_df(
+        dense_df=dense_df,
+        bucket_values=display_bucket_values,
+        data_start=data_start,
+        span_seconds=span_seconds,
+    )
+
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": resolved_window.grain.to_token(),
+            "time_dimension": time_dimension_ir.name,
+        },
+        **{
+            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            for _, field_ir in resolved_dimensions
+        },
+    }
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = (
+        "panel" if dimension_names else "time_series"
+    )
+    return _Result(dense_df), axes, semantic_kind, coverage_df
+
+
+def _execute_trailing_additive(
+    *,
+    plan: CumulativeObservePlan,
+    catalog: Any,
+    resolver: Any,
+    session: Session,
+    resolved_window: AbsoluteWindow,
+    time_dimension_ir: Any,
+    root_adapter: Any,
+    read_tz: Any,
+    profile: Any,
+    dimension_names: list[str],
+    resolved_dimensions: list[tuple[Any, Any]],
+    agg: str,
+) -> tuple[
+    Any,
+    dict[str, Any],
+    Literal["scalar", "time_series", "segmented", "panel"],
+    Any | None,
+]:
+    """Execute a trailing (rolling N) cumulative for sum/count base aggregates.
+
+    Each bucket's value is the base aggregation over the W_buckets-wide span
+    ending at that bucket's end boundary. Flow:
+
+    1. Integer-multiple rule: ``W_buckets = span_seconds / grain.width_seconds()``
+       must be an integer.
+    2. Extended fetch over ``[window.start - span, window.end)``: aggregate per
+       bucket over the extended range.
+    3. Densify over the extended range, fill 0 (empty = true zero, NOT
+       carry-forward), rolling sum with ``min_periods=1`` (partial windows show
+       actual values), clip back to ``[window.start, window.end)``.
+    4. Data-start scalar query: one extra ``min(over)`` under the same filters.
+       Buckets whose window reaches before the data start are labeled ``partial``
+       in coverage.
+    """
+    import pandas as pd
+
+    assert resolved_window.grain is not None
+    base_plan = plan.base_plan
+    base_metric_ir = plan.base_metric_ir
+    metric_datasets = tuple(base_metric_ir.entities)
+    primary_datasource = base_plan.datasource_name
+    anchor = plan.composition.anchor
+    trailing_count = anchor[1]
+    trailing_unit = anchor[2]
+
+    # count_distinct uses a memtable-spine expansion join (one row per display
+    # bucket) so each bucket's value is the distinct count over its trailing
+    # span. This cannot be a per-bucket distinct sum (semantically wrong for a
+    # rolling distinct window), so it has its own execution path.
+    if agg == "count_distinct":
+        return _execute_trailing_distinct(
+            plan=plan,
+            catalog=catalog,
+            resolver=resolver,
+            session=session,
+            resolved_window=resolved_window,
+            time_dimension_ir=time_dimension_ir,
+            root_adapter=root_adapter,
+            dimension_names=dimension_names,
+            resolved_dimensions=resolved_dimensions,
+        )
+
+    # 1. Integer-multiple rule: W_buckets must be an integer. Fixed-size units
+    # always satisfy this, but guard anyway with a teaching error.
+    span_grain = Grain(count=1, unit=trailing_unit)
+    span_seconds = trailing_count * span_grain.width_seconds()
+    grain_seconds = resolved_window.grain.width_seconds()
+    if span_seconds % grain_seconds != 0:
+        raise AnalysisError(
+            message=(
+                f"trailing(count={trailing_count}, unit={trailing_unit!r}) span "
+                f"({span_seconds}s) is not an integer multiple of query grain "
+                f"{resolved_window.grain.to_token()!r} ({grain_seconds}s)."
+            ),
+            hint=(
+                "Choose a trailing span that divides evenly into the query "
+                "grain (e.g. trailing(count=7, unit='day') at day or hour grain)."
+            ),
+            details={
+                "anchor": anchor,
+                "span_seconds": span_seconds,
+                "grain": resolved_window.grain.to_token(),
+                "grain_seconds": grain_seconds,
+            },
+        )
+    w_buckets = span_seconds // grain_seconds
+
+    # 2. Extended fetch window: [window.start - span, window.end).
+    window_start_ts = pd.Timestamp(resolved_window.start)
+    window_end_ts = pd.Timestamp(resolved_window.end)
+    fetch_start_ts = window_start_ts - pd.Timedelta(seconds=span_seconds)
+    fetch_start = fetch_start_ts.strftime("%Y-%m-%dT%H:%M:%S")
+    extended_window = AbsoluteWindow(
+        start=fetch_start,
+        end=resolved_window.end,
+        grain=resolved_window.grain,
+        time_dimension=resolved_window.time_dimension,
+    )
+
+    # Build a raw table filtered to the extended fetch range, then bucket it.
+    # base_plan.table is already window-filtered to [window.start, window.end),
+    # so we re-resolve the raw entity table and re-apply where/slice_by filters.
+    raw_table = resolver.table(
+        _catalog_object(catalog, base_plan.root_entity, SemanticKind.ENTITY).ref
+    )
+    raw_table = _apply_where_to_raw_table(raw_table, base_plan.where, dataset_ir=root_adapter)
+    time_expr_raw = time_dimension_ir.fn(raw_table)
+    fetch_table = raw_table.filter(
+        (time_expr_raw >= ibis.literal(fetch_start).cast(time_expr_raw.type()))
+        & (time_expr_raw < ibis.literal(resolved_window.end).cast(time_expr_raw.type()))
+    )
+    bucketed_table = apply_time_series_bucket(
+        fetch_table,
+        field_ir=time_dimension_ir,
+        window=extended_window,
+        report_tz=cast("ZoneInfo", session.report_tz),
+        datasource_read_tz=read_tz,
+        profile=profile,
+        dataset_ir=root_adapter,
+    )
+    if dimension_names:
+        dimension_exprs = {
+            field_ir.name: _validate_field_expr(
+                resolver.dimension_on(
+                    _field_details(catalog, field_ir.semantic_id).ref, bucketed_table
+                ),
+                field_id=field_ir.semantic_id,
+            ).name(field_ir.name)
+            for _, field_ir in resolved_dimensions
+        }
+        bucketed_table = bucketed_table.mutate(**dimension_exprs)
+
+    # Flow aggregation per bucket over the extended range.
+    flow_dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
+    flow_metric_expr = _metric_expr(
+        catalog, resolver, base_metric_ir.semantic_id, metric_datasets, flow_dataset_tables
+    )
+    group_names_flow = ["bucket_start", *dimension_names]
+    flow_grouped = (
+        bucketed_table.group_by(group_names_flow)
+        .aggregate(value=flow_metric_expr)
+        .order_by(group_names_flow)
+        .select(*group_names_flow, "value")
+    )
+    flow_result = execute(
+        flow_grouped,
+        datasource_name=primary_datasource,
+        cache=session._connection_runtime,
+        session_id=session.id,
+    )
+    flow_df = flow_result.df
+    if "bucket_start" in flow_df:
+        flow_df["bucket_start"] = ensure_bucket_start_timestamp(
+            flow_df["bucket_start"],
+            time_meta=time_dimension_ir.time_meta,
+            dataset_ir=root_adapter,
+            grain=resolved_window.grain,
+            report_tz=cast("ZoneInfo", session.report_tz),
+            backend_datetime_decode_policy=flow_result.backend_datetime_decode_policy,
+        )
+
+    # 3. Densify + fill 0 + rolling sum (min_periods=1) + clip to display window.
+    # The dense spine covers the extended fetch range so rolling windows at the
+    # display-start boundary have their full span; the result is clipped back.
+    extended_bucket_values = _bucket_date_range(extended_window)
+    dense_df = _trailing_rolling_frame(
+        flow_df=flow_df,
+        bucket_values=extended_bucket_values,
+        dimension_columns=dimension_names,
+        w_buckets=w_buckets,
+        display_start=window_start_ts,
+        display_end=window_end_ts,
+    )
+
+    # 4. Data-start scalar query: min(over) under the same filters. Buckets
+    # whose window reaches before the data start are labeled 'partial'.
+    data_start: Any = None
+    min_expr = time_expr_raw.min()
+    data_start_result = execute(
+        raw_table.aggregate(value=min_expr),
+        datasource_name=primary_datasource,
+        cache=session._connection_runtime,
+        session_id=session.id,
+    )
+    if not data_start_result.df.empty:
+        data_start = data_start_result.df.iloc[0]["value"]
+
+    display_bucket_values = _bucket_date_range(resolved_window)
+    coverage_df = _trailing_coverage_df(
+        dense_df=dense_df,
+        bucket_values=display_bucket_values,
+        data_start=data_start,
+        span_seconds=span_seconds,
+    )
+
+    axes = {
+        "time": {
+            "role": "time",
+            "column": "bucket_start",
+            "grain": resolved_window.grain.to_token(),
+            "time_dimension": time_dimension_ir.name,
+        },
+        **{
+            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            for _, field_ir in resolved_dimensions
+        },
+    }
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = (
+        "panel" if dimension_names else "time_series"
+    )
+    return _Result(dense_df), axes, semantic_kind, coverage_df
+
+
 def _execute_cumulative(
     plan: CumulativeObservePlan,
     *,
@@ -838,10 +1579,11 @@ def _execute_cumulative(
     Any,
     dict[str, Any],
     Literal["scalar", "time_series", "segmented", "panel"],
+    Any | None,
 ]:
     """Execute a CumulativeObservePlan.
 
-    Returns (result, axes, semantic_kind).
+    Returns (result, axes, semantic_kind, coverage_df_or_None).
 
     For scalar/segmented (no time grain): one query up to window end
     (as-of-end strategy).
@@ -849,6 +1591,11 @@ def _execute_cumulative(
     For time-series/panel (with time grain): baseline query (all history
     before window start) + flow query (per-bucket aggregation within window)
     + dense spine + cumsum in pandas.
+
+    For trailing (rolling N): extended fetch over [start - span, end), per-bucket
+    aggregation, densify + fill 0 + rolling sum (min_periods=1), clip to
+    [start, end). Empty windows are true zero; partial windows show actual
+    values. A data-start scalar query marks partial buckets in coverage.
 
     For count_distinct: first-seen rewrite (find first occurrence of each
     distinct key, bucket by that first-seen timestamp, count per bucket).
@@ -871,8 +1618,31 @@ def _execute_cumulative(
     agg = _base_aggregation_name(base_metric_ir)
     is_time_series = resolved_window is not None and resolved_window.grain is not None
 
+    # Resolve the cumulative anchor from the plan's composition (the real
+    # CumulativeComposition on the metric IR). Falls back to all_history when
+    # the plan was built without a composition (adapter-only paths).
+    plan_composition = getattr(plan, "composition", None)
+    anchor = getattr(plan_composition, "anchor", "all_history") or "all_history"
+    is_grain_to_date = isinstance(anchor, tuple) and anchor[0] == "grain_to_date"
+    reset_grain = anchor[1] if is_grain_to_date else None
+    is_trailing = isinstance(anchor, tuple) and anchor[0] == "trailing"
+
     axes: dict[str, Any] = {}
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "scalar"
+
+    # Trailing requires a time grain: a rolling window over scalar/segmented
+    # shapes is undefined. Point the agent at a plain windowed observe instead.
+    if is_trailing and not is_time_series:
+        raise AnalysisError(
+            message=(
+                "trailing(count=..., unit=...) requires a time grain; a rolling "
+                "window is undefined for a scalar or segmented observe. Use a "
+                "plain windowed session.observe(...) with time_scope for a "
+                "single windowed value."
+            ),
+            hint="Pass grain='day' (or another grain) to observe a trailing rolling window.",
+            details={"anchor": anchor},
+        )
 
     if not is_time_series:
         # --- Scalar/segmented: as-of-end strategy ---
@@ -887,9 +1657,28 @@ def _execute_cumulative(
         if resolved_window is not None:
             time_dimension_ir = resolve_window_time_field(root_adapter, window=resolved_window)
             time_expr = time_dimension_ir.fn(raw_table)
-            raw_table = raw_table.filter(
-                time_expr < ibis.literal(resolved_window.end).cast(time_expr.type())
-            )
+            if is_grain_to_date and reset_grain is not None:
+                # grain_to_date scalar boundary rule: the value is the
+                # period-to-date total for the reset period containing the
+                # final included instant. end is exclusive under [start, end);
+                # the final included instant belongs to the period containing
+                # (end - epsilon). When end is exactly on a reset boundary
+                # (e.g. end='2026-08-01'), that is the PRIOR period (July),
+                # so full-July aggregates July, not empty August.
+                import pandas as pd  # local: scalar boundary derivation
+
+                end_ts = pd.Timestamp(resolved_window.end)
+                included_end = end_ts - pd.Timedelta(microseconds=1)
+                period_start = _align_to_grain_start(included_end, reset_grain)
+                raw_table = raw_table.filter(
+                    (time_expr >= ibis.literal(period_start).cast(time_expr.type()))
+                    & (time_expr < ibis.literal(resolved_window.end).cast(time_expr.type()))
+                )
+            else:
+                # all_history as-of-end: everything before window.end.
+                raw_table = raw_table.filter(
+                    time_expr < ibis.literal(resolved_window.end).cast(time_expr.type())
+                )
         # Apply dimension projections on the raw table
         if resolved_dimensions:
             dimension_exprs = {
@@ -936,7 +1725,7 @@ def _execute_cumulative(
                 session_id=session.id,
             )
             semantic_kind = "scalar"
-        return result, axes, semantic_kind
+        return result, axes, semantic_kind, None
 
     # --- Time-series/panel: baseline + flow + dense spine + cumsum ---
     assert resolved_window is not None
@@ -947,6 +1736,28 @@ def _execute_cumulative(
         time_dimension_ir.time_meta.granularity if time_dimension_ir.time_meta else None
     ) or "day"
     ensure_grain_supported(resolved_window.grain, base)
+
+    # grain_to_date grain-compatibility guard (teaching error): week query
+    # grain under month/quarter/year reset is illegal because week buckets
+    # straddle reset boundaries. Applies to sum/count and count_distinct.
+    if is_grain_to_date and reset_grain is not None:
+        _require_grain_to_date_compat(resolved_window.grain.unit, reset_grain)
+
+    if is_trailing:
+        return _execute_trailing_additive(
+            plan=plan,
+            catalog=catalog,
+            resolver=resolver,
+            session=session,
+            resolved_window=resolved_window,
+            time_dimension_ir=time_dimension_ir,
+            root_adapter=root_adapter,
+            read_tz=read_tz,
+            profile=profile,
+            dimension_names=dimension_names,
+            resolved_dimensions=resolved_dimensions,
+            agg=agg,
+        )
 
     # Build the bucketed table from the window-filtered table (base_plan.table)
     bucketed_table = apply_time_series_bucket(
@@ -1000,12 +1811,21 @@ def _execute_cumulative(
         # timestamp, count per bucket.  Keys first-seen before window.start
         # go into the baseline; keys first-seen within the window go into
         # the flow.
+        #
+        # grain_to_date variant (period-scoped first-seen): the dedup groups by
+        # (distinct key, slice dims, period_key) where period_key truncates the
+        # event time to the reset grain. An entity counts once per reset period
+        # and re-counts at each boundary. The seed (baseline) is scoped to the
+        # first reset period only; the post-process reuses the grain_to_date
+        # reset-partitioned cumsum from Task 4 (the period_key IS the reset
+        # partition, derived consistently on both sides).
 
         # Build a combined raw table: all history up to window.end
         combined_raw = resolver.table(
             _catalog_object(catalog, base_plan.root_entity, SemanticKind.ENTITY).ref
         )
-        # Re-apply where/slice_by filters that base_plan.table already has.
+        # Re-apply where/slice_by filters that base_plan.table already has
+        # (v1 rule: filters apply before dedup).
         combined_raw = _apply_where_to_raw_table(
             combined_raw, base_plan.where, dataset_ir=root_adapter
         )
@@ -1025,37 +1845,102 @@ def _execute_cumulative(
             }
             combined_raw = combined_raw.mutate(**combined_dim_exprs)
 
-        # Find first-seen per distinct key (+ dimensions)
+        # Find first-seen per distinct key (+ dimensions). For grain_to_date a
+        # period_key column is added so an entity re-counts once per reset
+        # period. NOTE: this period_key is derived through the SQL/ibis path
+        # (combined_time_expr.truncate(_TRUNCATE_CODE[reset_grain])), while the
+        # cumsum reset partition in _grain_to_date_dense_frame is derived
+        # through the pandas path (_trunc_series_to_grain on bucket_start).
+        # These are two INDEPENDENT truncation implementations that must agree
+        # per reset grain (week/month/quarter/year). The alignment is
+        # semantic-by-convention, NOT code-shared: a future change to either
+        # path must keep them in sync, or the dedup period will silently
+        # misalign with the reset partition. Cross-grain alignment tests
+        # (e.g. quarter reset) guard against such divergence.
         combined_key_expr = _count_distinct_key_expr(resolver, base_metric_ir, combined_raw)
         combined_key_name = combined_key_expr.get_name()
-        first_seen = combined_raw.group_by([combined_key_name, *dimension_names]).aggregate(
-            first_seen_ts=combined_time_expr.min()
-        )
-
-        # Baseline: count keys first-seen before window.start
-        baseline_first_seen = first_seen.filter(
-            first_seen["first_seen_ts"]
-            < ibis.literal(resolved_window.start).cast(first_seen["first_seen_ts"].type())
-        )
-        baseline_group_keys = list(dimension_names)
-        if baseline_group_keys:
-            baseline_grouped = (
-                baseline_first_seen.group_by(baseline_group_keys)
-                .aggregate(value=baseline_first_seen[combined_key_name].count())
-                .order_by(baseline_group_keys)
-                .select(*baseline_group_keys, "value")
+        if is_grain_to_date and reset_grain is not None:
+            period_key_expr = combined_time_expr.truncate(_TRUNCATE_CODE[reset_grain]).name(
+                "period_key"
             )
+            first_seen = combined_raw.group_by(
+                [combined_key_name, *dimension_names, period_key_expr]
+            ).aggregate(first_seen_ts=combined_time_expr.min())
         else:
-            baseline_grouped = baseline_first_seen.aggregate(
-                value=baseline_first_seen[combined_key_name].count()
+            first_seen = combined_raw.group_by([combined_key_name, *dimension_names]).aggregate(
+                first_seen_ts=combined_time_expr.min()
             )
-        baseline_result = execute(
-            baseline_grouped,
-            datasource_name=primary_datasource,
-            cache=session._connection_runtime,
-            session_id=session.id,
-        )
-        baseline_df = baseline_result.df
+
+        if is_grain_to_date and reset_grain is not None:
+            # Seed: count keys first-seen in the FIRST reset period only, with
+            # first_seen_ts < window.start. Entities first-seen in earlier
+            # periods do NOT carry into the window's first period (they reset).
+            # Skipped (empty) when window.start is on a reset boundary, so a
+            # boundary-started window runs ONE query (no seed), matching the
+            # additive path.
+            import pandas as pd  # local: seed period derivation
+
+            window_start_ts = pd.Timestamp(resolved_window.start)
+            first_period_start = _align_to_grain_start(window_start_ts, reset_grain)
+            if first_period_start < window_start_ts:
+                baseline_first_seen = first_seen.filter(
+                    (
+                        first_seen["period_key"]
+                        == ibis.literal(first_period_start).cast(first_seen["period_key"].type())
+                    )
+                    & (
+                        first_seen["first_seen_ts"]
+                        < ibis.literal(resolved_window.start).cast(
+                            first_seen["first_seen_ts"].type()
+                        )
+                    )
+                )
+                baseline_group_keys = list(dimension_names)
+                if baseline_group_keys:
+                    baseline_grouped = (
+                        baseline_first_seen.group_by(baseline_group_keys)
+                        .aggregate(value=baseline_first_seen[combined_key_name].count())
+                        .order_by(baseline_group_keys)
+                        .select(*baseline_group_keys, "value")
+                    )
+                else:
+                    baseline_grouped = baseline_first_seen.aggregate(
+                        value=baseline_first_seen[combined_key_name].count()
+                    )
+                baseline_result = execute(
+                    baseline_grouped,
+                    datasource_name=primary_datasource,
+                    cache=session._connection_runtime,
+                    session_id=session.id,
+                )
+                baseline_df = baseline_result.df
+            else:
+                baseline_df = pd.DataFrame(columns=[*dimension_names, "value"])
+        else:
+            # Baseline: count keys first-seen before window.start (all history)
+            baseline_first_seen = first_seen.filter(
+                first_seen["first_seen_ts"]
+                < ibis.literal(resolved_window.start).cast(first_seen["first_seen_ts"].type())
+            )
+            baseline_group_keys = list(dimension_names)
+            if baseline_group_keys:
+                baseline_grouped = (
+                    baseline_first_seen.group_by(baseline_group_keys)
+                    .aggregate(value=baseline_first_seen[combined_key_name].count())
+                    .order_by(baseline_group_keys)
+                    .select(*baseline_group_keys, "value")
+                )
+            else:
+                baseline_grouped = baseline_first_seen.aggregate(
+                    value=baseline_first_seen[combined_key_name].count()
+                )
+            baseline_result = execute(
+                baseline_grouped,
+                datasource_name=primary_datasource,
+                cache=session._connection_runtime,
+                session_id=session.id,
+            )
+            baseline_df = baseline_result.df
 
         # Flow: count keys first-seen within [window.start, window.end), bucketed
         flow_first_seen = first_seen.filter(
@@ -1126,36 +2011,104 @@ def _execute_cumulative(
                 backend_datetime_decode_policy=flow_result.backend_datetime_decode_policy,
             )
 
-        baseline_dataset_tables = dict.fromkeys(metric_datasets, baseline_table)
-        baseline_metric_expr = _metric_expr(
-            catalog, resolver, base_metric_ir.semantic_id, metric_datasets, baseline_dataset_tables
-        )
-        baseline_group_keys = list(dimension_names)
-        if baseline_group_keys:
-            baseline_grouped = (
-                baseline_table.group_by(baseline_group_keys)
-                .aggregate(value=baseline_metric_expr)
-                .order_by(baseline_group_keys)
-                .select(*baseline_group_keys, "value")
-            )
+        if is_grain_to_date and reset_grain is not None:
+            # Seed: aggregate over [period_start(window.start), window.start)
+            # per slice dims — a bounded scan feeding ONLY the first period's
+            # buckets. Skipped (empty) when window.start is on a reset
+            # boundary, so a boundary-started window runs ONE query.
+            import pandas as pd  # local: seed period derivation
+
+            window_start_ts = pd.Timestamp(resolved_window.start)
+            period_start = _align_to_grain_start(window_start_ts, reset_grain)
+            baseline_df = pd.DataFrame(columns=[*dimension_names, "value"])
+            if period_start < window_start_ts:
+                seed_table = raw_table.filter(
+                    (time_expr_raw >= ibis.literal(period_start).cast(time_expr_raw.type()))
+                    & (
+                        time_expr_raw
+                        < ibis.literal(resolved_window.start).cast(time_expr_raw.type())
+                    )
+                )
+                if resolved_dimensions:
+                    seed_dim_exprs = {
+                        field_ir.name: _validate_field_expr(
+                            resolver.dimension_on(
+                                _field_details(catalog, field_ir.semantic_id).ref, seed_table
+                            ),
+                            field_id=field_ir.semantic_id,
+                        ).name(field_ir.name)
+                        for _, field_ir in resolved_dimensions
+                    }
+                    seed_table = seed_table.mutate(**seed_dim_exprs)
+                seed_dataset_tables = dict.fromkeys(metric_datasets, seed_table)
+                seed_metric_expr = _metric_expr(
+                    catalog,
+                    resolver,
+                    base_metric_ir.semantic_id,
+                    metric_datasets,
+                    seed_dataset_tables,
+                )
+                seed_group_keys = list(dimension_names)
+                if seed_group_keys:
+                    seed_grouped = (
+                        seed_table.group_by(seed_group_keys)
+                        .aggregate(value=seed_metric_expr)
+                        .order_by(seed_group_keys)
+                        .select(*seed_group_keys, "value")
+                    )
+                else:
+                    seed_grouped = seed_table.aggregate(value=seed_metric_expr)
+                seed_result = execute(
+                    seed_grouped,
+                    datasource_name=primary_datasource,
+                    cache=session._connection_runtime,
+                    session_id=session.id,
+                )
+                baseline_df = seed_result.df
         else:
-            baseline_grouped = baseline_table.aggregate(value=baseline_metric_expr)
-        baseline_result = execute(
-            baseline_grouped,
-            datasource_name=primary_datasource,
-            cache=session._connection_runtime,
-            session_id=session.id,
-        )
-        baseline_df = baseline_result.df
+            baseline_dataset_tables = dict.fromkeys(metric_datasets, baseline_table)
+            baseline_metric_expr = _metric_expr(
+                catalog,
+                resolver,
+                base_metric_ir.semantic_id,
+                metric_datasets,
+                baseline_dataset_tables,
+            )
+            baseline_group_keys = list(dimension_names)
+            if baseline_group_keys:
+                baseline_grouped = (
+                    baseline_table.group_by(baseline_group_keys)
+                    .aggregate(value=baseline_metric_expr)
+                    .order_by(baseline_group_keys)
+                    .select(*baseline_group_keys, "value")
+                )
+            else:
+                baseline_grouped = baseline_table.aggregate(value=baseline_metric_expr)
+            baseline_result = execute(
+                baseline_grouped,
+                datasource_name=primary_datasource,
+                cache=session._connection_runtime,
+                session_id=session.id,
+            )
+            baseline_df = baseline_result.df
 
     # Build dense spine and cumsum
     bucket_values = _bucket_date_range(resolved_window)
-    dense_df = _dense_cumulative_frame(
-        baseline_df=baseline_df,
-        flow_df=flow_df,
-        bucket_values=bucket_values,
-        dimension_columns=dimension_names,
-    )
+    if is_grain_to_date and reset_grain is not None:
+        dense_df = _grain_to_date_dense_frame(
+            seed_df=baseline_df,
+            flow_df=flow_df,
+            bucket_values=bucket_values,
+            dimension_columns=dimension_names,
+            reset_grain=reset_grain,
+        )
+    else:
+        dense_df = _dense_cumulative_frame(
+            baseline_df=baseline_df,
+            flow_df=flow_df,
+            bucket_values=bucket_values,
+            dimension_columns=dimension_names,
+        )
 
     # Set axes
     axes = {
@@ -1172,16 +2125,11 @@ def _execute_cumulative(
     }
     semantic_kind = "panel" if dimension_names else "time_series"
 
-    return _Result(dense_df), axes, semantic_kind
+    return _Result(dense_df), axes, semantic_kind, None
 
 
-_FIXED_UNIT_SECONDS = {
-    "second": 1,
-    "minute": 60,
-    "hour": 3600,
-    "day": 86400,
-    "week": 604800,
-}
+# ``_FIXED_UNIT_SECONDS`` is imported from ``marivo.analysis.windows.grain``
+# so there is a single source of truth for fixed-grain second-widths.
 
 
 def _fixed_grain_seconds_for_coverage(count: int, unit: str) -> int:
@@ -1925,7 +2873,7 @@ def _execute_derived(
             # Cumulative component: execute via _execute_cumulative and
             # rename the "value" column to the component name so the
             # result is shape-compatible with other component DataFrames.
-            cum_result, _cum_axes, _cum_kind = _execute_cumulative(
+            cum_result, _cum_axes, _cum_kind, _cum_coverage_df = _execute_cumulative(
                 cp.base_plan,
                 catalog=catalog,
                 resolver=resolver,
@@ -2189,15 +3137,24 @@ def _cumulative_marker_for_plan(plan: CumulativeObservePlan, catalog: Any) -> di
     whose ``composition.over`` defaults to ``None``.
     """
     over = plan.over
-    if over is None and catalog._reg is not None:
+    anchor: Any = "all_history"
+    real_ir = None
+    if catalog._reg is not None:
         real_ir = catalog._reg.metrics.get(plan.metric_ir.semantic_id)
-        if real_ir is not None and real_ir.composition is not None:
+    if real_ir is not None and real_ir.composition is not None:
+        if over is None:
             over = getattr(real_ir.composition, "over", None)
+        anchor = getattr(real_ir.composition, "anchor", "all_history") or "all_history"
+    # Prefer the plan's resolved composition when available (carries the real
+    # anchor even when the registry is not attached).
+    plan_composition = getattr(plan, "composition", None)
+    if plan_composition is not None:
+        anchor = getattr(plan_composition, "anchor", anchor) or anchor
     return {
         "kind": "cumulative",
         "base": plan.base_metric_ir.semantic_id,
         "over": over,
-        "anchor": "all_history",
+        "anchor": anchor,
         "components": None,
     }
 
@@ -2493,18 +3450,29 @@ def observe(
             assert isinstance(derived_plan, (DerivedObservePlan, CumulativeObservePlan))
             if isinstance(derived_plan, CumulativeObservePlan):
                 # --- Cumulative observe execution ---
-                # Resolve the real 'over' from the MetricIR in the registry,
-                # since _MetricDetailsAdapter.composition.over defaults to None.
+                # Resolve the real 'over' and 'anchor' from the MetricIR in
+                # the registry, since _MetricDetailsAdapter.composition defaults
+                # over=None and anchor='all_history'.
                 cum_over = derived_plan.over
-                if cum_over is None and catalog._reg is not None:
+                cum_anchor: Any = "all_history"
+                if catalog._reg is not None:
                     real_ir = catalog._reg.metrics.get(metric_id)
                     if real_ir is not None and real_ir.composition is not None:
-                        cum_over = getattr(real_ir.composition, "over", None)
+                        if cum_over is None:
+                            cum_over = getattr(real_ir.composition, "over", None)
+                        cum_anchor = (
+                            getattr(real_ir.composition, "anchor", "all_history") or "all_history"
+                        )
+                # Prefer the plan's resolved composition (carries the real
+                # anchor even when the registry is not attached).
+                plan_composition = getattr(derived_plan, "composition", None)
+                if plan_composition is not None:
+                    cum_anchor = getattr(plan_composition, "anchor", cum_anchor) or cum_anchor
                 cumulative_meta = {
                     "kind": "cumulative",
                     "base": derived_plan.base_metric_ir.semantic_id,
                     "over": cum_over,
-                    "anchor": "all_history",
+                    "anchor": cum_anchor,
                     "components": None,
                 }
                 params_timescope_cum = None
@@ -2527,7 +3495,7 @@ def observe(
                     "cumulative": {
                         "base": derived_plan.base_metric_ir.semantic_id,
                         "over": cum_over,
-                        "anchor": "all_history",
+                        "anchor": cum_anchor,
                         "spine_synthesized": bool(resolved_window and resolved_window.grain),
                         "query_strategy": (
                             "baseline_plus_flow"
@@ -2548,7 +3516,7 @@ def observe(
                     session._connection_runtime.take_captured_queries()
                     return cast("MetricFrame", load_frame(prospective_id, session=session))
 
-                cum_result, cum_axes, cum_kind = _execute_cumulative(
+                cum_result, cum_axes, cum_kind, cum_coverage_df = _execute_cumulative(
                     derived_plan,
                     catalog=catalog,
                     resolver=resolver,
@@ -2607,6 +3575,12 @@ def observe(
         frame_ref = _gen_ref("frame")
         job_ref = _gen_ref("job")
         if isinstance(derived_plan, CumulativeObservePlan):
+            # Record captured query executions on the cumulative params for
+            # observability (mirrors the derived path). These do not affect
+            # the prospective cache id, which was computed before execution.
+            params["cumulative"]["queries"] = (
+                [qe.to_dict() for qe in _captured_queries] if _captured_queries else []
+            )
             meta = MetricFrameMeta(
                 kind="metric_frame",
                 ref=frame_ref,
@@ -2640,6 +3614,7 @@ def observe(
                 reaggregatable=False,
                 additivity="non_additive",
                 cumulative=cumulative_meta,
+                rollup_fold="last",
             )
             frame = MetricFrame(_df=cum_result.df, meta=meta)
             _grain_token = (
@@ -2657,6 +3632,16 @@ def observe(
                 semantic_kind=cum_kind,
                 subject_grain=_grain_token,
             )
+            # Trailing produces a window-coverage sidecar (partial buckets where
+            # the rolling span reaches before the data start). all_history and
+            # grain_to_date do not produce a coverage sidecar here.
+            if cum_coverage_df is not None:
+                frame = _persist_and_attach_coverage_sidecar(
+                    session=session,
+                    df=cum_coverage_df,
+                    parent=frame,
+                    job_ref=job_ref,
+                )
         else:
             # Determine fold metadata for derived metrics with folded components
             _any_folded = any(

@@ -335,6 +335,18 @@ def test_sampled_fold_persists_time_slot_coverage_sidecar(sampled_bandwidth_proj
     assert frame.meta.quality_summary.sample_coverage_min == 1.0
 
 
+def test_sampled_coverage_still_time_slot(sampled_bandwidth_project) -> None:
+    """Regression: existing sampled coverage stays time_slot with a sample_interval."""
+    frame = sampled_bandwidth_project.observe(
+        make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+    )
+    cov = frame.coverage()
+    assert cov.meta.coverage_kind == "time_slot"
+    assert cov.meta.sample_interval == "5minute"
+
+
 def test_sampled_percentile_fold_uses_space_aggregated_series(sampled_bandwidth_project) -> None:
     session = sampled_bandwidth_project
 

@@ -189,4 +189,5 @@ was blocked or weakened by the missing semantic object.
 - `references/pitfalls.md` — structured error recovery and common mistakes.
 - `references/cheatsheet.md` — compact routing aid after runtime help.
 - `references/backend-setup.md` — datasource and backend wiring.
+- `references/cumulative-frames.md` — cumulative frame caveats, anchor-dispatched compare, and rollup re-aggregation.
 - `references/examples/` — smoke tests and copyable starting points only.

@@ -494,20 +494,58 @@ class WeightedAverageComposition:
     kind: Literal["weighted_average"] = "weighted_average"
 
 
+# Anchor payloads: the closed-kind growth the v1 anchor-in-hash commitment
+# reserved. ``all_history`` stays a plain string (byte-identical v1 hash);
+# the new kinds carry their parameters as a tuple.
+CumulativeAnchor = (
+    Literal["all_history"]
+    | tuple[Literal["grain_to_date"], str]
+    | tuple[Literal["trailing"], int, str]
+)
+
+# Reset grains for grain-to-date anchors (MTD/QTD/YTD/WTD).
+_GRAIN_TO_DATE_RESETS = ("week", "month", "quarter", "year")
+# Fixed-size units accepted by trailing anchors (rolling N).
+_TRAILING_FIXED_UNITS = ("second", "minute", "hour", "day", "week")
+
+
+def _validate_cumulative_anchor(anchor: object) -> None:
+    """Reject unknown anchor shapes at IR construction time."""
+    if anchor == "all_history":
+        return
+    if isinstance(anchor, tuple):
+        if (
+            len(anchor) == 2
+            and anchor[0] == "grain_to_date"
+            and isinstance(anchor[1], str)
+            and anchor[1] in _GRAIN_TO_DATE_RESETS
+        ):
+            return
+        if (
+            len(anchor) == 3
+            and anchor[0] == "trailing"
+            and isinstance(anchor[1], int)
+            and not isinstance(anchor[1], bool)
+            and anchor[1] >= 1
+            and isinstance(anchor[2], str)
+            and anchor[2] in _TRAILING_FIXED_UNITS
+        ):
+            return
+    raise ValueError(f"invalid CumulativeComposition.anchor: {anchor!r}")
+
+
 @dataclass(frozen=True)
 class CumulativeComposition:
     base: str
     over: str | None
-    anchor: Literal["all_history"] = "all_history"
+    anchor: CumulativeAnchor = "all_history"
     kind: Literal["cumulative"] = "cumulative"
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.base, "CumulativeComposition.base")
         if self.over is not None:
             _require_non_empty_str(self.over, "CumulativeComposition.over")
-        _require_kind(
-            self.anchor, field_name="CumulativeComposition.anchor", expected="all_history"
-        )
+        _validate_cumulative_anchor(self.anchor)
         _require_kind(self.kind, field_name="CumulativeComposition.kind", expected="cumulative")
 
 

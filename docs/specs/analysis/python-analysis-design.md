@@ -429,10 +429,37 @@ Derived dispatch enforces three fail-closed comparability checks:
 
 ### Cumulative frame caveats
 
-Cumulative MetricFrames are running totals anchored to all history. `transform.window(...)`
-may clip display rows safely, but `compare`, `attribute`, `decompose`, and `forecast` reject
-cumulative frames in v1. Use the base flow metric for those intents; the cumulative delta over
-a window equals the base total over that window.
+Cumulative MetricFrames store running-total values whose semantics depend on the
+accumulation anchor (`all_history`, `grain_to_date`, or `trailing`).
+
+- `transform.window(...)` clips display rows safely for every anchor.
+- `attribute` and `forecast` reject cumulative frames regardless of anchor; re-observe
+  the base flow metric for those intents.
+- `compare` is anchor-dispatched:
+  - `all_history`: rejected. A cumulative delta over a window equals the base total over
+    that window; observe the base flow metric and compare that.
+  - `trailing`: allowed when both frames share the same trailing anchor payload
+    (`count`, `unit`). The windowed rolling values align ordinally.
+  - `grain_to_date`: allowed for a single-period, boundary-anchored window. Three
+    structural validations gate it: both frames share reset grain and query grain; the
+    window starts on a reset boundary; the window spans at most one reset period. A
+    scalar elapsed-span check additionally requires the current and baseline windows to
+    span the same elapsed length. The resulting DeltaFrame records the to-date alignment
+    under `alignment_dump["to_date"]` (`reset_grain`, `matched_buckets`,
+    `baseline_tail_buckets`).
+- `transform.rollup(...)` re-aggregates cumulative frames with `rollup_fold="last"`: the
+  time axis is re-bucketed to the target `grain` and each period contributes its last
+  bucket (the period-end value). Frames that are neither re-aggregatable nor carrying a
+  `rollup_fold` are rejected with the v1 teaching error. Re-observe at the target grain
+  instead.
+- Trailing frames are not running totals: each bucket is an independent windowed
+  aggregation, so `correlate`, `discover`, `assess_quality`, and `hypothesis_test` produce
+  meaningful results. The monotonic-trend caveat applies only to `all_history` and
+  `grain_to_date` anchors.
+
+Anchor-aware guidance: `contract()` and `show()` surface the anchor-specific caveat, and
+`mv.help(ref)` carries the same caveat, so the allowed path is visible at the frame an
+agent is reading.
 
 ## Versioned Joins
 
