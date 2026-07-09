@@ -11,6 +11,11 @@ Only build an HTML, MCP, PDF, slide, or notebook deliverable when the user
 explicitly asks for that delivery surface. Marivo does not generate reports;
 the agent authors the deliverable from persisted Marivo evidence.
 
+Internal Marivo product feedback is not report content. Disclose Marivo issues
+that affect result validity, coverage, confidence, or blockers as caveats or
+quality issues; keep usability, API, help, docs, and workflow-improvement notes
+only in `.marivo/analysis/internal_feedback/<session_id>.md`.
+
 ## Required structure
 
 Use the shape below unless the user's requested format is more specific.

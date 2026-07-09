@@ -188,6 +188,22 @@ gaps include a missing metric, dimension, time dimension, entity relationship,
 unit, or business context. Keep the recap concrete: state which analysis step
 was blocked or weakened by the missing semantic object.
 
+## Internal Marivo Feedback
+
+After user-facing closeout, record Marivo-only dogfooding issues at
+`.marivo/analysis/internal_feedback/<session_id>.md`, using the current
+`session.id` as the filename. Keep these notes out of final answers, reports,
+semantic objects, artifacts, evidence, and `session.knowledge()`.
+
+Capture only product or agent-usage friction, such as confusing help, weak
+repair guidance, inconsistent `show()` or `contract()` output, API friction,
+docs drift, unsupported natural workflows, or semantic-analysis handoff gaps.
+Use short Markdown fields: workflow phase, Marivo surface, symptom,
+expected/actual behavior, workaround, result impact (`none`, `caveat`, or
+`blocker`), suggested fix, and reproduction pointer. If the issue affects
+result validity, coverage, confidence, or blocks analysis, also disclose it to
+the user as a caveat, quality issue, or blocker.
+
 ## Further Reading
 
 - `references/final-report.md` — final user-facing report structure and QA.
