@@ -1,5 +1,7 @@
 # Marivo
 
+[简体中文](README.zh-CN.md) | English
+
 Metric-centered analysis runtime for AI agents.
 
 Marivo is a Python library — not a hosted service or a chat UI — that turns a
@@ -126,5 +128,3 @@ make check
 
 Read [`agent-guide.md`](agent-guide.md) before contributing. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.
-</content>
-</invoke>
