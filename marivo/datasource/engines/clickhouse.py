@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         MetadataWarning,
         PartitionMetadata,
         TableMetadata,
+        TablePhysicalProfile,
     )
 
 
@@ -241,6 +242,79 @@ def _dereference_clickhouse_distributed(
     return ""
 
 
+def _clickhouse_physical_profile(
+    *,
+    backend: Any,
+    database: str,
+    table: str,
+    engine: str,
+    engine_full: str,
+    warnings: list[MetadataWarning],
+) -> TablePhysicalProfile | None:
+    from marivo.datasource.metadata import (
+        MetadataWarning,
+        TablePhysicalProfile,
+        _int_or_none,
+        _query_rows,
+        _quote_literal,
+    )
+
+    profile_database = database
+    profile_table = table
+    notes: tuple[str, ...] = ()
+    if engine == "Distributed":
+        match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
+        if not match:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=(
+                        "clickhouse distributed physical profile dereference failed: "
+                        "could not resolve local table from engine_full"
+                    ),
+                )
+            )
+            return None
+        profile_database = match.group(2)
+        profile_table = match.group(3)
+        notes = (
+            f"resolved Distributed table to {profile_database}.{profile_table}; "
+            "profile is not cluster-wide",
+        )
+    try:
+        rows = _query_rows(
+            backend,
+            "SELECT sum(rows) AS row_count, sum(bytes_on_disk) AS size_bytes "
+            "FROM system.parts "
+            "WHERE active "
+            f"AND database = {_quote_literal(profile_database)} "
+            f"AND table = {_quote_literal(profile_table)}",
+        )
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"clickhouse physical profile query failed: {exc}",
+            )
+        )
+        return None
+    if not rows:
+        return None
+    row = rows[0]
+    row_count = _int_or_none(row.get("row_count"))
+    size_bytes = _int_or_none(row.get("size_bytes"))
+    if row_count is None and size_bytes is None:
+        return None
+    return TablePhysicalProfile(
+        row_count=row_count,
+        row_count_kind="metadata" if row_count is not None else "unknown",
+        size_bytes=size_bytes,
+        size_kind="on_disk" if size_bytes is not None else "unknown",
+        source="clickhouse.system_parts",
+        notes=notes,
+    )
+
+
 def _inspect_clickhouse(
     *,
     datasource: str,
@@ -269,6 +343,7 @@ def _inspect_clickhouse(
     partition_key = ""
     engine = ""
     engine_full = ""
+    physical_profile: TablePhysicalProfile | None = None
 
     try:
         table_rows = _query_rows(
@@ -393,6 +468,16 @@ def _inspect_clickhouse(
                 )
             )
 
+    if not is_view:
+        physical_profile = _clickhouse_physical_profile(
+            backend=backend,
+            database=ch_database,
+            table=table,
+            engine=engine,
+            engine_full=engine_full,
+            warnings=warnings,
+        )
+
     return TableMetadata(
         datasource=datasource,
         table=table,
@@ -404,6 +489,7 @@ def _inspect_clickhouse(
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
+        physical_profile=physical_profile,
     )
 
 

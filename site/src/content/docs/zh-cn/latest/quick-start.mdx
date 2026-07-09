@@ -151,6 +151,9 @@ md.discover_entity(warehouse, orders_source, scope=scope).show()
 ms.help("entity")
 ```
 
+`md.inspect_table(...).show()` 也会展示 backend 能低成本提供的 physical profile，
+例如估算行数或表大小。缺失这类 profile metadata 不会阻断 discovery。
+
 结合 discovery 证据和 `ms.help("entity")` contract，一次只 author 一个对象，然后运行
 `ms.verify_object(ref)`，通过后再继续。
 

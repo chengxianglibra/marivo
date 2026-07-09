@@ -498,6 +498,8 @@ class EntityDiscoveryResult(RenderableResult):
         )
         if self.issues:
             card.listing("result issues", tuple(_format_issue_line(i) for i in self.issues))
+        if self.table_metadata is not None and self.table_metadata.physical_profile is not None:
+            card.field("physical profile", self.table_metadata.physical_profile.summary())
         if self.table_metadata is not None and self.table_metadata.columns:
             schema_rows = []
             for column in self.table_metadata.columns:

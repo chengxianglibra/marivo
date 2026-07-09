@@ -636,6 +636,10 @@ dimension_evidence.show()
 measure_evidence.show()
 ```
 
+`md.inspect_table(...).show()` includes schema, comments, nullable flags,
+partition hints, and any low-cost physical profile that the backend exposes
+such as estimated rows or table size. Missing profile metadata is non-blocking.
+
 `md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
 table or view inside that datasource. `md.parquet(...)`, `md.csv(...)`, and
 `md.json(...)` are DuckDB file source descriptors used with the datasource ref;

@@ -33,6 +33,9 @@ MetadataWarningKind = Literal[
     "schema_only_fallback",
 ]
 
+RowCountKind = Literal["estimate", "metadata", "unknown"]
+SizeKind = Literal["on_disk", "data_plus_index", "table_stats", "unknown"]
+
 
 @dataclass(frozen=True)
 class MetadataWarning:
@@ -105,6 +108,40 @@ class UniqueConstraintMetadata:
         }
 
 
+@dataclass(frozen=True)
+class TablePhysicalProfile:
+    row_count: int | None
+    row_count_kind: RowCountKind
+    size_bytes: int | None
+    size_kind: SizeKind
+    source: str
+    notes: tuple[str, ...] = ()
+
+    def summary(self) -> str:
+        parts = [
+            f"rows={self.row_count}" if self.row_count is not None else "rows=unknown",
+            f"row_count_kind={self.row_count_kind}",
+            f"size_bytes={self.size_bytes}"
+            if self.size_bytes is not None
+            else "size_bytes=unknown",
+            f"size_kind={self.size_kind}",
+            f"source={self.source}",
+        ]
+        if self.notes:
+            parts.append(f"notes={'; '.join(self.notes)}")
+        return " ".join(parts)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "row_count": self.row_count,
+            "row_count_kind": self.row_count_kind,
+            "size_bytes": self.size_bytes,
+            "size_kind": self.size_kind,
+            "source": self.source,
+            "notes": list(self.notes),
+        }
+
+
 @dataclass(frozen=True, repr=False)
 class TableMetadata(RenderableResult):
     datasource: str
@@ -119,7 +156,7 @@ class TableMetadata(RenderableResult):
     view_definition: str | None = None
     primary_keys: tuple[str, ...] = ()
     unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
-    row_count: int | None = None
+    physical_profile: TablePhysicalProfile | None = None
 
     @property
     def partition(self) -> PartitionMetadata | None:
@@ -163,6 +200,8 @@ class TableMetadata(RenderableResult):
             card.status(" ".join(parts))
         if self.comment:
             card.field(label="comment", value=self.comment)
+        if self.physical_profile is not None:
+            card.field(label="physical profile", value=self.physical_profile.summary())
         card.lazy_table(
             columns=["column", "type", "nullable", "comment"],
             rows_provider=column_rows,
@@ -200,7 +239,9 @@ class TableMetadata(RenderableResult):
             "view_definition": self.view_definition,
             "primary_keys": list(self.primary_keys),
             "unique_constraints": [uc.to_dict() for uc in self.unique_constraints],
-            "row_count": self.row_count,
+            "physical_profile": (
+                self.physical_profile.to_dict() if self.physical_profile is not None else None
+            ),
             "ref": self.ref,
         }
 
@@ -281,6 +322,24 @@ def _empty_to_none(value: object) -> str | None:
         return None
     text = str(value)
     return text if text else None
+
+
+def _int_or_none(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None
 
 
 def _is_missing_metadata_column(exc: Exception, column: str) -> bool:

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         MetadataWarning,
         PartitionMetadata,
         TableMetadata,
+        TablePhysicalProfile,
     )
 
 from marivo.datasource.strptime import python_to_mysql_strptime
@@ -213,6 +214,58 @@ def _trino_partitions_from_show_create(
     return tuple(partitions)
 
 
+def _trino_physical_profile(
+    *,
+    backend: Any,
+    table: str,
+    catalog: str,
+    schema_name: str,
+    warnings: list[MetadataWarning],
+) -> TablePhysicalProfile | None:
+    from marivo.datasource.metadata import (
+        MetadataWarning,
+        TablePhysicalProfile,
+        _int_or_none,
+        _query_rows,
+        _table_ref,
+    )
+
+    try:
+        rows = _query_rows(backend, f"SHOW STATS FOR {_table_ref(table, (catalog, schema_name))}")
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"trino physical profile query failed: {exc}",
+            )
+        )
+        return None
+
+    row_count: int | None = None
+    size_bytes = 0
+    saw_size = False
+    for row in rows:
+        column_name = row.get("column_name")
+        candidate_row_count = _int_or_none(row.get("row_count"))
+        if (
+            column_name is None or str(column_name).strip() == ""
+        ) and candidate_row_count is not None:
+            row_count = candidate_row_count
+        data_size = _int_or_none(row.get("data_size"))
+        if data_size is not None:
+            saw_size = True
+            size_bytes += data_size
+    if row_count is None and not saw_size:
+        return None
+    return TablePhysicalProfile(
+        row_count=row_count,
+        row_count_kind="estimate" if row_count is not None else "unknown",
+        size_bytes=size_bytes if saw_size else None,
+        size_kind="table_stats" if saw_size else "unknown",
+        source="trino.show_stats",
+    )
+
+
 def _inspect_trino(
     *,
     datasource: str,
@@ -259,6 +312,7 @@ def _inspect_trino(
         )
     warnings: list[MetadataWarning] = []
     table_comment: str | None = None
+    physical_profile: TablePhysicalProfile | None = None
 
     table_predicates = [
         f"table_catalog = {_quote_literal(catalog)}",
@@ -367,6 +421,15 @@ def _inspect_trino(
                 )
             )
 
+    if not is_view:
+        physical_profile = _trino_physical_profile(
+            backend=backend,
+            table=table,
+            catalog=catalog,
+            schema_name=schema_name,
+            warnings=warnings,
+        )
+
     return TableMetadata(
         datasource=datasource,
         table=table,
@@ -378,6 +441,7 @@ def _inspect_trino(
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
+        physical_profile=physical_profile,
     )
 
 

@@ -59,9 +59,11 @@ def _inspect_mysql(
         MetadataWarning,
         PartitionMetadata,
         TableMetadata,
+        TablePhysicalProfile,
         _bool_from_nullable,
         _database_label,
         _empty_to_none,
+        _int_or_none,
         _merge_columns,
         _partition_column_from_expression,
         _query_rows,
@@ -73,10 +75,12 @@ def _inspect_mysql(
     schema_columns = _schema_columns(table_expr)
     schema_name = _database_label(database) or default_database
     table_comment: str | None = None
+    physical_profile: TablePhysicalProfile | None = None
     warnings: list[MetadataWarning] = []
 
     table_comment_sql = (
-        "SELECT TABLE_COMMENT FROM information_schema.tables "
+        "SELECT TABLE_COMMENT, TABLE_ROWS, DATA_LENGTH, INDEX_LENGTH "
+        "FROM information_schema.tables "
         f"WHERE table_name = {_quote_literal(table)}"
     )
     if schema_name is not None:
@@ -84,7 +88,24 @@ def _inspect_mysql(
     try:
         table_rows = _query_rows(backend, table_comment_sql)
         if table_rows:
-            table_comment = _empty_to_none(table_rows[0].get("TABLE_COMMENT"))
+            row = table_rows[0]
+            table_comment = _empty_to_none(row.get("TABLE_COMMENT"))
+            row_count = _int_or_none(row.get("TABLE_ROWS"))
+            data_length = _int_or_none(row.get("DATA_LENGTH"))
+            index_length = _int_or_none(row.get("INDEX_LENGTH"))
+            size_bytes = (
+                (data_length or 0) + (index_length or 0)
+                if data_length is not None or index_length is not None
+                else None
+            )
+            if row_count is not None or size_bytes is not None:
+                physical_profile = TablePhysicalProfile(
+                    row_count=row_count,
+                    row_count_kind="estimate" if row_count is not None else "unknown",
+                    size_bytes=size_bytes,
+                    size_kind="data_plus_index" if size_bytes is not None else "unknown",
+                    source="mysql.information_schema.tables",
+                )
     except Exception as exc:
         warnings.append(
             MetadataWarning(
@@ -189,6 +210,7 @@ def _inspect_mysql(
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
+        physical_profile=physical_profile,
     )
 
 

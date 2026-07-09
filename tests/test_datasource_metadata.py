@@ -24,6 +24,7 @@ from marivo.datasource.metadata import (
     MetadataWarning,
     PartitionMetadata,
     TableMetadata,
+    TablePhysicalProfile,
     _inspect_source,
 )
 from marivo.datasource.metadata import (
@@ -62,6 +63,14 @@ def test_table_metadata_to_dict_is_json_safe() -> None:
                 message="partition metadata is not exposed",
             ),
         ),
+        physical_profile=TablePhysicalProfile(
+            row_count=1200,
+            row_count_kind="estimate",
+            size_bytes=4096,
+            size_kind="on_disk",
+            source="test.catalog",
+            notes=("metadata-only",),
+        ),
     )
 
     payload = metadata.to_dict()
@@ -70,7 +79,10 @@ def test_table_metadata_to_dict_is_json_safe() -> None:
     assert payload["database"] == ["analytics", "public"]
     assert payload["columns"][0]["nullable"] is False
     assert payload["partitions"][0]["name"] == "order_date"
+    assert payload["physical_profile"]["row_count"] == 1200
+    assert payload["physical_profile"]["source"] == "test.catalog"
     assert json.loads(json.dumps(payload))["warnings"][0]["kind"] == "partitions_unavailable"
+    assert "row_count" not in payload
 
 
 def test_table_metadata_to_dict_includes_view_fields() -> None:
@@ -145,6 +157,13 @@ def test_table_metadata_renders_shared_card_shape_and_uses_default_cap() -> None
             ),
         ),
         is_view=True,
+        physical_profile=TablePhysicalProfile(
+            row_count=1200,
+            row_count_kind="estimate",
+            size_bytes=4096,
+            size_kind="on_disk",
+            source="test.catalog",
+        ),
     )
 
     assert metadata.render() == "\n".join(
@@ -152,6 +171,7 @@ def test_table_metadata_renders_shared_card_shape_and_uses_default_cap() -> None
             "TableMetadata ref=wh.analytics.public.orders backend=duckdb columns=2",
             "status: view=yes warnings=1 partitions=1",
             "comment: One row per order.",
+            "physical profile: rows=1200 row_count_kind=estimate size_bytes=4096 size_kind=on_disk source=test.catalog",
             "columns: column | type | nullable | comment",
             "preview:",
             "order_id | int64 | N | Unique order id.",
@@ -439,6 +459,52 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
     assert any("SHOW FULL COLUMNS" in query for query in backend.queries)
 
 
+def test_inspect_table_mysql_populates_physical_profile(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MYSQL_USER", "reader")
+    md.register(
+        _spec(
+            "mysql_wh",
+            backend_type="mysql",
+            host="localhost",
+            user_env="MYSQL_USER",
+            database="mart",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "amount": "float64"},
+        {
+            "information_schema.tables": _FakeCursor(
+                ["TABLE_COMMENT", "TABLE_ROWS", "DATA_LENGTH", "INDEX_LENGTH"],
+                [("One row per order", 1200, 4096, 1024)],
+            ),
+            "SHOW FULL COLUMNS": _FakeCursor(
+                ["Field", "Type", "Null", "Comment"],
+                [
+                    ("order_id", "bigint", "NO", "Unique order id"),
+                    ("amount", "double", "YES", "Gross amount"),
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("mysql_wh", table="mart.orders")
+
+    assert metadata.physical_profile == TablePhysicalProfile(
+        row_count=1200,
+        row_count_kind="estimate",
+        size_bytes=5120,
+        size_kind="data_plus_index",
+        source="mysql.information_schema.tables",
+    )
+
+
 def test_public_inspect_partitions_mysql_discovers_field_and_uses_bounded_sample(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -594,6 +660,54 @@ def test_public_inspect_partitions_postgres_discovers_multi_column_partition_key
     assert 'md.partition({"log_date": "20260629", "log_hour": "15"})' in rendered
 
 
+def test_inspect_table_postgres_populates_physical_profile(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PG_USER", "reader")
+    md.register(
+        _spec(
+            "pg_wh",
+            backend_type="postgres",
+            host="localhost",
+            user_env="PG_USER",
+            database="mart",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "amount": "float64"},
+        {
+            "obj_description": _FakeCursor(["comment"], [("Orders",)]),
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", 1),
+                    ("amount", "double precision", "YES", 2),
+                ],
+            ),
+            "pg_total_relation_size": _FakeCursor(
+                ["reltuples", "total_relation_size"],
+                [(1200.0, 8192)],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("pg_wh", table="orders", database="analytics")
+
+    assert metadata.physical_profile == TablePhysicalProfile(
+        row_count=1200,
+        row_count_kind="estimate",
+        size_bytes=8192,
+        size_kind="on_disk",
+        source="postgres.pg_class",
+    )
+
+
 def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -717,6 +831,95 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     assert any("table_schema = 'analytics'" in query for query in backend.queries)
     assert any("table_name = 'orders'" in query for query in backend.queries)
     assert any("information_schema.columns" in query for query in backend.queries)
+
+
+def test_inspect_table_trino_populates_physical_profile_from_show_stats(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64", "amount": "float64"},
+        {
+            "information_schema.tables": _FakeCursor(["comment"], [("Orders",)]),
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [
+                    ("order_id", "bigint", "NO", None, 1),
+                    ("amount", "double", "YES", None, 2),
+                ],
+            ),
+            "SHOW STATS FOR": _FakeCursor(
+                ["column_name", "data_size", "row_count"],
+                [
+                    ("order_id", 800, None),
+                    ("amount", 1200, None),
+                    (None, None, 1200),
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("trino_wh", table="orders")
+
+    assert metadata.physical_profile == TablePhysicalProfile(
+        row_count=1200,
+        row_count_kind="estimate",
+        size_bytes=2000,
+        size_kind="table_stats",
+        source="trino.show_stats",
+    )
+    assert any("SHOW STATS FOR" in query for query in backend.queries)
+
+
+def test_inspect_table_trino_stats_failure_is_warning_only(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            schema="analytics",
+        )
+    )
+    backend = _FakeBackend(
+        {"order_id": "int64"},
+        {
+            "information_schema.tables": _FakeCursor(["comment"], [("Orders",)]),
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                [("order_id", "bigint", "NO", None, 1)],
+            ),
+        },
+        raise_on_tokens=["SHOW STATS FOR"],
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("trino_wh", table="orders")
+
+    assert metadata.comment == "Orders"
+    assert metadata.physical_profile is None
+    assert any(
+        "trino physical profile query failed" in warning.message for warning in metadata.warnings
+    )
 
 
 def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailable(
@@ -1201,7 +1404,7 @@ def test_public_inspect_partitions_clickhouse_transformed_partition_unavailable(
     assert "Partition values unavailable" in rendered
     assert "without scanning data" in rendered
     assert "md.raw_sql" in rendered
-    assert not any("system.parts" in query for query in backend.queries)
+    assert not any("SELECT partition AS" in query for query in backend.queries)
 
 
 def test_public_inspect_partitions_clickhouse_bare_partition_uses_system_parts(
@@ -1421,6 +1624,47 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
     assert metadata.partitions[0].name == "created_at"
     assert metadata.partitions[0].transform == "toYYYYMM"
     assert metadata.partitions[0].type == "DateTime"
+
+
+def test_inspect_table_clickhouse_populates_physical_profile_from_system_parts(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec("ch_profile", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"event_id": "string", "value": "float64"},
+        {
+            "system.tables": _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [("Events", "", "MergeTree", "")],
+            ),
+            "system.columns": _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("event_id", "String", 0, "", 1), ("value", "Float64", 0, "", 2)],
+            ),
+            "sum(rows)": _FakeQueryResult(
+                ("row_count", "size_bytes"),
+                [(1200, 8192)],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("ch_profile", table="analytics.events")
+
+    assert metadata.physical_profile == TablePhysicalProfile(
+        row_count=1200,
+        row_count_kind="metadata",
+        size_bytes=8192,
+        size_kind="on_disk",
+        source="clickhouse.system_parts",
+    )
+    assert any("system.parts" in query and "sum(rows)" in query for query in backend.queries)
 
 
 @pytest.mark.parametrize("engine", ["View", "MaterializedView"])
@@ -1829,11 +2073,60 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
     )
 
 
+def test_inspect_table_clickhouse_distributed_profile_notes_local_metadata(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec("ch_dist_profile", backend_type="clickhouse", host="ch.example", database="analytics")
+    )
+    backend = _FakeBackend(
+        {"event_id": "string", "dt": "string"},
+        {},
+        sequential_results=[
+            _FakeQueryResult(
+                ("comment", "partition_key", "engine", "engine_full"),
+                [
+                    (
+                        "Events",
+                        "",
+                        "Distributed",
+                        "Distributed('cluster1', 'analytics', 'events_local', rand())",
+                    )
+                ],
+            ),
+            _FakeQueryResult(
+                ("name", "type", "is_nullable", "comment", "position"),
+                [("event_id", "String", 0, "", 1), ("dt", "String", 0, "", 2)],
+            ),
+            _FakeQueryResult(("partition_key",), [("dt",)]),
+            _FakeQueryResult(("row_count", "size_bytes"), [(1200, 8192)]),
+        ],
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table("ch_dist_profile", table="analytics.events_dist")
+
+    assert metadata.physical_profile == TablePhysicalProfile(
+        row_count=1200,
+        row_count_kind="metadata",
+        size_bytes=8192,
+        size_kind="on_disk",
+        source="clickhouse.system_parts",
+        notes=(
+            "resolved Distributed table to analytics.events_local; profile is not cluster-wide",
+        ),
+    )
+
+
 def test_inspect_table_clickhouse_distributed_dereference_failure(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Distributed table with unparseable engine_full → empty partitions + warning."""
+    """Distributed table with unparseable engine_full has no local physical profile."""
     md.register(
         _spec("ch_dist_fail", backend_type="clickhouse", host="ch.example", database="analytics")
     )
@@ -1848,6 +2141,10 @@ def test_inspect_table_clickhouse_distributed_dereference_failure(
                 ("name", "type", "is_nullable", "comment", "position"),
                 [("event_id", "String", 0, "", 1)],
             ),
+            "sum(rows)": _FakeQueryResult(
+                ("row_count", "size_bytes"),
+                [(0, 0)],
+            ),
         },
     )
 
@@ -1858,7 +2155,12 @@ def test_inspect_table_clickhouse_distributed_dereference_failure(
     metadata = _inspect_table("ch_dist_fail", table="analytics.events")
 
     assert metadata.partitions == ()
+    assert metadata.physical_profile is None
     assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
+    assert any(
+        "clickhouse distributed physical profile dereference failed" in warning.message
+        for warning in metadata.warnings
+    )
 
 
 def test_inspect_table_clickhouse_system_tables_fallback(
@@ -2081,6 +2383,26 @@ def test_inspect_table_duckdb_populates_primary_keys_and_unique(
     assert not any(w.kind == "primary_keys_unavailable" for w in metadata.warnings)
 
 
+def test_inspect_table_duckdb_populates_physical_profile_from_estimated_size(
+    project_root: Path,
+) -> None:
+    db_path = project_root / "warehouse.duckdb"
+    con = ibis.duckdb.connect(str(db_path))
+    con.raw_sql("CREATE TABLE orders AS SELECT range AS order_id FROM range(12)")
+    con.disconnect()
+    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+
+    metadata = _inspect_table("wh", table="orders")
+
+    assert metadata.physical_profile == TablePhysicalProfile(
+        row_count=12,
+        row_count_kind="estimate",
+        size_bytes=None,
+        size_kind="unknown",
+        source="duckdb.duckdb_tables",
+    )
+
+
 def test_table_metadata_to_dict_includes_key_constraints() -> None:
     from marivo.datasource.metadata import UniqueConstraintMetadata
 
@@ -2101,7 +2423,8 @@ def test_table_metadata_to_dict_includes_key_constraints() -> None:
     payload = metadata.to_dict()
     assert payload["primary_keys"] == ["order_id"]
     assert payload["unique_constraints"][0]["columns"] == ["customer_id"]
-    assert payload["row_count"] is None
+    assert payload["physical_profile"] is None
+    assert "row_count" not in payload
     assert json.loads(json.dumps(payload))["primary_keys"] == ["order_id"]
 
 
