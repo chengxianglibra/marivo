@@ -15,6 +15,7 @@ from marivo.datasource.errors import DatasourceMetadataError
 from marivo.datasource.ir import (
     CsvSourceIR,
     EntitySourceIR,
+    JsonSourceIR,
     ParquetSourceIR,
     TableSourceIR,
     source_name,
@@ -520,7 +521,7 @@ def _inspect_source(
             include_partitions=include_partitions,
             project_root=project_root,
         )
-    if not isinstance(source, (ParquetSourceIR, CsvSourceIR)):
+    if not isinstance(source, (ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         raise DatasourceMetadataError(
             message=f"unsupported datasource source kind {getattr(source, 'kind', None)!r}",
             details={"datasource": datasource, "source_kind": getattr(source, "kind", None)},
@@ -534,27 +535,34 @@ def _inspect_source(
         )
     try:
         backend = _backends.build_backend(datasource_ir)
+        kwargs: dict[str, object] = {}
         if isinstance(source, ParquetSourceIR):
             reader = getattr(backend, "read_parquet", None)
             if reader is None:
                 raise AttributeError("backend has no read_parquet()")
-            kwargs: dict[str, object] = {}
             if source.hive_partitioning:
                 kwargs["hive_partitioning"] = source.hive_partitioning
             if source.columns is not None:
                 kwargs["columns"] = list(source.columns)
             table_expr = reader(source.path, **kwargs)
-        else:  # CsvSourceIR
+        elif isinstance(source, CsvSourceIR):
             reader = getattr(backend, "read_csv", None)
             if reader is None:
                 raise AttributeError("backend has no read_csv()")
-            kwargs = {}
             if not source.header:
                 kwargs["header"] = source.header
             if source.delimiter != ",":
                 kwargs["delimiter"] = source.delimiter
             if source.columns is not None:
                 kwargs["columns"] = list(source.columns)
+            table_expr = reader(source.path, **kwargs)
+        elif isinstance(source, JsonSourceIR):
+            _backends.apply_json_http_settings(backend, source)
+            reader = getattr(backend, "read_json", None)
+            if reader is None:
+                raise AttributeError("backend has no read_json()")
+            if source.format != "auto":
+                kwargs["format"] = source.format
             table_expr = reader(source.path, **kwargs)
     except Exception as exc:
         raise DatasourceMetadataError(

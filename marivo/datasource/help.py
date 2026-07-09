@@ -56,6 +56,7 @@ def _authoring_topic() -> Descriptor:
                 "",
                 '1. Pick a backend and read its constructor help: md.help("<backend>")',
                 "   (clickhouse, trino, postgres, mysql, duckdb). md.help() lists every entry.",
+                "   File sources use the DuckDB family: md.parquet(...), md.csv(...), md.json(...).",
                 '2. Declare a typed spec, e.g. md.clickhouse(name=..., host_env="HOST", ...).',
                 "   Credentials are *_env references: host_env, port_env, user_env, password_env.",
                 "   Environment variables provide the secrets; never inline literal secrets.",
@@ -150,8 +151,12 @@ def _surface() -> Surface:
         topics,
         overrides={
             "TableSource": (
-                "Union of table, parquet, and csv source IRs returned by "
-                "md.table(), md.parquet(), and md.csv()."
+                "Union of table, parquet, CSV, and JSON source IRs returned by "
+                "md.table(), md.parquet(), md.csv(), and md.json()."
+            ),
+            "json": (
+                "Build a JsonSourceIR for local files, glob patterns, or http(s):// URLs; "
+                "supports format='auto', 'newline_delimited', or 'array'."
             ),
         },
     )

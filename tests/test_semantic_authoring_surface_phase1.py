@@ -67,6 +67,33 @@ def test_typed_source_builders_have_no_options_bag() -> None:
     }
 
 
+def test_json_source_ir_has_minimal_json_shape() -> None:
+    from marivo.datasource.ir import JsonSourceIR
+
+    source = JsonSourceIR(path="data/events/*.json", format="newline_delimited")
+
+    assert source.kind == "json"
+    assert source.path == "data/events/*.json"
+    assert source.format == "newline_delimited"
+    assert source.to_ir() is source
+    assert source.to_dict() == {
+        "kind": "json",
+        "path": "data/events/*.json",
+        "format": "newline_delimited",
+    }
+
+
+def test_json_source_ir_rejects_empty_path_bad_format_and_bad_kind() -> None:
+    from marivo.datasource.ir import JsonSourceIR
+
+    with pytest.raises(ValueError, match=r"JsonSourceIR\.path"):
+        JsonSourceIR(path="")
+    with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
+        JsonSourceIR(path="events.json", format="ndjson")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"JsonSourceIR\.kind"):
+        JsonSourceIR(path="events.json", kind="csv")  # type: ignore[arg-type]
+
+
 def test_source_value_objects_reject_invalid_payloads() -> None:
     with pytest.raises(TypeError, match=r"TableSourceIR\.table"):
         TableSourceIR(table=42)  # type: ignore[arg-type]
@@ -87,6 +114,8 @@ def test_source_builders_reject_invalid_payloads() -> None:
         md.parquet("/tmp/orders.parquet", columns="id")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"CsvSourceIR\.delimiter"):
         md.csv("/tmp/orders.csv", delimiter=123)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
+        md.json("/tmp/events.json", format="ndjson")  # type: ignore[arg-type]
 
 
 def test_datasource_source_builders_match_semantic_builders() -> None:
@@ -112,6 +141,19 @@ def test_source_from_dict_reads_typed_file_variants() -> None:
         "header": True,
         "delimiter": "\t",
         "columns": None,
+    }
+
+
+def test_source_from_dict_reads_json_variant() -> None:
+    from marivo.datasource.ir import JsonSourceIR
+
+    restored = source_from_dict({"kind": "json", "path": "data/events/*.json", "format": "array"})
+
+    assert restored == JsonSourceIR(path="data/events/*.json", format="array")
+    assert restored.to_dict() == {
+        "kind": "json",
+        "path": "data/events/*.json",
+        "format": "array",
     }
 
 

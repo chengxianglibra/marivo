@@ -442,6 +442,33 @@ def test_entity_rejects_invalid_source_value() -> None:
         _exit_ctx()
 
 
+def test_entity_accepts_json_source(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "\n".join(
+                [
+                    "import marivo.datasource as md",
+                    "import marivo.semantic as ms",
+                    "",
+                    "ms.domain(name='sales', owner='Data Team')",
+                    "events = ms.entity(",
+                    "    name='events',",
+                    "    datasource=md.ref('datasource.warehouse'),",
+                    "    source=ms.json('data/events/*.json'),",
+                    ")",
+                ]
+            )
+        }
+    )
+
+    assert project._registry is not None
+    assert project._registry.entities["sales.events"].source.to_dict() == {
+        "kind": "json",
+        "path": "data/events/*.json",
+        "format": "auto",
+    }
+
+
 def test_table_source_constructor() -> None:
     """ms.table, ms.parquet, and ms.csv produce correct IR objects."""
     from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR

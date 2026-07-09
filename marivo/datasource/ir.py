@@ -14,6 +14,7 @@ __all__ = [
     "DatasourceIR",
     "DatasourceSourceLocation",
     "EntitySourceIR",
+    "JsonSourceIR",
     "ParquetSourceIR",
     "TableSourceIR",
     "qualify_provenance_sql",
@@ -75,6 +76,14 @@ def _require_non_empty_str(value: object, field_name: str) -> str:
 def _require_kind(value: object, *, field_name: str, expected: str) -> None:
     if value != expected:
         raise ValueError(f"{field_name} must be {expected!r}, got {value!r}.")
+
+
+_JSON_FORMATS = ("auto", "newline_delimited", "array")
+
+
+def _require_json_format(value: object, field_name: str) -> None:
+    if value not in _JSON_FORMATS:
+        raise TypeError(f"{field_name} must be one of {_JSON_FORMATS!r}, got {value!r}.")
 
 
 def _validate_database(value: object) -> None:
@@ -189,7 +198,27 @@ class CsvSourceIR:
         return self
 
 
-EntitySourceIR = TableSourceIR | ParquetSourceIR | CsvSourceIR
+@dataclass(frozen=True)
+class JsonSourceIR:
+    """Physical JSON source for an entity."""
+
+    path: str
+    format: Literal["auto", "newline_delimited", "array"] = "auto"
+    kind: Literal["json"] = "json"
+
+    def __post_init__(self) -> None:
+        _require_non_empty_str(self.path, "JsonSourceIR.path")
+        _require_json_format(self.format, "JsonSourceIR.format")
+        _require_kind(self.kind, field_name="JsonSourceIR.kind", expected="json")
+
+    def to_dict(self) -> dict[str, object]:
+        return {"kind": self.kind, "path": self.path, "format": self.format}
+
+    def to_ir(self) -> JsonSourceIR:
+        return self
+
+
+EntitySourceIR = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
 _GLOB_CHARS = re.compile(r"[*?\\[]")
 _SOURCE_NAME_CHARS = re.compile(r"[^0-9A-Za-z_]+")

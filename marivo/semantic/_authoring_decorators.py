@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.scan import csv as _datasource_csv
+from marivo.datasource.scan import json as _datasource_json
 from marivo.datasource.scan import parquet as _datasource_parquet
 from marivo.datasource.scan import table as _datasource_table
 from marivo.semantic._authoring_context import (
@@ -46,6 +47,7 @@ from marivo.semantic.ir import (
     EntityIR,
     EntitySourceIR,
     JoinKey,
+    JsonSourceIR,
     MeasureIR,
     ParquetSourceIR,
     RelationshipIR,
@@ -94,6 +96,16 @@ def csv(
     return _datasource_csv(path, header=header, delimiter=delimiter, columns=columns)
 
 
+def json(
+    path: str,
+    /,
+    *,
+    format: Literal["auto", "newline_delimited", "array"] = "auto",
+) -> JsonSourceIR:
+    """Build a structured JSON source for ``ms.entity(source=...)``."""
+    return _datasource_json(path, format=format)
+
+
 def entity(
     *,
     name: str,
@@ -109,8 +121,8 @@ def entity(
     Args:
         name: Entity name.
         datasource: Datasource ref returned by ``md.ref(...)``.
-        source: Structured physical source, usually ``ms.table(...)`` or
-            ``ms.parquet(...)``, or ``ms.csv(...)``.
+        source: Structured physical source, usually ``ms.table(...)``,
+            ``ms.parquet(...)``, ``ms.csv(...)``, or ``ms.json(...)``.
         primary_key: Optional list of column names forming the primary key.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -134,10 +146,10 @@ def entity(
     resolved_domain = _resolve_domain(domain, ctx)
     semantic_id = f"{resolved_domain}.{name}"
     _check_duplicate(ctx, semantic_id, EntityIR)
-    if not isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR)):
+    if not isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         _raise(
             ErrorKind.INVALID_REF,
-            "ms.entity(source=...) accepts ms.table(...), ms.parquet(...), or ms.csv(...).",
+            "ms.entity(source=...) accepts ms.table(...), ms.parquet(...), ms.csv(...), or ms.json(...).",
             cls=SemanticDecoratorError,
             refs=(semantic_id,),
             constraint_id=ConstraintId.REF_SHAPE,

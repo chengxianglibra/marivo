@@ -40,12 +40,12 @@ from marivo.render import AgentResult, RenderableResult
 
 
 def test_table_source_is_entity_source_union() -> None:
-    from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
+    from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 
     # TableSource is the union alias; each concrete IR is an instance of it
     # at runtime (isinstance checks against the alias are not valid, but the
     # alias must equal the union type object).
-    assert TableSource == TableSourceIR | ParquetSourceIR | CsvSourceIR
+    assert TableSource == TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
 
 def test_partition_records_explicit_values() -> None:

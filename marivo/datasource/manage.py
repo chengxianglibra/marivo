@@ -33,7 +33,13 @@ from marivo.datasource.errors import (
     DatasourcePreviewError,
     DatasourceRawSqlError,
 )
-from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.ir import (
+    CsvSourceIR,
+    EntitySourceIR,
+    JsonSourceIR,
+    ParquetSourceIR,
+    TableSourceIR,
+)
 from marivo.datasource.metadata import _inspect_source
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.scan import (
@@ -588,7 +594,7 @@ def inspect_table(
 
     Args:
         datasource: Datasource reference returned by ``md.ref(...)``.
-        source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
+        source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, ``md.csv()``, or ``md.json()``).
             Pass either ``source`` or ``table``, not both.
         table: Table name within the datasource (alternative to ``source``).
         database: Optional database/catalog path.
@@ -899,7 +905,7 @@ def _inspect_columns(
 
     Args:
         datasource: Name of the project datasource.
-        source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, or ``md.csv()``).
+        source: An ``EntitySourceIR`` (from ``md.table()``, ``md.parquet()``, ``md.csv()``, or ``md.json()``).
         columns: Column names to profile; ``None`` profiles all columns
             (capped by ``scope.max_columns``).
         scope: Bounded scan configuration; defaults to ``ScanScope()``.
@@ -1031,7 +1037,7 @@ def _inspect_columns(
     return ColumnInspection(
         datasource=datasource,
         source=source
-        if isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR))
+        if isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR))
         else TableSourceIR(table=str(source)),
         profiles=tuple(profiles),
         scan=scan_report,
@@ -1071,6 +1077,12 @@ def _execute_scoped_sample(
             if source.columns is not None:
                 csv_kwargs["columns"] = builtins.list(source.columns)
             expr = backend.read_csv(source.path, **csv_kwargs)
+        elif isinstance(source, JsonSourceIR):
+            _backends.apply_json_http_settings(backend, source)
+            json_kwargs: dict[str, object] = {}
+            if source.format != "auto":
+                json_kwargs["format"] = source.format
+            expr = backend.read_json(source.path, **json_kwargs)
         else:
             raise TypeError(f"unsupported source type: {type(source).__name__}")
 

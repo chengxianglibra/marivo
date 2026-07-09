@@ -57,6 +57,16 @@ md.discover_time_dimensions(warehouse, orders, columns=("dt",), scope=scope).sho
 md.discover_measures(warehouse, orders, columns=("amount",), scope=scope).show()
 ```
 
+File sources use the datasource constructors first, then the same discovery loop:
+
+```python
+events = md.json("data/events/*.json", format="newline_delimited")
+md.inspect_table(warehouse, events).show()
+md.discover_entity(warehouse, events).show()
+```
+
+Use `md.help("json")` for the exact static contract. The skill owns workflow only; parameter defaults and omit rules live in `md.help`.
+
 `md.inspect_table(...)` is the first-class schema path for entity authoring.
 Read rendered schema columns and partition columns before asking the user or
 using SQL diagnostics.

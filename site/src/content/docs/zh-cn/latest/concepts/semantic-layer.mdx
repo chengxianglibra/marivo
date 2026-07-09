@@ -231,7 +231,7 @@ Entity 表示一个物理源（一张表或一个文件）及其 primary key。d
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Entity 名称。成为 `<domain>.<name>`。 |
 | `datasource` | `DatasourceRef` | 是 | — | `md.ref("datasource.warehouse")`。 |
-| `source` | source builder | 是 | — | `ms.table(...)`、`ms.parquet(...)` 或 `ms.csv(...)`。 |
+| `source` | source builder | 是 | — | `ms.table(...)`、`ms.parquet(...)`、`ms.csv(...)` 或 `ms.json(...)`。 |
 | `primary_key` | `list[str]` | 否 | `None` | 构成 primary key 的列名。 |
 | `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | Snapshot 或 SCD2 validity 版本控制（见下）。 |
 | `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
@@ -256,6 +256,7 @@ orders = ms.entity(
 | `ms.table(name)` | `name` | `database` | datasource 中的一张表（Trino/MySQL 用 `database="schema"`）。 |
 | `ms.parquet(path)` | `path` | `hive_partitioning`、`columns` | Parquet 文件（通常经 DuckDB）。 |
 | `ms.csv(path)` | `path` | `header`、`delimiter`、`columns` | CSV 文件（通常经 DuckDB）。 |
+| `ms.json(path)` | `path` | `format` | 固定 schema 的 JSON 文件、glob pattern，或 DuckDB httpfs 可读取的 `http(s)://` URL。 |
 
 ### Versioning（可选）
 

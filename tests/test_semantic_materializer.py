@@ -277,6 +277,31 @@ def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -
     assert "does not support csv file sources" in exc_info.value.message
 
 
+def test_dataset_json_source_requires_backend_reader(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(\n"
+                "    name='orders',\n"
+                "    datasource=md.ref('datasource.warehouse'),\n"
+                "    source=ms.json('/data/orders.json'),\n"
+                ")\n"
+            ),
+        }
+    )
+
+    with (
+        _patch_connection_service(project, lambda _: object()),
+        pytest.raises(SemanticRuntimeError) as exc_info,
+    ):
+        _materialize_dataset(project, "sales.orders")
+
+    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
+    assert "json file sources" in exc_info.value.message
+
+
 # ---------------------------------------------------------------------------
 # Field materialize
 # ---------------------------------------------------------------------------

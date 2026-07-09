@@ -11,7 +11,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from marivo.datasource.ir import CsvSourceIR, EntitySourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.backends import apply_json_http_settings
+from marivo.datasource.ir import (
+    CsvSourceIR,
+    EntitySourceIR,
+    JsonSourceIR,
+    ParquetSourceIR,
+    TableSourceIR,
+)
 from marivo.datasource.scan import PartitionResolution, ScanReport
 
 
@@ -36,7 +43,8 @@ def scoped_entity_expression(
     backend:
         Live ibis backend for the entity's datasource.
     entity_source:
-        Physical source descriptor (TableSourceIR, ParquetSourceIR, or CsvSourceIR).
+        Physical source descriptor (TableSourceIR, ParquetSourceIR,
+        CsvSourceIR, or JsonSourceIR).
     partition:
         Explicit partition filter mapping, or ``None`` for unpruned scans.
 
@@ -68,6 +76,12 @@ def scoped_entity_expression(
         if source.columns is not None:
             csv_kwargs["columns"] = list(source.columns)
         expr = backend.read_csv(source.path, **csv_kwargs)
+    elif isinstance(source, JsonSourceIR):
+        apply_json_http_settings(backend, source)
+        json_kwargs: dict[str, object] = {}
+        if source.format != "auto":
+            json_kwargs["format"] = source.format
+        expr = backend.read_json(source.path, **json_kwargs)
     else:
         raise TypeError(f"Unsupported entity source {type(source).__name__}.")
 

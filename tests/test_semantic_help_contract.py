@@ -286,3 +286,14 @@ def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     assert "prepare_" not in text
     assert "recommend" not in text.lower()
     assert text.count("\n") <= 80
+
+
+def test_entity_source_parameter_includes_json_source_ir() -> None:
+    data = _help_json("entity")
+    content = cast("dict[str, Any]", data["content"])
+    contract = cast("dict[str, Any]", content["authoring_contract"])
+    params = cast("dict[str, dict[str, Any]]", contract["parameters"])
+    source_param = params["source"]
+    assert "JsonSourceIR" in cast("str", source_param["type"])
+    constraints = cast("list[str]", contract["static_constraints"])
+    assert any("ms.json(...)" in c for c in constraints)

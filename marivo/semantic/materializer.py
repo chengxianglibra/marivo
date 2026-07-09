@@ -15,12 +15,15 @@ import ibis
 import ibis.expr.types as ir
 from ibis.expr.operations.relations import SQLQueryResult
 
+from marivo.datasource.backends import apply_json_http_settings
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceConfigError
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
     CsvSourceIR,
     EntityProvenance,
+    EntitySourceIR,
+    JsonSourceIR,
     MetricIR,
     ParquetSourceIR,
     TableSourceIR,
@@ -150,7 +153,7 @@ class Materializer:
         self,
         semantic_id: str,
         backend: IbisBackend,
-        source: TableSourceIR | ParquetSourceIR | CsvSourceIR,
+        source: EntitySourceIR,
     ) -> ibis.Table:
         if isinstance(source, TableSourceIR):
             if source.database is None:
@@ -198,6 +201,25 @@ class Materializer:
             if source.columns is not None:
                 csv_kwargs["columns"] = list(source.columns)
             return reader(source.path, **csv_kwargs)
+
+        if isinstance(source, JsonSourceIR):
+            apply_json_http_settings(backend, source)
+            reader = getattr(backend, "read_json", None)
+            if reader is None:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    (
+                        f"Entity {semantic_id!r} datasource backend does not support "
+                        f"json file sources."
+                    ),
+                    cls=SemanticRuntimeError,
+                    refs=(semantic_id,),
+                    details={"source_kind": source.kind},
+                )
+            json_kwargs: dict[str, object] = {}
+            if source.format != "auto":
+                json_kwargs["format"] = source.format
+            return reader(source.path, **json_kwargs)
 
         _raise(
             ErrorKind.MATERIALIZE_FAILED,

@@ -9,6 +9,7 @@ from marivo.render import Card, RenderableResult
 from marivo.semantic.ir import (
     CsvSourceIR,
     EntitySourceIR,
+    JsonSourceIR,
     ParquetSourceIR,
     TableSourceIR,
 )
@@ -52,11 +53,11 @@ AuthoringObjectKind = Literal[
 AuthoringSourceRole = Literal["primary", "from", "to", "component"]
 
 ReadinessEffect = Literal["blocks", "warns", "advisory"]
-FileFormat = Literal["parquet", "csv"]
+FileFormat = Literal["parquet", "csv", "json"]
 
 
 TableSource = TableSourceIR
-FileSource = ParquetSourceIR | CsvSourceIR
+FileSource = ParquetSourceIR | CsvSourceIR | JsonSourceIR
 DatasetSource = EntitySourceIR
 
 

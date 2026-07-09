@@ -119,6 +119,7 @@ def test_all_list_matches_expected() -> None:
         "grain_to_date",
         "hour_prefix",
         "join_on",
+        "json",
         "measure",
         "measure_column",
         "metric",

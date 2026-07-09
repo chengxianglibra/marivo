@@ -10,7 +10,7 @@ import re as _re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.datasource.ir import (
@@ -19,6 +19,7 @@ from marivo.datasource.ir import (
     DatasourceIR,
     DatasourceSourceLocation,
     EntitySourceIR,
+    JsonSourceIR,
     ParquetSourceIR,
     TableSourceIR,
     source_name,
@@ -49,6 +50,7 @@ __all__ = [
     "EntityVersioningIR",
     "HourPrefixParse",
     "JoinKey",
+    "JsonSourceIR",
     "LinearComposition",
     "LinearTerm",
     "MeasureIR",
@@ -215,6 +217,12 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
             header=bool(data.get("header", True)),
             delimiter=str(data.get("delimiter", ",")),
             columns=columns,
+        )
+    if kind == "json":
+        raw_format = str(data.get("format", "auto"))
+        return JsonSourceIR(
+            path=str(data["path"]),
+            format=cast('Literal["auto", "newline_delimited", "array"]', raw_format),
         )
     raise ValueError(f"unsupported entity source kind: {kind!r}")
 

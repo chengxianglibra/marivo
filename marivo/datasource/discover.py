@@ -139,7 +139,7 @@ def discover_entity(
 
     Args:
         datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
-        source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
+        source: Physical source returned by ``md.table()``, ``md.parquet()``, ``md.csv()``, or ``md.json()``.
         scope: Optional bounded scan scope. Partitioned tables require
             explicit ``md.partition({...})``.
         project_root: Optional project root for tests and embedded callers.
@@ -198,7 +198,7 @@ def discover_dimensions(
 
     Args:
         datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
-        source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
+        source: Physical source returned by ``md.table()``, ``md.parquet()``, ``md.csv()``, or ``md.json()``.
         columns: Optional physical column subset. ``None`` profiles all columns
             within ``scope.max_columns``.
         scope: Optional bounded scan scope helper result.
@@ -253,7 +253,7 @@ def discover_time_dimensions(
 
     Args:
         datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
-        source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
+        source: Physical source returned by ``md.table()``, ``md.parquet()``, ``md.csv()``, or ``md.json()``.
         columns: Optional candidate column subset.
         scope: Optional bounded scan scope helper result.
         project_root: Optional project root for tests and embedded callers.
@@ -307,7 +307,7 @@ def discover_measures(
 
     Args:
         datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
-        source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
+        source: Physical source returned by ``md.table()``, ``md.parquet()``, ``md.csv()``, or ``md.json()``.
         columns: Optional candidate column subset.
         scope: Optional bounded scan scope helper result.
         project_root: Optional project root for tests and embedded callers.
@@ -479,7 +479,7 @@ def discover_dimension_values(
 
     Args:
         datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
-        source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
+        source: Physical source returned by ``md.table()``, ``md.parquet()``, ``md.csv()``, or ``md.json()``.
         column: Column to sample value counts from.
         scope: Optional bounded scan scope helper result.
         limit: Maximum number of value/count facts to return.
