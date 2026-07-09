@@ -795,15 +795,26 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     backend = _FakeBackend(
         {"order_id": "int64", "amount": "float64"},
         {
-            "information_schema.tables": _FakeCursor(
-                ["comment"],
-                [("One row per order",)],
-            ),
             "information_schema.columns": _FakeCursor(
-                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
                 [
-                    ("order_id", "bigint", "NO", "Unique order id", 1),
-                    ("amount", "double", "YES", "Gross amount", 2),
+                    ("order_id", "bigint", "NO", 1),
+                    ("amount", "double", "YES", 2),
+                ],
+            ),
+            "SHOW COLUMNS FROM": _FakeCursor(
+                ["Column", "Type", "Extra", "Comment"],
+                [
+                    ("order_id", "bigint", "", "Unique order id"),
+                    ("amount", "double", "", "Gross amount"),
+                ],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [
+                    (
+                        "CREATE TABLE hive.analytics.orders (order_id bigint)\nCOMMENT 'One row per order'",
+                    )
                 ],
             ),
         },
@@ -831,6 +842,130 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     assert any("table_schema = 'analytics'" in query for query in backend.queries)
     assert any("table_name = 'orders'" in query for query in backend.queries)
     assert any("information_schema.columns" in query for query in backend.queries)
+    assert not any(
+        query.startswith("SELECT comment FROM information_schema.tables")
+        for query in backend.queries
+    )
+    assert any("SHOW COLUMNS FROM" in query for query in backend.queries)
+
+
+def test_inspect_table_trino_splits_dotted_database_for_metadata_sql(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+        )
+    )
+    backend = _FakeBackend(
+        {"log_date": "string"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [("log_date", "varchar", "NO", 1)],
+            ),
+            "SHOW COLUMNS FROM": _FakeCursor(
+                ["Column", "Type", "Extra", "Comment"],
+                [("log_date", "varchar", "", "Log date")],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [
+                    (
+                        "CREATE TABLE hive.iceberg_inf.dwd_olap_trino_query_info_i_hr (\n"
+                        "   log_date varchar\n"
+                        ")\nWITH (\n"
+                        "   partitioned_by = ARRAY['log_date']\n"
+                        ")",
+                    )
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    metadata = _inspect_table(
+        "trino_wh",
+        table="dwd_olap_trino_query_info_i_hr",
+        database="hive.iceberg_inf",
+    )
+
+    assert backend.table_calls == [("dwd_olap_trino_query_info_i_hr", "hive.iceberg_inf")]
+    assert any("SHOW CREATE TABLE" in query for query in backend.queries), backend.queries
+    assert metadata.partitions == (
+        PartitionMetadata(name="log_date", type="varchar", transform=None, comment=None),
+    )
+    assert any(
+        'SHOW CREATE TABLE "hive"."iceberg_inf"."dwd_olap_trino_query_info_i_hr"' in query
+        for query in backend.queries
+    )
+    assert any(
+        'SHOW STATS FOR "hive"."iceberg_inf"."dwd_olap_trino_query_info_i_hr"' in query
+        for query in backend.queries
+    )
+    assert not any('"hive"."hive.iceberg_inf"' in query for query in backend.queries)
+
+
+def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "trino_wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+        )
+    )
+    backend = _FakeBackend(
+        {"log_date": "string"},
+        {
+            "information_schema.columns": _FakeCursor(
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [("log_date", "varchar", "NO", 1)],
+            ),
+            "SHOW COLUMNS FROM": _FakeCursor(
+                ["Column", "Type", "Extra", "Comment"],
+                [("log_date", "varchar", "", "Log date")],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [
+                    (
+                        "CREATE TABLE hive.iceberg_inf.dwd_olap_trino_query_info_i_hr (\n"
+                        "   log_date varchar\n"
+                        ")\nWITH (\n"
+                        "   partitioned_by = ARRAY['log_date']\n"
+                        ")",
+                    )
+                ],
+            ),
+        },
+    )
+
+    import marivo.datasource.metadata as metadata_mod
+
+    monkeypatch.setattr(metadata_mod._backends, "build_backend", lambda _datasource: backend)
+
+    _inspect_table(
+        "trino_wh",
+        table="dwd_olap_trino_query_info_i_hr",
+        database=("hive", "iceberg_inf"),
+    )
+
+    assert any(
+        'SHOW CREATE TABLE "hive"."iceberg_inf"."dwd_olap_trino_query_info_i_hr"' in query
+        for query in backend.queries
+    )
+    assert not any('"hive"."hive.iceberg_inf"' in query for query in backend.queries)
 
 
 def test_inspect_table_trino_populates_physical_profile_from_show_stats(
@@ -849,13 +984,16 @@ def test_inspect_table_trino_populates_physical_profile_from_show_stats(
     backend = _FakeBackend(
         {"order_id": "int64", "amount": "float64"},
         {
-            "information_schema.tables": _FakeCursor(["comment"], [("Orders",)]),
             "information_schema.columns": _FakeCursor(
-                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
                 [
-                    ("order_id", "bigint", "NO", None, 1),
-                    ("amount", "double", "YES", None, 2),
+                    ("order_id", "bigint", "NO", 1),
+                    ("amount", "double", "YES", 2),
                 ],
+            ),
+            "SHOW COLUMNS FROM": _FakeCursor(
+                ["Column", "Type", "Extra", "Comment"],
+                [("order_id", "bigint", "", None), ("amount", "double", "", None)],
             ),
             "SHOW STATS FOR": _FakeCursor(
                 ["column_name", "data_size", "row_count"],
@@ -900,10 +1038,17 @@ def test_inspect_table_trino_stats_failure_is_warning_only(
     backend = _FakeBackend(
         {"order_id": "int64"},
         {
-            "information_schema.tables": _FakeCursor(["comment"], [("Orders",)]),
             "information_schema.columns": _FakeCursor(
-                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
-                [("order_id", "bigint", "NO", None, 1)],
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [("order_id", "bigint", "NO", 1)],
+            ),
+            "SHOW COLUMNS FROM": _FakeCursor(
+                ["Column", "Type", "Extra", "Comment"],
+                [("order_id", "bigint", "", None)],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [("CREATE TABLE hive.analytics.orders (order_id bigint)\nCOMMENT 'Orders'",)],
             ),
         },
         raise_on_tokens=["SHOW STATS FOR"],
@@ -936,21 +1081,21 @@ def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailab
         )
     )
 
-    class _TableCommentMissingBackend(_FakeBackend):
-        def raw_sql(self, sql: str):
-            if sql.startswith("SELECT comment FROM information_schema.tables"):
-                self.queries.append(sql)
-                raise Exception("COLUMN_NOT_FOUND: line 1:8: Column 'comment' cannot be resolved")
-            return super().raw_sql(sql)
-
-    backend = _TableCommentMissingBackend(
+    backend = _FakeBackend(
         {"order_id": "int64", "amount": "float64"},
         {
             "information_schema.columns": _FakeCursor(
-                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
                 [
-                    ("order_id", "bigint", "NO", "订单ID", 1),
-                    ("amount", "double", "YES", "金额", 2),
+                    ("order_id", "bigint", "NO", 1),
+                    ("amount", "double", "YES", 2),
+                ],
+            ),
+            "SHOW COLUMNS FROM": _FakeCursor(
+                ["Column", "Type", "Extra", "Comment"],
+                [
+                    ("order_id", "bigint", "", "Order id"),
+                    ("amount", "double", "", "Amount"),
                 ],
             ),
         },
@@ -963,8 +1108,8 @@ def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailab
     metadata = _inspect_table("trino_wh", table="orders")
 
     by_name = {column.name: column for column in metadata.columns}
-    assert by_name["order_id"].comment == "订单ID"
-    assert by_name["amount"].comment == "金额"
+    assert by_name["order_id"].comment == "Order id"
+    assert by_name["amount"].comment == "Amount"
     warning_kinds = {warning.kind for warning in metadata.warnings}
     assert "table_comments_unavailable" in warning_kinds
     assert "comments_unavailable" not in warning_kinds
@@ -988,10 +1133,13 @@ def test_inspect_table_trino_detects_view_definition(
         {"order_id": "int64"},
         {},
         sequential_results=[
-            _FakeCursor(["comment"], [("View of orders",)]),
             _FakeCursor(
-                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
-                [("order_id", "bigint", "NO", "Unique order id", 1)],
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [("order_id", "bigint", "NO", 1)],
+            ),
+            _FakeCursor(
+                ["Column", "Type", "Extra", "Comment"],
+                [("order_id", "bigint", "", "Unique order id")],
             ),
             _FakeCursor(["table_type"], [("VIEW",)]),
             _FakeCursor(["view_definition"], [("SELECT order_id FROM analytics.orders",)]),
@@ -1035,10 +1183,17 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
     backend = _FakeBackend(
         {"order_id": "int64"},
         {
-            "information_schema.tables": _FakeCursor(["comment"], [("Orders",)]),
             "information_schema.columns": _FakeCursor(
-                ["column_name", "data_type", "is_nullable", "comment", "ordinal_position"],
-                [("order_id", "bigint", "NO", "Unique order id", 1)],
+                ["column_name", "data_type", "is_nullable", "ordinal_position"],
+                [("order_id", "bigint", "NO", 1)],
+            ),
+            "SHOW COLUMNS FROM": _FakeCursor(
+                ["Column", "Type", "Extra", "Comment"],
+                [("order_id", "bigint", "", "Unique order id")],
+            ),
+            "SHOW CREATE TABLE": _FakeCursor(
+                ["Create Table"],
+                [("CREATE TABLE hive.analytics.orders (order_id bigint)\nCOMMENT 'Orders'",)],
             ),
         },
     )
@@ -1082,7 +1237,7 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
                 ],
             ),
         },
-        raise_on_tokens=["comment"],
+        raise_on_tokens=["SHOW COLUMNS FROM"],
     )
 
     import marivo.datasource.metadata as metadata_mod
@@ -1096,7 +1251,7 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
     assert by_name["order_id"].nullable is False
     assert by_name["amount"].type == "double"
     assert by_name["amount"].comment is None
-    assert any("comment" in query for query in backend.queries)
+    assert any("SHOW COLUMNS FROM" in query for query in backend.queries)
     assert any(
         "SELECT column_name, data_type, is_nullable, ordinal_position" in query
         for query in backend.queries

@@ -186,6 +186,14 @@ def test_backend_help_examples_show_register_test_chain() -> None:
         )
 
 
+def test_trino_help_example_does_not_use_catalog_as_table_database() -> None:
+    text = md.help_text("trino")
+
+    assert 'md.table("orders", database="hive")' not in text
+    assert 'schema="analytics"' in text
+    assert 'md.inspect_table(spec.ref, md.table("orders")).show()' in text
+
+
 def test_duckdb_help_examples_show_internal_table_and_file_source() -> None:
     text = md.help_text("duckdb")
 

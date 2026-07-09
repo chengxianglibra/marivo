@@ -597,12 +597,13 @@ def trino(
         ...     name="warehouse",
         ...     host="trino.example",
         ...     catalog="hive",
+        ...     schema="analytics",
         ...     user_env="WAREHOUSE_USER",
         ...     auth_env="WAREHOUSE_AUTH",
         ... )
         >>> md.register(spec)
         >>> md.test(spec.ref).show()
-        >>> md.inspect_table(spec.ref, md.table("orders", database="hive")).show()
+        >>> md.inspect_table(spec.ref, md.table("orders")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically
