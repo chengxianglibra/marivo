@@ -89,6 +89,7 @@ class _TransformParams:
     mode: str | None
     baseline: Any
     window: Any
+    grain: str | None = None
 
 
 _TransformHandlerResult = tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]
@@ -116,6 +117,7 @@ def _transform_dispatch(
     mode: str | None = None,
     baseline: Any = None,
     window: Any = None,
+    grain: str | None = None,
     analysis_purpose: str | None = None,
     _triggered_by: TriggeredByFollowup | None = None,
 ) -> MetricFrame | DeltaFrame:
@@ -133,8 +135,9 @@ def _transform_dispatch(
 
             - ``filter``: row filter on a derived ``predicate``.
             - ``slice``: row filter on raw axis values; pass ``where``.
-            - ``rollup``: aggregate to coarser segments; pass ``by`` and
-              optional ``drop_axes``.
+            - ``rollup``: aggregate to coarser segments; pass ``drop_axes``
+              and/or ``grain`` (re-bucket the time axis). At least one is
+              required.
             - ``topk`` / ``bottomk``: keep best/worst N rows; pass ``limit``,
               optional ``order``.
             - ``rank``: add a rank column; pass ``method``, ``rank_column``.
@@ -232,11 +235,12 @@ def _transform_dispatch(
         mode=mode,
         baseline=baseline,
         window=window,
+        grain=grain,
     )
     started_at = datetime.now(UTC)
     started_monotonic = monotonic()
     new_df, meta_overrides, op_params = handler(frame, params)
-    return _persist_transform_frame(
+    result = _persist_transform_frame(
         session=session,
         parent=frame,
         df=new_df,
@@ -252,6 +256,17 @@ def _transform_dispatch(
         analysis_purpose=analysis_purpose,
         triggered_by_followup=_triggered_by,
     )
+    coverage_df = meta_overrides.get("coverage_df")
+    if coverage_df is not None and isinstance(result, MetricFrame):
+        from marivo.analysis.intents.observe import (
+            _persist_and_attach_coverage_sidecar,
+        )
+
+        job_ref = result.meta.produced_by_job or result.ref
+        result = _persist_and_attach_coverage_sidecar(
+            session=session, df=coverage_df, parent=result, job_ref=job_ref
+        )
+    return result
 
 
 def _normalize_dimension_boundary(session: Session, value: DimensionInput, *, argument: str) -> str:
@@ -348,16 +363,24 @@ class TransformAPI:
         self,
         frame: object,
         *,
-        drop_axes: list[DimensionInput],
+        drop_axes: list[DimensionInput] | None = None,
+        grain: str | None = None,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
+        if drop_axes is None and grain is None:
+            raise TransformArgError(
+                message="transform(op='rollup') requires at least one of drop_axes= or grain=",
+                hint="Pass drop_axes=[...] to drop dimensions, or grain='month' to re-bucket the time axis.",
+                details={"op": "rollup", "argument": "drop_axes_or_grain"},
+            )
         resolved_session = session if session is not None else require_current_session()
         drop_axis_ids = _normalize_drop_axes_boundary(resolved_session, drop_axes)
         return _transform_dispatch(
             frame,
             op="rollup",
             drop_axes=drop_axis_ids,
+            grain=grain,
             analysis_purpose=analysis_purpose,
             session=resolved_session,
         )
@@ -1766,17 +1789,29 @@ def _op_rollup(
                 "transform(op='rollup') received unsupported kwargs: "
                 f"{', '.join(unsupported_kwargs)}"
             ),
-            hint="Use only drop_axes=... with rollup.",
+            hint="Use drop_axes=... and/or grain=... with rollup.",
             details={"op": "rollup", "unsupported_kwargs": unsupported_kwargs},
         )
 
-    if getattr(frame.meta, "reaggregatable", True) is False:
+    reaggregatable = getattr(frame.meta, "reaggregatable", True)
+    rollup_fold = getattr(frame.meta, "rollup_fold", None)
+    if reaggregatable is False and rollup_fold is None:
+        # v1 rejection verbatim for non-reaggregatable frames without rollup_fold.
         raise TransformShapeUnsupportedError(
             message="transform(op='rollup') cannot roll up non-reaggregatable metric values",
             hint="Re-run session.observe(...) at the target grain or target dimensions.",
             details={"op": "rollup", "reason": "non_reaggregatable", "frame_ref": frame.ref},
         )
 
+    if params.grain is not None:
+        return _op_rollup_grain(frame, params, rollup_fold)
+    return _op_rollup_drop_axes(frame, params)
+
+
+def _op_rollup_drop_axes(
+    frame: TransformFrame, params: _TransformParams
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    """v1 drop_axes rollup: group by remaining axes and sum measures."""
     drop_ids = _normalize_rollup_drop_axes(frame, params.drop_axes)
     axes = copy.deepcopy(_frame_axes(frame))
     new_axes = {axis_id: axis for axis_id, axis in axes.items() if axis_id not in drop_ids}
@@ -1816,6 +1851,259 @@ def _op_rollup(
         {"axes": new_axes, "semantic_kind": new_kind},
         {"op": "rollup", "drop_axes": sorted(drop_ids)},
     )
+
+
+# Supported target grains for rollup re-bucketing, ordered finest-to-coarsest.
+_ROLLUP_GRAIN_RANK: dict[str, int] = {
+    "hour": 0,
+    "day": 1,
+    "week": 2,
+    "month": 3,
+    "quarter": 4,
+    "year": 5,
+}
+
+
+def _require_target_grain_compatible(frame: TransformFrame, target_grain: str) -> None:
+    """Validate that ``target_grain`` is a legal re-bucketing target for ``frame``.
+
+    The target must be a supported rollup grain AND strictly coarser than the
+    frame's current time-axis grain. For cumulative frames anchored to a
+    ``grain_to_date`` reset, the grain-compatibility rule applies: a week target
+    under a month/quarter/year reset is illegal because week buckets straddle
+    those reset-period boundaries.
+    """
+    if target_grain not in _ROLLUP_GRAIN_RANK:
+        raise TransformArgError(
+            message=(f"transform(op='rollup') unsupported grain {target_grain!r}"),
+            hint=("Supported rollup grains: hour, day, week, month, quarter, year."),
+            details={"op": "rollup", "argument": "grain", "grain": target_grain},
+        )
+    time_axis = _window_time_axis(frame, frame.to_pandas())
+    current_grain = time_axis.get("grain") if isinstance(time_axis, dict) else None
+    if current_grain not in _ROLLUP_GRAIN_RANK:
+        raise TransformShapeUnsupportedError(
+            message=(
+                "transform(op='rollup') grain= requires a time axis with a "
+                f"supported grain; got {current_grain!r}"
+            ),
+            hint="Rollup grain re-bucketing needs an hour/day/week/month/quarter/year time axis.",
+            details={"op": "rollup", "time_axis_grain": current_grain},
+        )
+    if _ROLLUP_GRAIN_RANK[target_grain] <= _ROLLUP_GRAIN_RANK[current_grain]:
+        raise TransformArgError(
+            message=(
+                f"transform(op='rollup') target grain {target_grain!r} must be "
+                f"coarser than the current time-axis grain {current_grain!r}"
+            ),
+            hint="Pick a target grain strictly coarser than the frame's existing time grain.",
+            details={
+                "op": "rollup",
+                "argument": "grain",
+                "target_grain": target_grain,
+                "current_grain": current_grain,
+            },
+        )
+    # Grain-compatibility rule for cumulative grain_to_date frames: a week
+    # target under a month/quarter/year reset is illegal (week buckets straddle
+    # those boundaries), mirroring observe's _require_grain_to_date_compat.
+    if target_grain == "week":
+        cumulative = getattr(frame.meta, "cumulative", None)
+        if isinstance(cumulative, dict):
+            anchor = cumulative.get("anchor")
+            # anchor may be a tuple ("grain_to_date", grain) or a list form
+            # after model_dump round-trips; accept both.
+            if isinstance(anchor, (tuple, list)) and len(anchor) == 2:
+                anchor_kind, reset_grain = anchor[0], anchor[1]
+                if anchor_kind == "grain_to_date" and reset_grain in ("month", "quarter", "year"):
+                    raise TransformShapeUnsupportedError(
+                        message=(
+                            f"transform(op='rollup') grain={target_grain!r} is "
+                            f"incompatible with grain_to_date(reset={reset_grain!r}): "
+                            f"week buckets straddle {reset_grain} boundaries."
+                        ),
+                        hint="Use day or hour target grain, or grain_to_date(grain='week') for a week reset.",
+                        details={
+                            "op": "rollup",
+                            "reason": "grain_incompatible",
+                            "target_grain": target_grain,
+                            "reset_grain": reset_grain,
+                        },
+                    )
+
+
+def _trunc_to_grain_tz(values: pd.Series, grain: str) -> pd.Series:
+    """Truncate a timestamp Series to the start of the target grain period.
+
+    Mirrors observe's ``_trunc_series_to_grain`` but returns timezone-naive
+    period-start timestamps suitable for the rollup group key.
+    """
+    ts = pd.to_datetime(pd.Series(values))
+    if grain == "hour":
+        return ts.dt.floor("h")
+    if grain == "day":
+        return ts.dt.floor("D")
+    if grain == "week":
+        return ts.dt.to_period("W").dt.start_time
+    if grain == "month":
+        import numpy as np
+
+        return pd.Series(
+            ts.values.astype(np.dtype("datetime64[M]")).astype(np.dtype("datetime64[s]")),
+            index=ts.index,
+            name=ts.name,
+        )
+    if grain == "quarter":
+        month = ts.dt.month
+        quarter_start_month = ((month - 1) // 3) * 3 + 1
+        return pd.to_datetime(
+            pd.DataFrame({"year": ts.dt.year, "month": quarter_start_month, "day": 1})
+        )
+    if grain == "year":
+        return pd.to_datetime(pd.DataFrame({"year": ts.dt.year, "month": 1, "day": 1}))
+    raise ValueError(f"unsupported rollup grain for truncation: {grain!r}")
+
+
+def _rollup_grain_coverage_df(
+    *,
+    new_df: pd.DataFrame,
+    time_col: str,
+    parent_df: pd.DataFrame,
+    target_grain: str,
+    frame: TransformFrame,
+) -> pd.DataFrame | None:
+    """Build a time_slot coverage sidecar for a grain rollup.
+
+    Each rolled period is ``complete`` except the final one, which is ``partial``
+    when the parent display window ends before that period's end boundary. When
+    the parent frame has no window end (e.g. scalar), returns ``None``.
+    """
+    window = getattr(frame.meta, "window", None)
+    end_value: Any = None
+    if isinstance(window, dict):
+        end_value = window.get("end")
+    if end_value is None:
+        return None
+    try:
+        window_end = pd.Timestamp(end_value)
+    except (TypeError, ValueError):
+        return None
+
+    period_starts = sorted(new_df[time_col].dropna().unique().tolist())
+    if not period_starts:
+        return None
+    rows = []
+    for idx, start in enumerate(period_starts):
+        is_last = idx == len(period_starts) - 1
+        period_end = _grain_period_end(pd.Timestamp(start), target_grain)
+        status = "complete"
+        if is_last and window_end < period_end:
+            status = "partial"
+        rows.append({time_col: pd.Timestamp(start), "coverage_status": status})
+    return pd.DataFrame(rows)
+
+
+def _grain_period_end(start: pd.Timestamp, grain: str) -> pd.Timestamp:
+    """Return the exclusive end boundary of the grain period beginning at *start*."""
+    if grain == "hour":
+        return start + pd.Timedelta(hours=1)
+    if grain == "day":
+        return start + pd.Timedelta(days=1)
+    if grain == "week":
+        return start + pd.Timedelta(weeks=1)
+    if grain == "month":
+        return (start + pd.DateOffset(months=1)).normalize()
+    if grain == "quarter":
+        return (start + pd.DateOffset(months=3)).normalize()
+    if grain == "year":
+        return (start + pd.DateOffset(years=1)).normalize()
+    raise ValueError(f"unsupported rollup grain for period end: {grain!r}")
+
+
+def _op_rollup_grain(
+    frame: TransformFrame,
+    params: _TransformParams,
+    rollup_fold: str | None,
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
+    """Re-bucket the time axis to ``params.grain`` and aggregate per fold.
+
+    - ``rollup_fold == "last"`` (cumulative): take the last bucket per period
+      per dims (period-end running total), preserving the cumulative marker
+      and ``rollup_fold`` so chains keep the fold.
+    - otherwise (reaggregatable additive): sum measures per period.
+    """
+    target_grain = params.grain
+    if target_grain is None:
+        # Unreachable: _op_rollup only routes here when params.grain is not None.
+        raise TransformArgError(
+            message="transform(op='rollup') grain= path requires a non-None grain",
+            details={"op": "rollup", "argument": "grain"},
+        )
+    _require_target_grain_compatible(frame, target_grain)
+
+    df = frame.to_pandas()
+    time_axis = _window_time_axis(frame, df)
+    time_col = time_axis["column"]
+    dims = [
+        axis["column"]
+        for axis in _frame_axes(frame).values()
+        if isinstance(axis, dict)
+        and axis.get("role") == "dimension"
+        and isinstance(axis.get("column"), str)
+    ]
+    dims = [c for c in dims if c in df.columns]
+
+    df = df.copy()
+    df["_target_period"] = _trunc_to_grain_tz(df[time_col], target_grain)
+    group_keys = [*dims, "_target_period"]
+
+    if rollup_fold == "last":
+        new_df = (
+            df.sort_values([*dims, time_col])
+            .groupby(group_keys, as_index=False, dropna=False)
+            .last()
+            .drop(columns=["_target_period"])
+        )
+        # Restore the time column name as the period-start bucket. The .last()
+        # above keeps the original time_col values; replace with the period
+        # start so the rolled frame's time axis is the target grain.
+        new_df[time_col] = _trunc_to_grain_tz(new_df[time_col], target_grain).values
+        fold_meta: dict[str, Any] = {"rollup_fold": "last"}
+    else:
+        axis_columns = set(_axis_columns_by_id(_frame_axes(frame)).values())
+        measure_columns = _rollup_measure_columns(frame, df, axis_columns | {"_target_period"})
+        new_df = (
+            df.groupby(group_keys, as_index=False, dropna=False)[measure_columns]
+            .sum(min_count=1)
+            .rename(columns={"_target_period": time_col})
+        )
+        if isinstance(frame, DeltaFrame):
+            _recompute_delta_pct_change(new_df)
+        fold_meta = {}
+
+    new_df = new_df.reset_index(drop=True)
+
+    # Re-bucketed axes: update the time axis grain to the target.
+    new_axes = copy.deepcopy(_frame_axes(frame))
+    for axis in new_axes.values():
+        if isinstance(axis, dict) and axis.get("role") == "time":
+            axis["grain"] = target_grain
+            axis["column"] = time_col
+    new_kind = _semantic_kind_from_axes(new_axes)
+
+    op_params: dict[str, Any] = {"op": "rollup", "grain": target_grain}
+    op_params.update(fold_meta)
+    meta_overrides: dict[str, Any] = {"axes": new_axes, "semantic_kind": new_kind}
+    coverage_df = _rollup_grain_coverage_df(
+        new_df=new_df,
+        time_col=time_col,
+        parent_df=df,
+        target_grain=target_grain,
+        frame=frame,
+    )
+    if coverage_df is not None and not coverage_df.empty:
+        meta_overrides["coverage_df"] = coverage_df
+    return new_df, meta_overrides, op_params
 
 
 _OP_DISPATCH["rollup"] = _op_rollup

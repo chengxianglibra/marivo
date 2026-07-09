@@ -87,6 +87,20 @@ def _write_project(root: Path) -> None:
         "    return orders.order_id.count()\n"
         "\n"
         'ms.ratio(name="failure_rate", numerator=failed_orders, denominator=total_orders)\n'
+        "\n"
+        "amount = ms.measure_column(\n"
+        '    name="amount", entity=orders, column="amount", additivity="additive"\n'
+        ")\n"
+        'order_revenue = ms.aggregate(name="order_revenue", measure=amount, agg="sum")\n'
+        "\n"
+        'ms.cumulative(name="cumulative_revenue", base=order_revenue, over=created_at)\n'
+        "\n"
+        "ms.cumulative(\n"
+        '    name="mtd_revenue",\n'
+        "    base=order_revenue,\n"
+        "    over=created_at,\n"
+        '    anchor=ms.grain_to_date(grain="month"),\n'
+        ")\n"
     )
 
 

@@ -694,10 +694,15 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "static_constraints": ["entity must be an EntityRef"],
         },
         "cumulative": {
-            "summary": ("Declare an all-history running-total metric over a tier-1 base metric."),
+            "summary": (
+                "Declare a running-total metric over a tier-1 base metric. The "
+                "anchor selects the accumulation window: all_history (default, "
+                "monotonic), grain_to_date (MTD/QTD/YTD resets), or trailing "
+                "(rolling N)."
+            ),
             "constructor": "ms.cumulative",
             "required": ["name", "base"],
-            "optional": ["over", "unit", "domain", "ai_context"],
+            "optional": ["over", "anchor", "unit", "domain", "ai_context"],
             "discover": None,
             "parameters": {
                 "name": name,
@@ -713,6 +718,15 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                     ),
                     default="None",
                 ),
+                "anchor": _param(
+                    "GrainToDate | Trailing | None",
+                    (
+                        "accumulation window anchor; omit for all_history, pass "
+                        "ms.grain_to_date(grain=...) for MTD/QTD/YTD resets, or "
+                        "ms.trailing(count=..., unit=...) for a rolling N window"
+                    ),
+                    default="None",
+                ),
                 "unit": unit,
                 "domain": domain,
                 "ai_context": ai_context,
@@ -720,7 +734,8 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "static_constraints": [
                 "base must be a tier-1 simple aggregate metric",
                 "base aggregation must be sum, count, or count_distinct",
-                "observe window start clips displayed rows only; values remain anchored to all history",
+                "anchor defaults to all_history (monotonic); grain_to_date resets at "
+                "each reset-grain boundary; trailing windows are fixed-size rolling N",
             ],
             "minimal_example": (
                 "user_id = ms.measure_column(name='user_id', entity=events, "
@@ -734,6 +749,36 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                 "rate = ms.ratio(name='cumulative_conversion_rate', numerator=cum_payers, "
                 "denominator=cum)"
             ),
+            "anchors": [
+                {
+                    "anchor": "all_history (default)",
+                    "when": "monotonic running total from the start of data",
+                    "example": ("cum = ms.cumulative(name='cum_gmv', base=gmv, over=event_time)"),
+                },
+                {
+                    "anchor": "grain_to_date (MTD / QTD / YTD)",
+                    "when": (
+                        "running total that resets at each reset-grain boundary "
+                        "(month, quarter, year, week)"
+                    ),
+                    "example": (
+                        "mtd_gmv = ms.cumulative(name='mtd_gmv', base=gmv, "
+                        "over=event_time, anchor=ms.grain_to_date(grain='month'))"
+                    ),
+                },
+                {
+                    "anchor": "trailing (rolling N)",
+                    "when": (
+                        "fixed-size rolling window of N fixed-size units "
+                        "(second, minute, hour, day, week)"
+                    ),
+                    "example": (
+                        "rolling7_active = ms.cumulative(name='rolling7_active', "
+                        "base=active_users, over=event_time, "
+                        "anchor=ms.trailing(count=7, unit='day'))"
+                    ),
+                },
+            ],
         },
         "metric": {
             "summary": "Choose the correct metric constructor before authoring a metric.",
@@ -765,10 +810,10 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                     "optional": ["domain", "ai_context"],
                 },
                 "cumulative": {
-                    "when": "metric is an all-history running total over a tier-1 base metric using sum, count, or count_distinct",
+                    "when": "metric is a running total over a tier-1 base metric using sum, count, or count_distinct (all_history, grain_to_date MTD/QTD/YTD, or trailing rolling N)",
                     "constructor": "ms.cumulative",
                     "required": ["name", "base"],
-                    "optional": ["over", "unit", "domain", "ai_context"],
+                    "optional": ["over", "anchor", "unit", "domain", "ai_context"],
                 },
                 "ratio": {
                     "when": "metric divides one existing metric by another",
@@ -919,6 +964,7 @@ _ENRICHMENT_KEYS = (
     "body_rule",
     "authoring_guidance",
     "minimal_example",
+    "anchors",
 )
 
 
@@ -988,6 +1034,11 @@ def _contract_text(symbol: str, content: dict[str, object]) -> str:
     if "minimal_example" in content:
         lines.extend(("", "Minimal example:"))
         lines.append(str(content["minimal_example"]))
+    if "anchors" in content:
+        lines.extend(("", "Anchors (anchor= argument):"))
+        for anchor in cast("list[dict[str, str]]", content["anchors"]):
+            lines.append(f"  - {anchor['anchor']}: {anchor['when']}")
+            lines.append(f"      {anchor['example']}")
     lines.extend(("", "Static constraints:"))
     for constraint in cast("list[str]", contract["static_constraints"]):
         lines.append(f"  - {constraint}")

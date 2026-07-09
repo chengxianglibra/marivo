@@ -460,13 +460,14 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 
 当业务问题是"截至 bucket t 累计了多少"时使用 `ms.cumulative(...)`。
 base 必须是使用 `sum`、`count` 或 `count_distinct` 的 tier-1 `ms.aggregate(...)` 或 `ms.count(...)` metric。
-累计锚点是全部历史：observe 窗口裁剪展示行，但不会重置累计值。
+`anchor` 参数选择累计形态。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | 语义 metric 名称。 |
 | `base` | `MetricRef` | 是 | — | 使用 `sum`、`count` 或 `count_distinct` 的 tier-1 简单聚合 metric。 |
 | `over` | `TimeDimensionRef \| None` | 否 | `None` | 累计时间轴。除非 base root entity 只有一个时间维度，否则需显式传入。 |
+| `anchor` | `GrainToDate \| Trailing \| None` | 否 | `None` | 累计锚点。`None` = 全部历史累计；`ms.grain_to_date(...)` = MTD/QTD/YTD 重置；`ms.trailing(...)` = 滚动 N。 |
 | `unit` / `domain` / `ai_context` | — | 否 | — | 同其他 metric。 |
 
 ```python
@@ -482,6 +483,47 @@ cumulative_active_users = ms.cumulative(
 对于 `count_distinct` base metric，累计值使用首次出现语义：每个去重实体在最早出现的 bucket
 中计入，因此累计值单调非递减。累计 metric 可作为 ratio 组成成分——用 `ms.ratio(...)` 组合累计
 分子和分母可得到累计比率。
+
+#### 累计锚点
+
+`anchor=None`（默认）是全部历史累计：observe 窗口裁剪展示行，但不会重置累计值。两个值对象
+构造器开启额外的锚点类型。
+
+`ms.grain_to_date(grain=...)` 在每个重置粒度边界重置累计值（MTD / QTD / YTD / WTD）。在一个
+重置周期内值持续累计；到达边界时回落到该周期首个 bucket 的流量。`grain` 取值为 `week`、
+`month`、`quarter`、`year` 之一。
+
+```python
+mtd_revenue = ms.cumulative(
+    name="mtd_revenue",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(grain="month"),
+)
+```
+
+`ms.trailing(count=..., unit=...)` 是固定大小的滚动窗口：每个 bucket 的值是该 bucket 结束边界
+为止的 span 上的 base 聚合。空窗口为真零，不会向前 carry。部分窗口（span 触及数据起点之前）
+展示实际的部分累计值，并在 coverage 中标记为 `partial`。`unit` 仅接受固定大小单位（`second`、
+`minute`、`hour`、`day`、`week`）；日历可变单位（`month`、`quarter`、`year`）会被拒绝并给出
+教学错误。
+
+```python
+rolling7_active = ms.cumulative(
+    name="rolling7_active",
+    base=active_users,
+    over=event_time,
+    anchor=ms.trailing(count=7, unit="day"),
+)
+```
+
+两条跨锚点规则约束查询时的粒度选择：
+
+- **粒度兼容规则**（`grain_to_date`）：每个展示 bucket 必须完整落入一个重置周期内。在
+  `month` / `quarter` / `year` 重置下使用 `week` 查询粒度是非法的（week bucket 会跨越月边界）；
+  `day` 和 `hour` 合法。
+- **整数倍规则**（`trailing`）：窗口 span 必须是查询粒度的整数倍（`W_buckets = span / grain`）。
+  Trailing 要求时间粒度。
 
 ### Additivity 与 provenance 辅助器
 

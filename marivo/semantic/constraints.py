@@ -33,6 +33,7 @@ class ConstraintId(StrEnum):
     UNIQUE_SEMANTIC_NAME = "unique_semantic_name"
     REF_SHAPE = "ref_shape"
     COMPOSITION_SHAPE = "composition_shape"
+    CUMULATIVE_ANCHOR = "cumulative_anchor"
     METRIC_ENTITIES_REQUIRED = "metric_entities_required"
     METRIC_COMPONENT_SCOPE = "metric_component_scope"
     AI_CONTEXT_SCHEMA = "ai_context_schema"
@@ -224,6 +225,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metrics need a supported composition builder.",
         "Composition declares how metric values compose during drilldown and derived calculations.",
         "Run ms.help('composition') to inspect supported builders; SQL aggregation belongs in the metric body.",
+        example=_SEMANTIC_AUTHOR_EXAMPLE,
+    ),
+    ConstraintId.CUMULATIVE_ANCHOR: _constraint(
+        ConstraintId.CUMULATIVE_ANCHOR,
+        "invalid_ref",
+        "decorator",
+        ("derived_metric", "cumulative"),
+        "Cumulative anchors must be valid reset grains or fixed-size trailing windows.",
+        "The anchor selects the accumulation shape: all_history (default), grain_to_date (MTD/QTD/YTD resets), or trailing (rolling N).",
+        "Pass anchor=ms.grain_to_date(grain='month'|'quarter'|'year'|'week'), "
+        "anchor=ms.trailing(count=N, unit='day'|'hour'|...), or omit anchor for all-history.",
         example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.METRIC_ENTITIES_REQUIRED: _constraint(

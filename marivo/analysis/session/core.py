@@ -1265,26 +1265,32 @@ class SessionTransformNamespace:
         self,
         frame: object,
         *,
-        drop_axes: list[DimensionInput],
+        drop_axes: list[DimensionInput] | None = None,
+        grain: str | None = None,
         analysis_purpose: str | None = None,
     ) -> MetricFrame | DeltaFrame:
-        """Aggregate to coarser segments by dropping axes.
+        """Aggregate to coarser segments by dropping axes or re-bucketing time.
 
-        Removes the listed catalog dimensions and re-aggregates
-        measures over the remaining axes.
+        Removes the listed catalog dimensions (``drop_axes``) and re-aggregates
+        measures over the remaining axes, OR re-buckets the time axis to a
+        coarser ``grain`` (e.g. ``"month"``). At least one of ``drop_axes`` or
+        ``grain`` is required. Cumulative frames (``rollup_fold="last"``) take
+        the last bucket per period; reaggregatable frames sum.
         """
         from marivo.analysis.intents.transform import transform
 
+        axis_count = len(drop_axes) if drop_axes is not None else 0
         with _track_session_operation(
             self._session,
             "marivo.analysis.transform.rollup",
             family="transform",
             intent="rollup",
-            attributes={"marivo.analysis.axis_count": len(drop_axes)},
+            attributes={"marivo.analysis.axis_count": axis_count},
         ):
             return transform.rollup(
                 frame,
                 drop_axes=drop_axes,
+                grain=grain,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )

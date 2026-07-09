@@ -657,6 +657,22 @@ def compare(
         alignment_dump["segment_info"] = segment_info
     if current.meta.semantic_kind in {"segmented", "panel", "time_series"}:
         alignment_dump["axes"] = current.meta.axes
+    # Record to-date alignment when the current frame is grain_to_date cumulative.
+    # The ordinal alignment (window_info / coverage) is reused: paired_buckets
+    # become matched_buckets, baseline_unpaired_buckets become the tail.
+    cur_cumulative = current.meta.cumulative
+    if (
+        cur_cumulative is not None
+        and isinstance(cur_cumulative.get("anchor"), tuple)
+        and cur_cumulative["anchor"]
+        and cur_cumulative["anchor"][0] == "grain_to_date"
+        and isinstance(window_info, dict)
+    ):
+        alignment_dump["to_date"] = {
+            "reset_grain": cur_cumulative["anchor"][1],
+            "matched_buckets": window_info.get("paired_buckets"),
+            "baseline_tail_buckets": window_info.get("baseline_unpaired_buckets"),
+        }
     params = {
         "source_current_ref": current.ref,
         "source_baseline_ref": baseline.ref,
@@ -707,6 +723,7 @@ def compare(
         composition=current.meta.composition if current_component is not None else None,
         fold=getattr(current.meta, "fold", None),
         component_folds=_component_fold_payload(current, session=session),
+        cumulative=cur_cumulative,
     )
     output_frame = DeltaFrame(_df=df, meta=meta)
 

@@ -1,0 +1,68 @@
+---
+slug: en/latest/release-notes/0.3.1
+title: Marivo 0.3.1
+description: Release notes for Marivo 0.3.1.
+---
+
+Marivo 0.3.1 extends cumulative metrics from the single all-history anchor to
+the full window vocabulary, and opens the two consumption paths that 0.3.0
+deliberately blocked: rollup re-aggregation and cross-period comparison.
+
+## Highlights
+
+- Cumulative metrics now support three accumulation anchors via the new
+  `anchor=` parameter on `ms.cumulative(...)`. `anchor=None` keeps the v1
+  all-history running total. `ms.grain_to_date(grain=...)` resets the running
+  total at each reset-grain boundary (MTD / QTD / YTD / WTD).
+  `ms.trailing(count=..., unit=...)` is a fixed-size rolling window where empty
+  windows are true zero and partial windows show the actual accumulation.
+- `transform.rollup(...)` now re-aggregates cumulative frames. Pass `grain=`
+  to re-bucket the time axis; cumulative frames carry `rollup_fold="last"` so
+  each period contributes its period-end value. Non-reaggregatable frames
+  without a fold are still rejected with a teaching error.
+- `compare` is now anchor-dispatched. `all_history` stays rejected; `trailing`
+  is allowed when both frames share the same anchor payload; `grain_to_date`
+  is allowed for a single-period, boundary-anchored window and records the
+  to-date alignment on the resulting DeltaFrame.
+
+## Changed
+
+- `contract()`, `show()`, and `mv.help(ref)` now surface the anchor-specific
+  caveat, so the allowed path is visible at the frame an agent is reading.
+- The `rollup` transform table entry now lists `grain` alongside `drop_axes`.
+- The semantic-layer and analysis-workflow site docs (EN + CN) document the
+  grain-compatibility rule (week under month/quarter/year reset is illegal)
+  and the integer-multiple rule (trailing span must be an integer multiple of
+  the query grain).
+
+## Documentation
+
+- Updated the semantic-layer and analysis-workflow concept docs (EN + CN) for
+  the v2 anchor surface, rollup re-aggregation, and anchor-dispatched compare.
+- Added design specs for cumulative metrics v2 anchors, rollup, and compare.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.1 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/latest/installation/)
+- [Quick Start](/en/latest/quick-start/)
+- [Semantic Layer](/en/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/)

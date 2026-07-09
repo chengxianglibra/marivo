@@ -18,6 +18,28 @@ def test_keyword_construction_and_token():
     assert Grain(count=1, unit="day").to_token() == "day"
 
 
+@pytest.mark.parametrize(
+    "token,seconds",
+    [
+        ("second", 1),
+        ("minute", 60),
+        ("hour", 3600),
+        ("day", 86400),
+        ("week", 604800),
+        ("5minute", 300),
+        ("2hour", 7200),
+    ],
+)
+def test_grain_width_seconds_fixed_size(token, seconds):
+    assert parse_grain_token(token).width_seconds() == seconds
+
+
+@pytest.mark.parametrize("token", ["month", "quarter", "year"])
+def test_grain_width_seconds_rejects_calendar_variable(token):
+    with pytest.raises(ValueError, match="calendar-variable"):
+        parse_grain_token(token).width_seconds()
+
+
 def test_positional_construction_rejected():
     with pytest.raises(TypeError):
         Grain(5, "minute")  # type: ignore[misc, call-arg]

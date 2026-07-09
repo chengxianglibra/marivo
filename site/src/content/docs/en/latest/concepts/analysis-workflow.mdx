@@ -265,7 +265,7 @@ Transforms reshape a frame while preserving its family (`MetricFrame` →
 | --- | --- | --- |
 | `filter` | `predicate` (callable) | Keep rows where the predicate returns true. |
 | `slice` | `slice_by` (axis → value/list/range) | Keep rows matching exact axis values. |
-| `rollup` | `drop_axes` | Drop axes and re-aggregate measures. |
+| `rollup` | `drop_axes` and/or `grain` | Drop axes and re-aggregate, or re-bucket the time axis to a coarser `grain`. Cumulative frames take the last bucket per period (`rollup_fold="last"`). |
 | `topk` | `by`, `limit`, `order` | Keep the top N rows by a measure (`order="decrease"` default). |
 | `bottomk` | `by`, `limit` | Keep the bottom N rows. |
 | `rank` | `by`, `method`, `rank_column` | Add a rank column ordered by a measure. |
@@ -274,15 +274,31 @@ Transforms reshape a frame while preserving its family (`MetricFrame` →
 
 ## Cumulative frame caveats
 
-Cumulative MetricFrames contain running-total values anchored to all history. The observe
-window clips displayed rows only; the running total itself is never reset.
+Cumulative MetricFrames store running-total values whose semantics depend on the
+accumulation anchor (`all_history`, `grain_to_date`, or `trailing`).
 
 - `show()`, `contract()`, and `transform.window(...)` work normally on cumulative frames.
-- `correlate`, `discover`, `assess_quality`, and `hypothesis_test` are allowed, but keep the
-  running-total semantics in mind when interpreting results.
-- `compare`, `attribute`, and `forecast` reject cumulative frames in v1. Use the
-  base flow metric for those intents — a cumulative delta over a window equals the base total
-  over that window.
+  `contract()` and `show()` surface the anchor-specific caveat, so the allowed path is
+  visible at the frame you are reading.
+- `correlate`, `discover`, `assess_quality`, and `hypothesis_test` are allowed. Trailing
+  frames are independent windowed aggregations (not running totals), so these intents
+  produce meaningful results. The monotonic-trend caveat applies only to `all_history`
+  and `grain_to_date` anchors — keep it in mind when interpreting results.
+- `compare` is anchor-dispatched:
+  - `all_history`: rejected. Observe the base flow metric and compare that — a cumulative
+    delta over a window equals the base total over that window.
+  - `trailing`: allowed when both frames share the same trailing anchor payload
+    (`count`, `unit`). The windowed rolling values align ordinally.
+  - `grain_to_date`: allowed for a single-period, boundary-anchored window. The window
+    must start on a reset boundary and span at most one reset period, and both frames
+    must share the reset grain and query grain. The resulting DeltaFrame records the
+    to-date alignment under `alignment_dump["to_date"]`.
+- `attribute` and `forecast` reject cumulative frames regardless of anchor; re-observe
+  the base flow metric for those intents.
+- `transform.rollup(...)` re-aggregates cumulative frames with `rollup_fold="last"`: the
+  time axis is re-bucketed to the target `grain` and each period contributes its last
+  bucket (the period-end value). Frames that are neither re-aggregatable nor carrying a
+  `rollup_fold` are rejected — re-observe at the target grain instead.
 
 ```python
 cum_frame = session.observe(
@@ -290,9 +306,11 @@ cum_frame = session.observe(
     time_scope={"start": "2026-01-01", "end": "2026-04-01"},
     grain="day",
 )
-cum_frame.contract()  # shows running_total_caveat
+cum_frame.contract()  # shows the anchor-specific caveat
 windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})
-# For compare/attribute/forecast, observe the base metric instead:
+# Roll up a cumulative frame to a coarser grain (period-end semantics):
+monthly = session.transform.rollup(cum_frame, grain="month")
+# For attribute/forecast, observe the base metric instead:
 base_frame = session.observe(active_users, ...)
 ```
 

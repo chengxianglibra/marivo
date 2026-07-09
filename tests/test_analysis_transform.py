@@ -266,7 +266,8 @@ def test_transform_api_exposes_typed_method_signatures():
 
     rollup_signature = inspect.signature(session.transform.rollup)
     assert "op" not in rollup_signature.parameters
-    assert rollup_signature.parameters["drop_axes"].default is inspect.Parameter.empty
+    assert rollup_signature.parameters["drop_axes"].default is None
+    assert rollup_signature.parameters["grain"].default is None
 
 
 def test_transform_api_methods_cover_supported_ops(tmp_path):
@@ -1529,6 +1530,102 @@ def test_transform_window_preserves_cumulative_marker(tmp_path):
     assert clipped.meta.composition is None
 
 
+def test_transform_window_preserves_grain_to_date_cumulative_anchor(tmp_path):
+    """transform.window preserves the cumulative marker for a grain_to_date anchor.
+
+    The v2 cumulative marker carries the anchor tuple (e.g.
+    ('grain_to_date', 'month')) so downstream contract()/show() can dispatch
+    on the anchor. transform.window must propagate meta.cumulative verbatim
+    (model_dump round-trip), preserving the anchor kind and grain.
+    """
+    session = session_attach.get_or_create(name="cum_gtd_transform")
+    frame = make_metric_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+                "value": [10.0, 22.0],
+            }
+        ),
+        metric_id="sales.mtd_gmv",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "1day"}},
+        measure={"name": "mtd_gmv"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        session=session,
+    )
+    cumulative_payload = {
+        "kind": "cumulative",
+        "base": "sales.gmv",
+        "over": "sales.orders.event_time",
+        "anchor": ("grain_to_date", "month"),
+        "components": None,
+    }
+    frame.meta = frame.meta.model_copy(
+        update={
+            "cumulative": cumulative_payload,
+            "component_ref": "frame_component",
+            "composition": {"kind": "ratio", "components": {}},
+        }
+    )
+
+    clipped = _active_transform(
+        frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"}
+    )
+
+    assert clipped.meta.cumulative is not None
+    assert clipped.meta.cumulative["anchor"] == ("grain_to_date", "month")
+    assert clipped.meta.cumulative["kind"] == "cumulative"
+    # component_ref / composition are stripped on transform (same as all_history).
+    assert clipped.meta.component_ref is None
+    assert clipped.meta.composition is None
+
+
+def test_transform_window_preserves_rollup_fold(tmp_path):
+    """transform.window preserves meta.rollup_fold across a window clip.
+
+    A rolled cumulative frame (rollup_fold='last') that is subsequently
+    window-clipped must keep its rollup_fold marker so downstream consumers
+    know the rows are period-end running totals (not reaggregated sums).
+    """
+    session = session_attach.get_or_create(name="rollup_fold_transform")
+    frame = make_metric_frame(
+        pd.DataFrame(
+            {
+                "bucket_start": pd.to_datetime(["2026-07-01", "2026-07-02"]),
+                "value": [10.0, 22.0],
+            }
+        ),
+        metric_id="sales.mtd_gmv",
+        axes={"time": {"role": "time", "column": "bucket_start", "grain": "1day"}},
+        measure={"name": "mtd_gmv"},
+        semantic_kind="time_series",
+        semantic_model="sales",
+        window={"start": "2026-07-01", "end": "2026-07-03", "grain": "day"},
+        session=session,
+    )
+    frame.meta = frame.meta.model_copy(
+        update={
+            "rollup_fold": "last",
+            "cumulative": {
+                "kind": "cumulative",
+                "base": "sales.gmv",
+                "over": "sales.orders.event_time",
+                "anchor": ("grain_to_date", "month"),
+                "components": None,
+            },
+        }
+    )
+
+    clipped = _active_transform(
+        frame, op="window", window={"start": "2026-07-02", "end": "2026-07-03"}
+    )
+
+    assert clipped.meta.rollup_fold == "last"
+    assert clipped.meta.cumulative is not None
+    assert clipped.meta.cumulative["anchor"] == ("grain_to_date", "month")
+
+
 # ---------------------------------------------------------------------------
 # Sampled semi-additive rollup gate
 # ---------------------------------------------------------------------------
@@ -1635,3 +1732,243 @@ def test_rollup_rejects_non_reaggregatable_metric_frame(sampled_bandwidth_for_ro
 
     assert exc_info.value.details["op"] == "rollup"
     assert exc_info.value.details["reason"] == "non_reaggregatable"
+
+
+# ---------------------------------------------------------------------------
+# Task 9: rollup grain re-aggregation (grain param + rollup_fold dispatch)
+# ---------------------------------------------------------------------------
+
+
+def _bootstrap_cumulative_day_project(tmp_path) -> None:
+    """Sales project with daily event_time, MTD/QTD cumulative + additive gmv."""
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n"
+        "ms.domain(name='sales', owner='Data')\n",
+        encoding="utf-8",
+    )
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    (semantic_dir / "metrics.py").write_text(
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n"
+        "warehouse = md.ref('datasource.warehouse')\n"
+        "events = ms.entity(name='events', datasource=warehouse, source=ms.table('events'))\n"
+        "event_time = ms.time_dimension_column("
+        "name='event_time', entity=events, column='event_time', granularity='hour')\n"
+        "amount = ms.measure_column("
+        "name='amount', entity=events, column='amount', additivity='additive', unit='USD')\n"
+        "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
+        "mtd_gmv = ms.cumulative("
+        "name='mtd_gmv', base=gmv, over=event_time,"
+        " anchor=ms.grain_to_date(grain='month'))\n"
+        "qtd_gmv = ms.cumulative("
+        "name='qtd_gmv', base=gmv, over=event_time,"
+        " anchor=ms.grain_to_date(grain='quarter'))\n",
+        encoding="utf-8",
+    )
+
+
+# Daily sales: Jan 1..31, Feb 1..15 (partial for tail-coverage), Mar 1..31.
+# Feb is intentionally partial (ends mid-month) so a month rollup's final Feb
+# row is the period-end running total AND the rollup coverage marks that row
+# partial. March is full so the day->month->quarter chain has a complete Q1.
+_DAY_AMOUNTS_T9: dict[str, dict[str, float]] = {
+    "2026-01": {f"2026-01-{d:02d}": float(d) for d in range(1, 32)},
+    "2026-02": {f"2026-02-{d:02d}": float(d) for d in range(1, 16)},
+    "2026-03": {f"2026-03-{d:02d}": float(d) for d in range(1, 32)},
+}
+
+
+def _seed_cumulative_day(con) -> None:
+    rows = []
+    for month_days in _DAY_AMOUNTS_T9.values():
+        for day_str, amt in month_days.items():
+            rows.append((day_str, amt))
+    con.create_table(
+        "events",
+        pd.DataFrame(
+            {
+                "event_id": list(range(1, len(rows) + 1)),
+                "event_time": pd.to_datetime([r[0] for r in rows]),
+                "amount": [r[1] for r in rows],
+            }
+        ),
+        overwrite=True,
+    )
+
+
+def _cumulative_day_session(tmp_path):
+    _bootstrap_cumulative_day_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_cumulative_day(con)
+    return session_attach.get_or_create(name="rollup", backends={"warehouse": lambda: con})
+
+
+@pytest.fixture
+def cumulative_day_session(tmp_path):
+    return _cumulative_day_session(tmp_path)
+
+
+def _observe_cumulative_day(session, *, end: str = "2026-02-16") -> MetricFrame:
+    """Observe an MTD (month-reset) cumulative gmv at day grain.
+
+    Default end='2026-02-16' (exclusive) includes Feb 1..15 and ends the
+    display window mid-February, so a month rollup's final Feb row is partial.
+    """
+    return session.observe(
+        make_ref("sales.mtd_gmv", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01", "end": end},
+        grain="day",
+    )
+
+
+def _observe_additive_day(session) -> MetricFrame:
+    """Observe the additive gmv at day grain (reaggregatable)."""
+    return session.observe(
+        make_ref("sales.gmv", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01", "end": "2026-02-16"},
+        grain="day",
+    )
+
+
+def test_rollup_grain_takes_period_ends_for_cumulative(cumulative_day_session):
+    """rollup(grain='month') on a cumulative day frame takes the last bucket
+    per month per dims (period-end running total), keeping rollup_fold + cumulative."""
+    session = cumulative_day_session
+    frame = _observe_cumulative_day(session)
+    raw = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    feb_last_day_value = float(
+        raw.loc[raw["bucket_start"] == pd.Timestamp("2026-02-15"), "value"].iloc[0]
+    )
+    assert feb_last_day_value == sum(_DAY_AMOUNTS_T9["2026-02"].values())
+
+    rolled = session.transform.rollup(frame, grain="month")
+    df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+
+    assert (
+        df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01"), "value"].iloc[0]
+        == feb_last_day_value
+    )
+    assert rolled.meta.rollup_fold == "last"
+    assert rolled.meta.cumulative is not None
+    assert rolled.meta.cumulative.get("anchor") == ("grain_to_date", "month")
+
+
+def test_rollup_grain_sums_reaggregatable_frame(cumulative_day_session):
+    """rollup(grain='month') on an additive (reaggregatable) day frame sums per month."""
+    session = cumulative_day_session
+    frame = _observe_additive_day(session)
+    feb_total = sum(_DAY_AMOUNTS_T9["2026-02"].values())
+
+    rolled = session.transform.rollup(frame, grain="month")
+    df = rolled.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+
+    assert df.loc[df["bucket_start"] == pd.Timestamp("2026-02-01"), "value"].iloc[0] == feb_total
+    assert rolled.meta.rollup_fold is None
+
+
+def test_rollup_requires_at_least_one_of_drop_axes_or_grain(cumulative_day_session):
+    """Calling rollup with neither drop_axes nor grain raises TransformArgError."""
+    from marivo.analysis.errors import TransformArgError
+
+    session = cumulative_day_session
+    frame = _observe_additive_day(session)
+    with pytest.raises(TransformArgError) as exc_info:
+        session.transform.rollup(frame)
+    msg = str(exc_info.value)
+    assert "drop_axes" in msg and "grain" in msg
+
+
+def test_rollup_rejects_non_reaggregatable_without_fold(sampled_bandwidth_for_rollup):
+    """v1 rejection verbatim for non-reaggregatable frames without rollup_fold."""
+    from marivo.analysis.errors import TransformShapeUnsupportedError
+
+    frame = sampled_bandwidth_for_rollup.observe(
+        make_ref("sales.upstream_bw_p95", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01", "end": "2026-01-02"},
+        grain="hour",
+        dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
+    )
+    with pytest.raises(TransformShapeUnsupportedError) as exc_info:
+        sampled_bandwidth_for_rollup.transform.rollup(frame, grain="day")
+    assert exc_info.value.details["reason"] == "non_reaggregatable"
+    assert exc_info.value.details["op"] == "rollup"
+
+
+def test_rollup_grain_target_must_be_coarser(cumulative_day_session):
+    """Target grain finer than the current time-axis grain is rejected."""
+    from marivo.analysis.errors import TransformArgError
+
+    session = cumulative_day_session
+    frame = _observe_cumulative_day(session)
+    with pytest.raises(TransformArgError) as exc_info:
+        session.transform.rollup(frame, grain="hour")  # finer than day
+    assert exc_info.value.details["op"] == "rollup"
+    assert exc_info.value.details["argument"] == "grain"
+    assert exc_info.value.details["target_grain"] == "hour"
+    assert exc_info.value.details["current_grain"] == "day"
+
+
+def test_rollup_grain_compat_rule(cumulative_day_session):
+    """Week-rolled cumulative under month reset: target grain week under month
+    reset is illegal (week buckets straddle month boundaries)."""
+    from marivo.analysis.errors import TransformShapeUnsupportedError
+
+    session = cumulative_day_session
+    frame = _observe_cumulative_day(session)
+    with pytest.raises(TransformShapeUnsupportedError) as exc_info:
+        session.transform.rollup(frame, grain="week")
+    assert exc_info.value.details["op"] == "rollup"
+    assert exc_info.value.details["reason"] == "grain_incompatible"
+    assert exc_info.value.details["target_grain"] == "week"
+    assert exc_info.value.details["reset_grain"] == "month"
+
+
+def test_rollup_chains_day_month_quarter(cumulative_day_session):
+    """day -> month -> quarter chain: quarter row == last month's value in that
+    quarter (period ends chain)."""
+    session = cumulative_day_session
+    frame = _observe_cumulative_day(session, end="2026-04-01")
+    day_to_month = session.transform.rollup(frame, grain="month")
+    month_to_quarter = session.transform.rollup(day_to_month, grain="quarter")
+
+    month_df = day_to_month.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    mar_value = float(
+        month_df.loc[month_df["bucket_start"] == pd.Timestamp("2026-03-01"), "value"].iloc[0]
+    )
+    q_df = month_to_quarter.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    assert (
+        q_df.loc[q_df["bucket_start"] == pd.Timestamp("2026-01-01"), "value"].iloc[0] == mar_value
+    )
+    assert month_to_quarter.meta.rollup_fold == "last"
+    assert month_to_quarter.meta.cumulative is not None
+
+
+def test_rollup_partial_tail_coverage(cumulative_day_session):
+    """A trailing display window ending mid-period (Feb 15) marks that final
+    period's rollup row partial in coverage — asserted unconditionally."""
+    session = cumulative_day_session
+    frame = _observe_cumulative_day(session, end="2026-02-15")
+    rolled = session.transform.rollup(frame, grain="month")
+    cov = rolled.coverage()
+    assert cov is not None
+    cov_df = cov.to_pandas().sort_values("bucket_start").reset_index(drop=True)
+    # The fixture's display window is known to end mid-Feb, so the Feb rollup
+    # row must be partial — assert directly, no guard.
+    feb_row = cov_df[cov_df["bucket_start"] == pd.Timestamp("2026-02-01")]
+    assert not feb_row.empty
+    assert (feb_row["coverage_status"] == "partial").iloc[0]
+    assert (cov_df["coverage_status"] == "partial").any()
+    # And the complete January row is complete.
+    jan_row = cov_df[cov_df["bucket_start"] == pd.Timestamp("2026-01-01")]
+    assert not jan_row.empty
+    assert (jan_row["coverage_status"] == "complete").iloc[0]

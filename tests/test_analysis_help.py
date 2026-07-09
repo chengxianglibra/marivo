@@ -642,6 +642,37 @@ def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
     assert "unit: CNY" in out
 
 
+# --- Task 11: anchor-aware mv.help(ref) for cumulative metrics ---
+
+
+def test_mv_help_ref_dispatches_on_anchor(semantic_project_factory, capsys: CaptureFixture[str]):
+    """mv.help(<grain_to_date cumulative ref>) prints anchor-aware briefing."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "warehouse = md.ref('datasource.warehouse')\n"
+                "orders = ms.entity(name='orders', datasource=warehouse, "
+                "source=ms.table('orders'))\n"
+                "event_time = ms.time_dimension_column("
+                "name='event_time', entity=orders, column='created_at', granularity='day')\n"
+                "amount = ms.measure_column("
+                "name='amount', entity=orders, column='amount', additivity='additive')\n"
+                "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
+                "mtd_revenue = ms.cumulative(name='mtd_revenue', base=revenue, "
+                "over=event_time, anchor=ms.grain_to_date(grain='month'))\n"
+            ),
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+            ),
+        }
+    )
+    mv.help(make_ref("sales.mtd_revenue", SemanticKind.METRIC), project=project)
+    text = capsys.readouterr().out
+    assert "reset" in text.lower() or "grain_to_date" in text.lower()
+
+
 # --- sampled semi-additive observe help ---
 
 
@@ -683,3 +714,70 @@ def test_help_json_frame_contract_uses_affordance_language() -> None:
     workflow = _json_data("workflow")
     workflow_rendered = str(workflow).lower()
     assert "affordance" in workflow_rendered
+
+
+# ---------------------------------------------------------------------------
+# Task 12: agent-surface tests for the v2 cumulative authoring contract.
+#
+# `ms.help_text` resolves the new anchor value-object constructors and the
+# cumulative authoring contract now carries an anchor section with MTD and
+# rolling runnable examples. These tests pin the agent-facing discovery
+# surface so a regression that drops the anchor wording fails loudly.
+# ---------------------------------------------------------------------------
+
+
+def test_ms_help_text_resolves_grain_to_date() -> None:
+    """ms.help_text('grain_to_date') returns the anchor value-object briefing."""
+    import marivo.semantic as ms
+
+    text = ms.help_text("grain_to_date")
+    assert "grain_to_date" in text.lower()
+    assert "anchor" in text.lower()
+    assert "month" in text.lower()
+
+
+def test_ms_help_text_resolves_trailing() -> None:
+    """ms.help_text('trailing') returns the rolling-anchor value-object briefing."""
+    import marivo.semantic as ms
+
+    text = ms.help_text("trailing")
+    assert "trailing" in text.lower()
+    assert "anchor" in text.lower()
+    assert "rolling" in text.lower() or "count" in text.lower()
+
+
+def test_ms_help_cumulative_has_anchor_section_and_mtd_rolling_examples(
+    capsys: CaptureFixture[str],
+) -> None:
+    """ms.help('cumulative') teaches all three anchors with MTD + rolling examples.
+
+    The anchor section is the agent's discovery path for grain_to_date (MTD /
+    QTD / YTD) and trailing (rolling N) cumulative metrics. It must mention
+    each anchor kind and carry runnable MTD and rolling examples.
+    """
+    import marivo.semantic as ms
+
+    ms.help("cumulative")
+    text = capsys.readouterr().out.lower()
+    assert "anchor" in text
+    assert "grain_to_date" in text
+    assert "trailing" in text
+    # MTD wording: either the abbreviation or the reset grain.
+    assert "mtd" in text or "month" in text
+    # Rolling wording for the trailing anchor.
+    assert "rolling" in text
+    # The runnable examples must reference the real constructors.
+    assert "ms.grain_to_date(grain='month')" in text.replace(" ", "")
+    assert "ms.trailing(count=" in text
+
+
+def test_mv_help_transform_reflects_rollup_grain_and_drop_axes() -> None:
+    """mv.help('transform') teaches the rollup grain + drop_axes contract.
+
+    Task 9 widened session.transform.rollup from required drop_axes to
+    at-least-one-of drop_axes / grain. The transform help matrix must reflect
+    both arguments so agents author the new grain re-aggregation path.
+    """
+    out = _capture("transform")
+    assert "grain" in out.lower()
+    assert "drop_axes" in out.lower()

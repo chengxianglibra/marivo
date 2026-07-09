@@ -484,14 +484,14 @@ aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 
 Use `ms.cumulative(...)` when the business question is "how much accumulated up to bucket t".
 The base must be a tier-1 `ms.aggregate(...)` or `ms.count(...)` metric using `sum`, `count`,
-or `count_distinct`. The accumulation anchor is all history: the observe window clips
-displayed rows but does not reset the running value.
+or `count_distinct`. The `anchor` parameter selects the accumulation shape.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Semantic metric name. |
 | `base` | `MetricRef` | Yes | — | Tier-1 simple aggregate metric using `sum`, `count`, or `count_distinct`. |
 | `over` | `TimeDimensionRef \| None` | No | `None` | Time axis to accumulate over. Pass explicitly unless the base root entity has exactly one time dimension. |
+| `anchor` | `GrainToDate \| Trailing \| None` | No | `None` | Accumulation anchor. `None` = all-history running total; `ms.grain_to_date(...)` = MTD/QTD/YTD resets; `ms.trailing(...)` = rolling N. |
 | `unit` / `domain` / `ai_context` | — | No | — | Same as other metrics. |
 
 ```python
@@ -508,6 +508,50 @@ For `count_distinct` base metrics, the cumulative value uses first-seen semantic
 distinct entity is counted at the earliest bucket in which it appears, so the running total
 is monotonically non-decreasing. Cumulative metrics may serve as ratio components — compose
 cumulative numerator and denominator with `ms.ratio(...)` for cumulative rates.
+
+#### Accumulation anchors
+
+`anchor=None` (default) is the all-history running total: the observe window clips
+displayed rows but does not reset the running value. Two value-object constructors open
+the additional anchor kinds.
+
+`ms.grain_to_date(grain=...)` resets the running total at each reset-grain boundary
+(MTD / QTD / YTD / WTD). Within a reset period the value accumulates; at the boundary it
+drops to the period's first-bucket flow. `grain` is one of `week`, `month`, `quarter`,
+`year`.
+
+```python
+mtd_revenue = ms.cumulative(
+    name="mtd_revenue",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(grain="month"),
+)
+```
+
+`ms.trailing(count=..., unit=...)` is a fixed-size rolling window: the value at each
+bucket is the base aggregation over the span ending at that bucket's end boundary. Empty
+windows are true zero, not carried forward. Partial windows (the span reaches before the
+data start) show the actual partial accumulation and are marked `partial` in coverage.
+`unit` accepts only fixed-size units (`second`, `minute`, `hour`, `day`, `week`);
+calendar-variable units (`month`, `quarter`, `year`) are rejected with a teaching error.
+
+```python
+rolling7_active = ms.cumulative(
+    name="rolling7_active",
+    base=active_users,
+    over=event_time,
+    anchor=ms.trailing(count=7, unit="day"),
+)
+```
+
+Two cross-anchor rules govern query-time grain choices:
+
+- **Grain-compatibility rule** (`grain_to_date`): every display bucket must lie entirely
+  within one reset period. A `week` query grain under a `month` / `quarter` / `year`
+  reset is illegal (week buckets straddle month boundaries); `day` and `hour` are legal.
+- **Integer-multiple rule** (`trailing`): the window span must be an integer multiple of
+  the query grain (`W_buckets = span / grain`). Trailing requires a time grain.
 
 ### Additivity and provenance helpers
 

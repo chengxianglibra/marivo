@@ -251,7 +251,7 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
 | --- | --- | --- |
 | `filter` | `predicate`（callable） | 保留谓词为真的行。 |
 | `slice` | `slice_by`（轴 → 值/列表/区间） | 保留匹配精确轴值的行。 |
-| `rollup` | `drop_axes` | 删除轴并对 measures 重新聚合。 |
+| `rollup` | `drop_axes` 和/或 `grain` | 删除轴并重新聚合，或将时间轴重新分桶到更粗的 `grain`。累计 frame 取每个周期的最后一个 bucket（`rollup_fold="last"`）。 |
 | `topk` | `by`、`limit`、`order` | 按某个 measure 取前 N 行（默认 `order="decrease"`）。 |
 | `bottomk` | `by`、`limit` | 取后 N 行。 |
 | `rank` | `by`、`method`、`rank_column` | 按某个 measure 排序并加一列 rank。 |
@@ -260,12 +260,26 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
 
 ## 累计 frame 注意事项
 
-累计 MetricFrame 包含锚定到全部历史的累计值。observe 窗口仅裁剪展示行；累计值本身不会被重置。
+累计 MetricFrame 存储累计值，其语义取决于累计锚点（`all_history`、`grain_to_date` 或 `trailing`）。
 
-- `show()`、`contract()` 和 `transform.window(...)` 在累计 frame 上正常工作。
-- `correlate`、`discover`、`assess_quality` 和 `hypothesis_test` 允许使用，但解读结果时需注意累计语义。
-- `compare`、`attribute` 和 `forecast` 在 v1 中拒绝累计 frame。请使用 base 流量 metric
-  执行这些意图——一个窗口内的累计差值等于该窗口内的 base 总量。
+- `show()`、`contract()` 和 `transform.window(...)` 在累计 frame 上正常工作。`contract()` 和
+  `show()` 会呈现锚点特定的注意事项，因此在你正在阅读的 frame 上即可看到允许的路径。
+- `correlate`、`discover`、`assess_quality` 和 `hypothesis_test` 允许使用。Trailing frame 是独立的
+  窗口聚合（不是累计值），因此这些意图会产生有意义的结果。单调趋势注意事项仅适用于
+  `all_history` 和 `grain_to_date` 锚点——解读结果时需留意。
+- `compare` 按锚点分派：
+  - `all_history`：拒绝。请 observe base 流量 metric 再 compare——一个窗口内的累计差值等于
+    该窗口内的 base 总量。
+  - `trailing`：当两个 frame 共享相同的 trailing 锚点 payload（`count`、`unit`）时允许。
+    滚动窗口值按序对齐。
+  - `grain_to_date`：对单周期、边界锚定的窗口允许。窗口必须从重置边界开始，至多跨越一个
+    重置周期，且两个 frame 必须共享重置粒度和查询粒度。结果 DeltaFrame 会在
+    `alignment_dump["to_date"]` 下记录 to-date 对齐信息。
+- `attribute` 和 `forecast` 无论锚点如何都拒绝累计 frame；请为这些意图重新 observe base
+  流量 metric。
+- `transform.rollup(...)` 通过 `rollup_fold="last"` 重新聚合累计 frame：时间轴被重新分桶到目标
+  `grain`，每个周期贡献其最后一个 bucket（周期末值）。既不可重新聚合、又未携带 `rollup_fold`
+  的 frame 会被拒绝——请在目标粒度重新 observe。
 
 ```python
 cum_frame = session.observe(
@@ -273,9 +287,11 @@ cum_frame = session.observe(
     time_scope={"start": "2026-01-01", "end": "2026-04-01"},
     grain="day",
 )
-cum_frame.contract()  # 显示 running_total_caveat
+cum_frame.contract()  # 显示锚点特定的注意事项
 windowed = session.transform.window(cum_frame, window={"start": "2026-02-01", "end": "2026-03-01"})
-# 对于 compare/attribute/forecast，请改为 observe base metric：
+# 将累计 frame rollup 到更粗的粒度（周期末语义）：
+monthly = session.transform.rollup(cum_frame, grain="month")
+# 对于 attribute/forecast，请改为 observe base metric：
 base_frame = session.observe(active_users, ...)
 ```
 

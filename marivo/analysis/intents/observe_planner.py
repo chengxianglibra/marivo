@@ -103,6 +103,10 @@ class CumulativeObservePlan:
     base_plan: BaseObservePlan
     over: str | None
     window: Any | None
+    # Resolved CumulativeComposition (carries the real anchor) from the
+    # metric IR. Present when the plan is built from a real MetricIR; absent
+    # (None) for adapter-only construction paths.
+    composition: Any = None
 
     @property
     def dimensions(self) -> list[PlannedDimension]:
@@ -2131,6 +2135,17 @@ def _plan_cumulative_observe(
     # Use the cumulative's over axis as the time dimension for the base plan
     # when it is available; fall back to the caller-supplied time_dimension.
     cumulative_over = getattr(component, "over", None)
+    # Resolve the real CumulativeComposition (carrying the anchor) from the
+    # registry. metric_ir.composition here is the _MetricDetailsAdapter
+    # composition, which defaults over=None and anchor='all_history'; the real
+    # IR with the resolved anchor lives on the registry.
+    resolved_composition = component
+    if catalog._reg is not None:
+        real_ir = catalog._reg.metrics.get(metric_ir.semantic_id)
+        if real_ir is not None and real_ir.composition is not None:
+            resolved_composition = real_ir.composition
+            if cumulative_over is None:
+                cumulative_over = getattr(resolved_composition, "over", None)
     base_time_dimension = cumulative_over or time_dimension
     base_plan = plan_base_observe(
         catalog=catalog,
@@ -2150,6 +2165,7 @@ def _plan_cumulative_observe(
         base_plan=base_plan,
         over=cumulative_over,
         window=resolved_window,
+        composition=resolved_composition,
     )
 
 

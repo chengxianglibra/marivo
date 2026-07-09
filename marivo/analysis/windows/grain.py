@@ -31,6 +31,18 @@ _SUPPORTED_GRANULARITIES = (
 )
 _SUBDAY_UNITS: frozenset[str] = frozenset({"second", "minute", "hour"})
 _UNIT_SECONDS: dict[str, int] = {"second": 1, "minute": 60, "hour": 3600}
+# Fixed-width durations in seconds for grains whose width does not vary by
+# calendar. Month/quarter/year are intentionally absent: they have no single
+# fixed second-width and require date-truncation for period math. This is the
+# single source of truth for fixed-grain second-widths; observe.py imports it
+# for sampled-fold coverage math.
+_FIXED_UNIT_SECONDS: dict[str, int] = {
+    "second": 1,
+    "minute": 60,
+    "hour": 3600,
+    "day": 86_400,
+    "week": 604_800,
+}
 _TRUNCATE_CODE: dict[str, str] = {
     "second": "s",
     "minute": "m",
@@ -104,9 +116,19 @@ class Grain(BaseModel):
         return self.count == 1 and self.unit == "day"
 
     def width_seconds(self) -> int:
-        if not self.is_subday:
-            raise ValueError(f"width_seconds is undefined for calendar grain {self.unit!r}")
-        return self.count * _UNIT_SECONDS[self.unit]
+        """Fixed-width duration in seconds for sub-day, day, and week grains.
+
+        Month/quarter/year are calendar-variable and have no fixed width;
+        callers needing period math should use report-timezone date-truncation
+        rather than seconds.
+        """
+        seconds = _FIXED_UNIT_SECONDS.get(self.unit)
+        if seconds is None:
+            raise ValueError(
+                f"Grain.width_seconds() is undefined for calendar-variable grain "
+                f"{self.to_token()!r}; use report_tz date-truncation for period math."
+            )
+        return self.count * seconds
 
     def to_token(self) -> str:
         return self.unit if self.count == 1 else f"{self.count}{self.unit}"
