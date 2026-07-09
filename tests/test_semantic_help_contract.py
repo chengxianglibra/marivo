@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, cast
 
 import pytest
 
+import marivo.semantic as ms
 from marivo.introspection.surface import render as surface_render
 from marivo.semantic import help_text as semantic_help_text
 from marivo.semantic.help import _surface
@@ -73,7 +75,7 @@ EXPECTED_CONTRACTS: dict[str, dict[str, object]] = {
     "count": {
         "constructor": "ms.count",
         "required": ["name", "entity"],
-        "optional": ["domain", "ai_context"],
+        "optional": ["ai_context"],
         "discover": None,
     },
     "metric": {
@@ -134,6 +136,47 @@ def test_semantic_help_exposes_authoring_contract_for_each_object(
         assert "meaning" in params[parameter]
         assert "source" not in params[parameter]
     assert "static_constraints" in contract
+
+
+def test_semantic_authoring_contracts_do_not_advertise_unknown_callable_parameters() -> None:
+    for symbol in EXPECTED_CONTRACTS:
+        data = _help_json(symbol)
+        content = cast("dict[str, Any]", data["content"])
+        contract = cast("dict[str, Any]", content["authoring_contract"])
+        constructor = cast("str", contract["constructor"])
+        if not constructor.startswith("ms."):
+            continue
+
+        callable_name = constructor.removeprefix("ms.")
+        target = getattr(ms, callable_name)
+        signature_parameters = set(inspect.signature(target).parameters)
+        help_parameters = set(cast("list[str]", contract["required"])) | set(
+            cast("list[str]", contract["optional"])
+        )
+        help_parameters.discard("function_body")
+
+        assert help_parameters <= signature_parameters, (
+            f"{symbol} help advertises unsupported parameters: "
+            f"{sorted(help_parameters - signature_parameters)}"
+        )
+
+
+def test_count_help_does_not_advertise_domain_override() -> None:
+    data = _help_json("count")
+    content = cast("dict[str, Any]", data["content"])
+    contract = cast("dict[str, Any]", content["authoring_contract"])
+    params = cast("dict[str, Any]", contract["parameters"])
+
+    assert "domain" not in contract["optional"]
+    assert "domain" not in params
+
+    count = cast("Any", ms.count)
+    with pytest.raises(TypeError, match="unexpected keyword argument 'domain'"):
+        count(
+            name="order_count",
+            entity=ms.ref("entity.sales.orders"),
+            domain=ms.ref("domain.sales"),
+        )
 
 
 def test_time_dimension_column_help_inlines_parse_decision() -> None:

@@ -368,6 +368,8 @@ def test_help_topics_json_have_structured_content() -> None:
 def test_help_workflow_topic_is_complete_agent_runbook() -> None:
     rendered = _capture("workflow")
     assert "mv.session.get_or_create" in rendered
+    assert "session = mv.session.get_or_create(name=" in rendered
+    assert "session = mv.session.get_or_create(...)" not in rendered
     assert 'catalog.list("domain").show()' in rendered
     assert 'catalog.list("metric", scope="domain.<domain>").show()' in rendered
     assert 'region = session.catalog.get("dimension.sales.orders.region")' in rendered
