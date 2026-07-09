@@ -58,9 +58,11 @@ def _inspect_postgres(
         MetadataWarning,
         PartitionMetadata,
         TableMetadata,
+        TablePhysicalProfile,
         _bool_from_nullable,
         _database_label,
         _empty_to_none,
+        _int_or_none,
         _merge_columns,
         _partition_columns_from_expression,
         _query_rows,
@@ -73,6 +75,7 @@ def _inspect_postgres(
     warnings: list[MetadataWarning] = []
     table_comment: str | None = None
     catalog_columns: dict[str, ColumnMetadata] = {}
+    physical_profile: TablePhysicalProfile | None = None
 
     try:
         table_rows = _query_rows(
@@ -157,6 +160,38 @@ def _inspect_postgres(
                 )
             )
 
+    try:
+        profile_rows = _query_rows(
+            backend,
+            "SELECT c.reltuples, pg_total_relation_size(c.oid) AS total_relation_size "
+            "FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            f"WHERE c.relname = {_quote_literal(table)} "
+            f"AND n.nspname = {_quote_literal(schema_name)} "
+            "LIMIT 1",
+        )
+        if profile_rows:
+            row = profile_rows[0]
+            row_count = _int_or_none(row.get("reltuples"))
+            if row_count is not None and row_count < 0:
+                row_count = None
+            size_bytes = _int_or_none(row.get("total_relation_size"))
+            if row_count is not None or size_bytes is not None:
+                physical_profile = TablePhysicalProfile(
+                    row_count=row_count,
+                    row_count_kind="estimate" if row_count is not None else "unknown",
+                    size_bytes=size_bytes,
+                    size_kind="on_disk" if size_bytes is not None else "unknown",
+                    source="postgres.pg_class",
+                )
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=f"postgres physical profile query failed: {exc}",
+            )
+        )
+
     return TableMetadata(
         datasource=datasource,
         table=table,
@@ -166,6 +201,7 @@ def _inspect_postgres(
         columns=columns,
         partitions=tuple(partitions_by_name.values()) if include_partitions else (),
         warnings=tuple(warnings),
+        physical_profile=physical_profile,
     )
 
 

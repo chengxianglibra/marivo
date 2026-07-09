@@ -622,6 +622,10 @@ md.inspect_table(warehouse, events).show()
 md.discover_entity(warehouse, events).show()
 ```
 
+`md.inspect_table(...).show()` 会展示 schema、comments、nullable flags、
+partition hints，以及 backend 能以较低成本提供的 physical profile，例如估算行数
+或表大小。缺失这类 profile metadata 不会阻断 discovery。
+
 Discovery 返回有界证据、signals 和 issues；它不会替你决定业务含义、单位、additivity，
 或自动创建语义对象。Agent 通过 `.show()` / `.render()` 阅读 discovery 证据；
 具体 result class 和内部 evidence 字段不是公开 authoring 输入。`ms.help(...)`

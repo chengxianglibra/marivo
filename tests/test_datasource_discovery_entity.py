@@ -15,6 +15,7 @@ from marivo.datasource.metadata import (
     ColumnMetadata,
     PartitionMetadata,
     TableMetadata,
+    TablePhysicalProfile,
 )
 from marivo.datasource.scan import (
     ColumnProfile,
@@ -69,6 +70,7 @@ def _metadata(
     unique=(),
     partitions=(),
     columns=(),
+    physical_profile=None,
 ) -> TableMetadata:
     return TableMetadata(
         datasource="wh",
@@ -81,6 +83,7 @@ def _metadata(
         warnings=(),
         primary_keys=primary_keys,
         unique_constraints=unique,
+        physical_profile=physical_profile,
     )
 
 
@@ -219,6 +222,38 @@ def test_entity_result_render_includes_schema_and_partition_columns() -> None:
     assert "amount | DOUBLE | Y | Gross amount" in rendered
     assert "partition columns: dt, region" in rendered
     assert result.partition_columns == ("dt", "region")
+
+
+def test_entity_result_render_includes_table_physical_profile() -> None:
+    metadata = _metadata(
+        columns=(
+            ColumnMetadata(
+                name="order_id", type="INTEGER", nullable=False, comment=None, ordinal_position=1
+            ),
+        ),
+        physical_profile=TablePhysicalProfile(
+            row_count=1200,
+            row_count_kind="estimate",
+            size_bytes=8192,
+            size_kind="on_disk",
+            source="test.catalog",
+        ),
+    )
+    result = build_entity_result(
+        datasource=ref("warehouse"),
+        source=table("orders"),
+        table_metadata=metadata,
+        scan=_scan(5),
+        scope=ScanScope(),
+        column_profiles=(_profile("order_id", "INTEGER", type_family="integer"),),
+    )
+
+    rendered = result.render()
+
+    assert "physical profile:" in rendered
+    assert "rows=1200" in rendered
+    assert "size_bytes=8192" in rendered
+    assert "source=test.catalog" in rendered
 
 
 def test_entity_result_full_render_includes_all_wide_table_schema_and_profiles() -> None:

@@ -158,6 +158,10 @@ md.discover_entity(warehouse, orders_source, scope=scope).show()
 ms.help("entity")
 ```
 
+`md.inspect_table(...).show()` also surfaces any low-cost physical profile the
+backend exposes, such as estimated rows or table size. Missing profile metadata
+does not block discovery.
+
 Use discovery evidence and the `ms.help("entity")` contract to author exactly
 one object, then run `ms.verify_object(ref)` before advancing.
 

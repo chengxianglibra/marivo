@@ -79,9 +79,11 @@ def _inspect_duckdb(
         ColumnMetadata,
         MetadataWarning,
         TableMetadata,
+        TablePhysicalProfile,
         UniqueConstraintMetadata,
         _bool_from_nullable,
         _empty_to_none,
+        _int_or_none,
         _merge_columns,
         _query_rows,
         _quote_literal,
@@ -94,22 +96,48 @@ def _inspect_duckdb(
     catalog_columns: dict[str, ColumnMetadata] = {}
     is_view = False
     view_definition: str | None = None
+    physical_profile: TablePhysicalProfile | None = None
 
     try:
         table_rows = _query_rows(
             backend,
-            "SELECT comment FROM duckdb_tables() "
+            "SELECT comment, estimated_size FROM duckdb_tables() "
             f"WHERE table_name = {_quote_literal(table)} LIMIT 1",
         )
         if table_rows:
-            table_comment = _empty_to_none(table_rows[0].get("comment"))
+            row = table_rows[0]
+            table_comment = _empty_to_none(row.get("comment"))
+            row_count = _int_or_none(row.get("estimated_size"))
+            if row_count is not None:
+                physical_profile = TablePhysicalProfile(
+                    row_count=row_count,
+                    row_count_kind="estimate",
+                    size_bytes=None,
+                    size_kind="unknown",
+                    source="duckdb.duckdb_tables",
+                )
     except Exception as exc:
-        warnings.append(
-            MetadataWarning(
-                kind="metadata_query_failed",
-                message=f"duckdb table comment query failed: {exc}",
+        try:
+            table_rows = _query_rows(
+                backend,
+                "SELECT comment FROM duckdb_tables() "
+                f"WHERE table_name = {_quote_literal(table)} LIMIT 1",
             )
-        )
+            if table_rows:
+                table_comment = _empty_to_none(table_rows[0].get("comment"))
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"duckdb physical profile query failed: {exc}",
+                )
+            )
+        except Exception as exc2:
+            warnings.append(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"duckdb table metadata query failed: {exc2}",
+                )
+            )
 
     try:
         column_rows = _query_rows(
@@ -228,6 +256,7 @@ def _inspect_duckdb(
         view_definition=view_definition,
         primary_keys=primary_keys,
         unique_constraints=unique_constraints,
+        physical_profile=physical_profile,
     )
 
 

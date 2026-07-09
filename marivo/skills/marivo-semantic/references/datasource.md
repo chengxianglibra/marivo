@@ -78,8 +78,8 @@ Use `md.help("table")`, `md.help("parquet")`, `md.help("csv")`, or
 parameter defaults and omit rules live in `md.help`.
 
 `md.inspect_table(...)` is the first-class schema path for entity authoring.
-Read rendered schema columns and partition columns before asking the user or
-using SQL diagnostics.
+Read rendered schema columns, physical profile, and partition columns before
+asking the user or using SQL diagnostics.
 
 If the table is partitioned, inspect available partition tuples with
 `md.inspect_partitions(...)`, choose an explicit `md.partition({...})`, and pass
