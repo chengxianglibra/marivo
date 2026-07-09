@@ -11,7 +11,9 @@ The maintained documentation describes the Python-native Marivo library only.
 - [`specs/semantic/python-semantic-layer.md`](specs/semantic/python-semantic-layer.md) -
   Python semantic model declarations and loading behavior.
 - [`specs/analysis/python-analysis-design.md`](specs/analysis/python-analysis-design.md) -
-  analysis operator design, frame contracts, and evidence/judgment/follow-up surfaces.
+  analysis layer overview: the design philosophy and a map to the focused specs
+  in the same directory — operators and frames, session state and runtime, the
+  evidence access surface, and timezone and calendar alignment.
 
 ## Agent Guidance
 
