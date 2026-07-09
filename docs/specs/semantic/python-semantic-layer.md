@@ -333,6 +333,9 @@ orders = ms.entity(
 ```
 
 entity 通过结构化 source 指向物理来源。`ms.table(...)` 表达后端表；
+`ms.parquet(...)`、`ms.csv(...)` 和 `ms.json(...)` 表达 DuckDB 文件来源，
+其中 JSON 支持本地路径、glob 和 DuckDB httpfs 可读取的 `http(s)://` URL。
+JSON source 只暴露 `path` 和 `format`，列裁剪仍在 entity / dimension / measure 层表达。
 不应把 metric 聚合逻辑塞进 entity。
 
 entity 不再接受 Python body，因此不支持在 semantic layer 内用 `backend.sql(...)`

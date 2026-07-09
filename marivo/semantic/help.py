@@ -458,7 +458,8 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                     "DatasourceRef", 'datasource ref from md.ref("datasource.warehouse")'
                 ),
                 "source": _param(
-                    "TableSourceIR | ParquetSourceIR | CsvSourceIR", "structured physical source"
+                    "TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR",
+                    "structured physical source",
                 ),
                 "primary_key": _param(
                     "list[str] | None", "authoritative primary-key columns", default="None"
@@ -471,7 +472,9 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                 "domain": domain,
                 "ai_context": ai_context,
             },
-            "static_constraints": ["source must be ms.table(...), ms.parquet(...), or ms.csv(...)"],
+            "static_constraints": [
+                "source must be ms.table(...), ms.parquet(...), ms.csv(...), or ms.json(...)"
+            ],
         },
         "dimension_column": {
             "summary": "Declare a categorical dimension directly from one physical column.",
@@ -1197,6 +1200,7 @@ def _parquet_topic() -> Descriptor:
             "related_help": [
                 "ms.help('entity')",
                 "ms.help('csv')",
+                "ms.help('json')",
             ],
         },
         doc=(
@@ -1207,7 +1211,7 @@ def _parquet_topic() -> Descriptor:
             "Form:\n"
             "  ms.parquet(path, hive_partitioning=False, columns=None)"
         ),
-        see_also=("ms.help('entity')", "ms.help('csv')"),
+        see_also=("ms.help('entity')", "ms.help('csv')", "ms.help('json')"),
     )
 
 
@@ -1223,6 +1227,7 @@ def _csv_topic() -> Descriptor:
             "related_help": [
                 "ms.help('entity')",
                 "ms.help('parquet')",
+                "ms.help('json')",
             ],
         },
         doc=(
@@ -1233,7 +1238,34 @@ def _csv_topic() -> Descriptor:
             "Form:\n"
             "  ms.csv(path, header=True, delimiter=',', columns=None)"
         ),
-        see_also=("ms.help('entity')", "ms.help('parquet')"),
+        see_also=("ms.help('entity')", "ms.help('parquet')", "ms.help('json')"),
+    )
+
+
+def _json_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="json",
+        summary="JSON file source for ms.entity(source=ms.json(...)).",
+        content={
+            "form": "ms.json(path, format='auto')",
+            "usage": "Declares a JSON file source for an entity.",
+            "related_help": [
+                "ms.help('entity')",
+                "ms.help('parquet')",
+                "ms.help('csv')",
+            ],
+        },
+        doc=(
+            "marivo.semantic json\n"
+            "\n"
+            "json file source for ms.entity(source=ms.json(...))\n"
+            "\n"
+            "Form:\n"
+            "  ms.json(path, format='auto')"
+        ),
+        see_also=("ms.help('entity')", "ms.help('parquet')", "ms.help('csv')"),
     )
 
 
@@ -1277,6 +1309,7 @@ def _surface() -> Surface:
                 "join_on",
                 "parquet",
                 "csv",
+                "json",
                 "additivity",
             )
         )
@@ -1291,6 +1324,7 @@ def _surface() -> Surface:
         "join_on": _join_on_topic(),
         "parquet": _parquet_topic(),
         "csv": _csv_topic(),
+        "json": _json_topic(),
         "additivity": _additivity_topic(),
     }
     summaries = derive_summaries(

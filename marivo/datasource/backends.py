@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,8 +14,8 @@ from marivo.datasource.engines import (
 from marivo.datasource.engines import (
     require_profile_for_backend_type,
 )
-from marivo.datasource.errors import DatasourceFieldInvalidError
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMetadataError
+from marivo.datasource.ir import DatasourceIR, JsonSourceIR
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,39 @@ def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
 class BuiltDatasourceBackend:
     backend: Any
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
+
+
+_HTTP_SCHEME = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def apply_json_http_settings(backend: object, source: object) -> None:
+    """Enable force_download for http(s) JSON sources; no-op for local paths."""
+    if not isinstance(source, JsonSourceIR):
+        return
+    if not _HTTP_SCHEME.match(source.path):
+        return
+    raw_sql = getattr(backend, "raw_sql", None)
+    if not callable(raw_sql):
+        raise DatasourceMetadataError(
+            message=(
+                f"json source {source.path!r} is http(s), but this datasource "
+                "backend cannot read remote JSON. md.json(...) is a DuckDB "
+                "file-source (local path, glob, or httpfs URL), not a generic "
+                "HTTP API reader."
+            ),
+            details={
+                "path": source.path,
+                "reason": "backend_lacks_httpfs",
+                "location": f"md.json({source.path!r})",
+                "cause": "backend lacks callable raw_sql (DuckDB httpfs not available)",
+                "fix_snippet": (
+                    "# Use a local path or glob pattern instead of an http(s):// URL:\n"
+                    "import marivo.datasource as md\n"
+                    'source = md.json("data/events/*.json", format="newline_delimited")'
+                ),
+            },
+        )
+    raw_sql("SET force_download=true")
 
 
 def build_backend_with_secrets(

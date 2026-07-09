@@ -247,7 +247,7 @@ anchor that dimensions, measures, and metrics attach to.
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Entity name. Becomes `<domain>.<name>`. |
 | `datasource` | `DatasourceRef` | Yes | — | `md.ref("datasource.warehouse")`. |
-| `source` | source builder | Yes | — | `ms.table(...)`, `ms.parquet(...)`, or `ms.csv(...)`. |
+| `source` | source builder | Yes | — | `ms.table(...)`, `ms.parquet(...)`, `ms.csv(...)`, or `ms.json(...)`. |
 | `primary_key` | `list[str]` | No | `None` | Column names forming the primary key. |
 | `versioning` | `ms.snapshot \| ms.validity` | No | `None` | Snapshot or SCD2 validity versioning (see below). |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
@@ -272,6 +272,7 @@ orders = ms.entity(
 | `ms.table(name)` | `name` | `database` | A table in the datasource (use `database="schema"` for Trino/MySQL). |
 | `ms.parquet(path)` | `path` | `hive_partitioning`, `columns` | Parquet files (typically through DuckDB). |
 | `ms.csv(path)` | `path` | `header`, `delimiter`, `columns` | CSV files (typically through DuckDB). |
+| `ms.json(path)` | `path` | `format` | Fixed-schema JSON files, glob patterns, or DuckDB httpfs `http(s)://` URLs. |
 
 ### Versioning (optional)
 

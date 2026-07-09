@@ -279,3 +279,19 @@ def test_join_side_uses_datasource_ref_and_table_source() -> None:
     assert side.datasource == md.ref("datasource.warehouse")
     assert side.source == md.table("orders")
     assert side.columns == ("customer_id",)
+
+
+def test_json_source_constructor_matches_semantic_alias() -> None:
+    from marivo.datasource.ir import JsonSourceIR
+
+    default = md.json("data/events/*.json")
+    explicit = md.json("data/events.json", format="array")
+
+    assert isinstance(default, JsonSourceIR)
+    assert default == ms.json("data/events/*.json")
+    assert default.format == "auto"
+    assert explicit.to_dict() == {
+        "kind": "json",
+        "path": "data/events.json",
+        "format": "array",
+    }

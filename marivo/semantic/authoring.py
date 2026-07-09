@@ -21,6 +21,7 @@ from marivo.semantic._authoring_decorators import (
     dimension,
     dimension_column,
     entity,
+    json,
     measure,
     measure_column,
     parquet,

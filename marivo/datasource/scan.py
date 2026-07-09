@@ -13,17 +13,18 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo.datasource.authoring import DatasourceRef
-from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.render import Card, RenderableResult
 
 ScanPartition = Mapping[str, str] | None
 PartitionResolution = Literal["explicit", "none", "unpruned"]
 
 # Public datasource-side alias for physical source values returned by
-# md.table(...), md.parquet(...), and md.csv(...). Named TableSource to avoid
-# colliding with the semantic authoring DatasetSource alias. Exported in the
-# public md surface in a later plan; defined here so discovery types can use it.
-TableSource = TableSourceIR | ParquetSourceIR | CsvSourceIR
+# md.table(...), md.parquet(...), md.csv(...), and md.json(...). Named
+# TableSource to avoid colliding with the semantic authoring DatasetSource
+# alias. Exported in the public md surface in a later plan; defined here so
+# discovery types can use it.
+TableSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 ColumnReadStatus = Literal["readable", "not_found", "unreadable"]
 
 
@@ -263,7 +264,7 @@ class JoinSide:
 
     Attributes:
         datasource: Datasource reference from ``md.ref("datasource.name")``.
-        source: Physical source returned by ``md.table()``, ``md.parquet()``, or ``md.csv()``.
+        source: Physical source returned by ``md.table()``, ``md.parquet()``, ``md.csv()``, or ``md.json()``.
         columns: Column names participating in the join key.
 
     Example:
@@ -387,6 +388,25 @@ def csv(
         delimiter=delimiter,
         columns=_normalize_columns_input(columns, field_name="CsvSourceIR.columns"),
     )
+
+
+def json(
+    path: str,
+    /,
+    *,
+    format: Literal["auto", "newline_delimited", "array"] = "auto",
+) -> JsonSourceIR:
+    """Build a structured JSON source reference.
+
+    Args:
+        path: File path, glob pattern, or http(s):// URL.
+        format: JSON layout; ``"auto"`` detects newline-delimited vs array.
+
+    Returns:
+        A ``JsonSourceIR`` suitable for ``ms.entity(source=...)`` or
+        ``md.entity(source=...)``.
+    """
+    return JsonSourceIR(path=path, format=format)
 
 
 def partition(

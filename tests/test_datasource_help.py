@@ -20,6 +20,7 @@ def test_datasource_help_lists_discovery_family_and_scope_helpers() -> None:
     assert "md.raw_sql" in text
     assert "md.partition" in text
     assert "md.unpruned" in text
+    assert "md.json" in text
 
 
 def test_datasource_help_omits_removed_low_level_primitives() -> None:
@@ -67,6 +68,15 @@ def test_datasource_help_detail_for_connect_teaches_context_manager() -> None:
     assert "DatasourceConnection" in text
     assert "with md.connect" in text
     assert "disconnect" in text
+
+
+def test_datasource_help_detail_for_json_source_builder() -> None:
+    text = md.help_text("json")
+
+    assert "JsonSourceIR" in text
+    assert "format" in text
+    assert "http(s):// URL" in text
+    assert "columns" not in text
 
 
 def test_datasource_describe_covers_discovery_symbols() -> None:
