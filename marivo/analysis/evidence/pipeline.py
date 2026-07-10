@@ -49,6 +49,7 @@ from marivo.analysis.evidence.identity import (
     make_issue_id,
     to_microseconds_utc,
 )
+from marivo.analysis.evidence.knowledge import build_artifact_evidence_projection
 from marivo.analysis.evidence.seeding import (
     seed_anomaly_proposition,
     seed_change_proposition,
@@ -58,7 +59,9 @@ from marivo.analysis.evidence.seeding import (
     seed_test_hypothesis_proposition,
 )
 from marivo.analysis.evidence.store import JudgmentStore
+from marivo.analysis.evidence.summary import build_artifact_evidence_summary
 from marivo.analysis.evidence.types import (
+    ArtifactEvidenceSummary,
     Finding,
     Proposition,
     QualitySummary,
@@ -875,6 +878,33 @@ def commit_result(
                 (artifact_id, triggered_by_followup.action_id),
             )
 
+    # 6b. Build commit-time evidence summary (frame-local, non-canonical)
+    evidence_summary: ArtifactEvidenceSummary | None = None
+    if emit_evidence:
+        try:
+            projection = build_artifact_evidence_projection(
+                db_path=store.db_path,
+                session_id=session_id,
+                artifact_id=artifact_id,
+            )
+            evidence_summary = build_artifact_evidence_summary(projection)
+        except Exception:
+            summary_issue = BlockingIssue(
+                issue_id=make_issue_id(
+                    artifact_id=artifact_id,
+                    kind="evidence_summary_unavailable",
+                    source_refs=[artifact_id],
+                ),
+                kind="evidence_summary_unavailable",
+                severity="warning",
+                source_refs=[artifact_id],
+                message=(
+                    "commit-time evidence summary unavailable; use session.evidence "
+                    "to inspect canonical records"
+                ),
+            )
+            blocking_issues = [*blocking_issues, summary_issue]
+
     # 7. Update frame.meta with Surface 1 fields
     meta_update: dict[str, Any] = {
         "ref": artifact_id,
@@ -883,6 +913,7 @@ def commit_result(
         "blocking_issues": blocking_issues,
         "confidence_scope": confidence_scope,
         "quality_summary": quality_summary,
+        "evidence_summary": evidence_summary,
     }
     # CandidateSetMeta declares affordances; other metas do not have it.
     if hasattr(frame.meta, "affordances"):

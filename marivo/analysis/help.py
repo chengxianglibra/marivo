@@ -732,6 +732,12 @@ def _workflow_content() -> dict[str, object]:
             'Cumulative MetricFrames have intent gates; read mv.help("cumulative_frame") '
             "when artifact.contract() reports cumulative caveats."
         ),
+        "evidence_layering": (
+            "artifact.show() includes bounded commit-time evidence when the intent "
+            "emitted it; no second evidence show is required. Use session.knowledge() "
+            "for cross-step synthesis and recovery, and session.evidence for full "
+            "typed records and audit traces."
+        ),
         "operator_boundaries": [
             "observe/derive_metric_frame and axis-like transform/discover params consume catalog refs or objects.",
             "compare/correlate/hypothesis_test consume typed MetricFrames.",
@@ -772,6 +778,7 @@ def _workflow_text(content: dict[str, object]) -> str:
     for step in cast("list[str]", content["read_order"]):
         lines.append(f"  {step}")
     lines.extend(("", f"  {content['affordance_boundary']}"))
+    lines.extend(("", f"  {content['evidence_layering']}"))
     lines.extend(("", "Quality and cumulative gates:"))
     lines.append(f"  {content['quality_gate']}")
     lines.append(f"  {content['cumulative_note']}")
@@ -852,6 +859,12 @@ def _artifacts_content() -> dict[str, object]:
             "Other methods on artifact objects are not default exits; "
             "use artifact.contract() to inspect available actions."
         ),
+        "evidence_layering": (
+            "artifact.show() includes bounded commit-time evidence when the intent "
+            "emitted it; no second evidence show is required. Use session.knowledge() "
+            "for cross-step synthesis and recovery, and session.evidence for full "
+            "typed records and audit traces."
+        ),
     }
 
 
@@ -863,6 +876,7 @@ def _artifacts_text(content: dict[str, object]) -> str:
     for field in cast("list[str]", content["inspection_surfaces"]):
         lines.append(f"  {field}")
     lines.extend(("", f"  {content['affordance_boundary']}"))
+    lines.extend(("", f"  {content['evidence_layering']}"))
     lines.extend(("", f"Note: {content['note']}"))
     return "\n".join(lines)
 

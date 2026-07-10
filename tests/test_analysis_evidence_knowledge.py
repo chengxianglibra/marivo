@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from marivo.analysis.evidence.identity import canonical_subject_key, to_microseconds_utc
-from marivo.analysis.evidence.knowledge import SessionKnowledge, build_session_knowledge
+from marivo.analysis.evidence.knowledge import (
+    SessionKnowledge,
+    build_artifact_evidence_projection,
+    build_session_knowledge,
+)
 from marivo.analysis.evidence.store import open_judgment_store
 from marivo.analysis.evidence.types import (
     AssociationSummary,
@@ -720,3 +724,27 @@ def test_knowledge_snapshot_json_round_trips(tmp_path: Path) -> None:
 
     assert restored == knowledge
     assert isinstance(restored.facts(kind="driver")[0], AttributedDriver)
+
+
+def test_artifact_projection_reuses_session_knowledge_typed_values(tmp_path: Path) -> None:
+    db_path = tmp_path / "judgment.db"
+    _seed_full_knowledge(db_path)
+
+    projection = build_artifact_evidence_projection(
+        db_path=db_path,
+        session_id="sess_full",
+        artifact_id="art_driver",
+    )
+    knowledge = build_session_knowledge(db_path=db_path, session_id="sess_full")
+
+    assert projection.finding_count == 1
+    assert len(projection.items) == 1
+    assert projection.items[0].canonical_item_key == "country|country=us"
+    assert projection.items[0].value == knowledge.driver_facts[0]
+
+    blocked = build_artifact_evidence_projection(
+        db_path=db_path,
+        session_id="sess_full",
+        artifact_id="art_block_a",
+    )
+    assert [issue.kind for issue in blocked.blocking_issues] == ["sample_size_low"]

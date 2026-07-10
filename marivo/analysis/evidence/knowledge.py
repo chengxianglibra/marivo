@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,7 @@ from marivo.analysis.evidence.types import (
     TestedHypothesis,
     TimeWindow,
 )
-from marivo.analysis.followups import FollowupAction
+from marivo.analysis.followups import BlockingIssue, FollowupAction
 
 
 def _open_readonly(db_path: Path) -> sqlite3.Connection:
@@ -66,24 +67,34 @@ def _completeness(conn: sqlite3.Connection, session_id: str) -> EvidenceComplete
 
 
 def _proposition_with_assessment(
-    conn: sqlite3.Connection, session_id: str, proposition_type: str
+    conn: sqlite3.Connection,
+    session_id: str,
+    proposition_type: str,
+    artifact_id: str | None = None,
 ) -> list[sqlite3.Row]:
+    artifact_filter = " AND f.artifact_id = ?" if artifact_id is not None else ""
+    params: tuple[str, ...] = (
+        (session_id, proposition_type, artifact_id)
+        if artifact_id is not None
+        else (session_id, proposition_type)
+    )
     return conn.execute(
-        """
+        f"""
         SELECT p.proposition_id, p.subject_key, p.payload AS prop_payload,
                p.seed_finding_refs,
                a.snapshot_id, a.status, a.confidence, a.confidence_basis,
                a.payload AS assess_payload,
+               f.finding_id, f.canonical_item_key,
                f.payload AS finding_payload, f.subject_payload, f.artifact_id
         FROM propositions p
         LEFT JOIN assessment_snapshots a
           ON a.proposition_id = p.proposition_id AND a.is_latest = 1
         LEFT JOIN findings f
           ON f.finding_id = json_extract(p.seed_finding_refs, '$[0]')
-        WHERE p.session_id = ? AND p.proposition_type = ?
+        WHERE p.session_id = ? AND p.proposition_type = ?{artifact_filter}
         ORDER BY p.created_at_us, p.proposition_id
         """,
-        (session_id, proposition_type),
+        params,
     ).fetchall()
 
 
@@ -117,9 +128,11 @@ def _base_fact_kwargs(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _change_facts(conn: sqlite3.Connection, session_id: str) -> list[ChangeFact]:
+def _change_facts(
+    conn: sqlite3.Connection, session_id: str, artifact_id: str | None = None
+) -> list[ChangeFact]:
     facts: list[ChangeFact] = []
-    for row in _proposition_with_assessment(conn, session_id, "change"):
+    for row in _proposition_with_assessment(conn, session_id, "change", artifact_id):
         prop, finding, _assess = _row_payloads(row)
         facts.append(
             ChangeFact(
@@ -134,9 +147,11 @@ def _change_facts(conn: sqlite3.Connection, session_id: str) -> list[ChangeFact]
     return facts
 
 
-def _driver_facts(conn: sqlite3.Connection, session_id: str) -> list[AttributedDriver]:
+def _driver_facts(
+    conn: sqlite3.Connection, session_id: str, artifact_id: str | None = None
+) -> list[AttributedDriver]:
     facts: list[AttributedDriver] = []
-    for row in _proposition_with_assessment(conn, session_id, "driver"):
+    for row in _proposition_with_assessment(conn, session_id, "driver", artifact_id):
         prop, finding, assess = _row_payloads(row)
         facts.append(
             AttributedDriver(
@@ -162,9 +177,11 @@ def _driver_facts(conn: sqlite3.Connection, session_id: str) -> list[AttributedD
     return facts
 
 
-def _tested_hypothesis_facts(conn: sqlite3.Connection, session_id: str) -> list[TestedHypothesis]:
+def _tested_hypothesis_facts(
+    conn: sqlite3.Connection, session_id: str, artifact_id: str | None = None
+) -> list[TestedHypothesis]:
     facts: list[TestedHypothesis] = []
-    for row in _proposition_with_assessment(conn, session_id, "tested_hypothesis"):
+    for row in _proposition_with_assessment(conn, session_id, "tested_hypothesis", artifact_id):
         prop, finding, assess = _row_payloads(row)
         facts.append(
             TestedHypothesis(
@@ -188,9 +205,11 @@ def _forecast_window(payload: dict[str, Any]) -> TimeWindow:
     )
 
 
-def _forecast_facts(conn: sqlite3.Connection, session_id: str) -> list[ForecastSummary]:
+def _forecast_facts(
+    conn: sqlite3.Connection, session_id: str, artifact_id: str | None = None
+) -> list[ForecastSummary]:
     facts: list[ForecastSummary] = []
-    for row in _proposition_with_assessment(conn, session_id, "forecast"):
+    for row in _proposition_with_assessment(conn, session_id, "forecast", artifact_id):
         prop, finding, assess = _row_payloads(row)
         facts.append(
             ForecastSummary(
@@ -212,9 +231,11 @@ def _lag_sweep(payload: Any) -> LagSweepSummary | None:
     return LagSweepSummary.model_validate(payload)
 
 
-def _association_facts(conn: sqlite3.Connection, session_id: str) -> list[AssociationSummary]:
+def _association_facts(
+    conn: sqlite3.Connection, session_id: str, artifact_id: str | None = None
+) -> list[AssociationSummary]:
     facts: list[AssociationSummary] = []
-    for row in _proposition_with_assessment(conn, session_id, "association"):
+    for row in _proposition_with_assessment(conn, session_id, "association", artifact_id):
         prop, finding, assess = _row_payloads(row)
         facts.append(
             AssociationSummary(
@@ -245,12 +266,18 @@ def _observation_window(payload: Any) -> TimeWindow | None:
     return TimeWindow(field=str(payload.get("field", "")), start=str(start), end=str(end))
 
 
-def _observation_summaries(conn: sqlite3.Connection, session_id: str) -> list[ObservationSummary]:
+def _observation_summaries(
+    conn: sqlite3.Connection, session_id: str, artifact_id: str | None = None
+) -> list[ObservationSummary]:
+    artifact_filter = " AND artifact_id = ?" if artifact_id is not None else ""
+    params: tuple[str, ...] = (
+        (session_id, artifact_id) if artifact_id is not None else (session_id,)
+    )
     rows = conn.execute(
         "SELECT finding_id, artifact_id, subject_payload, payload FROM findings "
-        "WHERE session_id = ? AND finding_type = 'observation' "
-        "ORDER BY committed_at_us, finding_id",
-        (session_id,),
+        "WHERE session_id = ? AND finding_type = 'observation'"
+        f"{artifact_filter} ORDER BY committed_at_us, finding_id",
+        params,
     ).fetchall()
     summaries: list[ObservationSummary] = []
     for row in rows:
@@ -272,9 +299,11 @@ def _observation_summaries(conn: sqlite3.Connection, session_id: str) -> list[Ob
     return summaries
 
 
-def _open_anomalies(conn: sqlite3.Connection, session_id: str) -> list[OpenAnomaly]:
+def _open_anomalies(
+    conn: sqlite3.Connection, session_id: str, artifact_id: str | None = None
+) -> list[OpenAnomaly]:
     items: list[OpenAnomaly] = []
-    for row in _proposition_with_assessment(conn, session_id, "anomaly"):
+    for row in _proposition_with_assessment(conn, session_id, "anomaly", artifact_id):
         if row["status"] in ("validated", "refuted"):
             continue
         items.append(OpenAnomaly(**_base_fact_kwargs(row)))
@@ -465,6 +494,60 @@ class SessionKnowledge(BaseModel):
         )
 
 
+ArtifactEvidenceProjectionValue = (
+    ObservationSummary
+    | ChangeFact
+    | AttributedDriver
+    | TestedHypothesis
+    | ForecastSummary
+    | AssociationSummary
+    | OpenAnomaly
+    | OpenQuestion
+)
+
+
+@dataclass(frozen=True)
+class ArtifactEvidenceProjectionItem:
+    canonical_item_key: str
+    value: ArtifactEvidenceProjectionValue
+
+
+@dataclass(frozen=True)
+class ArtifactEvidenceProjection:
+    finding_count: int
+    items: tuple[ArtifactEvidenceProjectionItem, ...]
+    blocking_issues: tuple[BlockingIssue, ...] = ()
+
+
+def _artifact_blocking_issues(
+    conn: sqlite3.Connection,
+    session_id: str,
+    artifact_id: str,
+) -> tuple[BlockingIssue, ...]:
+    rows = conn.execute(
+        """
+        SELECT issue_id, kind, severity, payload
+        FROM blocking_issues
+        WHERE session_id = ? AND artifact_id = ? AND resolved_by_step_id IS NULL
+        ORDER BY created_at_us, issue_id
+        """,
+        (session_id, artifact_id),
+    ).fetchall()
+    issues: list[BlockingIssue] = []
+    for row in rows:
+        payload = _loads(row["payload"])
+        issues.append(
+            BlockingIssue(
+                issue_id=row["issue_id"],
+                kind=row["kind"],
+                severity=row["severity"],
+                source_refs=[str(ref) for ref in payload.get("source_refs", [])],
+                message=str(payload.get("message", "")),
+            )
+        )
+    return tuple(issues)
+
+
 def build_session_knowledge(*, db_path: Path, session_id: str) -> SessionKnowledge:
     """Build a SessionKnowledge snapshot from judgment.db."""
     conn = _open_readonly(db_path)
@@ -517,6 +600,59 @@ def build_session_knowledge(*, db_path: Path, session_id: str) -> SessionKnowled
             open_questions=open_questions,
             blocked_followup_items=blocked_followup_items,
             next_steps_payload=next_steps_payload,
+        )
+    finally:
+        conn.close()
+
+
+def build_artifact_evidence_projection(
+    *, db_path: Path, session_id: str, artifact_id: str
+) -> ArtifactEvidenceProjection:
+    """Build typed evidence owned by one artifact without creating a session snapshot."""
+    conn = _open_readonly(db_path)
+    try:
+        finding_count = int(
+            conn.execute(
+                "SELECT count(*) FROM findings WHERE session_id = ? AND artifact_id = ?",
+                (session_id, artifact_id),
+            ).fetchone()[0]
+        )
+        observations = _observation_summaries(conn, session_id, artifact_id)
+        facts: tuple[ArtifactEvidenceProjectionValue, ...] = (
+            *_change_facts(conn, session_id, artifact_id),
+            *_driver_facts(conn, session_id, artifact_id),
+            *_tested_hypothesis_facts(conn, session_id, artifact_id),
+            *_forecast_facts(conn, session_id, artifact_id),
+            *_association_facts(conn, session_id, artifact_id),
+        )
+        open_items: tuple[ArtifactEvidenceProjectionValue, ...] = tuple(
+            _open_anomalies(conn, session_id, artifact_id)
+        )
+        key_rows = conn.execute(
+            """
+            SELECT finding_id AS typed_id, canonical_item_key
+            FROM findings
+            WHERE session_id = ? AND artifact_id = ? AND finding_type = 'observation'
+            UNION ALL
+            SELECT p.proposition_id AS typed_id, f.canonical_item_key
+            FROM propositions p
+            JOIN findings f ON f.finding_id = json_extract(p.seed_finding_refs, '$[0]')
+            WHERE p.session_id = ? AND f.artifact_id = ?
+            """,
+            (session_id, artifact_id, session_id, artifact_id),
+        ).fetchall()
+        keys = {str(row["typed_id"]): str(row["canonical_item_key"]) for row in key_rows}
+        values = (*observations, *facts, *open_items)
+        return ArtifactEvidenceProjection(
+            finding_count=finding_count,
+            items=tuple(
+                ArtifactEvidenceProjectionItem(
+                    canonical_item_key=keys[value.id],
+                    value=value,
+                )
+                for value in values
+            ),
+            blocking_issues=_artifact_blocking_issues(conn, session_id, artifact_id),
         )
     finally:
         conn.close()

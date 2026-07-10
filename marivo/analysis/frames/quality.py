@@ -39,16 +39,20 @@ class QualityReport(BaseFrame):
 
     def _card(self) -> Card:
         columns = _display_column_names(self._df.columns)
-        return (
-            Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
-            .status(
-                f"status={self.meta.overall_status} "
-                f"blocking={self.meta.blocking_issue_count} "
-                f"warning={self.meta.warning_count}"
-            )
-            .lazy_table(
-                columns=columns,
-                rows_provider=self._preview_rows_provider,
-                row_count=len(self._df),
-            )
+        status_parts = [
+            f"status={self.meta.overall_status}",
+            f"blocking={self.meta.blocking_issue_count}",
+            f"warning={self.meta.warning_count}",
+        ]
+        evidence = self._evidence_status_token()
+        if evidence is not None:
+            status_parts.append(evidence)
+        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES).status(
+            " ".join(status_parts)
+        )
+        self._append_evidence_sections(card)
+        return card.lazy_table(
+            columns=columns,
+            rows_provider=self._preview_rows_provider,
+            row_count=len(self._df),
         )

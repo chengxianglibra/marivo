@@ -40,16 +40,22 @@ class AssociationResult(BaseFrame):
     def _card(self) -> Card:
         columns = _display_column_names(self._df.columns)
         metric_ids = ",".join(self.meta.metric_ids)
-        return (
-            Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
-            .status(
-                f"method={self.meta.method} r={self.meta.correlation:.2f} "
-                f"aligned={self.meta.aligned_row_count} dropped={self.meta.dropped_row_count} "
-                f"metrics={metric_ids}"
-            )
-            .lazy_table(
-                columns=columns,
-                rows_provider=self._preview_rows_provider,
-                row_count=len(self._df),
-            )
+        status_parts = [
+            f"method={self.meta.method}",
+            f"r={self.meta.correlation:.2f}",
+            f"aligned={self.meta.aligned_row_count}",
+            f"dropped={self.meta.dropped_row_count}",
+            f"metrics={metric_ids}",
+        ]
+        evidence = self._evidence_status_token()
+        if evidence is not None:
+            status_parts.append(evidence)
+        card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES).status(
+            " ".join(status_parts)
+        )
+        self._append_evidence_sections(card)
+        return card.lazy_table(
+            columns=columns,
+            rows_provider=self._preview_rows_provider,
+            row_count=len(self._df),
         )

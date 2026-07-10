@@ -9,6 +9,8 @@ import pytest
 from pydantic import ValidationError
 
 from marivo.analysis.errors import FrameMutationError
+from marivo.analysis.evidence.types import ArtifactEvidenceItem, ArtifactEvidenceSummary
+from marivo.analysis.followups import BlockingIssue
 from marivo.analysis.frames._content_hash import stable_meta_payload
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
@@ -414,3 +416,91 @@ def test_base_frame_contract_emits_affordances_for_non_empty_next_intents() -> N
         "source_ref": "frame_contracted"
     }
     assert contract.affordances[0].param_template.judgment_slots == []
+
+
+def test_evidence_summary_is_session_local_for_content_identity() -> None:
+    summary = ArtifactEvidenceSummary(
+        finding_count=1,
+        items=(ArtifactEvidenceItem(kind="observation", statement="revenue: value=1"),),
+    )
+    without_summary = _meta(evidence_summary=None)
+    with_summary = _meta(evidence_summary=summary)
+
+    assert stable_meta_payload(with_summary) == stable_meta_payload(without_summary)
+
+
+def test_render_places_bounded_evidence_before_preview() -> None:
+    summary = ArtifactEvidenceSummary(
+        finding_count=100,
+        items=(
+            ArtifactEvidenceItem(
+                kind="observation",
+                statement="sales.revenue: buckets=100 102.4 -> 118.7 direction=increase",
+            ),
+        ),
+    )
+    frame = BaseFrame(
+        _df=pd.DataFrame({"value": range(100)}),
+        meta=_meta(evidence_status="complete", evidence_summary=summary, row_count=100),
+    )
+
+    rendered = frame.render(max_output_bytes=None)
+
+    assert "status: evidence=complete" in rendered
+    assert "evidence: findings=100 items=1 omitted=0" in rendered
+    assert "evidence items:" in rendered
+    assert rendered.index("evidence:") < rendered.index("preview:")
+    assert ".evidence()" not in rendered
+
+    bounded = frame.render(max_output_bytes=336)
+    assert "evidence items:" in bounded
+    assert "sales.revenue:" in bounded
+    assert "omitted: preview" in bounded
+
+
+def test_complete_without_summary_hides_misleading_evidence_status() -> None:
+    frame = BaseFrame(
+        _df=pd.DataFrame({"value": [1]}),
+        meta=_meta(evidence_status="complete", evidence_summary=None),
+    )
+    rendered = frame.render()
+    assert "evidence=complete" not in rendered
+    assert "evidence:" not in rendered
+
+
+def test_unavailable_and_summary_failure_are_distinct() -> None:
+    unavailable = BaseFrame(
+        _df=pd.DataFrame({"value": [1]}),
+        meta=_meta(
+            evidence_status="unavailable",
+            blocking_issues=[
+                BlockingIssue(
+                    issue_id="iss_store",
+                    kind="evidence_store_unavailable",
+                    severity="blocking",
+                    source_refs=["art_1"],
+                    message="evidence store not available; evidence pipeline skipped",
+                )
+            ],
+        ),
+    )
+    summary_failed = BaseFrame(
+        _df=pd.DataFrame({"value": [1]}),
+        meta=_meta(
+            evidence_status="complete",
+            blocking_issues=[
+                BlockingIssue(
+                    issue_id="iss_summary",
+                    kind="evidence_summary_unavailable",
+                    severity="warning",
+                    source_refs=["art_1"],
+                    message="commit-time evidence summary unavailable; use session.evidence",
+                )
+            ],
+        ),
+    )
+
+    assert "status: evidence=unavailable" in unavailable.render()
+    assert "findings=0" not in unavailable.render()
+    assert "status: evidence=complete summary=unavailable" in summary_failed.render()
+    assert "session.evidence" in summary_failed.render()

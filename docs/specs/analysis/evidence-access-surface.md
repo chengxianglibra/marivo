@@ -93,10 +93,21 @@ wrapper and no extra read call:
 | `blocking_issues` | `list[BlockingIssue]` | Filled synchronously at commit |
 | `recommended_followups` | `list[FollowupAction]` | Filled at commit; C1 + C2 only |
 | `evidence_status` | `Literal["complete","partial","unavailable"]` | See [fallback](#evidence_status-fallback) |
+| `evidence_summary` | `ArtifactEvidenceSummary \| None` | Bounded commit-time display snapshot; rendered by `artifact.show()` when present |
 
 All Surface 1 fields are read via `frame.meta`; there is no `frame.evidence.*`
 namespace. `artifact_id` is the replay-stable identity; `frame.ref` is a loading
 alias equal to `artifact_id`.
+
+`result.meta.evidence_summary` is an optional, immutable commit-time display
+snapshot. When present, `artifact.show()` renders at most five observation,
+fact, or open-item statements before the result preview. The summary is restored
+from frame `meta.json`; rendering never reads `judgment.db`.
+
+An absent summary means evidence emission was suppressed, evidence was
+unavailable, summary projection failed with an explicit warning, or the frame
+predates this field. Full evidence remains in `session.evidence`; session-wide
+synthesis remains in `session.knowledge()`.
 
 A `CandidateSet` distinguishes two follow-up sources that share the
 `FollowupAction` type: `result.meta.recommended_followups` is artifact-level C1/C2
@@ -131,7 +142,7 @@ Sampled folds additionally produce a linked `CoverageFrame` (via
 | --- | --- | --- | --- |
 | `complete` | none | all fields | none |
 | `partial` | savepoint seeding/assessment/follow-up/blocking-issue write | `artifact_id`, `subject`, `source_refs`, `lineage`, `quality_summary`, `confidence_scope`, `blocking_issues` (incl. one `evidence_partial`) | `recommended_followups` (possibly partial C1) |
-| `unavailable` | judgment store unavailable at startup | intrinsic fields computed by this step (id/subject/source_refs/lineage/quality/confidence); `blocking_issues` carries one `evidence_store_unavailable` | `recommended_followups` (no store to persist/dedupe) |
+| `unavailable` | judgment store unavailable at startup | intrinsic fields computed by this step (id/subject/source_refs/lineage/quality/confidence); `blocking_issues` carries one `evidence_store_unavailable` | `recommended_followups` (no store to persist/dedupe); `evidence_summary` is `None` (`evidence_summary_unavailable`) |
 
 Under `unavailable` the result is in-memory only: downstream operators in the same
 process can still consume it, but a restart loses it and

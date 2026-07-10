@@ -164,6 +164,14 @@ def test_commit_observe_writes_artifact_and_metric_value_findings(tmp_session) -
     assert artifacts[0][1] == "observe"
     assert sorted(row[0] for row in findings) == ["metric_value", "observation"]
 
+    assert result.evidence_summary is not None
+    assert result.evidence_summary.finding_count == 2
+    assert [item.kind for item in result.evidence_summary.items] == ["observation"]
+    meta_payload = json.loads(
+        (frames_dir / result.meta.artifact_id / "meta.json").read_text(encoding="utf-8")
+    )
+    assert meta_payload["evidence_summary"] == result.evidence_summary.model_dump(mode="json")
+
 
 def test_commit_compare_seeds_change_proposition(tmp_session) -> None:
     session_id, session_dir, frames_dir, db_path = tmp_session
@@ -331,6 +339,10 @@ def test_commit_partial_when_seeding_fails(tmp_session, monkeypatch) -> None:
     assert findings >= 2
     assert propositions == 0
 
+    assert result.evidence_summary is not None
+    assert result.evidence_summary.finding_count >= 1
+    assert result.evidence_summary.items == ()
+
 
 def test_commit_result_can_skip_evidence_emission(tmp_session) -> None:
     session_id, session_dir, frames_dir, db_path = tmp_session
@@ -365,6 +377,46 @@ def test_commit_result_can_skip_evidence_emission(tmp_session) -> None:
     assert finding_count == 0
     assert proposition_count == 0
     assert followup_count == 0
+
+    assert result.evidence_summary is None
+
+
+def test_summary_failure_keeps_canonical_evidence_complete(tmp_session, monkeypatch) -> None:
+    session_id, session_dir, frames_dir, db_path = tmp_session
+    store = open_judgment_store(db_path)
+
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("simulated summary failure")
+
+    monkeypatch.setattr(
+        "marivo.analysis.evidence.pipeline.build_artifact_evidence_summary",
+        _boom,
+    )
+    try:
+        result = commit_result(
+            store=store,
+            frames_dir=frames_dir,
+            frame=_metric_frame(session_id=session_id, project_root=session_dir),
+            step_type="observe",
+            inputs=CommitInputs(input_refs=[]),
+            params=CommitParams(values={"metric": "sales.revenue", "window": None}),
+            semantic_anchors=CommitSemanticAnchors(values={"metric": "sales.revenue@v1"}),
+            subject=Subject(metric="sales.revenue", analysis_axis="scalar"),
+            extractor_family="metric_frame",
+        )
+    finally:
+        store.close()
+
+    with sqlite3.connect(db_path) as conn:
+        row_status = conn.execute(
+            "SELECT evidence_status FROM artifacts WHERE artifact_id = ?",
+            (result.meta.artifact_id,),
+        ).fetchone()[0]
+
+    assert row_status == "complete"
+    assert result.meta.evidence_status == "complete"
+    assert result.evidence_summary is None
+    assert [issue.kind for issue in result.meta.blocking_issues] == ["evidence_summary_unavailable"]
 
 
 def test_commit_unavailable_when_store_is_none(tmp_session) -> None:

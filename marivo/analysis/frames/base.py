@@ -15,7 +15,7 @@ from marivo.analysis.errors import (
     FrameMutationError,
     SemanticKindMismatchError,
 )
-from marivo.analysis.evidence.types import QualitySummary
+from marivo.analysis.evidence.types import ArtifactEvidenceSummary, QualitySummary
 from marivo.analysis.followups import BlockingIssue, ConfidenceScope
 from marivo.analysis.lineage import Lineage
 from marivo.render import Card, RenderableResult
@@ -194,6 +194,7 @@ class BaseFrameMeta(BaseModel):
     evidence_status: Literal["complete", "partial", "unavailable"] = "unavailable"
     confidence_scope: ConfidenceScope | None = None
     quality_summary: QualitySummary | None = None
+    evidence_summary: ArtifactEvidenceSummary | None = None
     blocking_issues: list[BlockingIssue] = Field(default_factory=list)
     content_hash: str | None = None
 
@@ -253,6 +254,10 @@ class BaseFrame(RenderableResult):
     @property
     def quality_summary(self) -> QualitySummary | None:
         return self.meta.quality_summary
+
+    @property
+    def evidence_summary(self) -> ArtifactEvidenceSummary | None:
+        return self.meta.evidence_summary
 
     @property
     def blocking_issues(self) -> list[BlockingIssue]:
@@ -381,10 +386,23 @@ class BaseFrame(RenderableResult):
     def _repr_identity(self) -> str:
         return f"{type(self).__name__} ref={self.meta.ref} rows={self.meta.row_count}"
 
+    def _evidence_status_token(self) -> str | None:
+        summary_unavailable = any(
+            issue.kind == "evidence_summary_unavailable" for issue in self.meta.blocking_issues
+        )
+        if summary_unavailable:
+            return f"evidence={self.meta.evidence_status} summary=unavailable"
+        if self.meta.evidence_summary is not None:
+            return f"evidence={self.meta.evidence_status}"
+        if self.meta.evidence_status in {"partial", "unavailable"}:
+            return f"evidence={self.meta.evidence_status}"
+        return None
+
     def _render_status(self) -> str | None:
         parts: list[str] = []
-        if self.meta.evidence_status != "unavailable":
-            parts.append(f"evidence={self.meta.evidence_status}")
+        evidence = self._evidence_status_token()
+        if evidence is not None:
+            parts.append(evidence)
         if self.meta.quality_summary is not None:
             compat = self.meta.quality_summary.metric_definition_compatibility
             if compat is not None:
@@ -394,6 +412,33 @@ class BaseFrame(RenderableResult):
     def _repr_html_(self) -> None:
         return None
 
+    def _append_evidence_sections(self, card: Card) -> Card:
+        if self.meta.blocking_issues:
+            card.listing(
+                "issues",
+                (
+                    f"{issue.severity} {issue.kind}: {issue.message}"
+                    for issue in self.meta.blocking_issues
+                ),
+            )
+        summary = self.meta.evidence_summary
+        if summary is not None:
+            if summary.finding_count == 0 and not summary.items:
+                card.field("evidence", "no evidence findings emitted")
+            else:
+                card.field(
+                    "evidence",
+                    (
+                        f"findings={summary.finding_count} items={len(summary.items)} "
+                        f"omitted={summary.omitted_count}"
+                    ),
+                )
+                if summary.items:
+                    card.listing("evidence items", (item.statement for item in summary.items))
+        if any(issue.kind == "evidence_summary_unavailable" for issue in self.meta.blocking_issues):
+            card.field("evidence recovery", "inspect canonical records with session.evidence")
+        return card
+
     def _card(self) -> Card:
         columns = _display_column_names(self._df.columns)
         card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
@@ -402,6 +447,7 @@ class BaseFrame(RenderableResult):
             card.status(status)
         if self.meta.analysis_purpose:
             card.field("analysis_purpose", self.meta.analysis_purpose)
+        self._append_evidence_sections(card)
         return card.lazy_table(
             columns=columns,
             rows_provider=self._preview_rows_provider,

@@ -4,8 +4,10 @@ import pandas as pd
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo.analysis.evidence.types import ArtifactEvidenceItem, ArtifactEvidenceSummary
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
+from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import persist_frame
 
@@ -94,6 +96,18 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
             aligned_row_count=10,
             dropped_row_count=0,
             correlation=0.75,
+            evidence_summary=ArtifactEvidenceSummary(
+                finding_count=1,
+                items=(
+                    ArtifactEvidenceItem(
+                        kind="association",
+                        statement="sales.revenue: method=pearson coefficient=0.82 lag=0 join=date",
+                        status="validated",
+                        confidence=0.8,
+                    ),
+                ),
+            ),
+            evidence_status="complete",
         ),
     )
     frame.meta = persist_frame(session, frame)
@@ -114,3 +128,38 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
     for metric_id in loaded.meta.metric_ids:
         assert metric_id in rendered
     assert "summary()" not in rendered
+
+    association_text = loaded.render(max_output_bytes=None)
+    assert "method=pearson" in association_text
+    assert "evidence=complete" in association_text
+    assert association_text.index("evidence:") < association_text.index("preview:")
+
+
+def test_quality_report_renders_evidence_with_family_status(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    session_attach._reset_process_state()
+    session = mv.session.get_or_create(name="demo")
+    quality = QualityReport(
+        _df=pd.DataFrame({"check": ["missing_values"], "status": ["ok"]}),
+        meta=QualityReportMeta(
+            **_base_meta(session, kind="quality_report", ref="frame_quality"),
+            source_refs=["frame_metric"],
+            report_shape="metric",
+            target_kind="metric_frame",
+            target_metric_id="sales.revenue",
+            target_semantic_model="sales",
+            target_semantic_kind="time_series",
+            checks_run=["missing_values"],
+            overall_status="warning",
+            blocking_issue_count=0,
+            warning_count=1,
+            evidence_summary=ArtifactEvidenceSummary(finding_count=0),
+            evidence_status="complete",
+        ),
+    )
+
+    quality_text = quality.render(max_output_bytes=None)
+    assert "status=warning" in quality_text
+    assert "evidence=complete" in quality_text
+    assert "no evidence findings emitted" in quality_text
+    assert quality_text.index("evidence:") < quality_text.index("preview:")

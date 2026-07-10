@@ -359,6 +359,10 @@ delta.contract()     # 机械有效的下一步操作
 delta.to_pandas()    # 终端导出，用于自定义本地分析
 ```
 
+当 operator 产生 evidence 时，`artifact.show()` 会在结果 preview 之前直接展示有界的
+commit-time evidence 摘要。理解当前步骤只需一次 `show()`；回顾或综合多个步骤时使用
+`session.knowledge()`，需要完整 typed records 与审计链时使用 `session.evidence`。
+
 用 `artifact.contract().affordances` 查看机械兼容性。它只说明哪些 public operator
 在机械上可以消费该 artifact、缺哪些输入；它不排序、不推荐，也不决定下一步。
 
