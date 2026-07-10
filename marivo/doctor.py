@@ -191,6 +191,11 @@ def render_text(report: DoctorReport) -> str:
     lines.append("")
     for section in report.sections:
         lines.append(f"[{section.id}] {section.status} {_section_summary(section)}")
+        if section.status != "ok":
+            non_skipped = [c for c in section.checks if c.status != "skipped"]
+            if len(non_skipped) > 1:
+                for check in non_skipped:
+                    lines.append(f"  {check.label}: {check.status} - {check.summary}")
     commands = _fix_commands(report)
     if commands:
         lines.append("")
@@ -916,10 +921,81 @@ def _secrets_section(datasources: Sequence[DatasourceIR], *, project_root: Path)
 
 
 def _semantic_section(root: Path) -> DoctorSection:
+    fix_cmd = f"marivo doctor --project-root {root} --semantic --format json"
     try:
         from marivo.semantic.check import run_check
 
         payload = run_check(workspace_dir=root, readiness=True, format="json")
+        readiness_by_domain = payload.get("readiness_by_domain")
+
+        if isinstance(readiness_by_domain, dict) and readiness_by_domain:
+            checks: list[DoctorCheck] = []
+            for domain_name in sorted(readiness_by_domain.keys()):
+                domain_payload = readiness_by_domain[domain_name]
+                if not isinstance(domain_payload, dict):
+                    continue
+                domain_status = str(domain_payload.get("status", "ready"))
+                domain_blockers = _json_safe_detail(
+                    domain_payload.get("blockers")
+                    if isinstance(domain_payload.get("blockers"), list)
+                    else []
+                )
+                domain_warnings = _json_safe_detail(
+                    domain_payload.get("warnings")
+                    if isinstance(domain_payload.get("warnings"), list)
+                    else []
+                )
+                blocker_count = len(domain_blockers) if isinstance(domain_blockers, list) else 0
+                warning_count = len(domain_warnings) if isinstance(domain_warnings, list) else 0
+
+                if domain_status == "blocked":
+                    doctor_status: DoctorStatus = "fail"
+                elif domain_status == "ready_with_warnings":
+                    doctor_status = "warning"
+                else:
+                    doctor_status = "ok"
+
+                summary_parts: list[str] = [domain_status]
+                if blocker_count:
+                    summary_parts.append(_count_summary(blocker_count, "blocker"))
+                if warning_count:
+                    summary_parts.append(_count_summary(warning_count, "warning"))
+                summary = ", ".join(summary_parts)
+
+                domain_fix: Sequence[str] = ()
+                if doctor_status in ("fail", "warning"):
+                    domain_fix = (fix_cmd,)
+
+                checks.append(
+                    DoctorCheck(
+                        id=f"semantic.readiness.{domain_name}",
+                        label=domain_name,
+                        status=doctor_status,
+                        summary=summary,
+                        details={
+                            "status": domain_status,
+                            "blockers": domain_blockers,
+                            "warnings": domain_warnings,
+                        },
+                        fix=domain_fix,
+                    )
+                )
+            return DoctorSection(id="semantic", label="Semantic readiness", checks=tuple(checks))
+
+        if isinstance(readiness_by_domain, dict) and not readiness_by_domain:
+            return DoctorSection(
+                id="semantic",
+                label="Semantic readiness",
+                checks=(
+                    DoctorCheck(
+                        id="semantic.readiness",
+                        label="Semantic readiness",
+                        status="skipped",
+                        summary="no semantic domains loaded",
+                    ),
+                ),
+            )
+
         status = str(payload.get("status"))
         errors = payload.get("errors")
         warnings = payload.get("warnings")
@@ -952,12 +1028,12 @@ def _semantic_section(root: Path) -> DoctorSection:
             len(readiness_warnings) if isinstance(readiness_warnings, list) else 0
         )
         if error_count or blocker_count or status in {"blocked", "errored"}:
-            doctor_status: DoctorStatus = "fail"
+            doctor_status = "fail"
         elif warning_count or readiness_warning_count or status == "ready_with_warnings":
             doctor_status = "warning"
         else:
             doctor_status = "ok"
-        summary_parts: list[str] = []
+        summary_parts = []
         if error_count:
             summary_parts.append(_count_summary(error_count, "load error"))
         if warning_count:
@@ -971,7 +1047,7 @@ def _semantic_section(root: Path) -> DoctorSection:
             summary = f"{summary} ({', '.join(summary_parts)})"
         fix: Sequence[str] = ()
         if doctor_status == "fail":
-            fix = (f"marivo doctor --project-root {root} --semantic --format json",)
+            fix = (fix_cmd,)
         return DoctorSection(
             id="semantic",
             label="Semantic readiness",
@@ -996,7 +1072,7 @@ def _semantic_section(root: Path) -> DoctorSection:
                     label="Semantic readiness",
                     status="fail",
                     summary=f"{type(exc).__name__}: {exc}",
-                    fix=(f"marivo doctor --project-root {root} --semantic --format json",),
+                    fix=(fix_cmd,),
                 ),
             ),
         )

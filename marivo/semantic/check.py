@@ -55,6 +55,36 @@ def _warning_to_dict(warning: Any) -> dict[str, object]:
     }
 
 
+def _domain_of_ref(ref: str) -> str:
+    return ref.split(".", 1)[0] if "." in ref else ref
+
+
+def _partition_readiness_by_domain(
+    report: Any,
+    domain_names: list[str],
+) -> dict[str, dict[str, object]]:
+    result: dict[str, dict[str, object]] = {}
+    for domain_name in domain_names:
+        blockers = [
+            b for b in report.blockers if any(_domain_of_ref(r) == domain_name for r in b.refs)
+        ]
+        warnings = [
+            w for w in report.warnings if any(_domain_of_ref(r) == domain_name for r in w.refs)
+        ]
+        if blockers:
+            status = "blocked"
+        elif warnings:
+            status = "ready_with_warnings"
+        else:
+            status = "ready"
+        result[domain_name] = {
+            "status": status,
+            "blockers": [b.to_dict() for b in blockers],
+            "warnings": [w.to_dict() for w in warnings],
+        }
+    return result
+
+
 def run_check(
     *,
     workspace_dir: str | Path | None = None,
@@ -91,6 +121,9 @@ def run_check(
         report = project.readiness()
         payload["readiness"] = report.to_dict()
         payload["status"] = report.status
+        if project.is_ready() and project._registry is not None:
+            domain_names = sorted(project._registry.domains.keys())
+            payload["readiness_by_domain"] = _partition_readiness_by_domain(report, domain_names)
 
     return payload
 
@@ -130,6 +163,15 @@ def _print_text(payload: dict[str, object]) -> None:
             print("Readiness warnings:")
             for warning in report_warnings:
                 print(f"- [{warning['kind']}] {warning['message']}")
+    readiness_by_domain = payload.get("readiness_by_domain")
+    if isinstance(readiness_by_domain, dict):
+        for domain_name, domain_payload in readiness_by_domain.items():
+            status = domain_payload.get("status", "ready")
+            blocker_list = domain_payload.get("blockers", [])
+            warning_list = domain_payload.get("warnings", [])
+            print(
+                f"  {domain_name}: {status} ({len(blocker_list)} blockers, {len(warning_list)} warnings)"
+            )
 
 
 def main(argv: list[str] | None = None) -> int:
