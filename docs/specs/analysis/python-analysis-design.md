@@ -137,12 +137,12 @@ import marivo.analysis as mv
 session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
 
 current = session.observe(
-    metric=session.catalog.get("analytics.dau"),
+    metric=session.catalog.get("metric.analytics.dau"),
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
 )
 baseline = session.observe(
-    metric=session.catalog.get("analytics.dau"),
+    metric=session.catalog.get("metric.analytics.dau"),
     time_scope={"start": "2026-06-11", "end": "2026-06-18"},
     grain="day",
 )

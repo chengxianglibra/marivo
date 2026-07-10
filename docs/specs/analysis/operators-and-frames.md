@@ -87,13 +87,14 @@ future runtimes. `mv.window_bucket()` defaults to `mode="ordinal_bucket"`
 Calendar and holiday alignment are specified in
 [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md).
 
-### Semantic refs
+### Semantic objects and refs
 
-Every semantic entry point is a catalog-resolved typed ref, never a guessed
-string. Metrics and dimensions are passed as `SemanticObject`/`SemanticRef`
-obtained from `session.catalog.get(...)`; calendars and artifacts use
-`CalendarRef` / `ArtifactRef`. An agent holding only a string resolves it through
-the catalog before submitting a step.
+Every semantic entry point is a catalog-resolved typed object or ref, never a
+guessed string. Metrics and dimensions are passed as concrete `CatalogObject`
+subtypes or `SemanticRef` values obtained from `session.catalog`; calendars and
+artifacts use `CalendarRef` / `ArtifactRef`. An agent holding a typed ID resolves
+it through `catalog.get(...)`; an agent exploring by name uses a global or scoped
+typed collection first.
 
 ## Agent-facing core operator surface
 
@@ -146,10 +147,10 @@ requested axes:
 
 ```python
 series = session.observe(
-    metric=session.catalog.get("analytics.dau"),
+    metric=session.catalog.get("metric.analytics.dau"),
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
-    dimensions=[session.catalog.get("analytics.events.platform")],
+    dimensions=[session.catalog.get("dimension.analytics.events.platform")],
 )
 ```
 
@@ -224,7 +225,7 @@ recommendation or narrative.
 ```python
 drivers = session.attribute(
     delta,
-    axes=[session.catalog.get("analytics.events.country")],
+    axes=[session.catalog.get("dimension.analytics.events.country")],
     mode="nested",
 )
 ```
@@ -295,12 +296,12 @@ canonical `MetricFrame`:
 import marivo.datasource as md
 
 retention = session.derive_metric_frame(
-    metric=session.catalog.get("analytics.retention_7d"),
+    metric=session.catalog.get("metric.analytics.retention_7d"),
     query=mv.ibis_query(datasource=md.ref("datasource.warehouse"), build=lambda db, ctx: ...),
     columns=mv.metric_columns(
         value="retention_rate",
-        time=mv.time_column(column="cohort_date", ref=session.catalog.get("analytics.cohort_date")),
-        dimensions=[mv.dimension_column(column="platform", ref=session.catalog.get("analytics.events.platform"))],
+        time=mv.time_column(column="cohort_date", ref=session.catalog.get("time_dimension.analytics.cohorts.cohort_date")),
+        dimensions=[mv.dimension_column(column="platform", ref=session.catalog.get("dimension.analytics.events.platform"))],
     ),
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",

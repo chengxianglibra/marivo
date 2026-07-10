@@ -216,7 +216,7 @@ Before adding or changing semantics, read the current registry:
 import marivo.semantic as ms
 
 catalog = ms.load()                 # find_project() locates models/semantic/ upward
-catalog.list("metric").show()
+catalog.metrics.show()
 ```
 
 `ms.load()` fails closed when no project root is found — do not guess a root;
