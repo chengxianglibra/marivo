@@ -312,7 +312,7 @@ def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     assert "import marivo.semantic as ms" in text
     # catalog browse
     assert "ms.load(" in text
-    assert "catalog.list(" in text
+    assert "catalog.domains" in text or "catalog.metrics" in text
     # authoring order (spec §ms.help("authoring"))
     assert "domain" in text and "entity" in text and "measure" in text
     assert "metric" in text and "relationship" in text

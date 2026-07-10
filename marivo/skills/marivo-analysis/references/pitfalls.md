@@ -126,7 +126,7 @@ catalog and re-derive with a defined metric id:
 ```python
 import marivo.semantic as ms
 catalog = ms.load()
-catalog.list("metric").show()
+catalog.metrics.show()
 ```
 
 ## No active session
@@ -241,11 +241,28 @@ MetricNotFoundError: metric 'sales.revenu' not found
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.list("metric")
+catalog.metrics.ids()
 cur = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2026-07-01", "end": "2026-10-01"})
 ```
 
 Metric ids are case-sensitive strings in `<model>.<metric>` form.
+
+## Ambiguous short name on a global collection
+
+**Symptom:** a collection `.get("region")` raises a structured
+ambiguous-reference error listing multiple typed-ID candidates across entities.
+
+**Action:** narrow the lookup through scoped navigation instead of passing an
+ambiguous short name to a global collection. The owning domain and entity
+remove the ambiguity:
+
+```python
+orders = catalog.domains.get("sales").entities.get("orders")
+region = orders.dimensions.get("region")
+```
+
+Do not parse `obj.id` or inspect `type(obj).__name__` to disambiguate. Use
+scoped collections so the lookup itself is unambiguous.
 
 ## Timescope end is exclusive
 

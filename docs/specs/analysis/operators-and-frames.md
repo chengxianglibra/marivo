@@ -89,13 +89,8 @@ Calendar and holiday alignment are specified in
 
 ### Semantic refs
 
-> **Pending breaking redesign:**
-> [`Catalog Object Navigation Design`](../../superpowers/specs/2026-07-10-catalog-object-navigation-design.md)
-> will replace `SemanticObject` with concrete catalog object types. It is not
-> implemented yet; the contract below describes the current runtime.
-
 Every semantic entry point is a catalog-resolved typed ref, never a guessed
-string. Metrics and dimensions are passed as `SemanticObject`/`SemanticRef`
+string. Metrics and dimensions are passed as `CatalogObject`/`SemanticRef`
 obtained from `session.catalog.get(...)`; calendars and artifacts use
 `CalendarRef` / `ArtifactRef`. An agent holding only a string resolves it through
 the catalog before submitting a step.

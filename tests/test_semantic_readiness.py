@@ -129,7 +129,7 @@ def test_project_readiness_accepts_refs_argument(
 def test_project_readiness_accepts_semantic_ref_objects(
     semantic_project_factory,
 ) -> None:
-    """readiness() must accept SemanticRef objects from catalog.list("metric").refs()."""
+    """readiness() must accept SemanticRef objects from catalog.metrics.refs()."""
     from marivo.semantic.catalog import SemanticKind
     from marivo.semantic.refs import make_ref
 
@@ -800,7 +800,7 @@ def test_unknown_ref_suggested_action_mentions_catalog_browse(
 
     for issue in issues:
         assert (
-            "catalog.list(...).show()" in issue.suggested_action
+            "catalog.domains" in issue.suggested_action
             or "catalog.get(...).details().show()" in issue.suggested_action
         )
 

@@ -414,7 +414,7 @@ def build_structural_readiness_report(
                 "blocker",
                 (ref,),
                 f"Requested semantic ref {ref!r} is not loaded in the project registry.",
-                "Browse loaded refs with catalog.list(...).show(), inspect a known ref with catalog.get(...).details().show(), then fix or remove the ref from readiness refs.",
+                "Browse loaded refs with catalog.domains.show(), catalog.metrics.show(), etc., inspect a known ref with catalog.get(...).details().show(), then fix or remove the ref from readiness refs.",
             )
         )
 

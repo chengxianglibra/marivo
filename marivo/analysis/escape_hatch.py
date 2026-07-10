@@ -36,8 +36,8 @@ from marivo.analysis.windows import (
     normalize_absolute_window_input,
 )
 from marivo.datasource.authoring import DatasourceRef, _require_datasource_ref
+from marivo.semantic.catalog import CatalogObject, SemanticRef
 from marivo.semantic.catalog import SemanticKind as CatalogSemanticKind
-from marivo.semantic.catalog import SemanticObject, SemanticRef
 
 DimensionAnchorInput = DimensionInput
 
@@ -200,17 +200,10 @@ def _validate_metric_in_catalog(
 
 
 def _catalog_metric_ids(catalog: Any) -> set[str]:
-    ids: set[str] = set()
     try:
-        domains = list(catalog.list("domain"))
+        return set(catalog._require_index().semantic_ids(CatalogSemanticKind.METRIC))
     except Exception:
-        return ids
-    for domain in domains:
-        try:
-            ids.update(catalog.list("metric", scope=f"domain.{domain.ref.id}").ids())
-        except Exception:
-            continue
-    return ids
+        return set()
 
 
 def _load_metric_ref(ref: ArtifactRef | None, *, session: Session) -> MetricFrame | None:
@@ -337,18 +330,20 @@ def _raise_delta_metadata_mismatch(
 
 
 def _metric_anchor_id(ref: MetricInput) -> str:
-    if isinstance(ref, SemanticObject):
+    if isinstance(ref, CatalogObject):
         return ref.ref.id
     return ref.id
 
 
 def _dimension_anchor_id(ref: DimensionAnchorInput) -> str:
-    if isinstance(ref, SemanticObject):
+    if isinstance(ref, CatalogObject):
         return ref.ref.id
     return ref.id
 
 
 def _dimension_anchor_kind(ref: DimensionAnchorInput) -> CatalogSemanticKind | None:
+    if isinstance(ref, CatalogObject):
+        return ref.ref.kind
     return ref.kind
 
 
@@ -364,7 +359,7 @@ def _validate_dimension_anchors(
         kind = _dimension_anchor_kind(ref)
         if kind not in {CatalogSemanticKind.DIMENSION, CatalogSemanticKind.TIME_DIMENSION}:
             ambiguous.append(f"axis_ref_kind:{column}:{_dimension_anchor_id(ref)}:{kind}")
-    if isinstance(time_axis, SemanticRef | SemanticObject):
+    if isinstance(time_axis, SemanticRef | CatalogObject):
         kind = _dimension_anchor_kind(time_axis)
         if kind not in {CatalogSemanticKind.DIMENSION, CatalogSemanticKind.TIME_DIMENSION}:
             ambiguous.append(f"time_axis_ref_kind:{_dimension_anchor_id(time_axis)}:{kind}")
@@ -390,7 +385,7 @@ def _time_axis_column_and_ref(
 ) -> tuple[str, str] | None:
     if time_axis is None:
         return None
-    if isinstance(time_axis, SemanticRef | SemanticObject):
+    if isinstance(time_axis, SemanticRef | CatalogObject):
         axis_id = _dimension_anchor_id(time_axis)
         return axis_id, axis_id
     return time_axis, time_axis

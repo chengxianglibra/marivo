@@ -342,8 +342,8 @@ def test_observe_planner_does_not_require_catalog_private_state(
         def get(self, *args, **kwargs):
             return self._wrapped.get(*args, **kwargs)
 
-        def list(self, *args, **kwargs):
-            return self._wrapped.list(*args, **kwargs)
+        def _require_index(self, *args, **kwargs):
+            return self._wrapped._require_index(*args, **kwargs)
 
         def _resolver(self, *args, **kwargs):
             return self._wrapped._resolver(*args, **kwargs)
@@ -430,7 +430,7 @@ def test_observe_rejects_bare_metric_string(tmp_path):
     assert exc_info.value.details["expected_kind"] == "metric"
     assert exc_info.value.details["actual_kind"] == "str"
     rendered = str(exc_info.value)
-    assert "metric requires a metric SemanticRef or SemanticObject" in rendered
+    assert "metric requires a metric SemanticRef or CatalogObject" in rendered
 
 
 def test_session_observe_accepts_catalog_object_and_ref(sales_session, sales_catalog):

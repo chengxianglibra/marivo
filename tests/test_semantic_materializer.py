@@ -476,7 +476,7 @@ def test_column_helper_catalog_details_and_preview(
 
     amount = catalog.get("measure.sales.orders.amount")
     details = amount.details()
-    assert amount.kind == SemanticKind.MEASURE
+    assert amount.ref.kind == SemanticKind.MEASURE
     assert details.ref.id == "sales.orders.amount"
     assert details.unit == "USD"
 

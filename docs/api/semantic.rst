@@ -127,7 +127,6 @@ Details types
    DatasourceDetails
    DerivedMetricDetails
    SimpleMetricDetails
-   SemanticObjectDetails
 
 Catalog & objects
 -----------------
@@ -137,8 +136,16 @@ Catalog & objects
    :nosignatures:
 
    SemanticCatalog
-   SemanticObject
-   SemanticObjectList
+   CatalogCollection
+   CatalogObject
+   Domain
+   Datasource
+   Entity
+   Dimension
+   TimeDimension
+   Measure
+   Metric
+   Relationship
    SemanticKind
 
 Sources & provenance

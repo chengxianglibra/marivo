@@ -88,7 +88,7 @@ def _catalog_id(ref: str, kind: SemanticKind) -> str:
 
 
 def _catalog_kind(catalog: Any, ref: str) -> SemanticKind | None:
-    return cast("SemanticKind | None", catalog._resolve_kind_of(ref, catalog._require_ready()))
+    return cast("SemanticKind | None", catalog._require_index().kind_of(ref))
 
 
 def _catalog_object(catalog: Any, ref: str, kind: SemanticKind) -> Any:
@@ -121,13 +121,13 @@ def _field_details(catalog: Any, ref: str) -> DimensionDetails | TimeDimensionDe
 def _fields_for_entity(
     catalog: Any, entity_ref: str
 ) -> list[DimensionDetails | TimeDimensionDetails]:
-    fields: list[DimensionDetails | TimeDimensionDetails] = []
-    for kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-        for obj in catalog.list(str(kind), scope=f"entity.{entity_ref}"):
-            details = obj.details()
-            if isinstance(details, (DimensionDetails, TimeDimensionDetails)):
-                fields.append(details)
-    return fields
+    index = catalog._require_index()
+    scope_id = f"entity.{entity_ref}"
+    details = (
+        *index.details_under(SemanticKind.DIMENSION, scope_id=scope_id),
+        *index.details_under(SemanticKind.TIME_DIMENSION, scope_id=scope_id),
+    )
+    return [item for item in details if isinstance(item, (DimensionDetails, TimeDimensionDetails))]
 
 
 def _build_entity_adapter(
@@ -151,8 +151,8 @@ def _build_entity_adapter(
             # from the catalog's internal IR registry.
             required_prefix: str | None = None
             if field.parse_kind == "hour_prefix":
-                reg = catalog._reg
-                dim_ir = reg.dimensions.get(field.ref.id) if reg else None
+                registry = catalog._require_index().registry
+                dim_ir = registry.dimensions.get(field.ref.id)
                 if dim_ir is not None and isinstance(dim_ir.parse, HourPrefixParse):
                     required_prefix = dim_ir.parse.prefix
             # Resolve data_type: when the IR no longer carries data_type on

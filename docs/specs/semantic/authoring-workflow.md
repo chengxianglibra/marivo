@@ -212,17 +212,15 @@ comments, sample values, existing objects, or datasource shape. Fetch those with
 
 Before adding or changing semantics, read the current registry:
 
-> **Pending breaking redesign:**
-> [`Catalog Object Navigation Design`](../../superpowers/specs/2026-07-10-catalog-object-navigation-design.md)
-> will replace this `catalog.list(...)` browse call with typed catalog
-> collections. It is not implemented yet; the example below is the current
-> runtime contract.
-
 ```python
 import marivo.semantic as ms
 
 catalog = ms.load()                 # find_project() locates models/semantic/ upward
-catalog.list("metric").show()
+catalog.metrics.show()
+
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+orders.metrics.show()
 ```
 
 `ms.load()` fails closed when no project root is found — do not guess a root;

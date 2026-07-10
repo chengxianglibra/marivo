@@ -163,7 +163,7 @@ ms.help("entity")
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.list("domain").show()
+catalog.domains.show()
 
 report = catalog.readiness()
 if report.status == "blocked":
@@ -177,8 +177,11 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("metric.sales.revenue")
-region = catalog.get("dimension.sales.orders.region")
+catalog.domains.show()
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+revenue = orders.metrics.get("revenue")
+region = orders.dimensions.get("region")
 
 current = session.observe(
     revenue,

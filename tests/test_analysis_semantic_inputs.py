@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import cast
 
 import pytest
@@ -17,17 +16,20 @@ from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.refs import make_ref
 
 
-class _EmptyCatalogList:
-    def __iter__(self) -> Iterator[object]:
-        return iter(())
+class _EmptyIndex:
+    def semantic_ids(self, *args: object, **kwargs: object) -> tuple[str, ...]:
+        return ()
+
+    def kind_of(self, *args: object, **kwargs: object) -> None:
+        return None
 
 
 class _ExplodingCatalog:
     def get(self, ref: object) -> object:
         raise RuntimeError("boom")
 
-    def list(self, *args: object, **kwargs: object) -> _EmptyCatalogList:
-        return _EmptyCatalogList()
+    def _require_index(self) -> _EmptyIndex:
+        return _EmptyIndex()
 
 
 def _catalog(semantic_project_factory) -> SemanticCatalog:
@@ -75,7 +77,7 @@ def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
     # str(error) must also surface available_ids and repair snippets.
     message = str(exc.value)
     assert "sales.revenue" in message
-    assert "session.catalog.list(" in message
+    assert "session.catalog." in message
 
 
 def test_normalize_metric_rejects_wrong_semantic_kind(semantic_project_factory) -> None:
@@ -249,13 +251,13 @@ def test_measure_rejection_surfaces_repair_in_str(semantic_project_factory) -> N
     assert "repair" in details
     repair = details["repair"]
     assert isinstance(repair, list)
-    assert any("session.catalog.list(" in snippet for snippet in repair)
+    assert any("session.catalog." in snippet for snippet in repair)
 
     # str(error) must surface the repair snippets — the primary way agents
     # consume error messages — and must not fall through to the generic
     # "Input frame kind" fallback cause.
     message = str(exc_info.value)
-    assert "session.catalog.list(" in message
+    assert "session.catalog." in message
     assert "measure" in message
     assert "group-by axis" in message
     assert "categorical dimension" in message
@@ -296,12 +298,12 @@ def test_time_dimension_argument_includes_repair_guidance(semantic_project_facto
     assert "repair" in details
     repair = details["repair"]
     assert isinstance(repair, list)
-    assert any("session.catalog.list(" in snippet for snippet in repair)
+    assert any("session.catalog." in snippet for snippet in repair)
 
     # Repair snippets must be surfaced in str(error) — the primary way agents
     # consume error messages.
     message = str(exc_info.value)
-    assert "session.catalog.list(" in message
+    assert "session.catalog." in message
     assert "time dimension" in message
     assert "metric" in message  # actual_kind appears in the cause
 
@@ -341,19 +343,19 @@ def test_wrong_kind_metric_includes_repair_and_available_ids(
     assert "repair" in details
     repair = details["repair"]
     assert isinstance(repair, list)
-    assert any("session.catalog.list(" in snippet for snippet in repair)
+    assert any("session.catalog." in snippet for snippet in repair)
 
     # str(error) must surface the kind info, available ids, and repair snippets.
     message = str(exc_info.value)
     assert "metric" in message  # expected_kind in cause
     assert "dimension" in message  # actual_kind in cause
     assert "sales.revenue" in message  # available_ids preview
-    assert "session.catalog.list(" in message  # repair snippets
+    assert "session.catalog." in message  # repair snippets
 
 
-def test_repair_snippets_use_scoped_catalog_list_form(semantic_project_factory) -> None:
-    """Repair snippets must use session.catalog.list(...) with explicit kind/scope
-    arguments, not the no-argument catalog.list() form, and must use placeholders."""
+def test_repair_snippets_use_typed_collection_form(semantic_project_factory) -> None:
+    """Repair snippets must use typed collection form with placeholders,
+    not the legacy catalog.list(...) form."""
     catalog = _catalog(semantic_project_factory)
     metric = catalog.get("metric.sales.revenue")
 
@@ -363,14 +365,13 @@ def test_repair_snippets_use_scoped_catalog_list_form(semantic_project_factory) 
     details = exc_info.value.details
     repair = details["repair"]
     assert isinstance(repair, list)
-    # At least one snippet must use the scoped session.catalog.list(...) form
-    assert any("session.catalog.list(" in snippet for snippet in repair)
-    # No snippet should use the bare no-argument catalog.list() form
+    # At least one snippet must use the typed collection form
+    assert any("session.catalog." in snippet for snippet in repair)
+    # No snippet should use the legacy catalog.list(...) form
     for snippet in repair:
-        if "catalog.list(" in snippet:
-            assert "session.catalog.list(" in snippet
-    # At least one snippet must reference time_dimension kind
-    assert any("time_dimension" in snippet for snippet in repair)
+        assert "catalog.list(" not in snippet
+    # At least one snippet must reference time_dimensions
+    assert any("time_dimensions" in snippet for snippet in repair)
     # No snippet should hard-code project-specific ids like "sales.orders"
     for snippet in repair:
         assert "sales.orders" not in snippet

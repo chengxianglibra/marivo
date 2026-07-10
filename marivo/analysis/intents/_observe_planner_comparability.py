@@ -323,12 +323,12 @@ def _plan_cumulative_observe(
     # composition, which defaults over=None and anchor='all_history'; the real
     # IR with the resolved anchor lives on the registry.
     resolved_composition = component
-    if catalog._reg is not None:
-        real_ir = catalog._reg.metrics.get(metric_ir.semantic_id)
-        if real_ir is not None and real_ir.composition is not None:
-            resolved_composition = real_ir.composition
-            if cumulative_over is None:
-                cumulative_over = getattr(resolved_composition, "over", None)
+    registry = catalog._require_index().registry
+    real_ir = registry.metrics.get(metric_ir.semantic_id)
+    if real_ir is not None and real_ir.composition is not None:
+        resolved_composition = real_ir.composition
+        if cumulative_over is None:
+            cumulative_over = getattr(resolved_composition, "over", None)
     base_time_dimension = cumulative_over or time_dimension
     base_plan = plan_base_observe(
         catalog=catalog,

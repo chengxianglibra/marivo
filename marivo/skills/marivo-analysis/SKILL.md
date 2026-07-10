@@ -52,10 +52,11 @@ make examples-check
    `mv.help("observe")`, `mv.help("catalog")`, or `mv.help("artifacts")`.
 3. Create or reuse one stable task session:
    `session = mv.session.get_or_create(name="revenue_drop_investigation")`.
-4. Browse the semantic catalog with `session.catalog.list(...)`, then inspect
-   every metric, dimension, and time dimension the task will use with
-   `obj.details().show()`. Read the displayed `ai_context` before composing
-   analysis intents.
+4. Browse the semantic catalog with typed collection properties
+   (`session.catalog.domains.show()`, `session.catalog.metrics.show()`),
+   then inspect every metric, dimension, and time dimension the task will
+   use with `obj.details().show()`. Read the displayed `ai_context` before
+   composing analysis intents.
 5. Gate the scoped handoff with
    `session.catalog.readiness(refs=[...]).show()` and resolve blockers before
    observing.

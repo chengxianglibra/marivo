@@ -15,8 +15,12 @@ contract 中移除了旧的 decision ledger。
   datasource、domain 和 metric declarations 拆到多个文件，而不必压平成单个 module。
 - Semantic decision ledger 已从 public surface 移除。Readiness 和 verification 现在聚焦
   已声明的 semantic objects 与 source evidence，而不是额外的 internal decision log。
-- `catalog.list()` 现在使用 kind-first browsing model，提供 bounded output、明确的
+- Catalog browsing model 引入了 kind-first API，提供 bounded output、明确的
   drill-down keys，以及指向下一步具体调用的 agent-facing help。
+- **迁移说明：** kind-first browsing API 后续已被 typed catalog collections
+  （`catalog.domains`、`catalog.metrics` 等）和 concrete catalog objects 取代。请使用
+  `catalog.domains.show()` 和 `sales.entities.get("orders")` 进行 typed navigation，
+  替代早期的 kind-scope matrix。
 - Local usage telemetry 现在记录在 project-local state 中，因此 CLI 和 runtime usage
   可以被检查，而不会发送到外部服务。
 

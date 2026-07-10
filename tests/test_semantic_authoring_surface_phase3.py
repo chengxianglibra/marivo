@@ -8,6 +8,7 @@ from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.semantic_inputs import normalize_dimension_input
 from marivo.semantic.catalog import (
     EntityDetails,
+    Measure,
     MeasureDetails,
     MetricDetails,
     SemanticCatalog,
@@ -101,7 +102,9 @@ def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -
     obj = catalog.get("measure.sales.orders.amount")
     details = obj.details()
 
-    assert obj.kind == SemanticKind.MEASURE
+    assert type(obj) is Measure
+    assert obj.id == "measure.sales.orders.amount"
+    assert obj.ref.kind == SemanticKind.MEASURE
     assert obj.ref == make_ref("sales.orders.amount", SemanticKind.MEASURE)
     assert isinstance(details, MeasureDetails)
     assert details.ref.kind == SemanticKind.MEASURE
@@ -111,11 +114,10 @@ def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -
     assert repr(details) == "<MeasureDetails ref=sales.orders.amount; call .show() to inspect>"
 
 
-def test_catalog_lists_measure_kind_at_top_level_and_under_entity(semantic_project_factory) -> None:
+def test_catalog_measures_collection_returns_measures(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    assert catalog.list("measure").ids() == ["sales.orders.amount"]
-    assert catalog.list("measure", scope="entity.sales.orders").ids() == ["sales.orders.amount"]
+    assert catalog.measures.ids() == ["measure.sales.orders.amount"]
 
 
 def test_entity_children_include_dimension_measure_time_dimension_metrics_and_relationships(
@@ -166,14 +168,14 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
 
     backend = _preview_backend()
     with _patch_preview_connections(project, backend):
-        preview = catalog.preview(catalog.get("measure.sales.orders.amount").ref, limit=3)
+        preview = catalog.preview(catalog.get("measure.sales.orders.amount"), limit=3)
 
     assert preview.ref == "sales.orders.amount"
     assert preview.kind == "semantic_measure"
     assert "amount" in preview.columns
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.preview(catalog.get("measure.sales.orders.amount").ref, context_columns=("region",))
+        catalog.preview(catalog.get("measure.sales.orders.amount"), context_columns=("region",))
 
     assert "context_columns" in str(exc_info.value)
     assert "dimension" in str(exc_info.value)

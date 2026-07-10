@@ -564,8 +564,8 @@ def _cumulative_marker_for_plan(plan: CumulativeObservePlan, catalog: Any) -> di
     over = plan.over
     anchor: Any = "all_history"
     real_ir = None
-    if catalog._reg is not None:
-        real_ir = catalog._reg.metrics.get(plan.metric_ir.semantic_id)
+    registry = catalog._require_index().registry
+    real_ir = registry.metrics.get(plan.metric_ir.semantic_id)
     if real_ir is not None and real_ir.composition is not None:
         if over is None:
             over = getattr(real_ir.composition, "over", None)

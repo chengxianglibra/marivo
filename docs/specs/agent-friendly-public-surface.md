@@ -162,11 +162,10 @@ depends on the file layout or internals of anything upstream.
 | `marivo.semantic` | `ms` | "Which stable business objects can downstream analysis reference?" | typed semantic refs + a loadable `SemanticCatalog` |
 | `marivo.analysis` | `mv` | "What did the metric do, and why?" | typed analysis frames/results over a `Session` |
 
-> **Pending breaking redesign:**
-> [`Catalog Object Navigation Design`](../superpowers/specs/2026-07-10-catalog-object-navigation-design.md)
-> will replace the current generic semantic catalog objects with concrete typed
-> object families. It is not implemented yet; this document continues to
-> describe the current public surface.
+> **Catalog object navigation:** The semantic catalog exposes typed collections
+> (`catalog.domains`, `catalog.metrics`, etc.) and concrete catalog objects
+> (`Domain`, `Entity`, `Metric`, …). See
+> [`Catalog Object Navigation Design`](../superpowers/specs/2026-07-10-catalog-object-navigation-design.md).
 
 The hand-offs are typed and one-directional:
 
@@ -371,8 +370,8 @@ Two rules keep this vocabulary trustworthy:
   `MetricFrame[scalar]`, `MetricFrame[time_series]`, `MetricFrame[panel]`,
   `CandidateSet[driver_axis]`, and so on. A closed enum of shapes fails loudly at
   the boundary; an optional-field mega-class would fail silently three steps
-  later. On the semantic side the same idea appears as `SemanticObjectList` /
-  `SemanticObject` for discovery, with typed `*Ref` handles flowing into
+  later. On the semantic side the same idea appears as `CatalogCollection` /
+  `CatalogObject` for discovery, with typed `*Ref` handles flowing into
   analysis.
 
 ## What this buys, and what keeps it true

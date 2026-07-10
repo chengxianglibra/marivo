@@ -106,7 +106,7 @@ class MetricNotFoundError(AnalysisError):
             "fix_snippet": (
                 "import marivo.semantic as ms\n"
                 "catalog = ms.load()\n"
-                'catalog.list("metric")  # confirm the exact id\n'
+                "catalog.metrics.show()  # confirm the exact id\n"
                 'session.observe(catalog.get("metric.<registered_metric_id>"), '
                 'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
             ),
@@ -383,7 +383,7 @@ class SemanticKindMismatchError(AnalysisError):
         ):
             label = self._catalog_expected_label(argument, expected_kind_for_catalog)
             cause = (
-                f"{argument} requires a {label} SemanticRef or SemanticObject, "
+                f"{argument} requires a {label} SemanticRef or CatalogObject, "
                 f"received a {actual_kind_value}."
             )
             available = self.details.get("available_ids")
@@ -581,7 +581,7 @@ class PromotionFailedError(AnalysisError):
                 "fix_snippet": (
                     "import marivo.semantic as ms\n"
                     "catalog = ms.load()\n"
-                    'catalog.list("metric").show()  # pick a defined metric id, then re-promote'
+                    "catalog.metrics.show()  # pick a defined metric id, then re-promote"
                 ),
                 "doc": "marivo/skills/marivo-analysis/references/pitfalls.md",
             }
@@ -864,7 +864,7 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
             "fix_snippet": (
                 "import marivo.semantic as ms\n"
                 "catalog = ms.load()\n"
-                'catalog.list("dimension")  # confirm available dimensions per entity\n'
+                "catalog.dimensions.show()  # confirm available dimensions per entity\n"
                 'session.observe(catalog.get("metric.sales.revenue"), '
                 'dimensions=[catalog.get("dimension.<existing_dimension>").ref])'
             ),

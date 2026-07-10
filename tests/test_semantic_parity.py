@@ -732,7 +732,7 @@ def test_catalog_metric_details_reflect_parity_status(
     catalog = SemanticCatalog(project)
 
     # Before parity check: UNVERIFIED
-    metrics = catalog.list("metric", scope="domain.sales").objects
+    metrics = catalog.metrics.items
     assert any(metric.ref.id == "sales.total_amount" for metric in metrics)
     details = catalog.get("metric.sales.total_amount").details()
     assert isinstance(details, MetricDetails)

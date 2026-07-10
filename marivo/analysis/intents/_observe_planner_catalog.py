@@ -77,13 +77,13 @@ def _metric(catalog: SemanticCatalog, ref: str) -> MetricDetails:
 
 
 def _fields_for_entity(catalog: SemanticCatalog, entity_ref: str) -> list[FieldDetails]:
-    fields: list[FieldDetails] = []
-    for kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-        for obj in catalog.list(str(kind), scope=f"entity.{entity_ref}"):
-            details = obj.details()
-            if isinstance(details, (DimensionDetails, TimeDimensionDetails)):
-                fields.append(details)
-    return fields
+    index = catalog._require_index()
+    scope_id = f"entity.{entity_ref}"
+    details = (
+        *index.details_under(SemanticKind.DIMENSION, scope_id=scope_id),
+        *index.details_under(SemanticKind.TIME_DIMENSION, scope_id=scope_id),
+    )
+    return [item for item in details if isinstance(item, (DimensionDetails, TimeDimensionDetails))]
 
 
 def _fields_for_entities(catalog: SemanticCatalog, entity_refs: set[str]) -> list[FieldDetails]:

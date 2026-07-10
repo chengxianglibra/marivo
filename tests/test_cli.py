@@ -199,13 +199,8 @@ def test_root_help_points_analysis_to_python_workflow(capsys: pytest.CaptureFixt
     # Semantic authoring routing block points agents to Python help topics.
     # Uses bare `python -c` to match the Analysis workflow convention.
     assert "Semantic authoring workflow:" in captured.out
-    assert (
-        "python -c \"import marivo.datasource as md; md.help('authoring')\""
-        in captured.out
-    )
-    assert (
-        "python -c \"import marivo.semantic as ms; ms.help('authoring')\"" in captured.out
-    )
+    assert "python -c \"import marivo.datasource as md; md.help('authoring')\"" in captured.out
+    assert "python -c \"import marivo.semantic as ms; ms.help('authoring')\"" in captured.out
 
 
 def test_version_flag_prints_package_version(capsys: pytest.CaptureFixture[str]) -> None:

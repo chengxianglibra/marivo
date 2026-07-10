@@ -112,6 +112,7 @@ from marivo.analysis.intents._observe_persist import (
     _persist_and_attach_coverage_sidecar,
     _persist_metric_component_frame,
 )
+from marivo.analysis.intents._observe_planner_fields import _all_entity_ids
 from marivo.analysis.intents._shape import SemanticShape, observe_output_shape
 from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.intents.observe_planner import (
@@ -223,7 +224,7 @@ def observe(
         session = require_current_session()
     ensure_session_writable(session)
     catalog = session.catalog
-    catalog._require_ready()
+    catalog._require_index()
     metric_id = _normalize_metric_boundary(catalog, single_metric)
     model_name, metric_name = metric_id.split(".", 1)
     metric_details = _catalog_object(catalog, metric_id, SemanticKind.METRIC).details()
@@ -321,11 +322,7 @@ def observe(
     if metric_ir.metric_type == "derived":
         # Build adapters for all catalog entities so derived components can plan
         # across any entity they reference.
-        all_entity_refs = {
-            obj.ref.id
-            for domain in catalog.list("domain")
-            for obj in catalog.list("entity", scope=f"domain.{domain.ref.id}")
-        }
+        all_entity_refs = _all_entity_ids(catalog)
         _, _, all_dataset_irs, all_dataset_fns = _entity_adapter_maps(
             catalog=catalog,
             resolver=resolver,
@@ -366,14 +363,14 @@ def observe(
                 # over=None and anchor='all_history'.
                 cum_over = derived_plan.over
                 cum_anchor: Any = "all_history"
-                if catalog._reg is not None:
-                    real_ir = catalog._reg.metrics.get(metric_id)
-                    if real_ir is not None and real_ir.composition is not None:
-                        if cum_over is None:
-                            cum_over = getattr(real_ir.composition, "over", None)
-                        cum_anchor = (
-                            getattr(real_ir.composition, "anchor", "all_history") or "all_history"
-                        )
+                registry = catalog._require_index().registry
+                real_ir = registry.metrics.get(metric_id)
+                if real_ir is not None and real_ir.composition is not None:
+                    if cum_over is None:
+                        cum_over = getattr(real_ir.composition, "over", None)
+                    cum_anchor = (
+                        getattr(real_ir.composition, "anchor", "all_history") or "all_history"
+                    )
                 # Prefer the plan's resolved composition (carries the real
                 # anchor even when the registry is not attached).
                 plan_composition = getattr(derived_plan, "composition", None)

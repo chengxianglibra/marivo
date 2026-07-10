@@ -1,6 +1,6 @@
 # Loading, Validation, and Introspection
 
-Status: draft design. This document describes the runtime side of
+Status: design. This document describes the runtime side of
 `marivo.semantic`: how authored Python files become a loaded registry, how agents
 and analysis read that registry, how objects materialize to Ibis, and how the
 multi-stage fail-closed validation model reports problems. It complements
@@ -12,12 +12,6 @@ See also:
 - [overview.md](overview.md) — the design goals these mechanics enforce.
 - `../agent-friendly-public-surface.md` — the cross-module result protocol this
   layer implements.
-
-> **Pending breaking redesign:**
-> [`Catalog Object Navigation Design`](../../superpowers/specs/2026-07-10-catalog-object-navigation-design.md)
-> will replace `catalog.list(...)` and `SemanticObject` with typed collections
-> and concrete catalog objects. It is not implemented yet; this document
-> continues to describe the current runtime contract.
 
 ## Registry and loader
 
@@ -31,7 +25,7 @@ import marivo.semantic as ms
 
 catalog = ms.load()                     # locate the nearest models/semantic/ upward
 catalog = ms.load(workspace_dir="models/semantic", domains=["sales"])  # explicit root + filter
-catalog.list("domain").show()
+catalog.domains.show()
 ```
 
 Loader rules:
@@ -65,21 +59,78 @@ not use fuzzy or embedding-based recall.
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.list("metric").show()                        # all metrics, every domain
-catalog.list("metric", scope="domain.sales").show()  # metrics in one domain
-catalog.list("dimension", scope="entity.sales.orders").show()
+catalog.metrics.show()
+
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+orders.dimensions.show()
+
 revenue = catalog.get("metric.sales.revenue")
-revenue.details().show()                             # bounded details card
+revenue.details().show()
 ```
+
+`SemanticCatalog` exposes one global collection per object type:
+`catalog.domains`, `catalog.datasources`, `catalog.entities`,
+`catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`,
+`catalog.metrics`, and `catalog.relationships`. Each is a
+`CatalogCollection[T]` with `.items`, `.ids()`, `.refs()`, `.get(key)`,
+`.render()`, `.show()`, `len()`, and iteration. `catalog.get(typed_id)` is the
+exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 
 | API | Meaning |
 |---|---|
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
-| `catalog.get("<kind>.<semantic_id>")` | Resolve and validate one `SemanticObject`. |
-| `catalog.list(kind, scope=None)` | Kind-first browse; `kind` is a string or `SemanticKind`. Top level searches every domain; `scope` narrows to a subtree. |
+| `catalog.get("<typed_id>")` | Resolve and validate one `CatalogObject` by typed ID. |
+| `catalog.domains`, `catalog.metrics`, … | Typed global collections; each supports `.items`, `.ids()`, `.refs()`, `.get(key)`, `.show()`. |
 | `catalog.preview(ref, limit=..., context_columns=None)` | Bounded preview of an entity/dimension/time_dimension/measure/metric. |
 | `catalog.readiness(refs=None)` | Structural readiness gate for handoff refs. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
+
+### Navigation matrix
+
+Navigation is limited to explicit ownership or applicability relationships. Each
+container object exposes typed collection properties:
+
+| Object | Navigation properties |
+|---|---|
+| `Domain` | `entities`, `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships` |
+| `Datasource` | `entities` |
+| `Entity` | `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships` |
+| `Relationship` | `from_entity`, `to_entity` |
+| `Dimension` / `TimeDimension` / `Measure` / `Metric` | leaf objects — use `details()` for dependency information |
+
+Scoped collections are the normal way to remove ambiguity:
+`catalog.domains.get("sales").entities.get("orders").dimensions.get("region")`.
+
+### Self-teaching object cards
+
+Every container object's bounded `render()` / `show()` card advertises its live
+navigation properties and counts. A domain card includes a `navigation:` section
+listing each valid child collection with its count, so the agent discovers
+`.entities`, `.metrics`, etc. from real state rather than memorizing a matrix.
+Leaf object cards advertise `details()`, `render()`, and `show()`.
+
+### Lookup rules
+
+`CatalogCollection.get(key)` accepts an exact typed ID or a local name that is
+unique within that collection view. It rejects bare semantic IDs. If a short
+name is ambiguous, lookup raises a structured error listing bounded typed-ID
+candidates. `catalog.get(...)` accepts only typed IDs; rejected short names are
+still searched for teaching-error suggestions but never resolved implicitly.
+
+### Structured lookup errors
+
+Catalog lookup errors follow the shared semantic error model. They state the
+expected input, received input, relevant scope, and a concrete next call derived
+from the loaded index:
+
+- **Ambiguous short name:** list bounded typed-ID candidates and show
+  `collection.get("<typed-id>")`.
+- **Wrong object type:** identify the typed ID's real type and point to the
+  corresponding global collection.
+- **Outside current scope:** state that the object exists globally, identify its
+  owning path, and show the valid scoped or global lookup.
+- **Not found:** show bounded close matches from the current collection.
 
 `catalog.get(...).details()` returns a structured details dataclass (not just
 text). Every details type exposes `ref`, `kind`, `name`, `domain`, `context`,
@@ -106,7 +157,7 @@ methods **do not write stdout**; inspection is explicit and silent by default:
 - `result.render()` — return the same bounded text without writing stdout.
 - `repr(result)` — a one-line cold-start hint pointing to `.show()`.
 
-Catalog browsing returns a `SemanticObjectList` (not a raw list); use `.objects`,
+Catalog browsing returns a `CatalogCollection` (not a raw list); use `.items`,
 `.refs()`, `.render()`, and `.show()`. This is the semantic-layer instance of the
 cross-module agent result protocol described in
 `../agent-friendly-public-surface.md`.

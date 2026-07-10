@@ -85,15 +85,15 @@ def _make_catalog(semantic_project_factory):
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_list_metrics_is_silent(semantic_project_factory, capsys) -> None:
+def test_catalog_metrics_is_silent(semantic_project_factory, capsys) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    catalog.list("metric", scope="domain.sales")
+    _ = catalog.metrics
     assert capsys.readouterr().out == ""
 
 
-def test_catalog_list_datasources_is_silent(semantic_project_factory, capsys) -> None:
+def test_catalog_datasources_is_silent(semantic_project_factory, capsys) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    catalog.list("datasource")
+    _ = catalog.datasources
     assert capsys.readouterr().out == ""
 
 
@@ -176,9 +176,9 @@ def test_metric_frame_repr_is_one_line() -> None:
     assert "call .show() to inspect" in r
 
 
-def test_semantic_object_list_repr_is_one_line(semantic_project_factory) -> None:
+def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("metric", scope="domain.sales")
+    result = catalog.metrics
     r = repr(result)
     assert r.count("\n") == 0
 
@@ -224,13 +224,13 @@ def test_frame_show_prints_render_plus_newline(capsys) -> None:
     assert captured.out == frame.render() + "\n"
 
 
-def test_semantic_object_list_render_contains_refs_affordance(semantic_project_factory) -> None:
+def test_catalog_collection_render_contains_refs_affordance(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("metric", scope="domain.sales")
+    result = catalog.metrics
     rendered = result.render()
     assert "available:" in rendered
-    assert "- result.refs()" in rendered
-    assert "catalog.get('metric.sales.total_revenue').details().show()" in rendered
+    assert "- .refs()" in rendered
+    assert "- .get(...)" in rendered
 
 
 def test_datasource_catalog_render_uses_card_listing_shape(
@@ -257,9 +257,9 @@ def test_datasource_catalog_render_uses_card_listing_shape(
     assert capsys.readouterr().out == rendered + "\n"
 
 
-def test_semantic_object_list_available_never_none(semantic_project_factory) -> None:
+def test_catalog_collection_available_never_none(semantic_project_factory) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.list("metric", scope="domain.sales")
+    result = catalog.metrics
     # "available: none" should never appear — the available: section lists
     # method entries, never the word "none"
     assert "available: none" not in result.render().lower()
@@ -393,7 +393,7 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "time_column",
         "dimension_column",
         "SemanticRef",
-        "SemanticObject",
+        "CatalogObject",
         "ArtifactRef",
         "CalendarRef",
         "TimeScope",
@@ -425,3 +425,83 @@ def test_analysis_dir_hides_advanced_and_internal_objects() -> None:
         "MetricColumns",
     }
     assert hidden.isdisjoint(dir(mv))
+
+
+# ---------------------------------------------------------------------------
+# Analysis runtime must not query public catalog collections or direct registry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "marivo/analysis/semantic_inputs.py",
+        "marivo/analysis/escape_hatch.py",
+        "marivo/analysis/intents/_observe_catalog.py",
+        "marivo/analysis/intents/_observe_planner_catalog.py",
+        "marivo/analysis/intents/_observe_planner_fields.py",
+        "marivo/analysis/intents/_observe_derived.py",
+        "marivo/analysis/intents/_observe_planner_comparability.py",
+        "marivo/analysis/intents/observe.py",
+    ],
+)
+def test_analysis_runtime_does_not_query_public_catalog_collections(path: str) -> None:
+    source = (Path(__file__).parents[1] / path).read_text()
+
+    assert "catalog.list(" not in source
+    assert "catalog._reg" not in source
+
+
+# ---------------------------------------------------------------------------
+# Packaged skills must not teach the legacy SemanticCatalog.list(...) API or
+# SemanticObject type. Typed collections (catalog.domains, catalog.metrics,
+# etc.) replaced them.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "marivo/skills/marivo-semantic/SKILL.md",
+        "marivo/skills/marivo-semantic/references/examples/01_discover_and_grill.py",
+        "marivo/skills/marivo-analysis/SKILL.md",
+        "marivo/skills/marivo-analysis/references/cheatsheet.md",
+        "marivo/skills/marivo-analysis/references/pitfalls.md",
+        "marivo/skills/marivo-analysis/references/examples/00_real_project_template.py",
+    ],
+)
+def test_packaged_skills_do_not_teach_legacy_semantic_catalog(path: str) -> None:
+    text = (Path(__file__).parents[1] / path).read_text()
+
+    assert "catalog.list(" not in text
+    assert "SemanticObject" not in text
+
+
+# ---------------------------------------------------------------------------
+# Active docs (specs, latest site docs, API source) must not teach the legacy
+# SemanticCatalog.list(...) API, SemanticObject, or SemanticObjectList.  This
+# check intentionally excludes docs/superpowers/specs and versioned v0.* site
+# docs so historical design records and release snapshots stay intact.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "root",
+    [
+        "docs/specs",
+        "docs/api",
+        "site/src/content/docs/en/latest",
+        "site/src/content/docs/zh-cn/latest",
+    ],
+)
+def test_active_docs_do_not_teach_legacy_semantic_catalog(root: str) -> None:
+    base = Path(__file__).parents[1] / root
+    files = [*base.rglob("*.md"), *base.rglob("*.mdx"), *base.rglob("*.rst")]
+    offending = {
+        str(path.relative_to(Path(__file__).parents[1])): token
+        for path in files
+        for token in ("catalog.list(", "SemanticObjectList", "SemanticObject")
+        if token in path.read_text()
+    }
+
+    assert offending == {}

@@ -37,7 +37,7 @@ from marivo.analysis.intents.observe_errors import (
 )
 from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.introspection._fuzzy import did_you_mean
-from marivo.semantic.catalog import RelationshipDetails, SemanticCatalog
+from marivo.semantic.catalog import RelationshipDetails, SemanticCatalog, SemanticKind
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
 
 _IBIS_BUILTIN_NAMES = frozenset(
@@ -55,6 +55,21 @@ _IBIS_BUILTIN_NAMES = frozenset(
 )
 
 
+def _all_entity_ids(catalog: SemanticCatalog) -> set[str]:
+    return set(catalog._require_index().semantic_ids(SemanticKind.ENTITY))
+
+
+def _relationship_details_for_entity(
+    catalog: SemanticCatalog,
+    entity_ref: str,
+) -> tuple[RelationshipDetails, ...]:
+    details = catalog._require_index().details_under(
+        SemanticKind.RELATIONSHIP,
+        scope_id=f"entity.{entity_ref}",
+    )
+    return tuple(item for item in details if isinstance(item, RelationshipDetails))
+
+
 def _resolve_field_ref(
     catalog: SemanticCatalog,
     ref_id: str,
@@ -67,11 +82,7 @@ def _resolve_field_ref(
         catalog,
         scoped_dataset_ids
         if not allow_qualified_outside_scope and not allow_unqualified_outside_scope
-        else {
-            obj.ref.id
-            for domain in catalog.list("domain")
-            for obj in catalog.list("entity", scope=f"domain.{domain.ref.id}")
-        },
+        else _all_entity_ids(catalog),
     )
     if "." in ref_id:
         matches = [f for f in fields if f.ref.id == ref_id]
@@ -223,10 +234,8 @@ def _relationship_neighbors(
 ) -> list[tuple[str, RelationshipInfo]]:
     neighbors: list[tuple[str, RelationshipInfo]] = []
     relationships: list[RelationshipInfo] = []
-    for obj in catalog.list("relationship", scope=f"entity.{dataset_id}"):
-        details = obj.details()
-        if isinstance(details, RelationshipDetails):
-            relationships.append(_planned_relationship(details))
+    for details in _relationship_details_for_entity(catalog, dataset_id):
+        relationships.append(_planned_relationship(details))
     for relationship in relationships:
         if _from_entity_id(relationship) == dataset_id:
             neighbors.append((_to_entity_id(relationship), relationship))

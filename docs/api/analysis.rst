@@ -6,7 +6,7 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-``SemanticRef`` and ``SemanticObject`` are re-exported here for convenience and
+``SemanticRef`` and ``CatalogObject`` are re-exported here for convenience and
 documented under :doc:`semantic`.
 
 References

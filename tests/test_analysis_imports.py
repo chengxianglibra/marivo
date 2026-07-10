@@ -100,7 +100,7 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "time_column",
         "dimension_column",
         "SemanticRef",
-        "SemanticObject",
+        "CatalogObject",
         "ArtifactRef",
         "CalendarRef",
         "TimeScope",
