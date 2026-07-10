@@ -26,12 +26,18 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
         datasource=md.ref("datasource.warehouse"),
         source=ms.table("orders"),
         primary_key=["order_id"],
-        ai_context=ms.ai_context(business_definition="One row per paid order."),
+        ai_context=ms.ai_context(
+            business_definition="One row per paid order.",
+            guardrails=["Exclude test and internal orders."],
+        ),
     )
 
     @ms.dimension(
         entity=orders,
-        ai_context=ms.ai_context(business_definition="Gross order amount in USD."),
+        ai_context=ms.ai_context(
+            business_definition="Gross order amount in USD.",
+            guardrails=["USD only; do not mix currencies."],
+        ),
     )
     def amount(table):
         return table.amount
@@ -40,7 +46,10 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
         entity=orders,
         granularity="day",
         parse=ms.timestamp(timezone="UTC"),
-        ai_context=ms.ai_context(business_definition="Timestamp when the order was created."),
+        ai_context=ms.ai_context(
+            business_definition="Timestamp when the order was created.",
+            guardrails=["Assume UTC; do not reinterpret in local time."],
+        ),
     )
     def created_at(table):
         return table.created_at
@@ -48,7 +57,10 @@ _READY_DOMAIN_PY = textwrap.dedent("""\
     @ms.metric(
         entities=[orders],
         additivity="additive",
-        ai_context=ms.ai_context(business_definition="Sum of order amount."),
+        ai_context=ms.ai_context(
+            business_definition="Sum of order amount.",
+            guardrails=["Not comparable across currencies without normalization."],
+        ),
     )
     def total_amount(table):
         return table.amount.sum()
@@ -261,9 +273,11 @@ def test_readiness_warns_for_missing_business_definition(
     assert "missing_business_definition" in _issue_kinds(report.blockers)
 
 
-def test_readiness_strict_enrichment_is_ready_when_only_guardrails_missing(
+def test_readiness_strict_enrichment_warns_when_only_guardrails_missing_on_non_metric(
     semantic_project_factory,
 ):
+    """Non-metric analyzable refs with business_definition but no guardrails
+    produce missing_guardrails warnings (not blockers)."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": textwrap.dedent("""\
@@ -291,9 +305,48 @@ def test_readiness_strict_enrichment_is_ready_when_only_guardrails_missing(
 
     report = project.readiness(refs=("sales.orders.amount",))
 
-    assert report.status == "ready"
+    # Non-metric analyzable refs (entity, dimension) missing guardrails → warnings.
+    assert report.status == "ready_with_warnings"
     assert "missing_business_definition" not in _issue_kinds(report.blockers)
-    assert "missing_guardrails" not in _issue_kinds(report.warnings)
+    assert "missing_guardrails" in _issue_kinds(report.warnings)
+    assert "missing_guardrails" not in _issue_kinds(report.blockers)
+
+
+def test_readiness_blocks_metric_missing_guardrails(semantic_project_factory):
+    """A metric with business_definition but no guardrails is a blocker."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                orders = ms.entity(
+                    name="orders",
+                    datasource=md.ref("datasource.warehouse"),
+                    source=ms.table("orders"),
+                    ai_context=ms.ai_context(
+                        business_definition="One row per paid order.",
+                        guardrails=["Exclude test orders."],
+                    ),
+                )
+
+                @ms.metric(
+                    entities=[orders],
+                    additivity="additive",
+                    ai_context=ms.ai_context(business_definition="Sum of order amount."),
+                )
+                def total_amount(table):
+                    return table.amount.sum()
+            """),
+        }
+    )
+
+    report = project.readiness(refs=("sales.total_amount",))
+
+    assert report.status == "blocked"
+    assert "missing_guardrails" in _issue_kinds(report.blockers)
+    assert "missing_business_definition" not in _issue_kinds(report.blockers)
 
 
 _COMMENTLESS_DOMAIN_PY = textwrap.dedent("""\
@@ -402,9 +455,9 @@ def test_readiness_does_not_require_internal_audit_decisions(semantic_project_fa
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'),\n"
-                "    ai_context=ms.ai_context(business_definition='One row per order.'))\n"
+                "    ai_context=ms.ai_context(business_definition='One row per order.', guardrails=['Exclude test orders.']))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', \n"
-                "    ai_context=ms.ai_context(business_definition='Sum of amount.'))\n"
+                "    ai_context=ms.ai_context(business_definition='Sum of amount.', guardrails=['Additive across order date only.']))\n"
                 "def revenue(orders):\n    return orders.amount.sum()\n"
             ),
         }
@@ -433,6 +486,22 @@ def test_missing_business_definition_predicate():
     )
     # description alone does NOT satisfy the strict floor.
     assert _missing_business_definition(SimpleNamespace(ai_context=AiContextIR()))
+
+
+def test_missing_guardrails_predicate():
+    from types import SimpleNamespace
+
+    from marivo.datasource.ir import AiContextIR
+    from marivo.semantic.readiness import _missing_guardrails
+
+    # No ai_context at all → missing guardrails.
+    assert _missing_guardrails(SimpleNamespace(ai_context=None))
+    # Empty guardrails → missing.
+    assert _missing_guardrails(SimpleNamespace(ai_context=AiContextIR()))
+    # Non-empty guardrails → present.
+    assert not _missing_guardrails(
+        SimpleNamespace(ai_context=AiContextIR(guardrails=("Do not use for margin.",)))
+    )
 
 
 def test_strict_enrichment_issues_flags_bare_ref(semantic_project_factory):
@@ -480,7 +549,7 @@ def test_strict_enrichment_issue_kinds_are_valid():
 
     kinds = get_args(ReadinessIssueKind)
     assert "missing_business_definition" in kinds
-    assert "missing_guardrails" not in kinds
+    assert "missing_guardrails" in kinds
     assert "unresolved" + "_clarification" not in kinds
 
 
@@ -751,13 +820,13 @@ def test_readiness_ready_with_warnings_renders_handoff_decision(
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"), ai_context=ms.ai_context(business_definition="One row per order."))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"), ai_context=ms.ai_context(business_definition="One row per order.", guardrails=["Exclude test orders."]))
 
         @ms.metric(
             entities=[orders],
             additivity="additive",
             provenance=ms.from_sql(sql="SELECT SUM(amount) AS total_amount FROM orders", dialect="duckdb"),
-            ai_context=ms.ai_context(business_definition="Sum of amount."),
+            ai_context=ms.ai_context(business_definition="Sum of amount.", guardrails=["Additive across order date only."]),
         )
         def total_amount(table):
             return table.amount.sum()
