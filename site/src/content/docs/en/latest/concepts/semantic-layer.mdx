@@ -123,7 +123,7 @@ analysis.
 - `mv.make_ref(id, kind)` — internal; removed from the public surface
   (used internally by the catalog).
 - `as_ref_id(value)` — extract the `.id` string from a `SemanticRef`,
-  `SemanticObject`, or plain `str`. String-tolerant: raw ids pass through.
+  `CatalogObject`, or plain `str`. String-tolerant: raw ids pass through.
 
 ## `ai_context`: the human-to-agent contract
 
@@ -684,10 +684,13 @@ Once declarations are in place, load the catalog and inspect it:
 import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
-catalog.list("domain").show()                     # top-level domains
-catalog.list("metric").show()                     # just metrics across all domains
-revenue = catalog.get("metric.sales.revenue")           # one object
-region = catalog.get("dimension.sales.orders.region")      # also an object
+catalog.domains.show()                    # top-level domains
+catalog.metrics.show()                    # just metrics across all domains
+
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+revenue = orders.metrics.get("revenue")   # one metric object
+region = orders.dimensions.get("region")  # one dimension object
 ```
 
 Before any analysis, check **readiness** — the structural gate that keeps

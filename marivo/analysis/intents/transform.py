@@ -54,7 +54,7 @@ from marivo.analysis.windows import (
     make_absolute_window,
     normalize_timescope_input,
 )
-from marivo.semantic.catalog import SemanticKind, SemanticObject, SemanticRef
+from marivo.semantic.catalog import CatalogObject, SemanticKind, SemanticRef
 
 TransformFrame = MetricFrame | DeltaFrame
 RankMethod = Literal["ordinal", "dense", "min", "max"]
@@ -405,8 +405,8 @@ def _params_digest(params: dict[str, Any]) -> str:
 
 
 def _normalize_param_value(value: Any) -> Any:
-    if isinstance(value, SemanticObject):
-        return {"ref": value.ref.id, "kind": str(value.kind)}
+    if isinstance(value, CatalogObject):
+        return {"ref": value.ref.id, "kind": str(value.ref.kind)}
     if isinstance(value, SemanticRef):
         return {"ref": value.id, "kind": str(value.kind)}
     if isinstance(value, pd.Timestamp):
@@ -436,7 +436,7 @@ def _normalize_param_value(value: Any) -> Any:
 def _axis_names(value: Any) -> set[str]:
     if value is None:
         return set()
-    if isinstance(value, SemanticObject):
+    if isinstance(value, CatalogObject):
         return {value.ref.id}
     if isinstance(value, SemanticRef):
         return {value.id}
@@ -451,11 +451,11 @@ def _axis_names(value: Any) -> set[str]:
 
 
 def _dimension_input_id(value: DimensionInput) -> str:
-    if isinstance(value, SemanticObject):
-        if value.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+    if isinstance(value, CatalogObject):
+        if value.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
             raise TransformArgError(
                 message="transform dimension input requires a dimension or time_dimension object",
-                details={"actual_kind": str(value.kind), "ref": value.ref.id},
+                details={"actual_kind": str(value.ref.kind), "ref": value.ref.id},
             )
         return value.ref.id
     if value.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
@@ -568,7 +568,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
     axes = _frame_axes(frame)
     drop_ids: set[str] = set()
     for item in drop_axes:
-        if isinstance(item, SemanticRef | SemanticObject):
+        if isinstance(item, SemanticRef | CatalogObject):
             dimension_id = _dimension_input_id(item)
             axis_id = _resolve_axis_id(axes, dimension_id, role="dimension")
             if axis_id is None:
@@ -1279,7 +1279,7 @@ def _op_normalize(
 def _resolve_slice_column(
     frame: TransformFrame, df: pd.DataFrame, key: Any
 ) -> tuple[str, str | None]:
-    if isinstance(key, SemanticRef | SemanticObject):
+    if isinstance(key, SemanticRef | CatalogObject):
         axes = _frame_axes(frame)
         dimension_id = _dimension_input_id(key)
         axis_id = _resolve_axis_id(axes, dimension_id, role="dimension")

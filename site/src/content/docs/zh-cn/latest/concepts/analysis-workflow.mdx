@@ -57,9 +57,9 @@ catalog.readiness(refs=[revenue.ref, region.ref]).show()
 session。
 session 的精简 API 为 `get_or_create`、`current()`、`list()` 和 `delete(name)`。
 
-用 `catalog.list(...)` 发现 refs，然后对本次分析会使用的每个 metric、dimension 和
-time dimension 调用 `.details().show()`。`details` 输出会展示已编写的 `ai_context`；
-首次 `observe` 前先解决限定范围内的 readiness blockers。
+用 `catalog.domains.show()` 和 scoped navigation 发现 refs，然后对本次分析会使用的每个
+metric、dimension 和 time dimension 调用 `.details().show()`。`details` 输出会展示已编写
+的 `ai_context`；首次 `observe` 前先解决限定范围内的 readiness blockers。
 
 :::caution[先通过就绪检查]
 session 只能在通过 `ms.readiness()` 的 catalog 上进行推理。在 observe 之前，先在

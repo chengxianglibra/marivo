@@ -2,12 +2,11 @@
 
 ## Status
 
-Accepted target design. Not yet implemented; the current runtime still exposes
-`catalog.list(...)`, `SemanticObject`, and `SemanticObjectList`. Do not use the
-target API examples in this document as current runtime instructions.
-
-Implementation requires a separate plan and must update code, skills, help,
-canonical runtime specs, and latest site documentation together.
+Implemented. The runtime exposes typed catalog collections (`catalog.domains`,
+`catalog.metrics`, etc.) and concrete catalog objects (`Domain`, `Entity`,
+`Metric`, …). The legacy `catalog.list(...)`, `SemanticObject`, and
+`SemanticObjectList` have been removed from all Python code, skills, help text,
+canonical specs, and latest site documentation.
 
 Date: 2026-07-10
 
@@ -343,14 +342,8 @@ of old call shapes.
 
 ## Documentation migration
 
-This target design lands before implementation, but canonical runtime specs must
-not teach an API the installed code does not provide. Until implementation,
-affected `docs/specs` files continue to document `catalog.list(...)` and
-`SemanticObject`, with a visible pending-design note linking here. Corrections
-that are already valid in the current runtime, such as adding the required kind
-prefix to `catalog.get(...)` examples, may land immediately.
-
-The implementation updates all active surfaces in the same change:
+The implementation has landed. All active surfaces were updated in the same
+change:
 
 - canonical design contracts under `docs/specs/`
 - `marivo-semantic` and `marivo-analysis` skills and runnable examples
@@ -363,7 +356,7 @@ Historical versioned site documentation remains unchanged. Historical design
 documents remain intact except that the superseded catalog browsing design is
 marked as replaced by this document.
 
-The canonical `docs/specs` files to synchronize in the implementation change
+The canonical `docs/specs` files synchronized in the implementation change
 are:
 
 - `docs/specs/semantic/loading-validation-introspection.md`

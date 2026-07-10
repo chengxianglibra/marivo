@@ -370,8 +370,8 @@ def test_help_workflow_topic_is_complete_agent_runbook() -> None:
     assert "mv.session.get_or_create" in rendered
     assert "session = mv.session.get_or_create(name=" in rendered
     assert "session = mv.session.get_or_create(...)" not in rendered
-    assert 'catalog.list("domain").show()' in rendered
-    assert 'catalog.list("metric", scope="domain.<domain>").show()' in rendered
+    assert "catalog.domains.show()" in rendered
+    assert "catalog.metrics.show()" in rendered
     assert 'region = session.catalog.get("dimension.sales.orders.region")' in rendered
     assert "mv.help(revenue)" in rendered
     assert "revenue.details().show()" in rendered
@@ -410,11 +410,11 @@ def test_help_workflow_json_records_routing_and_boundaries() -> None:
 
 def test_help_catalog_topic_teaches_analysis_side_consumption() -> None:
     rendered = _capture("catalog")
-    assert 'session.catalog.list("domain").show()' in rendered
-    assert 'session.catalog.list("metric", scope="domain.<domain>").show()' in rendered
-    assert 'session.catalog.list("dimension", scope="entity.<domain>.<entity>").show()' in rendered
+    assert "session.catalog.domains.show()" in rendered
+    assert "session.catalog.metrics.show()" in rendered
+    assert "session.catalog.dimensions.show()" in rendered
     assert 'session.catalog.get("metric.<domain>.<metric>").details().show()' in rendered
-    assert "catalog.list(...) discovers refs" in rendered
+    assert "Typed collection properties" in rendered
     assert "business_definition, guardrails, instructions" in rendered
     assert "mv.help(metric)" in rendered
     assert "mv.help(metric.ref)" in rendered
@@ -583,7 +583,7 @@ def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: C
 
     catalog = SemanticCatalog(project)
     domain = catalog.get("domain.sales")
-    metric_ids = [ref.id for ref in catalog.list("metric", scope=f"domain.{domain.ref.id}").refs()]
+    metric_ids = [ref.id for ref in catalog.metrics.refs()]
     if not metric_ids:
         pytest.skip("no metrics in fixture")
     ref = make_ref(metric_ids[0], SemanticKind.METRIC)

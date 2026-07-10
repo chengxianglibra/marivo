@@ -151,19 +151,34 @@ options, ask an open clarification or run another bounded discovery query.
 
 ## Existing Catalog
 
-Use `ms.load()` for current semantic state:
+Use `ms.load()` for current semantic state. Browse through typed collection
+properties, not a kind/scope matrix:
 
 ```python
 catalog = ms.load()
-catalog.list("domain").show()
-catalog.list("metric", scope="domain.sales").show()
-catalog.list("metric").show()
-catalog.get("metric.sales.revenue").details().show()
+catalog.domains.show()
+
+sales = catalog.domains.get("sales")
+sales.entities.show()
+sales.metrics.show()
+
+orders = sales.entities.get("orders")
+orders.dimensions.show()
+orders.time_dimensions.show()
+orders.measures.show()
+orders.relationships.show()
 ```
 
-Use `mv.help(ref)` for a short consumption briefing on a semantic object. Use
-`ms.help("<topic>")` for authoring contracts. Read semantic source files only
-when you need to modify them or debug implementation expressions.
+Each collection supports `.items`, `.ids()`, and `.refs()` for complete reads,
+and `.get(key)` for exact typed-ID or unique local-name lookup. Container
+`.show()` cards advertise their own live navigation properties and counts, so
+rely on them instead of a static matrix.
+
+Use `catalog.get("metric.sales.revenue").details().show()` for a full briefing
+on a specific object. Use `mv.help(ref)` for a short consumption briefing on a
+semantic object. Use `ms.help("<topic>")` for authoring contracts. Read
+semantic source files only when you need to modify them or debug implementation
+expressions.
 
 ## Anti-Patterns
 

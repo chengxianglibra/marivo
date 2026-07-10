@@ -142,8 +142,8 @@ _SUMMARIES: dict[str, str] = {
     "CandidateObjective": "literal values for CandidateSet objective field",
     "ConfidenceScope": "confidence scope attached to frame meta",
     "DiscoverSensitivity": "literal values for discover sensitivity parameter",
-    "SemanticObject": "catalog object returned by session.catalog.get(...)",
-    "SemanticRef": "catalog ref returned by SemanticObject.ref",
+    "CatalogObject": "catalog object returned by session.catalog.get(...)",
+    "SemanticRef": "catalog ref returned by CatalogObject.ref",
     "SamplingPolicy": "sampling policy for compare and correlate",
     "SlicePredicate": "typed dict for analysis slice predicates",
     "SlicePredicateOp": "literal values for SlicePredicate.op field",
@@ -664,8 +664,8 @@ def _workflow_content() -> dict[str, object]:
         "steps": [
             "import marivo.analysis as mv",
             "session = mv.session.get_or_create(name='analysis')",
-            'session.catalog.list("domain").show()',
-            'session.catalog.list("metric", scope="domain.<domain>").show()',
+            "session.catalog.domains.show()",
+            "session.catalog.metrics.show()",
             'revenue = session.catalog.get("metric.sales.revenue")',
             'region = session.catalog.get("dimension.sales.orders.region")',
             "revenue.details().show()",
@@ -710,8 +710,8 @@ def _workflow_content() -> dict[str, object]:
             {"operator": "assess_quality", "returns": "QualityReport"},
         ],
         "catalog_discovery": [
-            'session.catalog.list("domain").show()',
-            'session.catalog.list("metric", scope="domain.<domain>").show()',
+            "session.catalog.domains.show()",
+            "session.catalog.metrics.show()",
         ],
         "read_order": [
             "artifact.show()",
@@ -793,9 +793,9 @@ def _catalog_content() -> dict[str, object]:
     return {
         "summary": "Analysis-side semantic catalog consumption.",
         "discovery": [
-            'session.catalog.list("domain").show()',
-            'session.catalog.list("metric", scope="domain.<domain>").show()',
-            'session.catalog.list("dimension", scope="entity.<domain>.<entity>").show()',
+            "session.catalog.domains.show()",
+            "session.catalog.metrics.show()",
+            "session.catalog.dimensions.show()",
         ],
         "drilldown": [
             'session.catalog.get("metric.<domain>.<metric>").details().show()',
@@ -805,10 +805,9 @@ def _catalog_content() -> dict[str, object]:
             "mv.help(metric.ref)",
         ],
         "note": (
-            "catalog.list(...) discovers refs; catalog.get(...).details().show() "
-            "reads business_definition, guardrails, instructions, and other ai_context "
-            "before analysis. Always pass an explicit kind and scope to catalog.list(); "
-            "the no-argument form is not supported on the analysis side."
+            "Typed collection properties (catalog.domains, catalog.metrics, etc.) "
+            "discover refs; catalog.get(...).details().show() reads business_definition, "
+            "guardrails, instructions, and other ai_context before analysis."
         ),
     }
 
@@ -1330,9 +1329,9 @@ def help(
         >>> mv.help(revenue.ref, project=p) # semantic-object help
     """
     from marivo.refs import SemanticRef
-    from marivo.semantic.catalog import SemanticObject
+    from marivo.semantic.catalog import CatalogObject
 
-    if isinstance(target, SemanticObject):
+    if isinstance(target, CatalogObject):
         _help_catalog_ref(target.ref, project=project)
         return
     if isinstance(target, SemanticRef):
@@ -1364,7 +1363,7 @@ def _help_catalog_ref(
     if not isinstance(ref, SemanticRef):
         _raise(
             ErrorKind.INVALID_REF,
-            f"mv.help expected SemanticRef or SemanticObject, got {type(ref).__name__}.",
+            f"mv.help expected SemanticRef or CatalogObject, got {type(ref).__name__}.",
             cls=SemanticRuntimeError,
         )
 
@@ -1415,7 +1414,7 @@ def _help_catalog_ref(
             ErrorKind.INVALID_REF,
             (
                 f"{ref.kind} {ref.id!r} not found in loaded project. "
-                'Call catalog.list("metric").ids() to see available ids.'
+                "Call catalog.metrics.ids() to see available ids."
             ),
             cls=SemanticRuntimeError,
         )
@@ -1451,7 +1450,7 @@ def _semantic_ir_help_lines(ir: object, *, kind: str) -> list[str]:
         lines.extend(_cumulative_composition_briefing(composition))
     lines.append("")
     lines.append(
-        'use: catalog.list("metric").ids() to enumerate; '
+        "use: catalog.metrics.ids() to enumerate; "
         f"pass catalog.get('{kind}.{semantic_id}') to session.observe(...)"
     )
     return lines

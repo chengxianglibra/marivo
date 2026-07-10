@@ -34,14 +34,18 @@ _FAMILY_ORDER: tuple[str, ...] = (*(label for _, label in _FAMILY_SUFFIXES), _OT
 
 
 def _family_order(surface: Surface) -> tuple[str, ...]:
+    explicit_labels = tuple(dict.fromkeys(surface.family_labels.values()))
     surface_labels = tuple(label for _, label in surface.family_suffixes)
-    return (*surface_labels, *_FAMILY_ORDER)
+    return (*explicit_labels, *surface_labels, *_FAMILY_ORDER)
 
 
 _ENUMERATED_KINDS: frozenset[Kind] = frozenset({"callable", "module", "topic"})
 
 
 def _family_label(surface: Surface, name: str) -> str:
+    explicit = surface.family_labels.get(name)
+    if explicit is not None:
+        return explicit
     for suffix, label in (*surface.family_suffixes, *_FAMILY_SUFFIXES):
         if name.endswith(suffix):
             return label
@@ -101,6 +105,7 @@ class Surface:
     pinned_entries: tuple[str, ...] = ()
     family_suffixes: tuple[tuple[str, str], ...] = ()
     hidden_names: frozenset[str] = frozenset()
+    family_labels: Mapping[str, str] = field(default_factory=dict)
 
 
 def _catalog_by_id(surface: Surface) -> dict[str, Constraint]:

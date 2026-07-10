@@ -70,7 +70,7 @@ from marivo.analysis.windows.spec import (
     TimeScopeInput,
 )
 from marivo.refs import SemanticRef
-from marivo.semantic.catalog import SemanticObject
+from marivo.semantic.catalog import CatalogObject
 
 
 def __getattr__(name: str) -> _Any:
@@ -101,12 +101,12 @@ __all__ = [
     "AttributionFrame",
     "CalendarRef",
     "CandidateSet",
+    "CatalogObject",
     "DeltaFrame",
     "ForecastFrame",
     "HypothesisTestResult",
     "MetricFrame",
     "QualityReport",
-    "SemanticObject",
     "SemanticRef",
     "Session",
     "TimeScope",

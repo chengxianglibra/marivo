@@ -108,11 +108,6 @@ class ErrorKind(StrEnum):
     INSPECT_SOURCE_REQUIRED = "inspect_source_required"
     PROJECT_NOT_LOADED = "project_not_loaded"
 
-    # catalog
-    UNSUPPORTED_KIND = "unsupported_kind"
-    UNSUPPORTED_LIST_PARENT = "unsupported_list_parent"
-    CONFLICTING_PARAMETERS = "conflicting_parameters"
-
     # parity
     PROVENANCE_DIALECT_MISSING = "provenance_dialect_missing"
     UNVERIFIED_PROVENANCE = "unverified_provenance"

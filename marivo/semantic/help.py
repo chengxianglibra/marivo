@@ -126,8 +126,8 @@ def _authoring_topic() -> Descriptor:
                 "  import marivo.semantic as ms",
                 "",
                 "0. Browse the current catalog: ms.load() returns the SemanticCatalog;",
-                "   catalog.list(...) enumerates domains, entities, and objects already",
-                "   declared. Read what exists before authoring.",
+                "   catalog.domains.show(), catalog.metrics.show(), etc. enumerate objects",
+                "   already declared. Read what exists before authoring.",
                 '1. Author objects in this order, reading ms.help("<object>") for each',
                 "   constructor contract before authoring it (this topic does not duplicate",
                 '   parameter tables — route to ms.help("entity"), ms.help("measure_column"),',
@@ -1339,7 +1339,7 @@ def _surface() -> Surface:
         resolve=_resolve,
         catalog=catalog,
         topics=topics,
-        pinned_entries=("SemanticCatalog", "SemanticObject", "SemanticObjectList"),
+        pinned_entries=("SemanticCatalog",),
         hidden_names=frozenset(
             {
                 "datetime",
@@ -1349,6 +1349,22 @@ def _surface() -> Surface:
             }
         ),
         family_suffixes=(("Report", "Reports"), ("Result", "Results")),
+        family_labels={
+            "Domain": "Catalog objects",
+            "Datasource": "Catalog objects",
+            "Entity": "Catalog objects",
+            "Dimension": "Catalog objects",
+            "TimeDimension": "Catalog objects",
+            "Measure": "Catalog objects",
+            "Metric": "Catalog objects",
+            "Relationship": "Catalog objects",
+            "CatalogObject": "Catalog objects",
+            "CatalogCollection": "Catalog objects",
+            "ReadinessReport": "Reports",
+            "RichnessReport": "Reports",
+            "ParityResult": "Results",
+            "VerifyResult": "Results",
+        },
     )
 
 

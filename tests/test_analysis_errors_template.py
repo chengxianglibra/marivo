@@ -175,7 +175,7 @@ def test_metric_not_found_has_list_metrics_fix_template():
 
     assert "metric_id=revenu" in rendered
     assert "Fix:" in rendered
-    assert '  catalog.list("metric")  # confirm the exact id' in rendered
+    assert "  catalog.metrics.show()  # confirm the exact id" in rendered
     assert (
         'session.observe(catalog.get("metric.<registered_metric_id>"), '
         'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
@@ -193,7 +193,7 @@ def test_metric_not_found_uses_model_and_metric_details_in_cause():
 
     assert "sales.revenu" in rendered
     assert "Fix:" in rendered
-    assert '  catalog.list("metric")  # confirm the exact id' in rendered
+    assert "  catalog.metrics.show()  # confirm the exact id" in rendered
     assert "<metric_id>" not in rendered
 
 

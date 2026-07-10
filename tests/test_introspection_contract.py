@@ -344,11 +344,9 @@ def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:
     result = _json_help(ms, "SemanticCatalog")
 
     assert result["kind"] == "class"
-    assert "<kind>.<semantic_id>" in result["doc"]
-    assert 'catalog.list("metric", scope="domain.sales")' in result["doc"]
+    assert "catalog.metrics" in result["doc"] or "catalog.domains" in result["doc"]
     methods = {entry["name"] for entry in cast("list[dict[str, Any]]", result["methods"])}
     assert {
-        "list",
         "get",
         "readiness",
     } <= methods

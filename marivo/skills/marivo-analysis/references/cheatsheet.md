@@ -161,7 +161,7 @@ a Marivo recommendation.
 | Override backend resolution for tests/CI | `mv.session.get_or_create(name=..., backend_factory=..., use_datasources=False)` |
 | Inspect SDK entrypoints | `mv.help()` or `mv.help("discover")` |
 | Inspect calendar file shape | `mv.help("calendar")` |
-| Confirm metric ids | `import marivo.semantic as ms; catalog = ms.load(); catalog.list("metric")` |
+| Confirm metric ids | `import marivo.semantic as ms; catalog = ms.load(); catalog.metrics.ids()` |
 | Recover a frame across scripts (no re-query) | `session.get_frame(ref)` |
 | List persisted frame refs and metadata | `session.frame_summaries()` |
 | Find frame ref by metric_id | `session.frame_summaries()` |
@@ -169,7 +169,7 @@ a Marivo recommendation.
 Calendar alignment and timestamp bucketing use the Python process system timezone. If a naive warehouse timestamp physically stores UTC, declare it in the semantic layer with `@ms.time_dimension(..., timezone="UTC")`.
 
 Metric inputs come from exact catalog ids such as `session.catalog.get("metric.model.metric")`. Do not guess
-ids from metric display names; call `catalog.list("metric")` after loading the
+ids from metric display names; call `catalog.metrics.ids()` after loading the
 semantic project.
 
 For cross-dataset base metrics (datasets cover multiple datasets with an explicit

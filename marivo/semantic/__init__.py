@@ -7,9 +7,8 @@ Public surface::
 
     catalog = ms.load()                # returns SemanticCatalog
     catalog = ms.load(domains=['sales'])  # filter to specific domains
-    catalog.list("domain").show()
-    catalog.list("metric").show()                                  # all metrics across domains
-    catalog.list("metric", scope="domain.sales").show()            # metrics in one domain
+    catalog.domains.show()
+    catalog.metrics.show()                                  # all metrics across domains
 
     ms.domain(name="sales", owner="Mina Zhang", default=True)
     warehouse = md.ref("datasource.warehouse")
@@ -68,20 +67,27 @@ from marivo.semantic.authoring import (
     weighted_average,
 )
 from marivo.semantic.catalog import (
+    CatalogCollection,
+    CatalogObject,
+    Datasource,
     DatasourceDetails,
     DerivedMetricDetails,
+    Dimension,
     DimensionDetails,
+    Domain,
     DomainDetails,
+    Entity,
     EntityDetails,
+    Measure,
     MeasureDetails,
+    Metric,
     MetricDetails,
+    Relationship,
     RelationshipDetails,
     SemanticCatalog,
     SemanticKind,
-    SemanticObject,
-    SemanticObjectDetails,
-    SemanticObjectList,
     SimpleMetricDetails,
+    TimeDimension,
     TimeDimensionDetails,
     load,
 )
@@ -113,7 +119,7 @@ if TYPE_CHECKING:
 
 
 def verify_object(
-    ref: SemanticRef,
+    ref: CatalogObject | SemanticRef,
     *,
     scope: ScanScope | None = None,
 ) -> VerifyResult:
@@ -125,8 +131,8 @@ def verify_object(
     metrics, the check is static and validates the loaded semantic contract.
 
     Args:
-        ref: SemanticRef returned by an authoring call, ``ms.ref(...)``, or
-            ``catalog.get(...).ref``.
+        ref: CatalogObject or SemanticRef from an authoring call,
+            ``ms.ref(...)``, or ``catalog.get(...).ref``.
         scope: Scan scope controlling partition, max rows, and timeout.
             Defaults to ``ScanScope()``.
 
@@ -144,11 +150,14 @@ def verify_object(
     """
     from marivo.semantic.reader import SemanticProject
 
+    if isinstance(ref, CatalogObject):
+        ref = ref.ref
     if not isinstance(ref, SemanticRef):
         errors._raise(
             errors.ErrorKind.INVALID_REF,
-            "ms.verify_object(ref=...) requires a SemanticRef from an authoring call, "
-            "ms.ref('<kind>.<semantic_id>'), or catalog.get('<kind>.<semantic_id>').ref.",
+            "ms.verify_object(ref=...) requires a CatalogObject or SemanticRef from an "
+            "authoring call, ms.ref('<kind>.<semantic_id>'), or "
+            "catalog.get('<kind>.<semantic_id>').ref.",
             cls=errors.SemanticRuntimeError,
             refs=(str(ref),),
         )
@@ -162,7 +171,7 @@ def verify_object(
 
 def readiness(
     *,
-    refs: Sequence[SemanticRef] | None = None,
+    refs: Sequence[CatalogObject | SemanticRef] | None = None,
 ) -> ReadinessReport:
     """Run structural readiness check for the given semantic refs.
 
@@ -190,7 +199,10 @@ def readiness(
 
     project = SemanticProject()
     project.load()
-    str_refs = [ref.id for ref in refs] if refs is not None else None
+    if refs is not None:
+        str_refs = [r.ref.id if isinstance(r, CatalogObject) else r.id for r in refs]
+    else:
+        str_refs = None
     return project.readiness(refs=str_refs)
 
 
@@ -264,34 +276,41 @@ def parity_check(
 __all__ = [
     "AiContextValue",
     "AuthoringQuestion",
+    "CatalogCollection",
+    "CatalogObject",
+    "Datasource",
     "DatasourceDetails",
     "DerivedMetricDetails",
+    "Dimension",
     "DimensionDetails",
     "DimensionRef",
+    "Domain",
     "DomainDetails",
     "DomainRef",
+    "Entity",
     "EntityDetails",
     "EntityRef",
     "JoinKey",
+    "Measure",
     "MeasureDetails",
     "MeasureRef",
+    "Metric",
     "MetricDetails",
     "MetricRef",
     "ParityResult",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
+    "Relationship",
     "RelationshipDetails",
     "RelationshipRef",
     "RichnessReport",
     "SemanticCatalog",
     "SemanticKind",
-    "SemanticObject",
-    "SemanticObjectDetails",
-    "SemanticObjectList",
     "SemanticRef",
     "SimpleMetricDetails",
     "SqlProvenance",
+    "TimeDimension",
     "TimeDimensionDetails",
     "TimeDimensionRef",
     "VerifyResult",

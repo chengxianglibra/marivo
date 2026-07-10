@@ -17,9 +17,14 @@ removes the old decision ledger from the public contract.
 - The semantic decision ledger has been removed from the public surface.
   Readiness and verification now focus on declared semantic objects and source
   evidence instead of a separate internal decision log.
-- `catalog.list()` now follows a kind-first browsing model with bounded output,
+- The catalog browsing model introduced a kind-first API with bounded output,
   explicit drill-down keys, and agent-facing help that points to concrete next
   calls.
+- **Migration:** The kind-first browsing API has since been replaced by typed
+  catalog collections (`catalog.domains`, `catalog.metrics`, etc.) and concrete
+  catalog objects. Use `catalog.domains.show()` and
+  `sales.entities.get("orders")` for typed navigation instead of the earlier
+  kind-scope matrix.
 - Local usage telemetry is now recorded project-locally so CLI and runtime
   usage can be inspected without sending data to an external service.
 

@@ -135,7 +135,7 @@ def make_ref(semantic_id: str, kind: SymbolKind) -> SemanticRef:
 
 
 def as_ref(value: object) -> SemanticRef | None:
-    """Return the SemanticRef for a ref or a SemanticObject; None for a str/other."""
+    """Return the SemanticRef for a ref or a CatalogObject; None for a str/other."""
     if isinstance(value, SemanticRef):
         return value
     obj_ref = getattr(value, "ref", None)
@@ -145,7 +145,7 @@ def as_ref(value: object) -> SemanticRef | None:
 
 
 def as_ref_id(value: object) -> str:
-    """Extract the id string from a ref, a SemanticObject, or a plain string."""
+    """Extract the id string from a ref, a CatalogObject, or a plain string."""
     if isinstance(value, str):
         return value
     if isinstance(value, SemanticRef):
@@ -153,4 +153,4 @@ def as_ref_id(value: object) -> str:
     obj_ref = getattr(value, "ref", None)
     if isinstance(obj_ref, SemanticRef):
         return obj_ref.id
-    raise TypeError(f"expected SemanticRef, SemanticObject, or str, got {type(value).__name__}")
+    raise TypeError(f"expected SemanticRef, CatalogObject, or str, got {type(value).__name__}")

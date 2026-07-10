@@ -47,7 +47,6 @@ def test_semantic_fold_partition() -> None:
         "MeasureDetails",
         "MetricDetails",
         "RelationshipDetails",
-        "SemanticObjectDetails",
         "SimpleMetricDetails",
         "TimeDimensionDetails",
     ]
@@ -66,6 +65,18 @@ def test_semantic_fold_partition() -> None:
     assert "Internal IR types" not in fams
     assert fams["Reports"] == ["ReadinessReport", "RichnessReport"]
     assert fams["Results"] == ["ParityResult", "VerifyResult"]
+    assert fams["Catalog objects"] == [
+        "CatalogCollection",
+        "CatalogObject",
+        "Datasource",
+        "Dimension",
+        "Domain",
+        "Entity",
+        "Measure",
+        "Metric",
+        "Relationship",
+        "TimeDimension",
+    ]
     assert set(fams["Other types"]) == {
         "AiContextValue",
         "AuthoringQuestion",
@@ -76,8 +87,45 @@ def test_semantic_fold_partition() -> None:
         "SqlProvenance",
     }
     enumerated = _enumerated(surface)
-    assert {"SemanticCatalog", "SemanticObject", "SemanticObjectList"} <= enumerated
+    assert "SemanticCatalog" in enumerated
+    assert "SemanticObject" not in enumerated
+    assert "SemanticObjectList" not in enumerated
     _assert_no_value_family_leaks(enumerated)
+
+
+_MINIMAL_DOMAIN_PY = (
+    "import marivo.datasource as md\n"
+    "import marivo.semantic as ms\n"
+    'ms.domain(name="sales", owner="Mina Zhang", default=True)\n'
+)
+_DATASETS_PY = (
+    "import marivo.datasource as md\n"
+    "import marivo.semantic as ms\n"
+    'orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), '
+    'source=ms.table("orders"))\n'
+    "\n"
+    "@ms.metric(entities=[orders], additivity='additive', )\n"
+    "def revenue(table):\n"
+    "    return table.amount.sum()\n"
+)
+
+
+def _make_catalog(semantic_project_factory):
+    from marivo.semantic.catalog import SemanticCatalog
+
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _DATASETS_PY,
+        }
+    )
+    return SemanticCatalog(project)
+
+
+def test_semantic_catalog_has_no_legacy_list_method(semantic_project_factory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+
+    assert not hasattr(catalog, "list")
 
 
 def test_datasource_fold_partition() -> None:
@@ -136,9 +184,9 @@ def test_analysis_fold_partition() -> None:
         "AlignmentPolicy",
         "AssociationResult",
         "CandidateSet",
+        "CatalogObject",
         "HypothesisTestResult",
         "QualityReport",
-        "SemanticObject",
         "TimeScope",
     ]
     enumerated = _enumerated(surface)

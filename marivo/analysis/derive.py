@@ -34,7 +34,7 @@ from marivo.analysis.windows.grain import _TRUNCATE_CODE, parse_grain_token
 from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
 from marivo.datasource.authoring import DatasourceRef, _require_datasource_ref
 from marivo.refs import SemanticRef
-from marivo.semantic.catalog import SemanticObject
+from marivo.semantic.catalog import CatalogObject
 
 if TYPE_CHECKING:
     from marivo.analysis.semantic_inputs import MetricInput
@@ -75,7 +75,7 @@ class IbisQuerySpec:
 @dataclass(frozen=True)
 class MetricColumnBinding:
     column: str
-    ref: SemanticRef | SemanticObject
+    ref: SemanticRef | CatalogObject
     role: str
 
 
@@ -92,11 +92,11 @@ def ibis_query(
     return IbisQuerySpec(datasource=datasource, build=build)
 
 
-def time_column(*, column: str, ref: SemanticRef | SemanticObject) -> MetricColumnBinding:
+def time_column(*, column: str, ref: SemanticRef | CatalogObject) -> MetricColumnBinding:
     return MetricColumnBinding(column=column, ref=ref, role="time")
 
 
-def dimension_column(*, column: str, ref: SemanticRef | SemanticObject) -> MetricColumnBinding:
+def dimension_column(*, column: str, ref: SemanticRef | CatalogObject) -> MetricColumnBinding:
     return MetricColumnBinding(column=column, ref=ref, role="dimension")
 
 
