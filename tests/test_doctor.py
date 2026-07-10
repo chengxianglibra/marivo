@@ -460,8 +460,31 @@ def test_doctor_semantic_flag_uses_semantic_check(
             "warnings": [],
             "readiness": {
                 "status": "blocked",
-                "blockers": [{"kind": "missing_business_definition", "message": "missing"}],
+                "blockers": [
+                    {
+                        "kind": "missing_business_definition",
+                        "severity": "blocker",
+                        "refs": ["sales.total"],
+                        "message": "missing",
+                        "suggested_action": "add ai_context",
+                    }
+                ],
                 "warnings": [],
+            },
+            "readiness_by_domain": {
+                "sales": {
+                    "status": "blocked",
+                    "blockers": [
+                        {
+                            "kind": "missing_business_definition",
+                            "severity": "blocker",
+                            "refs": ["sales.total"],
+                            "message": "missing",
+                            "suggested_action": "add ai_context",
+                        }
+                    ],
+                    "warnings": [],
+                },
             },
         }
 
@@ -470,7 +493,7 @@ def test_doctor_semantic_flag_uses_semantic_check(
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
     assert calls == [{"workspace_dir": tmp_path.resolve(), "readiness": True, "format": "json"}]
-    check = _check(report, "semantic", "semantic.readiness")
+    check = _check(report, "semantic", "semantic.readiness.sales")
     assert check.status == "fail"
     assert "blocked" in check.summary
     assert check.fix == (
@@ -491,23 +514,8 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
         assert format == "json"
         return {
             "status": "blocked",
-            "errors": [
-                {
-                    "kind": "invalid_metric",
-                    "message": "metric failed to load",
-                    "refs": ["sales.total"],
-                    "location": {"file": "models/semantic/sales.py", "line": 8},
-                    "hint": "fix the expression",
-                }
-            ],
-            "warnings": [
-                {
-                    "kind": "deprecated_ref",
-                    "message": "uses deprecated ref",
-                    "refs": ["sales.legacy"],
-                    "location": {"file": "models/semantic/sales.py", "line": 14},
-                }
-            ],
+            "errors": [],
+            "warnings": [],
             "readiness": {
                 "status": "blocked",
                 "analysis_ready_refs": ["sales.ok_metric"],
@@ -536,65 +544,61 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                 },
                 "checked_at": "2026-07-07T12:00:00Z",
             },
+            "readiness_by_domain": {
+                "sales": {
+                    "status": "blocked",
+                    "blockers": [
+                        {
+                            "kind": "missing_business_definition",
+                            "severity": "blocker",
+                            "refs": ["sales.total"],
+                            "message": "missing business definition",
+                            "suggested_action": "add ai_context.business_definition",
+                        }
+                    ],
+                    "warnings": [
+                        {
+                            "kind": "sql_parity_unverified",
+                            "severity": "warning",
+                            "refs": ["sales.margin"],
+                            "message": "parity not verified",
+                            "suggested_action": "run parity check",
+                        }
+                    ],
+                },
+            },
         }
 
     monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
-    check = _check(report, "semantic", "semantic.readiness")
+    check = _check(report, "semantic", "semantic.readiness.sales")
     assert check.status == "fail"
     assert check.details == {
-        "semantic_status": "blocked",
-        "errors": [
+        "status": "blocked",
+        "blockers": [
             {
-                "kind": "invalid_metric",
-                "message": "metric failed to load",
+                "kind": "missing_business_definition",
+                "severity": "blocker",
                 "refs": ["sales.total"],
-                "location": {"file": "models/semantic/sales.py", "line": 8},
-                "hint": "fix the expression",
+                "message": "missing business definition",
+                "suggested_action": "add ai_context.business_definition",
             }
         ],
         "warnings": [
             {
-                "kind": "deprecated_ref",
-                "message": "uses deprecated ref",
-                "refs": ["sales.legacy"],
-                "location": {"file": "models/semantic/sales.py", "line": 14},
+                "kind": "sql_parity_unverified",
+                "severity": "warning",
+                "refs": ["sales.margin"],
+                "message": "parity not verified",
+                "suggested_action": "run parity check",
             }
         ],
-        "readiness": {
-            "status": "blocked",
-            "blockers": [
-                {
-                    "kind": "missing_business_definition",
-                    "severity": "blocker",
-                    "refs": ["sales.total"],
-                    "message": "missing business definition",
-                    "suggested_action": "add ai_context.business_definition",
-                }
-            ],
-            "warnings": [
-                {
-                    "kind": "sql_parity_unverified",
-                    "severity": "warning",
-                    "refs": ["sales.margin"],
-                    "message": "parity not verified",
-                    "suggested_action": "run parity check",
-                }
-            ],
-        },
     }
-    assert "1 load error" in check.summary
-    assert "1 load warning" in check.summary
-    assert "1 readiness blocker" in check.summary
-    assert "1 readiness warning" in check.summary
+    assert "1 blocker" in check.summary
+    assert "1 warning" in check.summary
     json.dumps(report.to_dict())
-    readiness_details = check.details["readiness"]  # type: ignore[index]
-    assert isinstance(readiness_details, dict)
-    assert "analysis_ready_refs" not in readiness_details
-    assert "input_summary" not in readiness_details
-    assert "checked_at" not in readiness_details
 
 
 def test_doctor_semantic_warnings_surface_as_warning_status(
@@ -628,6 +632,21 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
                 "input_summary": {"datasources": ["warehouse"], "refs": [], "tables": []},
                 "checked_at": "2026-07-07T12:00:00Z",
             },
+            "readiness_by_domain": {
+                "sales": {
+                    "status": "ready_with_warnings",
+                    "blockers": [],
+                    "warnings": [
+                        {
+                            "kind": "sql_parity_unverified",
+                            "severity": "warning",
+                            "refs": ["sales.margin"],
+                            "message": "parity not verified",
+                            "suggested_action": "run parity check",
+                        }
+                    ],
+                },
+            },
         }
 
     monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
@@ -635,27 +654,170 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
     report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
 
     assert report.status == "warning"
-    check = _check(report, "semantic", "semantic.readiness")
+    check = _check(report, "semantic", "semantic.readiness.sales")
     assert check.status == "warning"
     assert check.details == {
-        "semantic_status": "ready_with_warnings",
-        "errors": [],
-        "warnings": [],
-        "readiness": {
-            "status": "ready_with_warnings",
-            "blockers": [],
-            "warnings": [
+        "status": "ready_with_warnings",
+        "blockers": [],
+        "warnings": [
+            {
+                "kind": "sql_parity_unverified",
+                "severity": "warning",
+                "refs": ["sales.margin"],
+                "message": "parity not verified",
+                "suggested_action": "run parity check",
+            }
+        ],
+    }
+    assert "1 warning" in check.summary
+
+
+def test_doctor_semantic_partitions_readiness_by_domain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_manifest(tmp_path)
+
+    def fake_run_check(
+        *, workspace_dir: str | Path | None, readiness: bool, format: str
+    ) -> dict[str, object]:
+        return {
+            "status": "blocked",
+            "errors": [],
+            "warnings": [],
+            "readiness": {
+                "status": "blocked",
+                "blockers": [
+                    {
+                        "kind": "missing_business_definition",
+                        "severity": "blocker",
+                        "refs": ["msgdata.orders"],
+                        "message": "missing",
+                        "suggested_action": "add ai_context",
+                    }
+                ],
+                "warnings": [],
+            },
+            "readiness_by_domain": {
+                "msgdata": {
+                    "status": "blocked",
+                    "blockers": [
+                        {
+                            "kind": "missing_business_definition",
+                            "severity": "blocker",
+                            "refs": ["msgdata.orders"],
+                            "message": "missing",
+                            "suggested_action": "add ai_context",
+                        }
+                    ],
+                    "warnings": [],
+                },
+                "trino": {
+                    "status": "ready",
+                    "blockers": [],
+                    "warnings": [],
+                },
+            },
+        }
+
+    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
+
+    section = _section(report, "semantic")
+    assert section.status == "fail"
+
+    msgdata_check = _check(report, "semantic", "semantic.readiness.msgdata")
+    assert msgdata_check.status == "fail"
+    assert msgdata_check.label == "msgdata"
+    assert "blocked" in msgdata_check.summary
+    assert "1 blocker" in msgdata_check.summary
+
+    trino_check = _check(report, "semantic", "semantic.readiness.trino")
+    assert trino_check.status == "ok"
+    assert trino_check.label == "trino"
+    assert "ready" in trino_check.summary
+
+    text = render_text(report)
+    assert "msgdata: fail" in text
+    assert "trino: ok" in text
+
+
+def test_doctor_semantic_load_errors_single_check_without_domains(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_manifest(tmp_path)
+
+    def fake_run_check(
+        *, workspace_dir: str | Path | None, readiness: bool, format: str
+    ) -> dict[str, object]:
+        return {
+            "status": "errored",
+            "errors": [
                 {
-                    "kind": "sql_parity_unverified",
-                    "severity": "warning",
-                    "refs": ["sales.margin"],
-                    "message": "parity not verified",
-                    "suggested_action": "run parity check",
+                    "kind": "invalid_metric",
+                    "message": "metric failed to load",
+                    "refs": ["sales.total"],
+                    "location": {"file": "models/semantic/sales.py", "line": 8},
+                    "hint": "fix the expression",
                 }
             ],
-        },
-    }
-    assert "1 readiness warning" in check.summary
+            "warnings": [],
+            "readiness": {
+                "status": "blocked",
+                "blockers": [
+                    {
+                        "kind": "load_error",
+                        "severity": "blocker",
+                        "refs": ["sales.total"],
+                        "message": "metric failed to load",
+                        "suggested_action": "fix the expression",
+                    }
+                ],
+                "warnings": [],
+            },
+        }
+
+    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
+
+    section = _section(report, "semantic")
+    assert section.status == "fail"
+    check = _check(report, "semantic", "semantic.readiness")
+    assert check.status == "fail"
+    assert "1 load error" in check.summary
+
+
+def test_doctor_semantic_no_domains_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_manifest(tmp_path)
+
+    def fake_run_check(
+        *, workspace_dir: str | Path | None, readiness: bool, format: str
+    ) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "errors": [],
+            "warnings": [],
+            "readiness": {
+                "status": "ready",
+                "blockers": [],
+                "warnings": [],
+            },
+            "readiness_by_domain": {},
+        }
+
+    monkeypatch.setattr("marivo.semantic.check.run_check", fake_run_check)
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path, semantic=True))
+
+    section = _section(report, "semantic")
+    assert section.status == "skipped"
+    check = _check(report, "semantic", "semantic.readiness")
+    assert check.status == "skipped"
+    assert "no" in check.summary.lower()
+    assert "domain" in check.summary.lower()
 
 
 def test_doctor_connect_flag_uses_no_persist_connect_helper(
