@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted design. Documentation only for now; implementation is deferred.
+Superseded on 2026-07-10 by
+[`2026-07-10-catalog-object-navigation-design.md`](2026-07-10-catalog-object-navigation-design.md).
+Retained as a historical decision record.
 
 Date: 2026-07-03
 
