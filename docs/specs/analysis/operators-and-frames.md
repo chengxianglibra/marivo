@@ -87,14 +87,18 @@ future runtimes. `mv.window_bucket()` defaults to `mode="ordinal_bucket"`
 Calendar and holiday alignment are specified in
 [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md).
 
-### Semantic objects and refs
+### Semantic refs
 
-Every semantic entry point is a catalog-resolved typed object or ref, never a
-guessed string. Metrics and dimensions are passed as concrete `CatalogObject`
-subtypes or `SemanticRef` values obtained from `session.catalog`; calendars and
-artifacts use `CalendarRef` / `ArtifactRef`. An agent holding a typed ID resolves
-it through `catalog.get(...)`; an agent exploring by name uses a global or scoped
-typed collection first.
+> **Pending breaking redesign:**
+> [`Catalog Object Navigation Design`](../../superpowers/specs/2026-07-10-catalog-object-navigation-design.md)
+> will replace `SemanticObject` with concrete catalog object types. It is not
+> implemented yet; the contract below describes the current runtime.
+
+Every semantic entry point is a catalog-resolved typed ref, never a guessed
+string. Metrics and dimensions are passed as `SemanticObject`/`SemanticRef`
+obtained from `session.catalog.get(...)`; calendars and artifacts use
+`CalendarRef` / `ArtifactRef`. An agent holding only a string resolves it through
+the catalog before submitting a step.
 
 ## Agent-facing core operator surface
 
