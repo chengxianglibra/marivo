@@ -505,3 +505,27 @@ def test_active_docs_do_not_teach_legacy_semantic_catalog(root: str) -> None:
     }
 
     assert offending == {}
+
+
+def test_active_analysis_guidance_teaches_single_show_evidence_layering() -> None:
+    surfaces = [
+        _read("marivo/skills/marivo-analysis/SKILL.md"),
+        _read("docs/specs/analysis/evidence-access-surface.md"),
+        _read("site/src/content/docs/en/latest/concepts/analysis-workflow.mdx"),
+        _read("site/src/content/docs/en/latest/concepts/evidence.mdx"),
+    ]
+    for surface in surfaces:
+        assert "artifact.show()" in surface
+        assert "session.knowledge()" in surface
+        assert "session.evidence" in surface
+        assert "artifact.evidence()" not in surface
+
+    chinese_surfaces = [
+        _read("site/src/content/docs/zh-cn/latest/concepts/analysis-workflow.mdx"),
+        _read("site/src/content/docs/zh-cn/latest/concepts/evidence.mdx"),
+    ]
+    for surface in chinese_surfaces:
+        assert "artifact.show()" in surface
+        assert "session.knowledge()" in surface
+        assert "session.evidence" in surface
+        assert "artifact.evidence()" not in surface

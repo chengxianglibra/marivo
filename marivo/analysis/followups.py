@@ -54,6 +54,7 @@ class BlockingIssue(BaseModel):
         "definition_drift_detected",
         "evidence_partial",
         "evidence_store_unavailable",
+        "evidence_summary_unavailable",
         "cross_session_window_mismatch",
         "outlier_winsorize_recommended",
         # legacy kinds kept for candidate_set row-level usage

@@ -381,6 +381,12 @@ delta.contract()     # mechanically valid next actions
 delta.to_pandas()    # terminal export for custom local analysis
 ```
 
+When an operator emits evidence, `artifact.show()` includes its bounded
+commit-time evidence summary before the result preview. One `show()` is enough
+for the immediate step. Use `session.knowledge()` when reviewing or synthesizing
+multiple steps, and use `session.evidence` for full typed records and audit
+traces.
+
 Use `artifact.contract().affordances` to inspect mechanical compatibility. It
 only describes which public operators can mechanically consume the artifact and
 which inputs are missing; it does not rank, recommend, or decide the next step.

@@ -58,6 +58,11 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     actions = knowledge.next_steps(top=5)
     assert any(a.operator == "assess_quality" for a in actions)
 
+    assert delta.evidence_summary is not None
+    loaded = session.get_frame(delta.ref)
+    assert loaded.evidence_summary == delta.evidence_summary
+    assert loaded.render() == delta.render()
+
 
 def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)

@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo.analysis.evidence.types import ArtifactEvidenceSummary
 from tests.shared_fixtures import seeded_time_series_metric_frame
 
 
@@ -41,3 +42,5 @@ def test_assess_quality_populates_surface1_without_findings_or_followups() -> No
     assert artifact_rows == [("assess_quality", "quality_report", "complete")]
     assert finding_count == 0
     assert proposition_count == 0
+
+    assert quality.evidence_summary == ArtifactEvidenceSummary(finding_count=0)

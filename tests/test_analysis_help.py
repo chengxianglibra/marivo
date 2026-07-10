@@ -390,6 +390,11 @@ def test_help_workflow_topic_is_complete_agent_runbook() -> None:
     assert "session.frame_summaries()" in rendered
     assert "session.get_frame(" in rendered
     assert "artifact.to_pandas()" in rendered
+    assert "bounded commit-time evidence" in rendered
+    assert "second evidence show" in rendered
+    assert "session.knowledge()" in rendered
+    assert "session.evidence" in rendered
+    assert "artifact.evidence()" not in rendered
 
 
 def test_help_workflow_json_records_routing_and_boundaries() -> None:

@@ -5,6 +5,9 @@ from marivo.analysis.evidence.knowledge import (
     build_session_knowledge,
 )
 from marivo.analysis.evidence.types import (
+    ArtifactEvidenceItem,
+    ArtifactEvidenceItemKind,
+    ArtifactEvidenceSummary,
     Assessment,
     AssessmentStatus,
     AssociationSummary,
@@ -33,6 +36,9 @@ from marivo.analysis.evidence.types import (
 )
 
 __all__ = [
+    "ArtifactEvidenceItem",
+    "ArtifactEvidenceItemKind",
+    "ArtifactEvidenceSummary",
     "Assessment",
     "AssessmentStatus",
     "AssociationSummary",

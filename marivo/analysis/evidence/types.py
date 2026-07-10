@@ -99,6 +99,26 @@ class QualitySummary(_FrozenModel):
     sample_coverage_partial_buckets: int | None = None
 
 
+ArtifactEvidenceItemKind = Literal["observation"] | FactKind | OpenItemKind
+
+
+class ArtifactEvidenceItem(_FrozenModel):
+    """One bounded, deterministic display item from committed evidence."""
+
+    kind: ArtifactEvidenceItemKind
+    statement: str
+    status: AssessmentStatus | None = None
+    confidence: float | None = None
+
+
+class ArtifactEvidenceSummary(_FrozenModel):
+    """Commit-time evidence snapshot stored in frame metadata."""
+
+    finding_count: int = Field(ge=0)
+    items: tuple[ArtifactEvidenceItem, ...] = Field(default_factory=tuple)
+    omitted_count: int = Field(default=0, ge=0)
+
+
 class Finding(_FrozenModel):
     finding_id: str
     finding_type: FindingType
@@ -331,6 +351,9 @@ class EvidenceTrace(_FrozenModel):
 
 
 __all__ = [
+    "ArtifactEvidenceItem",
+    "ArtifactEvidenceItemKind",
+    "ArtifactEvidenceSummary",
     "Assessment",
     "AssessmentStatus",
     "AssociationSummary",

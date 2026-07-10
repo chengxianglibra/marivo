@@ -11,6 +11,12 @@ Evidence is append-only and persisted in the session's judgment store under
 project-local `.marivo/`, so conclusions stay auditable and replayable after the
 session ends.
 
+When an operator emits evidence, `artifact.show()` includes its bounded
+commit-time evidence summary before the result preview. One `show()` is enough
+for the immediate step. Use `session.knowledge()` when reviewing or synthesizing
+multiple steps, and use `session.evidence` for full typed records and audit
+traces.
+
 ## Three layers
 
 Evidence is recorded in three layers, from raw observation to versioned judgment:

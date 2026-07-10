@@ -150,8 +150,15 @@ a stale example when the error provides current repair guidance.
 
 ## Evidence And Quality
 
-Frame and result metadata gives the lightweight status needed to decide whether
-to continue:
+`artifact.show()` is the default first read after an intent. When the intent
+emitted evidence, the same bounded card includes the commit-time evidence
+summary before its preview, so do not make a routine second evidence call.
+
+Use `session.knowledge()` for cross-step synthesis or recovery and
+`session.evidence` for full typed records and audit traces. Continue to inspect
+`artifact.meta.evidence_status`, `artifact.meta.blocking_issues`,
+`artifact.meta.confidence_scope`, and `artifact.meta.quality_summary` when
+partial, unavailable, or quality-limited results affect the answer.
 
 ```python
 artifact.meta.evidence_status
@@ -163,10 +170,6 @@ artifact.meta.quality_summary
 `artifact.meta.quality_summary` is a lightweight status attached to the result.
 `session.assess_quality(artifact)` is an explicit auditable operator that
 creates a `QualityReport` and participates in lineage.
-
-Use `session.knowledge()` and `session.evidence.*` only when you need
-cross-step recovery, audit traces, or explicit evidence objects. They are not
-the default first-pass analysis surface.
 
 ## Closeout And Recap
 
