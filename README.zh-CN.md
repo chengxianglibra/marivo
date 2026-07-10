@@ -73,6 +73,17 @@ pip install marivo
 | Trino | `pip install "marivo[trino]"` |
 | 所有已打包的 backends | `pip install "marivo[all]"` |
 
+如果使用源码 checkout，可以在 macOS、Linux 或 Windows Subsystem for Linux（WSL）
+中自动准备当前目录：
+
+```bash
+./scripts/install-marivo.sh
+```
+
+该脚本会创建或复用 `.venv`，安装或升级 `marivo[all]`，并在当前目录运行
+`marivo init`。在非交互运行中传入 `--yes`，可允许替换无效的 `.venv`。
+此 Bash 入口不支持原生 Windows shell。
+
 部署 Marivo 时，只需要在 agent 运行的环境中安装 library，提交 `models/`
 declarations，并通过 `*_env` 字段引用的环境变量提供 datasource secrets。
 Marivo 没有独立 server。
