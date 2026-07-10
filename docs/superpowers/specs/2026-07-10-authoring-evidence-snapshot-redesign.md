@@ -69,7 +69,8 @@ judgment.
   catalog object that is safe to hand to `marivo.analysis`.
 - Put physical extent, partition state, and enforceable execution capabilities
   before any data-reading operation.
-- Require an explicit scope for every authoring operation that reads user data.
+- Require an explicit scope for every user-data read on the canonical authoring
+  path.
 - Acquire one bounded sample and reuse it for all discovery projections.
 - Make evidence coverage, exactness, cache identity, and truncation impossible
   to confuse with full-source truth.
@@ -92,6 +93,8 @@ judgment.
 - Arbitrary date-format synthesis, epoch-unit guessing, or multi-column search.
 - A planner or wizard that authors semantic Python for the agent.
 - Persisting agent decisions, grill answers, or generated semantic definitions.
+- Injecting structured scope into arbitrary provenance SQL used by parity
+  diagnostics.
 - Redesigning analysis APIs after the readiness handoff.
 - Redesigning the implemented catalog object graph.
 - Backward compatibility for the removed discovery and source-declaration
@@ -103,16 +106,18 @@ The redesign is governed by these principles:
 
 1. **Inspect before reading.** Metadata and cost context are available before
    an agent can acquire user data.
-2. **Explicit scope for every read.** No authoring data read has a default
-   unpruned path.
+2. **Explicit scope for every canonical read.** Snapshot acquisition and runtime
+   preview have no default unpruned path. Explicit diagnostic escape hatches are
+   outside the safe authoring state machine and disclose that boundary.
 3. **One acquisition, many projections.** Discovery projections are pure views
    over one reusable snapshot.
 4. **Evidence is scoped.** Every statistic names whether it describes the
    sample or an exhaustively read scope.
 5. **Unknown is not none.** Unknown partition state never silently becomes an
    unpartitioned-source decision.
-6. **Only enforceable guards are guarantees.** Unsupported timeout or byte
-   controls are capability gaps, not pretend safeguards.
+6. **Only enforceable guards are guarantees.** Unsupported timeout is a
+   capability gap, and byte estimates remain evidence rather than pretend
+   safeguards.
 7. **Rules are deterministic or absent.** A rule must be documented,
    reproducible, threshold-free, and accompanied by match/failure evidence.
 8. **Marivo observes; the agent decides.** Discovery never converts sampled
@@ -204,11 +209,33 @@ md.json(...)
 The same descriptor is reused by inspection and semantic entity authoring.
 `marivo.semantic` does not duplicate these constructors.
 
+CSV and JSON are not self-describing enough to satisfy metadata-only inspection
+through backend inference. Their authoring descriptors therefore require a
+typed physical schema:
+
+```python
+md.csv("orders.csv", schema={"order_id": "string", "amount": "decimal(18,2)"})
+md.json("events.json", schema={"event_id": "string", "occurred_at": "timestamp"})
+```
+
+The mapping uses backend-independent Marivo type strings documented by the
+datasource contract. A CSV or JSON descriptor without `schema=` is rejected
+before opening the source. The redesign does not retain a separate untyped
+`columns=` shortcut for these source kinds. Catalog tables use catalog schema;
+Parquet uses footer schema.
+
 `md.raw_sql(..., reason=...)` remains the bounded, read-only diagnostic escape
 hatch defined by the datasource layer. It is outside the ordinary authoring
 evidence path, does not create or enrich a snapshot, and is never suggested as
 the primary schema or semantic discovery route. Its explicit SQL, reason, and
 bounded-result contract remain visible in its own help topic.
+
+`ms.parity_check(...)` is the equivalent semantic provenance diagnostic. Its
+arbitrary source SQL cannot be safely partition-rewritten by this design, so it
+is not part of the scoped authoring state machine, is never required for
+readiness, and must disclose that it may execute full metric and provenance-SQL
+scans. An unverified parity check may remain a readiness warning, never a
+blocker. This design does not claim parity is bounded by a snapshot.
 
 ### Semantic ownership
 
@@ -234,6 +261,12 @@ planner.
 
 `md.inspect(datasource, source)` is metadata-only. It returns a
 `SourceInspection` and does not execute a query against user table data.
+
+For CSV and JSON this guarantee depends on the required descriptor schema;
+inspection validates and returns that declaration without invoking backend
+schema inference. It never calls `read_csv()` or `read_json()` merely to learn
+types. Missing or invalid typed schema raises a structured blocked error with
+`query_executed=false`.
 
 The high-priority inspection contract is:
 
@@ -326,8 +359,10 @@ md.unpruned(
 )
 ```
 
-The scope argument is mandatory for `SourceInspection.sample()` and every other
-authoring operation that reads user data.
+The scope argument is mandatory for `SourceInspection.sample()`.
+`catalog.preview(...)` receives the same guard through its required `using=`
+snapshot. Explicit diagnostics outside the canonical state machine follow the
+separate boundary described under public ownership.
 
 `max_rows` and `timeout_seconds` are required positive arguments; neither has a
 silent default or `None` escape. If an adapter cannot enforce the requested
@@ -373,8 +408,8 @@ a separate design can prove a portable authoring contract.
 
 ## Snapshot acquisition
 
-`SourceInspection.sample(scope=..., columns=...)` is the only ordinary
-authoring acquisition entry point.
+`SourceInspection.sample(scope=..., columns=..., persist_values=False,
+refresh=False)` is the only ordinary authoring acquisition entry point.
 
 The selected columns are explicit and non-empty. This matters for wide sources
 and columnar scan cost. Inspection exposes complete schema names so an agent
@@ -426,11 +461,28 @@ Persisted snapshot content includes:
 - acquisition and sampling method;
 - observed and retained row counts;
 - scope exhaustion;
-- per-column profiles;
-- a bounded frequency dictionary;
-- limited display samples needed for evidence review;
+- per-column type, count, null, length, and deterministic-rule profiles;
 - evidence format version;
 - creation, expiry, and cache status.
+
+Value-bearing evidence such as min/max values, frequency keys, and display
+samples remains available in the live snapshot but is memory-only by default.
+An agent may explicitly opt into project-local plaintext persistence:
+
+```python
+inspection.sample(
+    scope=scope,
+    columns=columns,
+    persist_values=True,
+)
+```
+
+With `persist_values=False`, a later process can reuse types, counts, nulls,
+lengths, rule matches, and coverage but value-bearing fields report
+`value_evidence_unavailable`; they do not query automatically.
+`persist_values=True` persists only bounded min/max facts, the bounded
+frequency dictionary, and bounded display samples, never the complete acquired
+rows.
 
 It does not persist:
 
@@ -439,6 +491,12 @@ It does not persist:
 - grill answers;
 - selected semantic parameters;
 - generated semantic definitions.
+
+`.marivo/authoring` is a plaintext local cache, not a security boundary.
+Directories use owner-only permissions and files use owner read/write
+permissions. Resolved credentials are never written. Help must disclose that
+`persist_values=True` may store PII or other business values and show how to
+remove or refresh the cache.
 
 The immutable public identity needed for teaching errors and explicit
 reacquisition is available as `snapshot.datasource`, `snapshot.source`,
@@ -460,6 +518,13 @@ snapshot.relationships(other_snapshot, left=(...), right=(...))
 
 All projections are pure local transformations of stored snapshot evidence.
 They execute no metadata or user-data query.
+
+V1 persisted evidence is column-local. A projection may accept several column
+names for convenience, but it evaluates each column independently. It does not
+claim row-aligned composition, tuple uniqueness, multi-column overlap, or other
+statistics that cannot be reconstructed from per-column sufficient statistics.
+Unsupported cross-column evidence is reported as `unavailable`, never estimated
+and never followed by an implicit query.
 
 ## Evidence contract
 
@@ -508,7 +573,6 @@ date.iso
 datetime.iso
 date.yyyymmdd
 time.hour_00_23
-datetime.yyyymmdd_hour
 ```
 
 The implementation adds this same closed list to the canonical
@@ -559,9 +623,7 @@ fixed rules:
 - native date and timestamp physical types;
 - strict ISO date and datetime strings;
 - strict `YYYYMMDD` strings and integers;
-- strict `00..23` hour components;
-- strict date-plus-hour composition when the agent explicitly selects both
-  columns.
+- strict `00..23` hour components.
 
 For example:
 
@@ -580,16 +642,12 @@ log_hour:
   rule: time.hour_00_23
   matched: 1000/1000
   role: component_only
-
-explicit_composition:
-  columns: [log_date, log_hour]
-  rule: datetime.yyyymmdd_hour
-  matched: 1000/1000
 ```
 
 An hour component is not reported as an independently parseable timestamp.
-Date-plus-hour composition is checked only because the agent passed those
-columns together; discovery does not search arbitrary column combinations.
+Passing multiple columns returns independent column evidence; it does not
+compute row-aligned composition evidence. Choosing and validating a composite
+event time remains an agent decision outside the v1 cached projection model.
 
 Marivo does not automatically synthesize unusual date formats, guess Unix
 epoch units, rank mixed-format candidates, infer timezone, choose the business
@@ -621,12 +679,15 @@ column as a business key, locator, canonical identifier, or recommended key.
 Business identity, cross-partition uniqueness, temporal stability, and key
 reuse remain unresolved.
 
-Discovery does not search arbitrary composite keys. The agent may explicitly
-ask for observations about a chosen tuple:
+Discovery does not search or validate composite keys. Passing multiple columns
+returns independent observations for each column:
 
 ```python
 snapshot.entity(columns=("order_id", "line_number"))
 ```
+
+The result does not claim tuple uniqueness because the persisted snapshot does
+not retain the row alignment required to prove it.
 
 ## Dimension and measure evidence
 
@@ -673,7 +734,9 @@ and scope_exhaustion == exhaustive
 
 The result cannot infer completeness from `returned_value_count <= requested
 limit`. The frequency-dictionary capacity is recorded in the snapshot and
-visible in the result. `snapshot.values()` never issues a follow-up query.
+visible in the result. A reloaded snapshot created with
+`persist_values=False` reports `value_evidence_unavailable` instead of an empty
+value set. `snapshot.values()` never issues a follow-up query.
 
 ## Relationship evidence
 
@@ -687,15 +750,19 @@ orders_snapshot.relationships(
 )
 ```
 
-Marivo does not search for join columns. It reports only observations available
-from the two snapshots, including physical type compatibility, nulls, sample
-uniqueness, retained-value overlap, orphan observations, and whether the two
-scopes are comparable.
+Marivo does not search for join columns. V1 accepts exactly one column on each
+side and reports only column-local observations available from the two
+snapshots: physical type compatibility, nulls, sample uniqueness, retained-value
+overlap, and retained-value orphan observations. Multi-column join keys return
+`unavailable` without a query; Marivo does not add row-level persistence or a
+second acquisition protocol to support them.
 
 When retained evidence cannot support an overlap calculation, the result says
-`unavailable`; it does not rescan either source. Incomparable scopes produce an
-`incomplete` or `blocked` result, not an inferred cardinality. Business
-cardinality and relationship constraints remain unresolved.
+`unavailable`; it does not rescan either source. The result displays both
+physical scopes and always records `scope_comparability` as unresolved for
+different sources. It does not infer that differently encoded partitions
+represent the same business window. Business scope alignment, cardinality, and
+relationship constraints remain agent-owned.
 
 ## Snapshot persistence and invalidation
 
@@ -712,6 +779,7 @@ Snapshot identity includes:
 - explicit scope;
 - selected columns;
 - schema fingerprint;
+- value-persistence policy;
 - evidence format version.
 
 Each entry records `created_at`, `expires_at`, and cache status. A snapshot is
@@ -810,9 +878,10 @@ This redesign intentionally changes behavior on retained method names:
 - `catalog.readiness(...)` and `ms.readiness(...)` remain
   connection-free but now require fresh persisted preview evidence for directly
   handed executable objects;
-- `ms.parity_check(...)` remains the explicit provenance comparison diagnostic,
-  and `ms.richness(...)` remains advisory; this design does not change their
-  signatures or make richness a readiness blocker.
+- `ms.parity_check(...)` remains an explicit potentially unbounded provenance
+  diagnostic outside the safe authoring path; it is never required for
+  readiness;
+- `ms.richness(...)` remains advisory and is not a readiness blocker.
 
 These changes belong in the breaking migration even though the three catalog
 method names remain.
@@ -878,7 +947,7 @@ limited rows, actual scopes, backend, warnings, and runtime status.
 Preview proves that the current definition executes for the current backend
 and explicit scope. It does not prove every future analysis query shape.
 
-Preview results may be persisted under:
+Preview check evidence may be persisted under:
 
 ```text
 .marivo/authoring/checks/<check-id>.json
@@ -886,6 +955,10 @@ Preview results may be persisted under:
 
 Their identity includes semantic and dependency fingerprints, snapshot IDs,
 backend, and check format version.
+
+The check cache stores status, fingerprints, scopes, coverage, types, and
+warnings only. Preview result rows are returned to the current process but are
+never persisted.
 
 ### Readiness
 
@@ -951,25 +1024,33 @@ workflow and routing only; they do not duplicate parameter tables.
 
 ## Result and display protocol
 
-Inspection, evidence, verification, preview, and readiness results begin with
-a common decision header:
+Inspection, evidence, verification, preview, and readiness share a rendering
+floor, not one optional-field result schema:
 
 ```text
-status
-scope
-rows_observed
-scope_exhaustion
-scope_exactness
-cache
-warnings
-next
+bounded one-line repr with concrete result type
+deterministic render/show ordering
+warnings or issues when present
+complete structured properties
+available methods/properties
+state-derived next calls
 ```
 
-Status values are:
+Each closed result family keeps its own meaningful state and fields:
 
-- `complete`: the operation completed with the stated coverage;
-- `incomplete`: evidence is usable but not exhaustive;
-- `blocked`: the operation did not perform an unsafe or invalid action.
+- inspection and discovery evidence use `complete | incomplete` and expose a
+  coverage block only when rows were observed;
+- static verification uses `passed | failed` plus `validation_level=static`;
+- runtime preview uses `passed` plus a data-coverage block; pre-execution
+  rejection is a structured error rather than a preview result full of nulls;
+- readiness uses `ready | ready_with_warnings | blocked`;
+- structured errors use `status=blocked` and `query_executed=false` when no
+  query ran.
+
+The data-coverage block contains `scope`, `rows_observed`,
+`scope_exhaustion`, `scope_exactness`, and cache provenance as applicable.
+Static verification and aggregate readiness do not expose meaningless null
+scope or row fields.
 
 Bounded `render()` and `.show()` are presentation surfaces. Typed collection
 properties such as `.items`, `.columns`, and `.evidence_by_column` expose the
@@ -1068,7 +1149,8 @@ source mismatch have equivalent structured teaching errors.
 Marivo guarantees:
 
 - cost and partition evidence is exposed before acquisition;
-- every authoring data read has an explicit scope;
+- every user-data read in the canonical snapshot/preview authoring path has an
+  explicit scope;
 - known partition predicates are validated and pushed down;
 - unknown state remains visible;
 - configured timeouts are enforced or the operation is blocked;
@@ -1083,6 +1165,10 @@ Marivo does not guarantee:
 - that an unpruned query is inexpensive;
 - that a first-N sample is representative;
 - that a successful scoped preview proves every analysis execution shape.
+
+`md.raw_sql(...)` and `ms.parity_check(...)` are explicitly outside these
+canonical-path guarantees. Their help and results must identify them as
+diagnostics that can execute expensive SQL; neither is a readiness requirement.
 
 These limits are part of normal result rendering and documentation, not hidden
 in an advanced caveat.
@@ -1107,6 +1193,11 @@ The implementation removes the old datasource authoring path:
 `PreviewResult` remains the shared bounded result type used by scoped
 `catalog.preview(...)`; removing `md.preview(...)` does not require a duplicate
 snapshot-preview result class or a type rename.
+
+Retained file-source constructors also change contract: `md.csv(...)` and
+`md.json(...)` require typed `schema=`, and the untyped CSV `columns=` shortcut
+is removed from the authoring surface. This is intentional so `md.inspect(...)`
+can keep its zero-data-query guarantee.
 
 Retained catalog methods also have the explicit breaking behavior changes
 listed under **Changed contracts on retained methods**. Migration tooling and
@@ -1185,13 +1276,17 @@ queries. Multi-entity preview tests assert the explicit backend execution plan
 and prove there are no extra inspection or discovery scans; they do not pretend
 that every federation strategy is one physical query.
 
+`md.inspect(...)` remains at zero only because CSV and JSON require typed schema
+and are rejected before backend inference when it is absent.
+
 ### Evidence regressions
 
 Tests must prove:
 
 - string and integer `YYYYMMDD` match the fixed date rule;
 - `HH` matches an hour component rather than a standalone timestamp;
-- date-plus-hour composition runs only for explicitly selected columns;
+- requesting several columns returns independent evidence and never claims
+  row-aligned composition or tuple uniqueness;
 - uncommon date formats and epoch units are not inferred;
 - `query_id` and URL-valued `self` retain the same sampled-uniqueness fact while
   exposing only transparent lexical/syntax observations;
@@ -1202,6 +1297,9 @@ Tests must prove:
 - null, distinct, and value-frequency fields use explicit sample/scope names;
 - a projection requesting an unacquired column blocks with zero queries and an
   executable reacquisition call;
+- multi-column relationship evidence reports `unavailable` with zero queries;
+- cross-source relationship evidence reports both scopes and leaves
+  `scope_comparability` unresolved;
 - display truncation never removes structured evidence;
 - truncation and omitted counts appear before omitted detail.
 
@@ -1222,6 +1320,9 @@ Each supported adapter must prove:
 - absence of `ORDER BY random()`;
 - recording of the actual sampling method.
 
+CSV/JSON contract tests also prove that typed schema inspection performs no
+backend inference and missing schema is rejected before opening the source.
+
 Known, absent, and unknown partition states have independent contract tests.
 
 ### Agent-surface tests
@@ -1233,18 +1334,27 @@ Tests execute examples instead of only checking for keywords:
 - inspection and scope-error next calls execute;
 - projection help topics resolve;
 - all public parameters are visible through Python signatures and help;
+- result families retain their own closed status enums and static results do not
+  expose null data-coverage fields;
 - `catalog.preview(...)` rejects an omitted `using`, a positional snapshot
   tuple, missing entity bindings, and unrelated extra bindings;
 - concrete `CatalogObject` values pass directly into verification, preview,
   readiness, and analysis handoff;
 - entity verification performs no runtime query, while missing fresh preview
   evidence blocks readiness;
-- existing parity and richness diagnostics retain their documented behavior;
+- parity help identifies the diagnostic as potentially unbounded, the canonical
+  authoring workflow never calls it, and readiness never requires it;
+- richness retains its documented advisory behavior;
 - catalog lookup and navigation errors remain aligned with the accepted object
   navigation contract;
 - readiness blockers produce executable scoped-preview calls;
 - removed APIs are absent from exports, help, skills, latest docs, and generated
   API indexes, including the top-level `md.preview(...)` entry point.
+
+Cache tests prove that value persistence defaults off, preview rows are never
+persisted, resolved credentials never appear in cache files, owner-only cache
+permissions are applied, and `persist_values=True` is included in snapshot
+identity and help.
 
 ### End-to-end acceptance
 
