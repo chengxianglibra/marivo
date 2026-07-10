@@ -24,6 +24,7 @@ ReadinessIssueKind = Literal[
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
     "missing_business_definition",
+    "missing_guardrails",
 ]
 
 
@@ -205,7 +206,8 @@ def _strict_enrichment_issues(
     objects: Mapping[str, object],
 ) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
     """Contracts section 7: analyzable handoff refs must carry a non-empty
-    business_definition (blocker). Richness owns optional enrichment suggestions.
+    business_definition (blocker) and guardrails (blocker for metrics, warning
+    for other analyzable refs). Richness owns optional enrichment suggestions.
     Relationships are out of scope, matching semantic-preview scoping."""
     analyzable = {
         _SemanticKind.ENTITY,
@@ -217,7 +219,8 @@ def _strict_enrichment_issues(
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
     for ref in checked_refs:
-        if kinds.get(ref) not in analyzable:
+        kind = kinds.get(ref)
+        if kind not in analyzable:
             continue
         obj = objects.get(ref)
         if obj is None:
@@ -232,6 +235,30 @@ def _strict_enrichment_issues(
                     "Add ai_context=ms.ai_context(business_definition=...) so analysis can match and reuse this ref.",
                 )
             )
+            # business_definition missing implies guardrails missing too; report
+            # the single most fundamental issue rather than stacking findings.
+            continue
+        if _missing_guardrails(obj):
+            if kind == _SemanticKind.METRIC:
+                blockers.append(
+                    _issue(
+                        "missing_guardrails",
+                        "blocker",
+                        (ref,),
+                        f"{ref} has no ai_context.guardrails; metrics are the central analysis unit and must declare usage constraints.",
+                        "Add ai_context=ms.ai_context(guardrails=[...]) describing how this metric may and may not be used.",
+                    )
+                )
+            else:
+                warnings.append(
+                    _issue(
+                        "missing_guardrails",
+                        "warning",
+                        (ref,),
+                        f"{ref} has no ai_context.guardrails; analysis may proceed but the agent lacks usage constraints.",
+                        "Add ai_context=ms.ai_context(guardrails=[...]) to make safe usage explicit.",
+                    )
+                )
     return blockers, warnings
 
 
@@ -350,6 +377,12 @@ def _missing_business_definition(obj: object) -> bool:
     return not (business_definition and business_definition.strip())
 
 
+def _missing_guardrails(obj: object) -> bool:
+    ai_context = getattr(obj, "ai_context", None)
+    guardrails = getattr(ai_context, "guardrails", None)
+    return not guardrails
+
+
 def build_structural_readiness_report(
     project: SemanticProject,
     *,
@@ -418,7 +451,8 @@ def build_structural_readiness_report(
             )
         )
 
-    # Strict enrichment: missing business_definition is a blocker, missing guardrails is a warning.
+    # Strict enrichment: missing business_definition is a blocker;
+    # missing guardrails is a blocker for metrics, a warning otherwise.
     enrichment_blockers, enrichment_warnings = _strict_enrichment_issues(
         checked_refs,
         kinds,

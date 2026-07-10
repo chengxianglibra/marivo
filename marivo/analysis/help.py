@@ -593,7 +593,6 @@ def _cumulative_frame_content() -> dict[str, object]:
         "rejected_in_v1": [
             "compare (all_history: hard caveat)",
             "attribute",
-            "decompose",
             "forecast",
         ],
         "anchor_caveats": {
