@@ -67,8 +67,12 @@ assert revenue.id == "metric.sales.revenue"
 assert catalog.get(revenue.id) == revenue
 
 revenue.details().show()
-catalog.preview(revenue).show()
 ```
+
+This example is intentionally browse-only. Scoped runtime preview policy is
+owned by the later
+[`2026-07-10-authoring-evidence-snapshot-redesign.md`](2026-07-10-authoring-evidence-snapshot-redesign.md),
+which requires explicit snapshot evidence rather than an unscoped preview call.
 
 ## Public types
 
@@ -319,6 +323,11 @@ Semantic and analysis APIs that currently accept `SemanticObject` switch to
 `CatalogObject`. They continue to accept the appropriate `SemanticRef`. Input
 normalization reads `CatalogObject.ref`; consumers do not enumerate the eight
 concrete classes.
+
+This section defines object input normalization, not the execution-scope
+signature of data-reading APIs. The later authoring evidence design refines
+`catalog.preview(...)` to require `using=` and leaves this object graph and its
+normalization rule unchanged.
 
 This applies to preview, verification, readiness, resolver, observe, transform,
 derive, and escape-hatch bindings where the current contract accepts a loaded

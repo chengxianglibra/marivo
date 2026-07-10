@@ -1,7 +1,19 @@
 # Semantic Authoring Public Guidance Design
 
 Date: 2026-07-08
-Status: approved design, review fixes applied
+Status: implemented; partially superseded by
+[`2026-07-10-authoring-evidence-snapshot-redesign.md`](2026-07-10-authoring-evidence-snapshot-redesign.md).
+
+The later design supersedes **Workflow Level**,
+**`md.help("authoring")`**, **`ms.help("authoring")`**, **Semantic Constructor
+Workflow Lines**, **Table And Schema Discovery Bypassing Marivo**,
+**Discovery-To-Authoring Handoff Gap**, **Batch Authoring Before Verification**,
+and **Readiness Repair Gap**, plus their workflow-specific acceptance and
+rollout items. It supersedes **Result Next-Step Affordances** only for methods
+removed or changed there. CLI routing, datasource/backend contract help,
+secret guidance, `ai_context` help, and other unaffected sections remain in
+force.
+
 Related:
 `agent-guide.md`,
 `marivo/skills/marivo-semantic/SKILL.md`,

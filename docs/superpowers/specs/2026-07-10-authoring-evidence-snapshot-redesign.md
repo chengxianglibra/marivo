@@ -11,10 +11,19 @@ canonical runtime specs, and latest site documentation together.
 
 Date: 2026-07-10
 
-This design supersedes the workflow and discovery portions of
-[`2026-07-08-semantic-authoring-public-guidance-design.md`](2026-07-08-semantic-authoring-public-guidance-design.md).
-It follows the typed object graph, lookup rules, navigation matrix, and runtime
-handoff contract accepted in
+This design supersedes these sections of
+[`2026-07-08-semantic-authoring-public-guidance-design.md`](2026-07-08-semantic-authoring-public-guidance-design.md):
+**Workflow Level**, **`md.help("authoring")`**, **`ms.help("authoring")`**,
+**Semantic Constructor Workflow Lines**, **Table And Schema Discovery
+Bypassing Marivo**, **Discovery-To-Authoring Handoff Gap**, **Batch Authoring
+Before Verification**, and **Readiness Repair Gap**, together with their
+workflow-specific acceptance and rollout items. It supersedes **Result
+Next-Step Affordances** only for methods removed or changed here. The earlier
+design's CLI routing, datasource/backend contract help, secret guidance,
+`ai_context` help, and other unaffected sections remain in force.
+
+This design follows the typed object graph, lookup rules, navigation matrix,
+and object handoff contract implemented from
 [`2026-07-10-catalog-object-navigation-design.md`](2026-07-10-catalog-object-navigation-design.md).
 
 ## Context
@@ -68,7 +77,7 @@ judgment.
   non-deterministic semantic interpretation to the agent.
 - Keep semantic objects authored explicitly in Python, with Python and Git as
   the source of truth.
-- Align post-authoring navigation and runtime handoff with the accepted catalog
+- Align post-authoring navigation and runtime handoff with the implemented catalog
   object graph.
 - Remove obsolete and competing public paths in one breaking change.
 
@@ -84,7 +93,7 @@ judgment.
 - A planner or wizard that authors semantic Python for the agent.
 - Persisting agent decisions, grill answers, or generated semantic definitions.
 - Redesigning analysis APIs after the readiness handoff.
-- Redesigning the catalog object graph currently being implemented.
+- Redesigning the implemented catalog object graph.
 - Backward compatibility for the removed discovery and source-declaration
   surfaces.
 
@@ -146,7 +155,11 @@ inspection.show()
 inspection.partitions().show()
 
 snapshot = inspection.sample(
-    scope=md.partition({"log_date": "20260710", "log_hour": "13"}),
+    scope=md.partition(
+        {"log_date": "20260710", "log_hour": "13"},
+        max_rows=1000,
+        timeout_seconds=30,
+    ),
     columns=(
         "query_id",
         "self",
@@ -237,6 +250,11 @@ schema
 properties. An agent must not need to parse rendered text to obtain row count,
 size, partition columns, or capabilities.
 
+`next_safe_action` is one canonical call shape with placeholders derived from
+the current partition state. It never chooses a partition value or claims that
+only one business-relevant scope exists; bounded partition values remain
+separate evidence for the agent to evaluate.
+
 ### Physical extent
 
 Physical extent contains:
@@ -286,7 +304,6 @@ partition_predicate_supported
 transformed_partition_supported
 timeout_enforced
 byte_estimate_supported
-byte_limit_enforced
 ```
 
 The values describe real adapter behavior. A configuration field is not a
@@ -312,6 +329,12 @@ md.unpruned(
 The scope argument is mandatory for `SourceInspection.sample()` and every other
 authoring operation that reads user data.
 
+`max_rows` and `timeout_seconds` are required positive arguments; neither has a
+silent default or `None` escape. If an adapter cannot enforce the requested
+timeout, authoring acquisition is unavailable on that adapter even for a small
+explicit partition. Inspection exposes this before the agent constructs the
+scope.
+
 ### Partition scope rules
 
 For `partition_state=known`:
@@ -320,6 +343,12 @@ For `partition_state=known`:
 - every predicate must be validated and pushed down;
 - an unsupported transformed partition blocks before query execution;
 - the query records the actual pushed predicate.
+
+`md.partition(...)` accepts the physical partition values exposed by
+`inspection.partitions()`. It does not translate a logical date or timestamp
+into an engine-specific partition transform. If metadata describes a transform
+that the structured predicate path cannot express, acquisition blocks instead
+of guessing the physical value.
 
 For `partition_state=none`, the agent still supplies `md.unpruned(...)` to
 acknowledge that no partition pruning is available.
@@ -336,9 +365,11 @@ does not prove that a partition is small. `md.unpruned(...)` is explicit risk
 acknowledgement, not a claim of low cost.
 
 Timeout must be enforced by the adapter. If it is not enforceable, acquisition
-fails before reading data. Byte limits are exposed only for backends that can
-enforce them reliably; the design does not invent a fake cross-backend byte
-guard.
+fails before reading data. `byte_estimate_supported` tells the agent whether a
+backend estimate is available; it is evidence, not an execution control. This
+design adds no cross-backend `max_bytes` parameter or `byte_limit_enforced`
+promise. Engine- or account-level quotas remain datasource configuration until
+a separate design can prove a portable authoring contract.
 
 ## Snapshot acquisition
 
@@ -409,6 +440,11 @@ It does not persist:
 - selected semantic parameters;
 - generated semantic definitions.
 
+The immutable public identity needed for teaching errors and explicit
+reacquisition is available as `snapshot.datasource`, `snapshot.source`,
+`snapshot.scope`, and `snapshot.columns`. These properties expose authored
+refs/descriptors and guard values, never resolved secrets or a live connection.
+
 ### Pure projections
 
 The snapshot exposes semantic-shaped projections:
@@ -463,6 +499,26 @@ failed: 1
 Marivo does not turn `999/1000` into a hidden pass or fail. The agent decides
 whether the mismatch is acceptable.
 
+The initial closed time-rule list is:
+
+```text
+type.native_date
+type.native_timestamp
+date.iso
+datetime.iso
+date.yyyymmdd
+time.hour_00_23
+datetime.yyyymmdd_hour
+```
+
+The implementation adds this same closed list to the canonical
+[`datasource-layer.md`](../../specs/semantic/datasource-layer.md) discovery
+contract and pins it with tests. Semantic authoring parse formats continue to
+follow
+[`2026-06-08-semantic-time-field-format-design.md`](2026-06-08-semantic-time-field-format-design.md).
+Adding a new automatic rule requires a design change; adapters cannot add
+private heuristics.
+
 ### Unresolved decisions
 
 Evidence explicitly lists decisions that the sample cannot prove. These remain
@@ -481,15 +537,15 @@ sample_null_count
 sample_distinct_count
 scope_distinct_count
 scope_distinct_lower_bound
-sample_exactness
 scope_exhaustion
 sampling_method
 ```
 
-Sample statistics can be exact about the acquired sample. They are not exact
-about the scope or source unless acquisition proved that the scope was
-exhausted. `scope_distinct_count` exists only for an exhaustively read scope;
-otherwise evidence exposes a lower bound.
+All locally computed sample statistics are exact about the retained sample, so
+there is no separate `sample_exactness` field. They are not exact about the
+scope or source unless acquisition proved that the scope was exhausted.
+`scope_distinct_count` exists only for an exhaustively read scope; otherwise
+evidence exposes a lower bound.
 
 The only ordinary proof of scope exhaustion is receiving no extra row from the
 `LIMIT max_rows + 1` acquisition. Exactness always applies to the explicit
@@ -660,7 +716,17 @@ Snapshot identity includes:
 
 Each entry records `created_at`, `expires_at`, and cache status. A snapshot is
 invalidated by datasource, source, scope, selected-column, schema, evidence
-version, or TTL changes. `refresh=True` explicitly reacquires it.
+version, or TTL changes. Explicit reacquisition uses the public signature:
+
+```python
+inspection.sample(scope=scope, columns=columns, refresh=True)
+```
+
+TTL is an evidence-freshness policy, not a scan-safety control. A persisted
+preview check cannot outlive any snapshot it depends on. Readiness never
+refreshes or re-previews automatically; when evidence has expired, it reports
+the required reacquisition and preview calls once, avoiding a hidden retry or
+query loop.
 
 Cache use is never hidden. Every result identifies the snapshot and reports
 whether the evidence is fresh, cached, stale, or mismatched.
@@ -668,6 +734,21 @@ whether the evidence is fresh, cached, stale, or mismatched.
 ## Semantic authoring surface
 
 The authoring surface remains helper-first and explicit.
+
+Entity source ownership follows the same datasource descriptor used during
+inspection:
+
+```python
+orders = ms.entity(
+    name="orders",
+    datasource=md.ref("datasource.warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+    ai_context=ms.ai_context("One row per business order."),
+)
+```
+
+There is no `ms.table(...)` equivalent.
 
 Direct column-backed objects use focused helpers such as:
 
@@ -705,7 +786,7 @@ catalog browsing is read-only.
 
 ## Catalog alignment and validation
 
-This design follows the accepted catalog object navigation contract:
+This design follows the implemented catalog object navigation contract:
 
 - concrete `CatalogObject` subclasses are the primary loaded values;
 - global and scoped `CatalogCollection` properties are the browse path;
@@ -716,6 +797,25 @@ This design follows the accepted catalog object navigation contract:
 
 Post-authoring validation uses the existing catalog method names rather than a
 new parallel `validate/check` vocabulary.
+
+### Changed contracts on retained methods
+
+This redesign intentionally changes behavior on retained method names:
+
+- `catalog.verify_object(...)` and `ms.verify_object(...)` lose
+  `scope=` and entity connectivity preview; verification becomes static and
+  performs zero user-data queries for every object kind;
+- `catalog.preview(...)` gains a hard-required `using=` parameter and has no
+  unscoped authoring execution path;
+- `catalog.readiness(...)` and `ms.readiness(...)` remain
+  connection-free but now require fresh persisted preview evidence for directly
+  handed executable objects;
+- `ms.parity_check(...)` remains the explicit provenance comparison diagnostic,
+  and `ms.richness(...)` remains advisory; this design does not change their
+  signatures or make richness a readiness blocker.
+
+These changes belong in the breaking migration even though the three catalog
+method names remain.
 
 ### Static verification
 
@@ -743,14 +843,37 @@ The canonical path passes a concrete catalog object. An appropriate
 catalog.preview(revenue, using=snapshot).show()
 ```
 
-`using` is mandatory in authoring guidance because preview reads user data. It
-binds preview to the snapshot's datasource, source, explicit scope, and schema
-fingerprint. A mismatch blocks before execution.
+`using` is a hard-required public parameter because preview reads user data. It
+has no default and cannot be omitted. It binds preview to each snapshot's
+datasource, source, explicit scope, and schema fingerprint. A mismatch blocks
+before execution.
 
-Single-source objects use one snapshot. Cross-entity metrics and relationships
-use the required snapshot tuple. Preview compiles and executes the smallest
-bounded query needed for an object-level smoke check and returns limited rows,
-actual scope, backend, warnings, and runtime status.
+Single-entity objects use one snapshot. Multi-entity metrics and relationships
+use an entity-keyed mapping rather than a positional tuple:
+
+```python
+catalog.preview(
+    customer_revenue,
+    using={
+        orders_entity: orders_snapshot,
+        customers_entity: customers_snapshot,
+    },
+).show()
+```
+
+The public input type is conceptually:
+
+```text
+DiscoverySnapshot
+| Mapping[Entity | SemanticRef, DiscoverySnapshot]
+```
+
+Mapping keys must cover exactly the dependency entities required by the
+previewed object; every `SemanticRef` key must have entity kind. Bare entity
+names, datasource names, positional tuples, missing entries, and unrelated
+extra entries are rejected before execution. Preview then compiles and executes
+the smallest bounded query needed for an object-level smoke check and returns
+limited rows, actual scopes, backend, warnings, and runtime status.
 
 Preview proves that the current definition executes for the current backend
 and explicit scope. It does not prove every future analysis query shape.
@@ -836,7 +959,7 @@ status
 scope
 rows_observed
 scope_exhaustion
-exactness
+scope_exactness
 cache
 warnings
 next
@@ -897,7 +1020,7 @@ next_calls:
       scope=md.partition({
           "log_date": "20260710",
           "log_hour": "13",
-      }),
+      }, max_rows=1000, timeout_seconds=30),
       columns=(...),
   )
 ```
@@ -916,6 +1039,25 @@ next_calls:
       columns=(...),
   )
 ```
+
+For a projection column that was not acquired:
+
+```text
+code: snapshot_column_missing
+query_executed: false
+requested: [amount]
+available: [query_id, region, log_date]
+
+next_calls:
+  md.inspect(snapshot.datasource, snapshot.source).sample(
+      scope=snapshot.scope,
+      columns=(*snapshot.columns, "amount"),
+  )
+```
+
+The projection never broadens the snapshot or issues a query implicitly. The
+canonical reacquisition call is built from public snapshot properties and the
+actual missing columns.
 
 Blocked operations always state `query_executed=false`. Cache staleness, schema
 mismatch, unsupported timeout, unsupported partition transform, and snapshot
@@ -957,9 +1099,18 @@ The implementation removes the old datasource authoring path:
 - `md.discover_time_dimensions(...)`
 - `md.discover_measures(...)`
 - `md.discover_relationship(...)`
+- `md.preview(...)` as an unscoped top-level user-data read
 - top-level public sample/discover shortcuts that bypass inspection
 - the old public `ScanScope` construction path
 - authoring guidance that depends on hidden unbounded `.show()` output
+
+`PreviewResult` remains the shared bounded result type used by scoped
+`catalog.preview(...)`; removing `md.preview(...)` does not require a duplicate
+snapshot-preview result class or a type rename.
+
+Retained catalog methods also have the explicit breaking behavior changes
+listed under **Changed contracts on retained methods**. Migration tooling and
+docs must not treat name retention as signature compatibility.
 
 It also removes duplicate semantic source descriptors:
 
@@ -995,8 +1146,8 @@ implementation updates all active surfaces in the same change:
 
 - datasource and semantic public APIs;
 - active canonical semantic specs;
-- the accepted catalog navigation spec and implementation plan where preview
-  scope is refined;
+- the implemented catalog navigation spec and runtime handoff guidance where
+  preview scope is refined;
 - `marivo-semantic` skill, references, and runnable examples;
 - datasource and semantic help;
 - latest English and Chinese site documentation;
@@ -1004,9 +1155,9 @@ implementation updates all active surfaces in the same change:
 - public-surface, signature, help-drift, and example tests;
 - project ignore rules for `.marivo/authoring` cache state.
 
-Historical versioned site documentation and historical design records remain
-unchanged. Superseded design documents may receive only a visible status link
-to this design.
+Historical versioned site documentation remains unchanged. Existing design
+records receive only supersession or contract-boundary notes that point here;
+their historical decisions are not rewritten.
 
 The repository-wide `agent-guide.md` authoring workflow text must be updated in
 the implementation change because its current `help -> discover -> ...` route
@@ -1026,11 +1177,13 @@ Query-spy tests must prove:
 | matching fresh snapshot cache hit | 0 |
 | `refresh=True` acquisition | 1 |
 | `catalog.verify_object(obj)` | 0 |
-| `catalog.preview(obj, using=snapshot)` | 1 |
+| single-entity `catalog.preview(obj, using=snapshot)` | 1 |
 | `catalog.readiness(...)` | 0 |
 
 Metadata and system-catalog queries are counted separately from user-data
-queries.
+queries. Multi-entity preview tests assert the explicit backend execution plan
+and prove there are no extra inspection or discovery scans; they do not pretend
+that every federation strategy is one physical query.
 
 ### Evidence regressions
 
@@ -1047,6 +1200,8 @@ Tests must prove:
   complete;
 - sample and scope exactness are separate;
 - null, distinct, and value-frequency fields use explicit sample/scope names;
+- a projection requesting an unacquired column blocks with zero queries and an
+  executable reacquisition call;
 - display truncation never removes structured evidence;
 - truncation and omitted counts appear before omitted detail.
 
@@ -1057,10 +1212,13 @@ Each supported adapter must prove:
 - validated partition predicate pushdown;
 - blocking of unsupported transformed partitions;
 - real timeout capability reporting;
+- omission or disabling of required timeout fails before execution;
+- adapters without enforceable timeout cannot acquire authoring snapshots;
 - timeout setup, execution, and cleanup;
 - `LIMIT max_rows + 1` truncation detection;
 - schema-fingerprint invalidation;
 - `unknown` rather than invented byte estimates;
+- no public `max_bytes` or byte-limit capability is advertised by this design;
 - absence of `ORDER BY random()`;
 - recording of the actual sampling method.
 
@@ -1075,13 +1233,18 @@ Tests execute examples instead of only checking for keywords:
 - inspection and scope-error next calls execute;
 - projection help topics resolve;
 - all public parameters are visible through Python signatures and help;
+- `catalog.preview(...)` rejects an omitted `using`, a positional snapshot
+  tuple, missing entity bindings, and unrelated extra bindings;
 - concrete `CatalogObject` values pass directly into verification, preview,
   readiness, and analysis handoff;
+- entity verification performs no runtime query, while missing fresh preview
+  evidence blocks readiness;
+- existing parity and richness diagnostics retain their documented behavior;
 - catalog lookup and navigation errors remain aligned with the accepted object
   navigation contract;
 - readiness blockers produce executable scoped-preview calls;
 - removed APIs are absent from exports, help, skills, latest docs, and generated
-  API indexes.
+  API indexes, including the top-level `md.preview(...)` entry point.
 
 ### End-to-end acceptance
 
