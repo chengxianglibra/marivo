@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted design. Documentation only; implementation requires a separate plan.
+Accepted target design. Not yet implemented; the current runtime still exposes
+`catalog.list(...)`, `SemanticObject`, and `SemanticObjectList`. Do not use the
+target API examples in this document as current runtime instructions.
+
+Implementation requires a separate plan and must update code, skills, help,
+canonical runtime specs, and latest site documentation together.
 
 Date: 2026-07-10
 
@@ -94,6 +99,7 @@ obj.id          # typed ID, for example "metric.sales.revenue"
 obj.name        # local name, for example "revenue"
 obj.ref         # typed SemanticRef for authoring and runtime handoff
 obj.details()   # kind-specific structured details
+repr(obj)       # bounded one-line identity and .show() hint
 obj.render()
 obj.show()
 ```
@@ -106,6 +112,15 @@ concept.
 
 Catalog objects are immutable value views. Equality and hashing use the
 concrete object type plus typed ID. Object identity is not part of the contract.
+
+`catalog.get(...)` returns a concrete object class. Code that must branch by
+object type uses `isinstance(obj, Metric)` (or another concrete class); it must
+not parse `obj.id` or inspect `type(obj).__name__`.
+
+The semantic help index folds `CatalogObject`, all eight concrete object types,
+and `CatalogCollection` into one **Catalog objects** family. They do not become
+ten new top-level help entries. `SemanticCatalog` remains the pinned catalog
+entry point, and `ms.help("<type>")` can still open each folded type directly.
 
 ## Catalog entry points
 
@@ -127,7 +142,8 @@ hierarchical discovery. `catalog.get(typed_id)` remains the exact lookup entry
 point for IDs obtained from errors, logs, persisted state, or another API.
 
 `catalog.get(...)` accepts only a typed ID. It does not accept short names or
-bare semantic IDs.
+bare semantic IDs. Rejected short names are still searched for teaching-error
+suggestions; they are never resolved implicitly.
 
 ## Navigation matrix
 
@@ -152,6 +168,46 @@ entities, so the path is `datasource.entities -> entity.measures`. The public
 surface does not expose weakly typed `.parent`, `.children`, `.related`, or
 generic dependency traversal.
 
+Navigation is intentionally top-down. When an agent starts from a leaf and
+needs upward or lateral traversal, it reads typed refs from `details()` and
+resolves them through `catalog.get(...)`. Direct leaf-to-parent convenience
+properties are outside this design.
+
+Named navigation and dependency inspection are distinct capabilities. Properties
+such as `entity.dimensions` are the only browse path and return concrete typed
+objects. `details().parents`, `details().children`, and `details().dependents`
+describe the complete structural dependency closure as refs; they do not form a
+second browsing API.
+
+## Self-teaching object cards
+
+Typed attributes are not sufficient discovery for an agent that writes and runs
+scripts without tab completion. Every container object's bounded `render()` /
+`show()` card therefore advertises its live navigation properties and counts.
+
+For example, a domain card includes a section equivalent to:
+
+```text
+navigation:
+  entities: 12 -> .entities
+  dimensions: 24 -> .dimensions
+  time_dimensions: 3 -> .time_dimensions
+  measures: 9 -> .measures
+  metrics: 8 -> .metrics
+  relationships: 5 -> .relationships
+```
+
+`Datasource` and `Entity` cards follow their exact navigation matrix. A
+`Relationship` card shows its typed `from_entity` and `to_entity` IDs. Counts and
+IDs come from `_CatalogIndex`, never from hardcoded help text. Zero-count valid
+properties remain visible so the agent can distinguish "supported but empty"
+from "not available on this type."
+
+The card's `available:` footer remains a static method/property list bound to
+the concrete type. The navigation section is live state. Leaf cards advertise
+`details()`, `render()`, and `show()` but do not invent next-step
+recommendations.
+
 ## Collection protocol
 
 Every global and scoped collection is a `CatalogCollection[T]` with the same
@@ -162,6 +218,7 @@ collection.items      # tuple[T, ...]
 collection.ids()      # list[str], always typed IDs
 collection.refs()     # tuple[SemanticRef, ...]
 collection.get(key)   # exact typed ID or unique local name
+repr(collection)      # bounded one-line type, scope, count, and .show() hint
 collection.render()   # bounded text, no stdout
 collection.show()     # bounded display, returns None
 
@@ -222,6 +279,10 @@ Required cases:
 - **Outside current scope:** state that the object exists globally, identify its
   owning path, and show the valid scoped or global lookup.
 - **Not found:** show bounded close matches from the current collection.
+- **Short name passed to `catalog.get(...)`:** reject it. If the name is unique
+  project-wide, show both the exact typed-ID `catalog.get(...)` call and the
+  corresponding collection lookup. If it is ambiguous, show bounded typed-ID
+  candidates grouped by concrete object type.
 - **Bare semantic ID:** reject it; when a unique typed ID can be derived, show
   the exact corrected call, otherwise show bounded candidates.
 - **Empty collection:** return an empty collection, not an error; render
@@ -282,6 +343,13 @@ of old call shapes.
 
 ## Documentation migration
 
+This target design lands before implementation, but canonical runtime specs must
+not teach an API the installed code does not provide. Until implementation,
+affected `docs/specs` files continue to document `catalog.list(...)` and
+`SemanticObject`, with a visible pending-design note linking here. Corrections
+that are already valid in the current runtime, such as adding the required kind
+prefix to `catalog.get(...)` examples, may land immediately.
+
 The implementation updates all active surfaces in the same change:
 
 - canonical design contracts under `docs/specs/`
@@ -295,7 +363,8 @@ Historical versioned site documentation remains unchanged. Historical design
 documents remain intact except that the superseded catalog browsing design is
 marked as replaced by this document.
 
-The canonical `docs/specs` files synchronized with this decision are:
+The canonical `docs/specs` files to synchronize in the implementation change
+are:
 
 - `docs/specs/semantic/loading-validation-introspection.md`
 - `docs/specs/semantic/authoring-workflow.md`
@@ -313,8 +382,13 @@ Contract tests must prove:
 - all public IDs are typed and no public object exposes `semantic_id`;
 - the navigation matrix is exact, including incoming and outgoing entity
   relationships;
-- unique, ambiguous, wrong-type, outside-scope, missing, and bare-ID lookups
-  follow the teaching error contract;
+- container cards advertise every valid navigation property with a live count,
+  including zero-count properties, and relationship cards show both endpoints;
+- object and collection reprs follow the shared bounded one-line result floor;
+- unique, ambiguous, wrong-type, outside-scope, missing, short-name, and bare-ID
+  lookups follow the teaching error contract;
+- catalog object types are folded into one help family rather than enumerated at
+  the top level;
 - direct `CatalogObject` handoff works anywhere `SemanticObject` previously
   worked;
 - planners preserve current IR behavior without depending on public collection

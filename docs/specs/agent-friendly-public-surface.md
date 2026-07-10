@@ -159,14 +159,19 @@ depends on the file layout or internals of anything upstream.
 | Surface | Alias | Answers | Produces |
 |---|---|---|---|
 | `marivo.datasource` | `md` | "What physical connections exist, and what do their tables actually look like?" | datasource refs, connections, and bounded **evidence** (`DatasourceResult`) |
-| `marivo.semantic` | `ms` | "Which stable business objects can downstream analysis reference?" | typed catalog objects and refs from a loadable `SemanticCatalog` |
+| `marivo.semantic` | `ms` | "Which stable business objects can downstream analysis reference?" | typed semantic refs + a loadable `SemanticCatalog` |
 | `marivo.analysis` | `mv` | "What did the metric do, and why?" | typed analysis frames/results over a `Session` |
 
-The hand-offs are typed and one-directional. Catalog objects or their refs flow
-forward; downstream code does not parse semantic IDs:
+> **Pending breaking redesign:**
+> [`Catalog Object Navigation Design`](../superpowers/specs/2026-07-10-catalog-object-navigation-design.md)
+> will replace the current generic semantic catalog objects with concrete typed
+> object families. It is not implemented yet; this document continues to
+> describe the current public surface.
+
+The hand-offs are typed and one-directional:
 
 ```text
-md (physical)  ──evidence──▶  ms (business contract)  ──catalog objects/refs──▶  mv (typed analysis)
+md (physical)  ──evidence──▶  ms (business contract)  ──semantic refs──▶  mv (typed analysis)
 ```
 
 - `md` supplies the *physical facts* an agent needs to author semantics, but it
@@ -174,8 +179,8 @@ md (physical)  ──evidence──▶  ms (business contract)  ──catalog ob
 - `ms` turns those facts into an explicit, statically-readable business contract.
   Python files are the source of truth; business meaning is never guessed from
   column names, table names, or natural language.
-- `mv` consumes only stable catalog objects/refs and materialized expressions.
-  It never reaches into a user project's Python file layout.
+- `mv` consumes only stable semantic refs and materialized expressions. It never
+  reaches into a user project's Python file layout.
 
 Because there are exactly three surfaces and each is snapshot-gated, an agent can
 hold the whole public vocabulary in mind. Surface growth is a reviewed event:
@@ -251,8 +256,8 @@ There are three disclosure ladders, and they compose:
 
 2. **Dynamic state, from the object in hand.** A returned result discloses in
    three steps of increasing commitment: `repr()` (free, one line) →
-   `show()` (bounded card) → typed escape hatch (`to_pandas()`, `.items`,
-   `.refs()`, `.ids()`) when the agent genuinely needs the full data.
+   `show()` (bounded card) → typed escape hatch (`to_pandas()`, `.refs()`,
+   `.ids()`) when the agent genuinely needs the full data.
 
 3. **Repair, only on failure.** Errors escalate detail exactly when something
    breaks: a structured exception carries the expected/received/next-step and
@@ -366,10 +371,9 @@ Two rules keep this vocabulary trustworthy:
   `MetricFrame[scalar]`, `MetricFrame[time_series]`, `MetricFrame[panel]`,
   `CandidateSet[driver_axis]`, and so on. A closed enum of shapes fails loudly at
   the boundary; an optional-field mega-class would fail silently three steps
-  later. On the semantic side the same idea appears as
-  `CatalogCollection[Metric]`, `CatalogCollection[Entity]`, and the other
-  concrete catalog object families, with typed objects or `*Ref` handles
-  flowing into analysis.
+  later. On the semantic side the same idea appears as `SemanticObjectList` /
+  `SemanticObject` for discovery, with typed `*Ref` handles flowing into
+  analysis.
 
 ## What this buys, and what keeps it true
 

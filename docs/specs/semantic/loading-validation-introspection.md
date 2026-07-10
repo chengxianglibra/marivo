@@ -13,6 +13,12 @@ See also:
 - `../agent-friendly-public-surface.md` — the cross-module result protocol this
   layer implements.
 
+> **Pending breaking redesign:**
+> [`Catalog Object Navigation Design`](../../superpowers/specs/2026-07-10-catalog-object-navigation-design.md)
+> will replace `catalog.list(...)` and `SemanticObject` with typed collections
+> and concrete catalog objects. It is not implemented yet; this document
+> continues to describe the current runtime contract.
+
 ## Registry and loader
 
 A semantic project is one explicit boundary: a `models/semantic/` root with its
@@ -25,7 +31,7 @@ import marivo.semantic as ms
 
 catalog = ms.load()                     # locate the nearest models/semantic/ upward
 catalog = ms.load(workspace_dir="models/semantic", domains=["sales"])  # explicit root + filter
-catalog.domains.show()
+catalog.list("domain").show()
 ```
 
 Loader rules:
@@ -59,10 +65,9 @@ not use fuzzy or embedding-based recall.
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.metrics.show()                                # all metrics, every domain
-sales = catalog.domains.get("sales")
-orders = sales.entities.get("orders")
-orders.dimensions.show()
+catalog.list("metric").show()                        # all metrics, every domain
+catalog.list("metric", scope="domain.sales").show()  # metrics in one domain
+catalog.list("dimension", scope="entity.sales.orders").show()
 revenue = catalog.get("metric.sales.revenue")
 revenue.details().show()                             # bounded details card
 ```
@@ -70,26 +75,11 @@ revenue.details().show()                             # bounded details card
 | API | Meaning |
 |---|---|
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
-| `catalog.<objects>` | Return a global typed `CatalogCollection`, for example `catalog.metrics`. |
-| `domain.<objects>` / `entity.<objects>` | Return a typed collection scoped by an explicit semantic relationship. |
-| `collection.get(name_or_typed_id)` | Resolve one concrete catalog object; short names must be unique in the collection. |
-| `catalog.get("<kind>.<id>")` | Resolve one concrete catalog object by exact typed ID. |
-| `catalog.preview(object_or_ref, limit=..., context_columns=None)` | Bounded preview of an entity/dimension/time_dimension/measure/metric. |
+| `catalog.get("<kind>.<semantic_id>")` | Resolve and validate one `SemanticObject`. |
+| `catalog.list(kind, scope=None)` | Kind-first browse; `kind` is a string or `SemanticKind`. Top level searches every domain; `scope` narrows to a subtree. |
+| `catalog.preview(ref, limit=..., context_columns=None)` | Bounded preview of an entity/dimension/time_dimension/measure/metric. |
 | `catalog.readiness(refs=None)` | Structural readiness gate for handoff refs. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
-
-The global collections are `catalog.domains`, `catalog.datasources`,
-`catalog.entities`, `catalog.dimensions`, `catalog.time_dimensions`,
-`catalog.measures`, `catalog.metrics`, and `catalog.relationships`. Domains and
-entities expose named scoped collections; datasources expose `entities`.
-Relationships expose typed `from_entity` and `to_entity` endpoints. There is no
-generic `list(kind, scope=...)`, `.children`, or filtering DSL.
-
-Concrete catalog objects (`Domain`, `Datasource`, `Entity`, `Dimension`,
-`TimeDimension`, `Measure`, `Metric`, and `Relationship`) share the minimal
-`CatalogObject` contract: typed `id`, local `name`, typed `ref`, `details()`,
-`render()`, and `show()`. High-frequency objects do not expose `semantic_id`,
-`kind`, domain/source fields, or dependency collections directly.
 
 `catalog.get(...).details()` returns a structured details dataclass (not just
 text). Every details type exposes `ref`, `kind`, `name`, `domain`, `context`,
@@ -116,18 +106,10 @@ methods **do not write stdout**; inspection is explicit and silent by default:
 - `result.render()` — return the same bounded text without writing stdout.
 - `repr(result)` — a one-line cold-start hint pointing to `.show()`.
 
-Catalog browsing returns `CatalogCollection[T]`. Every global and scoped
-collection exposes `.items`, `.ids()`, `.refs()`, `.render()`, and `.show()`, and
-supports length, iteration, and integer indexing. `.ids()` always returns typed
-IDs accepted by `catalog.get(...)`; `.items`, `.ids()`, and `.refs()` are complete
-even when bounded rendering omits rows. Collection order is ascending typed ID.
-This is the semantic-layer instance of the cross-module agent result protocol
-described in `../agent-friendly-public-surface.md`.
-
-`CatalogCollection.get(...)` accepts an exact typed ID or a local name unique in
-that collection view. It rejects bare semantic IDs. Ambiguous, wrong-type,
-outside-scope, and missing lookups raise structured teaching errors with bounded
-candidates derived from the loaded catalog.
+Catalog browsing returns a `SemanticObjectList` (not a raw list); use `.objects`,
+`.refs()`, `.render()`, and `.show()`. This is the semantic-layer instance of the
+cross-module agent result protocol described in
+`../agent-friendly-public-surface.md`.
 
 ## Materialization
 
@@ -139,7 +121,7 @@ through the catalog:
 ```python
 catalog = ms.load()
 revenue = catalog.get("metric.sales.revenue")
-catalog.preview(revenue).show()
+catalog.preview(revenue.ref).show()
 ```
 
 Backend resolution rules:
