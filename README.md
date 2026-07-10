@@ -79,6 +79,18 @@ Install the backend extra that matches your datasource:
 | Trino | `pip install "marivo[trino]"` |
 | All packaged backends | `pip install "marivo[all]"` |
 
+From a source checkout, you can prepare the current directory automatically on
+macOS, Linux, or Windows Subsystem for Linux (WSL):
+
+```bash
+./scripts/install-marivo.sh
+```
+
+The script creates or reuses `.venv`, installs or upgrades `marivo[all]`, and
+runs `marivo init` in the current directory. Pass `--yes` to allow replacement
+of an invalid `.venv` in a non-interactive run. Native Windows shells are not
+supported by this Bash entrypoint.
+
 Marivo is deployed by installing the library where the agent runs, checking in
 the `models/` declarations, and providing datasource secrets through environment
 variables referenced by `*_env` fields. There is no separate server.
