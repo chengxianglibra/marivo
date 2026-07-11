@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.base import (
+    AuthoringCapabilities,
     EngineMetadataIntrospection,
     EngineProfile,
     MetadataInspectRequest,
@@ -135,8 +137,9 @@ def _inspect_mysql(
             )
         )
 
+    partitions_by_name: dict[str, PartitionMetadata] = {}
+    partition_state: Literal["known", "none", "unknown"] = "unknown"
     if include_partitions:
-        partitions_by_name: dict[str, PartitionMetadata] = {}
         partition_sql = (
             "SELECT DISTINCT PARTITION_EXPRESSION FROM information_schema.PARTITIONS "
             f"WHERE TABLE_NAME = {_quote_literal(table)} "
@@ -146,7 +149,10 @@ def _inspect_mysql(
             partition_sql += f" AND TABLE_SCHEMA = {_quote_literal(schema_name)}"
         try:
             partition_rows = _query_rows(backend, partition_sql)
+            saw_partition_expression = False
             for row in partition_rows:
+                if row.get("PARTITION_EXPRESSION") not in (None, ""):
+                    saw_partition_expression = True
                 column_name = _partition_column_from_expression(row.get("PARTITION_EXPRESSION"))
                 column = catalog_columns.get(column_name or "")
                 if column is not None:
@@ -156,6 +162,10 @@ def _inspect_mysql(
                         transform=None,
                         comment=None,
                     )
+            if partitions_by_name:
+                partition_state = "known"
+            elif not saw_partition_expression:
+                partition_state = "none"
         except Exception as exc:
             warnings.append(
                 MetadataWarning(
@@ -163,7 +173,7 @@ def _inspect_mysql(
                     message=f"mysql partition metadata query failed: {exc}",
                 )
             )
-        if not partitions_by_name:
+        if partition_state == "unknown":
             warnings.append(
                 MetadataWarning(
                     kind="partitions_unavailable",
@@ -207,6 +217,7 @@ def _inspect_mysql(
         comment=table_comment,
         columns=_merge_columns(schema_columns, catalog_columns),
         partitions=tuple(partitions_by_name.values()) if include_partitions else (),
+        partition_state=partition_state,
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
@@ -230,6 +241,28 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+@contextmanager
+def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+    raw_sql = getattr(backend, "raw_sql", None)
+    if not callable(raw_sql):
+        raise RuntimeError("mysql backend does not expose raw_sql()")
+    cursor = raw_sql("SELECT @@SESSION.MAX_EXECUTION_TIME")
+    fetchone = getattr(cursor, "fetchone", None)
+    row = fetchone() if callable(fetchone) else None
+    if not row:
+        raise RuntimeError("mysql did not expose @@SESSION.MAX_EXECUTION_TIME")
+    previous = int(row[0])
+    try:
+        raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {timeout_seconds * 1000}")
+    except BaseException:
+        raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {previous}")
+        raise
+    try:
+        yield
+    finally:
+        raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {previous}")
+
+
 PROFILE = EngineProfile(
     name="mysql",
     aliases=(),
@@ -243,9 +276,16 @@ PROFILE = EngineProfile(
     inspect_partition_values=None,
     readonly_tx_start="START TRANSACTION READ ONLY",
     metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    authoring_capabilities=AuthoringCapabilities(
+        partition_predicate_supported=True,
+        transformed_partition_supported=False,
+        timeout_enforced=True,
+        byte_estimate_supported=True,
+    ),
     translate_strptime_format=python_to_mysql_strptime,
     postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,
     percentile_uses_approx_quantile=False,
+    authoring_timeout=authoring_timeout,
 )

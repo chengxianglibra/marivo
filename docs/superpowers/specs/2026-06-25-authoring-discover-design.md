@@ -7,10 +7,11 @@ Related: `agent-guide.md` ("Agent-Facing Surface Principles"),
 `docs/superpowers/specs/2026-06-11-unified-datasource-surface-design.md`,
 `docs/superpowers/specs/2026-06-21-semantic-column-authoring-design.md`
 
-> Historical note: this spec predates removal of the public semantic
-> `prepare_*` authoring stage. Current agents must use
-> `help -> discover -> settle/grill -> author -> verify`; remaining
-> `prepare_*` text below is historical context only.
+> Historical boundary: this design's discovery route and public semantic
+> `prepare_*` stage are superseded by
+> [`2026-07-10-authoring-evidence-snapshot-redesign.md`](2026-07-10-authoring-evidence-snapshot-redesign.md).
+> Remaining API examples below are historical decisions, not runnable current
+> guidance.
 
 ## Problem
 

@@ -7,7 +7,7 @@ import re
 import ibis
 import pytest
 
-from tests.shared_fixtures import sales_orders_template
+from tests.shared_fixtures import authoring_evidence_template, sales_orders_template
 
 # Cap DuckDB to a single thread per connection. DuckDB defaults to
 # hardware_concurrency() threads; with one pytest-xdist worker per CPU that
@@ -41,6 +41,73 @@ def _reset_analysis_session_process_state():
 def _sales_orders_template_path():
     """Session-scoped: ensure the DuckDB template is built once per worker."""
     return sales_orders_template()
+
+
+@pytest.fixture
+def authoring_evidence_project(tmp_path, monkeypatch):
+    """Create a real DuckDB project covering authoring through analysis handoff."""
+    import shutil
+
+    database_path = tmp_path / "warehouse.duckdb"
+    replica_path = tmp_path / "warehouse_replica.duckdb"
+    shutil.copy2(authoring_evidence_template(), database_path)
+    shutil.copy2(authoring_evidence_template(), replica_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "authoring-e2e"\n')
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+    )
+    (datasource_dir / "warehouse_replica.py").write_text(
+        "import marivo.datasource as md\n"
+        f"md.duckdb(name='warehouse_replica', path={str(replica_path)!r})\n"
+    )
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang', default=True)\n"
+    )
+    (semantic_dir / "models.py").write_text(
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n\n"
+        "orders = ms.entity(\n"
+        "    name='orders',\n"
+        "    datasource=md.ref('datasource.warehouse'),\n"
+        "    source=md.table('orders'),\n"
+        "    primary_key=['query_id'],\n"
+        "    ai_context=ms.ai_context(\n"
+        "        business_definition='One row per accepted order query.',\n"
+        "        guardrails=['Use only accepted order queries.'],\n"
+        "    ),\n"
+        ")\n"
+        "region = ms.dimension_column(\n"
+        "    name='region', entity=orders, column='region',\n"
+        "    ai_context=ms.ai_context(business_definition='Order region.'),\n"
+        ")\n"
+        "log_hour = ms.dimension_column(\n"
+        "    name='log_hour', entity=orders, column='log_hour',\n"
+        "    ai_context=ms.ai_context(business_definition='UTC log hour component.'),\n"
+        ")\n"
+        "log_date = ms.time_dimension_column(\n"
+        "    name='log_date', entity=orders, column='log_date', granularity='day',\n"
+        "    parse=ms.strptime('%Y%m%d'), is_default=True,\n"
+        "    ai_context=ms.ai_context(business_definition='UTC order log date.'),\n"
+        ")\n"
+        "amount = ms.measure_column(\n"
+        "    name='amount', entity=orders, column='amount', additivity='additive', unit='USD',\n"
+        "    ai_context=ms.ai_context(business_definition='Accepted order amount in USD.'),\n"
+        ")\n"
+        "revenue = ms.aggregate(\n"
+        "    name='revenue', measure=amount, agg='sum', unit='USD',\n"
+        "    ai_context=ms.ai_context(\n"
+        "        business_definition='Sum of accepted order amounts.',\n"
+        "        guardrails=['Do not mix currencies.'],\n"
+        "    ),\n"
+        ")\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
 
 
 @pytest.fixture
@@ -124,7 +191,7 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "\n"
         "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
         f"{time_dimension}"
         "@ms.dimension(entity=orders)\n"

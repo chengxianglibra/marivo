@@ -28,43 +28,43 @@ EXPECTED_CONTRACTS: dict[str, dict[str, object]] = {
         "constructor": "ms.entity",
         "required": ["name", "datasource", "source"],
         "optional": ["primary_key", "versioning", "domain", "ai_context"],
-        "discover": "md.discover_entity",
+        "discover": "snapshot.entity",
     },
     "dimension_column": {
         "constructor": "ms.dimension_column",
         "required": ["name", "entity", "column"],
         "optional": ["domain", "ai_context"],
-        "discover": "md.discover_dimensions",
+        "discover": "snapshot.dimensions",
     },
     "dimension": {
         "constructor": "@ms.dimension",
         "required": ["entity", "function_body"],
         "optional": ["name", "domain", "ai_context"],
-        "discover": "md.discover_dimensions",
+        "discover": "snapshot.dimensions",
     },
     "time_dimension_column": {
         "constructor": "ms.time_dimension_column",
         "required": ["name", "entity", "column", "granularity"],
         "optional": ["parse", "is_default", "domain", "ai_context"],
-        "discover": "md.discover_time_dimensions",
+        "discover": "snapshot.time_dimensions",
     },
     "time_dimension": {
         "constructor": "@ms.time_dimension",
         "required": ["entity", "granularity", "function_body"],
         "optional": ["name", "parse", "is_default", "domain", "ai_context"],
-        "discover": "md.discover_time_dimensions",
+        "discover": "snapshot.time_dimensions",
     },
     "measure_column": {
         "constructor": "ms.measure_column",
         "required": ["name", "entity", "column", "additivity"],
         "optional": ["unit", "domain", "ai_context"],
-        "discover": "md.discover_measures",
+        "discover": "snapshot.measures",
     },
     "measure": {
         "constructor": "@ms.measure",
         "required": ["entity", "additivity", "function_body"],
         "optional": ["name", "unit", "domain", "ai_context"],
-        "discover": "md.discover_measures",
+        "discover": "snapshot.measures",
     },
     "aggregate": {
         "constructor": "ms.aggregate",
@@ -82,13 +82,13 @@ EXPECTED_CONTRACTS: dict[str, dict[str, object]] = {
         "constructor": "metric family",
         "required": [],
         "optional": [],
-        "discover": "md.discover_relationship for cross-entity viability when multiple entities are involved",
+        "discover": "snapshot.relationships for cross-entity viability when multiple entities are involved",
     },
     "relationship": {
         "constructor": "ms.relationship",
         "required": ["name", "from_entity", "to_entity", "keys"],
         "optional": ["domain", "ai_context"],
-        "discover": "md.discover_relationship",
+        "discover": "snapshot.relationships",
     },
     "ratio": {
         "constructor": "ms.ratio",
@@ -136,6 +136,16 @@ def test_semantic_help_exposes_authoring_contract_for_each_object(
         assert "meaning" in params[parameter]
         assert "source" not in params[parameter]
     assert "static_constraints" in contract
+    text = semantic_help_text(symbol)
+    projection = expected["discover"]
+    workflow = cast("list[str]", content["workflow"])
+    projection_step = next(step for step in workflow if step.startswith("Snapshot projection:"))
+    if projection is None:
+        assert projection_step.startswith("Snapshot projection: none")
+    else:
+        assert str(projection) in projection_step
+    assert "catalog.verify_object" in text
+    assert "catalog.preview(..., using=...)" in text
 
 
 def test_semantic_authoring_contracts_do_not_advertise_unknown_callable_parameters() -> None:
@@ -275,9 +285,13 @@ def test_parse_constructor_help_topics_are_public_contracts() -> None:
         content = cast("dict[str, Any]", data["content"])
         contract = cast("dict[str, Any]", content["authoring_contract"])
         assert contract["constructor"] == f"ms.{symbol}"
-        assert contract["discover"] == "md.discover_time_dimensions"
+        assert contract["discover"] == "snapshot.time_dimensions"
         assert "parameters" in contract
         assert "static_constraints" in contract
+        workflow = cast("list[str]", content["workflow"])
+        assert any("Snapshot projection: snapshot.time_dimensions" in step for step in workflow)
+        assert any("catalog.verify_object" in step for step in workflow)
+        assert any("catalog.preview(..., using=...)" in step for step in workflow)
 
 
 def test_hour_prefix_help_explains_prefix_semantics_and_pushdown_example() -> None:
@@ -317,10 +331,10 @@ def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     assert "domain" in text and "entity" in text and "measure" in text
     assert "metric" in text and "relationship" in text
     # one-object-then-verify loop
-    assert "ms.verify_object(" in text
+    assert "catalog.verify_object(" in text
     # readiness closeout + preview + analysis handoff
-    assert "ms.readiness(" in text
-    assert "catalog.preview(" in text
+    assert "catalog.readiness(" in text
+    assert "catalog.preview(" in text and "using=snapshot" in text
     assert "marivo.analysis" in text
     # routes to constructor help, does not duplicate tables
     assert 'ms.help("entity")' in text or "ms.help('entity')" in text
@@ -331,6 +345,14 @@ def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     assert text.count("\n") <= 80
 
 
+def test_parity_help_discloses_unbounded_diagnostic_boundary() -> None:
+    text = semantic_help_text("parity_check")
+
+    assert "potentially unbounded" in text
+    assert "provenance SQL" in text
+    assert "never required for readiness" in text
+
+
 def test_entity_source_parameter_includes_json_source_ir() -> None:
     data = _help_json("entity")
     content = cast("dict[str, Any]", data["content"])
@@ -339,4 +361,4 @@ def test_entity_source_parameter_includes_json_source_ir() -> None:
     source_param = params["source"]
     assert "JsonSourceIR" in cast("str", source_param["type"])
     constraints = cast("list[str]", contract["static_constraints"])
-    assert any("ms.json(...)" in c for c in constraints)
+    assert any("md.json(...)" in c for c in constraints)

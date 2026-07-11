@@ -529,8 +529,8 @@ def duckdb(
         >>> spec = md.duckdb(name="warehouse", path=":memory:")
         >>> md.register(spec)
         >>> md.test(spec.ref).show()
-        >>> md.inspect_table(spec.ref, md.table("orders")).show()
-        >>> md.inspect_table(spec.ref, md.parquet("data/orders/*.parquet")).show()
+        >>> md.inspect(spec.ref, md.table("orders")).show()
+        >>> md.inspect(spec.ref, md.parquet("data/orders/*.parquet")).show()
 
         ``md.table(...)`` selects an internal table or view in the DuckDB
         datasource. ``md.parquet(...)``, ``md.csv(...)``, and ``md.json(...)``
@@ -603,7 +603,7 @@ def trino(
         ... )
         >>> md.register(spec)
         >>> md.test(spec.ref).show()
-        >>> md.inspect_table(spec.ref, md.table("orders")).show()
+        >>> md.inspect(spec.ref, md.table("orders")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically
@@ -670,7 +670,7 @@ def mysql(
         ... )
         >>> md.register(spec)
         >>> md.test(spec.ref).show()
-        >>> md.inspect_table(spec.ref, md.table("orders", database="app")).show()
+        >>> md.inspect(spec.ref, md.table("orders", database="app")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically
@@ -734,7 +734,7 @@ def postgres(
         ... )
         >>> md.register(spec)
         >>> md.test(spec.ref).show()
-        >>> md.inspect_table(spec.ref, md.table("orders", database="app")).show()
+        >>> md.inspect(spec.ref, md.table("orders", database="app")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically
@@ -803,7 +803,7 @@ def clickhouse(
         ... )
         >>> md.register(spec)
         >>> md.test(spec.ref).show()
-        >>> md.inspect_table(spec.ref, md.table("orders", database="analytics")).show()
+        >>> md.inspect(spec.ref, md.table("orders", database="analytics")).show()
 
     Constraints:
         When called while loading a datasource file, the spec is automatically

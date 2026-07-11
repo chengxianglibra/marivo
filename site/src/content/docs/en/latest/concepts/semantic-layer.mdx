@@ -59,7 +59,7 @@ layer_paths = ["../finance-domain/models"]
 Marivo loads the central project's `models/` first, then each configured external
 `models/` root. All loaded datasources, domains, and semantic objects share one
 catalog, so names must stay globally unique. `marivo doctor`, `catalog.preview`,
-`ms.verify_object`, and analysis sessions resolve datasource-backed semantic
+`catalog.verify_object`, and analysis sessions resolve datasource-backed semantic
 objects against the same configured roots.
 
 ## Semantic refs
@@ -247,7 +247,7 @@ anchor that dimensions, measures, and metrics attach to.
 | --- | --- | --- | --- | --- |
 | `name` | `str` | Yes | — | Entity name. Becomes `<domain>.<name>`. |
 | `datasource` | `DatasourceRef` | Yes | — | `md.ref("datasource.warehouse")`. |
-| `source` | source builder | Yes | — | `ms.table(...)`, `ms.parquet(...)`, `ms.csv(...)`, or `ms.json(...)`. |
+| `source` | source builder | Yes | — | Datasource-owned `md.table(...)`, `md.parquet(...)`, `md.csv(...)`, or `md.json(...)`. |
 | `primary_key` | `list[str]` | No | `None` | Column names forming the primary key. |
 | `versioning` | `ms.snapshot \| ms.validity` | No | `None` | Snapshot or SCD2 validity versioning (see below). |
 | `domain` | `DomainRef` | No | file default | Override the active domain. |
@@ -259,7 +259,7 @@ warehouse = md.ref("datasource.warehouse")
 orders = ms.entity(
     name="orders",
     datasource=warehouse,
-    source=ms.table("orders"),
+    source=md.table("orders"),
     primary_key=["order_id"],
     ai_context=ms.ai_context(business_definition="One row per order."),
 )
@@ -269,10 +269,10 @@ orders = ms.entity(
 
 | Builder | Required | Optional | Use for |
 | --- | --- | --- | --- |
-| `ms.table(name)` | `name` | `database` | A table in the datasource (use `database="schema"` for Trino/MySQL). |
-| `ms.parquet(path)` | `path` | `hive_partitioning`, `columns` | Parquet files (typically through DuckDB). |
-| `ms.csv(path)` | `path` | `header`, `delimiter`, `columns` | CSV files (typically through DuckDB). |
-| `ms.json(path)` | `path` | `format` | Fixed-schema JSON files, glob patterns, or DuckDB httpfs `http(s)://` URLs. |
+| `md.table(name)` | `name` | `database` | A table in the datasource (use `database="schema"` for Trino/MySQL). |
+| `md.parquet(path)` | `path` | `hive_partitioning` | Self-describing Parquet files through DuckDB. |
+| `md.csv(path, schema=...)` | `path`, typed `schema` | `header`, `delimiter` | CSV file source through DuckDB. |
+| `md.json(path, schema=...)` | `path`, typed `schema` | `format` | JSON file source, glob, or DuckDB httpfs URL. |
 
 ### Versioning (optional)
 
@@ -601,11 +601,10 @@ ms.relationship(
 )
 ```
 
-## Discover before prepare
+## Inspect, sample once, then author
 
-For datasource-backed authoring, start with bounded datasource discovery.
-Consult `md.help("authoring")` for the staged datasource workflow
-(register/test/inspect then discover -> settle -> author -> verify),
+For datasource-backed authoring, use one explicit evidence snapshot.
+Consult `md.help("authoring")` for datasource inspection and scope,
 `ms.help("authoring")` for the semantic dependency ladder, and
 `md.help("ai_context")` for the shared `ms.ai_context(...)` contract:
 
@@ -613,32 +612,23 @@ Consult `md.help("authoring")` for the staged datasource workflow
 warehouse = md.ref("datasource.warehouse")
 orders = md.table("orders")
 
-md.inspect_table(warehouse, orders).show()
-md.inspect_partitions(warehouse, orders).show()
-
-scope = md.partition({"dt": "20260629"})
-
-entity_evidence = md.discover_entity(warehouse, orders, scope=scope)
-dimension_evidence = md.discover_dimensions(
-    warehouse,
-    orders,
+inspection = md.inspect(warehouse, orders)
+inspection.show()
+inspection.partitions().show()
+scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
+snapshot = inspection.sample(
     scope=scope,
+    columns=("order_id", "region", "created_at", "amount"),
 )
-measure_evidence = md.discover_measures(
-    warehouse,
-    orders,
-    columns=("amount",),
-    scope=scope,
-)
-
-entity_evidence.show()
-dimension_evidence.show()
-measure_evidence.show()
+snapshot.entity(columns=("order_id",)).show()
+snapshot.dimensions(columns=("region",)).show()
+snapshot.time_dimensions(columns=("created_at",)).show()
+snapshot.measures(columns=("amount",)).show()
 ```
 
-`md.inspect_table(...).show()` includes schema, comments, nullable flags,
-partition hints, and any low-cost physical profile that the backend exposes
-such as estimated rows or table size. Missing profile metadata is non-blocking.
+Inspection is metadata-only and reports schema, physical extent, partition state,
+and enforceable capabilities before sampling. Scope requires positive row and
+timeout guards plus explicit columns. `LIMIT` does not guarantee bytes scanned.
 
 `md.duckdb(...)` declares the datasource. `md.table(...)` selects an internal
 table or view inside that datasource. `md.parquet(...)`, `md.csv(...)`, and
@@ -646,35 +636,22 @@ table or view inside that datasource. `md.parquet(...)`, `md.csv(...)`, and
 they are not datasource declarations.
 
 ```python
-events = md.json("data/events/*.json", format="newline_delimited")
+events = md.json("data/events/*.json", schema={"event_id": "string"}, format="newline_delimited")
 orders_parquet = md.parquet("data/orders/*.parquet")
-orders_csv = md.csv("data/orders/*.csv")
+orders_csv = md.csv("data/orders/*.csv", schema={"order_id": "string"})
 
-md.inspect_table(warehouse, events).show()
-md.discover_entity(warehouse, events).show()
+md.inspect(warehouse, events).show()
 ```
 
-Discovery returns evidence, signals, and issues — it does not choose business
-meaning, unit, additivity, or the object to author. Agents read discovery
-evidence through `.show()` / `.render()`; concrete result classes and internal
-evidence fields are not public authoring inputs. `show()` and `render()` use a
-safe final text byte limit by default. For wide-table authoring, export the full
-discovered text and process it in chunks:
+Snapshot projections are query-free and expose complete structured evidence even
+when rendering is bounded. Values are memory-only by default; use
+`persist_values=True` only when bounded plaintext project-local caching is
+acceptable. Uncommon formats, keys, timezone, aggregation, unit, additivity,
+relationship cardinality, and business meaning remain agent-owned.
 
-```python
-from pathlib import Path
-
-full_text = entity_evidence.render(max_output_bytes=None)
-Path("entity_discovery.txt").write_text(full_text)
-```
-
-The output byte limit is separate from scan coverage. If discovery reports
-`discovery_column_limit_truncated`, increase the scan column budget, for example
-`md.partition({"dt": "20260629"}, max_columns=300)`, then render with
-`max_output_bytes=None` when the agent needs the complete schema/profile text.
-`ms.help(...)` tells the agent which parameters must be settled (the static
-authoring contract); discovery supplies the runtime evidence. Author exactly
-one object, then run `ms.verify_object(...)`.
+After one Python declaration, reload its typed catalog object and run
+`catalog.verify_object(obj)`, `catalog.preview(obj, using=snapshot)`, then
+zero-query `catalog.readiness(refs=[obj])`.
 
 ## Loading and the readiness gate
 
@@ -697,7 +674,7 @@ Before any analysis, check **readiness** — the structural gate that keeps
 half-specified objects out of analysis:
 
 ```python
-report = ms.readiness()
+report = catalog.readiness(refs=[revenue, region])
 if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```

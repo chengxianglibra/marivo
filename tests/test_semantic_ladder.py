@@ -33,7 +33,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
-                "source=ms.table('orders'))\n"
+                "source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
                 "    return orders.dt\n"
@@ -49,10 +49,10 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
     )
 
 
-# -- Entity verification tests ------------------------------------------------
+# -- Static entity verification tests -----------------------------------------
 
 
-def test_verify_object_entity_scans_datasource_without_audit_side_effects(
+def test_verify_object_entity_is_static_without_audit_side_effects(
     tmp_path: Path, semantic_project_factory
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
@@ -61,8 +61,9 @@ def test_verify_object_entity_scans_datasource_without_audit_side_effects(
 
     assert result.status == "passed"
     assert result.kind == "entity"
-    assert result.scan is not None
-    assert result.scan.rows_scanned == 2
+    assert result.validation_level == "static"
+    assert result.runtime_checked is False
+    assert not hasattr(result, "scan")
     assert not hasattr(result, "auto" + "_recorded")
     assert not (Path(project.state_root) / "evidence").exists()
 
@@ -74,6 +75,7 @@ def test_verify_object_entity_uses_current_source_declaration(
 
     first = project.verify_object(ms.ref("entity.sales.orders"))
     assert first.status == "passed"
+    assert first.runtime_checked is False
 
     # Rewrite the entity with a different source table name
     import ibis
@@ -89,7 +91,7 @@ def test_verify_object_entity_uses_current_source_declaration(
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
                 "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
-                "source=ms.table('orders_v2'))\n"
+                "source=md.table('orders_v2'))\n"
             )
         },
         workspace_dir=tmp_path,
@@ -97,8 +99,9 @@ def test_verify_object_entity_uses_current_source_declaration(
 
     second = project2.verify_object(ms.ref("entity.sales.orders"))
     assert second.status == "passed"
-    assert second.scan is not None
-    assert second.scan.rows_scanned == 1
+    assert second.validation_level == "static"
+    assert second.runtime_checked is False
+    assert not hasattr(second, "scan")
     assert not (Path(project2.state_root) / "evidence").exists()
 
 
@@ -107,7 +110,7 @@ def test_verify_object_entity_uses_current_source_declaration(
 
 def test_verify_object_reports_project_load_failed(semantic_project_factory) -> None:
     """When a file fails to load, verify_object returns project_load_failed
-    instead of the misleading 'was not found' with kind=entity."""
+    and preserves the requested typed-ref kind."""
     # Create a project whose metrics file calls a non-existent ms.max()
     project = semantic_project_factory(
         {
@@ -124,8 +127,7 @@ def test_verify_object_reports_project_load_failed(semantic_project_factory) -> 
     result = project.verify_object(ms.ref("metric.cdn.total_billing_bandwidth"))
 
     assert result.status == "failed"
-    # The kind defaults to "entity" when the registry is unavailable
-    assert result.kind == "entity"
+    assert result.kind == "metric"
     assert len(result.issues) == 1
     issue = result.issues[0]
     assert issue.kind == "project_load_failed"
@@ -152,6 +154,7 @@ def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_facto
     result = project.verify_object(ms.ref("metric.cdn.some_metric"))
 
     assert result.status == "failed"
+    assert result.kind == "metric"
     assert result.issues[0].kind == "project_load_failed"
     assert "intentional load error" in result.issues[0].message
 
@@ -160,7 +163,7 @@ def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     model = (
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales', owner='Mina Zhang')\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
         "@ms.measure(entity=orders, additivity='additive')\n"
         "def amount(orders):\n"
         "    return orders.amount\n"
@@ -192,5 +195,6 @@ def test_verify_object_known_ref_still_not_found_when_loaded(
     result = project.verify_object(ms.ref("metric.sales.nonexistent_metric"))
 
     assert result.status == "failed"
+    assert result.kind == "metric"
     assert result.issues[0].kind == "static_check_failed"
     assert "was not found" in result.issues[0].message

@@ -1,34 +1,27 @@
-# marivo-semantic closeout
+# Static verification, scoped preview, and readiness
 
-Closeout decides whether authored semantic refs are ready for `marivo-analysis`.
-
-## Reload
-
-Reload the catalog after the final authored object in the requested scope:
+Reload after writing one Python object and navigate to its typed catalog value:
 
 ```python
 catalog = ms.load()
+orders = catalog.domains.get("sales").entities.get("orders")
+region = orders.dimensions.get("region")
 ```
 
-## Readiness Gate
-
-Run `ms.readiness(...)` for the refs that will be handed to analysis:
+Close out in this order:
 
 ```python
-report = ms.readiness(refs=(ms.ref("entity.sales.orders"), ms.ref("metric.sales.revenue")))
+catalog.verify_object(region).show()
+catalog.preview(region, using=snapshot).show()
+report = catalog.readiness(refs=[region])
 report.show()
-if report.status == "blocked":
-    raise SystemExit("Semantic project is not ready for analysis handoff.")
 ```
 
-Do not hand blocked refs to `marivo-analysis`.
+Static verification and readiness execute no datasource query. Preview is the
+explicitly scoped runtime check and must use the matching snapshot; multi-entity
+objects require an exact entity-keyed snapshot mapping. Readiness consumes fresh
+static verification and preview evidence. Do not hand blocked objects to
+`marivo-analysis`.
 
-Use dedicated runtime checks separately when needed:
-
-- `md.discover_*` for datasource evidence;
-- `catalog.preview(...)` for semantic preview;
-- `ms.parity_check(...)` for source-SQL parity;
-- `ms.richness(...)` for enrichment gaps.
-
-Warnings are not blockers. Fix blockers first, then report warning items as
-follow-up work when they do not prevent the requested handoff.
+`ms.richness(...)` remains advisory. `ms.parity_check(...)` may run potentially
+unbounded metric and provenance SQL and is never required for readiness.

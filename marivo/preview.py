@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from marivo.render import Card, RenderableResult
+
+if TYPE_CHECKING:
+    from marivo.datasource.source import AuthoringScope
 
 PreviewKind = Literal[
     "datasource_table",
@@ -80,6 +83,16 @@ class PreviewSamplePolicy:
     filters: tuple[PreviewFilter, ...] = ()
 
 
+@dataclass(frozen=True)
+class PreviewCoverage:
+    scopes: tuple[tuple[str, AuthoringScope], ...]
+    rows_observed: int
+    scope_exhaustion: Literal["exhaustive", "truncated"]
+    scope_exactness: Literal["scope_exact", "sample_only"]
+    snapshot_ids: tuple[str, ...]
+    cache_status: Literal["fresh", "cached"]
+
+
 @dataclass(frozen=True, repr=False)
 class PreviewResult(RenderableResult):
     kind: PreviewKind
@@ -90,6 +103,8 @@ class PreviewResult(RenderableResult):
     requested_limit: int
     returned_row_count: int
     is_truncated: bool
+    status: Literal["passed"]
+    coverage: PreviewCoverage
     warnings: tuple[PreviewWarning, ...] = field(default_factory=tuple)
     timezones: dict[str, PreviewTimezoneInfo] = field(default_factory=dict)
     sample_policy: PreviewSamplePolicy = field(
@@ -107,7 +122,11 @@ class PreviewResult(RenderableResult):
 
     def _card(self) -> Card:
         preview_rows = [tuple(str(row.get(col, "")) for col in self.columns) for row in self.rows]
-        status_parts = [f"truncated={self.is_truncated}"]
+        status_parts = [
+            f"status={self.status}",
+            f"truncated={self.is_truncated}",
+            f"coverage={self.coverage.scope_exhaustion}/{self.coverage.scope_exactness}",
+        ]
         if self.timezones:
             labels = [
                 f"{column}:read_tz={info.get('read_tz')} report_tz={info.get('report_tz')}"
@@ -249,6 +268,15 @@ def preview_from_pandas(
         requested_limit=limit,
         returned_row_count=len(rows),
         is_truncated=len(dataframe) > limit,
+        status="passed",
+        coverage=PreviewCoverage(
+            scopes=(),
+            rows_observed=len(rows),
+            scope_exhaustion=("truncated" if len(dataframe) > limit else "exhaustive"),
+            scope_exactness=("sample_only" if len(dataframe) > limit else "scope_exact"),
+            snapshot_ids=(),
+            cache_status="fresh",
+        ),
         warnings=tuple(result_warnings),
         sample_policy=sample_policy,
         timezones=dict(timezones or {}),

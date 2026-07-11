@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 type BackendDatetimeDecodePolicy = Literal["local_naive_label", "utc_naive_instant"]
 type PartitionValueSource = Literal["metadata", "system_catalog"]
+type AuthoringTimeout = Callable[[BaseBackend, int], AbstractContextManager[None]]
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,14 @@ class EngineMetadataIntrospection:
 
 
 @dataclass(frozen=True)
+class AuthoringCapabilities:
+    partition_predicate_supported: bool
+    transformed_partition_supported: bool
+    timeout_enforced: bool
+    byte_estimate_supported: bool
+
+
+@dataclass(frozen=True)
 class EngineProfile:
     name: str
     aliases: tuple[str, ...]
@@ -83,11 +93,21 @@ class EngineProfile:
     inspect_partition_values: Callable[[PartitionProbeRequest], PartitionProbeResult] | None
     readonly_tx_start: str | None
     metadata: EngineMetadataIntrospection
+    authoring_capabilities: AuthoringCapabilities
     translate_strptime_format: Callable[[str], str]
     postprocess_sql: Callable[[str], str]
     datetime_decode_policy: BackendDatetimeDecodePolicy
     quantile: QuantileCapability | None
     percentile_uses_approx_quantile: bool
+    authoring_timeout: AuthoringTimeout | None
+
+    def __post_init__(self) -> None:
+        timeout_enforced = self.authoring_timeout is not None
+        if self.authoring_capabilities.timeout_enforced != timeout_enforced:
+            raise ValueError(
+                "authoring_capabilities.timeout_enforced must match "
+                "whether authoring_timeout is configured"
+            )
 
 
 def identity_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
@@ -196,9 +216,16 @@ GENERIC_PROFILE = EngineProfile(
     inspect_partition_values=None,
     readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(inspect_table=generic_metadata_inspect),
+    authoring_capabilities=AuthoringCapabilities(
+        partition_predicate_supported=False,
+        transformed_partition_supported=False,
+        timeout_enforced=False,
+        byte_estimate_supported=False,
+    ),
     translate_strptime_format=identity_str,
     postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,
     percentile_uses_approx_quantile=False,
+    authoring_timeout=None,
 )

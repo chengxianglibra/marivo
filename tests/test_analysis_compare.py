@@ -783,7 +783,7 @@ def _bootstrap_unit_sales_project(tmp_path) -> None:
         "\n"
         "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"

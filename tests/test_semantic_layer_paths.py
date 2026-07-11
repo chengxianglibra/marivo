@@ -8,6 +8,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
+import marivo.datasource as md
 from marivo.config import load_semantic_layer_paths
 from marivo.semantic.reader import SemanticProject
 
@@ -215,7 +216,7 @@ def _write_models_root(
             import marivo.semantic as ms
 
             source = md.ref("datasource.{datasource_name}")
-            rows = ms.entity(name={entity!r}, datasource=source, source=ms.table({entity!r}))
+            rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
 
             @ms.metric(entities=[rows], additivity="additive")
             def {metric}(table):
@@ -321,6 +322,7 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
 
 def test_external_layer_datasource_supports_entity_verify_and_preview(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import marivo.semantic as ms
 
@@ -353,9 +355,19 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     catalog = ms.load(workspace_dir=project_root)
     entity_ref = catalog.get("entity.finance.refunds").ref
     metric_ref = catalog.get("metric.finance.refunds_total").ref
+    monkeypatch.chdir(project_root)
+    md.register(
+        md.duckdb(name="warehouse", path=str(db_path)),
+        project_root=project_root,
+    )
+    snapshot = md.inspect(md.ref("datasource.warehouse"), md.table("refunds")).sample(
+        scope=md.unpruned(max_rows=2, timeout_seconds=30),
+        columns=("amount",),
+    )
+    assert md.remove("warehouse") is True
 
     verify = catalog.verify_object(entity_ref)
-    preview = catalog.preview(metric_ref, limit=1)
+    preview = catalog.preview(metric_ref, using=snapshot, limit=1)
 
     assert verify.status == "passed"
     assert preview.rows == ({"value": 150.0},)
@@ -473,7 +485,7 @@ def test_duplicate_semantic_id_across_roots_fails_with_paths(tmp_path: Path) -> 
 
             source = md.ref("datasource.external_warehouse")
             sales_domain = ms.domain(name="sales", owner="External", default=False)
-            rows = ms.entity(name="orders", datasource=source, source=ms.table("orders"), domain=sales_domain)
+            rows = ms.entity(name="orders", datasource=source, source=md.table("orders"), domain=sales_domain)
             """
         ),
         encoding="utf-8",

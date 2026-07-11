@@ -196,7 +196,7 @@ def count(
         A ``MetricRef`` for the count metric.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
         >>> order_count = ms.count(name="order_count", entity=orders)
 
     Constraints:

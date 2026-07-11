@@ -1,4 +1,4 @@
-"""Semantic readiness report DTOs and structural readiness construction."""
+"""Semantic readiness report DTOs and query-free evidence gating."""
 
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ ReadinessIssueKind = Literal[
     "sql_parity_unverified",
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
+    "snapshot_missing",
+    "runtime_preview_missing",
     "missing_business_definition",
     "missing_guardrails",
 ]
@@ -119,6 +121,18 @@ class _SemanticKind(StrEnum):
     TIME_DIMENSION = "time_dimension"
     METRIC = "metric"
     RELATIONSHIP = "relationship"
+
+
+_EXECUTABLE_KINDS = frozenset(
+    {
+        _SemanticKind.ENTITY,
+        _SemanticKind.DIMENSION,
+        _SemanticKind.TIME_DIMENSION,
+        _SemanticKind.MEASURE,
+        _SemanticKind.METRIC,
+        _SemanticKind.RELATIONSHIP,
+    }
+)
 
 
 def _checked_at() -> str:
@@ -383,24 +397,24 @@ def _missing_guardrails(obj: object) -> bool:
     return not guardrails
 
 
-def build_structural_readiness_report(
+def build_readiness_report(
     project: SemanticProject,
     *,
     refs: Iterable[str] | None = None,
 ) -> ReadinessReport:
-    """Build a structural readiness report without backend access.
+    """Build a readiness report from loaded state and persisted row-free evidence.
 
     Performs pure in-memory checks: load errors, unknown refs,
     cross-datasource unfederated metrics, raw SQL requirements,
-    strict enrichment issues, and load warnings forwarding.
-    Does not require or use any datasource connection.
+    strict enrichment issues, load warnings, and fresh matching preview checks.
+    It never acquires snapshots, refreshes state, or executes a datasource query.
 
     Args:
         project: A loaded SemanticProject instance.
         refs: Semantic refs to scope the check. None checks all loaded objects.
 
     Returns:
-        ReadinessReport indicating structural readiness for analysis handoff.
+        ReadinessReport indicating readiness for analysis handoff.
     """
     # Defensive normalization: ensure all refs are plain strings so that
     # downstream code (dict key lookups, .split() calls) works correctly
@@ -436,9 +450,25 @@ def build_structural_readiness_report(
         )
 
     kinds, objects = _object_maps(project)
+    direct_refs = _dedupe(refs if refs is not None else _default_checked_refs(kinds))
     checked_refs, unknown_refs = _expand_checked_refs(refs, kinds, objects)
-    checked_ref_set = set(checked_refs)
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
+    reg = project._registry
+    cross_datasource_refs: list[str] = []
+    if reg is not None:
+        from marivo.semantic.preview_checks import preview_dependency_entities
+
+        for ref in direct_refs:
+            if kinds.get(ref) not in _EXECUTABLE_KINDS:
+                continue
+            entity_ids = preview_dependency_entities(ref, registry=reg)
+            datasource_ids = {
+                reg.entities[entity_id].datasource
+                for entity_id in entity_ids
+                if entity_id in reg.entities
+            }
+            if len(entity_ids) > 1 and len(datasource_ids) > 1:
+                cross_datasource_refs.append(ref)
 
     for ref in unknown_refs:
         blockers.append(
@@ -461,30 +491,53 @@ def build_structural_readiness_report(
     blockers.extend(enrichment_blockers)
     warnings.extend(enrichment_warnings)
 
-    # Cross-datasource unfederated metrics.
-    reg = project._registry
-    if reg is not None:
-        datasource_by_dataset = {
-            dataset.semantic_id: dataset.datasource for dataset in reg.entities.values()
-        }
-        for metric in reg.metrics.values():
-            if metric.semantic_id not in checked_ref_set:
+    if project._registry is not None and project._sidecar is not None:
+        from marivo.semantic.preview_checks import preview_evidence_requirement
+
+        for ref in direct_refs:
+            if kinds.get(ref) not in _EXECUTABLE_KINDS or ref in cross_datasource_refs:
                 continue
-            metric_datasources = {
-                datasource_by_dataset[dataset_ref]
-                for dataset_ref in metric.entities
-                if dataset_ref in datasource_by_dataset
-            }
-            if len(metric_datasources) > 1:
+            requirement = preview_evidence_requirement(
+                ref,
+                registry=project._registry,
+                sidecar=project._sidecar,
+                project_root=project._workspace_dir,
+            )
+            if requirement.status == "matched":
+                continue
+            if requirement.status == "snapshot_missing":
                 blockers.append(
                     _issue(
-                        "cross_datasource_unfederated",
+                        "snapshot_missing",
                         "blocker",
-                        (metric.semantic_id,),
-                        f"Metric {metric.semantic_id} spans multiple datasources without federation support.",
-                        "Move integration upstream, enable a federated backend, or split the metric.",
+                        (ref,),
+                        f"{ref} has no fresh matching datasource snapshot metadata.",
+                        requirement.suggested_action,
                     )
                 )
+                continue
+            blockers.append(
+                _issue(
+                    "runtime_preview_missing",
+                    "blocker",
+                    (ref,),
+                    f"{ref} has no fresh preview check matching its current definition and dependencies.",
+                    requirement.suggested_action,
+                )
+            )
+
+    # Cross-datasource unfederated metrics.
+    if reg is not None:
+        for ref in cross_datasource_refs:
+            blockers.append(
+                _issue(
+                    "cross_datasource_unfederated",
+                    "blocker",
+                    (ref,),
+                    f"Semantic object {ref} spans multiple datasources without federation support.",
+                    "Move integration upstream, enable a federated backend, or split the metric.",
+                )
+            )
 
     # SQL parity unverified warnings.
     for ref in checked_refs:

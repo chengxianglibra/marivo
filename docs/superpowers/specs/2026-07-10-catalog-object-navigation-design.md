@@ -329,6 +329,15 @@ signature of data-reading APIs. The later authoring evidence design refines
 `catalog.preview(...)` to require `using=` and leaves this object graph and its
 normalization rule unchanged.
 
+The implemented handoff therefore uses the concrete typed object plus explicit
+snapshot evidence:
+
+```python
+catalog.verify_object(revenue).show()
+catalog.preview(revenue, using=snapshot).show()
+catalog.readiness(refs=[revenue]).show()
+```
+
 This applies to preview, verification, readiness, resolver, observe, transform,
 derive, and escape-hatch bindings where the current contract accepts a loaded
 object. Passing a concrete `Metric`, `Dimension`, or other valid catalog object

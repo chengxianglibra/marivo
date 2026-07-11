@@ -12,7 +12,7 @@ Public surface::
 
     ms.domain(name="sales", owner="Mina Zhang", default=True)
     warehouse = md.ref("datasource.warehouse")
-    orders = ms.entity(name="orders", datasource=warehouse, source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
     amount = ms.measure_column(
         name="amount", entity=orders, column="amount",
         additivity="additive", unit="USD",
@@ -26,7 +26,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from marivo.datasource.scan import ScanScope
 from marivo.refs import SemanticRef
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
@@ -35,7 +34,6 @@ from marivo.semantic.authoring import (
     aggregate,
     ai_context,
     count,
-    csv,
     cumulative,
     datetime,
     dimension,
@@ -46,19 +44,16 @@ from marivo.semantic.authoring import (
     grain_to_date,
     hour_prefix,
     join_on,
-    json,
     linear,
     measure,
     measure_column,
     metric,
-    parquet,
     ratio,
     ref,
     relationship,
     semi_additive,
     snapshot,
     strptime,
-    table,
     time_dimension,
     time_dimension_column,
     timestamp,
@@ -120,24 +115,19 @@ if TYPE_CHECKING:
 
 def verify_object(
     ref: CatalogObject | SemanticRef,
-    *,
-    scope: ScanScope | None = None,
 ) -> VerifyResult:
-    """Verify a single authored semantic object is reachable and valid.
+    """Statically verify a single authored semantic object.
 
-    For domains, relationships, and dimensions this is a static-only check.
-    For entities, a scoped preview confirms the datasource is reachable and
-    the expression is valid. For time dimensions, metrics, and derived
-    metrics, the check is static and validates the loaded semantic contract.
+    Applies project load, assembly, dependency, type, cycle, and
+    expression-contract checks without opening a datasource. Use
+    ``catalog.preview(...)`` for runtime execution checks.
 
     Args:
         ref: CatalogObject or SemanticRef from an authoring call,
             ``ms.ref(...)``, or ``catalog.get(...).ref``.
-        scope: Scan scope controlling partition, max rows, and timeout.
-            Defaults to ``ScanScope()``.
 
     Returns:
-        VerifyResult with status, issues, and optional scan report.
+        VerifyResult with static validation status, issues, and warnings.
 
     Example:
         >>> import marivo.semantic as ms
@@ -150,34 +140,19 @@ def verify_object(
     """
     from marivo.semantic.reader import SemanticProject
 
-    if isinstance(ref, CatalogObject):
-        ref = ref.ref
-    if not isinstance(ref, SemanticRef):
-        errors._raise(
-            errors.ErrorKind.INVALID_REF,
-            "ms.verify_object(ref=...) requires a CatalogObject or SemanticRef from an "
-            "authoring call, ms.ref('<kind>.<semantic_id>'), or "
-            "catalog.get('<kind>.<semantic_id>').ref.",
-            cls=errors.SemanticRuntimeError,
-            refs=(str(ref),),
-        )
-
     project = SemanticProject()
-    project.load()
-    if scope is None:
-        scope = ScanScope()
-    return project.verify_object(ref, scope=scope)
+    return project.verify_object(ref)
 
 
 def readiness(
     *,
     refs: Sequence[CatalogObject | SemanticRef] | None = None,
 ) -> ReadinessReport:
-    """Run structural readiness check for the given semantic refs.
+    """Run the query-free readiness gate for the given semantic refs.
 
-    Performs pure in-memory checks without datasource connectivity.
-    For runtime validation, use ``catalog.preview(...)``,
-    ``ms.parity_check(...)``, and ``ms.richness()``.
+    Reads loaded state plus persisted row-free preview evidence without
+    acquiring, refreshing, or querying. Missing evidence produces exact next
+    calls for the caller to execute explicitly.
 
     Args:
         refs: Semantic refs to check. Resolves the full dependency closure
@@ -317,7 +292,6 @@ __all__ = [
     "aggregate",
     "ai_context",
     "count",
-    "csv",
     "cumulative",
     "datetime",
     "dimension",
@@ -331,14 +305,12 @@ __all__ = [
     "help_text",
     "hour_prefix",
     "join_on",
-    "json",
     "linear",
     "load",
     "measure",
     "measure_column",
     "metric",
     "parity_check",
-    "parquet",
     "ratio",
     "readiness",
     "ref",
@@ -347,7 +319,6 @@ __all__ = [
     "semi_additive",
     "snapshot",
     "strptime",
-    "table",
     "time_dimension",
     "time_dimension_column",
     "timestamp",

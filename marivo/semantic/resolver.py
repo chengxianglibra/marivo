@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import ibis
 import ibis.expr.types as ir
 
+from marivo.datasource.source import AuthoringScope
 from marivo.refs import SemanticRef, SymbolKind
 from marivo.semantic.catalog import CatalogObject, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
@@ -47,12 +49,14 @@ class SemanticResolver:
     catalog: Any
     connections: Any
     sample_size: int | None = None
+    entity_scopes: Mapping[str, AuthoringScope] | None = None
 
     def __post_init__(self) -> None:
         self._materializer = Materializer(
             self.catalog._project,
             self.connections.session_backend,
             sample_size=self.sample_size,
+            entity_scopes=self.entity_scopes,
         )
 
     def table(self, entity_ref: SemanticRef | CatalogObject | str) -> ibis.Table:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import ibis
 import pytest
 
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.semantic_inputs import normalize_dimension_input
@@ -28,7 +29,7 @@ _MODEL_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
 @ms.dimension(entity=orders)
 def region(orders):
@@ -64,8 +65,8 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
     return SemanticCatalog(project)
 
 
-def _preview_backend():
-    backend = ibis.duckdb.connect(":memory:")
+def _preview_backend(path: str):
+    backend = ibis.duckdb.connect(path)
     backend.con.execute(
         "CREATE TABLE orders (order_id INT, amount DOUBLE, region TEXT, order_date TIMESTAMP)"
     )
@@ -73,27 +74,6 @@ def _preview_backend():
         "INSERT INTO orders VALUES (1, 100.0, 'US', '2025-01-01'), (2, 200.0, 'EU', '2025-01-02')"
     )
     return backend
-
-
-class _PreviewConnectionService:
-    def __init__(self, backend):
-        self._backend = backend
-
-    def session_backend(self, name):
-        return self._backend
-
-    def close_all(self):
-        pass
-
-
-def _patch_preview_connections(project, backend):
-    from unittest.mock import patch
-
-    return patch.object(
-        project,
-        "_connection_service",
-        return_value=_PreviewConnectionService(backend),
-    )
 
 
 def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -> None:
@@ -157,25 +137,45 @@ def test_metric_details_measure_ref_and_provenance_are_phase3_shape(
 
 def test_measure_preview_uses_measure_expression_without_context_columns(
     semantic_project_factory,
+    tmp_path,
+    monkeypatch,
 ) -> None:
+    database_path = tmp_path / "warehouse.duckdb"
+    backend = _preview_backend(str(database_path))
+    backend.disconnect()
     project = semantic_project_factory(
         {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\n"
+                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+            ),
             "sales/_domain.py": _DOMAIN_PY,
             "sales/models.py": _MODEL_PY,
         }
     )
+    monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
+    snapshot = md.inspect(md.ref("datasource.warehouse"), md.table("orders")).sample(
+        scope=md.unpruned(max_rows=2, timeout_seconds=30),
+        columns=("order_id", "amount", "region", "order_date"),
+    )
 
-    backend = _preview_backend()
-    with _patch_preview_connections(project, backend):
-        preview = catalog.preview(catalog.get("measure.sales.orders.amount"), limit=3)
+    preview = catalog.preview(
+        catalog.get("measure.sales.orders.amount"),
+        using=snapshot,
+        limit=3,
+    )
 
     assert preview.ref == "sales.orders.amount"
     assert preview.kind == "semantic_measure"
     assert "amount" in preview.columns
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.preview(catalog.get("measure.sales.orders.amount"), context_columns=("region",))
+        catalog.preview(
+            catalog.get("measure.sales.orders.amount"),
+            using=snapshot,
+            context_columns=("region",),
+        )
 
     assert "context_columns" in str(exc_info.value)
     assert "dimension" in str(exc_info.value)

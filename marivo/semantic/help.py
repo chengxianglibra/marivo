@@ -134,20 +134,15 @@ def _authoring_topic() -> Descriptor:
                 '   ms.help("metric"), ms.help("relationship"), etc.):',
                 "   domain -> entity -> dimension/time_dimension/measure",
                 "          -> metric -> relationship -> cross-entity/derived metric",
-                "2. For each object family, run the matching datasource discovery call to",
-                "   ground authoring in evidence (each returns a DatasourceResult; .show()):",
-                "     entity: md.discover_entity(ref)",
-                "     dimension/dimension_column: md.discover_dimensions(ref)",
-                "     time_dimension/time_dimension_column: md.discover_time_dimensions(ref)",
-                "     measure/measure_column: md.discover_measures(ref)",
-                "     relationship: md.discover_relationship(left, right)",
-                "     metric: md.discover_relationship for cross-entity viability",
-                "3. Author one object, then verify it before continuing: ms.verify_object(ref)",
-                "   type-checks the object, resolves references, and reports fixable issues.",
-                "4. Close out with ms.readiness(refs=...) to validate the whole set together:",
-                "   it reports missing dimensions, unresolved relationships, and additivity gaps.",
-                "5. Smoke-check at runtime with catalog.preview(...) before analysis: it renders a",
-                "   bounded sample of the catalog without executing a full query.",
+                "2. Ground each object in one md.inspect(...) -> inspection.sample(...) snapshot.",
+                "   Project entity(), dimensions(), time_dimensions(), measures(), values(),",
+                "   or relationships() from that snapshot without another datasource query.",
+                "3. Author one Python object, reload, and navigate to its typed CatalogObject.",
+                "4. Run catalog.verify_object(obj).show(); static verification executes no query.",
+                "5. Run catalog.preview(obj, using=snapshot).show() for a scoped runtime check.",
+                "   Multi-entity objects use an exact entity-keyed snapshot mapping.",
+                "6. Run catalog.readiness(refs=[obj]).show(); readiness executes no query and",
+                "   consumes fresh static verification and scoped-preview evidence.",
                 "",
                 "Handoff: the semantic catalog supports browse/preview/readiness/verification",
                 "only — do not guess a query(...) method on the catalog. Metric analysis runs",
@@ -345,7 +340,7 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.datetime",
             "required": [],
             "optional": ["timezone", "sample_interval"],
-            "discover": "md.discover_time_dimensions",
+            "discover": "snapshot.time_dimensions",
             "parameters": {"timezone": timezone, "sample_interval": sample_interval},
             "static_constraints": [
                 "only use as the parse value of a time dimension",
@@ -357,7 +352,7 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.timestamp",
             "required": [],
             "optional": ["timezone", "sample_interval"],
-            "discover": "md.discover_time_dimensions",
+            "discover": "snapshot.time_dimensions",
             "parameters": {"timezone": timezone, "sample_interval": sample_interval},
             "static_constraints": [
                 "only use as the parse value of a time dimension",
@@ -369,7 +364,7 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.strptime",
             "required": ["format"],
             "optional": ["timezone", "sample_interval"],
-            "discover": "md.discover_time_dimensions",
+            "discover": "snapshot.time_dimensions",
             "parameters": {
                 "format": _param("str", "Python strptime-compatible physical encoding format"),
                 "timezone": timezone,
@@ -390,7 +385,7 @@ def _parse_constructor_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.hour_prefix",
             "required": ["prefix"],
             "optional": ["sample_interval"],
-            "discover": "md.discover_time_dimensions",
+            "discover": "snapshot.time_dimensions",
             "parameters": {
                 "prefix": _param(
                     "TimeDimensionRef",
@@ -451,7 +446,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.entity",
             "required": ["name", "datasource", "source"],
             "optional": ["primary_key", "versioning", "domain", "ai_context"],
-            "discover": "md.discover_entity",
+            "discover": "snapshot.entity",
             "parameters": {
                 "name": name,
                 "datasource": _param(
@@ -473,7 +468,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                 "ai_context": ai_context,
             },
             "static_constraints": [
-                "source must be ms.table(...), ms.parquet(...), ms.csv(...), or ms.json(...)"
+                "source must be md.table(...), md.parquet(...), md.csv(...), or md.json(...)"
             ],
         },
         "dimension_column": {
@@ -481,7 +476,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.dimension_column",
             "required": ["name", "entity", "column"],
             "optional": ["domain", "ai_context"],
-            "discover": "md.discover_dimensions",
+            "discover": "snapshot.dimensions",
             "parameters": {
                 "name": name,
                 "entity": entity_ref,
@@ -499,7 +494,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "@ms.dimension",
             "required": ["entity", "function_body"],
             "optional": ["name", "domain", "ai_context"],
-            "discover": "md.discover_dimensions",
+            "discover": "snapshot.dimensions",
             "parameters": {
                 "entity": entity_ref,
                 "function_body": function_body,
@@ -516,7 +511,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.time_dimension_column",
             "required": ["name", "entity", "column", "granularity"],
             "optional": ["parse", "is_default", "domain", "ai_context"],
-            "discover": "md.discover_time_dimensions",
+            "discover": "snapshot.time_dimensions",
             "parameters": {
                 "name": name,
                 "entity": entity_ref,
@@ -549,7 +544,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "@ms.time_dimension",
             "required": ["entity", "granularity", "function_body"],
             "optional": ["name", "parse", "is_default", "domain", "ai_context"],
-            "discover": "md.discover_time_dimensions",
+            "discover": "snapshot.time_dimensions",
             "parameters": {
                 "entity": entity_ref,
                 "granularity": _param(
@@ -582,7 +577,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.measure_column",
             "required": ["name", "entity", "column", "additivity"],
             "optional": ["unit", "domain", "ai_context"],
-            "discover": "md.discover_measures",
+            "discover": "snapshot.measures",
             "parameters": {
                 "name": name,
                 "entity": entity_ref,
@@ -604,7 +599,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "@ms.measure",
             "required": ["entity", "additivity", "function_body"],
             "optional": ["name", "unit", "domain", "ai_context"],
-            "discover": "md.discover_measures",
+            "discover": "snapshot.measures",
             "parameters": {
                 "entity": entity_ref,
                 "additivity": additivity,
@@ -787,7 +782,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "metric family",
             "required": [],
             "optional": [],
-            "discover": "md.discover_relationship for cross-entity viability when multiple entities are involved",
+            "discover": "snapshot.relationships for cross-entity viability when multiple entities are involved",
             "parameters": {},
             "decision_order": [
                 "count",
@@ -886,7 +881,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "static_constraints": [
                 "read ms.help('metric') before choosing any metric constructor",
                 "after selecting a variant, read the specific constructor help for full parameter details",
-                "use md.discover_relationship only to evaluate cross-entity viability when multiple entities are involved",
+                "use snapshot.relationships only to evaluate cross-entity viability when multiple entities are involved",
             ],
         },
         "relationship": {
@@ -894,7 +889,7 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
             "constructor": "ms.relationship",
             "required": ["name", "from_entity", "to_entity", "keys"],
             "optional": ["domain", "ai_context"],
-            "discover": "md.discover_relationship",
+            "discover": "snapshot.relationships",
             "parameters": {
                 "name": name,
                 "from_entity": entity_ref,
@@ -1059,14 +1054,21 @@ def _contract_topic(
     catalog: Mapping[str, Constraint],
 ) -> Descriptor:
     summary = cast("str", contract["summary"])
+    projection = contract["discover"]
+    projection_step = (
+        "Snapshot projection: none; settle this object from verified semantic dependencies and project facts."
+        if projection is None
+        else f"Snapshot projection: {projection}."
+    )
     content: dict[str, object] = {
         "summary": summary,
         "authoring_contract": contract,
         "workflow": [
             "Read this contract to identify required and optional parameters.",
-            "Run the matching md.discover_* call when the object depends on datasource evidence.",
-            "Use discovery evidence, registry facts, project docs, prior decisions, and user answers to choose values.",
-            "Author one object and run ms.verify_object(...).",
+            projection_step,
+            "Use snapshot evidence, registry facts, project docs, prior decisions, and user answers to choose values.",
+            "Author one object, reload it, and run catalog.verify_object(...).",
+            "For executable objects, run catalog.preview(..., using=...) with the matching snapshot or entity-keyed mapping; non-executable objects have no runtime preview.",
         ],
     }
     for key in _ENRICHMENT_KEYS:
@@ -1094,8 +1096,10 @@ def _parse_contract_topic(symbol: str, contract: dict[str, object]) -> Descripto
     workflow = [
         "Use this constructor only as a time dimension parse value.",
         "Read ms.help('time_dimension_column') or ms.help('time_dimension') for the owning time dimension contract.",
-        "Use md.discover_time_dimensions(...) evidence and user/project context to decide whether this parse constructor is needed.",
-        "Author the time dimension and run ms.verify_object(...).",
+        "Snapshot projection: snapshot.time_dimensions(...).",
+        "Use that evidence and user/project context to decide whether this parse constructor is needed.",
+        "Author the time dimension, reload it, and run catalog.verify_object(...).",
+        "Run catalog.preview(..., using=...) for the authored time dimension with the matching snapshot.",
     ]
     examples: tuple[str, ...] = ()
     if symbol == "hour_prefix":
@@ -1160,6 +1164,26 @@ def _from_sql_topic() -> Descriptor:
     )
 
 
+def _parity_check_topic() -> Descriptor:
+    return Descriptor(
+        surface="marivo.semantic",
+        kind="topic",
+        symbol="parity_check",
+        summary="Run an optional, potentially unbounded provenance SQL diagnostic.",
+        doc="\n".join(
+            (
+                "marivo.semantic parity_check",
+                "",
+                "ms.parity_check(...) compares a metric with its provenance SQL.",
+                "Both the metric query and arbitrary provenance SQL are potentially unbounded;",
+                "snapshot scope cannot be injected safely into arbitrary SQL.",
+                "This diagnostic is outside the canonical authoring state machine and is never required for readiness.",
+            )
+        ),
+        see_also=("ms.help('from_sql')", "ms.help('authoring')"),
+    )
+
+
 def _join_on_topic() -> Descriptor:
     return Descriptor(
         surface="marivo.semantic",
@@ -1184,87 +1208,6 @@ def _join_on_topic() -> Descriptor:
             "Each join_on call creates a (from_key, to_key) pair for relationship keys."
         ),
         see_also=("ms.help('relationship')",),
-    )
-
-
-def _parquet_topic() -> Descriptor:
-    return Descriptor(
-        surface="marivo.semantic",
-        kind="topic",
-        symbol="parquet",
-        summary="Parquet file source for ms.entity(source=ms.parquet(...)).",
-        content={
-            "form": "ms.parquet(path, hive_partitioning=False, columns=None)",
-            "usage": "Declares a Parquet file source for an entity.",
-            "related_help": [
-                "ms.help('entity')",
-                "ms.help('csv')",
-                "ms.help('json')",
-            ],
-        },
-        doc=(
-            "marivo.semantic parquet\n"
-            "\n"
-            "parquet file source for ms.entity(source=ms.parquet(...))\n"
-            "\n"
-            "Form:\n"
-            "  ms.parquet(path, hive_partitioning=False, columns=None)"
-        ),
-        see_also=("ms.help('entity')", "ms.help('csv')", "ms.help('json')"),
-    )
-
-
-def _csv_topic() -> Descriptor:
-    return Descriptor(
-        surface="marivo.semantic",
-        kind="topic",
-        symbol="csv",
-        summary="CSV file source for ms.entity(source=ms.csv(...)).",
-        content={
-            "form": "ms.csv(path, header=True, delimiter=',', columns=None)",
-            "usage": "Declares a CSV file source for an entity.",
-            "related_help": [
-                "ms.help('entity')",
-                "ms.help('parquet')",
-                "ms.help('json')",
-            ],
-        },
-        doc=(
-            "marivo.semantic csv\n"
-            "\n"
-            "csv file source for ms.entity(source=ms.csv(...))\n"
-            "\n"
-            "Form:\n"
-            "  ms.csv(path, header=True, delimiter=',', columns=None)"
-        ),
-        see_also=("ms.help('entity')", "ms.help('parquet')", "ms.help('json')"),
-    )
-
-
-def _json_topic() -> Descriptor:
-    return Descriptor(
-        surface="marivo.semantic",
-        kind="topic",
-        symbol="json",
-        summary="JSON file source for ms.entity(source=ms.json(...)).",
-        content={
-            "form": "ms.json(path, format='auto')",
-            "usage": "Declares a JSON file source for an entity.",
-            "related_help": [
-                "ms.help('entity')",
-                "ms.help('parquet')",
-                "ms.help('csv')",
-            ],
-        },
-        doc=(
-            "marivo.semantic json\n"
-            "\n"
-            "json file source for ms.entity(source=ms.json(...))\n"
-            "\n"
-            "Form:\n"
-            "  ms.json(path, format='auto')"
-        ),
-        see_also=("ms.help('entity')", "ms.help('parquet')", "ms.help('csv')"),
     )
 
 
@@ -1306,9 +1249,6 @@ def _surface() -> Surface:
                 *parse_contract_topics,
                 "from_sql",
                 "join_on",
-                "parquet",
-                "csv",
-                "json",
                 "additivity",
             )
         )
@@ -1321,10 +1261,8 @@ def _surface() -> Surface:
         "authoring": _authoring_topic(),
         "from_sql": _from_sql_topic(),
         "join_on": _join_on_topic(),
-        "parquet": _parquet_topic(),
-        "csv": _csv_topic(),
-        "json": _json_topic(),
         "additivity": _additivity_topic(),
+        "parity_check": _parity_check_topic(),
     }
     summaries = derive_summaries(
         all_names,

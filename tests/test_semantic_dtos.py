@@ -67,16 +67,20 @@ def test_parquet_source_is_shared_datasource_ir_type():
 def test_csv_source_is_shared_datasource_ir_type():
     from marivo.datasource.ir import CsvSourceIR
 
-    source = CsvSourceIR(path="orders.csv", delimiter="|")
+    source = CsvSourceIR(
+        path="orders.csv",
+        schema=(("order_id", "string"), ("amount", "decimal(18,2)")),
+        delimiter="|",
+    )
 
     assert isinstance(source, CsvSourceIR)
     assert source.to_ir() is source
     assert source.to_dict() == {
         "kind": "csv",
         "path": "orders.csv",
+        "schema": {"order_id": "string", "amount": "decimal(18,2)"},
         "header": True,
         "delimiter": "|",
-        "columns": None,
     }
 
 
@@ -95,13 +99,45 @@ def test_file_source_parquet_dict_round_trips_through_semantic_ir_parser():
 def test_file_source_csv_dict_round_trips_through_semantic_ir_parser():
     from marivo.semantic.ir import source_from_dict
 
-    src = CsvSourceIR(path="/data/orders.csv", delimiter="\t")
+    src = CsvSourceIR(
+        path="/data/orders.csv",
+        schema=(("order_id", "string"), ("amount", "decimal(18,2)")),
+        delimiter="\t",
+    )
 
     restored = source_from_dict(src.to_dict())
 
     assert isinstance(restored, CsvSourceIR)
     assert restored.path == "/data/orders.csv"
+    assert restored.schema == (("order_id", "string"), ("amount", "decimal(18,2)"))
     assert restored.delimiter == "\t"
+
+
+def test_file_source_json_dict_round_trips_through_semantic_ir_parser():
+    from marivo.datasource.ir import JsonSourceIR
+    from marivo.semantic.ir import source_from_dict
+
+    src = JsonSourceIR(
+        path="/data/events.json",
+        schema=(("event_id", "string"), ("occurred_at", "timestamp")),
+        format="newline_delimited",
+    )
+
+    restored = source_from_dict(src.to_dict())
+
+    assert isinstance(restored, JsonSourceIR)
+    assert restored.path == "/data/events.json"
+    assert restored.schema == (("event_id", "string"), ("occurred_at", "timestamp"))
+    assert restored.format == "newline_delimited"
+
+
+def test_source_from_dict_rejects_non_string_schema_entries() -> None:
+    from marivo.semantic.ir import source_from_dict
+
+    with pytest.raises(TypeError, match="schema"):
+        source_from_dict({"kind": "csv", "path": "orders.csv", "schema": {"order_id": 123}})
+    with pytest.raises(TypeError, match="schema"):
+        source_from_dict({"kind": "json", "path": "events.json", "schema": {123: "string"}})
 
 
 def test_dataset_source_cannot_mix_table_and_file_fields():
@@ -217,9 +253,10 @@ def test_verify_result_is_public_result_object() -> None:
         status="passed",
         ref="sales.orders",
         kind="entity",
+        validation_level="static",
+        runtime_checked=False,
         issues=(),
         warnings=(),
-        scan=None,
     )
 
     assert (
@@ -231,12 +268,13 @@ def test_verify_result_is_public_result_object() -> None:
         [
             "VerifyResult status=passed ref=sales.orders kind=entity",
             "status: passed",
+            "validation_level: static",
+            "runtime_checked: false",
             "Next step:",
             "- continue the batch or run ms.readiness(refs=...)",
             "available:",
             "- .issues",
             "- .warnings",
-            "- .scan",
         ]
     )
     assert ms.VerifyResult is VerifyResult
@@ -256,9 +294,10 @@ def test_verify_result_render_shows_issue_details() -> None:
         status="failed",
         ref="trino_query",
         kind="entity",
+        validation_level="static",
+        runtime_checked=False,
         issues=(issue,),
         warnings=(),
-        scan=None,
     )
 
     rendered = result.render()
@@ -266,6 +305,8 @@ def test_verify_result_render_shows_issue_details() -> None:
         [
             "VerifyResult status=failed ref=trino_query kind=entity",
             "status: failed, 1 issue",
+            "validation_level: static",
+            "runtime_checked: false",
             "issues:",
             "- [blocker] project_load_failed: Cannot verify 'trino_query': project failed to load.",
             "Next step:",
@@ -273,7 +314,6 @@ def test_verify_result_render_shows_issue_details() -> None:
             "available:",
             "- .issues",
             "- .warnings",
-            "- .scan",
         ]
     )
 
@@ -292,9 +332,10 @@ def test_verify_result_render_shows_warning_details() -> None:
         status="passed",
         ref="sales.orders",
         kind="entity",
+        validation_level="static",
+        runtime_checked=False,
         issues=(),
         warnings=(warning,),
-        scan=None,
     )
 
     rendered = result.render()
@@ -302,6 +343,8 @@ def test_verify_result_render_shows_warning_details() -> None:
         [
             "VerifyResult status=passed ref=sales.orders kind=entity",
             "status: passed, 1 warning",
+            "validation_level: static",
+            "runtime_checked: false",
             "warnings:",
             "- [warning] missing_evidence: No evidence recorded for this object.",
             "Next step:",
@@ -309,7 +352,6 @@ def test_verify_result_render_shows_warning_details() -> None:
             "available:",
             "- .issues",
             "- .warnings",
-            "- .scan",
         ]
     )
 
@@ -331,9 +373,10 @@ def test_verify_result_render_lists_many_issues_as_omittable_card_section() -> N
         status="failed",
         ref="x",
         kind="entity",
+        validation_level="static",
+        runtime_checked=False,
         issues=issues,
         warnings=(),
-        scan=None,
     )
 
     rendered = result.render()
@@ -352,9 +395,10 @@ def test_verify_result_passed_render_has_continue_next_step() -> None:
         status="passed",
         ref="sales.orders",
         kind="entity",
+        validation_level="static",
+        runtime_checked=False,
         issues=(),
         warnings=(),
-        scan=None,
     )
     text = result.render()
     assert "Next step" in text
@@ -377,9 +421,10 @@ def test_verify_result_failed_render_has_repair_next_step() -> None:
         status="failed",
         ref="sales.orders",
         kind="entity",
+        validation_level="static",
+        runtime_checked=False,
         issues=issues,
         warnings=(),
-        scan=None,
     )
     text = result.render()
     assert "Next step" in text

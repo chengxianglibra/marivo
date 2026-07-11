@@ -118,7 +118,7 @@ _DOMAIN_PY = textwrap.dedent("""\
 _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):
@@ -136,7 +136,7 @@ _DATASET_AND_BASE_METRIC_PY = textwrap.dedent("""\
 _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -150,7 +150,7 @@ _DATASET_AND_MISMATCHED_METRIC_PY = textwrap.dedent("""\
 _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -163,7 +163,7 @@ _DATASET_NO_SOURCE_SQL_PY = textwrap.dedent("""\
 _DIALECT_MISMATCH_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -177,7 +177,7 @@ _DIALECT_MISMATCH_PY = textwrap.dedent("""\
 _DERIVED_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -205,7 +205,7 @@ _DERIVED_METRIC_PY = textwrap.dedent("""\
 _NO_SOURCE_SQL_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],
@@ -308,7 +308,7 @@ def test_base_metric_parity_abs_tol(semantic_project_factory, backend_factory) -
     small_mismatch_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -389,7 +389,7 @@ def test_derived_metric_with_provenance_sql_fails_load(
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -445,9 +445,9 @@ def test_cross_datasource_metric_raises(semantic_project_factory, backend_factor
     cross_ds_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders_a = ms.entity(name="orders_a", datasource=md.ref("datasource.warehouse1"), source=ms.table("orders"))
+        orders_a = ms.entity(name="orders_a", datasource=md.ref("datasource.warehouse1"), source=md.table("orders"))
 
-        orders_b = ms.entity(name="orders_b", datasource=md.ref("datasource.warehouse2"), source=ms.table("orders"))
+        orders_b = ms.entity(name="orders_b", datasource=md.ref("datasource.warehouse2"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders_a, orders_b],
@@ -564,7 +564,7 @@ def test_derived_propagation_one_drifted(semantic_project_factory, backend_facto
     drifted_component_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -635,7 +635,7 @@ def test_derived_propagation_verified_and_no_provenance_sql(
     mixed_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],

@@ -152,6 +152,7 @@ class TableMetadata(RenderableResult):
     columns: tuple[ColumnMetadata, ...]
     partitions: tuple[PartitionMetadata, ...]
     warnings: tuple[MetadataWarning, ...]
+    partition_state: Literal["known", "none", "unknown"] = "unknown"
     is_view: bool = False
     view_definition: str | None = None
     primary_keys: tuple[str, ...] = ()
@@ -215,9 +216,10 @@ class TableMetadata(RenderableResult):
             card.listing(
                 "suggested next calls",
                 (
-                    f'md.inspect_partitions(md.ref("datasource.{self.datasource}"), '
-                    f'md.table("{self.table}")) to list partition values',
-                    f"md.partition({{{partition_values}}}) to scope a scan to {partition_columns}",
+                    f'md.inspect(md.ref("datasource.{self.datasource}"), '
+                    f'md.table("{self.table}")).partitions().show()',
+                    f"md.partition({{{partition_values}}}, max_rows=..., timeout_seconds=...) "
+                    f"to scope a snapshot to {partition_columns}",
                 ),
             )
         return card
@@ -234,6 +236,7 @@ class TableMetadata(RenderableResult):
             "comment": self.comment,
             "columns": [column.to_dict() for column in self.columns],
             "partitions": [partition.to_dict() for partition in self.partitions],
+            "partition_state": self.partition_state,
             "warnings": [warning.to_dict() for warning in self.warnings],
             "is_view": self.is_view,
             "view_definition": self.view_definition,
@@ -452,6 +455,7 @@ def _schema_only(
         comment=None,
         columns=_schema_columns(table_expr),
         partitions=(),
+        partition_state="unknown",
         warnings=(
             *warnings,
             MetadataWarning(
@@ -612,8 +616,6 @@ def _inspect_source(
                 kwargs["header"] = source.header
             if source.delimiter != ",":
                 kwargs["delimiter"] = source.delimiter
-            if source.columns is not None:
-                kwargs["columns"] = list(source.columns)
             table_expr = reader(source.path, **kwargs)
         elif isinstance(source, JsonSourceIR):
             _backends.apply_json_http_settings(backend, source)

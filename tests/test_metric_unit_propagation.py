@@ -40,7 +40,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
@@ -83,7 +83,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
@@ -126,7 +126,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
@@ -159,7 +159,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
@@ -187,7 +187,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount
@@ -212,7 +212,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive", unit="CNY")
 def amount(orders): return orders.amount

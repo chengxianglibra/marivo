@@ -82,14 +82,19 @@ def test_format_bounded_card_does_not_cap_rows_when_unbounded() -> None:
 
 def test_byte_truncation_preserves_head_tail_and_names_omitted_rows() -> None:
     cap = 220
-    result = format_bounded_card(
-        identity="MetricFrame ref=frame_1 rows=25",
-        status="ready",
-        columns=["bucket_start", "revenue", "orders"],
-        rows=[[f"2026-06-{day:02d}", str(day * 10), str(day)] for day in range(1, 26)],
-        row_count=25,
-        available=(".show()", ".render()", ".to_pandas()"),
-        max_output_bytes=cap,
+    result = (
+        Card(
+            identity="MetricFrame ref=frame_1 rows=25",
+            available=(".show()", ".render()", ".to_pandas()"),
+        )
+        .status("ready")
+        .table(
+            columns=["bucket_start", "revenue", "orders"],
+            rows=[[f"2026-06-{day:02d}", str(day * 10), str(day)] for day in range(1, 26)],
+            row_count=25,
+            show_omission_counts=True,
+        )
+        .render(max_output_bytes=cap)
     )
     assert len(result.encode()) <= cap
     assert result.startswith("MetricFrame ref=frame_1 rows=25")
@@ -97,6 +102,9 @@ def test_byte_truncation_preserves_head_tail_and_names_omitted_rows() -> None:
     assert "- .show()" in result
     assert f"output truncated at {cap} bytes" in result
     assert "omitted:" in result
+    assert "displayed=" in result
+    assert "total=25" in result
+    assert "omitted=" in result
     assert "preview" in result
     assert "rows" in result
     assert "pass max_output_bytes=None for full output" in result

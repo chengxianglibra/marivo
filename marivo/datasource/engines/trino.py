@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.base import (
+    AuthoringCapabilities,
     EngineMetadataIntrospection,
     EngineProfile,
     MetadataInspectRequest,
@@ -496,6 +498,7 @@ def _inspect_trino(
         comment=table_comment,
         columns=columns,
         partitions=partitions,
+        partition_state="known" if partitions else "unknown",
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
@@ -520,6 +523,28 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+@contextmanager
+def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+    raw_sql = getattr(backend, "raw_sql", None)
+    if not callable(raw_sql):
+        raise RuntimeError("trino backend does not expose raw_sql()")
+    cursor = raw_sql("SHOW SESSION LIKE 'query_max_run_time'")
+    fetchone = getattr(cursor, "fetchone", None)
+    row = fetchone() if callable(fetchone) else None
+    if not row or len(row) < 2:
+        raise RuntimeError("trino did not expose the current query_max_run_time setting")
+    previous = str(row[1]).replace("'", "''")
+    try:
+        raw_sql(f"SET SESSION query_max_run_time = '{timeout_seconds}s'")
+    except BaseException:
+        raw_sql(f"SET SESSION query_max_run_time = '{previous}'")
+        raise
+    try:
+        yield
+    finally:
+        raw_sql(f"SET SESSION query_max_run_time = '{previous}'")
+
+
 PROFILE = EngineProfile(
     name="trino",
     aliases=("presto",),
@@ -533,9 +558,16 @@ PROFILE = EngineProfile(
     inspect_partition_values=inspect_partition_values,
     readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    authoring_capabilities=AuthoringCapabilities(
+        partition_predicate_supported=True,
+        transformed_partition_supported=False,
+        timeout_enforced=True,
+        byte_estimate_supported=True,
+    ),
     translate_strptime_format=python_to_mysql_strptime,
     postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=QuantileCapability(mode="approximate", method="qdigest"),
     percentile_uses_approx_quantile=True,
+    authoring_timeout=authoring_timeout,
 )

@@ -11,7 +11,8 @@ See also:
 
 - [overview.md](overview.md) — the three-layer picture and guidance layering.
 - [loading-validation-introspection.md](loading-validation-introspection.md) —
-  what `ms.load`, `ms.verify_object`, and `ms.readiness` return.
+  what `ms.load()`, `catalog.verify_object(...)`, scoped preview, and
+  `catalog.readiness(...)` return.
 - `ms.help("authoring")` / `md.help("authoring")` — the runnable checklists.
 
 ## Current public flow
@@ -19,7 +20,7 @@ See also:
 The public semantic-authoring flow is:
 
 ```text
-help -> discover -> settle/grill -> author -> verify
+help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
 ```
 
 `marivo-semantic` is the packaged skill that applies this flow. The library
@@ -35,13 +36,12 @@ Each layer of guidance has exactly one job:
   Constructors, required and optional parameters, allowed values, defaults, omit
   rules, nested parse shapes, and static constraints. Help says *what must be
   settled*; it carries no runtime data.
-- **`md.discover_*` — runtime datasource evidence.** Bounded `DatasourceResult`
-  objects read via `.show()` / `.render()`. Evidence supplies the physical facts
-  needed to settle values; it is not a stable field-access DTO and never authors
-  objects or infers meaning.
-- **`ms.verify_object(...)`, load errors, `ms.readiness(...)` — validation.**
-  Blockers, registry state, object validity, and final handoff readiness are
-  exposed *after* authoring.
+- **`md.inspect(...)` and one snapshot — runtime datasource evidence.** Inspect
+  metadata, choose explicit scope, acquire one selected-column sample, and reuse
+  local projections. Evidence never authors objects or infers meaning.
+- **Catalog verify, preview, readiness — validation.** Static verification is
+  query-free; runtime preview requires `using=`; readiness is query-free and
+  consumes fresh checks after authoring.
 
 The agent settles constructor values from help, discovery evidence, catalog
 state, project docs, source SQL/provenance, prior decisions, and user answers. If
@@ -97,38 +97,44 @@ when the kind requires it.
 Every object uses the same bounded loop:
 
 1. Read `ms.help("<constructor-or-object>")` for the static contract.
-2. Run the matching bounded discovery call and read its rendered evidence.
+2. Reuse the matching query-free projection from the one explicitly scoped
+   snapshot acquired for the active batch.
 3. Inspect current catalog state with `ms.load()` when reuse or dependencies
    matter.
 4. Settle one candidate from evidence, registry facts, project docs, source
    SQL/provenance, prior decisions, and user answers.
 5. Ask the user only when semantic intent or business policy is still unresolved
    after the evidence pass.
-6. Author exactly one semantic object in Python.
-7. Run `ms.verify_object(ref)` and fix failures before advancing.
+6. Author exactly one semantic object in Python, reload, and navigate to its
+   typed catalog object.
+7. Run `catalog.verify_object(obj)` and fix static failures.
+8. Run `catalog.preview(obj, using=snapshot)` (or the exact entity-keyed mapping)
+   for executable objects, then `catalog.readiness(refs=[obj])` before handoff.
 
 Authoring several objects and validating later is forbidden — each object is
 verified before the next.
 
-## Datasource discovery handoff
+## Datasource evidence handoff
 
 Physical evidence comes from `marivo.datasource`. Before authoring a
 datasource-backed object, inspect metadata, choose an explicit scan scope, and
-read discovery evidence:
+project evidence from one acquisition:
 
 ```python
-md.inspect_table(warehouse, md.table("orders")).show()
-md.inspect_partitions(warehouse, md.table("orders")).show()
-
-scope = md.partition({"dt": "20260625"}, max_rows=1000)   # or md.unpruned(...)
-
-md.discover_entity(warehouse, md.table("orders"), scope=scope).show()
-md.discover_dimensions(warehouse, md.table("orders")).show()
-md.discover_time_dimensions(warehouse, md.table("orders")).show()
-md.discover_measures(warehouse, md.table("orders")).show()
-md.discover_relationship(left, right).show()
-md.discover_dimension_values(warehouse, md.table("orders"), "region").show()
-md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="verify pruning").show()
+inspection = md.inspect(warehouse, md.table("orders"))
+inspection.show()
+inspection.partitions().show()
+scope = md.partition(
+    {"dt": "20260710"}, max_rows=1000, timeout_seconds=30
+)
+snapshot = inspection.sample(
+    scope=scope,
+    columns=("order_id", "region", "created_at", "amount"),
+)
+snapshot.entity(columns=("order_id",)).show()
+snapshot.dimensions(columns=("region",)).show()
+snapshot.time_dimensions(columns=("created_at",)).show()
+snapshot.measures(columns=("amount",)).show()
 ```
 
 `DatasourceRef`, `TableSource`, and the source constructors (`md.table(...)`,
@@ -206,7 +212,7 @@ cannot decide. Ask when:
 
 Do not ask for anything the datasource can provide — column lists, types,
 comments, sample values, existing objects, or datasource shape. Fetch those with
-`md.discover_*`, `md.inspect_table` / `md.inspect_partitions`, and `ms.load()`.
+`md.inspect(...)`, one scoped snapshot and its projections, and `ms.load()`.
 
 ## Read the current state first
 
@@ -231,20 +237,14 @@ treats any `unverified` metric (including via derived propagation) as a failure.
 
 ## Verification and readiness
 
-- **`ms.verify_object(ref)`** is the per-object gate. For domains,
-  relationships, and dimensions it is a static check; for entities it runs a
-  scoped preview confirming the datasource is reachable and the expression valid;
-  for time dimensions, metrics, and derived metrics it validates the loaded
-  contract. A failed verification means fix the object and rerun before moving
-  on.
-- **`ms.readiness(...)`** is the final closeout gate for the refs handed to
-  `marivo-analysis`. It performs final consistency, parity/richness aggregation,
-  and blocked-ref detection after per-object verification has already passed. It
-  is the required semantic gate before analysis handoff.
+- **`catalog.verify_object(obj)`** is a static, zero-query per-object gate.
+- **`catalog.preview(obj, using=snapshot)`** is the explicit scoped runtime gate;
+  multi-entity objects use an exact entity-keyed snapshot mapping.
+- **`catalog.readiness(refs=[obj])`** is the final zero-query closeout gate. It
+  reads fresh static and runtime-check evidence and never refreshes automatically.
 
-When a metric declares provenance, promote it with `ms.parity_check(...)` before
-handoff. `ms.richness(...)` is advisory only — it ranks coverage/depth gaps and
-never blocks readiness.
+`ms.parity_check(...)` is an optional, potentially unbounded provenance SQL
+diagnostic and is never readiness-required. `ms.richness(...)` remains advisory.
 
 ## Handoff stop conditions
 

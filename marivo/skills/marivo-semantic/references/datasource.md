@@ -1,105 +1,59 @@
-# marivo-semantic datasource prerequisite
+# Datasource prerequisite and evidence snapshot
 
-Datasource authoring and discovery live in `marivo.datasource`. This reference
-only prepares a datasource for semantic authoring.
+Datasource declarations and physical evidence live in `marivo.datasource`.
+Read `md.help("authoring")` and the selected backend/source help before calling
+anything here; those help topics own exact signatures and contracts.
 
-## Flow
+## Setup
 
-1. Read `md.help()` or `md.help("<backend>")` before writing datasource files.
-2. Construct a typed datasource spec with the backend constructor.
-3. Persist the spec with `md.register(spec)` or a file under
-   `models/datasources/*.py`.
-4. Run `md.test(spec.ref)` before semantic authoring.
-5. Bind datasource refs with `spec.ref` or `md.ref("datasource.<name>")`.
-6. Use bounded `md.discover_*` calls for source evidence. A broad domain- or table-group discovery pass is fine when it prevents repeated probes, but
-   authoring still proceeds by active batch and per-object verification.
+Declare a backend datasource such as `md.duckdb(...)`, persist it with
+`md.register(spec)` (or an
+equivalent project model), and run `md.test(spec.ref)`. `md.table(...)` names an
+internal table or view; it is not a datasource declaration. `md.parquet(...)`,
+`md.csv(...)`, and `md.json(...)` are DuckDB file sources, not datasource
+declarations. CSV and JSON require typed schemas; consult their help topics.
 
-If datasource setup fails before discovery, run `marivo doctor` first. It checks
-the active interpreter, project root, backend extras, datasource declarations,
-secret references, and existing `.marivo/` state without connecting to the
-database. Use `marivo doctor --datasource <name> --connect` only when you
-intentionally want a live reachability check. `md.test(...)` remains the explicit
-live datasource round-trip helper and may remember validated env-sourced secrets.
+If setup fails before inspection, `marivo doctor` can inspect the interpreter,
+project, extras, declarations, secret references, and local state without a
+database connection. Use its explicit connect option only for an intended live check.
 
-Do not copy backend parameter tables into this skill. Use backend-specific
-`md.help(...)` output or the runtime error when a field shape is unclear.
-
-## Project Files
-
-Semantic files reference datasources declared under `models/datasources/*.py`:
+## One acquisition, local projections
 
 ```python
 import marivo.datasource as md
 
-spec = md.duckdb(name="warehouse", path="warehouse.duckdb")
-md.register(spec)
-md.test(spec.ref).show()
-
-warehouse = spec.ref
-```
-
-## Discovery
-
-Use the public discovery family for datasource evidence:
-
-```python
 warehouse = md.ref("datasource.warehouse")
-orders = md.table("orders")
+source = md.table("orders")
+inspection = md.inspect(warehouse, source)
+inspection.show()
+inspection.partitions().show()
 
-md.inspect_table(warehouse, orders).show()
-md.inspect_partitions(warehouse, orders).show()
+scope = md.partition(
+    {"dt": "20260710"},
+    max_rows=1000,
+    timeout_seconds=30,
+)
+snapshot = inspection.sample(
+    scope=scope,
+    columns=("order_id", "status", "dt", "amount"),
+)
 
-scope = md.partition({"dt": "20260629"})
-
-md.discover_entity(warehouse, orders, scope=scope).show()
-md.discover_dimensions(warehouse, orders, columns=("status",), scope=scope).show()
-md.discover_time_dimensions(warehouse, orders, columns=("dt",), scope=scope).show()
-md.discover_measures(warehouse, orders, columns=("amount",), scope=scope).show()
+snapshot.entity(columns=("order_id",)).show()
+snapshot.dimensions(columns=("status",)).show()
+snapshot.values("status", limit=10).show()
+snapshot.time_dimensions(columns=("dt",)).show()
+snapshot.measures(columns=("amount",)).show()
 ```
 
-`md.table(...)` is the source descriptor for an internal table or view inside
-the datasource. It is not a datasource declaration.
+Read physical extent, partition state, schema, and enforceable timeout capability
+before sampling. Use `md.unpruned(max_rows=..., timeout_seconds=...)` only when a
+broad read is intentional. `LIMIT` bounds returned rows, not bytes scanned.
 
-DuckDB file sources use the datasource constructor first, then the same
-discovery loop. `md.parquet(...)`, `md.csv(...)`, and `md.json(...)` build
-DuckDB file source descriptors; they are not datasource declarations:
+Select all columns needed by the active batch before acquisition. Projections are
+local views over that snapshot and issue no query. Values stay memory-only unless
+`persist_values=True`; persistent values are bounded but plaintext project-local
+cache data, so make that privacy decision explicitly.
 
-```python
-events = md.json("data/events/*.json", format="newline_delimited")
-orders_parquet = md.parquet("data/orders/*.parquet")
-orders_csv = md.csv("data/orders/*.csv")
-
-md.inspect_table(warehouse, events).show()
-md.discover_entity(warehouse, events).show()
-```
-
-Use `md.help("table")`, `md.help("parquet")`, `md.help("csv")`, or
-`md.help("json")` for the exact static contract. The skill owns workflow only;
-parameter defaults and omit rules live in `md.help`.
-
-`md.inspect_table(...)` is the first-class schema path for entity authoring.
-Read rendered schema columns, physical profile, and partition columns before
-asking the user or using SQL diagnostics.
-
-If the table is partitioned, inspect available partition tuples with
-`md.inspect_partitions(...)`, choose an explicit `md.partition({...})`, and pass
-that scope into every `md.discover_*` call.
-
-Read discovery results through `.show()` / `.render()`. For wide tables or
-large profiles, use `.render(max_output_bytes=None)` and write the text to a
-file for chunked inspection. If discovery reports
-`discovery_column_limit_truncated`, increase the `ScanScope.max_columns`
-budget; this is separate from output byte limits.
-
-Discovery evidence informs semantic decisions, but it does not author semantic
-objects and does not replace `ms.help(...)` for constructor contracts. Treat
-the discovery result as opaque evidence text, not a field-access object.
-
-Use `md.discover_dimension_values(...)` only for current filter/value evidence.
-Do not persist bounded sampled values into semantic metadata.
-
-Use `md.raw_sql(...)` only as a diagnostic escape hatch with a required
-`reason`. It supports bounded `SELECT`/`WITH` diagnostics and read-only
-metadata diagnostics such as `SHOW`, `DESCRIBE`, `DESC`, and `EXPLAIN`. SQL
-text is provenance or diagnostics; it is not an executable semantic expression
-body.
+Uncommon formats and all semantic judgments remain agent-owned. Use
+`md.raw_sql(..., reason=...)` only as a potentially expensive diagnostic escape
+hatch, never as the normal schema or authoring route.

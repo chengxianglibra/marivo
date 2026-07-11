@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import marivo.datasource as md
 
 
-def test_datasource_help_lists_discovery_family_and_scope_helpers() -> None:
+def test_datasource_help_lists_snapshot_lifecycle_and_scope_helpers() -> None:
     text = md.help_text()
-    assert "md.discover_entity" in text
-    assert "md.discover_dimensions" in text
-    assert "md.discover_time_dimensions" in text
-    assert "md.discover_measures" in text
-    assert "md.discover_relationship" in text
-    assert "md.discover_dimension_values" in text
-    assert "md.inspect_table" in text
-    assert "md.inspect_partitions" in text
+    assert "md.inspect" in text
+    assert "SourceInspection" in text
+    assert "DiscoverySnapshot" in text
     assert "md.raw_sql" in text
     assert "md.partition" in text
     assert "md.unpruned" in text
@@ -32,34 +28,29 @@ def test_datasource_help_omits_removed_low_level_primitives() -> None:
         "ColumnInspection",
         "JoinKeyProbe",
         "md.latest_partition",
+        "md.inspect_table",
+        "md.inspect_partitions",
+        "md.discover_entity",
+        "md.discover_dimensions",
+        "md.discover_time_dimensions",
+        "md.discover_measures",
+        "md.discover_relationship",
+        "md.discover_dimension_values",
+        "md.preview",
+        "DatasourceResult",
+        "JoinSide",
+        "ScanScope",
     ):
         assert removed not in text
 
 
-def test_datasource_help_detail_for_discover_measures_teaches_evidence_boundary() -> None:
-    text = md.help_text("discover_measures")
-    assert "DatasourceRef" in text
-    assert "DatasourceResult" in text
-    assert "call `.show()` to inspect bounded evidence" in text
-    assert "does not choose authoritative units" in text
-    assert ".columns" not in text
-    assert ".profile" not in text
-    assert ".issues" not in text
-
-
-def test_datasource_help_detail_for_discover_entity_names_schema_and_partitions() -> None:
-    text = md.help_text("discover_entity")
-
-    assert "schema columns" in text
-    assert "partition columns" in text
-
-
-def test_datasource_help_detail_for_raw_sql_names_metadata_diagnostics() -> None:
+def test_datasource_help_detail_for_raw_sql_warns_about_expensive_diagnostics() -> None:
     text = md.help_text("raw_sql")
 
     assert "SHOW" in text
     assert "DESCRIBE" in text
     assert "EXPLAIN" in text
+    assert "expensive" in text.lower()
 
 
 def test_datasource_help_detail_for_connect_teaches_context_manager() -> None:
@@ -79,20 +70,14 @@ def test_datasource_help_detail_for_json_source_builder() -> None:
     assert "columns" not in text
 
 
-def test_datasource_describe_covers_discovery_symbols() -> None:
+def test_datasource_describe_covers_snapshot_lifecycle_symbols() -> None:
     for symbol, expected in (
-        ("discover_entity", "DatasourceResult"),
-        ("discover_dimensions", "DatasourceResult"),
-        ("discover_time_dimensions", "DatasourceResult"),
-        ("discover_measures", "DatasourceResult"),
-        ("discover_relationship", "DatasourceResult"),
-        ("discover_dimension_values", "DatasourceResult"),
-        ("inspect_table", "DatasourceResult"),
-        ("inspect_partitions", "DatasourceResult"),
-        ("raw_sql", "DatasourceResult"),
-        ("partition", "ScanScope"),
-        ("unpruned", "ScanScope"),
-        ("JoinSide", "DatasourceRef"),
+        ("inspect", "SourceInspection"),
+        ("SourceInspection", "sample"),
+        ("DiscoverySnapshot", "entity"),
+        ("raw_sql", "expensive"),
+        ("partition", "PartitionScope"),
+        ("unpruned", "UnprunedScope"),
         ("TableSource", "table"),
     ):
         text = md.help_text(symbol)
@@ -113,14 +98,14 @@ def test_authoring_topic_renders_datasource_stages_and_handoff() -> None:
         "md.help(",
         "md.register(",
         "md.test(",
-        "md.inspect_table(",
-        "md.inspect_partitions(",
-        "md.discover_entity",
-        "md.discover_dimensions",
-        "md.discover_time_dimensions",
-        "md.discover_measures",
-        "md.discover_relationship",
-        "md.discover_dimension_values",
+        "md.inspect(",
+        ".sample(",
+        ".entity(",
+        ".dimensions(",
+        ".time_dimensions(",
+        ".measures(",
+        ".relationships(",
+        ".values(",
         "md.raw_sql(",
         'ms.help("authoring")',
     ):
@@ -136,6 +121,67 @@ def test_authoring_topic_renders_datasource_stages_and_handoff() -> None:
     assert "prepare_" not in text
 
 
+def test_authoring_topic_teaches_the_complete_safe_snapshot_contract() -> None:
+    text = md.help_text("authoring")
+
+    for needle in (
+        'md.csv("data/orders.csv", schema={',
+        'md.json("data/events.json", schema={',
+        "physical extent",
+        "partition state",
+        "max_rows=1000",
+        "timeout_seconds=30",
+        "columns=(",
+        "persist_values=False",
+        "plaintext project-local cache",
+        "refresh=True",
+        "md.remove(",
+        "LIMIT",
+        "bytes scanned",
+    ):
+        assert needle in text, f"authoring topic missing {needle!r}"
+
+    assert "md.remove(spec.name)" in text
+    assert "md.remove(spec.ref)" not in text
+
+
+def test_snapshot_projection_help_topics_resolve() -> None:
+    for topic, expected in (
+        ("SourceInspection.sample", "scope"),
+        ("snapshot.entity", "columns"),
+        ("snapshot.dimensions", "columns"),
+        ("snapshot.values", "persist_values"),
+        ("snapshot.time_dimensions", "columns"),
+        ("snapshot.measures", "columns"),
+        ("snapshot.relationships", "other"),
+    ):
+        text = md.help_text(topic)
+        assert expected in text, f"md.help_text({topic!r}) missing {expected!r}"
+
+
+def test_snapshot_teaching_signatures_expose_every_public_guard() -> None:
+    sample = inspect.signature(md.SourceInspection.sample)
+    assert tuple(sample.parameters) == (
+        "self",
+        "scope",
+        "columns",
+        "persist_values",
+        "refresh",
+    )
+    assert sample.parameters["scope"].default is inspect.Parameter.empty
+    assert sample.parameters["columns"].default is inspect.Parameter.empty
+
+    for factory in (md.partition, md.unpruned):
+        signature = inspect.signature(factory)
+        assert signature.parameters["max_rows"].default is inspect.Parameter.empty
+        assert signature.parameters["timeout_seconds"].default is inspect.Parameter.empty
+
+    scoped = md.partition({"dt": "20260710"}, max_rows=10, timeout_seconds=5)
+    unpruned = md.unpruned(max_rows=10, timeout_seconds=5)
+    assert scoped.max_rows == unpruned.max_rows == 10
+    assert scoped.timeout_seconds == unpruned.timeout_seconds == 5
+
+
 def test_authoring_topic_distinguishes_duckdb_datasource_from_sources() -> None:
     text = md.help_text("authoring")
 
@@ -143,8 +189,8 @@ def test_authoring_topic_distinguishes_duckdb_datasource_from_sources() -> None:
         "md.duckdb(name=",
         'md.table("orders")',
         'md.parquet("data/orders/*.parquet")',
-        'md.csv("data/orders/*.csv")',
-        'md.json("data/events/*.json"',
+        'md.csv("data/orders.csv", schema={',
+        'md.json("data/events.json", schema={',
         "internal table or view",
         "DuckDB file source",
         "not a datasource declaration",
@@ -165,7 +211,7 @@ def test_clickhouse_help_example_shows_register_test_inspect() -> None:
     assert "user_env=" in text and "password_env=" in text
     assert "md.register(spec)" in text
     assert "md.test(spec.ref)" in text
-    assert "md.inspect_table(" in text
+    assert "md.inspect(" in text
     # no plaintext secrets
     assert "password=" not in text.replace("password_env=", "")
 
@@ -191,14 +237,14 @@ def test_trino_help_example_does_not_use_catalog_as_table_database() -> None:
 
     assert 'md.table("orders", database="hive")' not in text
     assert 'schema="analytics"' in text
-    assert 'md.inspect_table(spec.ref, md.table("orders")).show()' in text
+    assert 'md.inspect(spec.ref, md.table("orders")).show()' in text
 
 
 def test_duckdb_help_examples_show_internal_table_and_file_source() -> None:
     text = md.help_text("duckdb")
 
-    assert 'md.inspect_table(spec.ref, md.table("orders")).show()' in text
-    assert 'md.inspect_table(spec.ref, md.parquet("data/orders/*.parquet")).show()' in text
+    assert 'md.inspect(spec.ref, md.table("orders")).show()' in text
+    assert 'md.inspect(spec.ref, md.parquet("data/orders/*.parquet")).show()' in text
     assert "internal table or view" in text
     assert "DuckDB file source" in text
 
@@ -216,14 +262,20 @@ def test_source_builder_help_distinguishes_sources_from_datasources() -> None:
             assert needle in text, f"md.help_text({symbol!r}) missing {needle!r}"
 
 
-def test_datasource_api_docs_list_public_datasource_result() -> None:
+def test_datasource_api_docs_list_snapshot_lifecycle_only() -> None:
     text = Path("docs/api/datasource.rst").read_text(encoding="utf-8")
 
-    assert "DatasourceResult" in text
-    assert "inspect_table" in text
-    assert "inspect_partitions" in text
+    for current in (
+        "SourceInspection",
+        "DiscoverySnapshot",
+        "PartitionScope",
+        "UnprunedScope",
+        "inspect",
+        "partition",
+        "unpruned",
+    ):
+        assert current in text
     assert "latest_partition" not in text
-    assert "DiscoveryResult" not in text
     assert "DatasourceConnection" in text
     assert "Datasource vs source" in text
     assert "md.duckdb(...)" in text
@@ -244,8 +296,35 @@ def test_datasource_api_docs_list_public_datasource_result() -> None:
         "TimeColumnDiscovery",
         "PrimaryKeyCandidate",
         "FormatCandidate",
+        "DatasourceResult",
+        "DiscoveryResult",
+        "inspect_table",
+        "inspect_partitions",
+        "discover_entity",
+        "discover_dimensions",
+        "discover_time_dimensions",
+        "discover_measures",
+        "discover_relationship",
+        "discover_dimension_values",
     ):
         assert removed not in text
+
+
+def test_canonical_datasource_spec_requires_typed_csv_and_json_schemas() -> None:
+    text = Path("docs/specs/semantic/datasource-layer.md").read_text(encoding="utf-8")
+
+    assert "md.csv(path, schema=..., header=..., delimiter=...)" in text
+    assert "md.json(path, schema=..., format=...)" in text
+    assert "md.csv(path, header=..., delimiter=..., columns=...)" not in text
+    assert "md.json(path, format=...)" not in text
+    assert "`json` exposes only `path` and `format`" not in text
+
+
+def test_canonical_raw_sql_spec_bounds_rows_not_backend_work() -> None:
+    text = Path("docs/specs/semantic/datasource-layer.md").read_text(encoding="utf-8")
+
+    assert "returned rows are bounded" in text
+    assert "backend work may still be expensive or unbounded" in text
 
 
 def test_ai_context_topic_points_to_ms_constructor() -> None:

@@ -113,6 +113,21 @@ def _validate_columns(value: object, field_name: str) -> None:
         _require_non_empty_str(column, field_name)
 
 
+def _validate_schema(value: object, field_name: str) -> None:
+    if not isinstance(value, tuple):
+        raise TypeError(
+            f"{field_name} must be tuple[tuple[str, str], ...], got {type(value).__name__}."
+        )
+    if not value:
+        raise ValueError(f"{field_name} must contain at least one typed column.")
+    for entry in value:
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            raise TypeError(f"{field_name} entries must be tuple[str, str].")
+        name, type_name = entry
+        _require_non_empty_str(name, f"{field_name} column name")
+        _require_non_empty_str(type_name, f"{field_name} type name")
+
+
 @dataclass(frozen=True)
 class TableSourceIR:
     """Physical table source for a dataset."""
@@ -172,26 +187,26 @@ class CsvSourceIR:
     """Physical CSV source for an entity."""
 
     path: str
+    schema: tuple[tuple[str, str], ...]
     header: bool = True
     delimiter: str = ","
-    columns: tuple[str, ...] | None = None
     kind: Literal["csv"] = "csv"
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.path, "CsvSourceIR.path")
+        _validate_schema(self.schema, "CsvSourceIR.schema")
         if type(self.header) is not bool:
             raise TypeError(f"CsvSourceIR.header must be bool, got {type(self.header).__name__}.")
         _require_non_empty_str(self.delimiter, "CsvSourceIR.delimiter")
-        _validate_columns(self.columns, "CsvSourceIR.columns")
         _require_kind(self.kind, field_name="CsvSourceIR.kind", expected="csv")
 
     def to_dict(self) -> dict[str, object]:
         return {
             "kind": self.kind,
             "path": self.path,
+            "schema": dict(self.schema),
             "header": self.header,
             "delimiter": self.delimiter,
-            "columns": list(self.columns) if self.columns is not None else None,
         }
 
     def to_ir(self) -> CsvSourceIR:
@@ -203,16 +218,23 @@ class JsonSourceIR:
     """Physical JSON source for an entity."""
 
     path: str
+    schema: tuple[tuple[str, str], ...]
     format: Literal["auto", "newline_delimited", "array"] = "auto"
     kind: Literal["json"] = "json"
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.path, "JsonSourceIR.path")
+        _validate_schema(self.schema, "JsonSourceIR.schema")
         _require_json_format(self.format, "JsonSourceIR.format")
         _require_kind(self.kind, field_name="JsonSourceIR.kind", expected="json")
 
     def to_dict(self) -> dict[str, object]:
-        return {"kind": self.kind, "path": self.path, "format": self.format}
+        return {
+            "kind": self.kind,
+            "path": self.path,
+            "schema": dict(self.schema),
+            "format": self.format,
+        }
 
     def to_ir(self) -> JsonSourceIR:
         return self

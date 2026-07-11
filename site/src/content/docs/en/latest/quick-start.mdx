@@ -56,7 +56,7 @@ ms.domain(
 orders = ms.entity(
     name="orders",
     datasource=md.ref("datasource.warehouse"),
-    source=ms.table("orders"),
+    source=md.table("orders"),
     primary_key=["order_id"],
     ai_context=ms.ai_context(
         business_definition="One row per sales order.",
@@ -124,23 +124,22 @@ The skill walks the agent through a disciplined authoring loop, one object at a 
 
 - **Follow the ladder** — domain → entity → dimension → time dimension → measure →
   metric → relationship — so each object's dependencies exist before it.
-- **Discover, then write.** For datasource-backed objects the agent calls the
-  matching `md.discover_*` API, settles constructor values with `ms.help(...)`,
-  and writes one declaration into `models/semantic/<domain>/_domain.py`. The
-  default metric path is `md.discover_measures(...)`, author and verify the
-  measure, then declare `ms.aggregate(...)`.
-- **Verify before advancing.** After each object it runs `ms.verify_object(ref)` and
-  does not move on while that fails.
-- **Gate at closeout.** It finishes with `ms.readiness()` and resolves blockers before
-  handing the catalog to analysis.
+- **Inspect, sample once, then project.** The agent runs `md.inspect(...)`, chooses
+  `md.partition(...)` or explicit `md.unpruned(...)`, calls
+  `inspection.sample(...)` with selected columns once, and reuses local
+  `snapshot.entity`, `snapshot.dimensions`, and `snapshot.measures` evidence.
+- **Verify and preview before advancing.** After writing one Python object it reloads
+  the typed catalog object, runs `catalog.verify_object(obj)`, then
+  `catalog.preview(obj, using=snapshot)`.
+- **Gate at closeout.** It finishes with zero-query `catalog.readiness(refs=[obj])`
+  and resolves blockers before handing the object to analysis.
 
 The agent only asks you the decisions it cannot infer from the data or project docs
 (for example, whether an amount is already net of refunds). Everything it produces is
 the same Python declarations shown above — reviewable in git like any other code.
 
-Discover the catalog before analysis. For datasource-backed authoring, the
-discovery-first sequence gathers bounded evidence, then authors one object at a
-time:
+For datasource-backed authoring, acquire one explicitly scoped snapshot and
+reuse its query-free projections before authoring one object:
 
 ```python
 import marivo.datasource as md
@@ -149,21 +148,29 @@ import marivo.semantic as ms
 warehouse = md.ref("datasource.warehouse")
 orders_source = md.table("orders")
 
-md.inspect_table(warehouse, orders_source).show()
-md.inspect_partitions(warehouse, orders_source).show()
-
-scope = md.partition({"dt": "20260629"})
-
-md.discover_entity(warehouse, orders_source, scope=scope).show()
+inspection = md.inspect(warehouse, orders_source)
+inspection.show()
+inspection.partitions().show()
+scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
+snapshot = inspection.sample(
+    scope=scope,
+    columns=("order_id", "region", "created_at", "amount"),
+)
+snapshot.entity(columns=("order_id",)).show()
+snapshot.dimensions(columns=("region",)).show()
+snapshot.measures(columns=("amount",)).show()
 ms.help("entity")
 ```
 
-`md.inspect_table(...).show()` also surfaces any low-cost physical profile the
-backend exposes, such as estimated rows or table size. Missing profile metadata
-does not block discovery.
+Inspection exposes physical extent, partition state, schema, and execution
+capabilities before the read. `LIMIT` bounds returned rows, not bytes scanned;
+use `md.unpruned(max_rows=..., timeout_seconds=...)` only for an intentional broad
+read. Values are memory-only unless `persist_values=True`, which writes bounded
+value evidence to plaintext project-local cache.
 
-Use discovery evidence and the `ms.help("entity")` contract to author exactly
-one object, then run `ms.verify_object(ref)` before advancing.
+Uncommon formats and semantic judgments remain agent-owned. Use snapshot evidence
+and `ms.help("entity")` to author exactly one object, then load its typed catalog
+object, verify statically, preview with `using=snapshot`, and run readiness.
 
 Load the catalog and check readiness:
 
@@ -172,8 +179,12 @@ import marivo.semantic as ms
 
 catalog = ms.load()
 catalog.domains.show()
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+revenue = orders.metrics.get("revenue")
+region = orders.dimensions.get("region")
 
-report = catalog.readiness()
+report = catalog.readiness(refs=[revenue, region])
 if report.status == "blocked":
     report.show()
 ```
@@ -287,6 +298,6 @@ A typical `.gitignore`:
 
 ### Gate before handoff
 
-Run `ms.readiness()` after loading and resolve blockers before any analysis session.
-A project can load while readiness is still blocked, so never pass a blocked catalog
-to an agent. See [Readiness](/en/latest/concepts/readiness/).
+Load typed catalog objects and run `catalog.readiness(refs=[...])` before any
+analysis session. A project can load while readiness is still blocked, so never
+hand blocked objects to an agent. See [Readiness](/en/latest/concepts/readiness/).

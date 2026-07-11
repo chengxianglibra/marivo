@@ -43,7 +43,7 @@ _DOMAIN_PY = textwrap.dedent("""\
 _OBJECTS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):
@@ -505,6 +505,61 @@ def test_active_docs_do_not_teach_legacy_semantic_catalog(root: str) -> None:
     }
 
     assert offending == {}
+
+
+def test_active_authoring_surfaces_do_not_name_removed_runtime_routes() -> None:
+    roots = (
+        "agent-guide.md",
+        "marivo/datasource/help.py",
+        "marivo/semantic/help.py",
+        "marivo/skills/marivo-semantic",
+        "docs/specs",
+        "docs/api/datasource.rst",
+        "docs/api/semantic.rst",
+        "site/src/content/docs/en/latest",
+        "site/src/content/docs/zh-cn/latest",
+    )
+    removed = (
+        "md.inspect_table",
+        "md.inspect_partitions",
+        "md.discover_entity",
+        "md.discover_dimensions",
+        "md.discover_time_dimensions",
+        "md.discover_measures",
+        "md.discover_relationship",
+        "md.discover_dimension_values",
+        "md.preview(",
+        "ms.table(",
+        "ms.parquet(",
+        "ms.csv(",
+        "ms.json(",
+        "ScanScope",
+    )
+    offending: dict[str, list[str]] = {}
+    for root in roots:
+        path = REPO_ROOT / root
+        files = (
+            [path]
+            if path.is_file()
+            else [item for item in path.rglob("*") if item.suffix in {".md", ".mdx", ".py", ".rst"}]
+        )
+        for file in files:
+            hits = [token for token in removed if token in file.read_text()]
+            if hits:
+                offending[str(file.relative_to(REPO_ROOT))] = hits
+
+    assert offending == {}
+
+
+def test_canonical_authoring_loop_uses_snapshot_catalog_gates_only() -> None:
+    text = _read("docs/specs/semantic/authoring-workflow.md")
+
+    assert "snapshot.entity" in text
+    assert "catalog.verify_object(obj)" in text
+    assert "catalog.preview(obj, using=snapshot)" in text
+    assert "catalog.readiness(refs=[obj])" in text
+    assert "Run `ms.verify_object(ref)`" not in text
+    assert "matching bounded discovery call" not in text
 
 
 def test_active_analysis_guidance_teaches_single_show_evidence_layering() -> None:

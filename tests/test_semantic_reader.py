@@ -15,7 +15,7 @@ _OBJECTS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
 
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.metric(
         entities=[orders],

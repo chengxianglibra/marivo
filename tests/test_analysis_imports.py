@@ -133,10 +133,14 @@ def test_analysis_exports_public_surface_by_layer() -> None:
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     import marivo.analysis as mv
     import marivo.datasource as md
+    from marivo.datasource.metadata import TableMetadata
+    from marivo.preview import PreviewResult
 
     assert mv.evidence.Subject is not None
-    assert md.TableMetadata is not None
-    assert md.PreviewResult is not None
+    assert TableMetadata is not None
+    assert PreviewResult is not None
+    assert not hasattr(md, "TableMetadata")
+    assert not hasattr(md, "PreviewResult")
     assert mv.errors.PromotionFailedError is not None
     assert mv.errors.DiscoverInsufficientDataError is not None
 

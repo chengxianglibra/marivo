@@ -6,7 +6,7 @@ SQL view detection, and cross-datasource enforcement.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -18,6 +18,7 @@ from ibis.expr.operations.relations import SQLQueryResult
 from marivo.datasource.backends import apply_json_http_settings
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceConfigError
+from marivo.datasource.source import AuthoringScope, PartitionScope
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
     CsvSourceIR,
@@ -64,10 +65,12 @@ class Materializer:
         backend_factory: Callable[[str], IbisBackend],
         *,
         sample_size: int | None = None,
+        entity_scopes: Mapping[str, AuthoringScope] | None = None,
     ) -> None:
         self._project = project
         self._backend_factory = backend_factory
         self._sample_size = sample_size
+        self._entity_scopes = dict(entity_scopes or {})
         self._backend_by_datasource: dict[str, IbisBackend] = {}
         self._entity_cache: dict[str, ibis.Table] = {}
         self._dimension_cache: dict[str, ir.Value] = {}
@@ -137,6 +140,13 @@ class Materializer:
                 refs=(semantic_id,),
             )
 
+        scope = self._entity_scopes.get(semantic_id)
+        if scope is not None:
+            if isinstance(scope, PartitionScope):
+                for column, value in scope.values:
+                    table = table.filter(table[column] == value)
+            table = table.limit(scope.max_rows)
+
         # Apply pre-aggregate row limit when sample_size is set
         if self._sample_size is not None:
             table = table.limit(self._sample_size)
@@ -198,8 +208,6 @@ class Materializer:
                 csv_kwargs["header"] = source.header
             if source.delimiter != ",":
                 csv_kwargs["delimiter"] = source.delimiter
-            if source.columns is not None:
-                csv_kwargs["columns"] = list(source.columns)
             return reader(source.path, **csv_kwargs)
 
         if isinstance(source, JsonSourceIR):

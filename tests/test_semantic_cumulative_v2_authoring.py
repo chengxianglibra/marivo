@@ -43,7 +43,7 @@ def _build_event_time_axis() -> TimeDimensionRef:
     events = ms.entity(
         name="events",
         datasource=md.ref("datasource.warehouse"),
-        source=ms.table("events"),
+        source=md.table("events"),
     )
 
     @ms.time_dimension(entity=events, granularity="day")
@@ -251,7 +251,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 wh = md.ref("datasource.wh")
-orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="created_at", granularity="day")
 amount = ms.measure_column(

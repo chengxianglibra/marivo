@@ -23,6 +23,7 @@ from unittest.mock import patch
 import ibis
 import pytest
 
+from marivo.datasource.source import PartitionScope
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
@@ -115,7 +116,7 @@ _DOMAIN_PY = textwrap.dedent("""\
 _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def amount(table):
@@ -129,7 +130,7 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
 _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
     amount = ms.measure_column(
         name="amount",
         entity=orders,
@@ -156,7 +157,7 @@ _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
 _SQL_VIEW_DATASET_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    @ms.entity(name="orders_view", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    @ms.entity(name="orders_view", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
     def orders_view(backend):
         return backend.sql("SELECT * FROM orders")
 """)
@@ -200,6 +201,32 @@ def test_dataset_materialize_returns_rows(semantic_project_factory, backend_fact
     assert list(df["amount"]) == [100.0, 200.0]
 
 
+def test_dataset_materialize_applies_authoring_scope_at_physical_source(
+    semantic_project_factory, backend_factory
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": _DATASET_AND_METRIC_PY,
+        }
+    )
+    materializer = Materializer(
+        project,
+        backend_factory,
+        entity_scopes={
+            "sales.orders": PartitionScope(
+                values=(("region", "EU"),),
+                max_rows=1,
+                timeout_seconds=30,
+            )
+        },
+    )
+
+    table = materializer.entity("sales.orders")
+
+    assert table.to_pandas()["amount"].tolist() == [200.0]
+
+
 def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
@@ -209,7 +236,7 @@ def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
                 "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource=md.ref('datasource.warehouse'),\n"
-                "    source=ms.table('orders', database='sales_mart'),\n"
+                "    source=md.table('orders', database='sales_mart'),\n"
                 ")\n"
             ),
         }
@@ -235,7 +262,7 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
                 "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource=md.ref('datasource.warehouse'),\n"
-                "    source=ms.parquet('/data/orders/*.parquet', hive_partitioning=True),\n"
+                "    source=md.parquet('/data/orders/*.parquet', hive_partitioning=True),\n"
                 ")\n"
             ),
         }
@@ -261,7 +288,7 @@ def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -
                 "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource=md.ref('datasource.warehouse'),\n"
-                "    source=ms.csv('/data/orders.csv'),\n"
+                "    source=md.csv('/data/orders.csv', schema={'order_id': 'string'}),\n"
                 ")\n"
             ),
         }
@@ -286,7 +313,7 @@ def test_dataset_json_source_requires_backend_reader(semantic_project_factory) -
                 "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource=md.ref('datasource.warehouse'),\n"
-                "    source=ms.json('/data/orders.json'),\n"
+                "    source=md.json('/data/orders.json', schema={'order_id': 'string'}),\n"
                 ")\n"
             ),
         }
@@ -355,7 +382,7 @@ def test_trino_percentile_aggregate_uses_approx_quantile(semantic_project_factor
                 "queries = ms.entity(\n"
                 "    name='queries',\n"
                 "    datasource=md.ref('datasource.warehouse'),\n"
-                "    source=ms.table('query_info'),\n"
+                "    source=md.table('query_info'),\n"
                 ")\n"
                 "elapsed_time = ms.measure_column(\n"
                 "    name='elapsed_time',\n"
@@ -398,7 +425,7 @@ def test_duckdb_percentile_aggregate_keeps_exact_quantile(
                 "orders = ms.entity(\n"
                 "    name='orders',\n"
                 "    datasource=md.ref('datasource.warehouse'),\n"
-                "    source=ms.table('orders'),\n"
+                "    source=md.table('orders'),\n"
                 ")\n"
                 "amount = ms.measure_column(\n"
                 "    name='amount',\n"
@@ -462,7 +489,7 @@ def test_column_helper_refs_are_callable_in_metric_bodies(
     assert metric.to_pandas() == pytest.approx(300.0)
 
 
-def test_column_helper_catalog_details_and_preview(
+def test_column_helper_catalog_details_and_preview_requires_snapshot(
     semantic_project_factory,
     backend_factory,
 ) -> None:
@@ -480,10 +507,8 @@ def test_column_helper_catalog_details_and_preview(
     assert details.ref.id == "sales.orders.amount"
     assert details.unit == "USD"
 
-    with _patch_connection_service(project, backend_factory):
-        preview = catalog.preview(catalog.get("measure.sales.orders.amount").ref, limit=2)
-
-    assert preview.returned_row_count == 2
+    with _patch_connection_service(project, backend_factory), pytest.raises(TypeError):
+        catalog.preview(catalog.get("measure.sales.orders.amount").ref, limit=2)  # type: ignore[call-arg]
 
 
 def test_materializer_dimension_on_uses_supplied_table(
@@ -550,7 +575,7 @@ def test_materializer_metric_on_rejects_derived_metric(
             "sales/_domain.py": _DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', )\n"
                 "def revenue(table):\n"
                 "    return table.amount.sum()\n"
@@ -741,9 +766,9 @@ def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend)
     cross_ds_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders_a = ms.entity(name="orders_a", datasource=md.ref("datasource.warehouse1"), source=ms.table("orders"))
+        orders_a = ms.entity(name="orders_a", datasource=md.ref("datasource.warehouse1"), source=md.table("orders"))
 
-        orders_b = ms.entity(name="orders_b", datasource=md.ref("datasource.warehouse2"), source=ms.table("orders"))
+        orders_b = ms.entity(name="orders_b", datasource=md.ref("datasource.warehouse2"), source=md.table("orders"))
 
         @ms.metric(entities=[orders_a, orders_b], root_entity=orders_a, additivity="additive", )
         def cross_metric(t1, t2):
@@ -839,7 +864,7 @@ def test_derived_metric_ratio_materialize(semantic_project_factory, backend_fact
     derived_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(entities=[orders], additivity='additive', )
         def revenue(table):
@@ -873,7 +898,7 @@ def test_derived_metric_has_no_materializer_sidecar_entry(
     derived_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(entities=[orders], additivity='additive', )
         def revenue(table):
@@ -908,7 +933,7 @@ def test_derived_metric_weighted_average(semantic_project_factory, backend_facto
     derived_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(entities=[orders], additivity='additive', )
         def revenue(table):
@@ -945,7 +970,7 @@ def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> 
     derived_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(entities=[orders], additivity='additive', )
         def revenue(table):
@@ -1080,9 +1105,9 @@ def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_b
     multi_ds_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
-        orders_alias = ms.entity(name="orders_alias", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders_alias = ms.entity(name="orders_alias", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.metric(entities=[orders, orders_alias], root_entity=orders, additivity="additive", )
         def combined(t1, t2):
@@ -1199,7 +1224,7 @@ def test_metric_callable_name_error_adds_import_hint(
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum() + ibis.literal(0)\n"

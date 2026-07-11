@@ -548,7 +548,7 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
         "    name='bandwidth_samples',\n"
         "    datasource=md.ref('datasource.warehouse'),\n"
         "    primary_key=['sample_id'],\n"
-        "    source=ms.table('bandwidth_samples'),\n"
+        "    source=md.table('bandwidth_samples'),\n"
         ")\n"
         "\n"
         "@ms.time_dimension(entity=bandwidth_samples, granularity='day')\n"

@@ -61,10 +61,10 @@ entity is registered.
   small Python file under `models/datasources/` that can be copied alongside
   `models/semantic/` into another analysis project. It contains only literal
   connection fields and env-var *names* — never resolved secret values.
-- **Discovery is evidence, not authorship.** `md.discover_*` returns bounded
-  `DatasourceResult` evidence to read with `.show()`. It profiles columns and
-  probes joins; it does not author semantic objects, infer business meaning, or
-  carry judgment targets.
+- **Snapshot evidence is not authorship.** `md.inspect(...)` exposes physical
+  facts before data access; one explicitly scoped sample feeds local evidence
+  projections. Those projections do not author objects, infer business meaning,
+  or carry judgment targets.
 - **Fail closed.** Missing env vars, unreachable backends, dialect/`backend_type`
   mismatch, and unsafe partition scans raise structured errors that state what
   was expected, what was received, and the concrete next step.
@@ -126,7 +126,7 @@ Semantic declarations reference a datasource by kind-qualified id:
 
 ```python
 warehouse = md.ref("datasource.warehouse")   # -> DatasourceRef
-orders = ms.entity(name="orders", datasource=warehouse, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
 
 `DatasourceRef` accepts a short name or a canonical `datasource.<name>` id and
@@ -171,15 +171,17 @@ discovery, and `ms.entity(source=...)`.
 | Constructor | IR | Meaning |
 |---|---|---|
 | `md.table(name, database=...)` | `TableSourceIR` | An internal table or view inside the datasource (any backend). |
-| `md.parquet(path, hive_partitioning=..., columns=...)` | `ParquetSourceIR` | A DuckDB file source over parquet. |
-| `md.csv(path, header=..., delimiter=..., columns=...)` | `CsvSourceIR` | A DuckDB file source over CSV. |
-| `md.json(path, format=...)` | `JsonSourceIR` | A DuckDB file source over JSON (local path, glob, or `http(s)://` URL). |
+| `md.parquet(path, hive_partitioning=...)` | `ParquetSourceIR` | A self-describing DuckDB file source over Parquet. |
+| `md.csv(path, schema=..., header=..., delimiter=...)` | `CsvSourceIR` | A DuckDB CSV file source with required typed physical schema. |
+| `md.json(path, schema=..., format=...)` | `JsonSourceIR` | A DuckDB JSON file source with required typed physical schema. |
 
 `TableSource` is the public union of these four IRs. File sources
 (`parquet`/`csv`/`json`) are read by the DuckDB engine, so they attach to a
-DuckDB datasource ref; `md.table(...)` works against any backend. Column pruning
-for file sources stays at the entity/dimension/measure layer — `json` exposes
-only `path` and `format`.
+DuckDB datasource ref; `md.table(...)` works against any backend. CSV and JSON
+must carry a non-empty backend-independent typed `schema=` mapping so metadata
+inspection never opens user data merely to infer types. Their paths may be local
+files, globs, or DuckDB-supported `http(s)://` URLs; JSON also declares its
+physical `format=`.
 
 ## Registration and state storage
 
@@ -199,58 +201,47 @@ md.test(spec.ref).show()          # validated live round trip
 - `md.connect(name)` opens a live `DatasourceConnection`; `md.test(ref)` returns
   a `DatasourceTestResult` and triggers post-validation secret caching.
 
-## Inspection and discovery
+## Inspection and evidence snapshots
 
-Inspection reports physical facts; discovery shapes those facts into
-semantic-candidate evidence. Both are bounded and read-only, and every result
-follows the shared no-stdout contract (`.show()` / `.render()`; see
-[loading-validation-introspection.md](loading-validation-introspection.md)).
+`md.inspect(datasource, source)` is metadata-only. It exposes schema, physical
+extent, partition state, and enforceable execution capabilities before a user-data
+read. `inspection.partitions()` is also metadata-only.
 
-### Scan scopes
-
-Discovery and inspection run under a `ScanScope` with safe defaults (≤ 1000
-rows, ≤ 100 columns, 30-second timeout):
+CSV and JSON descriptors require typed `schema=` mappings so inspection never
+opens data merely to infer types. Tables use catalog schema and Parquet uses
+footer schema.
 
 ```python
-scope = md.partition({"dt": "20260625"}, max_rows=1000)   # explicit partition
-scope = md.unpruned(max_rows=1000)                         # deliberately broad
+inspection = md.inspect(warehouse, md.table("orders"))
+inspection.show()
+inspection.partitions().show()
+
+scope = md.partition(
+    {"dt": "20260710"}, max_rows=1000, timeout_seconds=30
+)
+snapshot = inspection.sample(
+    scope=scope,
+    columns=("order_id", "status", "dt", "amount"),
+)
+
+snapshot.entity(columns=("order_id",)).show()
+snapshot.dimensions(columns=("status",)).show()
+snapshot.values("status", limit=10).show()
+snapshot.time_dimensions(columns=("dt",)).show()
+snapshot.measures(columns=("amount",)).show()
 ```
 
-Discovery **refuses to scan a partitioned table without an explicit partition
-filter**, and refuses tables whose partition values are transform-encoded and
-cannot be expressed safely. The error names the partition columns and points to
-`md.inspect_partitions(...)`. `md.unpruned(...)` records a
-`discovery_unpruned_scan` info signal so the broadened scan is visible.
+Scope and explicit columns are required. `md.unpruned(max_rows=...,
+timeout_seconds=...)` is the deliberate broad-read escape within acquisition.
+Both guards are positive and enforceable; unsupported timeout blocks before
+execution. `LIMIT` bounds returned rows, not bytes scanned, and a partition may
+still be large.
 
-### Physical inspection
-
-```python
-md.inspect_table(warehouse, md.table("orders")).show()       # schema, comments, nullability, partitions
-md.inspect_partitions(warehouse, md.table("orders")).show()  # partition values
-```
-
-`md.inspect_table(...)` returns `TableMetadata`; `md.inspect_partitions(...)`
-enumerates concrete partition values from backend metadata.
-
-### Semantic-shaped discovery
-
-Each call returns a bounded `DatasourceResult` (evidence only — read it with
-`.show()`, do not treat internal fields as a stable DTO):
-
-```python
-md.discover_entity(warehouse, md.table("orders")).show()
-md.discover_dimensions(warehouse, md.table("orders")).show()
-md.discover_time_dimensions(warehouse, md.table("orders")).show()
-md.discover_measures(warehouse, md.table("orders")).show()
-md.discover_relationship(left, right).show()          # JoinSide, JoinSide
-md.discover_dimension_values(warehouse, md.table("orders"), "region").show()
-```
-
-Behind these, discovery profiles columns (type family, null/distinct ratios,
-top values, string lengths) and probes join keys (type compatibility, match
-rate, fan-out, cardinality estimate) to surface signals and issues. It never
-names a business dimension or metric — it reports evidence and leaves the
-selection to semantic authoring.
+Snapshot projections are local, column-independent views and issue no query.
+Values default to memory-only. `persist_values=True` stores only bounded value
+evidence in plaintext project-local cache and therefore requires an explicit
+privacy judgment. Uncommon formats, keys, timezones, aggregation, units,
+additivity, relationship cardinality, and business meaning remain agent-owned.
 
 ### Raw SQL diagnostics
 
@@ -258,9 +249,9 @@ selection to semantic authoring.
 md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="verify pruning").show()
 ```
 
-`md.raw_sql(...)` is a bounded, read-only escape hatch for diagnostics that
-discovery cannot express — limited to `SHOW`/`DESCRIBE`/`EXPLAIN` and small
-probe `SELECT`s. It is a last resort, not a general query path.
+`md.raw_sql(...)` is a read-only diagnostic escape hatch for checks that
+inspection and snapshots cannot express; returned rows are bounded, but backend work may still be expensive or unbounded for `SHOW`/`DESCRIBE`/`EXPLAIN` and
+probe `SELECT` statements. It is a last resort, not a general query path.
 
 ## Handoff to semantics
 
@@ -272,8 +263,13 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 warehouse = md.ref("datasource.warehouse")
-md.discover_entity(warehouse, md.table("orders")).show()   # read evidence
-orders = ms.entity(name="orders", datasource=warehouse, source=ms.table("orders"))
+inspection = md.inspect(warehouse, md.table("orders"))
+snapshot = inspection.sample(
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+    columns=("order_id",),
+)
+snapshot.entity(columns=("order_id",)).show()
+orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
 
 Physical facts remain datasource-owned; semantic refs remain semantic-owned.

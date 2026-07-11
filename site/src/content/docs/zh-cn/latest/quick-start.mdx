@@ -55,7 +55,7 @@ ms.domain(
 orders = ms.entity(
     name="orders",
     datasource=md.ref("datasource.warehouse"),
-    source=ms.table("orders"),
+    source=md.table("orders"),
     primary_key=["order_id"],
     ai_context=ms.ai_context(
         business_definition="One row per sales order.",
@@ -122,18 +122,19 @@ revenue = ms.aggregate(
 
 - **遵循 ladder** —— domain → entity → dimension → time dimension → measure →
   metric → relationship —— 让每个对象的依赖先于它存在。
-- **先 discovery，再编写。** 对 datasource-backed 对象，agent 先调用匹配的
-  `md.discover_*` API，再结合 `ms.help(...)` 确定 constructor values，并把一个
-  declaration 写入 `models/semantic/<domain>/_domain.py`。默认 metric 路径是
-  `md.discover_measures(...)`，author 并验证 measure，再声明 `ms.aggregate(...)`。
-- **验证后再前进。** 每写完一个对象就运行 `ms.verify_object(ref)`，在它失败时不会继续。
-- **收尾时做就绪检查。** 最后运行 `ms.readiness()`，在把 catalog 交给分析之前解决 blockers。
+- **先 inspect，只 sample 一次，再投影。** Agent 运行 `md.inspect(...)`，选择
+  `md.partition(...)` 或显式 `md.unpruned(...)`，用明确 columns 调用一次
+  `inspection.sample(...)`，再复用 `snapshot.entity`、`snapshot.dimensions` 和
+  `snapshot.measures` 的本地证据。
+- **验证并 preview 后再前进。** 写完一个 Python 对象后，重新加载 typed catalog object，
+  运行 `catalog.verify_object(obj)`，再运行 `catalog.preview(obj, using=snapshot)`。
+- **收尾时做就绪检查。** 最后运行零查询的 `catalog.readiness(refs=[obj])`，在交给分析前解决 blockers。
 
 Agent 只会就那些无法从数据或 project 文档推断的决策征询你，例如某个金额是否已经扣除退款。
 它产出的就是上面展示的 Python declarations，可以像其他代码一样在 git 中评审。
 
-分析前先探索 catalog。对 datasource-backed authoring，discovery-first 流程先收集有界证据，
-再每次 author 一个对象：
+对 datasource-backed authoring，先获取一个显式 scoped snapshot，复用其零查询投影，
+再 author 一个对象：
 
 ```python
 import marivo.datasource as md
@@ -142,20 +143,28 @@ import marivo.semantic as ms
 warehouse = md.ref("datasource.warehouse")
 orders_source = md.table("orders")
 
-md.inspect_table(warehouse, orders_source).show()
-md.inspect_partitions(warehouse, orders_source).show()
-
-scope = md.partition({"dt": "20260629"})
-
-md.discover_entity(warehouse, orders_source, scope=scope).show()
+inspection = md.inspect(warehouse, orders_source)
+inspection.show()
+inspection.partitions().show()
+scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
+snapshot = inspection.sample(
+    scope=scope,
+    columns=("order_id", "region", "created_at", "amount"),
+)
+snapshot.entity(columns=("order_id",)).show()
+snapshot.dimensions(columns=("region",)).show()
+snapshot.measures(columns=("amount",)).show()
 ms.help("entity")
 ```
 
-`md.inspect_table(...).show()` 也会展示 backend 能低成本提供的 physical profile，
-例如估算行数或表大小。缺失这类 profile metadata 不会阻断 discovery。
+Inspection 会在读取前展示 physical extent、partition state、schema 与 execution
+capabilities。`LIMIT` 只限制返回行数，不保证 bytes scanned；只有明确接受 broad read 时
+才使用 `md.unpruned(max_rows=..., timeout_seconds=...)`。除非设置
+`persist_values=True`，values 只留在内存；持久化会把有界 value evidence 明文写入 project-local cache。
 
-结合 discovery 证据和 `ms.help("entity")` contract，一次只 author 一个对象，然后运行
-`ms.verify_object(ref)`，通过后再继续。
+Uncommon formats 和 semantic judgments 仍由 agent 负责。结合 snapshot evidence 和
+`ms.help("entity")`，一次只 author 一个对象，然后加载 typed catalog object，静态验证，
+用 `using=snapshot` preview，再运行 readiness。
 
 加载 catalog 并检查就绪状态：
 
@@ -164,8 +173,12 @@ import marivo.semantic as ms
 
 catalog = ms.load()
 catalog.domains.show()
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+revenue = orders.metrics.get("revenue")
+region = orders.dimensions.get("region")
 
-report = catalog.readiness()
+report = catalog.readiness(refs=[revenue, region])
 if report.status == "blocked":
     report.show()
 ```
@@ -270,6 +283,7 @@ query 输出列名仍是普通字符串。跨后续脚本时，用 `session.fram
 
 ### 交接前先做就绪检查
 
-加载后运行 `ms.readiness()`，并在任何分析 session 之前解决 blockers。project 可以在 readiness
-仍为 blocked 时成功加载，因此不要把 blocked catalog 交给 agent。参见
+加载 typed catalog objects 后运行 `catalog.readiness(refs=[...])`，并在任何 analysis
+session 之前解决 blockers。project 可以在 readiness 仍为 blocked 时成功加载，因此不要把
+blocked objects 交给 agent。参见
 [就绪检查](/zh-cn/latest/concepts/readiness/)。

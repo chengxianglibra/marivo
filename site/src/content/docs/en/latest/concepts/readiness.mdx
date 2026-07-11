@@ -3,9 +3,9 @@ title: Readiness
 description: The structural gate that keeps incomplete semantic objects out of analysis.
 ---
 
-Readiness is the required gate between authoring and analysis. `ms.readiness()`
-checks whether the semantic objects an agent is about to use are complete and
-well-formed enough to hand off, and returns a `ReadinessReport`.
+Readiness is the zero-query gate between authoring and analysis. It consumes
+fresh static verification and scoped runtime-preview evidence for the dependency
+closure and returns a `ReadinessReport`.
 
 A new project can `ms.load()` successfully while readiness is still **blocked** —
 loading only parses declarations. Readiness keeps agents from reasoning over
@@ -15,16 +15,19 @@ session.
 ```python
 import marivo.semantic as ms
 
-ms.load()
-report = ms.readiness()                  # checks every loaded object
+catalog = ms.load()
+revenue = catalog.get("metric.sales.revenue")
+catalog.verify_object(revenue).show()
+catalog.preview(revenue, using=snapshot).show()
+report = catalog.readiness(refs=[revenue])
 if report.status == "blocked":
     report.show()                        # bounded card: each blocker + its next step
     raise SystemExit("resolve readiness blockers before analysis")
 ```
 
-## Structural, not runtime
+## Zero-query closeout after scoped runtime evidence
 
-`ms.readiness()` is a **pure in-memory check**. It never opens a datasource
+`catalog.readiness(refs=[...])` is a **pure in-memory check**. It never opens a datasource
 connection — it reasons about the declarations themselves: missing definitions,
 unknown refs, fan-out across datasources, fragile string references, and SQL
 parity status. It does not inspect GitHub/GitLab approval state and does not
@@ -34,20 +37,21 @@ Backend-touching validation is separate and runs on demand:
 
 | Check | What it does | Touches backend? |
 | --- | --- | --- |
-| `ms.readiness()` | Structural completeness gate | No |
-| `catalog.preview(ref)` | Executes a small query to sample real rows | Yes |
-| `ms.parity_check(ref)` | Runs a metric against its `provenance` SQL and compares | Yes |
+| `catalog.verify_object(obj)` | Static object validation | No |
+| `catalog.preview(obj, using=snapshot)` | Executes the scoped runtime smoke check and records metadata, never rows | Yes |
+| `catalog.readiness(refs=[revenue])` | Consumes fresh verification/preview evidence | No |
+| `ms.parity_check(ref)` | Optional, potentially unbounded metric/provenance SQL diagnostic | Yes |
 | `ms.richness()` | Advisory coverage/depth report; never blocks | No |
 
 :::caution[Readiness does not prove the query runs]
-A `ready` report means the semantics are structurally sound, not that the warehouse
-is reachable or the numbers are correct. Use `catalog.preview(...)` and
-`ms.parity_check(...)` for that.
+A `ready` report means the object passed static validation and has fresh matching
+scoped preview evidence. It does not prove every future analysis query or full-source
+truth. Parity is never required for readiness.
 :::
 
 ## The report
 
-`ms.readiness()` returns a frozen `ReadinessReport`:
+`catalog.readiness(refs=[...])` returns a frozen `ReadinessReport`:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -93,12 +97,13 @@ readiness status.
 
 ## Scope the check
 
-By default `ms.readiness()` checks every loaded object. Pass `refs=` to scope it to
-just what an analysis needs — Marivo resolves the full dependency closure (the
+Pass typed catalog objects through `refs=` to scope readiness to exactly what an
+analysis needs — Marivo resolves the full dependency closure (the
 metric, its measures, dimensions, entities, and datasources) for you:
 
 ```python
-report = ms.readiness(refs=["sales.revenue"])
+revenue = catalog.get("metric.sales.revenue")
+report = catalog.readiness(refs=[revenue])
 for issue in report.blockers:
     print(issue.kind, issue.refs, "→", issue.suggested_action)
 ```

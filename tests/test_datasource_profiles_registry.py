@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import ibis
 import pytest
 
 import marivo.datasource as md
 from marivo.analysis.errors import (
     DatasourceFieldInvalidError,
     DatasourceMissingError,
-    DatasourcePreviewError,
 )
 from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource.authoring import (
@@ -22,7 +20,6 @@ from marivo.datasource.authoring import (
     PostgresSpec,
     TrinoSpec,
 )
-from marivo.preview import PreviewResult
 
 
 @pytest.fixture
@@ -317,97 +314,3 @@ def test_remove_returns_bool(project_root: Path) -> None:
     md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
     assert md.remove("wh") is True
     assert md.remove("wh") is False
-
-
-def _create_preview_duckdb(path: Path) -> None:
-    con = ibis.duckdb.connect(str(path))
-    con.con.execute(
-        "CREATE TABLE orders ("
-        "order_id INT, amount DOUBLE, region TEXT, customer_email TEXT, created_at TIMESTAMP)"
-    )
-    con.con.execute(
-        "INSERT INTO orders VALUES "
-        "(1, 100.0, 'US', 'alice@example.com', '2026-01-01'), "
-        "(2, 200.0, 'EU', 'bob@example.com', '2026-01-02'), "
-        "(3, 300.0, 'US', 'cara@example.com', '2026-01-03')"
-    )
-    con.disconnect()
-
-
-def test_preview_table_returns_bounded_result(project_root: Path) -> None:
-    db_path = project_root / "warehouse.duckdb"
-    _create_preview_duckdb(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
-
-    preview = md.preview(
-        "wh",
-        table="orders",
-        columns=["order_id", "amount"],
-        limit=2,
-    )
-
-    assert isinstance(preview, PreviewResult)
-    assert preview.kind == "datasource_table"
-    assert preview.ref == "wh.orders"
-    assert preview.columns == ("order_id", "amount")
-    assert preview.types == {"order_id": "int32", "amount": "float64"}
-    assert preview.rows == ({"order_id": 1, "amount": 100.0}, {"order_id": 2, "amount": 200.0})
-    assert preview.requested_limit == 2
-    assert preview.returned_row_count == 2
-    assert preview.is_truncated is True
-
-
-def test_preview_table_supports_structured_filter_and_order(project_root: Path) -> None:
-    db_path = project_root / "warehouse.duckdb"
-    _create_preview_duckdb(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
-
-    preview = md.preview(
-        "wh",
-        table="orders",
-        columns=["order_id", "region", "amount"],
-        where=[{"column": "region", "op": "=", "value": "US"}],
-        order_by=[{"column": "amount", "direction": "desc"}],
-        limit=10,
-    )
-
-    assert preview.sample_policy.method == "ordered_limit"
-    assert preview.sample_policy.filters == ({"column": "region", "op": "=", "value": "US"},)
-    assert preview.sample_policy.order_by == ("amount desc",)
-    assert preview.rows == (
-        {"order_id": 3, "region": "US", "amount": 300.0},
-        {"order_id": 1, "region": "US", "amount": 100.0},
-    )
-    assert preview.is_truncated is False
-
-
-def test_preview_table_returns_values_without_redaction(project_root: Path) -> None:
-    db_path = project_root / "warehouse.duckdb"
-    _create_preview_duckdb(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
-
-    preview = md.preview(
-        "wh",
-        table="orders",
-        columns=["order_id", "customer_email"],
-        limit=1,
-    )
-
-    assert preview.rows == ({"order_id": 1, "customer_email": "alice@example.com"},)
-    assert [warning.kind for warning in preview.warnings] == []
-
-
-def test_preview_table_rejects_raw_sql_filter(project_root: Path) -> None:
-    db_path = project_root / "warehouse.duckdb"
-    _create_preview_duckdb(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
-
-    with pytest.raises(DatasourcePreviewError) as exc_info:
-        md.preview("wh", table="orders", where=["region = 'US'"])  # type: ignore[list-item]
-
-    assert exc_info.value.details["field"] == "where"
-    assert "structured preview filter" in str(exc_info.value)
-
-
-def test_preview_exports_from_datasources_namespace() -> None:
-    assert md.PreviewResult is PreviewResult

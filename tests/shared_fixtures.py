@@ -21,6 +21,7 @@ import ibis
 # copies rebuild automatically.
 
 _SALES_ORDERS_V = "v1"
+_AUTHORING_EVIDENCE_V = "v2"
 
 
 def make_metric_frame(
@@ -143,6 +144,49 @@ def sales_orders_template() -> Path:
     return cache
 
 
+def authoring_evidence_template() -> Path:
+    """Return a cached DuckDB fixture for the complete authoring workflow."""
+    cache = _template_cache_dir() / f"authoring_evidence_{_AUTHORING_EVIDENCE_V}.duckdb"
+    if cache.exists():
+        return cache
+
+    with tempfile.NamedTemporaryFile(
+        delete=False,
+        dir=cache.parent,
+        prefix=f"{cache.name}.",
+        suffix=".building",
+    ) as tmp_file:
+        tmp = Path(tmp_file.name)
+    try:
+        tmp.unlink()
+        con = duckdb.connect(str(tmp))
+        try:
+            con.execute(
+                "CREATE TABLE orders ("
+                "query_id INTEGER, self VARCHAR, region VARCHAR, log_date VARCHAR, "
+                "log_hour INTEGER, amount DOUBLE, uncommon_date VARCHAR, epoch_like BIGINT)"
+            )
+            con.execute(
+                "INSERT INTO orders VALUES "
+                "(1, 'https://private.example/orders/1', 'moon-base', '20410717', "
+                "0, 125.25, '17-Jul-2041', 2257632000),"
+                "(2, 'https://private.example/orders/2', 'orbital', '20410717', "
+                "12, 250.50, '18-Jul-2041', 2257718400),"
+                "(3, 'https://private.example/orders/3', 'moon-base', '20410718', "
+                "23, 375.75, '19-Jul-2041', 2257804800),"
+                "(4, 'https://private.example/orders/4', 'orbital', '20410230', "
+                "24, 0.0, '20-Jul-2041', 2257891200)"
+            )
+            con.execute("CREATE TABLE orders_replica AS SELECT * FROM orders")
+        finally:
+            con.close()
+        os.replace(tmp, cache)
+    finally:
+        with suppress(FileNotFoundError):
+            tmp.unlink()
+    return cache
+
+
 def connect_sales_orders() -> ibis.duckdb.DuckDBBackend:
     """Create an in-memory DuckDB seeded from the sales_orders template.
 
@@ -205,7 +249,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "\n"
         "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
         f"{time_dimension}"
         "@ms.dimension(entity=orders)\n"
@@ -425,8 +469,8 @@ def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:
         "\n"
         "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
-        "users = ms.entity(name='users', datasource=warehouse, source=ms.table('users'))\n"
+        "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
+        "users = ms.entity(name='users', datasource=warehouse, source=md.table('users'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"

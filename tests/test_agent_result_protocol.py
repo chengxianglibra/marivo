@@ -15,15 +15,14 @@ from marivo.analysis.help import _FRAME_SYMBOLS as ANALYSIS_FRAME_SYMBOLS
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
 from marivo.datasource.authoring import ref as datasource_ref
-from marivo.datasource.discovery import RawSqlResult
 from marivo.datasource.manage import (
     DatasourceDescription,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
+    RawSqlResult,
 )
-from marivo.datasource.scan import ScanReport
-from marivo.preview import PreviewResult
+from marivo.preview import PreviewCoverage, PreviewResult
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result_repr
 from marivo.semantic.dtos import (
     AssessmentIssue,
@@ -96,6 +95,15 @@ def _preview_result() -> PreviewResult:
         requested_limit=50,
         returned_row_count=1,
         is_truncated=False,
+        status="passed",
+        coverage=PreviewCoverage(
+            scopes=(),
+            rows_observed=1,
+            scope_exhaustion="exhaustive",
+            scope_exactness="scope_exact",
+            snapshot_ids=(),
+            cache_status="fresh",
+        ),
     )
 
 
@@ -118,18 +126,6 @@ def _datasource_list() -> DatasourceList:
 
 def _datasource_test_result() -> DatasourceTestResult:
     return DatasourceTestResult(name="wh", ok=True, error=None, latency_ms=12)
-
-
-def _scan_report() -> ScanReport:
-    return ScanReport(
-        partition_used=None,
-        partition_resolution="none",
-        rows_scanned=10,
-        columns_scanned=("id", "country"),
-        truncated=False,
-        elapsed_seconds=0.1,
-        warnings=(),
-    )
 
 
 def _raw_sql_result() -> RawSqlResult:
@@ -215,9 +211,10 @@ def _verify_result() -> VerifyResult:
         status="passed",
         ref="sales.orders",
         kind="entity",
+        validation_level="static",
+        runtime_checked=False,
         issues=(),
         warnings=(),
-        scan=None,
     )
 
 
@@ -246,7 +243,6 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_datasource_list, id="DatasourceList"),
     pytest.param(_datasource_summary, id="DatasourceSummary"),
     pytest.param(_datasource_test_result, id="DatasourceTestResult"),
-    pytest.param(_scan_report, id="ScanReport"),
     pytest.param(_raw_sql_result, id="RawSqlResult"),
     pytest.param(_job_summary, id="JobSummary"),
     pytest.param(_frame_summary_entry, id="FrameSummaryEntry"),
@@ -280,7 +276,7 @@ def test_preview_result_renders_shared_card_shape() -> None:
     assert result.render() == "\n".join(
         [
             "PreviewResult kind=semantic_dataset ref=sales.orders rows=1/50",
-            "status: truncated=False",
+            "status: status=passed truncated=False coverage=exhaustive/scope_exact",
             "columns: id | country",
             "preview:",
             "1 | US",
@@ -365,12 +361,13 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
         [
             "VerifyResult status=passed ref=sales.orders kind=entity",
             "status: passed",
+            "validation_level: static",
+            "runtime_checked: false",
             "Next step:",
             "- continue the batch or run ms.readiness(refs=...)",
             "available:",
             "- .issues",
             "- .warnings",
-            "- .scan",
         ]
     )
     assert _readiness_report().render() == "\n".join(

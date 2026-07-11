@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from threading import Timer
 from typing import TYPE_CHECKING, Any
 
 from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.base import (
+    AuthoringCapabilities,
     EngineMetadataIntrospection,
     EngineProfile,
     MetadataInspectRequest,
@@ -251,6 +254,7 @@ def _inspect_duckdb(
         comment=table_comment,
         columns=columns,
         partitions=(),
+        partition_state="unknown",
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
@@ -271,6 +275,20 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+@contextmanager
+def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+    connection = getattr(backend, "con", None)
+    interrupt = getattr(connection, "interrupt", None)
+    if not callable(interrupt):
+        raise RuntimeError("duckdb backend does not expose connection.interrupt()")
+    timer = Timer(timeout_seconds, interrupt)
+    try:
+        timer.start()
+        yield
+    finally:
+        timer.cancel()
+
+
 PROFILE = EngineProfile(
     name="duckdb",
     aliases=(),
@@ -284,9 +302,16 @@ PROFILE = EngineProfile(
     inspect_partition_values=None,
     readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    authoring_capabilities=AuthoringCapabilities(
+        partition_predicate_supported=True,
+        transformed_partition_supported=False,
+        timeout_enforced=True,
+        byte_estimate_supported=False,
+    ),
     translate_strptime_format=identity_str,
     postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=QuantileCapability(mode="exact", method="linear_interpolation"),
     percentile_uses_approx_quantile=False,
+    authoring_timeout=authoring_timeout,
 )

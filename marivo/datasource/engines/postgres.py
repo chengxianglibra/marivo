@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.base import (
+    AuthoringCapabilities,
     EngineMetadataIntrospection,
     EngineProfile,
     MetadataInspectRequest,
@@ -123,6 +125,7 @@ def _inspect_postgres(
     columns = _merge_columns(schema_columns, catalog_columns)
     column_lookup = {column.name: column for column in columns}
     partitions_by_name: dict[str, PartitionMetadata] = {}
+    partition_state: Literal["known", "none", "unknown"] = "unknown"
     if include_partitions:
         try:
             partition_rows = _query_rows(
@@ -134,8 +137,11 @@ def _inspect_postgres(
                 f"AND n.nspname = {_quote_literal(schema_name)} "
                 "LIMIT 1",
             )
+            saw_partition_expression = False
             for row in partition_rows:
                 partition_key = str(row.get("partition_key") or "")
+                if partition_key:
+                    saw_partition_expression = True
                 for column_name in _partition_columns_from_expression(partition_key):
                     column = column_lookup.get(column_name or "")
                     if column is not None:
@@ -145,6 +151,10 @@ def _inspect_postgres(
                             transform=None,
                             comment=None,
                         )
+            if partitions_by_name:
+                partition_state = "known"
+            elif not saw_partition_expression:
+                partition_state = "none"
         except Exception as exc:
             warnings.append(
                 MetadataWarning(
@@ -152,7 +162,7 @@ def _inspect_postgres(
                     message=f"postgres partition metadata query failed: {exc}",
                 )
             )
-        if not partitions_by_name:
+        if partition_state == "unknown":
             warnings.append(
                 MetadataWarning(
                     kind="partitions_unavailable",
@@ -200,6 +210,7 @@ def _inspect_postgres(
         comment=table_comment,
         columns=columns,
         partitions=tuple(partitions_by_name.values()) if include_partitions else (),
+        partition_state=partition_state,
         warnings=tuple(warnings),
         physical_profile=physical_profile,
     )
@@ -221,6 +232,19 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+@contextmanager
+def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+    raw_sql = getattr(backend, "raw_sql", None)
+    if not callable(raw_sql):
+        raise RuntimeError("postgres backend does not expose raw_sql()")
+    raw_sql("BEGIN READ ONLY")
+    try:
+        raw_sql(f"SET LOCAL statement_timeout = '{timeout_seconds * 1000}ms'")
+        yield
+    finally:
+        raw_sql("ROLLBACK")
+
+
 PROFILE = EngineProfile(
     name="postgres",
     aliases=("postgresql", "redshift"),
@@ -234,9 +258,16 @@ PROFILE = EngineProfile(
     inspect_partition_values=None,
     readonly_tx_start="BEGIN READ ONLY",
     metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    authoring_capabilities=AuthoringCapabilities(
+        partition_predicate_supported=True,
+        transformed_partition_supported=False,
+        timeout_enforced=True,
+        byte_estimate_supported=True,
+    ),
     translate_strptime_format=identity_str,
     postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,
     percentile_uses_approx_quantile=False,
+    authoring_timeout=authoring_timeout,
 )

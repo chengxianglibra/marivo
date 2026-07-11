@@ -625,7 +625,7 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -706,7 +706,7 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
     """)
     project = semantic_project_factory(
         {
@@ -730,7 +730,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],

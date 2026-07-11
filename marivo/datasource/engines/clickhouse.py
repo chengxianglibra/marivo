@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
 
 from marivo.datasource.engines.base import (
+    AuthoringCapabilities,
     EngineMetadataIntrospection,
     EngineProfile,
     MetadataInspectRequest,
@@ -343,6 +345,7 @@ def _inspect_clickhouse(
     partition_key = ""
     engine = ""
     engine_full = ""
+    table_metadata_available = False
     physical_profile: TablePhysicalProfile | None = None
 
     try:
@@ -353,6 +356,7 @@ def _inspect_clickhouse(
             f"AND database = {_quote_literal(ch_database)} LIMIT 1",
         )
         if table_rows:
+            table_metadata_available = True
             table_comment = _empty_to_none(table_rows[0].get("comment"))
             partition_key = str(table_rows[0].get("partition_key") or "")
             engine = str(table_rows[0].get("engine") or "")
@@ -426,6 +430,7 @@ def _inspect_clickhouse(
             )
 
     partitions: tuple[PartitionMetadata, ...] = ()
+    partition_state: Literal["known", "none", "unknown"] = "unknown"
     if include_partitions:
         if engine == "Distributed":
             local_pk = _dereference_clickhouse_distributed(
@@ -438,6 +443,18 @@ def _inspect_clickhouse(
                 partitions = _parse_clickhouse_partition_key(local_pk, catalog_columns)
         elif partition_key and partition_key != "tuple()":
             partitions = _parse_clickhouse_partition_key(partition_key, catalog_columns)
+        if partitions:
+            partition_state = "known"
+        elif (
+            table_metadata_available
+            and engine != "Distributed"
+            and partition_key
+            in {
+                "",
+                "tuple()",
+            }
+        ):
+            partition_state = "none"
 
     columns = _merge_columns(schema_columns, catalog_columns)
     if not any(column.comment for column in columns) and table_comment is None:
@@ -486,6 +503,7 @@ def _inspect_clickhouse(
         comment=table_comment,
         columns=columns,
         partitions=partitions,
+        partition_state=partition_state,
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
@@ -547,6 +565,36 @@ def postprocess_sql(sql: str) -> str:
     return re.sub(r"dateTrunc\('([A-Za-z]+)',\s*", _replace_unit, sql)
 
 
+@contextmanager
+def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+    connection = getattr(backend, "con", None)
+    params = getattr(connection, "params", None)
+    if not isinstance(params, dict):
+        raise RuntimeError("clickhouse backend does not expose mutable query settings")
+    server_settings = getattr(connection, "server_settings", None)
+    if isinstance(server_settings, dict):
+        definition = server_settings.get("max_execution_time")
+        if definition is not None and getattr(definition, "readonly", 0) == 1:
+            raise RuntimeError("clickhouse max_execution_time setting is read only")
+    marker = object()
+    previous = params.get("max_execution_time", marker)
+    try:
+        params["max_execution_time"] = str(timeout_seconds)
+    except BaseException:
+        if previous is marker:
+            params.pop("max_execution_time", None)
+        else:
+            params["max_execution_time"] = previous
+        raise
+    try:
+        yield
+    finally:
+        if previous is marker:
+            params.pop("max_execution_time", None)
+        else:
+            params["max_execution_time"] = previous
+
+
 PROFILE = EngineProfile(
     name="clickhouse",
     aliases=(),
@@ -560,9 +608,16 @@ PROFILE = EngineProfile(
     inspect_partition_values=inspect_partition_values,
     readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
+    authoring_capabilities=AuthoringCapabilities(
+        partition_predicate_supported=True,
+        transformed_partition_supported=False,
+        timeout_enforced=True,
+        byte_estimate_supported=True,
+    ),
     translate_strptime_format=identity_str,
     postprocess_sql=postprocess_sql,
     datetime_decode_policy="utc_naive_instant",
     quantile=QuantileCapability(mode="approximate", method="reservoir_sampling"),
     percentile_uses_approx_quantile=False,
+    authoring_timeout=authoring_timeout,
 )

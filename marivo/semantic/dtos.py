@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from marivo.render import Card, RenderableResult
 from marivo.semantic.ir import (
@@ -13,9 +13,6 @@ from marivo.semantic.ir import (
     ParquetSourceIR,
     TableSourceIR,
 )
-
-if TYPE_CHECKING:
-    from marivo.datasource.scan import ScanReport
 
 Severity = Literal["blocker", "warning", "info"]
 
@@ -140,9 +137,10 @@ class VerifyResult(RenderableResult):
     status: Literal["passed", "failed"]
     ref: str
     kind: AuthoringObjectKind
+    validation_level: Literal["static"]
+    runtime_checked: Literal[False]
     issues: tuple[AssessmentIssue, ...]
     warnings: tuple[AssessmentIssue, ...]
-    scan: ScanReport | None
 
     def _repr_identity(self) -> str:
         return f"VerifyResult status={self.status} ref={self.ref} kind={self.kind}"
@@ -157,8 +155,11 @@ class VerifyResult(RenderableResult):
             )
         card = Card(
             identity=self._repr_identity(),
-            available=(".issues", ".warnings", ".scan"),
+            available=(".issues", ".warnings"),
         ).status(", ".join(status_parts))
+        card = card.field("validation_level", self.validation_level).field(
+            "runtime_checked", "false"
+        )
         if self.issues:
             card = card.listing(
                 label="issues",

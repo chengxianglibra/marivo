@@ -31,8 +31,8 @@ _OBJECTS_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
-users = ms.entity(name="users", datasource=md.ref("datasource.warehouse"), source=ms.table("users"))
+orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+users = ms.entity(name="users", datasource=md.ref("datasource.warehouse"), source=md.table("users"))
 
 @ms.dimension(entity=orders)
 def region(table):
@@ -73,7 +73,7 @@ _OPS_OBJECTS_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-events = ms.entity(name="events", datasource=md.ref("datasource.warehouse"), source=ms.table("events"))
+events = ms.entity(name="events", datasource=md.ref("datasource.warehouse"), source=md.table("events"))
 
 @ms.dimension(entity=events)
 def region(table):

@@ -77,7 +77,7 @@ def _bootstrap_project(
         f"import marivo.datasource as md\nimport marivo.semantic as ms\n"
         f"\n"
         f"{dataset_name} = ms.entity(name='{dataset_name}', datasource=md.ref('{datasource_name}'), "
-        f"source=ms.table('{dataset_name}'))\n"
+        f"source=md.table('{dataset_name}'))\n"
         f"\n"
         f"@ms.dimension(entity={dataset_name})\n"
         f"def region({dataset_name}):\n"

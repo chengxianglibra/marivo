@@ -268,7 +268,8 @@ These ladders show up as two end-to-end loops.
 ### The authoring loop (semantic)
 
 ```text
-help → discover → settle/grill → author → verify → readiness
+help → inspect → explicit scope → sample once → project evidence →
+settle/grill → author → load typed object → verify → preview → readiness
 ```
 
 Each step discloses just enough for the next:
@@ -277,30 +278,39 @@ Each step discloses just enough for the next:
 # 1. help — learn the static contract for the object you're about to author
 ms.help("time_dimension_column")
 
-# 2. discover — gather bounded datasource EVIDENCE (no authoring, no judgment)
-evidence = md.discover_time_dimensions(warehouse, md.table("orders"), columns=("dt",))
-evidence.show()   # profiled columns, detected formats, issues — bounded
+# 2. inspect and sample once under an explicit scope
+inspection = md.inspect(warehouse, md.table("orders"))
+snapshot = inspection.sample(
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+    columns=("dt",),
+)
 
-# 3. settle / grill — reconcile help + evidence + catalog + project docs + user
+# 3. project query-free physical evidence (no authoring, no judgment)
+evidence = snapshot.time_dimensions(columns=("dt",))
+evidence.show()
+
+# 4. settle / grill — reconcile help + evidence + catalog + project docs + user
 #    answers into concrete parameter values; ask the user only for policy the
 #    evidence cannot decide (e.g. failure/ratio-denominator/time-axis calls)
 
-# 4. author — one object, in a Python _domain.py file (the source of truth)
+# 5. author — one object, in a Python _domain.py file (the source of truth)
 dt = ms.time_dimension_column(
     name="order_date", entity=orders, column="dt",
     granularity="day", parse=ms.strptime("%Y%m%d"),
 )
 
-# 5. verify — prove this one object is reachable and valid before moving on
-#    (an authoring call returns a SemanticRef; ms.ref("<kind>.<id>") also works)
-ms.verify_object(dt).show()
+# 6. reload the typed object, verify statically, then preview against the snapshot
+catalog = ms.load()
+dt_object = catalog.get("time_dimension.sales.orders.order_date")
+catalog.verify_object(dt_object).show()
+catalog.preview(dt_object, using=snapshot).show()
 
-# 6. readiness — the required gate before analysis handoff
-ms.readiness().show()
+# 7. readiness — the zero-query gate before analysis handoff
+catalog.readiness(refs=[dt_object]).show()
 ```
 
 The disclosure discipline here is what makes authoring safe for an agent: the
-static contract (`help`) and the physical evidence (`discover`) are *different*
+static contract (`help`) and the physical evidence (`snapshot` projections) are *different*
 surfaces with *different* jobs, so the agent never confuses "what parameters
 exist" with "what the data looks like," and never mistakes evidence for a
 recommendation to author.

@@ -127,7 +127,7 @@ _ENTITY_WITH_DATABASE_PY = textwrap.dedent("""\
     orders = ms.entity(
         name="orders",
         datasource=md.ref("datasource.warehouse"),
-        source=ms.table("orders", database="sales_mart"),
+        source=md.table("orders", database="sales_mart"),
     )
 
     @ms.dimension(entity=orders)
@@ -196,7 +196,7 @@ _ENTITY_NO_DATABASE_PY = textwrap.dedent("""\
     orders = ms.entity(
         name="orders",
         datasource=md.ref("datasource.warehouse"),
-        source=ms.table("orders"),
+        source=md.table("orders"),
     )
 
     @ms.dimension(entity=orders)
@@ -265,7 +265,7 @@ _ENTITY_DATASOURCE_DB_FALLBACK_PY = textwrap.dedent("""\
     orders = ms.entity(
         name="orders",
         datasource=md.ref("datasource.warehouse"),
-        source=ms.table("orders"),
+        source=md.table("orders"),
     )
 
     @ms.dimension(entity=orders)
@@ -323,7 +323,7 @@ _ENTITY_DATASOURCE_DB_FULLY_QUALIFIED_PY = textwrap.dedent("""\
     orders = ms.entity(
         name="orders",
         datasource=md.ref("datasource.warehouse"),
-        source=ms.table("orders"),
+        source=md.table("orders"),
     )
 
     @ms.dimension(entity=orders)
