@@ -68,6 +68,7 @@ const requiredFiles = [
   'src/content.config.ts',
   'src/assets/marivo-mark.svg',
   'src/styles/custom.css',
+  'src/pages/install.sh.ts',
   'public/favicon.svg',
   'src/content/i18n/en.json',
   'src/content/i18n/zh-cn.json',

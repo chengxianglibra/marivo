@@ -22,6 +22,14 @@ Install the backend extra that matches the datasource you want to query:
 | Trino | `pip install "marivo[trino]"` |
 | All packaged backends | `pip install "marivo[all]"` |
 
+On macOS, Linux, or Windows Subsystem for Linux (WSL), the install script can
+also prepare the current directory with a virtual environment, `marivo[all]`,
+and `marivo init`:
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
 ## Initialize a project
 
 Scaffold a new project in the current directory with the CLI:
