@@ -95,14 +95,19 @@ These rules govern every public surface change:
 
 `ms.help` owns the static authoring contract — constructor, required/optional
 parameters, types, defaults, omit rules, and cross-parameter constraints — as
-the single source agents consult before authoring. `md.discover_*` owns
-runtime datasource evidence only — profiles, signals, issues, detected
-formats — never parameter tables or semantic-selection judgments. The
-`marivo-semantic` skill owns workflow and routing only —
-`help -> discover -> settle/grill -> author -> verify` — and must not
-duplicate parameter tables from either. There is no separate public semantic
-prepare stage; agents settle constructor values from help, discovery evidence,
-catalog/project facts, and user answers before authoring one object.
+the single source agents consult before authoring. `md.help` owns datasource
+contracts; `md.inspect(...)`, an explicitly scoped `inspection.sample(...)`, and
+query-free snapshot projections own runtime datasource evidence. They never own
+semantic-selection judgments. The `marivo-semantic` skill owns workflow and
+routing only:
+
+```text
+help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
+```
+
+It must not duplicate parameter tables from either help surface. There is no
+public prepare stage or automatic authoring planner. Uncommon formats and all
+semantic judgments remain agent-owned.
 
 ## Analysis Guidance Layering
 

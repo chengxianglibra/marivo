@@ -36,6 +36,7 @@ Source constructors
    :nosignatures:
 
    csv
+   json
    parquet
    duckdb
    postgres
@@ -44,30 +45,20 @@ Source constructors
    trino
    table
 
-Preview
--------
+Inspection & snapshots
+----------------------
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
-   preview
-
-Discovery
----------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   discover_entity
-   discover_dimensions
-   discover_time_dimensions
-   discover_measures
-   discover_relationship
-   discover_dimension_values
-   inspect_table
-   inspect_partitions
+   inspect
+   SourceInspection
+   DiscoverySnapshot
+   PartitionInspection
+   PhysicalExtent
+   Partitioning
+   ExecutionCapabilities
    raw_sql
 
 Scope helpers
@@ -110,7 +101,7 @@ Datasource vs source
 ``md.duckdb(...)`` declares a datasource. ``md.table(...)`` is the source
 descriptor for internal tables/views inside that datasource. ``md.parquet(...)``,
 ``md.csv(...)``, and ``md.json(...)`` are DuckDB file sources used with a
-datasource ref in inspection and discovery calls; they are not datasource
+datasource ref in inspection and snapshot calls; they are not datasource
 declarations.
 
 Metadata & sources
@@ -120,9 +111,9 @@ Metadata & sources
    :toctree: api/
    :nosignatures:
 
-   TableMetadata
-   ScanScope
    TableSource
+   PartitionScope
+   UnprunedScope
 
 Results
 -------
@@ -132,6 +123,3 @@ Results
    :nosignatures:
 
    DatasourceTestResult
-   PreviewResult
-   DatasourceResult
-   JoinSide

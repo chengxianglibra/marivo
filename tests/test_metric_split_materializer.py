@@ -23,7 +23,7 @@ _INLINE_SALES = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount

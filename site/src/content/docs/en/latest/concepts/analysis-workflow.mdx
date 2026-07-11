@@ -36,6 +36,13 @@ Then drill into specific topics such as `mv.help("observe")`,
 `mv.help("catalog")`, or `mv.help("artifacts")` before authoring a call.
 :::
 
+Analysis starts only after the authoring route has completed:
+`md.inspect(...)` → explicit scope → `inspection.sample(...)` once → snapshot
+projections → one Python object → `catalog.verify_object(obj)` →
+`catalog.preview(obj, using=snapshot)` → zero-query
+`catalog.readiness(refs=[obj])`. Uncommon formats and semantic judgments remain
+agent-owned.
+
 :::note[Artifacts are immutable]
 An artifact never changes after it is produced. Use `repr(artifact)` for a
 cheap single-line hint, then `artifact.show()` for a bounded read and
@@ -56,7 +63,7 @@ region = catalog.get("dimension.sales.orders.region")      # a dimension object
 
 revenue.details().show()     # read business_definition, guardrails, instructions
 region.details().show()
-catalog.readiness(refs=[revenue.ref, region.ref]).show()
+catalog.readiness(refs=[revenue, region]).show()
 ```
 
 `get_or_create` is idempotent: it attaches to an existing session of that name or
@@ -69,9 +76,9 @@ every metric, dimension, and time dimension used by the analysis with
 resolve scoped readiness blockers before the first `observe`.
 
 :::caution[Readiness first]
-A session can only reason over a catalog that passes `ms.readiness()`. Resolve
-readiness blockers in the [semantic layer](/en/latest/concepts/semantic-layer/)
-before observing.
+A session can only reason over the typed objects that pass
+`catalog.readiness(refs=[revenue, region])`. Resolve readiness blockers in the
+[semantic layer](/en/latest/concepts/semantic-layer/) before observing.
 :::
 
 ## How an intent is specified

@@ -102,7 +102,7 @@ _DATASETS_PY = (
     "import marivo.datasource as md\n"
     "import marivo.semantic as ms\n"
     'orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), '
-    'source=ms.table("orders"))\n'
+    'source=md.table("orders"))\n'
     "\n"
     "@ms.metric(entities=[orders], additivity='additive', )\n"
     "def revenue(table):\n"
@@ -137,12 +137,8 @@ def test_datasource_fold_partition() -> None:
     assert "Datasource specs" not in fams
     assert fams["References"] == ["DatasourceRef"]
     assert "Internal IR types" not in fams
-    assert set(fams["Results"]) == {
-        "DatasourceResult",
-        "DatasourceTestResult",
-        "PreviewResult",
-    }
-    assert fams["Metadata types"] == ["TableMetadata"]
+    assert fams["Results"] == ["DatasourceTestResult"]
+    assert "Metadata types" not in fams
     assert set(fams["Other types"]) == {
         "ClickHouseSpec",
         "DatasourceConnection",
@@ -151,16 +147,22 @@ def test_datasource_fold_partition() -> None:
         "DatasourceSpec",
         "DatasourceSummary",
         "DuckDBSpec",
+        "ExecutionCapabilities",
         "MySQLSpec",
+        "PartitionInspection",
+        "PartitionScope",
+        "Partitioning",
+        "PhysicalExtent",
         "PostgresSpec",
         "TrinoSpec",
+        "UnprunedScope",
     }
     enumerated = _enumerated(surface)
     # Entry-point and input types are pinned as top-level entries, not folded.
     assert {
         "DatasourceCatalog",
-        "JoinSide",
-        "ScanScope",
+        "DiscoverySnapshot",
+        "SourceInspection",
         "TableSource",
     } <= enumerated
     _assert_no_value_family_leaks(enumerated)

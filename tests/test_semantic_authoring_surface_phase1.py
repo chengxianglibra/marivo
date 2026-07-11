@@ -40,9 +40,14 @@ from marivo.semantic.refs import MeasureRef
 
 
 def test_typed_source_builders_have_no_options_bag() -> None:
-    table = ms.table("orders", database=("warehouse", "sales"))
-    parquet = ms.parquet("/tmp/orders/*.parquet", hive_partitioning=True, columns=("id", "amount"))
-    csv = ms.csv("/tmp/orders.csv", header=False, delimiter="|", columns=("id", "amount"))
+    table = md.table("orders", database=("warehouse", "sales"))
+    parquet = md.parquet("/tmp/orders/*.parquet", hive_partitioning=True, columns=("id", "amount"))
+    csv = md.csv(
+        "/tmp/orders.csv",
+        schema={"id": "string", "amount": "decimal(18,2)"},
+        header=False,
+        delimiter="|",
+    )
 
     assert isinstance(table, TableSourceIR)
     assert table.to_dict() == {
@@ -61,16 +66,20 @@ def test_typed_source_builders_have_no_options_bag() -> None:
     assert csv.to_dict() == {
         "kind": "csv",
         "path": "/tmp/orders.csv",
+        "schema": {"id": "string", "amount": "decimal(18,2)"},
         "header": False,
         "delimiter": "|",
-        "columns": ["id", "amount"],
     }
 
 
 def test_json_source_ir_has_minimal_json_shape() -> None:
     from marivo.datasource.ir import JsonSourceIR
 
-    source = JsonSourceIR(path="data/events/*.json", format="newline_delimited")
+    source = JsonSourceIR(
+        path="data/events/*.json",
+        schema=(("event_id", "string"),),
+        format="newline_delimited",
+    )
 
     assert source.kind == "json"
     assert source.path == "data/events/*.json"
@@ -79,6 +88,7 @@ def test_json_source_ir_has_minimal_json_shape() -> None:
     assert source.to_dict() == {
         "kind": "json",
         "path": "data/events/*.json",
+        "schema": {"event_id": "string"},
         "format": "newline_delimited",
     }
 
@@ -87,11 +97,11 @@ def test_json_source_ir_rejects_empty_path_bad_format_and_bad_kind() -> None:
     from marivo.datasource.ir import JsonSourceIR
 
     with pytest.raises(ValueError, match=r"JsonSourceIR\.path"):
-        JsonSourceIR(path="")
+        JsonSourceIR(path="", schema=(("event_id", "string"),))
     with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
-        JsonSourceIR(path="events.json", format="ndjson")  # type: ignore[arg-type]
+        JsonSourceIR(path="events.json", schema=(("event_id", "string"),), format="ndjson")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"JsonSourceIR\.kind"):
-        JsonSourceIR(path="events.json", kind="csv")  # type: ignore[arg-type]
+        JsonSourceIR(path="events.json", schema=(("event_id", "string"),), kind="csv")  # type: ignore[arg-type]
 
 
 def test_source_value_objects_reject_invalid_payloads() -> None:
@@ -102,28 +112,26 @@ def test_source_value_objects_reject_invalid_payloads() -> None:
     with pytest.raises(TypeError, match=r"ParquetSourceIR\.columns"):
         ParquetSourceIR(path="/tmp/orders.parquet", columns=("id", 1))  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"CsvSourceIR\.header"):
-        CsvSourceIR(path="/tmp/orders.csv", header="yes")  # type: ignore[arg-type]
+        CsvSourceIR(path="/tmp/orders.csv", schema=(("order_id", "string"),), header="yes")  # type: ignore[arg-type]
 
 
 def test_source_builders_reject_invalid_payloads() -> None:
     with pytest.raises(TypeError, match=r"TableSourceIR\.table"):
-        ms.table(42)  # type: ignore[arg-type]
+        md.table(42)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"ParquetSourceIR\.hive_partitioning"):
-        ms.parquet("/tmp/orders.parquet", hive_partitioning="yes")  # type: ignore[arg-type]
+        md.parquet("/tmp/orders.parquet", hive_partitioning="yes")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"ParquetSourceIR\.columns"):
-        md.parquet("/tmp/orders.parquet", columns="id")  # type: ignore[arg-type]
+        md.parquet("/tmp/orders.parquet", columns=("id", 1))  # type: ignore[list-item]
     with pytest.raises(TypeError, match=r"CsvSourceIR\.delimiter"):
-        md.csv("/tmp/orders.csv", delimiter=123)  # type: ignore[arg-type]
+        md.csv("/tmp/orders.csv", schema={"order_id": "string"}, delimiter=123)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
-        md.json("/tmp/events.json", format="ndjson")  # type: ignore[arg-type]
+        md.json("/tmp/events.json", schema={"event_id": "string"}, format="ndjson")  # type: ignore[arg-type]
 
 
-def test_datasource_source_builders_match_semantic_builders() -> None:
-    assert md.table("orders").to_dict() == ms.table("orders").to_dict()
-    assert (
-        md.parquet("/tmp/orders.parquet").to_dict() == ms.parquet("/tmp/orders.parquet").to_dict()
-    )
-    assert md.csv("/tmp/orders.csv").to_dict() == ms.csv("/tmp/orders.csv").to_dict()
+def test_semantic_source_builders_are_removed() -> None:
+    for name in ("table", "parquet", "csv", "json"):
+        assert name not in ms.__all__
+        assert not hasattr(ms, name)
 
 
 def test_source_from_dict_reads_typed_file_variants() -> None:
@@ -134,25 +142,40 @@ def test_source_from_dict_reads_typed_file_variants() -> None:
         "columns": None,
     }
     assert source_from_dict(
-        {"kind": "csv", "path": "/tmp/orders.csv", "delimiter": "\t"}
+        {
+            "kind": "csv",
+            "path": "/tmp/orders.csv",
+            "schema": {"order_id": "string"},
+            "delimiter": "\t",
+        }
     ).to_dict() == {
         "kind": "csv",
         "path": "/tmp/orders.csv",
+        "schema": {"order_id": "string"},
         "header": True,
         "delimiter": "\t",
-        "columns": None,
     }
 
 
 def test_source_from_dict_reads_json_variant() -> None:
     from marivo.datasource.ir import JsonSourceIR
 
-    restored = source_from_dict({"kind": "json", "path": "data/events/*.json", "format": "array"})
+    restored = source_from_dict(
+        {
+            "kind": "json",
+            "path": "data/events/*.json",
+            "schema": {"event_id": "string"},
+            "format": "array",
+        }
+    )
 
-    assert restored == JsonSourceIR(path="data/events/*.json", format="array")
+    assert restored == JsonSourceIR(
+        path="data/events/*.json", schema=(("event_id", "string"),), format="array"
+    )
     assert restored.to_dict() == {
         "kind": "json",
         "path": "data/events/*.json",
+        "schema": {"event_id": "string"},
         "format": "array",
     }
 
@@ -272,7 +295,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
             domain=sales,
         )
 
@@ -312,7 +335,7 @@ def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
             domain=sales,
         )
         with pytest.raises(TypeError):
@@ -330,13 +353,13 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
             domain=sales,
         )
         refunds = ms.entity(
             name="refunds",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("refunds"),
+            source=md.table("refunds"),
             domain=sales,
         )
 
@@ -356,13 +379,13 @@ def test_relationship_uses_join_key_pairs() -> None:
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
             domain=sales,
         )
         customers = ms.entity(
             name="customers",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("customers"),
+            source=md.table("customers"),
             domain=sales,
         )
 
@@ -402,7 +425,7 @@ def test_time_dimension_uses_parse_value_object() -> None:
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
             domain=sales,
         )
 
@@ -443,7 +466,7 @@ def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
         orders = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
             domain=sales,
         )
 

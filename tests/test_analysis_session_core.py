@@ -254,7 +254,7 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
                 import marivo.semantic as ms
 
                 source = md.ref("datasource.{datasource}")
-                rows = ms.entity(name={entity!r}, datasource=source, source=ms.table({entity!r}))
+                rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
 
                 @ms.metric(entities=[rows], additivity="additive")
                 def {metric}(table):
@@ -314,7 +314,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
             import marivo.semantic as ms
 
             source = md.ref("datasource.warehouse")
-            rows = ms.entity(name="refunds", datasource=source, source=ms.table("refunds"))
+            rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds"))
 
             @ms.metric(entities=[rows], additivity="additive")
             def refunds_total(table):

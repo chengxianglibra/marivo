@@ -31,7 +31,7 @@ def _bootstrap_validity_dataset(semantic_project_factory, *, primary_key: str):
                 "user_history = ms.entity(\n"
                 "    name='user_history',\n"
                 "    datasource=md.ref('datasource.warehouse'),\n"
-                "    source=ms.table('user_history'),\n"
+                "    source=md.table('user_history'),\n"
                 f"    primary_key={primary_key},\n"
                 "    versioning=ms.validity(valid_from=valid_from, valid_to=valid_to, interval='closed_open', open_end=(None,)),\n"
                 ")\n"
@@ -148,7 +148,7 @@ def test_plan_observe_dispatches_to_base_for_non_derived(semantic_project_factor
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"

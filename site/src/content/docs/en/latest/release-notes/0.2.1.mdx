@@ -32,9 +32,10 @@ agent-facing contract.
 
 ## Breaking changes
 
-- Datasource authoring evidence now uses the `md.discover_*` family plus
-  `md.raw_sql(...)` for diagnostics. Legacy public inspection and join-key
-  probe names are removed from the agent-facing surface.
+- Datasource authoring evidence in that historical release moved to the
+  historical discovery API family plus a raw-SQL diagnostic escape hatch. The
+  `latest` guide intentionally does not present removed symbols as runnable;
+  the immutable v0.2 documentation preserves the exact release-era API history.
 
 ## Installation
 

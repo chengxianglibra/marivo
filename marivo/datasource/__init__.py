@@ -18,18 +18,15 @@ from marivo.datasource.authoring import (
     trino,
 )
 from marivo.datasource.catalog import DatasourceCatalog, load
-from marivo.datasource.discover import (
-    discover_dimension_values,
-    discover_dimensions,
-    discover_entity,
-    discover_measures,
-    discover_relationship,
-    discover_time_dimensions,
-)
-from marivo.datasource.discovery import (
-    DatasourceResult,
-)
 from marivo.datasource.help import help, help_text
+from marivo.datasource.inspection import (
+    ExecutionCapabilities,
+    Partitioning,
+    PartitionInspection,
+    PhysicalExtent,
+    SourceInspection,
+    inspect,
+)
 from marivo.datasource.manage import (
     DatasourceConnection,
     DatasourceDescription,
@@ -38,20 +35,17 @@ from marivo.datasource.manage import (
     DatasourceTestResult,
     connect,
     describe,
-    inspect_partitions,
-    inspect_table,
     list,
-    preview,
     raw_sql,
     register,
     remove,
     test,
 )
-from marivo.datasource.metadata import TableMetadata
-from marivo.datasource.scan import (
-    JoinSide,
-    ScanScope,
+from marivo.datasource.snapshot import DiscoverySnapshot
+from marivo.datasource.source import (
+    PartitionScope,
     TableSource,
+    UnprunedScope,
     csv,
     json,
     parquet,
@@ -59,7 +53,6 @@ from marivo.datasource.scan import (
     table,
     unpruned,
 )
-from marivo.preview import PreviewResult
 
 __all__ = [
     "ClickHouseSpec",
@@ -68,34 +61,30 @@ __all__ = [
     "DatasourceDescription",
     "DatasourceList",
     "DatasourceRef",
-    "DatasourceResult",
     "DatasourceSpec",
     "DatasourceSummary",
     "DatasourceTestResult",
+    "DiscoverySnapshot",
     "DuckDBSpec",
-    "JoinSide",
+    "ExecutionCapabilities",
     "MySQLSpec",
+    "PartitionInspection",
+    "PartitionScope",
+    "Partitioning",
+    "PhysicalExtent",
     "PostgresSpec",
-    "PreviewResult",
-    "ScanScope",
-    "TableMetadata",
+    "SourceInspection",
     "TableSource",
     "TrinoSpec",
+    "UnprunedScope",
     "clickhouse",
     "connect",
     "csv",
     "describe",
-    "discover_dimension_values",
-    "discover_dimensions",
-    "discover_entity",
-    "discover_measures",
-    "discover_relationship",
-    "discover_time_dimensions",
     "duckdb",
     "help",
     "help_text",
-    "inspect_partitions",
-    "inspect_table",
+    "inspect",
     "json",
     "list",
     "load",
@@ -103,7 +92,6 @@ __all__ = [
     "parquet",
     "partition",
     "postgres",
-    "preview",
     "raw_sql",
     "ref",
     "register",

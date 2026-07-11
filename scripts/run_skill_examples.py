@@ -46,19 +46,24 @@ _TEMPLATE_FORBIDDEN_SNIPPETS = (
 )
 _SEMANTIC_EXAMPLE_NAMES = ("01_discover_and_grill.py", "02_author_one_object.py")
 _SEMANTIC_DISCOVER_REQUIRED_CALLS = (
-    "md.help_text",
+    "md.help",
     "md.test",
-    "md.discover_entity",
-    "md.discover_dimensions",
-    "md.discover_time_dimensions",
-    "md.discover_measures",
-    "md.discover_dimension_values",
+    "md.inspect",
+    "inspection.sample",
+    "snapshot.entity",
+    "snapshot.dimensions",
+    "snapshot.time_dimensions",
+    "snapshot.measures",
+    "snapshot.values",
     "ms.load",
 )
 _SEMANTIC_AUTHOR_REQUIRED_CALLS = (
     "ms.help",
-    "ms.verify_object",
-    "ms.readiness",
+    "md.inspect",
+    "inspection.sample",
+    "catalog.verify_object",
+    "catalog.preview",
+    "catalog.readiness",
 )
 _SEMANTIC_AUTHORING_REQUIRED_CALLS = ("ms.dimension_column",)
 _SEMANTIC_AUTHORING_CALLS = (
@@ -75,8 +80,9 @@ _SEMANTIC_AUTHORING_CALLS = (
     "ms.entity",
 )
 _SEMANTIC_DISCOVER_FORBIDDEN_CALLS = (
-    "ms.verify_object",
-    "ms.readiness",
+    "catalog.verify_object",
+    "catalog.preview",
+    "catalog.readiness",
     "ms.domain",
     "ms.entity",
     "ms.dimension_column",
@@ -105,6 +111,12 @@ _SEMANTIC_EXAMPLE_FORBIDDEN_REFERENCES = (
     "md.inspect_columns",
     "md.inspect_table",
     "md.probe_join_keys",
+    "md.discover_entity",
+    "md.discover_dimensions",
+    "md.discover_time_dimensions",
+    "md.discover_measures",
+    "md.discover_relationship",
+    "md.discover_dimension_values",
     "project.assess_authoring(",
     "ms.AuthoringSourceInput(",
 )

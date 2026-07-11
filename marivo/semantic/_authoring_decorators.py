@@ -10,10 +10,6 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from marivo.datasource.authoring import DatasourceRef
-from marivo.datasource.scan import csv as _datasource_csv
-from marivo.datasource.scan import json as _datasource_json
-from marivo.datasource.scan import parquet as _datasource_parquet
-from marivo.datasource.scan import table as _datasource_table
 from marivo.semantic._authoring_context import (
     _caller_location,
     _check_duplicate,
@@ -68,44 +64,6 @@ from marivo.semantic.typing import AiContextValue
 from marivo.semantic.validator import validate_metric_body_ast
 
 
-def table(name: str, /, *, database: str | tuple[str, ...] | None = None) -> TableSourceIR:
-    """Build a structured table source for ``ms.entity(source=...)``."""
-    return _datasource_table(name, database=database)
-
-
-def parquet(
-    path: str,
-    /,
-    *,
-    hive_partitioning: bool = False,
-    columns: tuple[str, ...] | list[str] | None = None,
-) -> ParquetSourceIR:
-    """Build a structured parquet source for ``ms.entity(source=...)``."""
-    return _datasource_parquet(path, hive_partitioning=hive_partitioning, columns=columns)
-
-
-def csv(
-    path: str,
-    /,
-    *,
-    header: bool = True,
-    delimiter: str = ",",
-    columns: tuple[str, ...] | list[str] | None = None,
-) -> CsvSourceIR:
-    """Build a structured CSV source for ``ms.entity(source=...)``."""
-    return _datasource_csv(path, header=header, delimiter=delimiter, columns=columns)
-
-
-def json(
-    path: str,
-    /,
-    *,
-    format: Literal["auto", "newline_delimited", "array"] = "auto",
-) -> JsonSourceIR:
-    """Build a structured JSON source for ``ms.entity(source=...)``."""
-    return _datasource_json(path, format=format)
-
-
 def entity(
     *,
     name: str,
@@ -121,8 +79,8 @@ def entity(
     Args:
         name: Entity name.
         datasource: Datasource ref returned by ``md.ref(...)``.
-        source: Structured physical source, usually ``ms.table(...)``,
-            ``ms.parquet(...)``, ``ms.csv(...)``, or ``ms.json(...)``.
+        source: Structured physical source, usually ``md.table(...)``,
+            ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
         primary_key: Optional list of column names forming the primary key.
         domain: Override the active domain namespace with a ``DomainRef`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -139,7 +97,7 @@ def entity(
         >>> orders = ms.entity(
         ...     name="orders",
         ...     datasource=md.ref("datasource.warehouse"),
-        ...     source=ms.table("orders", database="sales_mart"),
+        ...     source=md.table("orders", database="sales_mart"),
         ... )
     """
     ctx = _require_ctx()
@@ -149,7 +107,7 @@ def entity(
     if not isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         _raise(
             ErrorKind.INVALID_REF,
-            "ms.entity(source=...) accepts ms.table(...), ms.parquet(...), ms.csv(...), or ms.json(...).",
+            "ms.entity(source=...) accepts md.table(...), md.parquet(...), md.csv(...), or md.json(...).",
             cls=SemanticDecoratorError,
             refs=(semantic_id,),
             constraint_id=ConstraintId.REF_SHAPE,
@@ -205,7 +163,7 @@ def dimension_column(
         or more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
         >>> region = ms.dimension_column(name="region", entity=orders, column="region")
     """
     ctx = _require_ctx()
@@ -356,7 +314,7 @@ def measure_column(
         more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
         >>> amount = ms.measure_column(
         ...     name="amount", entity=orders, column="amount",
         ...     additivity="additive", unit="CNY",
@@ -512,7 +470,7 @@ def time_dimension_column(
         one or more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
         >>> log_date = ms.time_dimension_column(
         ...     name="log_date", entity=orders, column="dt",
         ...     granularity="day", parse=ms.strptime("%Y%m%d"),

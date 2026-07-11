@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 
 def _datasource_ref_literal(datasource: object) -> str:
@@ -80,6 +80,35 @@ class DatasourceError(Exception):
             lines.append("")
             lines.append(f"Docs: {doc}")
         return "\n".join(lines)
+
+
+class DatasourceAuthoringError(DatasourceError):
+    """Structured blocked-operation error for datasource authoring."""
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        stage: Literal["inspect", "preflight", "acquire", "cache", "project"],
+        expected: str,
+        received: str,
+        reason: str,
+        query_executed: bool,
+        scope_state: Literal["known", "none", "unknown"] | None,
+        next_calls: tuple[str, ...],
+    ) -> None:
+        details = {
+            "code": code,
+            "stage": stage,
+            "status": "blocked",
+            "expected": expected,
+            "received": received,
+            "reason": reason,
+            "query_executed": query_executed,
+            "scope_state": scope_state,
+            "next_calls": next_calls,
+        }
+        super().__init__(message=reason, details=details)
 
 
 class DatasourceSecretInPlaintextError(DatasourceError):
@@ -278,13 +307,13 @@ class DatasourceMetadataError(DatasourceError):
         ds_ref_literal = _datasource_ref_literal(datasource)
         table_ref = table if isinstance(table, str) and table else "<table>"
         return {
-            "location": f"md.discover_entity(md.ref({ds_ref_literal}), md.table({table_ref!r}))",
+            "location": f"md.inspect(md.ref({ds_ref_literal}), md.table({table_ref!r}))",
             "cause": self.details.get("cause", "table metadata inspection failed"),
             "fix_snippet": (
                 "import marivo.datasource as md\n"
                 f"md.describe({ds_ref!r})\n"
                 f"md.test({ds_ref!r})\n"
-                f"md.discover_entity(md.ref({ds_ref_literal}), md.table({table_ref!r}))"
+                f"md.inspect(md.ref({ds_ref_literal}), md.table({table_ref!r}))"
             ),
             "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }

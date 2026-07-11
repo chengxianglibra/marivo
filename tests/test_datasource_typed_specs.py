@@ -340,6 +340,7 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     assert "examples: Preview orders before analysis." in rendered
     assert "instructions: Prefer latest dt partitions." in rendered
     assert "owner_notes: Data platform." in rendered
+    assert ".connect(name)" in rendered
     assert "super-secret-token" not in rendered
 
     assert catalog.show() is None

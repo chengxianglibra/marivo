@@ -36,7 +36,7 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 _MINIMAL_DATASET_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.metric(entities=[orders], additivity='additive', )
     def revenue(table):
@@ -46,7 +46,7 @@ _MINIMAL_DATASET_PY = textwrap.dedent("""\
 _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
     @ms.metric(entities=[orders], additivity='additive', )
     def revenue(orders):
@@ -57,7 +57,7 @@ _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
 
-    refunds = ms.entity(name="refunds", datasource=md.ref("datasource.warehouse"), source=ms.table("refunds"))
+    refunds = ms.entity(name="refunds", datasource=md.ref("datasource.warehouse"), source=md.table("refunds"))
 
     @ms.metric(entities=[refunds], additivity='additive', )
     def refunds_total(refunds):
@@ -241,7 +241,7 @@ def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_fa
         import marivo.datasource as md
         import marivo.semantic as ms
         ms.domain(name="sales", owner='Mina Zhang', default=True)
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
         @ms.metric(entities=[orders], additivity="additive", ai_context={"summary": "oops"})
         def revenue(orders):
             return orders.amount.sum()
@@ -441,7 +441,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -535,7 +535,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -565,7 +565,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        query_info = ms.entity(name="query_info", datasource=md.ref("datasource.wh"), source=ms.table("query_info"))
+        query_info = ms.entity(name="query_info", datasource=md.ref("datasource.wh"), source=md.table("query_info"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -598,7 +598,7 @@ def test_relative_import_from_later_sibling_is_not_executed_twice(
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
     """)
     dimensions_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -628,7 +628,7 @@ def test_relative_imported_field_ref_from_later_sibling_keeps_resolver(
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
         @ms.measure(entity=orders, additivity="additive")
         def amount(table):
@@ -670,7 +670,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        query_info = ms.entity(name="query_info", datasource=md.ref("datasource.wh"), source=ms.table("query_info"))
+        query_info = ms.entity(name="query_info", datasource=md.ref("datasource.wh"), source=md.table("query_info"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -693,7 +693,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     dataset_v2 = dataset_v1.replace(
         'query_info = ms.entity(name="query_info"',
         'query_log = ms.entity(name="query_log"',
-    ).replace('ms.table("query_info")', 'ms.table("query_log")')
+    ).replace('md.table("query_info")', 'md.table("query_log")')
 
     root = project.semantic_root
     (root / "sales" / "dataset.py").write_text(dataset_v2)
@@ -860,7 +860,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
     """)
     project = semantic_project_factory(
         {
@@ -887,9 +887,9 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
-        items = ms.entity(name="items", datasource=md.ref("datasource.wh"), source=ms.table("items"))
+        items = ms.entity(name="items", datasource=md.ref("datasource.wh"), source=md.table("items"))
     """)
     fields_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -939,7 +939,7 @@ def test_relationship_empty_keys_rejected_via_loader(semantic_project_factory) -
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
         @ms.dimension(entity=orders)
         def order_id(table):
@@ -974,7 +974,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
     """)
     # The field ref is stored in a module-level variable
     fields_py = textwrap.dedent("""\
@@ -1027,7 +1027,7 @@ def test_field_ref_callable_after_load(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
     """)
     project = semantic_project_factory(
         {
@@ -1239,7 +1239,7 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
             ),
             "sales/objects.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
             ),
         }
     )
@@ -1307,7 +1307,7 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
             ),
             "sales/objects.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=ms.table('orders', database='sales'))\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders', database='sales'))\n"
             ),
         }
     )
@@ -1362,7 +1362,7 @@ _FINANCE_DOMAIN_PY = textwrap.dedent("""\
 _FINANCE_DATASET_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    refunds = ms.entity(name="refunds", datasource=md.ref("datasource.warehouse"), source=ms.table("refunds"))
+    refunds = ms.entity(name="refunds", datasource=md.ref("datasource.warehouse"), source=md.table("refunds"))
 
     @ms.metric(entities=[refunds], additivity='additive', )
     def refunds_total(refunds):
@@ -1455,7 +1455,7 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
     sales_with_relationship = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=ms.table("orders"))
+        orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
 
         @ms.dimension(entity=orders)
         def amount(table):

@@ -13,7 +13,7 @@ matches your task.
 | [overview.md](overview.md) | Design goals, architecture, and principles (this file). |
 | [datasource-layer.md](datasource-layer.md) | `marivo.datasource` — connections, typed specs, file sources, secrets, discovery/evidence. |
 | [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — domain, entity, dimension, time dimension, measure, metric, derived/cumulative metrics, relationship, provenance, `ai_context`. |
-| [authoring-workflow.md](authoring-workflow.md) | The write loop — `help -> discover -> settle/grill -> author -> verify`, file layout, decision rules, verification. |
+| [authoring-workflow.md](authoring-workflow.md) | The single evidence-snapshot write loop from help and inspection through scoped preview and readiness. |
 | [loading-validation-introspection.md](loading-validation-introspection.md) | The runtime — loader/registry, catalog reader, result contract, materialization, multi-stage validation, readiness/richness. |
 
 For the cross-module (datasource + semantic + analysis) result and guidance
@@ -74,7 +74,7 @@ dependency:
 
 ```text
 marivo.datasource   connection + physical source + evidence
-        ↓ DatasourceRef + TableSource + DatasourceResult
+        ↓ DatasourceRef + TableSource + DiscoverySnapshot
 marivo.semantic     domain / entity / dimension / metric / relationship
         ↓ Ibis materialization + typed semantic refs
 marivo.analysis     observe / compare / attribute / correlate / ...
@@ -101,16 +101,21 @@ Authoring guidance is split so each surface has one job (elaborated in
 - **`ms.help` / `md.help` — static contract.** Constructors, required and
   optional parameters, allowed values, defaults, omit rules, and static
   constraints. Help says *what must be settled*; it carries no runtime data.
-- **`md.discover_*` — runtime evidence.** Bounded, evidence-only
-  `DatasourceResult` objects (profiles, signals, issues, detected formats). Read
-  with `.show()`; never parameter tables or selection judgments.
-- **`ms.verify_object` / `ms.readiness` / load errors — validation.** Blockers,
-  registry state, object validity, and handoff readiness, exposed after
-  authoring.
+- **`md.inspect` and snapshots — runtime evidence.** Metadata inspection precedes
+  one explicit-scope sample; entity, dimension, value, time, measure, and
+  relationship projections reuse that immutable snapshot without queries.
+- **Catalog verification, preview, and readiness — validation.** Static
+  verification executes no query, preview requires `using=` evidence scope, and
+  readiness consumes fresh checks without querying.
 
-The `marivo-semantic` skill owns workflow and routing only
-(`help -> discover -> settle/grill -> author -> verify`); it does not duplicate
-the parameter tables that `ms.help` / `md.help` own.
+The `marivo-semantic` skill owns workflow and routing only:
+
+```text
+help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
+```
+
+It does not duplicate parameter tables from `ms.help` or `md.help`. Uncommon
+formats and semantic judgments remain agent-owned.
 
 ## Relationship to prior schema designs
 

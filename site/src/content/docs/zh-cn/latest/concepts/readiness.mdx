@@ -3,8 +3,8 @@ title: 就绪检查
 description: 在 analysis 前阻止未完成 semantic objects 的结构性门禁。
 ---
 
-就绪检查是 authoring 与 analysis 之间的必经门禁。`ms.readiness()` 检查 agent 即将使用的
-semantic objects 是否完整、规范，是否可以交接给分析，并返回一个 `ReadinessReport`。
+就绪检查是 authoring 与 analysis 之间的零查询门禁。它读取 dependency closure 的 fresh
+static verification 与 scoped runtime-preview evidence，并返回 `ReadinessReport`。
 
 新 project 可以成功 `ms.load()`，但 readiness 仍然是 **blocked**。`load` 只负责解析
 declarations；就绪检查负责阻止 agents 基于半成品 semantics 进行推理。把任何 ref 交给分析
@@ -13,16 +13,19 @@ session 之前，都应先解决每一个 blocker。
 ```python
 import marivo.semantic as ms
 
-ms.load()
-report = ms.readiness()                  # 检查每一个已加载对象
+catalog = ms.load()
+revenue = catalog.get("metric.sales.revenue")
+catalog.verify_object(revenue).show()
+catalog.preview(revenue, using=snapshot).show()
+report = catalog.readiness(refs=[revenue])
 if report.status == "blocked":
     report.show()                        # 有界卡片：每个 blocker 及其下一步
     raise SystemExit("resolve readiness blockers before analysis")
 ```
 
-## 结构性检查，不是运行时检查
+## Scoped runtime evidence 之后的零查询收尾
 
-`ms.readiness()` 是一次**纯内存检查**。它从不打开 datasource 连接 —— 它只针对 declarations
+`catalog.readiness(refs=[...])` 是一次**纯内存检查**。它从不打开 datasource 连接 —— 它只针对 declarations
 本身进行推理：缺失定义、未知 refs、跨 datasource 的 fan-out、脆弱的 string references，以及
 SQL parity 状态。它不检查 GitHub/GitLab 审批状态，也不做审计审批判断。
 
@@ -30,19 +33,20 @@ SQL parity 状态。它不检查 GitHub/GitLab 审批状态，也不做审计审
 
 | 检查 | 作用 | 是否触及 backend？ |
 | --- | --- | --- |
-| `ms.readiness()` | 结构性完整性门禁 | 否 |
-| `catalog.preview(ref)` | 执行一个小查询，采样真实数据行 | 是 |
-| `ms.parity_check(ref)` | 用 metric 对其 `provenance` SQL 跑一遍并比对结果 | 是 |
+| `catalog.verify_object(obj)` | 静态 object validation | 否 |
+| `catalog.preview(obj, using=snapshot)` | 执行 scoped runtime smoke check，只记录 metadata，不持久化 rows | 是 |
+| `catalog.readiness(refs=[revenue])` | 读取 fresh verification/preview evidence | 否 |
+| `ms.parity_check(ref)` | 可选且 potentially unbounded 的 metric/provenance SQL diagnostic | 是 |
 | `ms.richness()` | 关于覆盖度/深度的建议性报告；从不 block | 否 |
 
 :::caution[就绪检查不证明查询能跑通]
-`ready` 报告意味着 semantics 在结构上是健全的，并不代表仓库可达或数字正确。请用
-`catalog.preview(...)` 与 `ms.parity_check(...)` 来验证这些。
+`ready` 表示 object 已通过 static validation，并且有 fresh matching scoped preview
+evidence；它不证明每一种未来 analysis query 或 full-source truth。Parity 从不作为 readiness 要求。
 :::
 
 ## 报告
 
-`ms.readiness()` 返回一个 frozen 的 `ReadinessReport`：
+`catalog.readiness(refs=[...])` 返回一个 frozen 的 `ReadinessReport`：
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
@@ -83,12 +87,13 @@ SQL parity 状态。它不检查 GitHub/GitLab 审批状态，也不做审计审
 
 ## 限定检查范围
 
-默认情况下，`ms.readiness()` 会检查每一个已加载对象。传入 `refs=` 可将范围限定到一次分析所需的
-对象；Marivo 会解析完整的依赖闭包（metric、它的 measures、dimensions、entities 与
+通过 `refs=` 传入 typed catalog objects，把 readiness 限定到一次分析所需的对象；
+Marivo 会解析完整的依赖闭包（metric、它的 measures、dimensions、entities 与
 datasources）：
 
 ```python
-report = ms.readiness(refs=["sales.revenue"])
+revenue = catalog.get("metric.sales.revenue")
+report = catalog.readiness(refs=[revenue])
 for issue in report.blockers:
     print(issue.kind, issue.refs, "→", issue.suggested_action)
 ```

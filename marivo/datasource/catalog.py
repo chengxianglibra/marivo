@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from marivo.datasource import store as _store
 from marivo.datasource.errors import DatasourceMissingError
@@ -17,10 +16,8 @@ from marivo.datasource.manage import (
     DatasourceTestResult,
     connect,
     describe,
-    preview,
     test,
 )
-from marivo.preview import PreviewResult
 from marivo.render import Card, RenderableResult
 
 
@@ -74,15 +71,15 @@ class DatasourceCatalog(RenderableResult):
         workspace_dir: Project root directory. Defaults to cwd.
 
     Returns:
-        DatasourceCatalog with list(), get(), describe(), test(), and
-        preview() methods.
+        DatasourceCatalog with list(), get(), describe(), connect(), and
+        test() methods.
 
     Example:
         >>> import marivo.datasource as md
         >>> catalog = md.load()
         >>> catalog.list()
         >>> catalog.get("wh")
-        >>> md.discover_entity(md.ref("datasource.wh"), md.table("orders"))
+        >>> md.inspect(md.ref("datasource.wh"), md.table("orders"))
 
     Constraints:
         catalog is obtained via md.load(), not constructed directly.
@@ -173,51 +170,6 @@ class DatasourceCatalog(RenderableResult):
         """
         return test(name)
 
-    def preview(
-        self,
-        datasource: str,
-        *,
-        table: str,
-        database: str | tuple[str, ...] | None = None,
-        columns: Any = None,
-        limit: int = 100,
-        where: Any = None,
-        order_by: Any = None,
-        include_types: bool = True,
-    ) -> PreviewResult:
-        """Bounded, filtered preview of one datasource table.
-
-        Args:
-            datasource: Name of the project datasource.
-            table: Table name within the datasource.
-            database: Optional database/catalog path.
-            columns: Optional column subset to select.
-            limit: Maximum rows to return (default 100).
-            where: Structured filter mappings.
-            order_by: Structured order mappings.
-            include_types: Whether to include column type information.
-
-        Returns:
-            A ``PreviewResult`` with rows, columns, types, and sample metadata.
-
-        Example:
-            >>> catalog.preview("wh", table="orders", limit=5)
-
-        Note:
-            ``preview`` resolves the project root internally and does not
-            forward ``workspace_dir``.
-        """
-        return preview(
-            datasource,
-            table=table,
-            database=database,
-            columns=columns,
-            limit=limit,
-            where=where,
-            order_by=order_by,
-            include_types=include_types,
-        )
-
     def _repr_identity(self) -> str:
         count = len(_store.load_all(self.workspace_dir))
         return f"DatasourceCatalog datasources={count}"
@@ -233,8 +185,8 @@ class DatasourceCatalog(RenderableResult):
                 ".list()",
                 ".get(name)",
                 ".describe(name)",
+                ".connect(name)",
                 ".test(name)",
-                ".preview(...)",
                 ".render()",
                 ".show()",
             ),
@@ -274,7 +226,7 @@ def load(
         >>> catalog = md.load()
         >>> catalog.list()
         >>> catalog.get("wh")
-        >>> md.discover_entity(md.ref("datasource.wh"), md.table("orders"))
+        >>> md.inspect(md.ref("datasource.wh"), md.table("orders"))
 
     Constraints:
         The catalog is read-only; use ``md.register()`` and ``md.remove()``

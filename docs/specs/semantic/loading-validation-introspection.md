@@ -82,8 +82,9 @@ exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
 | `catalog.get("<typed_id>")` | Resolve and validate one `CatalogObject` by typed ID. |
 | `catalog.domains`, `catalog.metrics`, … | Typed global collections; each supports `.items`, `.ids()`, `.refs()`, `.get(key)`, `.show()`. |
-| `catalog.preview(ref, limit=..., context_columns=None)` | Bounded preview of an entity/dimension/time_dimension/measure/metric. |
-| `catalog.readiness(refs=None)` | Structural readiness gate for handoff refs. |
+| `catalog.verify_object(obj)` | Static, zero-query validation of one typed catalog object. |
+| `catalog.preview(obj, using=snapshot_or_mapping)` | Scoped runtime preview bound to matching snapshot evidence. |
+| `catalog.readiness(refs=[obj])` | Zero-query readiness gate scoped to typed handoff objects. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
 ### Navigation matrix
@@ -172,7 +173,9 @@ through the catalog:
 ```python
 catalog = ms.load()
 revenue = catalog.get("metric.sales.revenue")
-catalog.preview(revenue.ref).show()
+catalog.verify_object(revenue).show()
+catalog.preview(revenue, using=snapshot).show()
+catalog.readiness(refs=[revenue]).show()
 ```
 
 Backend resolution rules:
@@ -187,8 +190,9 @@ Backend resolution rules:
 - Multi-datasource metrics fail closed in compile and parity (federation is a
   separate design).
 
-To inspect a metric's caliber without executing analysis, use
-`catalog.preview(...)`, `catalog.get(...).details()`, and `ms.parity_check(...)`.
+To inspect a metric's caliber without executing analysis, use typed details and
+static verification. Use `catalog.preview(..., using=...)` for a scoped runtime
+check. Parity is a separate potentially unbounded provenance SQL diagnostic.
 
 ## Validation and failure semantics
 
@@ -262,25 +266,26 @@ style. The mapping from error kind to agent action is mechanical:
 | `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.weighted_average`/`ms.linear`. |
 | `outside_loader_context` | Move the definition into `<root>/models/semantic/<domain>/<file>.py`; use scratch Ibis in notebooks. |
 | `unverified_provenance` | Add `provenance=ms.from_sql(...)`, or stop and confirm the business caliber. |
-| `sql_escape_hatch` | Move raw SQL to a persisted backend view exposed via `ms.table(...)`; keep the body Ibis. |
+| `sql_escape_hatch` | Move raw SQL to a persisted backend view exposed via `md.table(...)`; keep the body Ibis. |
 
 ## Readiness and richness
 
-Two gates sit at the end of the write loop:
+Two checks sit at the end of the write loop:
 
-- **`ms.readiness(refs=None)`** runs pure in-memory structural checks over the
-  dependency closure of the given refs (or all objects). It is the required
-  semantic gate before handing refs to analysis, and it never writes stdout.
-  Runtime validation (connectivity) is separate: `catalog.preview(...)`,
-  `ms.parity_check(...)`, and `ms.richness()`.
+- **`catalog.readiness(refs=[obj])`** runs pure in-memory checks over the
+  dependency closure of typed catalog objects selected for handoff. It is the
+  required semantic gate before analysis, never writes stdout, and never queries.
+  `catalog.preview(..., using=...)` persists the fresh scoped runtime metadata
+  that readiness consumes.
 - **`ms.richness(demand=None)`** returns a demand-ranked `RichnessReport`. It is
   purely advisory — it never blocks and never mutates readiness — and seeds
   ranking from example questions, analysis intents, run-history refs, and the
   build purpose.
 
-`ms.verify_object(ref)` (per-object) and `ms.parity_check(name)` (per-metric)
-complete the validation surface; both return silent result objects with `.show()`
-/ `.render()`.
+`catalog.verify_object(obj)` completes the static per-object surface.
+`ms.parity_check(name)` is an optional potentially unbounded diagnostic and never
+a readiness requirement. Both return silent result objects with `.show()` /
+`.render()`.
 
 ## Relationship to analysis
 

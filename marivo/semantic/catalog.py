@@ -5,15 +5,15 @@ Public entrypoint: ms.load() -> SemanticCatalog
 
 from __future__ import annotations
 
-import contextlib
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal, NoReturn, cast
 
 from marivo.datasource.authoring import DatasourceRef
+from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
-from marivo.datasource.scan import ScanScope
+from marivo.datasource.source import AuthoringScope
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
@@ -55,6 +55,11 @@ from marivo.semantic.ir import (
     composition_components,
 )
 from marivo.semantic.parity import propagated_parity_status
+from marivo.semantic.preview_checks import (
+    PreviewUsing,
+    normalize_preview_bindings,
+    persist_preview_check,
+)
 from marivo.semantic.refs import make_ref
 
 if TYPE_CHECKING:
@@ -63,8 +68,6 @@ if TYPE_CHECKING:
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.resolver import SemanticResolver
     from marivo.semantic.validator import Registry
-
-from marivo.semantic.reader import _suggest_ref_level
 
 __all__ = [
     "AiContextView",
@@ -1926,6 +1929,8 @@ class SemanticCatalog:
         self._raise_collection_not_found(collection, key)
 
     def _raise_not_found(self, ref_str: str) -> NoReturn:
+        from marivo.semantic.reader import _suggest_ref_level
+
         reg = self._reg
         suggestion = _suggest_ref_level(reg, ref_str) if reg is not None else None
         if suggestion is not None:
@@ -2001,6 +2006,8 @@ class SemanticCatalog:
         typed_id = _catalog_typed_id(typed_ref.id, typed_ref.kind)
         obj = self._require_index().get(typed_id)
         if obj is None:
+            from marivo.semantic.reader import _suggest_ref_level
+
             ref_str = typed_ref.id
             suggestion = _suggest_ref_level(reg, ref_str)
             guidance = (
@@ -2029,11 +2036,11 @@ class SemanticCatalog:
         self,
         refs: Sequence[CatalogObject | SemanticRef] | None = None,
     ) -> ReadinessReport:
-        """Run structural readiness check for the given semantic refs.
+        """Run the query-free readiness gate for the given semantic refs.
 
-        Performs pure in-memory checks without datasource connectivity.
-        For runtime validation, use ``catalog.preview(...)``,
-        ``project.parity_check(...)``, and ``project.richness()``.
+        Reads loaded state plus persisted row-free preview evidence without
+        acquiring, refreshing, or querying. Missing evidence produces exact
+        next calls for the caller to execute explicitly.
 
         Args:
             refs: Semantic refs to check. Resolves the full dependency closure
@@ -2062,27 +2069,21 @@ class SemanticCatalog:
     def verify_object(
         self,
         ref: CatalogObject | SemanticRef,
-        *,
-        scope: ScanScope | None = None,
     ) -> VerifyResult:
-        """Verify a single authored semantic object is reachable and valid.
+        """Statically verify a single authored semantic object.
 
         Automatically reloads the catalog from disk so that newly authored
         objects are visible without a separate ``catalog.load()`` call.
 
-        For domains, relationships, and dimensions this is a static-only check.
-        For entities, a scoped preview confirms the datasource is reachable and
-        the expression is valid. For time dimensions, metrics, and derived
-        metrics, the check is static and validates the loaded semantic
-        contract.
+        Verification applies project load, assembly, dependency, type, cycle,
+        and expression-contract checks without opening a datasource. Use
+        ``catalog.preview(...)`` for runtime execution checks.
 
         Args:
-            ref: SemanticRef to verify.
-            scope: Scan scope controlling partition, max rows, and timeout.
-                Defaults to ``ScanScope()``.
+            ref: CatalogObject or SemanticRef to verify.
 
         Returns:
-            VerifyResult with status, issues, and optional scan report.
+            VerifyResult with static validation status, issues, and warnings.
 
         Example:
             >>> orders = catalog.get("entity.sales.orders")
@@ -2091,16 +2092,10 @@ class SemanticCatalog:
             ...     result.show()
 
         Constraints:
-            ``verify_object`` validates the authored object against the loaded
-            project, static semantic rules, and available datasource evidence.
+            ``verify_object`` validates only static authored-project contracts
+            and performs no datasource query.
         """
-        with contextlib.suppress(SemanticLoadFailed):
-            # Project failed to load; let _project.verify_object handle it
-            # so we get a proper VerifyResult with the real load errors
-            # instead of an unhandled exception.
-            self.load()
-        ref_obj = _require_semantic_ref(ref, parameter="verify_object(ref=...)")
-        result = self._project.verify_object(ref_obj, scope=scope)
+        result = self._project.verify_object(ref)
         self._reg = self._project._registry
         return result
 
@@ -2109,6 +2104,7 @@ class SemanticCatalog:
         *,
         connections: object | None = None,
         sample_size: int | None = None,
+        entity_scopes: Mapping[str, AuthoringScope] | None = None,
     ) -> SemanticResolver:
         """Return an internal resolver backed by Materializer."""
         self._require_ready()
@@ -2116,20 +2112,27 @@ class SemanticCatalog:
             connections = self._project._connection_service()
         from marivo.semantic.resolver import SemanticResolver
 
-        return SemanticResolver(self, connections=connections, sample_size=sample_size)
+        return SemanticResolver(
+            self,
+            connections=connections,
+            sample_size=sample_size,
+            entity_scopes=entity_scopes,
+        )
 
     def preview(
         self,
         ref: CatalogObject | SemanticRef,
         *,
+        using: PreviewUsing,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
     ) -> PreviewResult:
-        """Return a bounded preview for an entity, dimension, time dimension, measure, or metric.
+        """Return a bounded preview for one executable semantic object.
 
         Args:
             ref: Full semantic ref string or SemanticRef to preview.
+            using: Exact discovery snapshot binding for every dependency entity.
             limit: Maximum number of preview rows to return.
             include_types: Whether to include backend schema type strings.
             context_columns: Optional parent-entity columns to include before a
@@ -2143,9 +2146,9 @@ class SemanticCatalog:
             >>> region = catalog.get("dimension.sales.orders.region")
             >>> amount = catalog.get("measure.sales.orders.amount")
             >>> revenue = catalog.get("metric.sales.revenue")
-            >>> catalog.preview(region.ref, context_columns=("order_id",))
-            >>> catalog.preview(amount.ref)
-            >>> catalog.preview(revenue.ref).warnings
+            >>> catalog.preview(region.ref, using=orders_snapshot, context_columns=("order_id",))
+            >>> catalog.preview(amount.ref, using=orders_snapshot)
+            >>> catalog.preview(revenue.ref, using=orders_snapshot).warnings
 
         Constraints:
             ``context_columns`` is valid only for dimension and time-dimension
@@ -2166,150 +2169,231 @@ class SemanticCatalog:
                 cls=SemanticRuntimeError,
                 refs=(ref_str,),
             )
+        sidecar = self._project._sidecar
+        if sidecar is None:
+            _raise(
+                ErrorKind.PROJECT_NOT_LOADED,
+                "Semantic catalog sidecar is unavailable. Reload the catalog before previewing.",
+                cls=SemanticRuntimeError,
+                refs=(ref_str,),
+            )
+        bindings = normalize_preview_bindings(
+            ref=ref_str,
+            kind=kind,
+            using=using,
+            registry=reg,
+            sidecar=sidecar,
+            project_root=self.workspace_dir,
+        )
+        preview_limit = validate_preview_limit(limit)
+        is_field_preview = kind in {
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+        }
+        if context_columns is not None and not is_field_preview:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "catalog.preview(..., context_columns=...) is only valid for dimension refs.",
+                cls=SemanticRuntimeError,
+                refs=(ref_str,),
+                details={"query_executed": False},
+            )
+        selected_context_input = tuple(context_columns) if context_columns is not None else None
         from marivo.datasource.timezone import system_timezone_name
 
-        resolver = self._resolver(
-            sample_size=METRIC_PREVIEW_SAMPLE_SIZE if kind == SemanticKind.METRIC else None
-        )
-        if kind == SemanticKind.ENTITY:
-            if context_columns is not None:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    "catalog.preview(..., context_columns=...) is only valid for dimension refs.",
-                    cls=SemanticRuntimeError,
-                    refs=(ref_str,),
+        profile = require_profile_for_backend_type(bindings.backend)
+        timeout = profile.authoring_timeout
+        if timeout is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "catalog.preview() requires an adapter-enforced authoring timeout.",
+                cls=SemanticRuntimeError,
+                refs=(ref_str,),
+                details={"query_executed": False, "backend": bindings.backend},
+            )
+        connections = self._project._connection_service()
+        backend = connections.session_backend(bindings.datasource_id)
+
+        def execute_preview() -> PreviewResult:
+            resolver = self._resolver(
+                connections=connections,
+                sample_size=(METRIC_PREVIEW_SAMPLE_SIZE if kind == SemanticKind.METRIC else None),
+                entity_scopes=bindings.entity_scopes,
+            )
+            if kind == SemanticKind.ENTITY:
+                table = resolver.table(make_ref(ref_str, SemanticKind.ENTITY))
+                return preview_ibis_table(
+                    table,
+                    kind="semantic_dataset",
+                    ref=ref_str,
+                    limit=preview_limit,
+                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+                    include_types=include_types,
+                    report_tz=system_timezone_name(),
                 )
-            preview_limit = validate_preview_limit(limit)
-            table = resolver.table(make_ref(ref_str, SemanticKind.ENTITY))
-            report_tz = system_timezone_name()
-            return preview_ibis_table(
-                table,
-                kind="semantic_dataset",
-                ref=ref_str,
-                limit=preview_limit,
-                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
-                include_types=include_types,
-                report_tz=report_tz,
-            )
-        if kind == SemanticKind.MEASURE:
-            if context_columns is not None:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    "catalog.preview(..., context_columns=...) is only valid for dimension refs.",
-                    cls=SemanticRuntimeError,
-                    refs=(ref_str,),
+            if kind == SemanticKind.MEASURE:
+                measure_ir = reg.measures[ref_str]
+                parent_table = resolver.table(make_ref(measure_ir.entity, SemanticKind.ENTITY))
+                measure_value = resolver.measure(make_ref(ref_str, SemanticKind.MEASURE))
+                measure_column_name = ref_str.rsplit(".", 1)[-1]
+                preview_table = parent_table.select(measure_value.name(measure_column_name))
+                return preview_ibis_table(
+                    preview_table,
+                    kind="semantic_measure",
+                    ref=ref_str,
+                    limit=preview_limit,
+                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+                    include_types=include_types,
+                    report_tz=system_timezone_name(),
                 )
-            preview_limit = validate_preview_limit(limit)
-            measure_ir = reg.measures[ref_str]
-            parent_table = resolver.table(make_ref(measure_ir.entity, SemanticKind.ENTITY))
-            measure_value = resolver.measure(make_ref(ref_str, SemanticKind.MEASURE))
-            measure_column_name = ref_str.rsplit(".", 1)[-1]
-            preview_table = parent_table.select(measure_value.name(measure_column_name))
-            report_tz = system_timezone_name()
-            return preview_ibis_table(
-                preview_table,
-                kind="semantic_measure",
-                ref=ref_str,
-                limit=preview_limit,
-                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
-                include_types=include_types,
-                report_tz=report_tz,
-            )
-        if kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
-            preview_limit = validate_preview_limit(limit)
-            field_ir = reg.dimensions[ref_str]
-            parent_table = resolver.table(make_ref(field_ir.entity, SemanticKind.ENTITY))
-            field_value = resolver.dimension(make_ref(ref_str, kind))
-            field_column_name = ref_str.rsplit(".", 1)[-1]
-            report_tz = system_timezone_name()
-            datasource_timezone = None
-            if kind == SemanticKind.TIME_DIMENSION:
-                entity_ir = reg.entities[field_ir.entity]
-                connections = getattr(resolver, "connections", None)
-                engine_tz_method = getattr(connections, "engine_timezone", None)
-                if callable(engine_tz_method):
-                    datasource_timezone = engine_tz_method(entity_ir.datasource)
-            if context_columns is None:
-                selected_context = tuple(
-                    column for column in parent_table.columns if column != field_column_name
-                )[:3]
-            else:
-                selected_context = tuple(context_columns)
-            missing_context = [
-                column for column in selected_context if column not in parent_table.columns
-            ]
-            if missing_context:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    f"Field preview context columns are not present on parent dataset: {missing_context}",
-                    cls=SemanticRuntimeError,
-                    refs=(ref_str,),
+            if is_field_preview:
+                field_ir = reg.dimensions[ref_str]
+                parent_table = resolver.table(make_ref(field_ir.entity, SemanticKind.ENTITY))
+                field_value = resolver.dimension(make_ref(ref_str, kind))
+                field_column_name = ref_str.rsplit(".", 1)[-1]
+                report_tz = system_timezone_name()
+                datasource_timezone = None
+                if kind == SemanticKind.TIME_DIMENSION:
+                    entity_ir = reg.entities[field_ir.entity]
+                    engine_tz_method = getattr(
+                        resolver.connections,
+                        "engine_timezone",
+                        None,
+                    )
+                    if callable(engine_tz_method):
+                        datasource_timezone = engine_tz_method(entity_ir.datasource)
+                selected_context = selected_context_input
+                if selected_context is None:
+                    selected_context = tuple(
+                        column for column in parent_table.columns if column != field_column_name
+                    )[:3]
+                missing_context = [
+                    column for column in selected_context if column not in parent_table.columns
+                ]
+                if missing_context:
+                    _raise(
+                        ErrorKind.MATERIALIZE_FAILED,
+                        "Field preview context columns are not present on parent "
+                        f"dataset: {missing_context}",
+                        cls=SemanticRuntimeError,
+                        refs=(ref_str,),
+                    )
+                preview_table = parent_table.select(
+                    *[parent_table[column] for column in selected_context],
+                    field_value.name(field_column_name),
                 )
-            preview_table = parent_table.select(
-                *[parent_table[column] for column in selected_context],
-                field_value.name(field_column_name),
-            )
-            return preview_ibis_table(
-                preview_table,
-                kind="semantic_field",
-                ref=ref_str,
-                limit=preview_limit,
-                sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
-                include_types=include_types,
-                timezones=_preview_timezones_for_field(
-                    column_name=field_column_name,
-                    field_ir=field_ir,
-                    datasource_timezone=datasource_timezone,
-                    report_tz=report_tz,
-                ),
-                report_tz=report_tz,
-            )
-        if kind == SemanticKind.METRIC:
-            if context_columns is not None:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    "catalog.preview(..., context_columns=...) is only valid for dimension refs.",
-                    cls=SemanticRuntimeError,
-                    refs=(ref_str,),
-                )
-            preview_limit = validate_preview_limit(limit)
-            metric_value = resolver.metric(make_ref(ref_str, SemanticKind.METRIC))
-            result = preview_ibis_value(
-                metric_value,
-                kind="semantic_metric",
-                ref=ref_str,
-                limit=preview_limit,
-                column_name="value",
-                sample_policy=PreviewSamplePolicy(
-                    method="pre_aggregate_limit", limit=preview_limit
-                ),
-                include_types=include_types,
-            )
-            return PreviewResult(
-                kind=result.kind,
-                ref=result.ref,
-                columns=result.columns,
-                types=result.types,
-                rows=result.rows,
-                requested_limit=result.requested_limit,
-                returned_row_count=result.returned_row_count,
-                is_truncated=result.is_truncated,
-                warnings=(
-                    *result.warnings,
-                    PreviewWarning(
-                        kind="approximate_preview",
-                        message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
+                return preview_ibis_table(
+                    preview_table,
+                    kind="semantic_field",
+                    ref=ref_str,
+                    limit=preview_limit,
+                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+                    include_types=include_types,
+                    timezones=_preview_timezones_for_field(
+                        column_name=field_column_name,
+                        field_ir=field_ir,
+                        datasource_timezone=datasource_timezone,
+                        report_tz=report_tz,
                     ),
-                ),
-                sample_policy=result.sample_policy,
-                timezones=result.timezones,
+                    report_tz=report_tz,
+                )
+            if kind == SemanticKind.METRIC:
+                metric_value = resolver.metric(make_ref(ref_str, SemanticKind.METRIC))
+                result = preview_ibis_value(
+                    metric_value,
+                    kind="semantic_metric",
+                    ref=ref_str,
+                    limit=preview_limit,
+                    column_name="value",
+                    sample_policy=PreviewSamplePolicy(
+                        method="pre_aggregate_limit", limit=preview_limit
+                    ),
+                    include_types=include_types,
+                )
+                return PreviewResult(
+                    kind=result.kind,
+                    ref=result.ref,
+                    columns=result.columns,
+                    types=result.types,
+                    rows=result.rows,
+                    requested_limit=result.requested_limit,
+                    returned_row_count=result.returned_row_count,
+                    is_truncated=result.is_truncated,
+                    status=result.status,
+                    coverage=result.coverage,
+                    warnings=(
+                        *result.warnings,
+                        PreviewWarning(
+                            kind="approximate_preview",
+                            message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
+                        ),
+                    ),
+                    sample_policy=result.sample_policy,
+                    timezones=result.timezones,
+                )
+            if kind == SemanticKind.RELATIONSHIP:
+                relationship = reg.relationships[ref_str]
+                left = resolver.table(make_ref(relationship.from_entity, SemanticKind.ENTITY))
+                right = resolver.table(make_ref(relationship.to_entity, SemanticKind.ENTITY))
+                left_names: list[str] = []
+                right_names: list[str] = []
+                left_values = []
+                right_values = []
+                for index, key in enumerate(relationship.keys, start=1):
+                    from_key, to_key = key.to_tuple()
+                    from_kind = (
+                        SemanticKind.TIME_DIMENSION
+                        if reg.dimensions[from_key].is_time_dimension
+                        else SemanticKind.DIMENSION
+                    )
+                    to_kind = (
+                        SemanticKind.TIME_DIMENSION
+                        if reg.dimensions[to_key].is_time_dimension
+                        else SemanticKind.DIMENSION
+                    )
+                    left_name = f"from_key_{index}"
+                    right_name = f"to_key_{index}"
+                    left_names.append(left_name)
+                    right_names.append(right_name)
+                    left_values.append(
+                        resolver.dimension_on(make_ref(from_key, from_kind), left).name(left_name)
+                    )
+                    right_values.append(
+                        resolver.dimension_on(make_ref(to_key, to_kind), right).name(right_name)
+                    )
+                left_keys = left.select(*left_values)
+                right_keys = right.select(*right_values)
+                joined = left_keys.join(
+                    right_keys,
+                    predicates=[
+                        left_keys[left_name] == right_keys[right_name]
+                        for left_name, right_name in zip(left_names, right_names, strict=True)
+                    ],
+                    how="inner",
+                ).select(*(left_names + right_names))
+                return preview_ibis_table(
+                    joined,
+                    kind="semantic_dataset",
+                    ref=ref_str,
+                    limit=preview_limit,
+                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
+                    include_types=include_types,
+                    report_tz=system_timezone_name(),
+                )
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                f"catalog.preview() does not support {kind} refs.",
+                cls=SemanticRuntimeError,
+                refs=(ref_str,),
+                details={"kind": str(kind)},
             )
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            f"catalog.preview() does not support {kind} refs.",
-            cls=SemanticRuntimeError,
-            refs=(ref_str,),
-            details={"kind": str(kind)},
+
+        with timeout(backend, bindings.timeout_seconds):
+            result = execute_preview()
+        return persist_preview_check(
+            result,
+            bindings=bindings,
+            project_root=self.workspace_dir,
         )
 
 

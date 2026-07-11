@@ -34,6 +34,7 @@ class TableSection:
     rows: tuple[tuple[str, ...], ...] | None
     rows_provider: Callable[[], Iterable[Sequence[str]]] | None
     row_count: int | None = None
+    show_omission_counts: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,7 @@ class Card:
         *,
         row_count: int | None = None,
         label: str = "preview",
+        show_omission_counts: bool = False,
     ) -> Card:
         materialized_rows = tuple(tuple(str(value) for value in row) for row in rows)
         self._sections.append(
@@ -130,6 +132,7 @@ class Card:
                 rows=materialized_rows,
                 rows_provider=None,
                 row_count=row_count,
+                show_omission_counts=show_omission_counts,
             )
         )
         return self
@@ -149,6 +152,7 @@ class Card:
                 rows=None,
                 rows_provider=rows_provider,
                 row_count=row_count,
+                show_omission_counts=False,
             )
         )
         return self
@@ -241,10 +245,20 @@ class Card:
                 body=body_text,
                 tail=tail,
                 omitted_tokens=omitted_tokens,
+                require_all_tokens=any(
+                    isinstance(section, TableSection) and section.show_omission_counts
+                    for section in self._sections[truncated_at:]
+                ),
             )
             rendered = _join_lines([*head, *body_text, marker, *tail])
             if _encoded_len(rendered) <= max_output_bytes:
                 return rendered
+            if not body:
+                minimum = _encoded_len(_join_lines([*head, marker, *tail]))
+                raise ValueError(
+                    "max_output_bytes is too small to preserve identity, truncation detail, "
+                    f"and available output; minimum is {minimum} bytes; {_OMISSION_RECOVERY}"
+                )
             removed = body.pop()
             truncated_at = min(truncated_at, removed.section_index)
 
@@ -353,8 +367,11 @@ def _section_omission_token(
         omitted_rows = _omitted_table_rows(section, rows_shown, current_line_is_table_row)
         if omitted_rows is None:
             return f"{section.label} rows"
-        row_word = "row" if omitted_rows == 1 else "rows"
-        return f"{section.label} ({omitted_rows} {row_word})"
+        if not section.show_omission_counts:
+            row_word = "row" if omitted_rows == 1 else "rows"
+            return f"{section.label} ({omitted_rows} {row_word})"
+        total_rows = rows_shown + omitted_rows
+        return f"{section.label} (displayed={rows_shown} total={total_rows} omitted={omitted_rows})"
     if isinstance(section, ListSection):
         return section.label
     if isinstance(section, FieldSection):
@@ -390,7 +407,10 @@ def _best_fit_marker(
     body: Sequence[str],
     tail: Sequence[str],
     omitted_tokens: Sequence[str],
+    require_all_tokens: bool,
 ) -> str:
+    if require_all_tokens:
+        return _truncation_marker(max_output_bytes=max_output_bytes, tokens=omitted_tokens)
     accepted_tokens: list[str] = []
     for token in omitted_tokens:
         candidate_tokens = [*accepted_tokens, token]

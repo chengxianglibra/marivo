@@ -101,18 +101,17 @@ warehouse = md.ref("datasource.warehouse")
 orders = ms.entity(
     name="orders",
     datasource=warehouse,
-    source=ms.table("orders"),
+    source=md.table("orders"),
     primary_key=["order_id"],
     ai_context=ms.ai_context(business_definition="One row per order before metric-level filters."),
 )
 ```
 
-- `source` is a structured descriptor: `ms.table(...)` for a backend table/view;
-  `ms.parquet(...)`, `ms.csv(...)`, `ms.json(...)` for DuckDB file sources (JSON
-  accepts local paths, globs, and `http(s)://` URLs). These mirror the datasource
-  source constructors.
+- `source` is a datasource-owned structured descriptor: `md.table(...)` for a
+  backend table/view; `md.parquet(...)`, `md.csv(...)`, or `md.json(...)` for
+  DuckDB file sources. CSV and JSON require typed physical `schema=` mappings.
 - Entities have no Python body and no inline SQL view. A persisted SQL view must
-  be exposed as a backend table via `source=ms.table(...)`; one-off SQL
+  be exposed as a backend table via `source=md.table(...)`; one-off SQL
   transforms are out of scope.
 - Do not push metric aggregation logic into an entity.
 
@@ -127,7 +126,7 @@ available partition by default:
 user_profile_daily = ms.entity(
     name="user_profile_daily",
     datasource=warehouse,
-    source=ms.table("user_profile_daily"),
+    source=md.table("user_profile_daily"),
     primary_key=["user_id", "dt"],
     versioning=ms.snapshot(
         partition_field=ms.ref("dimension.sales.user_profile_daily.dt"),
@@ -148,7 +147,7 @@ window end.
 user_history = ms.entity(
     name="user_history",
     datasource=warehouse,
-    source=ms.table("user_history"),
+    source=md.table("user_history"),
     primary_key=["user_id", "valid_from"],
     versioning=ms.validity(
         valid_from=valid_from,

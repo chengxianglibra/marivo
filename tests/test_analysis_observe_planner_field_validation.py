@@ -82,7 +82,7 @@ def _bootstrap_schema_project(tmp_path):
         "\n"
         "warehouse = md.ref('datasource.warehouse')\n"
         "\n"
-        "queries = ms.entity(name='queries', datasource=warehouse, source=ms.table('queries'))\n"
+        "queries = ms.entity(name='queries', datasource=warehouse, source=md.table('queries'))\n"
         "\n"
         "@ms.time_dimension(entity=queries, granularity='day')\n"
         "def query_date(queries):\n"

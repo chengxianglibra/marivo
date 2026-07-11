@@ -44,6 +44,8 @@ def test_raw_sql_rejects_multi_statement_input(tmp_path: Path) -> None:
 
 
 def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
+    from marivo.datasource.manage import RawSqlResult
+
     _register_raw_sql_fixture(tmp_path)
 
     result = md.raw_sql(
@@ -54,7 +56,7 @@ def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    assert isinstance(result, md.DatasourceResult)
+    assert isinstance(result, RawSqlResult)
     assert result.datasource == md.ref("datasource.warehouse")
     assert result.reason == "diagnose order amount sample"
     assert result.returned_row_count == 1
@@ -62,7 +64,7 @@ def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
     rendered = result.render()
     assert "escape_hatch" in rendered
     assert "diagnose order amount sample" in rendered
-    assert "bounded diagnostic" in rendered
+    assert "expensive" in rendered
     assert 'md.help("raw_sql")' in rendered
 
 

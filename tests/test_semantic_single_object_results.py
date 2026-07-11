@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import fields
+
+from marivo.semantic.dtos import VerifyResult
 from marivo.semantic.readiness import ReadinessReport
 from marivo.semantic.richness import RichnessReport
 
@@ -19,6 +22,32 @@ def _make_readiness_report() -> ReadinessReport:
 
 def _make_richness_report() -> RichnessReport:
     return RichnessReport(gaps=(), checked_at="2026-06-09T00:00:00Z")
+
+
+def test_verify_result_has_exact_static_contract() -> None:
+    result = VerifyResult(
+        status="passed",
+        ref="sales.orders",
+        kind="entity",
+        validation_level="static",
+        runtime_checked=False,
+        issues=(),
+        warnings=(),
+    )
+
+    assert tuple(field.name for field in fields(VerifyResult)) == (
+        "status",
+        "ref",
+        "kind",
+        "validation_level",
+        "runtime_checked",
+        "issues",
+        "warnings",
+    )
+    assert result.validation_level == "static"
+    assert result.runtime_checked is False
+    assert not hasattr(result, "scope")
+    assert not hasattr(result, "scan")
 
 
 # --- ReadinessReport ---

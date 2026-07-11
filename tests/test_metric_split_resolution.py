@@ -60,7 +60,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-orders = ms.entity(name="orders", datasource=wh, source=ms.table("orders"))
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
 def amount(orders): return orders.amount
@@ -113,7 +113,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
+o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="non_additive")
 def unit_price(o): return o.unit_price
@@ -138,7 +138,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
+o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="additive")
 def amount(o): return o.amount
@@ -159,7 +159,7 @@ import marivo.semantic as ms
 import marivo.datasource as md
 
 wh = md.ref("datasource.wh")
-o = ms.entity(name="o", datasource=wh, source=ms.table("o"))
+o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="additive")
 def amount(o): return o.amount

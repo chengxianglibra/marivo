@@ -9,17 +9,17 @@ marivo.semantic
 Declaration decorators
 ----------------------
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+These public constructors are documented inline because their lowercase names
+collide with the corresponding catalog-object class filenames on
+case-insensitive filesystems.
 
-   entity
-   dimension
-   measure
-   metric
-   relationship
-   time_dimension
-   domain
+.. autofunction:: entity
+.. autofunction:: dimension
+.. autofunction:: measure
+.. autofunction:: metric
+.. autofunction:: relationship
+.. autofunction:: time_dimension
+.. autofunction:: domain
 
 Aggregation & measure helpers
 -----------------------------
@@ -50,16 +50,13 @@ Time parsing
    strptime
    hour_prefix
 
-Source builders & provenance
-----------------------------
+Provenance
+----------
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
-   csv
-   parquet
-   table
    from_sql
 
 Readiness & verification

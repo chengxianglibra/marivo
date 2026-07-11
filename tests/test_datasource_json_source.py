@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -11,6 +10,8 @@ import marivo.datasource as md
 from marivo.datasource.backends import apply_json_http_settings
 from marivo.datasource.errors import DatasourceMetadataError
 from marivo.datasource.ir import JsonSourceIR
+
+_EVENT_SCHEMA = {"event_id": "int64", "amount": "int64", "status": "string"}
 
 
 class _RawSqlRecorder:
@@ -24,7 +25,10 @@ class _RawSqlRecorder:
 def test_apply_json_http_settings_enables_force_download_for_remote_json() -> None:
     backend = _RawSqlRecorder()
 
-    apply_json_http_settings(backend, JsonSourceIR(path="https://example.com/events.json"))
+    apply_json_http_settings(
+        backend,
+        JsonSourceIR(path="https://example.com/events.json", schema=(("event_id", "string"),)),
+    )
 
     assert backend.calls == ["SET force_download=true"]
 
@@ -32,15 +36,23 @@ def test_apply_json_http_settings_enables_force_download_for_remote_json() -> No
 def test_apply_json_http_settings_ignores_local_http_prefixed_paths_and_non_json() -> None:
     backend = _RawSqlRecorder()
 
-    apply_json_http_settings(backend, JsonSourceIR(path="http_exports/events.json"))
-    apply_json_http_settings(backend, md.csv("https://example.com/events.csv"))
+    apply_json_http_settings(
+        backend,
+        JsonSourceIR(path="http_exports/events.json", schema=(("event_id", "string"),)),
+    )
+    apply_json_http_settings(
+        backend, md.csv("https://example.com/events.csv", schema={"event_id": "string"})
+    )
 
     assert backend.calls == []
 
 
 def test_apply_json_http_settings_teaches_when_backend_lacks_raw_sql() -> None:
     with pytest.raises(DatasourceMetadataError) as exc_info:
-        apply_json_http_settings(object(), JsonSourceIR(path="https://example.com/events.json"))
+        apply_json_http_settings(
+            object(),
+            JsonSourceIR(path="https://example.com/events.json", schema=(("event_id", "string"),)),
+        )
 
     message = str(exc_info.value)
     assert "http(s)" in message
@@ -64,7 +76,8 @@ def test_apply_json_http_settings_rejects_non_callable_raw_sql() -> None:
 
     with pytest.raises(DatasourceMetadataError) as exc_info:
         apply_json_http_settings(
-            _NonCallableRawSql(), JsonSourceIR(path="https://example.com/events.json")
+            _NonCallableRawSql(),
+            JsonSourceIR(path="https://example.com/events.json", schema=(("event_id", "string"),)),
         )
 
     assert exc_info.value.details["reason"] == "backend_lacks_httpfs"
@@ -93,45 +106,6 @@ def _register_duckdb(project_root: Path) -> None:
     )
 
 
-def test_inspect_table_reads_json_file_source_schema(tmp_path: Path) -> None:
-    source = md.json(_write_ndjson_files(tmp_path), format="newline_delimited")
-    _register_duckdb(tmp_path)
-
-    metadata = md.inspect_table(md.ref("datasource.warehouse"), source, project_root=tmp_path)
-
-    assert metadata.table == "events"
-    assert [column.name for column in metadata.columns] == ["event_id", "amount", "status"]
-    assert metadata.backend_type == "duckdb"
-
-
-def test_inspect_table_reads_json_with_auto_format(tmp_path: Path) -> None:
-    source = md.json(_write_ndjson_files(tmp_path))
-    _register_duckdb(tmp_path)
-
-    metadata = md.inspect_table(md.ref("datasource.warehouse"), source, project_root=tmp_path)
-
-    assert [column.name for column in metadata.columns] == ["event_id", "amount", "status"]
-    assert metadata.backend_type == "duckdb"
-
-
-def test_discover_measures_reads_json_and_preserves_column_inspection_source(
-    tmp_path: Path,
-) -> None:
-    source = md.json(_write_ndjson_files(tmp_path), format="newline_delimited")
-    _register_duckdb(tmp_path)
-
-    result = md.discover_measures(
-        md.ref("datasource.warehouse"),
-        source,
-        columns=("amount",),
-        project_root=tmp_path,
-    )
-
-    assert result.source == source
-    assert result.source.kind == "json"
-    assert [candidate.column for candidate in result.columns] == ["amount"]
-
-
 def _write_project_with_json_entity(
     project_root: Path, json_path: str, *, format: str | None = "newline_delimited"
 ) -> None:
@@ -147,7 +121,7 @@ def _write_project_with_json_entity(
     (semantic_dir / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data Team')\n"
     )
-    source_args = repr(json_path)
+    source_args = f"{json_path!r}, schema={_EVENT_SCHEMA!r}"
     if format is not None:
         source_args += f", format={format!r}"
     (semantic_dir / "events.py").write_text(
@@ -155,13 +129,13 @@ def _write_project_with_json_entity(
         "import marivo.semantic as ms\n"
         "\n"
         "warehouse = md.ref('datasource.warehouse')\n"
-        f"events = ms.entity(name='events', datasource=warehouse, source=ms.json({source_args}))\n"
+        f"events = ms.entity(name='events', datasource=warehouse, source=md.json({source_args}))\n"
         "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive', unit='USD')\n"
         "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum', unit='USD')\n"
     )
 
 
-def test_verify_object_reads_json_entity(tmp_path: Path) -> None:
+def test_verify_object_statically_validates_json_entity(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path)
 
@@ -171,14 +145,15 @@ def test_verify_object_reads_json_entity(tmp_path: Path) -> None:
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
-    result = project.verify_object(ms.ref("entity.sales.events"), scope=md.ScanScope(max_rows=10))
+    result = project.verify_object(ms.ref("entity.sales.events"))
 
     assert result.status == "passed"
-    assert result.scan is not None
-    assert result.scan.rows_scanned == 3
+    assert result.validation_level == "static"
+    assert result.runtime_checked is False
+    assert not hasattr(result, "scan")
 
 
-def test_verify_object_reads_json_entity_with_auto_format(tmp_path: Path) -> None:
+def test_verify_object_statically_validates_json_entity_with_auto_format(tmp_path: Path) -> None:
     source_path = _write_ndjson_files(tmp_path)
     _write_project_with_json_entity(tmp_path, source_path, format=None)
 
@@ -188,11 +163,12 @@ def test_verify_object_reads_json_entity_with_auto_format(tmp_path: Path) -> Non
     project = SemanticProject(workspace_dir=tmp_path)
     project.load()
 
-    result = project.verify_object(ms.ref("entity.sales.events"), scope=md.ScanScope(max_rows=10))
+    result = project.verify_object(ms.ref("entity.sales.events"))
 
     assert result.status == "passed"
-    assert result.scan is not None
-    assert result.scan.rows_scanned == 3
+    assert result.validation_level == "static"
+    assert result.runtime_checked is False
+    assert not hasattr(result, "scan")
 
 
 def test_loaded_json_project_materializes_metric(tmp_path: Path) -> None:
@@ -208,52 +184,3 @@ def test_loaded_json_project_materializes_metric(tmp_path: Path) -> None:
     table = materializer.entity("sales.events")
 
     assert table.count().execute() == 3
-
-
-def test_json_missing_keys_are_visible_as_nullable_columns(tmp_path: Path) -> None:
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    (data_dir / "a.json").write_text('{"event_id": 1, "amount": 10}\n')
-    (data_dir / "b.json").write_text('{"event_id": 2, "status": "paid"}\n')
-    _register_duckdb(tmp_path)
-
-    metadata = md.inspect_table(
-        md.ref("datasource.warehouse"),
-        md.json(str(data_dir / "*.json"), format="newline_delimited"),
-        project_root=tmp_path,
-    )
-
-    assert [column.name for column in metadata.columns] == ["event_id", "amount", "status"]
-
-
-def test_json_type_conflict_surfaces_json_typed_column(tmp_path: Path) -> None:
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    (data_dir / "a.json").write_text('{"event_id": 1, "payload": {"kind": "object"}}\n')
-    (data_dir / "b.json").write_text('{"event_id": 2, "payload": "text"}\n')
-    _register_duckdb(tmp_path)
-
-    metadata = md.inspect_table(
-        md.ref("datasource.warehouse"),
-        md.json(str(data_dir / "*.json"), format="newline_delimited"),
-        project_root=tmp_path,
-    )
-
-    payload = next(column for column in metadata.columns if column.name == "payload")
-    assert "json" in payload.type.lower()
-
-
-@pytest.mark.skipif(
-    os.environ.get("MARIVO_TEST_HTTP_JSON") != "1",
-    reason="set MARIVO_TEST_HTTP_JSON=1 to run the live DuckDB httpfs JSON smoke test",
-)
-def test_http_json_source_smoke_with_force_download(tmp_path: Path) -> None:
-    _register_duckdb(tmp_path)
-
-    metadata = md.inspect_table(
-        md.ref("datasource.warehouse"),
-        md.json("https://jsonplaceholder.typicode.com/todos/1"),
-        project_root=tmp_path,
-    )
-
-    assert {"id", "title", "completed"} <= {column.name for column in metadata.columns}

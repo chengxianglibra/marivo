@@ -189,6 +189,17 @@ def _validate_sample_interval_value(value: object, field_name: str) -> None:
         )
 
 
+def _source_schema_from_dict(value: object, *, field_name: str) -> tuple[tuple[str, str], ...]:
+    if not isinstance(value, Mapping):
+        return ()
+    normalized: list[tuple[str, str]] = []
+    for name, type_name in value.items():
+        if not isinstance(name, str) or not isinstance(type_name, str):
+            raise TypeError(f"{field_name} column names and type names must be strings.")
+        normalized.append((name, type_name))
+    return tuple(normalized)
+
+
 def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
     kind = data.get("kind")
     if kind == "table":
@@ -210,18 +221,17 @@ def source_from_dict(data: Mapping[str, object]) -> EntitySourceIR:
             columns=columns,
         )
     if kind == "csv":
-        raw_columns = data.get("columns")
-        columns = tuple(str(col) for col in raw_columns) if isinstance(raw_columns, list) else None
         return CsvSourceIR(
             path=str(data["path"]),
+            schema=_source_schema_from_dict(data.get("schema"), field_name="CsvSourceIR.schema"),
             header=bool(data.get("header", True)),
             delimiter=str(data.get("delimiter", ",")),
-            columns=columns,
         )
     if kind == "json":
         raw_format = str(data.get("format", "auto"))
         return JsonSourceIR(
             path=str(data["path"]),
+            schema=_source_schema_from_dict(data.get("schema"), field_name="JsonSourceIR.schema"),
             format=cast('Literal["auto", "newline_delimited", "array"]', raw_format),
         )
     raise ValueError(f"unsupported entity source kind: {kind!r}")

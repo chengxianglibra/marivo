@@ -87,7 +87,7 @@ def test_model_outside_context_raises() -> None:
 
 def test_dataset_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
@@ -234,7 +234,7 @@ def test_field_accepts_model_ref() -> None:
         ds = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
         )
 
         @ms.dimension(entity=ds, domain=sales_ref)
@@ -255,7 +255,7 @@ def test_dataset_returns_ref() -> None:
     _enter_ctx(default_domain="sales")
     try:
         orders = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
 
         assert isinstance(orders, EntityRef)
@@ -268,7 +268,7 @@ def test_dataset_requires_name_without_body() -> None:
     _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(TypeError):
-            ms.entity(datasource=md.ref("datasource.wh"), source=ms.table("orders"))  # type: ignore[call-arg]
+            ms.entity(datasource=md.ref("datasource.wh"), source=md.table("orders"))  # type: ignore[call-arg]
     finally:
         _exit_ctx()
 
@@ -277,7 +277,7 @@ def test_dataset_rejects_bare_string_datasource() -> None:
     _enter_ctx(default_domain="sales")
     try:
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.entity(name="orders", datasource="wh", source=ms.table("orders"))  # type: ignore[arg-type]
+            ms.entity(name="orders", datasource="wh", source=md.table("orders"))  # type: ignore[arg-type]
 
         assert exc_info.value.kind == ErrorKind.INVALID_REF
         assert 'md.ref("datasource.warehouse")' in str(exc_info.value)
@@ -291,7 +291,7 @@ def test_dimension_rejects_bare_string_domain() -> None:
         ds = ms.entity(
             name="orders",
             datasource=md.ref("datasource.wh"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
         )
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
@@ -311,7 +311,7 @@ def test_dataset_explicit_name() -> None:
         _orders_impl = ms.entity(
             name="orders_tbl",
             datasource=md.ref("datasource.wh"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
         )
 
         assert isinstance(_orders_impl, EntityRef)
@@ -326,7 +326,7 @@ def test_dataset_pushes_ir_without_callable() -> None:
         ref = ms.entity(
             name="orders",
             datasource=md.ref("datasource.wh"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
         )
         ir, callable_ = ctx.pending_objects[-1]
         assert ref.id == "sales.orders"
@@ -334,7 +334,7 @@ def test_dataset_pushes_ir_without_callable() -> None:
         assert ir.domain == "sales"
         assert ir.name == "orders"
         assert ir.datasource == "datasource.wh"
-        assert ir.source == ms.table("orders")
+        assert ir.source == md.table("orders")
         assert callable_ is None
     finally:
         _exit_ctx()
@@ -343,7 +343,7 @@ def test_dataset_pushes_ir_without_callable() -> None:
 def test_dataset_datasource_as_string() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
-        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
         ir, _ = ctx.pending_objects[-1]
         assert ir.datasource == "datasource.wh"
@@ -355,7 +355,7 @@ def test_dataset_datasource_as_datasource_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         warehouse = md.ref("datasource.wh")
-        ms.entity(name="orders", datasource=warehouse, source=ms.table("orders"))
+        ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 
         ir, _ = ctx.pending_objects[-1]
         assert ir.datasource == "datasource.wh"
@@ -369,7 +369,7 @@ def test_dataset_primary_key() -> None:
         ms.entity(
             name="orders",
             datasource=md.ref("datasource.wh"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
             primary_key=["order_id"],
         )
 
@@ -385,7 +385,7 @@ def test_dataset_source_records_table_database() -> None:
         ms.entity(
             name="orders",
             datasource=md.ref("datasource.wh"),
-            source=ms.table("orders", database="sales_mart"),
+            source=md.table("orders", database="sales_mart"),
         )
 
         ir, _ = ctx.pending_objects[-1]
@@ -402,7 +402,7 @@ def test_dataset_source_records_parquet_source() -> None:
         ms.entity(
             name="orders",
             datasource=md.ref("datasource.wh"),
-            source=ms.parquet("/data/orders/*.parquet", hive_partitioning=True),
+            source=md.parquet("/data/orders/*.parquet", hive_partitioning=True),
         )
 
         ir, _ = ctx.pending_objects[-1]
@@ -419,7 +419,9 @@ def test_dataset_source_records_csv_source() -> None:
         ms.entity(
             name="orders",
             datasource=md.ref("datasource.wh"),
-            source=ms.csv("/data/orders.csv", header=False, delimiter="|"),
+            source=md.csv(
+                "/data/orders.csv", schema={"order_id": "string"}, header=False, delimiter="|"
+            ),
         )
 
         ir, _ = ctx.pending_objects[-1]
@@ -454,7 +456,7 @@ def test_entity_accepts_json_source(semantic_project_factory) -> None:
                     "events = ms.entity(",
                     "    name='events',",
                     "    datasource=md.ref('datasource.warehouse'),",
-                    "    source=ms.json('data/events/*.json'),",
+                    "    source=md.json('data/events/*.json', schema={'event_id': 'string'}),",
                     ")",
                 ]
             )
@@ -465,25 +467,26 @@ def test_entity_accepts_json_source(semantic_project_factory) -> None:
     assert project._registry.entities["sales.events"].source.to_dict() == {
         "kind": "json",
         "path": "data/events/*.json",
+        "schema": {"event_id": "string"},
         "format": "auto",
     }
 
 
 def test_table_source_constructor() -> None:
-    """ms.table, ms.parquet, and ms.csv produce correct IR objects."""
+    """md.table, md.parquet, and md.csv produce correct IR objects."""
     from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR, TableSourceIR
 
-    tbl = ms.table("orders", database="sales_mart")
+    tbl = md.table("orders", database="sales_mart")
     assert isinstance(tbl, TableSourceIR)
     assert tbl.table == "orders"
     assert tbl.database == "sales_mart"
 
-    pq = ms.parquet("/data/orders.parquet", hive_partitioning=True)
+    pq = md.parquet("/data/orders.parquet", hive_partitioning=True)
     assert isinstance(pq, ParquetSourceIR)
     assert pq.path == "/data/orders.parquet"
     assert pq.hive_partitioning is True
 
-    cs = ms.csv("/data/orders.csv", delimiter=",")
+    cs = md.csv("/data/orders.csv", schema={"order_id": "string"}, delimiter=",")
     assert isinstance(cs, CsvSourceIR)
     assert cs.path == "/data/orders.csv"
     assert cs.delimiter == ","
@@ -494,7 +497,7 @@ def test_entity_is_not_a_decorator() -> None:
     _enter_ctx(default_domain="sales")
     try:
         result = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
         assert isinstance(result, EntityRef)
         # It does not accept a function body — it returns a ref, not a decorator.
@@ -631,7 +634,7 @@ def test_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         orders = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
 
         ref = ms.dimension_column(
@@ -685,7 +688,7 @@ def test_dimension_column_rejects_empty_column() -> None:
     _enter_ctx(default_domain="sales")
     try:
         orders = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.dimension_column(name="region", entity=orders, column="")
@@ -748,7 +751,7 @@ def test_measure_column_pushes_ir_sidecar_and_pending_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         orders = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
 
         ref = ms.measure_column(
@@ -1369,7 +1372,7 @@ def test_time_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         orders = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
 
         ref = ms.time_dimension_column(
@@ -1430,7 +1433,7 @@ def test_time_dimension_column_reuses_parse_granularity_validation() -> None:
     _enter_ctx(default_domain="sales")
     try:
         orders = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.time_dimension_column(
@@ -2071,10 +2074,10 @@ def test_authoring_reference_parameters_reject_wrong_ref_kind(
 def test_duplicate_dataset_name_raises() -> None:
     _enter_ctx(default_domain="sales")
     try:
-        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+        ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
-            ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders"))
+            ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
 
         assert exc_info.value.kind == ErrorKind.DUPLICATE_NAME
     finally:
@@ -2107,7 +2110,7 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
         ds = ms.entity(
             name="dau_7d_portrait",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("dau_7d_portrait"),
+            source=md.table("dau_7d_portrait"),
         )
         assert ds.id == "sales.dau_7d_portrait"
 
@@ -2131,7 +2134,7 @@ def test_field_and_time_field_same_name_same_dataset_collides() -> None:
         ds = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
         )
 
         @ms.dimension(entity=ds, name="log_date")
@@ -2352,12 +2355,12 @@ def test_two_datasets_same_column_name_distinct_ids() -> None:
         orders_ds = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
         )
         portrait_ds = ms.entity(
             name="portrait",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("portrait"),
+            source=md.table("portrait"),
         )
 
         @ms.dimension(entity=orders_ds, name="region")
@@ -2381,7 +2384,7 @@ def test_field_model_mismatch_with_dataset_raises() -> None:
         ds = ms.entity(
             name="orders",
             datasource=md.ref("datasource.warehouse"),
-            source=ms.table("orders"),
+            source=md.table("orders"),
         )
 
         inventory_ref = ms.DomainRef(semantic_id="inventory")
@@ -2497,7 +2500,7 @@ def test_cumulative_returns_ref_and_pushes_body_free_ir() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         orders = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
         event_time = ms.time_dimension_column(
             name="event_time", entity=orders, column="created_at", granularity="day"
@@ -2526,7 +2529,7 @@ def test_cumulative_allows_omitted_over_for_loader_resolution() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         orders = ms.entity(
-            name="orders", datasource=md.ref("datasource.wh"), source=ms.table("orders")
+            name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders")
         )
         active_users = ms.count(name="active_users", entity=orders)
 

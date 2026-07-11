@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import marivo.datasource as md
 import marivo.semantic as ms
 
 ms.help("dimension_column")
@@ -24,13 +25,22 @@ declaration = (
 semantic_file = Path("models/semantic/sales/order_region.py")
 semantic_file.write_text(declaration)
 
-ref = ms.ref("dimension.sales.orders.region")
-verification = ms.verify_object(ref)
+warehouse = md.ref("datasource.warehouse")
+inspection = md.inspect(warehouse, md.table("orders"))
+snapshot = inspection.sample(
+    scope=md.unpruned(max_rows=100, timeout_seconds=30),
+    columns=("region",),
+)
+
+catalog = ms.load()
+region = catalog.domains.get("sales").entities.get("orders").dimensions.get("region")
+verification = catalog.verify_object(region)
 verification.show()
 if verification.status == "failed":
     raise SystemExit("verify failed for dimension.sales.orders.region")
 
-readiness = ms.readiness(refs=(ref,))
+catalog.preview(region, using=snapshot).show()
+readiness = catalog.readiness(refs=[region])
 readiness.show()
-print("verified:", ref.id)
+print("verified:", region.ref.id)
 print("readiness:", readiness.status)

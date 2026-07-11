@@ -57,7 +57,7 @@ def _write_project(root: Path) -> None:
         "orders = ms.entity(\n"
         "    name='orders',\n"
         "    datasource=warehouse,\n"
-        "    source=ms.table('orders'),\n"
+        "    source=md.table('orders'),\n"
         "    primary_key=['order_id'],\n"
         "    ai_context=ms.ai_context(\n"
         "        business_definition='One row per customer order.',\n"

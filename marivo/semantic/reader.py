@@ -9,13 +9,13 @@ import os
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.datasource.scan import ScanReport, ScanScope
 from marivo.refs import SemanticRef
+from marivo.semantic.catalog import CatalogObject, DerivedMetricDetails
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringObjectKind,
@@ -133,6 +133,49 @@ def _suggest_ref_level(registry: Registry, ref: str) -> str | None:
             )
 
     return None
+
+
+_AUTHORING_KIND_BY_SYMBOL: dict[SymbolKind, AuthoringObjectKind] = {
+    SymbolKind.DOMAIN: "domain",
+    SymbolKind.ENTITY: "entity",
+    SymbolKind.DIMENSION: "dimension",
+    SymbolKind.TIME_DIMENSION: "time_dimension",
+    SymbolKind.MEASURE: "measure",
+    SymbolKind.METRIC: "metric",
+    SymbolKind.RELATIONSHIP: "relationship",
+}
+
+
+def _verification_input(
+    value: CatalogObject | SemanticRef,
+) -> tuple[SemanticRef, AuthoringObjectKind]:
+    """Return the typed ref and requested kind before project reload."""
+    if isinstance(value, CatalogObject):
+        semantic_ref = value.ref
+        if isinstance(value.details(), DerivedMetricDetails):
+            return semantic_ref, "derived_metric"
+    elif isinstance(value, SemanticRef):
+        semantic_ref = value
+    else:
+        _raise(
+            ErrorKind.INVALID_REF,
+            "SemanticProject.verify_object(ref=...) requires a CatalogObject or "
+            "SemanticRef from an authoring call, ms.ref('<kind>.<semantic_id>'), "
+            "or catalog.get('<kind>.<semantic_id>').",
+            cls=SemanticRuntimeError,
+            refs=(str(value),),
+        )
+
+    requested_kind = _AUTHORING_KIND_BY_SYMBOL.get(semantic_ref.kind)
+    if requested_kind is None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            "SemanticProject.verify_object(ref=...) requires a semantic authoring object; "
+            f"received {semantic_ref.kind.value!r}.",
+            cls=SemanticRuntimeError,
+            refs=(semantic_ref.id,),
+        )
+    return semantic_ref, requested_kind
 
 
 class SemanticProject:
@@ -428,25 +471,25 @@ class SemanticProject:
         *,
         refs: Iterable[SemanticRef | str] | None = None,
     ) -> ReadinessReport:
-        """Return a structural semantic readiness report.
+        """Return a query-free semantic readiness report.
 
-        Performs pure in-memory checks without datasource connectivity:
+        Performs in-memory checks and reads persisted row-free preview evidence:
         load errors, unknown refs, cross-datasource unfederated metrics,
         SQL parity unverified warnings, strict enrichment issues, and load
         warnings forwarding. Use ``refs`` to scope which semantic objects to
         check; by default all loaded objects are checked.
 
-        For runtime validation, use ``catalog.preview(...)``,
-        ``ms.parity_check(...)``, and ``ms.richness()``.
+        Missing preview evidence is reported with state-derived acquisition or
+        preview calls; readiness never executes those calls itself.
 
         Args:
             refs: Semantic refs to scope the check. Accepts strings or
                 SemanticRef objects. None checks all loaded objects.
         """
-        from marivo.semantic.readiness import build_structural_readiness_report
+        from marivo.semantic.readiness import build_readiness_report
 
         str_refs = [str(r) for r in refs] if refs is not None else None
-        return build_structural_readiness_report(self, refs=str_refs)
+        return build_readiness_report(self, refs=str_refs)
 
     # -- richness -----------------------------------------------------------
 
@@ -465,50 +508,29 @@ class SemanticProject:
 
     # -- verify object -------------------------------------------------------
 
-    _DEFAULT_SCOPE = ScanScope()  # module-level singleton for default parameter
-
     def verify_object(
         self,
-        ref: SemanticRef,
-        *,
-        scope: ScanScope | None = None,
+        ref: CatalogObject | SemanticRef,
     ) -> VerifyResult:
-        """Verify a single authored semantic object is reachable and valid.
+        """Statically verify one authored semantic object against the loaded project.
 
-        For domains, relationships, and dimensions this is a static-only check.
-        For entities, a scoped preview confirms the datasource is reachable and
-        the expression is valid. For time dimensions, metrics, and derived
-        metrics, the check is static and validates the loaded semantic contract.
+        Reloading runs the existing load, assembly, dependency, type, cycle,
+        and expression-contract validators. Verification never opens a
+        datasource or executes user data; runtime execution belongs to the
+        explicit catalog preview path.
 
         Parameters
         ----------
         ref:
-            SemanticRef returned by authoring calls, ``ms.ref(...)``, or
-            ``catalog.get(...).ref``.
-        scope:
-            Scan scope controlling partition, max rows, and timeout.
-            Defaults to ``ScanScope()``.
-
+            CatalogObject or SemanticRef returned by authoring calls,
+            ``ms.ref(...)``, or ``catalog.get(...)``.
         Returns
         -------
         VerifyResult
-            Status, issues, and optional scan report for entity verification.
+            Static validation status, issues, and warnings.
         """
-        from marivo.semantic.scope import scoped_entity_expression
-
-        if not isinstance(ref, SemanticRef):
-            _raise(
-                ErrorKind.INVALID_REF,
-                "SemanticProject.verify_object(ref=...) requires a SemanticRef from "
-                "an authoring call, ms.ref('<kind>.<semantic_id>'), or "
-                "catalog.get('<kind>.<semantic_id>').ref.",
-                cls=SemanticRuntimeError,
-                refs=(str(ref),),
-            )
-        ref_str = ref.id
-
-        if scope is None:
-            scope = self._DEFAULT_SCOPE
+        semantic_ref, requested_kind = _verification_input(ref)
+        ref_str = semantic_ref.id
 
         self.load(domains=list(self._filtered_domains) if self._filtered_domains else None)
 
@@ -523,111 +545,20 @@ class SemanticProject:
                 f"Cannot verify {ref_str!r}: project failed to load. "
                 f"Fix the following errors and try again: {error_summary}"
             )
-            return self._failed_verify(ref_str, "entity", "project_load_failed", message)
+            return self._failed_verify(ref_str, requested_kind, "project_load_failed", message)
 
         kind = self._kind_for_ref(ref_str)
 
-        if kind == "domain" or kind == "relationship":
+        if kind != "unknown":
             return VerifyResult(
                 status="passed",
                 ref=ref_str,
                 kind=kind,
+                validation_level="static",
+                runtime_checked=False,
                 issues=(),
                 warnings=(),
-                scan=None,
             )
-
-        if kind == "entity":
-            entity = self._registry.entities.get(ref_str) if self._registry is not None else None
-            if entity is None:
-                return self._failed_verify(
-                    ref_str, "entity", "authored_object_invalid", "Object is not loaded."
-                )
-            try:
-                service = DatasourceConnectionService(
-                    project_root=self._workspace_dir,
-                    include_semantic_layers=True,
-                )
-                with service.use_backend(entity.datasource) as backend:
-                    scoped = scoped_entity_expression(
-                        backend=backend,
-                        entity_source=entity.source,
-                        partition=scope.partition if isinstance(scope.partition, dict) else None,
-                    )
-                    preview = scoped.expr.limit(scope.max_rows).execute()
-                    scan = ScanReport(
-                        partition_used=scoped.scan.partition_used,
-                        partition_resolution=scoped.scan.partition_resolution,
-                        rows_scanned=len(preview),
-                        columns_scanned=tuple(preview.columns),
-                        truncated=len(preview) >= scope.max_rows,
-                        elapsed_seconds=scoped.scan.elapsed_seconds,
-                        warnings=scoped.scan.warnings,
-                    )
-                return VerifyResult(
-                    status="passed",
-                    ref=ref_str,
-                    kind="entity",
-                    issues=(),
-                    warnings=(),
-                    scan=scan,
-                )
-            except Exception as exc:
-                issue = AssessmentIssue(
-                    kind="datasource_unreachable",
-                    severity="blocker",
-                    refs=(ref_str,),
-                    message=str(exc),
-                    rule_id="verify_object_datasource_access",
-                )
-                return VerifyResult(
-                    status="failed",
-                    ref=ref_str,
-                    kind="entity",
-                    issues=(issue,),
-                    warnings=(),
-                    scan=None,
-                )
-
-        if kind == "dimension":
-            return VerifyResult(
-                status="passed",
-                ref=ref_str,
-                kind="dimension",
-                issues=(),
-                warnings=(),
-                scan=None,
-            )
-        if kind == "measure":
-            return VerifyResult(
-                status="passed",
-                ref=ref_str,
-                kind="measure",
-                issues=(),
-                warnings=(),
-                scan=None,
-            )
-        if kind == "time_dimension":
-            field_ir = (
-                self._registry.dimensions.get(ref_str) if self._registry is not None else None
-            )
-            if field_ir is None:
-                return self._failed_verify(
-                    ref_str,
-                    "time_dimension",
-                    "authored_object_invalid",
-                    "Object is not loaded.",
-                )
-            return VerifyResult(
-                status="passed",
-                ref=ref_str,
-                kind="time_dimension",
-                issues=(),
-                warnings=(),
-                scan=None,
-            )
-        if kind in ("metric", "derived_metric"):
-            return self._verify_metric(ref_str, kind)
 
         # Unknown kind fallback — check for common wrong-level refs before
         # returning a generic message.  When the registry is unavailable,
@@ -638,7 +569,7 @@ class SemanticProject:
                 f"Cannot verify {ref_str!r}: project registry is not available. "
                 f"Call ms.load() to check for errors."
             )
-            return self._failed_verify(ref_str, "entity", "project_load_failed", message)
+            return self._failed_verify(ref_str, requested_kind, "project_load_failed", message)
         suggestion = _suggest_ref_level(self._registry, ref_str)
         if suggestion is not None:
             message = f"Semantic object {ref_str!r} was not found. {suggestion}"
@@ -647,7 +578,7 @@ class SemanticProject:
                 f"Semantic object {ref_str!r} was not found. "
                 "Use catalog.domains.show() to browse available refs."
             )
-        return self._failed_verify(ref_str, "entity", "static_check_failed", message)
+        return self._failed_verify(ref_str, requested_kind, "static_check_failed", message)
 
     def _kind_for_ref(self, ref: str) -> AuthoringObjectKind | Literal["unknown"]:
         """Determine the kind of a semantic ref from the registry."""
@@ -693,27 +624,8 @@ class SemanticProject:
             status="failed",
             ref=ref,
             kind=kind,
+            validation_level="static",
+            runtime_checked=False,
             issues=(issue,),
             warnings=(),
-            scan=None,
-        )
-
-    def _verify_metric(self, ref: str, kind: str) -> VerifyResult:
-        """Verify a base or derived metric is loaded in the semantic registry."""
-        # Narrow from str to AuthoringObjectKind — mypy cannot narrow
-        # AuthoringObjectKind | Literal["unknown"] through ``in`` checks.
-        assert kind in ("metric", "derived_metric")
-        narrow_kind = cast("AuthoringObjectKind", kind)
-        metric_ir = self._registry.metrics.get(ref) if self._registry is not None else None
-        if metric_ir is None:
-            return self._failed_verify(
-                ref, narrow_kind, "authored_object_invalid", "Object is not loaded."
-            )
-        return VerifyResult(
-            status="passed",
-            ref=ref,
-            kind=narrow_kind,
-            issues=(),
-            warnings=(),
-            scan=None,
         )

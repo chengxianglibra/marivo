@@ -250,7 +250,7 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
                 "warehouse = md.ref('datasource.warehouse')\n"
-                "orders = ms.entity(name='orders', datasource=warehouse, source=ms.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day')\n"
                 "def created_at(orders):\n"
                 "    return orders.created_at.cast('date')\n"

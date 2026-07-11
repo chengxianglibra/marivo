@@ -32,6 +32,11 @@ Use the Python interpreter where `marivo` is installed.
 `mv.help("artifacts")`，再编写调用。
 :::
 
+只有完成 authoring route 后才进入 analysis：`md.inspect(...)` → explicit scope →
+一次 `inspection.sample(...)` → snapshot projections → 一个 Python object →
+`catalog.verify_object(obj)` → `catalog.preview(obj, using=snapshot)` → 零查询
+`catalog.readiness(refs=[obj])`。Uncommon formats 和 semantic judgments 仍由 agent 负责。
+
 :::note[Artifacts 是不可变的]
 Artifact 一旦产出便不再改变。用 `repr(artifact)` 获取廉价单行提示，再用
 `artifact.show()` 做有界读取，用 `artifact.contract()` 查看机械有效的下一步操作。
@@ -50,7 +55,7 @@ region = catalog.get("dimension.sales.orders.region")      # a dimension object
 
 revenue.details().show()     # 读取 business_definition、guardrails、instructions
 region.details().show()
-catalog.readiness(refs=[revenue.ref, region.ref]).show()
+catalog.readiness(refs=[revenue, region]).show()
 ```
 
 `get_or_create` 是幂等的：它会附着到同名的已有 session，或创建一个新 session，并设为当前
@@ -62,8 +67,8 @@ metric、dimension 和 time dimension 调用 `.details().show()`。`details` 输
 的 `ai_context`；首次 `observe` 前先解决限定范围内的 readiness blockers。
 
 :::caution[先通过就绪检查]
-session 只能在通过 `ms.readiness()` 的 catalog 上进行推理。在 observe 之前，先在
-[语义层](/zh-cn/latest/concepts/semantic-layer/) 中解决 readiness blockers。
+session 只能对通过 `catalog.readiness(refs=[revenue, region])` 的 typed objects 进行推理。
+在 observe 之前，先在 [语义层](/zh-cn/latest/concepts/semantic-layer/) 中解决 readiness blockers。
 :::
 
 ## 一个 intent 如何被指定
