@@ -2,181 +2,107 @@
 
 [简体中文](README.zh-CN.md) | English
 
-Metric-centered analysis runtime for AI agents.
+## A Data Analysis Harness for AI Agents
 
-Marivo is a Python library — not a hosted service or a chat UI — that turns a
-data warehouse into something an AI agent can analyze *reliably*. It gives
-agents three things they otherwise lack: a typed **semantic layer** that fixes
-what every metric and dimension means, a **metric-centered analysis workflow**
-of typed operators, and an **auditable evidence trail** behind every conclusion.
+Marivo is a Python framework that helps AI agents analyze business data through
+shared semantics, typed analysis operations, persistent sessions, and recorded
+evidence. It runs alongside the agent and turns an open-ended data question into
+a reviewable investigation.
 
-Marivo is not a text-to-SQL wrapper. Python declarations are the contract, ibis
-expressions are the execution language, and typed frames are the boundary
-between analysis steps — an agent composes trusted building blocks instead of
-generating raw SQL and hoping it is correct.
-
-- **Unified semantics** — Datasources, entities, metrics, dimensions, and
-  relationships are declared in Python and addressed by semantic ref
-  (`sales.revenue`), not raw table or column names.
-- **Metric-centered analysis** — Sessions start from a trusted metric and chain
-  typed intents (observe, compare, attribute, correlate, forecast), each
-  returning a typed frame.
-- **Auditable evidence** — Operators record findings, propositions, and
-  assessments, so every result can be traced back to the inputs that produced it.
-- **Readiness gates** — `catalog.readiness()` blocks incomplete semantic objects
-  from analysis until authoring and access issues are resolved.
+Marivo is not a hosted chat UI or a Text-to-SQL wrapper. The agent works with
+declared business meaning and bounded analytical operations instead of rebuilding
+metrics, joins, and analysis logic in every SQL query.
 
 ## Why Marivo
 
-Point an agent at a raw warehouse and ask it to write SQL, and the failure modes
-are predictable: invented joins, dropped filters, ambiguous columns, and
-confident answers no one can verify. Every query starts from zero, so nothing
-accumulates and nothing is reviewable.
+Giving an agent raw schemas and asking it to generate SQL leaves important choices
+implicit: what a metric means, which records belong in it, how tables relate, which
+comparison is valid, and what evidence supports the answer. Those choices can drift
+between prompts and are difficult to review after the fact.
 
-Marivo replaces *generate-SQL-and-hope* with a contract the agent works through:
+Marivo makes them explicit and reusable. Business definitions live in a code-managed
+semantic layer, analysis proceeds through typed operations, and material results stay
+connected to the session and evidence that produced them.
 
-| Without a semantic runtime | With Marivo |
-|---|---|
-| Table and column names guessed per query | Trusted **semantic refs** (`sales.revenue`) carrying human-authored meaning and guardrails |
-| Definitions re-derived every time | One **declared contract** in version control, shared across agents and sessions |
-| Free-form SQL; mistakes surface as wrong numbers | **Typed intents and frames** — invalid steps fail loudly, before any backend work |
-| Conclusions you cannot check | An **evidence trail** linking every result to the inputs that produced it |
-| Half-specified models analyzed anyway | A **readiness gate** that blocks incomplete semantics from analysis |
+## Four core capabilities
 
-## How it works
+### Semantic Layer
 
-1. **Declare** datasources in `models/datasources/` and semantics (domains,
-   entities, dimensions, metrics) in `models/semantic/` — using
-   `marivo.datasource` (`md`) and `marivo.semantic` (`ms`).
+Python declarations define datasource bindings, entities, relationships, metrics,
+dimensions, and guardrails under stable references. An agent can inspect evidence
+and draft definitions; the user or business owner confirms their business meaning.
 
-2. **Load and gate.** `ms.load()` builds the catalog; `ms.readiness()` blocks
-   analysis until every object an agent needs is complete and reachable.
+### Typed Analysis DSL
 
-3. **Open a session** from a guiding question and resolve a trusted metric from
-   the catalog.
+Typed operators such as `observe`, `compare`, and `attribute` give the agent explicit
+analytical actions and return typed result objects. Invalid or unsupported steps fail
+through the contract instead of being hidden inside free-form SQL.
 
-4. **Chain typed intents** — `observe → compare → attribute`, and more — each
-   returning a typed frame and leaving an evidence trail.
+### Analysis Session
 
-The agent can inspect bounded evidence, handle technical details, and draft explicit
-semantic declarations. The user or business owner confirms the metric population,
-filters, exclusions, units, additivity, valid breakdowns, limitations, and intended
-use, and approves the metric meaning before analysis. Readiness proves that the
-declared objects can be handed to analysis technically; it is not business approval.
+Each project-local investigation keeps its question, intermediate results, artifacts,
+and history together. The agent can continue an analysis without recreating context
+or repeating completed work.
 
-## Requirements
+### Evidence Engine
 
-Python 3.12 or newer.
+Material findings and judgments remain connected to their source results. The final
+conclusion can be reviewed against the evidence, quality limits, and unresolved
+questions that shaped it.
 
-## Installation
+Before analysis starts, readiness checks the technical handoff for the required
+semantic objects. It blocks incomplete definitions without treating technical
+readiness as approval of their business meaning.
 
-```bash
-pip install marivo
-```
+## How you use Marivo
 
-Install the backend extra that matches your datasource:
+1. **Install and initialize a project.** Marivo creates the project structure and
+   makes the bundled `marivo-semantic` and `marivo-analysis` skills available to
+   compatible agents.
+2. **Prepare the semantic layer.** Reuse the definitions in an existing project, or
+   let an agent use `marivo-semantic` to draft what a new project needs.
+3. **State the business question.** The agent uses `marivo-analysis` to check
+   readiness, choose typed analysis steps, preserve evidence, and return the
+   conclusion and limitations.
 
-| Backend | Install command |
-| --- | --- |
-| DuckDB | `pip install "marivo[duckdb]"` |
-| MySQL | `pip install "marivo[mysql]"` |
-| Postgres | `pip install "marivo[postgres]"` |
-| ClickHouse | `pip install "marivo[clickhouse]"` |
-| Trino | `pip install "marivo[trino]"` |
-| All packaged backends | `pip install "marivo[all]"` |
-
-From a source checkout, you can prepare the current directory automatically on
-macOS, Linux, or Windows Subsystem for Linux (WSL):
-
-```bash
-./scripts/install-marivo.sh
-```
-
-The script creates or reuses `.venv`, installs or upgrades `marivo[all]`, and
-runs `marivo init` in the current directory. Pass `--yes` to allow replacement
-of an invalid `.venv` in a non-interactive run. Native Windows shells are not
-supported by this Bash entrypoint.
-
-Marivo is deployed by installing the library where the agent runs, checking in
-the `models/` declarations, and providing datasource secrets through environment
-variables referenced by `*_env` fields. There is no separate server.
-
-If setup fails, run the read-only doctor first:
-
-```bash
-marivo doctor
-marivo doctor --semantic
-marivo doctor --datasource warehouse --connect
-```
-
-The default doctor checks installation, project layout, datasource declarations,
-backend extras, secret references, and existing `.marivo/` state without
-connecting to databases or writing secrets. Use `--semantic` for semantic
-load/readiness diagnostics and `--connect` only when you intentionally want a
-live datasource round-trip.
+You confirm choices that materially affect business meaning or how the conclusion
+will be used. You do not need to write Python, select operators, manage the analysis
+session, or specify evidence fields.
 
 ## Quick Start
 
-Scaffold a project with the CLI:
+Marivo requires Python 3.12 or newer. Enter the directory that will contain the
+project, then run:
 
 ```bash
-marivo --version
-marivo init
+curl -fsSL https://marivo.io/install.sh | bash
 ```
 
-`marivo init` creates the project skeleton (`marivo.toml`, `models/`, `.marivo/`)
-and installs the `marivo-semantic` and `marivo-analysis` skills into the shared
-`.agents/skills` directory plus Claude Code and Codex compatibility directories,
-so a coding agent can author the semantic layer with you.
+The installer prepares the local environment and initializes the current directory.
+For manual installation, datasource extras, supported platforms, and troubleshooting,
+see [Installation](https://marivo.io/en/latest/installation/).
 
-Declare semantics under `models/semantic/`, then load and analyze:
+If the project already contains `marivo.toml` and `models/`, reuse its semantic layer.
+For a new project, tell the agent which datasource and business outcome you need, then
+confirm the proposed metric meaning before analysis.
 
-```python
-import marivo.semantic as ms
-import marivo.analysis as mv
+Once a metric is ready, ask a business question naturally:
 
-catalog = ms.load()
-report = catalog.readiness()
-if report.status == "blocked":
-    report.show()                       # resolve blockers before analysis
+> Use Marivo to explain why the approved `sales.revenue` metric decreased last
+> quarter compared with the same period a year earlier. Start with regional
+> differences, then give me the conclusion, key evidence, and limitations.
 
-session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
-revenue = session.catalog.get("metric.sales.revenue")
-region = session.catalog.get("dimension.sales.orders.region")
-
-current = session.observe(revenue, time_scope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
-baseline = session.observe(revenue, time_scope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
-
-delta = session.compare(current, baseline)
-attribution = session.attribute(delta, axes=[region])
-attribution.show()
-```
-
-In-project help is available at every surface: `ms.help()` and `mv.help()` list
-the surface; `ms.help("metric")` and `mv.help("observe")` drill into a symbol.
-
-## Publish
-
-Upload finished artifacts to S3:
-
-```bash
-marivo publish ./report.html
-marivo publish ./output-dir
-```
-
-Configure non-secret S3 settings in `marivo.toml` and credentials in
-`~/.marivo/secrets.toml`. See the [documentation](https://marivo.io/en/latest/installation/#deploy-and-develop) for details.
+The bundled skills handle catalog inspection, readiness, operator selection, session
+management, and evidence collection.
 
 ## Documentation
 
-Full guides at [marivo.io](https://marivo.io/en/latest/):
-
-- **Installation** — install, `marivo init`, deploy.
-- **Quick Start** — author declarations, load a catalog, run a first analysis.
-- **Concepts** — semantic layer, analysis workflow, readiness, and evidence.
-
-Maintained agent guidance lives in `marivo/skills/marivo-semantic` and
-`marivo/skills/marivo-analysis`.
+- [Installation](https://marivo.io/en/latest/installation/)
+- [Quick Start](https://marivo.io/en/latest/quick-start/)
+- [First agent-guided analysis](https://marivo.io/en/latest/first-analysis/)
+- [Semantic Layer](https://marivo.io/en/latest/concepts/semantic-layer/)
+- [Analysis Workflow](https://marivo.io/en/latest/concepts/analysis-workflow/)
+- [Evidence](https://marivo.io/en/latest/concepts/evidence/)
 
 ## Development
 
@@ -185,7 +111,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev,duckdb,trino]"
 ```
 
-Repository commands run through the local virtualenv via `make`:
+Use the repository entrypoints for checks:
 
 ```bash
 make format
