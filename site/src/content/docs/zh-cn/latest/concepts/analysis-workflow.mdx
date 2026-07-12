@@ -290,6 +290,8 @@ projection = session.forecast(history, horizon=30)
 对一个 artifact 运行质量检查，返回一个独立的 `QualityReport`。
 `artifact.quality_summary` 只是 cheap、persisted 的 metadata projection；它不等同于执行
 `session.assess_quality(artifact)`。
+检查后，源 artifact 的 `meta.blocking_issues` 会保存最新的质量 blocker。存在
+`time_coverage` blocker 时，不得把该窗口作为完整周期事实报告。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |

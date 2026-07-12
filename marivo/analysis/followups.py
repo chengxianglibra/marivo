@@ -57,6 +57,7 @@ class BlockingIssue(BaseModel):
         "evidence_summary_unavailable",
         "cross_session_window_mismatch",
         "outlier_winsorize_recommended",
+        "time_coverage",
         # legacy kinds kept for candidate_set row-level usage
         "quality",
         "sample_size",

@@ -169,7 +169,9 @@ artifact.meta.quality_summary
 
 `artifact.meta.quality_summary` is a lightweight status attached to the result.
 `session.assess_quality(artifact)` is an explicit auditable operator that
-creates a `QualityReport` and participates in lineage.
+creates a `QualityReport`, persists its latest quality blockers on the source
+artifact, and participates in lineage. Do not treat a window as a complete
+period fact while `artifact.meta.blocking_issues` contains `time_coverage`.
 
 ## Closeout And Recap
 

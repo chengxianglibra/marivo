@@ -725,7 +725,9 @@ def _workflow_content() -> dict[str, object]:
         ],
         "quality_gate": (
             "Call session.assess_quality(artifact) when you need auditable "
-            "quality evidence, before reporting, or when artifact meta is not clearly ok."
+            "quality evidence, before reporting, or when artifact meta is not clearly ok. "
+            "Inspect artifact.meta.blocking_issues afterward; do not report complete "
+            "period facts while a time_coverage blocker is present."
         ),
         "cumulative_note": (
             'Cumulative MetricFrames have intent gates; read mv.help("cumulative_frame") '

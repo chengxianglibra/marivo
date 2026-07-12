@@ -4,9 +4,10 @@ from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
 import json
+from collections.abc import Hashable
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
 
@@ -128,9 +129,19 @@ def assess_quality(
     )
     register_frame_artifact(session, result)
 
-    # Attach a lightweight quality summary to the source frame and persist it;
-    # the full QualityReport is a separate artifact (cheap summary vs explicit report).
-    frame.meta = frame.meta.model_copy(update={"quality_summary": compute_quality_summary(frame)})
+    # Attach a lightweight quality summary and the latest quality blockers to
+    # the source frame. The full QualityReport remains a separate artifact.
+    source_issues = [
+        issue
+        for issue in frame.meta.blocking_issues
+        if not (issue.payload and issue.payload.get("origin") == "assess_quality")
+    ]
+    frame.meta = frame.meta.model_copy(
+        update={
+            "quality_summary": compute_quality_summary(frame),
+            "blocking_issues": [*source_issues, *blocking_issues],
+        }
+    )
     frame.meta = cast("MetricFrameMeta", persist_frame(session, frame))
 
     persist_job_record(
@@ -177,6 +188,19 @@ def _blocking_issues(frame: MetricFrame, output: pd.DataFrame) -> list[BlockingI
                     severity="blocking",
                     source_refs=[frame.ref],
                     message="duplicate key tuples in metric frame",
+                    payload=_quality_issue_payload(row),
+                    remediation_followups=[],
+                )
+            )
+        if row["check_kind"] == "time_coverage":
+            issues.append(
+                BlockingIssue(
+                    issue_id=f"issue_{len(issues) + 1}",
+                    kind="time_coverage",
+                    severity="blocking",
+                    source_refs=[frame.ref],
+                    message="metric frame time coverage is below the blocking threshold",
+                    payload=_quality_issue_payload(row),
                     remediation_followups=[],
                 )
             )
@@ -190,7 +214,19 @@ def _blocking_issues(frame: MetricFrame, output: pd.DataFrame) -> list[BlockingI
                         severity="blocking",
                         source_refs=[frame.ref],
                         message="metric frame has zero rows",
+                        payload=_quality_issue_payload(row),
                         remediation_followups=[],
                     )
                 )
     return issues
+
+
+def _quality_issue_payload(row: dict[Hashable, Any]) -> dict[str, Any]:
+    """Build provenance payload for a blocker emitted by assess_quality."""
+    details = json.loads(str(row["details_json"]))
+    return {
+        "origin": "assess_quality",
+        "check_id": str(row["check_id"]),
+        "check_kind": str(row["check_kind"]),
+        **details,
+    }

@@ -327,6 +327,9 @@ projection = session.forecast(history, horizon=30)
 Run quality checks over an artifact and return a separate `QualityReport`.
 `artifact.quality_summary` is only a cheap persisted metadata projection; it is
 not the same thing as running `session.assess_quality(artifact)`.
+After the check, the source artifact's `meta.blocking_issues` holds the latest
+quality blockers. Do not report a window as a complete period fact while it
+contains a `time_coverage` blocker.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |

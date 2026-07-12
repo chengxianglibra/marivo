@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from marivo.analysis.frames._meta_defaults import GRAIN_FREQ
+from marivo.analysis.frames._meta_defaults import GRAIN_FREQ, normalize_coverage_buckets
 from marivo.analysis.frames.metric import MetricFrame
 
 _FREQ = GRAIN_FREQ
@@ -138,9 +138,10 @@ def _time_coverage_check(
     )
     if tz and len(observed_ts) > 0 and observed_ts.dt.tz is not None:
         observed_ts = observed_ts.dt.tz_convert(tz).dt.tz_localize(None)
-    observed = observed_ts.dt.normalize().unique()
-    observed_set = {pd.Timestamp(value).normalize() for value in observed}
-    missing = [value for value in expected if value.normalize() not in observed_set]
+    observed = normalize_coverage_buckets(observed_ts, grain=grain).unique()
+    observed_set = {pd.Timestamp(value) for value in observed}
+    expected_buckets = normalize_coverage_buckets(pd.Series(expected), grain=grain)
+    missing = [value for value in expected_buckets if pd.Timestamp(value) not in observed_set]
     ratio = 1.0 if len(expected) == 0 else (len(expected) - len(missing)) / len(expected)
     severity = "blocking" if ratio < 0.8 else "warning" if ratio < 0.95 else "ok"
     return _result(
