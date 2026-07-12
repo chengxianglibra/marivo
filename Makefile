@@ -54,6 +54,7 @@ check: lint typecheck examples-check test
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
 	@./scripts/require-venv.sh sphinx-build
+	@rm -rf docs/api/api
 	@rm -rf site/public/api
 	@$(VENV_BIN)/sphinx-build$(EXE_SUFFIX) -W --keep-going -b html docs/api site/public/api
 	@echo "API docs built in site/public/api"

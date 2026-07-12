@@ -4,13 +4,13 @@ title: Marivo 0.3.1
 description: Release notes for Marivo 0.3.1.
 ---
 
-Marivo 0.3.1 extends cumulative metrics from the single all-history anchor to
-the full window vocabulary, and opens the two consumption paths that 0.3.0
-deliberately blocked: rollup re-aggregation and cross-period comparison.
+Marivo 0.3.1 strengthens the agent-facing authoring and analysis workflow with
+windowed cumulative metrics, evidence-first datasource authoring, and safer
+analysis guardrails.
 
 ## Highlights
 
-- Cumulative metrics now support three accumulation anchors via the new
+- Cumulative metrics now support three accumulation anchors through the new
   `anchor=` parameter on `ms.cumulative(...)`. `anchor=None` keeps the v1
   all-history running total. `ms.grain_to_date(grain=...)` resets the running
   total at each reset-grain boundary (MTD / QTD / YTD / WTD).
@@ -24,6 +24,15 @@ deliberately blocked: rollup re-aggregation and cross-period comparison.
   is allowed when both frames share the same anchor payload; `grain_to_date`
   is allowed for a single-period, boundary-anchored window and records the
   to-date alignment on the resulting DeltaFrame.
+- Datasource authoring now follows an evidence-first snapshot workflow. Typed
+  catalog objects, scoped inspection, and persisted evidence replace the older
+  broad discovery flow, helping authors move from real source evidence to one
+  semantic object at a time.
+- JSON is now a first-class DuckDB file source. Marivo can inspect and use
+  local or HTTP JSON data alongside its other supported datasource inputs.
+- Analysis decomposition supports explicit multi-axis attribution modes, and
+  quality assessment now blocks unsafe hourly coverage before downstream
+  analysis treats it as reliable.
 
 ## Changed
 
@@ -34,12 +43,22 @@ deliberately blocked: rollup re-aggregation and cross-period comparison.
   grain-compatibility rule (week under month/quarter/year reset is illegal)
   and the integer-multiple rule (trailing span must be an integer multiple of
   the query grain).
+- The installer can now initialize a Marivo project, and the same installer is
+  available from `https://marivo.io/install.sh`.
+
+## Fixed
+
+- Readiness rejects undeclared naive time axes instead of allowing ambiguous
+  time semantics into analysis.
+- Typed file schemas are preserved at runtime, avoiding loss of declared
+  source structure during materialization.
 
 ## Documentation
 
-- Updated the semantic-layer and analysis-workflow concept docs (EN + CN) for
-  the v2 anchor surface, rollup re-aggregation, and anchor-dispatched compare.
-- Added design specs for cumulative metrics v2 anchors, rollup, and compare.
+- Updated the semantic-layer, analysis-workflow, installation, quick-start,
+  and evidence docs in English and Chinese for the streamlined agent workflow.
+- Added design specs for cumulative metrics v2, datasource snapshots, typed
+  catalog navigation, JSON sources, and the refined analysis surface.
 
 ## Installation
 

@@ -1,0 +1,62 @@
+---
+slug: zh-cn/v0.3/release-notes/0.3.1
+title: Marivo 0.3.1
+description: Marivo 0.3.1 发布说明。
+---
+
+Marivo 0.3.1 通过窗口化 cumulative metrics、证据优先的数据源编写流程和更安全的分析保护，
+进一步强化了面向 agent 的编写与分析工作流。
+
+## 重点
+
+- Cumulative metrics 通过 `ms.cumulative(...)` 的 `anchor=` 参数支持三种累计锚点：
+  全部历史、grain-to-date 和固定 trailing window。现在可以用 `transform.rollup(...)`
+  重新聚合 cumulative frame，并比较兼容锚点的跨周期窗口。
+- 数据源编写遵循证据优先的快照流程。类型化 catalog 对象、限定范围的 inspection 和持久化
+  evidence 替代了旧的宽泛 discovery 流程。
+- JSON 是 DuckDB 的一等文件 source，支持本地和 HTTP JSON 输入。
+- 分析分解支持显式的多轴 attribution mode；quality assessment 会在后续分析把结果视为可靠
+  之前，阻断不安全的小时级覆盖范围。
+
+## 变更
+
+- Frame 的 `contract()`、`show()` 和 `mv.help(ref)` 会展示锚点特定的注意事项和允许的下一步。
+- installer 可以初始化 Marivo 项目，并可通过 `https://marivo.io/install.sh` 获取。
+
+## 修复
+
+- readiness 会拒绝未声明的 naive time axis。
+- typed file schema 会在 materialization 期间保留在运行时。
+
+## 文档
+
+- 更新了中英文的 semantic-layer、analysis-workflow、installation、quick-start 和 evidence
+  文档，覆盖精简后的 agent 工作流。
+- 新增 cumulative metrics v2、datasource snapshot、类型化 catalog navigation、JSON source 和
+  精炼后的 analysis surface 的设计 spec。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+安装你计划使用的 datasource 对应的 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.1 需要 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/v0.3/installation/)
+- [快速开始](/zh-cn/v0.3/quick-start/)
+- [Semantic Layer](/zh-cn/v0.3/concepts/semantic-layer/)
+- [Analysis Workflow](/zh-cn/v0.3/concepts/analysis-workflow/)
