@@ -1,0 +1,70 @@
+---
+slug: en/v0.3/release-notes/0.3.1
+title: Marivo 0.3.1
+description: Release notes for Marivo 0.3.1.
+---
+
+Marivo 0.3.1 strengthens the agent-facing authoring and analysis workflow with
+windowed cumulative metrics, evidence-first datasource authoring, and safer
+analysis guardrails.
+
+## Highlights
+
+- Cumulative metrics support three accumulation anchors through `anchor=` on
+  `ms.cumulative(...)`: all-history, grain-to-date, and fixed trailing windows.
+  Cumulative frames can now be re-aggregated with `transform.rollup(...)`,
+  and compatible anchored windows can be compared across periods.
+- Datasource authoring follows an evidence-first snapshot workflow. Typed
+  catalog objects, scoped inspection, and persisted evidence replace the older
+  broad discovery flow.
+- JSON is a first-class DuckDB file source, including local and HTTP JSON
+  inputs.
+- Analysis decomposition supports explicit multi-axis attribution modes, and
+  quality assessment blocks unsafe hourly coverage before downstream analysis
+  treats it as reliable.
+
+## Changed
+
+- Frame `contract()`, `show()`, and `mv.help(ref)` expose anchor-specific
+  caveats and allowed next steps.
+- The installer can initialize a Marivo project and is available from
+  `https://marivo.io/install.sh`.
+
+## Fixed
+
+- Readiness rejects undeclared naive time axes.
+- Typed file schemas are preserved at runtime during materialization.
+
+## Documentation
+
+- Updated the English and Chinese semantic-layer, analysis-workflow,
+  installation, quick-start, and evidence docs for the streamlined agent
+  workflow.
+- Added design specs for cumulative metrics v2, datasource snapshots, typed
+  catalog navigation, JSON sources, and the refined analysis surface.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.1 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/v0.3/installation/)
+- [Quick Start](/en/v0.3/quick-start/)
+- [Semantic Layer](/en/v0.3/concepts/semantic-layer/)
+- [Analysis Workflow](/en/v0.3/concepts/analysis-workflow/)
