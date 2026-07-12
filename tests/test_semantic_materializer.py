@@ -279,6 +279,74 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
     assert table.get_name() == "orders_file"
 
 
+def test_dataset_csv_source_passes_declared_schema_to_reader(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(\n"
+                "    name='orders',\n"
+                "    datasource=md.ref('datasource.warehouse'),\n"
+                "    source=md.csv(\n"
+                "        '/data/orders.csv',\n"
+                "        schema={'order_id': 'string', 'amount': 'int64'},\n"
+                "        header=False,\n"
+                "        delimiter='|',\n"
+                "    ),\n"
+                ")\n"
+            ),
+        }
+    )
+
+    class _Backend:
+        def read_csv(self, path, **options):
+            assert path == "/data/orders.csv"
+            assert options == {
+                "columns": {"order_id": "string", "amount": "int64"},
+                "header": False,
+                "delimiter": "|",
+            }
+            return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
+
+    with _patch_connection_service(project, lambda _: _Backend()):
+        table = _materialize_dataset(project, "sales.orders")
+    assert table.get_name() == "orders_file"
+
+
+def test_dataset_json_source_passes_declared_schema_to_reader(semantic_project_factory) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(\n"
+                "    name='orders',\n"
+                "    datasource=md.ref('datasource.warehouse'),\n"
+                "    source=md.json(\n"
+                "        '/data/orders.json',\n"
+                "        schema={'order_id': 'string', 'amount': 'int64'},\n"
+                "        format='newline_delimited',\n"
+                "    ),\n"
+                ")\n"
+            ),
+        }
+    )
+
+    class _Backend:
+        def read_json(self, path, **options):
+            assert path == "/data/orders.json"
+            assert options == {
+                "columns": {"order_id": "string", "amount": "int64"},
+                "format": "newline_delimited",
+            }
+            return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
+
+    with _patch_connection_service(project, lambda _: _Backend()):
+        table = _materialize_dataset(project, "sales.orders")
+    assert table.get_name() == "orders_file"
+
+
 def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
