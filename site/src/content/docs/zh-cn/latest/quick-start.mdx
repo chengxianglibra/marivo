@@ -1,84 +1,42 @@
 ---
 title: 快速开始
-description: 让智能体起草第一版语义层，检查业务契约，再继续进行分析。
+description: 复用已有语义层项目，或让智能体为新项目起草第一版语义层。
 ---
 
-## 向智能体提出任务前
+## 先确认项目状态
 
-先用 `marivo init` 创建或初始化项目（参见[安装](/zh-cn/latest/installation/#初始化项目)）。
-一个最小项目包含项目清单、数据源声明目录和语义声明目录：
+如果团队已经维护了包含 `marivo.toml` 和 `models/` 的项目，直接克隆并复用其中的语义层。
+只有从空项目开始，或者现有定义确实存在缺口时，才需要进入语义层编写流程。
 
-```text
-your-project/
-  marivo.toml
-  models/
-    datasources/
-    semantic/
-```
+## 已有语义层项目
 
-让能够在这个项目中工作的智能体使用内置 `marivo-semantic` skill。智能体按有证据边界的
-编写路径执行；你仍负责批准它所编码的业务含义。
+1. 克隆项目并安装项目依赖；
+2. 在本地配置数据源使用的环境变量；
+3. 让智能体检查项目配置、现有语义对象和当前分析所需对象的就绪状态；
+4. 检查通过后，直接进入[第一次分析](/zh-cn/latest/first-analysis/)。
 
-## 你需要决定什么
+> 使用项目现有的 Marivo 语义层，检查它是否已经能够支持已完成订单收入分析。
+> 告诉我缺少的配置、语义对象或需要重新确认的业务口径；如果没有阻塞项，不要重建已有定义。
 
-指标投入使用前，你必须确认它的业务契约。对于已完成订单收入，这包括：
+只有缺少必要对象、就绪阻塞项需要调整模型，或者业务负责人要求修改口径时，
+才使用 `marivo-semantic` 修改项目。
 
-- 收入是什么、又不是什么；
-- 纳入统计的记录范围，以及用什么过滤条件选出这些记录；
-- 如何处理取消、退款、测试订单和其他排除规则；
-- 使用哪条时间轴和哪个时区；
-- 币种或其他单位、可加性，以及允许的分析维度；
-- 已知限制条件和承担责任的负责人。
+## 新项目
 
-列名和样本值可以支持智能体提出问题，却不能替你批准任何决定。开始时存在未知项没有关系：
-缺少必需决定时，智能体应提出一个基于证据的业务问题。
+完成[安装](/zh-cn/latest/installation/)，然后告诉智能体数据源、业务目标和已经确定的规则：
 
-## 让智能体做什么
+> 使用 `marivo-semantic`，为这个项目建立能够分析已完成订单收入的语义层。
+> 遇到需要业务判断的口径问题时向我确认。
+> 完成后展示需要我批准的指标定义，并在开始分析前停止。
 
-请求中应说明业务目标、约束证据采集，并设置人工检查停止点：
+## 你需要确认的业务定义
 
-```text
-使用 marivo-semantic skill 对 sales 业务域中的 orders 表建模。
+至少检查收入包含和排除什么、取消和退款如何处理、时间轴、币种和可加性、允许的拆分维度、
+限制和负责人。数据模式与样本只能帮助智能体起草和提问，不能替代你的确认。
 
-业务目标是分析已完成订单收入。先使用 `md.inspect(...)` 检查数据源，再通过
-`inspection.sample(...)` 选择一个显式限定范围的样本。每次只起草一个语义对象。
-不要根据列名或样本值推断纳入收入统计的记录范围、退款处理、币种、时间轴、可加性或
-允许的分析维度。每当缺少一项必要决定时，向我提出一个基于证据的业务问题。每完成一个
-对象，都使用同一份快照运行 `catalog.verify_object(...)` 和 `catalog.preview(...)`，并展示
-`catalog.readiness(...)` 的结果。开始分析前停止，让我检查拟议的指标和 `guardrails`。
-```
+## 智能体写入项目的内容
 
-## 智能体如何逐个构建语义对象
-
-`marivo-semantic` 的路径是：
-
-```text
-help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
-```
-
-智能体先读取 `md.help("authoring")` 和 `ms.help("authoring")`，浏览已有 typed catalog
-objects，再用 `md.inspect(...)` 了解数据源的 physical extent、partitions、schema 和
-execution capabilities。然后选择 `md.partition(...)`，或者通过 `md.unpruned(...)`
-显式确认 broad read；两者都带有正数 row 和 timeout guards。
-
-一次 `inspection.sample(...)` 调用为当前 authoring batch 创建 snapshot。无需再次查询的
-snapshot projections 提供 entity、dimension、value、time 和 measure evidence。智能体只根据
-help、project facts、source provenance、此前的用户决定和这些证据确定字段。如果仍缺少一项
-semantic choice，它只提出一个基于证据的问题并停止。之后每次只写一个显式 Python object，
-重新加载对应的 typed `CatalogObject`，并依次 verify、preview 和检查 readiness，再继续下一个。
-
-## 智能体会把什么写入项目
-
-你回答必需的业务问题后，智能体会在 `models/` 下写入显式 Python 声明。
-仅对下面这个说明性示例，假定用户已检查并批准以下每项建模决定。这并不表示任何
-真实业务负责人已经批准这些决定，Mina Zhang 只是虚构的负责人占位符：
-
-- `order_id` 是唯一且非空的主键，因此 `orders` 中每行代表一个已完成订单；
-- 已取消订单被排除，已退款订单仍保留，`amount` 是其扣除退款后的 CNY 金额；
-- 缺失的 `region` 值不能视为有效地区；
-- `order_date` 按天粒度使用，并且是默认报告时间轴；
-- `amount` 可沿已批准的时间轴和分析维度加总；
-- `region` 是此示例唯一获批的分析维度，不暗示还有其他可用分析维度。
+下面的 Python 声明是智能体生成并由团队维护的项目文件，不是要求你逐行输入的教程。
 
 ```python
 # models/datasources/warehouse.py
@@ -165,51 +123,12 @@ revenue = ms.aggregate(
 )
 ```
 
-智能体还会针对同一个有边界 snapshot 运行证据交接。它是检查证据，不是业务批准的新来源：
+## 继续之前检查什么
 
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
+- 指标的定义、范围、排除规则、时间轴、单位和拆分维度符合业务需要；
+- `ai_context` 中的业务定义和 `guardrails` 清楚表达了限制；
+- 负责人已经确认口径；
+- 智能体报告限定范围的就绪检查没有阻塞项。
 
-warehouse = md.ref("datasource.warehouse")
-inspection = md.inspect(warehouse, md.table("orders"))
-snapshot = inspection.sample(
-    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
-    columns=("order_id", "region", "order_date", "amount"),
-)
-
-catalog = ms.load()
-sales = catalog.domains.get("sales")
-orders = sales.entities.get("orders")
-revenue = orders.metrics.get("revenue")
-
-catalog.verify_object(revenue).show()
-catalog.preview(revenue, using=snapshot).show()
-report = catalog.readiness(refs=[revenue])
-report.show()
-```
-
-## 继续之前需要检查什么
-
-把拟议的声明与验证、预览和就绪检查输出放在一起检查。确认：
-
-- 指标涵盖和不涵盖的内容与预期决策一致；
-- 纳入统计的记录范围、过滤条件、排除规则、取消和退款处理都已明确；
-- 时间轴、时区、单位和可加性正确；
-- 每个允许的分析维度都有效，不支持的分析维度已受到约束；
-- 限制条件和 `guardrails` 清晰可见，且指定的负责人接受这些内容；
-- 预览使用的是同一份显式限定范围的快照；
-- 限定范围的就绪检查确认指标的依赖闭包中没有阻断项。
-
-`ready` 状态的报告是技术交接结果。它不代表业务负责人已经批准指标口径、过滤条件、
-排除规则、单位或预期用途。
-
-## 继续进行分析
-
-业务负责人批准契约、且限定范围的就绪检查没有阻断项后，把 `ready` 状态的指标交给
-`marivo-analysis` skill。会话和观测路径参见
-[分析流程](/zh-cn/latest/concepts/analysis-workflow/)。
-
-更深入的参考资料请阅读[语义层](/zh-cn/latest/concepts/semantic-layer/)、
-[就绪检查](/zh-cn/latest/concepts/readiness/)和
-[项目配置](/zh-cn/latest/reference/project-configuration/)。
+就绪检查是技术交接结果，不代表业务口径已经获批。确认后继续
+[让智能体完成第一次分析](/zh-cn/latest/first-analysis/)。

@@ -5,27 +5,38 @@ description: Prepare a Marivo project for an agent and choose a datasource backe
 
 Marivo requires Python 3.12 or newer.
 
-## Prepare the project
+## Choose an installation path
 
-Choose an empty or existing project directory. The recommended installer supports
-macOS, Linux, and Windows Subsystem for Linux (WSL). It creates a virtual environment,
-installs `marivo[all]`, and runs `marivo init` in that directory.
+Choose one path. Use the installer for the shortest setup; use manual
+installation when the project must control its Python environment and
+datasource dependencies.
 
-## Install Marivo
+### Option 1: Use the installer
 
-Run the recommended installer from the project directory:
+Enter the directory that will contain the Marivo project, then run:
 
 ```bash
 curl -fsSL https://marivo.io/install.sh | bash
 ```
 
-To manage the environment yourself, install the base library from PyPI:
+The installer creates or reuses `.venv`, installs `marivo[all]`, and runs
+`marivo init` in the current directory. Continue directly to
+[Verify the installation](#verify-the-installation);
+do not also follow the manual steps below.
+
+### Option 2: Install manually
+
+To control the environment and datasource backends, complete these steps in
+order.
+
+1. Create and activate a Python 3.12 or newer virtual environment:
 
 ```bash
-pip install marivo
+python3.12 -m venv .venv
+source .venv/bin/activate
 ```
 
-Install the backend extra that matches the datasource the project will query:
+2. Install the extra for the datasource backend the project will use:
 
 | Backend | Install command |
 | --- | --- |
@@ -36,15 +47,19 @@ Install the backend extra that matches the datasource the project will query:
 | Trino | `pip install "marivo[trino]"` |
 | All packaged backends | `pip install "marivo[all]"` |
 
-## Initialize the project
-
-If you installed Marivo with pip, initialize the current directory before asking
-an agent to work in it:
+3. Verify the installed version:
 
 ```bash
 marivo --version
+```
+
+4. Initialize the current project directory once:
+
+```bash
 marivo init
 ```
+
+Run `marivo init` separately only for manual installation.
 
 `marivo init` is idempotent: it leaves existing files untouched and reports them as
 skipped, so it is safe to re-run after an upgrade. Re-running adds only what is
@@ -78,24 +93,21 @@ your-project/
   .codex/skills/
 ```
 
-## What to ask the agent to do next
+## Verify the installation
 
 After initialization, give the agent this bounded preparation request:
 
-> Verify that this Marivo project is initialized correctly. Identify the datasource
-> configuration and source tables that are still needed before semantic authoring.
-> Stop before reading business data or defining any semantics. Report what is present,
-> what is missing, and which decisions you need from me. For credentials, report only
-> which approved credential fields need configuration, their `*_env` references and
-> environment-variable names, and whether each variable is configured. Do not request,
-> display, or commit credential values.
+> Check whether this Marivo project is initialized correctly and tell me what
+> is missing before I use its existing semantic layer or create a new one.
+> For credentials, check only environment-variable names and configuration
+> status. Do not request, display, or commit credential values.
 
 This separates project setup from access to business data and from decisions about
 business meaning.
 
 ## What to review before continuing
 
-Before moving to semantic authoring, confirm that:
+Before choosing a project path, confirm that:
 
 - `marivo.toml`, `models/`, and `.marivo/` are present;
 - the expected skill paths under `.agents/skills/`, `.claude/skills/`, and
@@ -105,6 +117,7 @@ Before moving to semantic authoring, confirm that:
 - credentials are supplied through approved environment-backed fields, not committed
   as plaintext in project files.
 
-When those checks pass, continue to the [first semantic layer](/en/latest/quick-start/).
-After its business meaning is approved and readiness is not blocked, continue to the
-[first analysis](/en/latest/first-analysis/).
+When those checks pass, continue to [Quick Start](/en/latest/quick-start/) and
+choose whether to reuse an existing semantic layer or create one. After the
+selected project path is ready and its business meaning is approved, continue
+to the [first analysis](/en/latest/first-analysis/).
