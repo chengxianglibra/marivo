@@ -128,7 +128,7 @@ core surface:
 
 | API | Output | Notes |
 | --- | --- | --- |
-| `decompose` | `AttributionFrame` | Single-axis, frame-local attribution; the primitive `attribute` builds on. Does not materialize missing dimensions. |
+| `decompose` | `AttributionFrame` | Frame-local attribution over explicit axes; multi-axis calls require `mode="joint"` or `mode="hierarchy"`. Does not materialize missing dimensions. |
 | `session.transform.<op>` | Same family/shape as input | Family-preserving reshape/filter/rank/window/normalize. |
 | `session.select(...)` | Selection | Typed selector over a ranked artifact (e.g. pick candidate rank 1). |
 | Sampling helpers | Sample artifact | Prepare a sample/summary for `hypothesis_test`. |
@@ -214,22 +214,25 @@ delta = session.compare(current, baseline, alignment=mv.window_bucket())
 
 `attribute` performs deterministic attribution of a `DeltaFrame` over explicit
 axes and returns an `AttributionFrame`. It is not a planner: with no axes or
-search policy it fails closed. Flat, nested, and recursive modes all return the
-same `AttributionFrame` — hierarchy is expressed with flattened rows carrying
-`path`, `depth`, `parent_path`, `axis`, `segment_key`, `contribution`,
-`residual`, `method`, and `coverage_status`. Candidate axes, coverage warnings,
-and budget stops go to metadata/blocking issues/lineage, never a next-step
-recommendation or narrative.
+search policy it fails closed. A multi-axis call explicitly chooses
+`mode="joint"` for one additive row per full axis combination, or
+`mode="hierarchy"` for flattened prefix rows. Hierarchy parent rows repeat
+their descendants' totals, so only the deepest level is additive. Candidate
+axes, coverage warnings, and budget stops go to metadata/blocking
+issues/lineage, never a next-step recommendation or narrative.
 
 ```python
 drivers = session.attribute(
     delta,
-    axes=[session.catalog.get("dimension.analytics.events.country")],
-    mode="nested",
+    axes=[
+        session.catalog.get("dimension.analytics.events.country"),
+        session.catalog.get("dimension.analytics.events.platform"),
+    ],
+    mode="joint",
 )
 ```
 
-The internal `decompose` primitive is the single-axis, frame-local building block
+The internal `decompose` primitive is the frame-local building block
 `attribute` composes; it is not on the agent-facing surface.
 
 ### `discover.<objective>`

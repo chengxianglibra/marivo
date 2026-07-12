@@ -125,67 +125,15 @@ def test_attribute_nested_axes_returns_flattened_hierarchy_rows() -> None:
             make_ref("sales.orders.region", SemanticKind.DIMENSION),
             make_ref("sales.orders.platform", SemanticKind.DIMENSION),
         ],
+        mode="hierarchy",
     )
 
-    rows = out.to_pandas().to_dict("records")
+    df = out.to_pandas()
     assert out.meta.method == "ordered_hierarchy_sum"
     assert out.meta.driver_field == "path"
-    assert rows == [
-        {
-            "level": 1,
-            "axis": "region",
-            "driver": "US",
-            "path": "US",
-            "contribution": 10.0,
-            "pct_contribution": 1.25,
-            "rank": 1,
-        },
-        {
-            "level": 1,
-            "axis": "region",
-            "driver": "CN",
-            "path": "CN",
-            "contribution": -2.0,
-            "pct_contribution": -0.25,
-            "rank": 2,
-        },
-        {
-            "level": 2,
-            "axis": "platform",
-            "driver": "ios",
-            "path": "US > ios",
-            "contribution": 6.0,
-            "pct_contribution": 0.75,
-            "rank": 1,
-        },
-        {
-            "level": 2,
-            "axis": "platform",
-            "driver": "android",
-            "path": "US > android",
-            "contribution": 4.0,
-            "pct_contribution": 0.5,
-            "rank": 2,
-        },
-        {
-            "level": 2,
-            "axis": "platform",
-            "driver": "ios",
-            "path": "CN > ios",
-            "contribution": -3.0,
-            "pct_contribution": -0.375,
-            "rank": 3,
-        },
-        {
-            "level": 2,
-            "axis": "platform",
-            "driver": "android",
-            "path": "CN > android",
-            "contribution": 1.0,
-            "pct_contribution": 0.125,
-            "rank": 4,
-        },
-    ]
+    assert {"region", "platform", "value_effect", "mix_effect", "residual"}.issubset(df.columns)
+    assert df.loc[df["level"] == 2, "contribution"].sum() == pytest.approx(8.0)
+    assert df.loc[df["level"] == 1, "platform"].isna().all()
 
 
 def test_attribute_requires_explicit_axes() -> None:

@@ -795,6 +795,125 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
         assert bucket_df["contribution"].sum() == pytest.approx(0.175)
 
 
+def test_decompose_component_aware_ratio_delta_by_axis_combination():
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "category": {"role": "dimension", "column": "category"},
+        "channel": {"role": "dimension", "column": "channel"},
+    }
+    current_rows = [
+        {"category": "A", "channel": "online", "failure_rate": 0.20},
+        {"category": "A", "channel": "store", "failure_rate": 0.30},
+        {"category": "B", "channel": "online", "failure_rate": 0.30},
+        {"category": "B", "channel": "store", "failure_rate": 0.40},
+    ]
+    current_components = [
+        {
+            "category": "A",
+            "channel": "online",
+            "failed_count": 20.0,
+            "total_count": 100.0,
+            "failure_rate": 0.20,
+        },
+        {
+            "category": "A",
+            "channel": "store",
+            "failed_count": 30.0,
+            "total_count": 100.0,
+            "failure_rate": 0.30,
+        },
+        {
+            "category": "B",
+            "channel": "online",
+            "failed_count": 30.0,
+            "total_count": 100.0,
+            "failure_rate": 0.30,
+        },
+        {
+            "category": "B",
+            "channel": "store",
+            "failed_count": 40.0,
+            "total_count": 100.0,
+            "failure_rate": 0.40,
+        },
+    ]
+    baseline_rows = [
+        {"category": "A", "channel": "online", "failure_rate": 0.10},
+        {"category": "A", "channel": "store", "failure_rate": 0.20},
+        {"category": "B", "channel": "online", "failure_rate": 0.20},
+        {"category": "B", "channel": "store", "failure_rate": 0.20},
+    ]
+    baseline_components = [
+        {
+            "category": "A",
+            "channel": "online",
+            "failed_count": 10.0,
+            "total_count": 100.0,
+            "failure_rate": 0.10,
+        },
+        {
+            "category": "A",
+            "channel": "store",
+            "failed_count": 20.0,
+            "total_count": 100.0,
+            "failure_rate": 0.20,
+        },
+        {
+            "category": "B",
+            "channel": "online",
+            "failed_count": 20.0,
+            "total_count": 100.0,
+            "failure_rate": 0.20,
+        },
+        {
+            "category": "B",
+            "channel": "store",
+            "failed_count": 20.0,
+            "total_count": 100.0,
+            "failure_rate": 0.20,
+        },
+    ]
+    current = _component_aware_metric_with_axes(
+        session,
+        ref="frame_current_combination",
+        rows=current_rows,
+        component_rows=current_components,
+        axes=axes,
+        semantic_kind="segmented",
+    )
+    baseline = _component_aware_metric_with_axes(
+        session,
+        ref="frame_baseline_combination",
+        rows=baseline_rows,
+        component_rows=baseline_components,
+        axes=axes,
+        semantic_kind="segmented",
+    )
+
+    delta = session.compare(current, baseline)
+    attribution = session.attribute(
+        delta,
+        axes=[
+            make_ref("category", SemanticKind.DIMENSION),
+            make_ref("channel", SemanticKind.DIMENSION),
+        ],
+        mode="joint",
+    )
+
+    df = attribution.to_pandas()
+    assert attribution.meta.method == "ratio_mix"
+    assert attribution.meta.driver_field is None
+    assert set(df[["category", "channel"]].itertuples(index=False, name=None)) == {
+        ("B", "store"),
+        ("A", "store"),
+        ("A", "online"),
+        ("B", "online"),
+    }
+    assert {"contribution", "value_effect", "mix_effect", "residual"}.issubset(df.columns)
+    assert df["contribution"].sum() == pytest.approx(0.125)
+    assert df["residual"].abs().max() == pytest.approx(0.0)
+
+
 def test_decompose_calendar_time_series_ratio_accepts_bucket_start_alias():
     session = session_attach.get_or_create(name="demo")
     axes = {

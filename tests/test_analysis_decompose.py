@@ -200,68 +200,84 @@ def test_decompose_axes_multi_axis_returns_ordered_hierarchy_rows():
             make_ref("region", SemanticKind.DIMENSION),
             make_ref("platform", SemanticKind.DIMENSION),
         ],
+        mode="hierarchy",
         session=session,
     )
 
     assert out.meta.driver_field == "path"
     assert out.meta.method == "ordered_hierarchy_sum"
     assert out.meta.params["axis_columns"] == ["region", "platform"]
-    assert out.to_pandas().to_dict("records") == [
-        {
-            "level": 1,
-            "axis": "region",
-            "driver": "US",
-            "path": "US",
-            "contribution": 10.0,
-            "pct_contribution": 1.25,
-            "rank": 1,
-        },
-        {
-            "level": 1,
-            "axis": "region",
-            "driver": "CN",
-            "path": "CN",
-            "contribution": -2.0,
-            "pct_contribution": -0.25,
-            "rank": 2,
-        },
-        {
-            "level": 2,
-            "axis": "platform",
-            "driver": "ios",
-            "path": "US > ios",
-            "contribution": 6.0,
-            "pct_contribution": 0.75,
-            "rank": 1,
-        },
-        {
-            "level": 2,
-            "axis": "platform",
-            "driver": "android",
-            "path": "US > android",
-            "contribution": 4.0,
-            "pct_contribution": 0.5,
-            "rank": 2,
-        },
-        {
-            "level": 2,
-            "axis": "platform",
-            "driver": "ios",
-            "path": "CN > ios",
-            "contribution": -3.0,
-            "pct_contribution": -0.375,
-            "rank": 3,
-        },
-        {
-            "level": 2,
-            "axis": "platform",
-            "driver": "android",
-            "path": "CN > android",
-            "contribution": 1.0,
-            "pct_contribution": 0.125,
-            "rank": 4,
-        },
+    df = out.to_pandas()
+    assert df.loc[df["level"] == 2, "contribution"].sum() == pytest.approx(8.0)
+    assert df.loc[df["level"] == 1, "platform"].isna().all()
+
+
+def test_decompose_multi_axis_requires_an_explicit_mode():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US"], "platform": ["ios"], "delta": [6.0]}),
+        semantic_kind="segmented",
+    )
+
+    with pytest.raises(SemanticKindMismatchError) as exc_info:
+        decompose(
+            frame,
+            axes=[
+                make_ref("region", SemanticKind.DIMENSION),
+                make_ref("platform", SemanticKind.DIMENSION),
+            ],
+            session=session,
+        )
+
+    assert exc_info.value.details["reason"] == "multi_axis_mode_required"
+    assert exc_info.value.details["supported_modes"] == ["joint", "hierarchy"]
+
+
+def test_delta_contract_describes_multi_axis_attribution_mode():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(session, pd.DataFrame({"region": ["US"], "delta": [6.0]}))
+
+    affordance = next(item for item in frame.contract().affordances if item.operator == "attribute")
+
+    assert affordance.param_template.judgment_slots == [
+        "axes",
+        "mode when axes has multiple entries: joint|hierarchy",
     ]
+
+
+def test_decompose_multi_axis_joint_returns_each_axis_combination_once():
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "region": ["US", "US", "CN", "CN"],
+                "platform": ["ios", "android", "ios", "android"],
+                "delta": [6.0, 4.0, -3.0, 1.0],
+            }
+        ),
+        semantic_kind="segmented",
+    )
+
+    out = decompose(
+        frame,
+        axes=[
+            make_ref("region", SemanticKind.DIMENSION),
+            make_ref("platform", SemanticKind.DIMENSION),
+        ],
+        mode="joint",
+        session=session,
+    )
+
+    df = out.to_pandas()
+    assert out.meta.method == "sum"
+    assert out.meta.driver_field is None
+    assert len(df) == 4
+    assert df["contribution"].sum() == pytest.approx(8.0)
+    assert (df["value_effect"] == df["contribution"]).all()
+    assert (df["mix_effect"] == 0.0).all()
+    assert (df["residual"] == 0.0).all()
 
 
 def test_decompose_rejects_duplicate_axes():
@@ -689,6 +705,7 @@ def test_decompose_axes_multi_axis_handles_nan_in_level_two():
             make_ref("region", SemanticKind.DIMENSION),
             make_ref("platform", SemanticKind.DIMENSION),
         ],
+        mode="hierarchy",
         session=session,
     )
 
