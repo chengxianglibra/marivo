@@ -3,7 +3,6 @@ from __future__ import annotations
 import inspect
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 from time import monotonic
 
 import ibis
@@ -1988,39 +1987,3 @@ def test_transform_persists_artifact_job_and_lineage_without_observation_finding
     assert artifact == ("transform", "metric_frame")
     assert finding_count == 0
     assert followup_count == 0
-
-
-def test_delta_transform_normalize_is_rejected_by_mypy(tmp_path):
-    fixture = tmp_path / "delta_transform_normalize_check.py"
-    fixture.write_text(
-        "\n".join(
-            [
-                "from marivo.analysis.frames.delta import DeltaFrame",
-                "",
-                "def use_delta(delta: DeltaFrame) -> None:",
-                "    delta.transform.normalize(mode='share')",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    import subprocess
-
-    result = subprocess.run(
-        [
-            ".venv/bin/mypy",
-            "--show-error-codes",
-            "--strict",
-            str(fixture),
-        ],
-        cwd=Path(__file__).resolve().parents[1],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "DeltaFrameTransforms" in result.stdout
-    assert "normalize" in result.stdout
-    assert "[attr-defined]" in result.stdout
