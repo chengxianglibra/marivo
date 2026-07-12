@@ -402,8 +402,9 @@ def datetime(
     source column is a native datetime type.
 
     Args:
-        timezone: Optional IANA timezone name. When omitted, Marivo interprets
-            the naive source column in the datasource engine default timezone.
+        timezone: Optional IANA timezone name. Declare it for naive source
+            columns; otherwise readiness blocks analysis because runtime would
+            interpret values in the datasource read timezone.
         sample_interval: Optional periodic sampling interval for sampled time
             dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
 
@@ -438,8 +439,9 @@ def timestamp(
     source column is a native timestamp type.
 
     Args:
-        timezone: Optional IANA timezone name. When omitted, Marivo interprets
-            the naive source column in the datasource engine default timezone.
+        timezone: Optional IANA timezone name. Declare it for naive source
+            columns; otherwise readiness blocks analysis because runtime would
+            interpret values in the datasource read timezone.
         sample_interval: Optional periodic sampling interval for sampled time
             dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
 

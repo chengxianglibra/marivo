@@ -277,6 +277,11 @@ Two checks sit at the end of the write loop:
   required semantic gate before analysis, never writes stdout, and never queries.
   `catalog.preview(..., using=...)` persists the fresh scoped runtime metadata
   that readiness consumes.
+  A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a
+  blocker (`undeclared_naive_time_axis`): runtime would otherwise fall back to
+  the datasource read timezone while report windows use the analysis-session
+  timezone. Its structured repair requires declaring the source timezone; the
+  zero-query gate does not guess or probe either runtime timezone.
 - **`ms.richness(demand=None)`** returns a demand-ranked `RichnessReport`. It is
   purely advisory — it never blocks and never mutates readiness — and seeds
   ranking from example questions, analysis intents, run-history refs, and the

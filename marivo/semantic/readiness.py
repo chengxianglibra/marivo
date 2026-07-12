@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
@@ -27,6 +27,7 @@ ReadinessIssueKind = Literal[
     "runtime_preview_missing",
     "missing_business_definition",
     "missing_guardrails",
+    "undeclared_naive_time_axis",
 ]
 
 
@@ -37,15 +38,19 @@ class ReadinessIssue:
     refs: tuple[str, ...]
     message: str
     suggested_action: str
+    details: Mapping[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "kind": self.kind,
             "severity": self.severity,
             "refs": list(self.refs),
             "message": self.message,
             "suggested_action": self.suggested_action,
         }
+        if self.details:
+            payload["details"] = dict(self.details)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -163,6 +168,8 @@ def _issue(
     refs: Iterable[str],
     message: str,
     suggested_action: str,
+    *,
+    details: Mapping[str, object] | None = None,
 ) -> ReadinessIssue:
     return ReadinessIssue(
         kind=kind,
@@ -170,6 +177,7 @@ def _issue(
         refs=_dedupe(refs),
         message=message,
         suggested_action=suggested_action,
+        details={} if details is None else details,
     )
 
 
@@ -397,6 +405,48 @@ def _missing_guardrails(obj: object) -> bool:
     return not guardrails
 
 
+def _undeclared_naive_time_axis_issues(
+    checked_refs: Iterable[str],
+    kinds: Mapping[str, _SemanticKind],
+    objects: Mapping[str, object],
+) -> list[ReadinessIssue]:
+    """Return blockers for native temporal axes without a source timezone."""
+    blockers: list[ReadinessIssue] = []
+    for ref in checked_refs:
+        if kinds.get(ref) != _SemanticKind.TIME_DIMENSION:
+            continue
+        time_dimension = objects.get(ref)
+        parse = getattr(time_dimension, "parse", None)
+        data_type = getattr(parse, "kind", None)
+        declared_timezone = getattr(parse, "timezone", None)
+        if data_type not in {"datetime", "timestamp"} or declared_timezone is not None:
+            continue
+
+        entity_ref = getattr(time_dimension, "entity", None)
+        entity = objects.get(entity_ref) if isinstance(entity_ref, str) else None
+        datasource = getattr(entity, "datasource", None)
+        parse_call = f'ms.{data_type}(timezone="Region/City")'
+        blockers.append(
+            _issue(
+                "undeclared_naive_time_axis",
+                "blocker",
+                (ref,),
+                f"{ref} is a native {data_type} time axis with no declared source timezone; "
+                "analysis will otherwise interpret naive values using the datasource read timezone.",
+                f"Declare the source timezone on this time dimension with parse={parse_call}.",
+                details={
+                    "data_type": data_type,
+                    "declared_timezone": None,
+                    "datasource": datasource,
+                    "datasource_read_timezone": "resolved at runtime",
+                    "report_timezone": "resolved by the analysis session",
+                    "window_alignment_risk": "Report-local windows may shift at day or hour boundaries.",
+                },
+            )
+        )
+    return blockers
+
+
 def build_readiness_report(
     project: SemanticProject,
     *,
@@ -480,6 +530,8 @@ def build_readiness_report(
                 "Browse loaded refs with catalog.domains.show(), catalog.metrics.show(), etc., inspect a known ref with catalog.get(...).details().show(), then fix or remove the ref from readiness refs.",
             )
         )
+
+    blockers.extend(_undeclared_naive_time_axis_issues(checked_refs, kinds, objects))
 
     # Strict enrichment: missing business_definition is a blocker;
     # missing guardrails is a blocker for metrics, a warning otherwise.

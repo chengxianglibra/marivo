@@ -196,8 +196,12 @@ def test_time_dimension_column_help_inlines_parse_decision() -> None:
     parse = cast("dict[str, Any]", contract["parse"])
 
     assert parse["native_date"]["form"] == "omit parse"
-    assert parse["native_datetime"]["form"] == "ms.datetime(timezone=None, sample_interval=None)"
-    assert parse["native_timestamp"]["form"] == "ms.timestamp(timezone=None, sample_interval=None)"
+    assert parse["native_datetime"]["form"] == (
+        'ms.datetime(timezone="Region/City", sample_interval=None)'
+    )
+    assert parse["native_timestamp"]["form"] == (
+        'ms.timestamp(timezone="Region/City", sample_interval=None)'
+    )
     assert parse["string_or_integer_date_like"]["form"] == (
         "ms.strptime(format, timezone=None, sample_interval=None)"
     )

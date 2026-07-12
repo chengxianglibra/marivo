@@ -598,6 +598,7 @@ def test_strict_enrichment_issue_kinds_are_valid():
     kinds = get_args(ReadinessIssueKind)
     assert "missing_business_definition" in kinds
     assert "missing_guardrails" in kinds
+    assert "undeclared_naive_time_axis" in kinds
     assert "unresolved" + "_clarification" not in kinds
 
 
@@ -688,32 +689,49 @@ def _naive_tz_report(
     return project.readiness()
 
 
-def test_missing_datetime_timezone_does_not_block_readiness(semantic_project_factory) -> None:
+def test_missing_datetime_timezone_blocks_with_structured_risk(semantic_project_factory) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.datetime(), '
         'ai_context=ms.ai_context(business_definition="When the order was created.")',
     )
-    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
+    issue = next(issue for issue in report.blockers if issue.kind == "undeclared_naive_time_axis")
+
+    assert issue.severity == "blocker"
+    assert issue.refs == ("sales.orders.created_at",)
+    assert issue.details == {
+        "data_type": "datetime",
+        "declared_timezone": None,
+        "datasource": "datasource.warehouse",
+        "datasource_read_timezone": "resolved at runtime",
+        "report_timezone": "resolved by the analysis session",
+        "window_alignment_risk": "Report-local windows may shift at day or hour boundaries.",
+    }
+    assert issue.to_dict()["details"] == issue.details
+    assert "parse=ms.datetime(timezone=" in issue.suggested_action
 
 
-def test_missing_timestamp_timezone_does_not_block_readiness(semantic_project_factory) -> None:
+def test_missing_timestamp_timezone_blocks_with_structured_risk(semantic_project_factory) -> None:
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="hour", parse=ms.timestamp(), '
         'ai_context=ms.ai_context(business_definition="When the order was updated.")',
     )
-    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
+    issue = next(issue for issue in report.blockers if issue.kind == "undeclared_naive_time_axis")
+
+    assert issue.severity == "blocker"
+    assert issue.details["data_type"] == "timestamp"
+    assert "parse=ms.timestamp(timezone=" in issue.suggested_action
 
 
-def test_declared_timezone_clears_blocker(semantic_project_factory) -> None:
-    """time_dimension with timezone='UTC' does NOT trigger naive_timezone_undetermined."""
+def test_declared_timezone_clears_undeclared_naive_time_axis(semantic_project_factory) -> None:
+    """A declared source timezone clears the naive-time-axis blocker."""
     report = _naive_tz_report(
         semantic_project_factory,
         'granularity="day", parse=ms.datetime(timezone="UTC"), '
         'ai_context=ms.ai_context(business_definition="When the order was created.")',
     )
-    assert "naive_timezone_undetermined" not in _issue_kinds(report.blockers)
+    assert "undeclared_naive_time_axis" not in _issue_kinds(report.blockers)
 
 
 def test_date_data_type_does_not_block(semantic_project_factory) -> None:

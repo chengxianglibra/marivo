@@ -326,9 +326,15 @@ For string or integer columns, provide `ms.strptime(format)` or
 | `ms.strptime(format)` | a string/integer to parse | `timezone`, `sample_interval` |
 | `ms.hour_prefix(prefix)` | an hour-only partition | `sample_interval` — `prefix` is the day-grain `TimeDimensionRef` that supplies the date |
 
-`timezone` defaults to the datasource engine timezone; set it (e.g. `"UTC"`) only
-when the column's wall-clock meaning differs. `sample_interval` like `(5, "minute")`
-marks a periodically-sampled axis used by semi-additive folds.
+For a native naive `datetime` or `timestamp`, declare its source timezone (for
+example, `ms.datetime(timezone="Asia/Shanghai")`). An explicit
+`ms.datetime()` or `ms.timestamp()` without `timezone=` makes readiness return
+the `undeclared_naive_time_axis` blocker: runtime would otherwise fall back to
+the datasource read timezone, while analysis windows use the report timezone
+and may shift at day or hour boundaries. The zero-query gate reports those
+runtime-resolved contexts but never guesses the business timezone.
+`sample_interval` like `(5, "minute")` marks a periodically-sampled axis used
+by semi-additive folds.
 
 For time-series and panel frames, `bucket_start` is always a report-timezone
 bucket label emitted as a timezone-naive timestamp or date. For example, with
