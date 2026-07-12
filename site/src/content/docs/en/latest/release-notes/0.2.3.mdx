@@ -5,22 +5,18 @@ description: Release notes for Marivo 0.2.3.
 ---
 
 Marivo 0.2.3 is a v0.2 patch release that tightens the agent-facing semantic
-and analysis contracts while adding operational publishing support. It improves
-Trino aggregate compatibility, makes semantic help and catalog scopes more
-explicit, and adds deterministic attribution materialization for multi-level
-driver analysis.
+and analysis contracts. It improves Trino aggregate compatibility, makes
+semantic help and catalog scopes more explicit, and adds deterministic
+attribution materialization for multi-level driver analysis.
 
 ## Highlights
 
 - Added `marivo --version` so CLI environments can report the installed package
   version directly.
-- Added the internal S3 publish uploader used by Marivo's static artifact
-  publishing workflow.
 - Implemented composite attribution materialization for analysis workflows that
   need stable multi-tier driver output.
 - Tightened semantic catalog and help contracts around typed scopes, explicit
   domain refs, and percentile naming.
-- Removed the older report publish surface from the public analysis path.
 
 ## Changed
 
@@ -43,15 +39,13 @@ driver analysis.
 ## Documentation
 
 - Added the attribution composite materialization design note.
-- Updated analysis design and skill guidance for the current attribution,
-  publishing, and parameter contracts.
+- Updated analysis design and skill guidance for the current attribution and
+  parameter contracts.
 - Refreshed semantic-layer documentation around typed refs, explicit help
   output, and percentile folding.
 
 ## Breaking changes
 
-- The public analysis report publish surface has been removed; artifact
-  publishing now routes through the narrower static publishing path.
 - Analysis callers should use `time_scope` and `slice_by`; the legacy
   `timescope` and `where` names are no longer the documented contract.
 - Semantic catalog and authoring helpers require typed scope/domain refs rather

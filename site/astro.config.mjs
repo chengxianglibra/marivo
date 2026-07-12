@@ -1,33 +1,80 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-function docsItems(version, releaseNotes) {
+function docsItems(version, releaseNotes, isLatest) {
+  const releaseNotesGroup = {
+    label: 'Release Notes',
+    translations: {
+      'zh-CN': 'Release Notes',
+    },
+    items: releaseNotes.map((releaseNote) => ({
+      slug: `${version}/release-notes/${releaseNote}`,
+    })),
+  };
+  const conceptsGroup = {
+    label: 'Concepts',
+    translations: {
+      'zh-CN': '核心概念',
+    },
+    items: [
+      { slug: `${version}/concepts` },
+      { slug: `${version}/concepts/semantic-layer` },
+      { slug: `${version}/concepts/analysis-workflow` },
+      { slug: `${version}/concepts/readiness` },
+      { slug: `${version}/concepts/evidence` },
+    ],
+  };
+
+  if (isLatest) {
+    return [
+      {
+        label: 'Get started',
+        translations: {
+          'zh-CN': '开始使用',
+        },
+        items: [
+          { slug: version },
+          { slug: `${version}/installation` },
+          { slug: `${version}/quick-start` },
+          { slug: `${version}/first-analysis` },
+        ],
+      },
+      {
+        label: 'Work with an agent',
+        translations: {
+          'zh-CN': '与智能体协作',
+        },
+        items: [
+          { slug: `${version}/guides/business-question` },
+          { slug: `${version}/concepts/semantic-layer` },
+          { slug: `${version}/concepts/analysis-workflow` },
+          { slug: `${version}/concepts/readiness` },
+          { slug: `${version}/concepts/evidence` },
+        ],
+      },
+      {
+        label: 'Integration and reference',
+        translations: {
+          'zh-CN': '集成与参考',
+        },
+        items: [
+          { slug: `${version}/concepts` },
+          { slug: `${version}/reference/project-configuration` },
+          { slug: `${version}/reference/telemetry` },
+          { slug: `${version}/reference/deployment` },
+          { slug: `${version}/contributing` },
+        ],
+      },
+      releaseNotesGroup,
+    ];
+  }
+
   return [
     { slug: version },
     { slug: `${version}/installation` },
     { slug: `${version}/quick-start` },
-    {
-      label: 'Release Notes',
-      translations: {
-        'zh-CN': 'Release Notes',
-      },
-      items: releaseNotes.map((releaseNote) => ({
-        slug: `${version}/release-notes/${releaseNote}`,
-      })),
-    },
-    {
-      label: 'Concepts',
-      translations: {
-        'zh-CN': '核心概念',
-      },
-      items: [
-        { slug: `${version}/concepts` },
-        { slug: `${version}/concepts/semantic-layer` },
-        { slug: `${version}/concepts/analysis-workflow` },
-        { slug: `${version}/concepts/readiness` },
-        { slug: `${version}/concepts/evidence` },
-      ],
-    },
+    releaseNotesGroup,
+    conceptsGroup,
     { slug: `${version}/contributing` },
   ];
 }
@@ -98,7 +145,7 @@ export default defineConfig({
           translations: {
             'zh-CN': '最新版',
           },
-          items: docsItems('latest', ['0.3.0', '0.2.8', '0.2.7', '0.2.6', '0.2.5', '0.2.4', '0.2.3', '0.2.2', '0.2.1', '0.2.0', '0.1.0']),
+          items: docsItems('latest', ['0.3.0', '0.2.8', '0.2.7', '0.2.6', '0.2.5', '0.2.4', '0.2.3', '0.2.2', '0.2.1', '0.2.0', '0.1.0'], true),
         },
         {
           label: 'v0.3',

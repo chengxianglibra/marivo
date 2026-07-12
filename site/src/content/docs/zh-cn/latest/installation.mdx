@@ -1,175 +1,100 @@
 ---
 title: 安装
-description: 安装 Marivo，并为你的 datasource 选择对应的 backend extra。
+description: 准备一个可供智能体使用的 Marivo 项目，并选择数据源后端。
 ---
 
 Marivo 需要 Python 3.12 或更高版本。
 
-从 PyPI 安装基础库：
+## 准备项目
+
+请选择一个空目录或已有项目目录。推荐的安装脚本支持 macOS、Linux 和 Windows Subsystem
+for Linux（WSL）。它会在该目录中创建虚拟环境、安装 `marivo[all]`，并运行 `marivo init`。
+
+## 安装 Marivo
+
+在项目目录中运行推荐的安装脚本：
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+如果需要自行管理环境，请从 PyPI 安装基础库：
 
 ```bash
 pip install marivo
 ```
 
-根据要连接的 datasource 安装 backend extra：
+根据项目要查询的数据源安装对应的后端扩展：
 
-| Backend | 安装命令 |
+| 后端 | 安装命令 |
 | --- | --- |
 | DuckDB | `pip install "marivo[duckdb]"` |
 | MySQL | `pip install "marivo[mysql]"` |
 | Postgres | `pip install "marivo[postgres]"` |
 | ClickHouse | `pip install "marivo[clickhouse]"` |
 | Trino | `pip install "marivo[trino]"` |
-| 所有已打包的 backends | `pip install "marivo[all]"` |
+| 所有已打包的后端 | `pip install "marivo[all]"` |
 
-在 macOS、Linux 或 Windows Subsystem for Linux（WSL）中，也可以使用安装脚本在当前目录创建虚拟环境、安装 `marivo[all]` 并运行 `marivo init`：
+## 初始化项目
 
-```bash
-curl -fsSL https://marivo.io/install.sh | bash
-```
-
-## 初始化一个 project
-
-用 CLI 在当前目录中初始化一个新 project：
+如果通过 pip 安装 Marivo，请先在当前目录中完成初始化，再让智能体开始工作：
 
 ```bash
 marivo --version
 marivo init
 ```
 
-`marivo init` 会创建 project 骨架，并安装 Marivo 的 agent skills：
+`marivo init` 是幂等的：已存在的文件不会被改动，并会报告为已跳过，因此可以在升级后安全地
+重复运行。重复运行只会补齐缺失的内容。使用 `marivo init --force` 会删除生成的工件并从头
+重建。
+
+:::note
+当 `marivo.toml` 含有非法 TOML 时，`init` 不会静默跳过它。请修复或删除该文件，或传入
+`--force`。技能链接是尽力创建的符号链接；如果平台无法创建符号链接，`init` 会打印警告并继续。
+:::
+
+## 智能体可以使用什么
 
 | 路径 | 用途 |
 | --- | --- |
-| `marivo.toml` | Project manifest。project 名默认使用目录名；本地 telemetry 默认 `enabled = "on"`。 |
-| `models/` | 编写 datasource 与 semantic declarations 的位置。 |
-| `.marivo/` | Project 本地状态：sessions、evidence 以及缓存的 metadata。 |
-| `.agents/skills/marivo-semantic`、`.agents/skills/marivo-analysis` | 面向读取 `.agents/skills` 的 agents 的通用 Marivo skill 入口。 |
-| `.claude/skills/marivo-semantic`、`.claude/skills/marivo-analysis` | 面向 Claude Code 的 Marivo skills（以符号链接接入 project）。 |
-| `.codex/skills/marivo-semantic`、`.codex/skills/marivo-analysis` | 面向 Codex 的兼容 skill 入口。 |
-
-`init` 是幂等的：已存在的文件不会被改动，并会报告为已跳过。因此可以安全地重复运行，例如在
-升级到附带新版 skills 的 Marivo 之后。重复运行只会补齐缺失的部分。使用 `marivo init --force`
-可删除上述工件并从头重建。
-
-:::note
-当 `marivo.toml` 含有非法 TOML 时，`init` 拒绝静默跳过 —— 请修复或删除它，或传入 `--force`。
-Skill 链接是尽力而为的：如果你的平台无法创建符号链接，`init` 会打印警告并继续。
-:::
-
-初始化完成后，会得到一个可以直接开始编写的 project：
+| `marivo.toml` | 项目清单。项目名默认使用目录名；本地遥测默认 `enabled = "on"`。 |
+| `models/` | 数据源和语义声明。 |
+| `.marivo/` | 项目本地的会话、证据和缓存元数据。 |
+| `.agents/skills/` | 为兼容的智能体提供 `marivo-semantic` 和 `marivo-analysis` 技能链接。 |
+| `.claude/skills/` | 为 Claude Code 提供同一组技能链接。 |
+| `.codex/skills/` | 为 Codex 提供同一组技能链接。 |
 
 ```text
 your-project/
   marivo.toml
   models/
   .marivo/
-  .agents/skills/  # marivo-semantic, marivo-analysis
-  .claude/skills/   # marivo-semantic, marivo-analysis
-  .codex/skills/    # marivo-semantic, marivo-analysis
+  .agents/skills/
+  .claude/skills/
+  .codex/skills/
 ```
 
-如果语义层对象由其他仓库维护，可以把这些仓库中的 authored `models/` 目录加入
-`marivo.toml`：
+## 接下来让智能体做什么
 
-```toml
-[semantic]
-layer_paths = [
-  "../sales-domain/models",
-  "/opt/company/finance-domain/models",
-]
-```
+初始化完成后，可以向智能体提出下面这项有明确边界的准备请求：
 
-当前 project 的 `models/` 会始终优先加载。相对路径按 `marivo.toml` 所在目录解析；
-绝对路径按原样使用。每个外部 `models/` root 都必须同时包含 `datasources/` 与
-`semantic/`。所有 root 中的 datasource 名称、domain 名称与 semantic ID 必须全局唯一；
-出现重复将导致加载失败。`marivo doctor`、semantic preview、对象验证与 analysis
-session 在解析 semantic object 时会使用这些配置层中的 datasources。
+> 检查这个 Marivo 项目是否已经正确初始化。说明开始编写语义层之前还需要哪些数据源配置和
+> 源表。不要读取业务数据，也不要定义任何语义；完成项目准备检查后就停止。报告目前已有的
+> 内容、仍缺少的内容，以及需要我提供哪些决策。对于凭据，只报告哪些已批准的凭据字段需要
+> 配置、对应的 `*_env` 引用和环境变量名，以及各环境变量是否已配置。不要索取、显示或提交
+> 任何凭据值。
 
-把 `.marivo/` 加入 `.gitignore`；对 `marivo.toml` 和 `models/` 做版本控制（参见
-[快速开始](/zh-cn/latest/quick-start/#用-git-管理-project)）。
+这样可以把项目准备、读取业务数据和决定业务含义分成不同的步骤。
 
-## 本地使用 telemetry
+## 继续之前需要检查什么
 
-Marivo 会在 project state 目录下写入 OpenTelemetry 形态的本地 JSONL 使用事件：
+进入语义层编写流程前，请确认：
 
-```text
-.marivo/telemetry/events.jsonl
-```
+- `marivo.toml`、`models/` 和 `.marivo/` 已经存在；
+- `.agents/skills/`、`.claude/skills/` 和 `.codex/skills/` 下应有的技能路径已经存在；如果
+  符号链接未能创建，初始化警告已经说明原因；
+- 项目需要的数据源后端扩展已经安装；
+- 凭据通过经过批准、由环境变量提供的字段传入，而不是以明文形式提交到项目文件中。
 
-Telemetry 只保存在本地：Marivo 不会上传这些事件。事件覆盖 `marivo init`、analysis intents、
-discover/transform helpers，以及 escape-hatch promotions。记录只包含低基数字段，例如 event name、
-intent family、status、duration、error class 和 analysis session id。它不会包含 SQL 文本、
-datasource hosts、credentials、metric ids、dimension ids、session names、session questions
-或 frame data。
-
-可以通过环境变量在当前进程中关闭本地 telemetry：
-
-```bash
-MARIVO_TELEMETRY=off marivo init
-```
-
-也可以在 `marivo.toml` 中配置 project 默认值：
-
-```toml
-[telemetry]
-enabled = "off" # "on" 或 "off"
-```
-
-`MARIVO_TELEMETRY=on|off` 会覆盖当前进程中的 project 配置。如果两者都没有设置，
-本地 telemetry 默认使用 `"on"`。
-
-## 部署与开发
-
-Marivo 是 Python library，不是托管服务。部署 Marivo project 时，需要在 agent 的运行环境中安装
-library，提交 datasource 和 semantic declarations，并通过 `*_env` 字段引用环境变量来提供
-datasource secrets。
-
-如果希望 agent 将已经生成并检查过的交付物上传到 S3，而不用每次重新判断 endpoint 与凭证配置，
-请把非 secret 的发布配置写入 project 的 `marivo.toml`：
-
-```toml
-[publish.s3]
-S3_BUCKET_PATH = "s3://bucket/base/prefix"
-AWS_ENDPOINT_URL_S3 = "https://s3.example.com"
-```
-
-Marivo 使用 path-style 规则生成发布链接。按上面的配置，上传 `report.html` 后会展示
-`https://s3.example.com/bucket/base/prefix/report.html`。
-
-对应的 S3 credentials 放在 user-global secret 文件：
-
-```toml
-# ~/.marivo/secrets.toml
-[publish.s3]
-AWS_ACCESS_KEY_ID = "..."
-AWS_SECRET_ACCESS_KEY = "..."
-```
-
-然后上传任意已完成的文件或目录：
-
-```bash
-marivo publish ./report.html
-marivo publish ./output-dir
-```
-
-输出示例：
-
-```text
-Uploaded 1 file
-URL: https://s3.example.com/bucket/base/prefix/report.html
-S3: s3://bucket/base/prefix/report.html
-```
-
-`marivo publish` 只是一个简单上传工具：它不会 validate、package 或 inspect 内容。文件会上传到
-`S3_BUCKET_PATH` 之下；如果目标对象已存在，会按普通 S3 `put_object` 行为覆盖。以
-`.html` 或 `.htm` 结尾的文件会使用 `Content-Type: text/html` 上传；其他文件类型不会进行
-MIME 推断。
-
-从当前仓库进行本地开发：
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev,duckdb,trino]"
-.venv/bin/python -c "import marivo; print(marivo.__name__)"
-```
+完成这些检查后，继续编写[第一个语义层](/zh-cn/latest/quick-start/)。确认其业务含义且就绪
+检查未被阻止后，再进行[第一次分析](/zh-cn/latest/first-analysis/)。

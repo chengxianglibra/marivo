@@ -1,0 +1,28 @@
+---
+title: 项目配置
+description: 配置 Marivo 项目，并在多个仓库之间复用语义层。
+---
+
+## 用版本控制管理项目契约
+
+如需加载由其他仓库维护的语义层包，请在 `marivo.toml` 的
+`[semantic].layer_paths` 中加入各自已编写的 `models/` 目录：
+
+```toml
+[semantic]
+layer_paths = [
+  "../sales-domain/models",
+  "/opt/company/finance-domain/models",
+]
+```
+
+Marivo 始终先加载当前项目的 `models/` 目录，再按声明顺序加载各个语义层根目录。
+相对路径以 `marivo.toml` 所在目录为基准，绝对路径按原样使用。每个外部语义层根目录都必须
+同时包含 `datasources/` 和 `semantic/`。
+
+所有已配置根目录中的 datasource 名称、domain 名称和 semantic ID 必须全局唯一；出现重复时，
+语义层无法加载。`marivo doctor`、语义层预览、验证和分析会话都会通过这些已配置的根目录解析
+语义对象及其 datasource。
+
+请将 `marivo.toml` 和 `models/` 纳入版本控制，让项目契约与声明一同演进；将 `.marivo/`
+加入 `.gitignore`，其中保存的是本地会话、证据和缓存元数据，而不是可共享的声明。

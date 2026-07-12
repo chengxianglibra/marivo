@@ -1,0 +1,34 @@
+---
+title: 本地遥测
+description: 管理 Marivo 项目写入本地的使用记录。
+---
+
+## 了解本地遥测
+
+Marivo 会在项目状态目录中写入采用开放遥测结构的本地 JSONL 事件：
+
+```text
+.marivo/telemetry/events.jsonl
+```
+
+事件覆盖 `marivo init`、分析意图、发现和转换辅助函数，以及逃生通道提升。记录仅包含低基数
+元数据，例如事件名称、意图类别、状态、耗时、错误类别和分析会话 ID；不会包含 SQL 文本、
+datasource 主机、凭据、指标 ID、维度 ID、会话名称、会话问题或帧数据。
+
+这些事件只保存在本地，Marivo 不会上传它们。
+
+通过环境变量为当前进程关闭本地遥测：
+
+```bash
+MARIVO_TELEMETRY=off marivo init
+```
+
+也可以在 `marivo.toml` 中设置项目默认值：
+
+```toml
+[telemetry]
+enabled = "off" # "on" 或 "off"
+```
+
+`MARIVO_TELEMETRY=on|off` 会覆盖当前进程的 `[telemetry].enabled` 设置。两者均未设置时，
+本地遥测默认使用 `"on"`。

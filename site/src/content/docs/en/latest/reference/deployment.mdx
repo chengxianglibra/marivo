@@ -1,0 +1,26 @@
+---
+title: Deployment
+description: Run a Marivo project where an agent can access its semantic layer and datasource credentials.
+---
+
+## Deploy Marivo where the agent runs
+
+Marivo is a Python library, not a hosted service. Install it in the environment
+where the agent runs, then check the project's datasource and semantic
+declarations into version control. Provide datasource secrets as environment
+variables referenced by `*_env` fields; do not commit credentials into the
+project.
+
+For development from this repository, create an environment, install the
+editable package with the needed extras, and verify the import:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev,duckdb,trino]"
+.venv/bin/python -c "import marivo; print(marivo.__name__)"
+```
+
+For a project using a published release, install the required backend extra as
+described in [Installation](/en/latest/installation/), then run `marivo init` in
+the project directory. Keep the committed semantic layer alongside the agent so
+every run resolves the same declarations.

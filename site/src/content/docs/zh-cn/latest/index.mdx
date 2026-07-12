@@ -1,9 +1,9 @@
 ---
-title: Marivo
-description: 面向 AI agents 的以指标为中心的分析运行时。
+title: 面向 AI 智能体的 Harness
+description: 面向 AI 智能体的 Harness。
 template: splash
 hero:
-  tagline: 面向 AI agents 的以指标为中心的分析运行时。
+  tagline: 面向 AI 智能体的 Harness
   image:
     alt: Marivo
     file: ../../../../assets/marivo-mark.svg
@@ -18,92 +18,58 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Marivo 是一个 Python library，不是托管服务，也不是 chat UI。它把数据仓库整理成
-AI agent 可以按契约分析的对象：用类型化的**语义层**固定每个 metric 和 dimension 的含义，
-用类型化 operators 组织**以指标为中心的分析流程**，并为每个结论保留**可审计的证据链**。
+## 与智能体一起分析业务问题
 
-Marivo 不是 text-to-SQL wrapper。Python declarations 是契约，ibis expressions 是执行语言，
-typed frames 是分析步骤之间的边界。agent 组合的是经过声明的构件，而不是临时生成一段原始 SQL
-再假设它正确。
+Marivo 是面向 AI 智能体的 Python Harness。它让你和智能体沿着一条可检查的协作路径，
+把已经确认的业务问题转化为由类型化结果和证据记录支持的结论。
+
+例如，你需要决定如何应对第四季度收入下降。你提供这次分析要支持的决策、已经确认的收入
+指标含义、需要纳入或排除的时间段与群体，以及可接受的拆分维度。智能体读取语义目录、
+检查就绪状态、执行类型化分析并记录证据。最后由你检查指标契约，决定接受还是拒绝结论。
+
+## 你负责什么，智能体负责什么
+
+1. **你确定业务契约。** 说明要支持的决策，确认指标含义，确定分析范围与排除项，并确认
+   哪些拆分维度具有业务意义。
+2. **智能体执行有边界的调查。** 它读取语义目录，检查所选对象的就绪状态，执行类型化
+   分析，并保存会影响结论的结果和证据。
+3. **你检查分析交接。** 接受结论或要求继续调查前，确认指标、范围、比较方式和拆分维度
+   仍然符合你的意图。
+
+## 分析过程中的四项保障
 
 <CardGrid>
-  <Card title="语义层" icon="seti:data">
-    Datasources、entities、metrics、dimensions 和 relationships 都用 Python 声明，并通过
-    semantic ref 引用。分析面对的是名称和定义，而不是原始表。
+  <Card title="Semantic Layer" icon="seti:data">
+    Python 声明会保存数据源绑定、经过确认的业务含义、使用约束，以及指标和维度的引用。
   </Card>
-  <Card title="以指标为中心的分析" icon="seti:python">
-    Agents 从可信 metrics 出发，串联 typed intents：observe、compare、attribute、
-    correlate、forecast 和质量检查。
+  <Card title="Typed Analysis DSL" icon="seti:python">
+    类型化算子接收语义目录中的引用并返回明确的框架对象，不会把分析步骤隐藏在无法检查的
+    答案中。
   </Card>
-  <Card title="证据链" icon="seti:config">
-    Operators 记录 findings、propositions 和 assessments，结果可以追溯到产生它的输入。
+  <Card title="Analysis Session" icon="seti:folder">
+    项目本地的会话会把一次调查的问题、框架对象、工件和调查记录保存在一起。
   </Card>
-  <Card title="就绪门禁" icon="seti:lock">
-    就绪检查会在 authoring 和访问问题解决之前，阻止未完成的语义对象进入分析。
+  <Card title="Evidence Engine" icon="seti:config">
+    证据会记录发现、命题和评估如何关联到各自的输入，便于检查每项重要判断。
   </Card>
 </CardGrid>
 
-## 为什么 agent 分析需要 Marivo
+## 从业务问题到经过检查的结论
 
-如果直接把 agent 指向原始仓库并让它写 SQL，失败方式通常很明确：它可能臆造 join、漏掉必需的
-过滤条件、误读含义不清的列，然后给出一个难以核验的答案。每次查询都从零开始，定义无法沉淀，
-过程也难以复审。
+协作路径是 `业务决策 → 已确认的指标与范围 → 语义目录与就绪检查 → 类型化分析 → 证据 →
+用户检查`。如果就绪检查被阻止，或者请求超出已经确认的指标契约，智能体会停止，而不是
+悄悄重新定义问题。
 
-Marivo 用一份 agent 必须遵循的契约，替代“生成 SQL 然后碰运气”的流程：
-
-| 没有语义运行时 | 使用 Marivo |
-| --- | --- |
-| 每次查询都靠猜表名和列名 | 可信的 **semantic refs**（`sales.revenue`），携带人工编写的含义与 guardrails |
-| 每次都重新推导定义 | 一份纳入版本控制的**声明式契约**，在 agents 与 sessions 之间共享 |
-| 自由拼写的 SQL，错误往往只表现为错误的数字 | **类型化 intents 与 frames** —— 非法步骤会在任何 backend 操作之前明确报错 |
-| 无法核验的结论 | 把每个结果链接回其输入的**证据链** |
-| 半成品模型照样被分析 | 阻止未完成 semantics 进入分析的**就绪门禁** |
-
-这样，agent 面对的是*含义*而不是列名；整个推理过程也可以被人类审阅、批准和重放。
-
-## 它如何工作
-
-1. **声明**：在 `models/datasources/` 中声明 datasources，在 `models/semantic/` 中声明
-   semantics（domains、entities、dimensions、metrics）—— 使用 `marivo.datasource`
-   （`md`）和 `marivo.semantic`（`ms`）。
-2. **加载并检查就绪状态**：`ms.load()` 构建 catalog；`ms.readiness()` 会在 agent 所需对象
-   完整且可达之前阻止分析。
-3. **打开 session**：从一个 guiding question 出发，并从 catalog 解析出一个可信 metric。
-4. **串联 typed intents** —— `observe → compare → attribute` 等 —— 每一步返回一个 typed
-   frame，并写入 evidence。
-
-## 第一次运行分析
-
-```python
-import marivo.analysis as mv
-
-session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
-catalog = session.catalog
-revenue = catalog.get("metric.sales.revenue")
-region = catalog.get("dimension.sales.orders.region")
-
-current = session.observe(revenue, time_scope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
-baseline = session.observe(revenue, time_scope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
-
-delta = session.compare(current, baseline)
-attribution = session.attribute(delta, axes=[region])
-attribution.show()
-```
-
-## 后续步骤
+## 从这里开始
 
 <CardGrid>
   <Card title="安装" icon="rocket">
-    [安装 Marivo](/zh-cn/latest/installation/)，并为你的 datasource 选择 backend extra。
+    [安装 Marivo](/zh-cn/latest/installation/)，准备一个可供智能体使用的项目。
   </Card>
-  <Card title="快速开始" icon="open-book">
-    [构建一个 project](/zh-cn/latest/quick-start/)：datasource、semantics，以及第一次
-    以指标为中心的分析。
+  <Card title="第一个语义层" icon="seti:data">
+    [定义并确认第一组业务对象](/zh-cn/latest/quick-start/)，明确智能体可以使用的内容。
   </Card>
-  <Card title="语义层" icon="seti:data">
-    [声明含义](/zh-cn/latest/concepts/semantic-layer/)：每个对象与字段，及其用法。
-  </Card>
-  <Card title="分析流程" icon="seti:python">
-    [运行分析](/zh-cn/latest/concepts/analysis-workflow/)：sessions、intents 和 typed frames。
+  <Card title="第一次分析" icon="open-book">
+    [向智能体说明业务问题](/zh-cn/latest/first-analysis/)，然后检查分析过程与证据。
   </Card>
 </CardGrid>

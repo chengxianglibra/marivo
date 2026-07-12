@@ -1,30 +1,101 @@
 ---
 title: Quick Start
-description: Create a Marivo project, load a semantic catalog, and run the first metric-centered analysis.
+description: Ask an agent to draft a first semantic layer, review the business contract, then continue to analysis.
 ---
 
-Scaffold the project with `marivo init` (see [Installation](/en/latest/installation/#initialize-a-project)),
-then author your declarations. A minimal Marivo project has a manifest, datasource
-declarations, and semantic declarations:
+## Before you ask the agent
 
-> Agents: consult `md.help("authoring")` then `ms.help("authoring")` for the
-> staged authoring workflow, and `md.help("ai_context")` for the shared
-> `ms.ai_context(...)` contract, before authoring.
+Create or initialize a project with `marivo init` (see
+[Installation](/en/latest/installation/#initialize-the-project)). A minimal
+project has a manifest plus datasource and semantic declaration directories:
 
 ```text
 your-project/
   marivo.toml
   models/
     datasources/
-      warehouse.py
     semantic/
-      sales/
-        _domain.py
 ```
 
-Declare a datasource:
+Ask an agent that can work in this project to use the packaged
+`marivo-semantic` skill. The agent follows an evidence-bounded authoring route;
+you remain responsible for approving the business meaning it encodes.
+
+## What you need to decide
+
+Before a metric is used, you must confirm its business contract. For completed-order
+revenue, that includes:
+
+- what revenue means and does not mean;
+- which rows are in the population and which filters select them;
+- how cancellations, refunds, test orders, and other exclusions are treated;
+- which time axis and timezone apply;
+- the currency or other unit, additivity, and valid breakdowns;
+- known limitations and the accountable owner.
+
+Column names and sampled values can support a question, but they cannot approve any
+of these decisions for you. It is fine to start with unknowns: the agent should ask
+one evidence-grounded business question when a required decision is missing.
+
+## What to ask the agent to do
+
+Use a request that names the business goal, constrains evidence collection, and sets
+a review stop:
+
+```text
+Use the marivo-semantic skill to model the orders table in the sales domain.
+
+The business goal is completed-order revenue analysis. Start by inspecting the
+source and choose an explicitly bounded sample. Draft one semantic object at a
+time. Do not infer the revenue population, refund treatment, currency, time
+axis, additivity, or allowed breakdowns from column names or sampled values.
+Ask me one evidence-grounded business question whenever a required decision is
+missing. After each object, verify it, preview it with the same snapshot, and
+show readiness. Stop before analysis so I can review the proposed metric and
+guardrails.
+```
+
+## How the agent builds one object at a time
+
+The `marivo-semantic` route is:
+
+```text
+help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
+```
+
+The agent first reads `md.help("authoring")` and `ms.help("authoring")`, browses
+existing typed catalog objects, and uses `md.inspect(...)` to learn the source's
+physical extent, partitions, schema, and execution capabilities. It then chooses
+`md.partition(...)` or explicitly acknowledges a broad read with `md.unpruned(...)`;
+both have positive row and timeout guards.
+
+One call to `inspection.sample(...)` creates the snapshot for the active authoring
+batch. Query-free snapshot projections provide entity, dimension, value, time, and
+measure evidence. The agent settles only what help, project facts, source provenance,
+prior decisions, and that evidence support. If a semantic choice is still missing,
+it asks exactly one grounded question and stops. It writes one explicit Python object,
+reloads its typed `CatalogObject`, then verifies, previews, and checks readiness before
+moving to the next object.
+
+## What the agent writes to the project
+
+After you answer the required business questions, the agent writes explicit Python
+declarations under `models/`. For this illustrative example only, suppose the user has
+reviewed and approved every modeling choice below. This does not describe approval by
+a real business owner, and Mina Zhang is a fictional owner placeholder:
+
+- `order_id` is a unique, non-null primary key, so `orders` has one row per completed
+  order;
+- cancelled orders are excluded, refunded orders remain, and `amount` is their CNY
+  value net of refunds;
+- missing `region` values are not a valid region;
+- `order_date` at day granularity is the default reporting axis;
+- `amount` is additive across the approved time axis and breakdown; and
+- `region` is the only approved breakdown for this example; no other breakdown is
+  implied.
 
 ```python
+# models/datasources/warehouse.py
 import marivo.datasource as md
 import marivo.semantic as ms
 
@@ -32,15 +103,14 @@ md.duckdb(
     name="warehouse",
     path="warehouse.duckdb",
     ai_context=ms.ai_context(
-        business_definition="Local DuckDB warehouse for sales analysis.",
+        business_definition="Local DuckDB warehouse for approved sales analysis.",
         guardrails=["Use only for development or approved local analysis."],
     ),
 )
 ```
 
-Declare semantic objects:
-
 ```python
+# models/semantic/sales/_domain.py
 import marivo.datasource as md
 import marivo.semantic as ms
 
@@ -48,8 +118,8 @@ ms.domain(
     name="sales",
     owner="Mina Zhang",
     ai_context=ms.ai_context(
-        business_definition="Sales order analysis domain.",
-        guardrails=["Revenue metrics should only use completed orders."],
+        business_definition="Completed-order sales analysis domain.",
+        guardrails=["Use only the user-approved completed-order population."],
     ),
 )
 
@@ -59,22 +129,20 @@ orders = ms.entity(
     source=md.table("orders"),
     primary_key=["order_id"],
     ai_context=ms.ai_context(
-        business_definition="One row per sales order.",
-        guardrails=["Exclude cancelled test data in metric definitions."],
+        business_definition="One row per completed sales order.",
+        guardrails=["Cancelled orders are excluded; refunds remain reflected in amount."],
     ),
 )
-
 
 region = ms.dimension_column(
     name="region",
     entity=orders,
     column="region",
     ai_context=ms.ai_context(
-        business_definition="Sales region assigned to the order.",
+        business_definition="Sales region assigned to the completed order.",
         guardrails=["Do not treat missing region as a real region."],
     ),
 )
-
 
 order_date = ms.time_dimension_column(
     name="order_date",
@@ -83,11 +151,10 @@ order_date = ms.time_dimension_column(
     granularity="day",
     is_default=True,
     ai_context=ms.ai_context(
-        business_definition="Calendar date when the order was placed.",
-        guardrails=["Use this as the default time axis for order metrics."],
+        business_definition="Approved reporting date for completed-order revenue.",
+        guardrails=["Use this as the default time axis for this revenue metric."],
     ),
 )
-
 
 amount = ms.measure_column(
     name="amount",
@@ -96,208 +163,70 @@ amount = ms.measure_column(
     additivity="additive",
     unit="CNY",
     ai_context=ms.ai_context(
-        business_definition="Completed order amount at row level.",
-        guardrails=["Use only where order amount is already net of cancellations."],
+        business_definition="Completed-order amount in CNY, net of cancellations and refunds.",
+        guardrails=["Do not use for gross bookings or pre-refund revenue."],
     ),
 )
-
 
 revenue = ms.aggregate(
     name="revenue",
     measure=amount,
     agg="sum",
     ai_context=ms.ai_context(
-        business_definition="Total completed order amount.",
-        guardrails=["Use only where order amount is already net of cancellations."],
+        business_definition="Total completed-order revenue in CNY.",
+        guardrails=["For this example, break down only by sales region."],
     ),
 )
 ```
 
-You don't have to write these by hand. `marivo init` installed the
-**`marivo-semantic` skill** into `.agents/skills/`, `.claude/skills/`, and
-`.codex/skills/`, so a coding agent running in the project can build the semantic
-layer with you. Point it at your tables and ask:
-
-> Use the marivo-semantic skill to model the `orders` table in the `sales` domain.
-
-The skill walks the agent through a disciplined authoring loop, one object at a time:
-
-- **Follow the ladder** — domain → entity → dimension → time dimension → measure →
-  metric → relationship — so each object's dependencies exist before it.
-- **Inspect, sample once, then project.** The agent runs `md.inspect(...)`, chooses
-  `md.partition(...)` or explicit `md.unpruned(...)`, calls
-  `inspection.sample(...)` with selected columns once, and reuses local
-  `snapshot.entity`, `snapshot.dimensions`, and `snapshot.measures` evidence.
-- **Verify and preview before advancing.** After writing one Python object it reloads
-  the typed catalog object, runs `catalog.verify_object(obj)`, then
-  `catalog.preview(obj, using=snapshot)`.
-- **Gate at closeout.** It finishes with zero-query `catalog.readiness(refs=[obj])`
-  and resolves blockers before handing the object to analysis.
-
-The agent only asks you the decisions it cannot infer from the data or project docs
-(for example, whether an amount is already net of refunds). Everything it produces is
-the same Python declarations shown above — reviewable in git like any other code.
-
-For datasource-backed authoring, acquire one explicitly scoped snapshot and
-reuse its query-free projections before authoring one object:
+The agent also runs the evidence handoff against the same bounded snapshot. This is
+review evidence, not another source of business approval:
 
 ```python
 import marivo.datasource as md
 import marivo.semantic as ms
 
 warehouse = md.ref("datasource.warehouse")
-orders_source = md.table("orders")
-
-inspection = md.inspect(warehouse, orders_source)
-inspection.show()
-inspection.partitions().show()
-scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
+inspection = md.inspect(warehouse, md.table("orders"))
 snapshot = inspection.sample(
-    scope=scope,
-    columns=("order_id", "region", "created_at", "amount"),
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+    columns=("order_id", "region", "order_date", "amount"),
 )
-snapshot.entity(columns=("order_id",)).show()
-snapshot.dimensions(columns=("region",)).show()
-snapshot.measures(columns=("amount",)).show()
-ms.help("entity")
-```
-
-Inspection exposes physical extent, partition state, schema, and execution
-capabilities before the read. `LIMIT` bounds returned rows, not bytes scanned;
-use `md.unpruned(max_rows=..., timeout_seconds=...)` only for an intentional broad
-read. Values are memory-only unless `persist_values=True`, which writes bounded
-value evidence to plaintext project-local cache.
-
-Uncommon formats and semantic judgments remain agent-owned. Use snapshot evidence
-and `ms.help("entity")` to author exactly one object, then load its typed catalog
-object, verify statically, preview with `using=snapshot`, and run readiness.
-
-Load the catalog and check readiness:
-
-```python
-import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.domains.show()
 sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
 revenue = orders.metrics.get("revenue")
-region = orders.dimensions.get("region")
 
-report = catalog.readiness(refs=[revenue, region])
-if report.status == "blocked":
-    report.show()
+catalog.verify_object(revenue).show()
+catalog.preview(revenue, using=snapshot).show()
+report = catalog.readiness(refs=[revenue])
+report.show()
 ```
 
-Run an analysis session after the catalog is ready:
+## What to review before continuing
 
-```python
-import marivo.analysis as mv
+Review the proposed declarations together with the verification, preview, and readiness
+output. Confirm that:
 
-session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
-catalog = session.catalog
-catalog.domains.show()
-sales = catalog.domains.get("sales")
-orders = sales.entities.get("orders")
-revenue = orders.metrics.get("revenue")
-region = orders.dimensions.get("region")
+- the definition and non-definition match the intended decision;
+- the row population, filters, exclusions, cancellations, and refunds are explicit;
+- the time axis, timezone, unit, and additivity are correct;
+- every allowed breakdown is valid and unsupported breakdowns are constrained;
+- limitations and guardrails are visible, and the named owner accepts them;
+- the preview used the same explicitly bounded snapshot; and
+- scoped readiness has no blockers for the metric's dependency closure.
 
-current = session.observe(
-    revenue,
-    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
-    grain="month",
-    dimensions=[region],
-)
-baseline = session.observe(
-    revenue,
-    time_scope={"start": "2025-10-01", "end": "2026-01-01"},
-    grain="month",
-    dimensions=[region],
-)
-delta = session.compare(current, baseline)
-attribution = session.attribute(delta, axes=[region])
-attribution.show()
+A ready report is a technical handoff result. It does not mean a business owner has
+approved the metric definition, filters, exclusions, units, or intended use.
 
-delta.contract().affordances      # mechanical compatibility, not recommendations
-delta.quality_summary             # cheap metadata projection
-quality = session.assess_quality(delta)
-quality.show()
-```
+## Continue to analysis
 
-When several same-scope metrics share one window, pass them as a sequence to
-`session.observe(...)`. Marivo fuses same-datasource metrics into one query
-and outer-joins cross-datasource metrics on the time axis. Use
-`frame.metric(id)` to project an arity-1 frame for drill-down on a single
-metric without re-querying the backend.
+After the business owner approves the contract and scoped readiness is not blocked,
+hand the ready metric to the `marivo-analysis` skill. See
+[Analysis Workflow](/en/latest/concepts/analysis-workflow/) for the session and
+observation route.
 
-```python
-report = session.observe(
-    [
-        catalog.get("metric.sales.revenue"),
-        catalog.get("metric.sales.total_orders"),
-        catalog.get("metric.sales.failed_orders"),
-    ],
-    time_scope={"start": "2026-10-01", "end": "2027-01-01"},
-    grain="month",
-)
-report.show()                                  # bucket_start + three value columns
-revenue = report.metric("sales.revenue")      # arity-1 frame for drill-down
-```
-
-For custom Ibis work that must re-enter Marivo's typed metric flow, use
-`session.derive_metric_frame(...)`. Semantic refs identify metric and axis
-bindings, while query output columns are plain strings. Across follow-up
-scripts, recover previous artifacts with `session.frame_summaries()` and
-`session.get_frame(ref)` instead of re-running upstream queries. Use
-`artifact.contract().affordances` for mechanical compatibility facts.
-
-## Best practices
-
-The same project structure scales from a one-off script to a reviewed, shared
-analysis project. Three habits make the difference.
-
-### Build the semantic layer as a shared knowledge base
-
-The semantic layer is not just plumbing to reach tables — it is the knowledge base
-an agent reads *before* it analyzes. Invest in `ms.ai_context(...)` on every object:
-
-- `business_definition` — what the metric or dimension means, in business terms.
-- `guardrails` — rules an agent must respect: required filters, exclusions, scope
-  limits.
-- `synonyms` and `examples` — so an agent resolves a natural-language question to
-  the right object instead of guessing.
-
-A well-enriched object answers an agent's "can I use this, and how?" without a human
-in the loop. Readiness enforces the floor: a missing `business_definition` blocks
-analysis, and missing `guardrails` raises a warning. See the
-[Semantic Layer](/en/latest/concepts/semantic-layer/) for the full `ms.ai_context(...)`
-contract.
-
-### Manage the project with git
-
-A Marivo project is plain text: `marivo.toml` plus the Python files under `models/`.
-That makes the semantic layer a reviewable, shareable artifact — treat it like
-application code.
-
-- **Version the contract.** Commit `marivo.toml` and `models/`. Every change to a
-  metric definition or guardrail shows up as a diff.
-- **Review semantic changes like code.** Land definition changes through pull
-  requests so a domain owner approves what a metric *means* before agents use it.
-- **Share through the repo.** Anyone who clones the project — and any agent that runs
-  in it — gets the same trusted catalog.
-- **Keep state and secrets out of git.** Add `.marivo/` to `.gitignore`: it holds
-  project-local session and evidence state, not the contract. Credentials are
-  authored as `*_env` references and resolved from the environment (or cached in
-  user-global `~/.marivo/secrets.toml`) — they are never written into the project.
-
-A typical `.gitignore`:
-
-```text
-.marivo/
-```
-
-### Gate before handoff
-
-Load typed catalog objects and run `catalog.readiness(refs=[...])` before any
-analysis session. A project can load while readiness is still blocked, so never
-hand blocked objects to an agent. See [Readiness](/en/latest/concepts/readiness/).
+For deeper reference material, read [Semantic Layer](/en/latest/concepts/semantic-layer/),
+[Readiness](/en/latest/concepts/readiness/), and
+[Project Configuration](/en/latest/reference/project-configuration/).

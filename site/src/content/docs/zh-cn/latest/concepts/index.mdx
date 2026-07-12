@@ -1,11 +1,16 @@
 ---
 title: 核心概念
-description: Marivo 语义建模和分析流程中的核心词汇。
+description: Marivo 语义建模和分析流程中的核心概念。
 ---
 
-Marivo 将人类定义的数据语义，与 agent 执行的分析流程分开。
+主要使用路径位于侧边栏的**开始使用**和**与智能体协作**中：先从
+[开始使用](/zh-cn/latest/)进入，然后阅读[让智能体完成第一次分析](/zh-cn/latest/first-analysis/)
+和[梳理业务问题](/zh-cn/latest/guides/business-question/)。需要检查这条路径背后的集成契约时，
+再把本节作为参考地图使用；它不是通常的首次使用入口。
 
-- [语义层](/zh-cn/latest/concepts/semantic-layer/) 解释 datasources、domains、entities、dimensions、metrics 和 semantic refs。
-- [分析流程](/zh-cn/latest/concepts/analysis-workflow/) 解释 sessions、operators 和 typed frames。
-- [就绪检查](/zh-cn/latest/concepts/readiness/) 解释为什么未完成的 semantic objects 会在分析前被阻止。
-- [证据链](/zh-cn/latest/concepts/evidence/) 解释 operator outputs 如何通过 findings、propositions 和 assessments 被追踪。
+- [语义层](/zh-cn/latest/concepts/semantic-layer/)：语义对象与编写契约。
+- [分析流程](/zh-cn/latest/concepts/analysis-workflow/)：分析操作、类型化 frame、artifact 和恢复行为。
+- [就绪检查](/zh-cn/latest/concepts/readiness/)：就绪报告字段，以及进入分析前的技术交接。
+- [证据链](/zh-cn/latest/concepts/evidence/)：findings、propositions、assessments、knowledge 快照和
+  审计 trace。
+- [Python API 参考](/api/)：实现工作所需的准确 public modules、classes、functions 和 signatures。

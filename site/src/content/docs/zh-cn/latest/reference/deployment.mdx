@@ -1,0 +1,22 @@
+---
+title: 部署
+description: 在代理可访问语义层和 datasource 凭据的环境中运行 Marivo 项目。
+---
+
+## 在代理运行的位置部署 Marivo
+
+Marivo 是 Python 库，不是托管服务。请在代理运行的环境中安装它，并将项目的 datasource 和
+语义声明纳入版本控制。datasource 凭据应通过 `*_env` 字段引用的环境变量提供，不要把凭据
+提交到项目中。
+
+如需从本仓库开发，请创建环境，以可编辑模式安装带有所需扩展的包，然后验证导入：
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev,duckdb,trino]"
+.venv/bin/python -c "import marivo; print(marivo.__name__)"
+```
+
+对于使用已发布版本的项目，请按[安装](/zh-cn/latest/installation/)说明安装所需的后端扩展，
+然后在项目目录中运行 `marivo init`。将已提交的语义层保留在代理可访问的位置，以便每次运行
+都解析同一组声明。

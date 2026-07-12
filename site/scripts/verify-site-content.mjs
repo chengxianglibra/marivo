@@ -16,6 +16,13 @@ const commonDocs = [
   'concepts/evidence.mdx',
   'contributing.mdx',
 ];
+const latestOnlyDocs = [
+  'first-analysis.mdx',
+  'guides/business-question.mdx',
+  'reference/project-configuration.mdx',
+  'reference/telemetry.mdx',
+  'reference/deployment.mdx',
+];
 const docsByVersion = {
   latest: [
     ...commonDocs,
@@ -78,7 +85,8 @@ const requiredFiles = [
 
 for (const locale of locales) {
   for (const [version, docs] of Object.entries(docsByVersion)) {
-    for (const doc of docs) {
+    const versionDocs = version === 'latest' ? [...docs, ...latestOnlyDocs] : docs;
+    for (const doc of versionDocs) {
       requiredFiles.push(`src/content/docs/${locale}/${version}/${doc}`);
     }
   }

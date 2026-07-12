@@ -106,8 +106,10 @@ help/browse -> inspect -> explicit scope -> sample once -> project evidence -> s
 ```
 
 It must not duplicate parameter tables from either help surface. There is no
-public prepare stage or automatic authoring planner. Uncommon formats and all
-semantic judgments remain agent-owned.
+public prepare stage or automatic authoring planner. The agent owns evidence-based
+drafting and technical handling, including uncommon physical formats. The user or
+business owner owns unresolved business-semantic decisions and approves metric
+meaning before analysis handoff.
 
 ## Analysis Guidance Layering
 

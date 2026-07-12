@@ -1,0 +1,32 @@
+---
+title: Project configuration
+description: Configure a Marivo project and share a semantic layer across repositories.
+---
+
+## Keep the project contract in version control
+
+Use `marivo.toml` to load semantic-layer packages that are maintained in other
+repositories. Add each authored `models/` directory to `[semantic].layer_paths`:
+
+```toml
+[semantic]
+layer_paths = [
+  "../sales-domain/models",
+  "/opt/company/finance-domain/models",
+]
+```
+
+Marivo always loads the current project's `models/` directory first. It then
+loads `layer_paths` in the listed order. Relative paths are resolved from the
+directory containing `marivo.toml`; absolute paths are used as-is. Every external
+semantic-layer root must contain both `datasources/` and `semantic/`.
+
+Names must stay unique across every configured root: datasource names, domain
+names, and semantic IDs cannot be duplicated. A duplicate stops the semantic
+layer from loading. `marivo doctor`, semantic previews, verification, and
+analysis sessions all resolve semantic objects and layer datasources through
+these configured roots.
+
+Commit `marivo.toml` and `models/` so the project contract and its declarations
+travel together. Add `.marivo/` to `.gitignore`; it contains local sessions,
+evidence, and cached metadata rather than shared declarations.
