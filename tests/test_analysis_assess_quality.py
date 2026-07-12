@@ -78,6 +78,93 @@ def test_metric_time_series_gap_warning_and_blocking(tmp_path):
     assert blocking_report.meta.overall_status == "blocking"
 
 
+@pytest.mark.parametrize(
+    ("grain", "start", "end", "freq", "expected_buckets"),
+    [
+        ("hour", "2026-06-30T00:00:00", "2026-06-30T03:00:00", "h", 3),
+        ("day", "2026-06-30", "2026-07-03", "D", 3),
+        ("week", "2026-06-29", "2026-07-20", "W-MON", 3),
+        ("month", "2026-04-01", "2026-07-01", "MS", 3),
+        ("quarter", "2026-01-01", "2026-10-01", "QS", 3),
+    ],
+)
+def test_metric_time_coverage_preserves_supported_grain_buckets(
+    tmp_path, grain, start, end, freq, expected_buckets
+):
+    session = session_attach.get_or_create(name="demo")
+    rows = [
+        {"time": timestamp, "value": 1.0}
+        for timestamp in pd.date_range(start, end, freq=freq, inclusive="left")
+    ]
+    frame = _metric(
+        session,
+        rows,
+        axes={"time": {"field": "time", "grain": grain}},
+        window={"start": start, "end": end, "grain": grain, "time_dimension": "time"},
+    )
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+
+    assert details["expected_buckets"] == expected_buckets
+    assert details["observed_buckets"] == expected_buckets
+    assert details["coverage_ratio"] == 1.0
+
+
+def test_hourly_time_coverage_blocker_persists_to_source_frame(tmp_path):
+    session = session_attach.get_or_create(name="demo")
+    start = "2026-06-30T00:00:00"
+    end = "2026-07-01T00:00:00"
+    frame = _metric(
+        session,
+        [
+            {"time": timestamp, "value": 1.0}
+            for timestamp in pd.date_range(start, periods=12, freq="h")
+        ],
+        axes={"time": {"field": "time", "grain": "hour"}},
+        window={"start": start, "end": end, "grain": "hour", "time_dimension": "time"},
+    )
+
+    report = session.assess_quality(frame)
+    coverage = report.to_pandas().set_index("check_kind").loc["time_coverage"]
+    details = json.loads(coverage["details_json"])
+    loaded_source = load_frame(frame.ref, session=session)
+    report_issue = next(
+        issue for issue in report.meta.blocking_issues if issue.kind == "time_coverage"
+    )
+    source_issue = next(
+        issue for issue in frame.meta.blocking_issues if issue.kind == "time_coverage"
+    )
+    loaded_issue = next(
+        issue for issue in loaded_source.meta.blocking_issues if issue.kind == "time_coverage"
+    )
+
+    assert details["expected_buckets"] == 24
+    assert details["observed_buckets"] == 12
+    assert details["coverage_ratio"] == 0.5
+    assert details["missing_examples"] == [
+        "2026-06-30T12:00:00",
+        "2026-06-30T13:00:00",
+        "2026-06-30T14:00:00",
+        "2026-06-30T15:00:00",
+        "2026-06-30T16:00:00",
+    ]
+    assert report.meta.overall_status == "blocking"
+    assert frame.quality_summary is not None
+    assert frame.quality_summary.coverage == pytest.approx(0.5)
+    assert report_issue.payload == source_issue.payload == loaded_issue.payload
+    assert report_issue.payload == {
+        "check_id": "time_coverage",
+        "check_kind": "time_coverage",
+        "coverage_ratio": 0.5,
+        "expected_buckets": 24,
+        "missing_examples": details["missing_examples"],
+        "observed_buckets": 12,
+        "origin": "assess_quality",
+    }
+
+
 def test_metric_segmented_duplicate_keys_blocking(tmp_path):
     session = session_attach.get_or_create(name="demo")
     frame = _metric(

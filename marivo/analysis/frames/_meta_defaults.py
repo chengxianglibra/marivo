@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -10,7 +10,14 @@ from marivo.analysis.evidence.types import QualitySummary
 from marivo.analysis.followups import ConfidenceScope
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 
-GRAIN_FREQ = {"day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
+GRAIN_FREQ = {"hour": "h", "day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
+
+
+def normalize_coverage_buckets(timestamps: pd.Series, *, grain: str) -> pd.Series:
+    """Normalize observed timestamps to the represented coverage bucket."""
+    if grain == "hour":
+        return cast("pd.Series", timestamps.dt.floor("h"))
+    return cast("pd.Series", timestamps.dt.normalize())
 
 
 def _coverage_summary_val(meta: BaseFrameMeta, key: str) -> float | int | None:
@@ -69,10 +76,14 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
                         inclusive="left",
                     )
                     if time_col in frame._df.columns and len(frame._df) > 0:
-                        observed_ts = pd.to_datetime(frame._df[time_col]).dropna().dt.normalize()
+                        observed_ts = normalize_coverage_buckets(
+                            pd.to_datetime(frame._df[time_col]).dropna(), grain=grain
+                        )
                         observed_set = set(observed_ts.unique())
                         missing = sum(
-                            1 for ts in expected if pd.Timestamp(ts).normalize() not in observed_set
+                            1
+                            for ts in normalize_coverage_buckets(pd.Series(expected), grain=grain)
+                            if pd.Timestamp(ts) not in observed_set
                         )
                         coverage = 1.0 - (missing / len(expected)) if len(expected) > 0 else None
                     else:
