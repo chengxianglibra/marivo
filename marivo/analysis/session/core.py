@@ -671,6 +671,7 @@ class Session:
         frame: DeltaFrame,
         *,
         axes: list[DimensionInput],
+        mode: Literal["joint", "hierarchy"] | None = None,
         analysis_purpose: str | None = None,
     ) -> AttributionFrame:
         """Attribute a DeltaFrame's movement over explicit deterministic axes.
@@ -680,6 +681,10 @@ class Session:
         requested axis is missing from the input DeltaFrame, Marivo attempts to
         replay the source observe/compare lineage with the extra axis and fails
         closed when replay is not recoverable.
+        For multiple axes, choose ``mode="joint"`` for one row per complete
+        axis combination, or ``mode="hierarchy"`` for prefix-level drill-down
+        rows. Joint rows are additive; hierarchy rows repeat parent totals, so
+        only the deepest level is additive.
         Component-aware ratio and weighted-average deltas use mix attribution.
         Plain non-linear sampled folds such as percentile, min, max, first, or
         last cannot be summed by axis and remain unsupported unless they are
@@ -688,10 +693,13 @@ class Session:
         Args:
             frame: A DeltaFrame produced by ``session.compare``.
             axes: One or more catalog dimension refs/objects to attribute over.
+            mode: Required for multiple axes. ``"joint"`` returns one row per
+                axis combination; ``"hierarchy"`` returns ordered prefix rows.
+                Omit for a single axis.
 
         Raises:
             SemanticKindMismatchError: ``frame`` is not a DeltaFrame, axes are
-                missing, or axes contain duplicates.
+                missing, contain duplicates, or use an invalid multi-axis mode.
             AttributionMaterializationError: A requested axis is missing from
                 the DeltaFrame and replay is not recoverable.
             CrossSessionFrameError: A frame belongs to a different session.
@@ -699,9 +707,11 @@ class Session:
         Example:
             >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
             >>> country = session.catalog.get("dimension.sales.orders.country").ref
+            >>> channel = session.catalog.get("dimension.sales.orders.channel").ref
             >>> attribution = session.attribute(
             ...     delta,
-            ...     axes=[country],
+            ...     axes=[country, channel],
+            ...     mode="joint",
             ...     analysis_purpose="按国家归因收入变化",
             ... )
         """
@@ -711,6 +721,8 @@ class Session:
         attrs: dict[str, str | int | float | bool] = {"marivo.analysis.axis_count": len(axes)}
         if isinstance(semantic_kind, str):
             attrs["marivo.analysis.semantic_kind"] = semantic_kind
+        if mode is not None:
+            attrs["marivo.analysis.attribution_mode"] = mode
         with _track_session_operation(
             self,
             "marivo.analysis.attribute",
@@ -718,7 +730,13 @@ class Session:
             intent="attribute",
             attributes=attrs,
         ):
-            return attribute(frame, axes=axes, analysis_purpose=analysis_purpose, session=self)
+            return attribute(
+                frame,
+                axes=axes,
+                mode=mode,
+                analysis_purpose=analysis_purpose,
+                session=self,
+            )
 
     def correlate(
         self,

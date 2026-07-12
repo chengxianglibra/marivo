@@ -10,6 +10,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
+from marivo.analysis.intents._attribution_mode import AttributionMode, validate_attribution_mode
 from marivo.analysis.intents._derived import (
     ensure_frame_in_session,
     resolve_session,
@@ -93,6 +94,7 @@ def attribute(
     frame: DeltaFrame,
     *,
     axes: list[DimensionInput],
+    mode: AttributionMode | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> AttributionFrame:
@@ -110,11 +112,13 @@ def attribute(
         )
     ensure_frame_in_session(frame, session=resolved_session, label="attribute frame")
     axis_ids = _normalize_attribute_axes(resolved_session, axes)
+    validated_mode = validate_attribution_mode(axis_ids, mode, intent="attribute")
     missing_axes = _missing_axis_ids(frame, axis_ids)
     if not missing_axes:
         return decompose(
             frame,
             axes=axes,
+            mode=validated_mode,
             session=resolved_session,
             _intent="attribute",
             _analysis_purpose=analysis_purpose,
@@ -157,6 +161,7 @@ def attribute(
     return decompose(
         expanded_delta,
         axes=axes,
+        mode=validated_mode,
         session=resolved_session,
         _intent="attribute",
         _analysis_purpose=analysis_purpose,

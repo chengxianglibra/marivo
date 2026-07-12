@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import ConfigDict, Field
 
 from marivo.analysis.frames.base import (
+    ArtifactParamTemplate,
     ArtifactPrecondition,
     BaseFrame,
     BaseFrameMeta,
@@ -115,6 +116,23 @@ class DeltaFrame(BaseFrame):
 
     def contract(self) -> ArtifactContract:
         contract = super().contract()
+        affordances = []
+        for affordance in contract.affordances:
+            if affordance.operator == "attribute":
+                affordance = affordance.model_copy(
+                    update={
+                        "param_template": ArtifactParamTemplate(
+                            deterministic_slots=affordance.param_template.deterministic_slots,
+                            judgment_slots=[
+                                *affordance.param_template.judgment_slots,
+                                "axes",
+                                "mode when axes has multiple entries: joint|hierarchy",
+                            ],
+                        )
+                    }
+                )
+            affordances.append(affordance)
+        contract = contract.model_copy(update={"affordances": affordances})
         to_date = self._to_date_tail()
         if to_date is None:
             return contract

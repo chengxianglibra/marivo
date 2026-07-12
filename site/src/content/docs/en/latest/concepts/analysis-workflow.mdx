@@ -286,12 +286,17 @@ metric delta.
 | --- | --- | --- | --- | --- |
 | `frame` | `DeltaFrame` | Yes | — | The delta to attribute. |
 | `axes` | `list[dimension]` | Yes | — | Segment or time axes to attribute over. |
-| `mode` | `"flat" \| "nested" \| "recursive"` | No | `"flat"` | Hierarchy expansion mode; output remains an `AttributionFrame`. |
+| `mode` | `"joint" \| "hierarchy"` | Multi-axis only | — | `joint` returns one row per full axis combination; `hierarchy` returns ordered prefix rows. |
 
 ```python
-attribution = session.attribute(delta, axes=[region], mode="flat")
+attribution = session.attribute(delta, axes=[region, platform], mode="joint")
 attribution.show()
 ```
+
+For `joint`, contribution rows are additive and sum to the overall change. For
+`hierarchy`, parent rows repeat their descendants' total; sum only the deepest
+level when reconciling the change. Component-aware ratio and weighted-average
+attribution preserves `value_effect`, `mix_effect`, and `residual` in both modes.
 
 ### `correlate` → `AssociationResult`
 
