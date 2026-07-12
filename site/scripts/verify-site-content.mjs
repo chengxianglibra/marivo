@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,6 +26,7 @@ const latestOnlyDocs = [
 const docsByVersion = {
   latest: [
     ...commonDocs,
+    'release-notes/0.3.1.mdx',
     'release-notes/0.3.0.mdx',
     'release-notes/0.2.8.mdx',
     'release-notes/0.2.7.mdx',
@@ -40,6 +41,7 @@ const docsByVersion = {
   ],
   'v0.3': [
     ...commonDocs,
+    'release-notes/0.3.1.mdx',
     'release-notes/0.3.0.mdx',
     'release-notes/0.2.8.mdx',
     'release-notes/0.2.7.mdx',
@@ -98,6 +100,35 @@ if (missing.length > 0) {
   console.error('Missing required site files:');
   for (const file of missing) {
     console.error(`- ${file}`);
+  }
+  process.exit(1);
+}
+
+const sidebarConfig = readFileSync(join(siteRoot, 'astro.config.mjs'), 'utf8');
+const sidebarMismatches = [];
+
+for (const [version, docs] of Object.entries(docsByVersion)) {
+  const match = sidebarConfig.match(
+    new RegExp(`docsItems\\('${version}', \\[([^\\]]*)\\]`),
+  );
+  const configuredReleaseNotes = match
+    ? [...match[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1])
+    : [];
+  const expectedReleaseNotes = docs
+    .filter((doc) => doc.startsWith('release-notes/'))
+    .map((doc) => doc.slice('release-notes/'.length, -'.mdx'.length));
+
+  if (configuredReleaseNotes.join(',') !== expectedReleaseNotes.join(',')) {
+    sidebarMismatches.push(
+      `${version}: expected ${expectedReleaseNotes.join(', ') || '(none)'}, found ${configuredReleaseNotes.join(', ') || '(none)'}`,
+    );
+  }
+}
+
+if (sidebarMismatches.length > 0) {
+  console.error('Release-note sidebar entries are out of sync:');
+  for (const mismatch of sidebarMismatches) {
+    console.error(`- ${mismatch}`);
   }
   process.exit(1);
 }
