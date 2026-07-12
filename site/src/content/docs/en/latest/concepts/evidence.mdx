@@ -3,6 +3,87 @@ title: Evidence
 description: Findings, propositions, and assessments that make analytical conclusions auditable.
 ---
 
+The review loop for accepting a conclusion starts with the business claim, then
+works backward through its assumptions, artifacts, and evidence records. A
+traceable number is necessary, but it is not enough if the metric contract,
+scope, comparison, or breakdown is wrong for the decision.
+
+## Review the conclusion, not only the final number
+
+Ask the agent to state the conclusion first, with its scope and comparison
+basis, before presenting supporting detail. You remain responsible for deciding
+whether the conclusion answers the reviewed business question and whether its
+assumptions are acceptable.
+
+Evidence shows how Marivo reached a result. It does not approve the business
+meaning of the metric or decide that a conclusion is suitable for your use.
+
+## What you need to decide
+
+Before accepting the conclusion, decide whether:
+
+- the metric definition represents the intended business outcome;
+- the population, exclusions, window, and grain match the decision;
+- the comparison basis makes the reported change meaningful;
+- the breakdowns are valid, useful, and consistent with authored guardrails;
+- quality or blocking issues leave enough support for the claim; and
+- the stated caveats make the remaining uncertainty acceptable.
+
+## Copyable agent request
+
+```text
+Use the marivo-analysis skill to answer this question. Start with the conclusion, then show the exact metric contract, analysis scope and window, comparison baseline, every material breakdown, the source artifacts, evidence status, blocking issues, caveats, and the session evidence trace that supports each material claim. If you find a semantic gap, stop and route it to marivo-semantic without rewriting the contract or substituting another metric.
+```
+
+## What to ask the agent to show
+
+Require an answer-first recap that shows:
+
+- the exact metric definition and authored guardrails used;
+- the current and baseline scope, windows, grain, and comparison basis;
+- each material breakdown and why it was selected;
+- the source artifacts, including the relevant `artifact.show()` output;
+- `artifact.meta.evidence_status`, `artifact.meta.blocking_issues`,
+  `artifact.meta.confidence_scope`, and `artifact.meta.quality_summary` when
+  evidence is partial, unavailable, or quality-limited;
+- the relevant `session.knowledge()` synthesis and `session.evidence` trace for
+  claims that need full audit; and
+- assumptions, exclusions, caveats, unresolved questions, and rejected branches.
+
+## What to review before accepting a conclusion
+
+Check the evidence in this order:
+
+1. **Metric contract:** business definition, unit, aggregation behavior, and
+   guardrails match what you meant.
+2. **Scope and window:** included population, exclusions, current period, grain,
+   and time boundaries are correct.
+3. **Comparison basis:** the baseline and alignment make the difference
+   interpretable.
+4. **Breakdowns:** dimensions and selected segments are valid and do not turn a
+   partial pattern into a general claim.
+5. **Quality and blockers:** incomplete evidence, data-quality limits, or blocked
+   follow-ups are reflected in the conclusion's confidence and wording.
+6. **Sources and caveats:** every material claim points to source artifacts and
+   audit records, with assumptions and remaining uncertainty made explicit.
+
+Reject or narrow the conclusion when any of these checks fails. Ask for another
+analysis branch only when it can resolve the specific gap.
+
+## Send the agent back when the contract is wrong
+
+If the metric definition, dimension, relationship, time dimension, unit,
+guardrail, or other semantic contract is wrong or incomplete, stop the
+investigation. Name the gap and send it to `marivo-semantic` for drafting or
+technical validation, then review and approve its business meaning before
+analysis resumes.
+
+`marivo-analysis` must not rewrite semantics, invent a substitute metric, or
+reinterpret a physical column to rescue a conclusion. Re-running operators
+against the wrong contract produces more evidence for the wrong question.
+
+## Evidence model and audit reference
+
 Every analysis operator records evidence into the session. Evidence lets an agent
 explain not only *what* changed, but *how* it reached that conclusion — and lets a
 human reviewer trace any result back to the inputs that produced it.

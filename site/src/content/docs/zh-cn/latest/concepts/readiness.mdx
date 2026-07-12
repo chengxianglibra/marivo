@@ -1,14 +1,33 @@
 ---
 title: 就绪检查
-description: 在 analysis 前阻止未完成 semantic objects 的结构性门禁。
+description: 在分析前阻止未完成语义对象的结构性门禁。
 ---
 
-就绪检查是 authoring 与 analysis 之间的零查询门禁。它读取 dependency closure 的 fresh
-static verification 与 scoped runtime-preview evidence，并返回 `ReadinessReport`。
+## 用户批准什么
 
-新 project 可以成功 `ms.load()`，但 readiness 仍然是 **blocked**。`load` 只负责解析
-declarations；就绪检查负责阻止 agents 基于半成品 semantics 进行推理。把任何 ref 交给分析
-session 之前，都应先解决每一个 blocker。
+业务负责人负责批准指标的定义及不包含范围、纳入统计的记录范围、过滤条件、排除规则、退款与
+取消处理、时间轴、单位、可加性、有效拆分维度、限制条件、负责人和预期用途。这些都是业务决定；
+通过 Marivo 检查不能代替业务负责人作出或批准这些决定。
+
+## 就绪检查证明什么
+
+就绪检查是语义编写与分析之间的零查询技术门禁。它读取完整依赖闭包的最新静态验证结果和与
+当前范围匹配的运行时预览证据，并返回 `ReadinessReport`。
+
+新项目可以成功运行 `ms.load()`，但就绪状态仍然可能是 **blocked**。`load` 只负责解析声明。
+就绪报告通过技术交接检查，不代表业务负责人已经批准指标口径、过滤条件、排除规则、单位或
+预期用途。
+
+## 可复制的智能体请求
+
+```text
+请使用 marivo-semantic skill，基于当前明确限定范围的 snapshot 验证并预览这个指标，然后只对该指标及其依赖闭包运行就绪检查。请展示所有阻塞项和警告，说明验证与预览证据是否最新、是否与当前范围匹配，并展示最终的就绪报告。ready 只代表技术交接证据：它不是业务批准，也不允许你改变指标含义。
+```
+
+## 智能体如何交接
+
+智能体使用编写语义层时取得的同一个明确限定范围的 snapshot，每次修复一个对象，并在把任何
+引用交给分析会话前解决所有阻塞项：
 
 ```python
 import marivo.semantic as ms
@@ -22,6 +41,9 @@ if report.status == "blocked":
     report.show()                        # 有界卡片：每个 blocker 及其下一步
     raise SystemExit("resolve readiness blockers before analysis")
 ```
+
+用户把拟议的业务契约与这份报告放在一起检查。只有业务批准且限定范围的报告没有阻塞项后，
+智能体才会把对象交给 `marivo-analysis`。
 
 ## Scoped runtime evidence 之后的零查询收尾
 

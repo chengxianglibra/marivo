@@ -3,10 +3,83 @@ title: 分析流程
 description: 以 metric 为中心组织 sessions、typed intents 和 frames，使 agent analysis 可重复。
 ---
 
+本页是[让智能体完成第一次分析](/zh-cn/latest/first-analysis/)之后的深入参考。智能体负责操作
+Marivo；你负责决定分析要回答什么，并检查所有会影响结论的选择。
+
+## 从经过确认的业务问题开始
+
+智能体打开 session 前，请先确认决策、问题、已经认可的指标含义、分析范围、比较基线和有用
+的拆分维度。第一次分析的示例要调查第四季度收入下降的原因，按月比较 2026 年第四季度与
+2025 年第四季度，并把地区作为可能的驱动因素。只有这些选择适合你的决策时，才沿用这个
+示例结构。
+
+如果任何字段缺失或仍不确定，请先填写[业务问题工作表](/zh-cn/latest/guides/business-question/)，
+让智能体每次处理一个未决选择。语义目录中的定义和使用约束可以为方案提供依据，但不能代替
+你对业务含义的确认。
+
+## 你需要决定什么
+
+分析开始前，请决定或确认：
+
+- 结论将支持哪项业务决策，以及要回答什么问题；
+- 指标定义及其业务含义；
+- 纳入的群体、排除项、时间窗口和粒度；
+- 哪个比较基线能让结果得到正确解释；
+- 哪些拆分维度对当前问题有用，并且符合已编写的使用约束。
+
+技术就绪不代表这些选择已获业务确认。如果必需的指标、维度、关系、时间维度或定义缺失或
+有误，请暂停调查，把这个明确的契约缺口交给 `marivo-semantic`。`marivo-analysis` 不得为了
+迎合问题而编写或改写语义对象。
+
+## 让智能体做什么
+
+对于第四季度示例，可以这样提问：
+
+> 使用 `marivo-analysis` 技能调查第四季度收入下降的原因。使用业务含义已经由我确认的
+> sales.revenue 指标，按月比较 2026 年第四季度与 2025 年第四季度，并把地区作为可能的
+> 驱动因素进行检查。展示每个会影响结论的 artifact，说明每条分析分支采用的假设；如果
+> 某条分支可能改变结论，先停下来让我检查。不要修改语义层。最后先给出结论，再列出证据、
+> 质量问题或阻塞项、来源详情、注意事项和未解决问题。
+
+智能体应从 `mv.help("workflow")` 开始，首次使用某类算子前查看对应的帮助主题，
+并在一个稳定的 session 中完成整个调查。你不需要自己选择或调用 operator。
+
+## 智能体如何推进分析
+
+通常按下面的协作循环推进：
+
+1. 用 `.details().show()` 读取所选语义目录对象，并只针对这些对象运行限定范围的就绪检查。
+2. 分别对当前窗口和基线窗口运行 `observe`。
+3. 在每个明确的检查点，调用 `artifact.show()` 读取有界的当前状态证据，再用
+   `artifact.contract()` 查看接口上可执行的下一步。
+4. 运行 `compare`，然后只在确实能够推进已确认问题时，选择 `attribute`、
+   `discover.<objective>`、`correlate`、`hypothesis_test`、`forecast` 或
+   `assess_quality` 等重要分支。
+5. 后续分支需要早先的结果时，从同一个 session 恢复 artifact，不要重复查询 datasource。
+6. 最后先给出结论，并把每项判断连接到 artifact 和 evidence 记录。
+
+`artifact.contract()` 给出的是接口上可执行的下一步，不是推荐。智能体根据你的问题
+和已经观察到的证据选择下一步；你负责检查重要分支及其假设。
+
+## 每一步需要检查什么
+
+智能体停在 `artifact.show()` 和 `artifact.contract()` 时，请检查：
+
+- 指标、范围、窗口、粒度和比较基线是否仍与经过确认的业务问题一致；
+- 拟使用的拆分维度或后续操作是否有业务意义，并且符合已编写的使用约束；
+- 展示的结果、质量状态、阻塞项和来源详情是否足以支持拟选择的分支；
+- 哪些假设或排除项可能实质性改变结论；
+- 是否存在应返回 `marivo-semantic` 处理的语义契约缺口，而不是继续分析。
+
+如果分支的业务理由不清楚，请在运行前让智能体解释或修改。一个操作可以通过接口执行，
+并不等于它对业务问题有意义。
+
+## 操作与分析产物参考
+
 每次 Marivo analysis 都从一个 **metric** 开始，并按**写-运行-读**循环推进：agent 写出一个
 intent（一次 operator 调用及其参数），运行它，读取 typed result，再决定下一步。
 
-各组成部分：
+Runtime 由以下部分组成：
 
 - **session** 持有 guiding question、semantic catalog，以及每一步的持久化结果。
 - **operator 调用** 是一次确定性的分析步骤 —— `observe`、`compare`、`attribute`、
@@ -39,7 +112,7 @@ Use the Python interpreter where `marivo` is installed.
 
 :::note[Artifacts 是不可变的]
 Artifact 一旦产出便不再改变。用 `repr(artifact)` 获取廉价单行提示，再用
-`artifact.show()` 做有界读取，用 `artifact.contract()` 查看机械有效的下一步操作。
+`artifact.show()` 做有界读取，用 `artifact.contract()` 查看接口上可执行的下一步。
 只有需要可变本地副本时才调用 `artifact.to_pandas()`，且仅作为终端步骤。每个 artifact
 都携带 lineage，并持久化在 project 本地 `.marivo/` 下，因此后续脚本可以用 ref 恢复它，
 而不必重新查询 datasource。
@@ -360,7 +433,7 @@ Agent 读取 artifact 时按层下钻，以降低跨 loop 成本：
 ```python
 repr(delta)          # 廉价单行提示
 delta.show()         # 有界当前状态读取
-delta.contract()     # 机械有效的下一步操作
+delta.contract()     # 接口上可执行的下一步
 delta.to_pandas()    # 终端导出，用于自定义本地分析
 ```
 
@@ -368,8 +441,8 @@ delta.to_pandas()    # 终端导出，用于自定义本地分析
 commit-time evidence 摘要。理解当前步骤只需一次 `show()`；回顾或综合多个步骤时使用
 `session.knowledge()`，需要完整 typed records 与审计链时使用 `session.evidence`。
 
-用 `artifact.contract().affordances` 查看机械兼容性。它只说明哪些 public operator
-在机械上可以消费该 artifact、缺哪些输入；它不排序、不推荐，也不决定下一步。
+用 `artifact.contract().affordances` 查看接口兼容性。它只说明哪些 public operator
+可以通过接口消费该 artifact、缺哪些输入；它不排序、不推荐，也不决定下一步。
 
 后续脚本需要前序结果时，读取持久化事实，而不是重跑上游查询：
 

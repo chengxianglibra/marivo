@@ -1,17 +1,31 @@
 ---
 title: Installation
-description: Install Marivo and choose the backend extra for your datasource.
+description: Prepare a Marivo project for an agent and choose a datasource backend.
 ---
 
 Marivo requires Python 3.12 or newer.
 
-Install the base library from PyPI:
+## Prepare the project
+
+Choose an empty or existing project directory. The recommended installer supports
+macOS, Linux, and Windows Subsystem for Linux (WSL). It creates a virtual environment,
+installs `marivo[all]`, and runs `marivo init` in that directory.
+
+## Install Marivo
+
+Run the recommended installer from the project directory:
+
+```bash
+curl -fsSL https://marivo.io/install.sh | bash
+```
+
+To manage the environment yourself, install the base library from PyPI:
 
 ```bash
 pip install marivo
 ```
 
-Install the backend extra that matches the datasource you want to query:
+Install the backend extra that matches the datasource the project will query:
 
 | Backend | Install command |
 | --- | --- |
@@ -22,163 +36,75 @@ Install the backend extra that matches the datasource you want to query:
 | Trino | `pip install "marivo[trino]"` |
 | All packaged backends | `pip install "marivo[all]"` |
 
-On macOS, Linux, or Windows Subsystem for Linux (WSL), the install script can
-also prepare the current directory with a virtual environment, `marivo[all]`,
-and `marivo init`:
+## Initialize the project
 
-```bash
-curl -fsSL https://marivo.io/install.sh | bash
-```
-
-## Initialize a project
-
-Scaffold a new project in the current directory with the CLI:
+If you installed Marivo with pip, initialize the current directory before asking
+an agent to work in it:
 
 ```bash
 marivo --version
 marivo init
 ```
 
-`marivo init` creates the project skeleton and installs the Marivo agent skills:
+`marivo init` is idempotent: it leaves existing files untouched and reports them as
+skipped, so it is safe to re-run after an upgrade. Re-running adds only what is
+missing. Use `marivo init --force` to delete the generated artifacts and recreate
+them from scratch.
+
+:::note
+`init` refuses to silently skip a `marivo.toml` that contains invalid TOML. Fix or
+remove it, or pass `--force`. Skill links are best-effort symlinks: if the platform
+cannot create a symlink, `init` prints a warning and continues.
+:::
+
+## What the agent can use
 
 | Path | Purpose |
 | --- | --- |
 | `marivo.toml` | Project manifest. The project name defaults to the directory name; local telemetry defaults to `enabled = "on"`. |
-| `models/` | Where you author datasource and semantic declarations. |
-| `.marivo/` | Project-local state: sessions, evidence, and cached metadata. |
-| `.agents/skills/marivo-semantic`, `.agents/skills/marivo-analysis` | Shared Marivo skill entrypoints for agents that read `.agents/skills`. |
-| `.claude/skills/marivo-semantic`, `.claude/skills/marivo-analysis` | Marivo skills for Claude Code (symlinked into the project). |
-| `.codex/skills/marivo-semantic`, `.codex/skills/marivo-analysis` | Compatibility skill entrypoints for Codex. |
-
-`init` is idempotent: existing files are left untouched and reported as skipped, so
-it is safe to re-run — for example after upgrading to a release that ships updated
-skills. Re-running only adds what is missing. Use `marivo init --force` to delete
-the artifacts above and recreate them from scratch.
-
-:::note
-`init` refuses to silently skip a `marivo.toml` that contains invalid TOML — fix or
-remove it, or pass `--force`. Skill links are best-effort: if your platform cannot
-create a symlink, `init` prints a warning and continues.
-:::
-
-The result is a ready-to-author project:
+| `models/` | Datasource and semantic declarations. |
+| `.marivo/` | Project-local sessions, evidence, and cached metadata. |
+| `.agents/skills/` | Links to the `marivo-semantic` and `marivo-analysis` skills for compatible agents. |
+| `.claude/skills/` | Links to the same skills for Claude Code. |
+| `.codex/skills/` | Links to the same skills for Codex. |
 
 ```text
 your-project/
   marivo.toml
   models/
   .marivo/
-  .agents/skills/  # marivo-semantic, marivo-analysis
-  .claude/skills/   # marivo-semantic, marivo-analysis
-  .codex/skills/    # marivo-semantic, marivo-analysis
+  .agents/skills/
+  .claude/skills/
+  .codex/skills/
 ```
 
-To load semantic-layer packages managed in other repositories, add their authored
-`models/` directories to `marivo.toml`:
+## What to ask the agent to do next
 
-```toml
-[semantic]
-layer_paths = [
-  "../sales-domain/models",
-  "/opt/company/finance-domain/models",
-]
-```
+After initialization, give the agent this bounded preparation request:
 
-The current project's `models/` directory is always loaded first. Relative paths
-are resolved from the directory containing `marivo.toml`; absolute paths are used
-as-is. Each external `models/` root must contain both `datasources/` and
-`semantic/`. Datasource names, domain names, and semantic IDs must be globally
-unique across all roots; duplicates cause a load error. `marivo doctor`,
-semantic previews, verification, and analysis sessions use these configured
-layer datasources when resolving semantic objects.
+> Verify that this Marivo project is initialized correctly. Identify the datasource
+> configuration and source tables that are still needed before semantic authoring.
+> Stop before reading business data or defining any semantics. Report what is present,
+> what is missing, and which decisions you need from me. For credentials, report only
+> which approved credential fields need configuration, their `*_env` references and
+> environment-variable names, and whether each variable is configured. Do not request,
+> display, or commit credential values.
 
-Add `.marivo/` to `.gitignore`; version-control `marivo.toml` and `models/` (see
-[Quick Start](/en/latest/quick-start/#manage-the-project-with-git)).
+This separates project setup from access to business data and from decisions about
+business meaning.
 
-## Local usage telemetry
+## What to review before continuing
 
-Marivo records local usage telemetry as OpenTelemetry-shaped JSONL under the
-project state directory:
+Before moving to semantic authoring, confirm that:
 
-```text
-.marivo/telemetry/events.jsonl
-```
+- `marivo.toml`, `models/`, and `.marivo/` are present;
+- the expected skill paths under `.agents/skills/`, `.claude/skills/`, and
+  `.codex/skills/` are present, or the initialization warning explains why a symlink
+  could not be created;
+- the required datasource backend extra is installed; and
+- credentials are supplied through approved environment-backed fields, not committed
+  as plaintext in project files.
 
-Telemetry is local-only: Marivo does not upload these events. Events cover
-`marivo init`, analysis intents, discover/transform helpers, and escape-hatch
-promotions. Records include low-cardinality metadata such as the event name,
-intent family, status, duration, error class, and analysis session id. They do
-not include SQL text, datasource hosts, credentials, metric ids, dimension ids,
-session names, session questions, or frame data.
-
-Disable local telemetry for a process with:
-
-```bash
-MARIVO_TELEMETRY=off marivo init
-```
-
-Set the project default in `marivo.toml`:
-
-```toml
-[telemetry]
-enabled = "off" # "on" or "off"
-```
-
-`MARIVO_TELEMETRY=on|off` overrides the project setting for the current process.
-If neither is set, local telemetry defaults to `"on"`.
-
-## Deploy and develop
-
-Marivo is a Python library, not a hosted service. Deploy a Marivo project by installing the library where the agent runs, checking in datasource and semantic declarations, and providing datasource secrets through environment variables referenced by `*_env` fields.
-
-To let agents upload finished deliverables to S3 without rediscovering endpoint
-and credential settings, add non-secret publish config to the project
-`marivo.toml`:
-
-```toml
-[publish.s3]
-S3_BUCKET_PATH = "s3://bucket/base/prefix"
-AWS_ENDPOINT_URL_S3 = "https://s3.example.com"
-```
-
-Marivo uses path-style addressing for the published link. With the configuration
-above, a file uploaded as `report.html` is reported as
-`https://s3.example.com/bucket/base/prefix/report.html`.
-
-Store the matching S3 credentials in the user-global secret file:
-
-```toml
-# ~/.marivo/secrets.toml
-[publish.s3]
-AWS_ACCESS_KEY_ID = "..."
-AWS_SECRET_ACCESS_KEY = "..."
-```
-
-Then upload any finished file or directory:
-
-```bash
-marivo publish ./report.html
-marivo publish ./output-dir
-```
-
-Example output:
-
-```text
-Uploaded 1 file
-URL: https://s3.example.com/bucket/base/prefix/report.html
-S3: s3://bucket/base/prefix/report.html
-```
-
-`marivo publish` is a simple uploader: it does not validate, package, or inspect
-the content. Files are uploaded under `S3_BUCKET_PATH`, and existing objects are
-overwritten by normal S3 behavior. Files ending in `.html` or `.htm` are uploaded
-with `Content-Type: text/html`; other file types are uploaded without MIME
-inference.
-
-For local development from this repository:
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev,duckdb,trino]"
-.venv/bin/python -c "import marivo; print(marivo.__name__)"
-```
+When those checks pass, continue to the [first semantic layer](/en/latest/quick-start/).
+After its business meaning is approved and readiness is not blocked, continue to the
+[first analysis](/en/latest/first-analysis/).

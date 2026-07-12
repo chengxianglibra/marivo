@@ -3,11 +3,105 @@ title: Analysis Workflow
 description: Metric-centered sessions, typed intents, and frames for repeatable agent analysis.
 ---
 
-Every Marivo analysis starts from a **metric** and runs as a **write-run-read
-loop**: an agent writes an intent (an operator call plus its fields), runs it, and
-reads a typed result before deciding the next step.
+This page is the deeper reference for the agent-guided journey introduced in
+[First agent-guided analysis](/en/latest/first-analysis/). The agent operates
+Marivo; you decide what the analysis must answer and review the choices that
+shape the conclusion.
 
-The pieces:
+## Start with a reviewed business question
+
+Before the agent opens a session, agree on the decision, question, approved
+metric meaning, scope, comparison, and useful breakdowns. The first-analysis
+example asks why Q4 revenue decreased, compares 2026 Q4 with 2025 Q4 by month,
+and considers region as a possible driver. Reuse that shape only when those
+choices fit your decision.
+
+If any field is missing or uncertain, complete the
+[business-question worksheet](/en/latest/guides/business-question/) and ask the
+agent to resolve one open choice at a time. Catalog definitions and guardrails
+inform the proposal, but they do not replace your approval of its business
+meaning.
+
+## What you need to decide
+
+Before analysis starts, decide or approve:
+
+- the business decision and question the conclusion will support;
+- the metric definition and business meaning;
+- the included population, exclusions, time window, and grain;
+- the comparison basis that makes the result meaningful; and
+- the breakdowns that are useful for this question and permitted by their
+  authored guardrails.
+
+Technical readiness does not approve these choices. If a required metric,
+dimension, relationship, time dimension, or definition is missing or wrong,
+pause the investigation and route that named contract gap to `marivo-semantic`.
+`marivo-analysis` must not author or rewrite semantic objects to make a question
+fit.
+
+## What to ask the agent to do
+
+For the Q4 example, ask:
+
+> Use the `marivo-analysis` skill to investigate why Q4 revenue decreased. Use
+> the sales.revenue metric whose business meaning I approved. Compare 2026 Q4
+> with 2025 Q4 by month and inspect region as a possible driver. Show every
+> material artifact, explain the assumptions behind each branch, and stop for
+> my review when a branch could change the conclusion. Do not change the
+> semantic layer. Close with the conclusion first, followed by evidence,
+> quality or blocking issues, source details, caveats, and unresolved questions.
+
+The agent should begin with `mv.help("workflow")`, inspect the specific runtime
+topic before each new operator family, and keep the investigation in one stable
+session. You do not need to choose or call the operators yourself.
+
+## How the agent advances the analysis
+
+The normal collaboration loop is:
+
+1. Read the selected catalog objects with `.details().show()` and run scoped
+   readiness for exactly those objects.
+2. Run `observe` for the current and baseline windows.
+3. At each deliberate observation point, call `artifact.show()` to read the
+   bounded current-state evidence and `artifact.contract()` to inspect the
+   mechanically valid next actions.
+4. Run `compare`, then select a material branch such as `attribute`,
+   `discover.<objective>`, `correlate`, `hypothesis_test`, `forecast`, or
+   `assess_quality` only when it advances your reviewed question.
+5. Recover prior artifacts from the same session when a later branch needs
+   them, rather than repeating datasource work.
+6. Finish with an answer-first recap that ties claims to artifacts and evidence
+   records.
+
+The actions returned by `artifact.contract()` are mechanical possibilities,
+not recommendations. The agent selects among them using your question and the
+evidence already observed; you review material branches and assumptions.
+
+## What to review at each step
+
+When the agent pauses at `artifact.show()` and `artifact.contract()`, check:
+
+- whether the metric, scope, window, grain, and comparison still match the
+  reviewed business question;
+- whether a proposed breakdown or follow-up is meaningful and complies with
+  authored guardrails;
+- whether the displayed result, quality state, blocking issues, and source
+  details support the proposed branch;
+- which assumptions or exclusions could materially change the conclusion; and
+- whether a semantic contract gap requires returning to `marivo-semantic`
+  instead of continuing the analysis.
+
+Ask the agent to explain or revise a branch before it runs when the business
+reason is unclear. Accepting a mechanically valid action is not the same as
+accepting its business relevance.
+
+## Operator and artifact reference
+
+Every Marivo analysis starts from a **metric** and runs as a **write-run-read
+loop**: an agent writes an intent (an operator call plus its fields), runs it,
+and reads a typed result before deciding the next step.
+
+The runtime pieces are:
 
 - A **session** holds the guiding question, the semantic catalog, and the
   persisted results of every step.

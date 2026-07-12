@@ -15,7 +15,9 @@ This skill owns workflow and routing only:
 - `md.help(...)` owns datasource contracts, inspection, scope, and snapshot details.
 - `ms.help(...)` owns semantic constructor parameters and constraints.
 - Result `.show()` output and structured errors own state-specific next calls.
-- The agent owns uncommon physical formats and every semantic judgment.
+- The agent owns evidence-based drafting and technical handling, including uncommon
+  physical formats. The user or business owner owns unresolved business-semantic
+  decisions and approves metric meaning before analysis handoff.
 
 Do not copy parameter tables, schemas, backend catalogs, or error catalogs here.
 

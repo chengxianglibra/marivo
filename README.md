@@ -58,6 +58,12 @@ Marivo replaces *generate-SQL-and-hope* with a contract the agent works through:
 4. **Chain typed intents** — `observe → compare → attribute`, and more — each
    returning a typed frame and leaving an evidence trail.
 
+The agent can inspect bounded evidence, handle technical details, and draft explicit
+semantic declarations. The user or business owner confirms the metric population,
+filters, exclusions, units, additivity, valid breakdowns, limitations, and intended
+use, and approves the metric meaning before analysis. Readiness proves that the
+declared objects can be handed to analysis technically; it is not business approval.
+
 ## Requirements
 
 Python 3.12 or newer.

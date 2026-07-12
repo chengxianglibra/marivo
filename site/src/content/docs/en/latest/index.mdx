@@ -1,9 +1,9 @@
 ---
-title: Marivo
-description: Metric-centered analysis runtime for AI agents.
+title: Analysis Harness for AI Agents
+description: Analysis Harness for AI Agents
 template: splash
 hero:
-  tagline: Metric-centered analysis runtime for AI agents.
+  tagline: Analysis Harness for AI Agents
   image:
     alt: Marivo
     file: ../../../../assets/marivo-mark.svg
@@ -18,103 +18,70 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Marivo is a Python library — not a hosted service or a chat UI — that turns a data
-warehouse into something an AI agent can analyze *reliably*. It gives agents three
-things they otherwise lack: a typed **semantic layer** that fixes what every metric
-and dimension means, a **metric-centered analysis workflow** of typed operators, and
-an **auditable evidence trail** behind every conclusion.
+## Analyze a business question with an agent
 
-Marivo is not a text-to-SQL wrapper. Python declarations are the contract, ibis
-expressions are the execution language, and typed frames are the boundary between
-analysis steps — so an agent composes trusted building blocks instead of generating
-raw SQL and hoping it is correct.
+Marivo is a Python analysis harness for AI agents. It gives you and an agent one
+reviewable loop for moving from an approved business question to a conclusion
+supported by typed results and recorded evidence.
+
+For example, suppose you need to decide how to respond to a Q4 revenue decline.
+You provide the decision to support, the approved meaning of revenue, the periods
+and populations to include or exclude, and the breakdowns that are acceptable.
+The agent reads the semantic catalog, checks readiness, performs typed analysis,
+and records the evidence. You then review the metric contract and accept or reject
+the conclusion.
+
+## What you decide and what the agent does
+
+1. **You set the business contract.** State the decision, approve the metric's
+   meaning, define the scope and exclusions, and approve meaningful breakdowns.
+2. **The agent executes a bounded investigation.** It reads the catalog, checks
+   the selected objects' readiness, runs typed analysis, and preserves the
+   material results and evidence.
+3. **You review the handoff.** Confirm that the metric, scope, comparison, and
+   breakdowns still match your intent before accepting the conclusion or asking
+   for a deeper investigation.
+
+## Four safeguards in the workflow
 
 <CardGrid>
-  <Card title="Unified semantics" icon="seti:data">
-    Datasources, entities, metrics, dimensions, and relationships are declared in
-    Python and addressed by semantic ref — names and definitions, not raw tables.
+  <Card title="Semantic Layer" icon="seti:data">
+    Python declarations persist datasource bindings, approved business meaning,
+    guardrails, and refs for metrics and dimensions.
   </Card>
-  <Card title="Metric-centered analysis" icon="seti:python">
-    Agents start from trusted metrics and chain typed intents: observe, compare,
-    attribute, correlate, forecast, and quality checks.
+  <Card title="Typed Analysis DSL" icon="seti:python">
+    Typed operators accept catalog refs and return explicit frames instead of
+    hiding analytical steps in an unreviewable answer.
   </Card>
-  <Card title="Trustworthy evidence" icon="seti:config">
-    Operators record findings, propositions, and assessments so any result can be
-    traced back to the inputs that produced it.
+  <Card title="Analysis Session" icon="seti:folder">
+    A project-local session keeps the question, frames, artifacts, and
+    investigation record together for one investigation.
   </Card>
-  <Card title="Readiness gates" icon="seti:lock">
-    Catalog readiness keeps incomplete semantic objects out of analysis until
-    authoring and access issues are resolved.
+  <Card title="Evidence Engine" icon="seti:config">
+    Evidence records how findings, propositions, and assessments connect to
+    their inputs so material claims can be checked.
   </Card>
 </CardGrid>
 
-## Why agentic data analysis needs Marivo
+## From question to reviewed conclusion
 
-Point an agent at a raw warehouse and ask it to write SQL, and the failure modes
-are predictable: it invents joins, silently drops a required filter, misreads an
-ambiguous column, and returns a confident answer no one can verify. Every query
-starts from zero, so nothing accumulates and nothing is reviewable.
+The collaboration loop is `business decision → approved metric and scope → catalog
+and readiness → typed analysis → evidence → user review`. If readiness is blocked
+or the requested analysis exceeds the approved metric contract, the agent stops
+instead of silently redefining the question.
 
-Marivo replaces *generate-SQL-and-hope* with a contract the agent works through:
-
-| Without a semantic runtime | With Marivo |
-| --- | --- |
-| Table and column names guessed per query | Trusted **semantic refs** (`sales.revenue`) carrying human-authored meaning and guardrails |
-| Definitions re-derived every time | One **declared contract** in version control, shared across agents and sessions |
-| Free-form SQL; mistakes surface as wrong numbers | **Typed intents and frames** — invalid steps fail loudly, before any backend work |
-| Conclusions you cannot check | An **evidence trail** linking every result to the inputs that produced it |
-| Half-specified models analyzed anyway | A **readiness gate** that blocks incomplete semantics from analysis |
-
-The result is an agent that reasons over *meaning* instead of column names, in a
-loop a human can review, approve, and replay.
-
-## How it works
-
-1. **Declare** datasources in `models/datasources/` and semantics (domains,
-   entities, dimensions, metrics) in `models/semantic/` — using `marivo.datasource`
-   (`md`) and `marivo.semantic` (`ms`).
-2. **Load and gate.** `ms.load()` builds the catalog; `ms.readiness()` blocks
-   analysis until every object an agent needs is complete and reachable.
-3. **Open a session** from a guiding question and resolve a trusted metric from the
-   catalog.
-4. **Chain typed intents** — `observe → compare → attribute`, and more — each
-   returning a typed frame and leaving an evidence trail.
-
-## A first analysis
-
-```python
-import marivo.analysis as mv
-
-session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
-catalog = session.catalog
-revenue = catalog.get("metric.sales.revenue")
-region = catalog.get("dimension.sales.orders.region")
-
-current = session.observe(revenue, time_scope={"start": "2026-10-01", "end": "2027-01-01"}, grain="month", dimensions=[region])
-baseline = session.observe(revenue, time_scope={"start": "2025-10-01", "end": "2026-01-01"}, grain="month", dimensions=[region])
-
-delta = session.compare(current, baseline)
-attribution = session.attribute(delta, axes=[region])
-attribution.show()
-```
-
-## Next steps
+## Start here
 
 <CardGrid>
-  <Card title="Install" icon="rocket">
-    [Install Marivo](/en/latest/installation/) and pick the backend extra for your
-    datasource.
+  <Card title="Installation" icon="rocket">
+    [Install Marivo](/en/latest/installation/) and prepare a project for an agent.
   </Card>
-  <Card title="Quick Start" icon="open-book">
-    [Build a project](/en/latest/quick-start/): datasource, semantics, and a first
-    metric-centered analysis.
+  <Card title="First semantic layer" icon="seti:data">
+    [Define the first approved business objects](/en/latest/quick-start/) the agent
+    may use.
   </Card>
-  <Card title="Semantic Layer" icon="seti:data">
-    [Declare meaning](/en/latest/concepts/semantic-layer/): every object and field,
-    with usage.
-  </Card>
-  <Card title="Analysis Workflow" icon="seti:python">
-    [Run analysis](/en/latest/concepts/analysis-workflow/): sessions, intents, and
-    typed frames.
+  <Card title="First analysis" icon="open-book">
+    [Give an agent a business question](/en/latest/first-analysis/) and review its
+    analysis and evidence.
   </Card>
 </CardGrid>

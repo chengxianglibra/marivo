@@ -1,0 +1,95 @@
+---
+title: First agent-guided analysis
+description: Give an agent a business question, then review the analysis and its evidence.
+---
+
+## Before you ask the agent
+
+Start with a Marivo project whose business meaning you have approved and whose semantic
+objects are technically ready for analysis. If you
+do not yet have one, follow the [Quick Start](/en/latest/quick-start/) or ask an agent to use
+the `marivo-semantic` skill to draft and technically validate the semantic layer. You remain
+responsible for deciding or approving its business meaning before analysis begins.
+
+You do not need to write Python or choose operators yourself. Your job is to state the
+business question, name the decision it supports, and review the agent's proposed scope.
+
+## What you need to decide
+
+For a useful first analysis, decide:
+
+- which business decision the answer will inform;
+- which metric, with business meaning you approve, represents the outcome;
+- the population and time windows to include or exclude;
+- the baseline that makes the change meaningful; and
+- which breakdowns you approve as meaningful and whose authored guardrails permit the use.
+
+If any of these are unclear, use the [Frame a business question](/en/latest/guides/business-question/)
+worksheet before starting.
+
+## What to ask the agent to do
+
+Give the agent a concrete request like this:
+
+> Use the `marivo-analysis` skill to investigate why Q4 revenue decreased.
+>
+> Use the sales.revenue metric whose business meaning I approved. Compare 2026 Q4 with 2025 Q4 by month,
+> and inspect region as a possible driver. Read each metric and dimension's
+> authored business definition and guardrails before analysis. Stop if technical readiness is
+> blocked, the requested breakdown conflicts with those guardrails, or I have not approved
+> its business use. Show each material result,
+> then give me an answer-first summary with evidence, caveats, and unresolved
+> questions. Do not change the semantic layer during this analysis.
+
+Replace the metric, periods, and possible driver with the choices relevant to your
+decision. Keep the instruction to stop on technical-readiness, guardrail, or business-
+approval problems. A semantic gap should return to semantic authoring for drafting or
+technical validation instead of silently changing definitions; you must still decide or
+approve its business meaning.
+
+## What the agent will do
+
+You should be able to follow the analysis as a visible sequence:
+
+1. The agent browses the catalog and reads the selected metric, time dimension, and
+   breakdown details, including their authored business definitions and guardrails. These
+   details inform the proposal; they do not grant business approval.
+2. The agent runs a scoped readiness check for exactly those objects and stops if the
+   handoff is blocked.
+3. The agent runs `observe` for the current and baseline periods and shows each material
+   result before choosing the next step.
+4. The agent runs `compare` to quantify the change.
+5. If the breakdown complies with authored guardrails and you approved its business use,
+   the agent runs `attribute` and
+   inspects the resulting evidence.
+6. The agent closes with an answer-first, evidence-backed recap rather than only a table
+   or raw output.
+
+`catalog` details, scoped readiness, `observe`, `compare`, and `attribute` are Python
+surfaces the agent runs. They are not commands you need to type.
+Scoped readiness only verifies the technical semantic handoff. It does not decide whether
+a metric meaning, scope, comparison, or breakdown is right for the business question.
+
+## What to review before continuing
+
+Before accepting the conclusion or asking for a deeper drill-down, confirm that:
+
+- the metric definition matches the business outcome you meant;
+- the current and baseline periods, monthly grain, population, and exclusions are right;
+- region complies with the authored guardrails and is a breakdown you approve as meaningful
+  for this metric;
+- every material claim points to an inspected Marivo result or evidence record;
+- caveats, quality limits, blockers, and unresolved questions are explicit; and
+- the agent did not change the semantic layer to make the requested analysis fit.
+
+If a metric, dimension, relationship, or definition is missing, stop the analysis and use
+the `marivo-semantic` skill to draft or technically validate that named gap. Review and
+approve its business meaning before continuing; technical readiness is not business
+approval.
+
+## Next steps
+
+- [Frame a business question](/en/latest/guides/business-question/) before a broader investigation.
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/) explains the agent's session and operator flow.
+- [Readiness](/en/latest/concepts/readiness/) explains why analysis may stop before querying data.
+- [Evidence](/en/latest/concepts/evidence/) explains what supports the final recap.
