@@ -1,98 +1,49 @@
 ---
 title: Quick Start
-description: Ask an agent to draft a first semantic layer, review the business contract, then continue to analysis.
+description: Reuse an existing semantic-layer project, or ask an agent to draft the first semantic layer for a new project.
 ---
 
-## Before you ask the agent
+## Start with the project state
 
-Create or initialize a project with `marivo init` (see
-[Installation](/en/latest/installation/#initialize-the-project)). A minimal
-project has a manifest plus datasource and semantic declaration directories:
+If your team already maintains a project containing `marivo.toml` and `models/`,
+clone it and reuse its semantic layer. Enter authoring only for a new project or
+a confirmed gap.
 
-```text
-your-project/
-  marivo.toml
-  models/
-    datasources/
-    semantic/
-```
+## Existing semantic-layer project
 
-Ask an agent that can work in this project to use the packaged
-`marivo-semantic` skill. The agent follows an evidence-bounded authoring route;
-you remain responsible for approving the business meaning it encodes.
+1. Clone the project and install its dependencies.
+2. Configure datasource environment variables locally.
+3. Ask the agent to check project configuration, existing semantic objects, and readiness for the current analysis.
+4. If checks pass, continue to the [first analysis](/en/latest/first-analysis/).
 
-## What you need to decide
+> Use this project's existing Marivo semantic layer and check whether it can
+> support completed-order revenue analysis. Tell me which configuration,
+> semantic objects, or business definitions are missing or need confirmation.
+> If nothing blocks analysis, do not rebuild existing definitions.
 
-Before a metric is used, you must confirm its business contract. For completed-order
-revenue, that includes:
+Use `marivo-semantic` to modify the project only for a missing object, a
+readiness blocker requiring a model change, or a requested definition change.
 
-- what revenue means and does not mean;
-- which rows are in the population and which filters select them;
-- how cancellations, refunds, test orders, and other exclusions are treated;
-- which time axis and timezone apply;
-- the currency or other unit, additivity, and valid breakdowns;
-- known limitations and the accountable owner.
+## New project
 
-Column names and sampled values can support a question, but they cannot approve any
-of these decisions for you. It is fine to start with unknowns: the agent should ask
-one evidence-grounded business question when a required decision is missing.
+Complete [Installation](/en/latest/installation/), then provide the datasource,
+business goal, and rules already decided:
 
-## What to ask the agent to do
+> Use `marivo-semantic` to build the semantic layer this project needs for
+> completed-order revenue analysis. Ask me when a definition requires a
+> business decision. Show me the
+> metric definition I need to approve, and stop before analysis.
 
-Use a request that names the business goal, constrains evidence collection, and sets
-a review stop:
+## Business definitions you must confirm
 
-```text
-Use the marivo-semantic skill to model the orders table in the sales domain.
-
-The business goal is completed-order revenue analysis. Start by inspecting the
-source and choose an explicitly bounded sample. Draft one semantic object at a
-time. Do not infer the revenue population, refund treatment, currency, time
-axis, additivity, or allowed breakdowns from column names or sampled values.
-Ask me one evidence-grounded business question whenever a required decision is
-missing. After each object, verify it, preview it with the same snapshot, and
-show readiness. Stop before analysis so I can review the proposed metric and
-guardrails.
-```
-
-## How the agent builds one object at a time
-
-The `marivo-semantic` route is:
-
-```text
-help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
-```
-
-The agent first reads `md.help("authoring")` and `ms.help("authoring")`, browses
-existing typed catalog objects, and uses `md.inspect(...)` to learn the source's
-physical extent, partitions, schema, and execution capabilities. It then chooses
-`md.partition(...)` or explicitly acknowledges a broad read with `md.unpruned(...)`;
-both have positive row and timeout guards.
-
-One call to `inspection.sample(...)` creates the snapshot for the active authoring
-batch. Query-free snapshot projections provide entity, dimension, value, time, and
-measure evidence. The agent settles only what help, project facts, source provenance,
-prior decisions, and that evidence support. If a semantic choice is still missing,
-it asks exactly one grounded question and stops. It writes one explicit Python object,
-reloads its typed `CatalogObject`, then verifies, previews, and checks readiness before
-moving to the next object.
+Review inclusions and exclusions, cancellation and refund treatment, time axis,
+currency and additivity, allowed breakdowns, limitations, and ownership. Schema
+and samples help the agent draft; they do not replace approval.
 
 ## What the agent writes to the project
 
-After you answer the required business questions, the agent writes explicit Python
-declarations under `models/`. For this illustrative example only, suppose the user has
-reviewed and approved every modeling choice below. This does not describe approval by
-a real business owner, and Mina Zhang is a fictional owner placeholder:
-
-- `order_id` is a unique, non-null primary key, so `orders` has one row per completed
-  order;
-- cancelled orders are excluded, refunded orders remain, and `amount` is their CNY
-  value net of refunds;
-- missing `region` values are not a valid region;
-- `order_date` at day granularity is the default reporting axis;
-- `amount` is additive across the approved time axis and breakdown; and
-- `region` is the only approved breakdown for this example; no other breakdown is
-  implied.
+The Python declarations below are agent-generated project files maintained by
+the team, not a tutorial that you must type line by line.
 
 ```python
 # models/datasources/warehouse.py
@@ -179,54 +130,12 @@ revenue = ms.aggregate(
 )
 ```
 
-The agent also runs the evidence handoff against the same bounded snapshot. This is
-review evidence, not another source of business approval:
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-warehouse = md.ref("datasource.warehouse")
-inspection = md.inspect(warehouse, md.table("orders"))
-snapshot = inspection.sample(
-    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
-    columns=("order_id", "region", "order_date", "amount"),
-)
-
-catalog = ms.load()
-sales = catalog.domains.get("sales")
-orders = sales.entities.get("orders")
-revenue = orders.metrics.get("revenue")
-
-catalog.verify_object(revenue).show()
-catalog.preview(revenue, using=snapshot).show()
-report = catalog.readiness(refs=[revenue])
-report.show()
-```
-
 ## What to review before continuing
 
-Review the proposed declarations together with the verification, preview, and readiness
-output. Confirm that:
+- The definition, population, exclusions, time axis, unit, and breakdowns match the business need.
+- `ai_context` and `guardrails` state important limits clearly.
+- The accountable owner has approved the definition.
+- The agent reports no blocker in scoped readiness.
 
-- the definition and non-definition match the intended decision;
-- the row population, filters, exclusions, cancellations, and refunds are explicit;
-- the time axis, timezone, unit, and additivity are correct;
-- every allowed breakdown is valid and unsupported breakdowns are constrained;
-- limitations and guardrails are visible, and the named owner accepts them;
-- the preview used the same explicitly bounded snapshot; and
-- scoped readiness has no blockers for the metric's dependency closure.
-
-A ready report is a technical handoff result. It does not mean a business owner has
-approved the metric definition, filters, exclusions, units, or intended use.
-
-## Continue to analysis
-
-After the business owner approves the contract and scoped readiness is not blocked,
-hand the ready metric to the `marivo-analysis` skill. See
-[Analysis Workflow](/en/latest/concepts/analysis-workflow/) for the session and
-observation route.
-
-For deeper reference material, read [Semantic Layer](/en/latest/concepts/semantic-layer/),
-[Readiness](/en/latest/concepts/readiness/), and
-[Project Configuration](/en/latest/reference/project-configuration/).
+Readiness is a technical handoff, not business approval. After approval, continue
+to the [first agent-guided analysis](/en/latest/first-analysis/).

@@ -11,6 +11,38 @@ how it is calculated, and where it may be used. Marivo can test whether the decl
 object and matching preview evidence are technically ready; only the accountable
 business owner can approve whether the contract is correct for the intended decision.
 
+## Where the semantic layer comes from
+
+Use a semantic layer already maintained by your team, or build one for a new project.
+
+### Clone an existing project
+
+When `models/` contains semantic objects, reuse them. Install dependencies,
+configure local environment variables, and ask the agent to check whether the
+objects fit the current question and pass scoped readiness. If there is no gap,
+start analysis without regenerating objects.
+
+### Start a new project
+
+Give the agent the datasource, business goal, and decided rules. The agent uses
+`marivo-semantic` to inspect evidence and draft objects;
+the user confirms and adjusts business meaning. Technical validation is not
+business approval.
+
+## Maintain and share the semantic layer with Git
+
+Semantic objects are Python source files under `models/` and belong in version control:
+
+- team members clone the project to reuse the same definitions;
+- use a branch and pull request for definition changes, showing owner, `ai_context`, `guardrails`, and affected metrics;
+- review business meaning and owner approval, not only whether Python runs;
+- commit datasource `*_env` references, never credential values;
+- do not commit `.marivo/` runtime state, local caches, or generated secrets;
+- after clone or merge, ask the agent to check configuration and scoped readiness.
+
+Git makes declarations reviewable and shareable. It does not grant business
+approval or prove current data is ready.
+
 ## What the user must confirm
 
 The user owns semantic approval. Before the metric enters analysis, confirm every
@@ -46,7 +78,10 @@ decision is missing, the agent asks one evidence-grounded question and stops.
 ## Copyable agent request
 
 ```text
-Use the marivo-semantic skill to draft this metric from the business context I provide. Show me the proposed metric contract and the bounded data evidence behind every material choice. If a business decision is unresolved, ask me one evidence-grounded question at a time and wait for my answer. Do not hand the metric to analysis until I have reviewed and approved its meaning, filters, exclusions, units, valid breakdowns, limitations, owner, and intended use.
+Use `marivo-semantic` to create or change the semantic objects needed for this
+business goal. Inspect existing definitions first, and ask me when a definition
+requires a business decision. Show me the metric definition I need to approve,
+and stop before analysis.
 ```
 
 ## Review a proposed metric
