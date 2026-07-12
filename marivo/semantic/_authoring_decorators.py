@@ -536,9 +536,10 @@ def time_dimension(
     Time dimensions are the only dimensions usable as window axes by ``session.observe``.
     The body may return any ibis expression that represents the intended time
     axis. When ``parse`` is omitted, the parse variant is inferred from the
-    column type at analysis time. Use ``ms.datetime(...)``, ``ms.timestamp(...)``,
-    ``ms.strptime(...)``, or ``ms.hour_prefix(...)`` to declare a parse variant
-    explicitly when you need timezone, sample_interval, or string/integer parsing.
+    column type at analysis time. Use ``ms.datetime(timezone=...)`` or
+    ``ms.timestamp(timezone=...)`` for a native naive source axis so readiness
+    can block an undeclared datasource-timezone fallback. Use ``ms.strptime(...)``
+    or ``ms.hour_prefix(...)`` for string/integer parsing.
 
     Args:
         name: Dimension name. Defaults to the function name.

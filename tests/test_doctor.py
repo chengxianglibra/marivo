@@ -526,6 +526,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                         "refs": ["sales.total"],
                         "message": "missing business definition",
                         "suggested_action": "add ai_context.business_definition",
+                        "details": {"data_type": "datetime"},
                     }
                 ],
                 "warnings": [
@@ -554,6 +555,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                             "refs": ["sales.total"],
                             "message": "missing business definition",
                             "suggested_action": "add ai_context.business_definition",
+                            "details": {"data_type": "datetime"},
                         }
                     ],
                     "warnings": [
@@ -584,6 +586,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                 "refs": ["sales.total"],
                 "message": "missing business definition",
                 "suggested_action": "add ai_context.business_definition",
+                "details": {"data_type": "datetime"},
             }
         ],
         "warnings": [

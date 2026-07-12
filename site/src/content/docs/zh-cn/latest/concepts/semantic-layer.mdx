@@ -304,9 +304,13 @@ hour 粒度需要带时间的格式）。
 | `ms.strptime(format)` | 需要解析的 string/integer | `timezone`、`sample_interval` |
 | `ms.hour_prefix(prefix)` | 仅含小时的分区 | `sample_interval` —— `prefix` 是提供日期的 day 粒度 `TimeDimensionRef` |
 
-`timezone` 默认为 datasource 引擎时区；只有当列的挂钟含义不同时才设置它（例如 `"UTC"`）。
-形如 `(5, "minute")` 的 `sample_interval` 标记一个被周期采样的时间轴，供 semi-additive
-fold 使用。
+对于原生但 naive 的 `datetime` 或 `timestamp`，必须声明其 source timezone（例如
+`ms.datetime(timezone="Asia/Shanghai")`）。显式 `ms.datetime()` 或
+`ms.timestamp()` 未提供 `timezone=` 时，readiness 会返回
+`undeclared_naive_time_axis` blocker：运行时会回退到 datasource read timezone，而
+analysis window 使用 report timezone，可能在日或小时边界错位。零查询 gate 会报告这些
+运行时解析的上下文，但绝不猜测业务 timezone。形如 `(5, "minute")` 的
+`sample_interval` 标记一个被周期采样的时间轴，供 semi-additive fold 使用。
 
 对于 time-series 和 panel frame，`bucket_start` 始终是 report timezone 下的 bucket
 标签，并以 timezone-naive timestamp 或 date 输出。例如 `report_timezone="Asia/Shanghai"`

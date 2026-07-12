@@ -267,18 +267,18 @@ def _time_parse_contract() -> dict[str, object]:
             "notes": "Use no parse metadata unless project policy requires explicit metadata.",
         },
         "native_datetime": {
-            "form": "ms.datetime(timezone=None, sample_interval=None)",
+            "form": 'ms.datetime(timezone="Region/City", sample_interval=None)',
             "when": "physical column is a native datetime type",
             "parameters": {
-                "timezone": "optional IANA timezone string; omit when engine/project timezone policy applies",
+                "timezone": "IANA timezone string required for naive source values; readiness blocks an undeclared fallback",
                 "sample_interval": "optional (count, unit) for sampled time axes",
             },
         },
         "native_timestamp": {
-            "form": "ms.timestamp(timezone=None, sample_interval=None)",
+            "form": 'ms.timestamp(timezone="Region/City", sample_interval=None)',
             "when": "physical column is a native timestamp type",
             "parameters": {
-                "timezone": "optional IANA timezone string; omit when engine/project timezone policy applies",
+                "timezone": "IANA timezone string required for naive source values; readiness blocks an undeclared fallback",
                 "sample_interval": "optional (count, unit) for sampled time axes",
             },
         },
