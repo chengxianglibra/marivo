@@ -1,58 +1,38 @@
 ---
 title: Frame a business question
-description: Turn a decision into a reviewable analysis request before the agent starts.
+description: Start with the decision or question; the agent can clarify the rest as needed.
 ---
 
-## Frame the decision and question
+## Start with what you know
 
-A useful analysis starts with the decision it will support, not with an available table or
-column. Complete this worksheet before asking the agent to analyze data:
+Tell the agent what you are trying to understand or decide. Add the metric,
+comparison, time range, or area of concern when they are already known, but do
+not wait until every detail is settled.
 
-```text
-Decision: What decision will this analysis support?
-Question: What do you need to know?
-Metric: Which business metric, as approved by its business owner, represents the outcome?
-Scope: Which population and time window are included or excluded?
-Comparison: What baseline makes the result meaningful?
-Breakdowns: Which dimensions are valid and useful?
-```
+For example:
 
-If you cannot fill in every field, say what is known and leave the uncertain field explicit.
-Do not substitute a physical column name for a business-owned metric definition.
+> Use Marivo to find out why revenue fell last quarter. Compare it with the
+> same quarter a year earlier, and pay particular attention to regional changes.
 
-## Ask the agent to propose an analysis
+The agent can inspect the project's semantic layer and ask for clarification
+when a missing choice would materially change the analysis.
 
-Send the completed worksheet with instructions like these:
+## Confirm choices that affect the meaning
 
-> Use the `marivo-analysis` skill to turn this worksheet into an analysis proposal. If the
-> business decision or another required choice is missing, ask me one clarification at a
-> time and wait for my answer. Browse the semantic catalog and read the relevant object
-> details before proposing the analysis. Never infer a metric's meaning from column names
-> or sample values. Show me the authored definitions and guardrails, propose a metric,
-> scope, comparison, and useful breakdowns, then stop and ask me to decide or approve their
-> business meaning and use before analysis starts. Do not change or add semantic objects
-> during this step.
+You do not need to approve an analysis worksheet. Pay attention when the agent
+needs to choose or change:
 
-Catalog details expose the definitions and guardrails that authors recorded; they do not
-grant business approval. The agent should use them to rule out unsupported proposals and
-show the remaining choices to the business owner. If the worksheet requires a missing or
-technically unready semantic object, the agent should name the gap and route it to the
-`marivo-semantic` skill for drafting or technical validation instead of inventing a
-substitute. The business owner still decides or approves the metric's meaning and the
-proposed scope, comparison, and breakdowns.
+- the business metric;
+- the population or time range;
+- the comparison used to interpret a change;
+- a segment or assumption that could change the conclusion.
 
-## Review and approve the proposal
+Confirm or correct those choices in business terms. Catalog inspection,
+readiness checks, operator selection, and session management belong to the
+Marivo skills.
 
-Before analysis starts, explicitly confirm all four of these choices:
+## Continue
 
-- **Metric:** the selected metric's authored definition expresses the business outcome you
-  meant, and you approve that meaning for this decision.
-- **Scope:** the population, time window, exclusions, and grain match the decision.
-- **Comparison:** the baseline is appropriate and makes the result interpretable.
-- **Breakdowns:** every proposed dimension complies with the authored guardrails, is valid
-  for the metric, and is one you approve as useful for the question.
-
-Ask the agent to revise the proposal if any choice is ambiguous. Once all four are confirmed,
-continue with [First agent-guided analysis](/en/latest/first-analysis/) and require scoped
-readiness before the first observation. Readiness verifies the technical semantic handoff;
-it does not approve any business choice.
+When the question is clear enough to investigate, continue to
+[First agent-guided analysis](/en/latest/first-analysis/). You can refine the
+question later if the evidence exposes a more important issue.
