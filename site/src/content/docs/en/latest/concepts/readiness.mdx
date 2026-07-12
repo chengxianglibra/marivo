@@ -3,52 +3,35 @@ title: Readiness
 description: The structural gate that keeps incomplete semantic objects out of analysis.
 ---
 
-## What the user approves
+## Why the agent may pause before analysis
 
-The business owner approves the metric's definition and non-definition, row
-population, filters, exclusions, refund and cancellation treatment, time axis, units,
-additivity, valid breakdowns, limitations, owner, and intended use. These are business
-decisions; passing a Marivo check cannot make or approve them.
+Readiness is Marivo's technical handoff between the semantic layer and analysis.
+The agent may pause when a required object is incomplete, references something
+unknown, or lacks current validation and preview evidence for the requested task.
 
-## What readiness proves
+A readiness pause does not mean the analysis question is invalid. It means the
+agent should resolve a named semantic or technical gap before querying data.
 
-Readiness is the zero-query technical gate between authoring and analysis. It consumes
-fresh static verification and matching scoped runtime-preview evidence for the full
-dependency closure and returns a `ReadinessReport`.
+## How to respond
 
-A new project can `ms.load()` successfully while readiness is still **blocked** —
-loading only parses declarations. A ready report means the declarations and matching
-preview evidence passed the technical handoff checks. It does not mean a business owner
-approved the metric definition, filters, exclusions, units, or intended use.
+Most readiness issues belong to the agent: it can repair declarations, refresh
+the relevant evidence, and rerun the scoped check through `marivo-semantic`.
+You only need to step in when the fix requires a business decision, such as the
+meaning of a metric, an inclusion rule, or the correct time axis.
 
-## Copyable agent request
+Confirm or correct that business choice, then let the agent continue. You do
+not need to request validation, preview, dependency traversal, or report fields
+individually.
 
-```text
-Use the marivo-semantic skill to verify and preview this metric with the current bounded snapshot, then run readiness only for the metric and its dependency closure. Show me every blocker and warning, whether the verification and preview evidence is fresh and matches this scope, and the resulting readiness report. Treat ready only as technical handoff evidence: it is not business approval and does not give you permission to change the metric's meaning.
-```
+## What ready means
 
-## How the agent hands off
+`ready` means the required semantic objects have current technical handoff
+evidence for the requested scope. It does not approve the business definition,
+guarantee every future query, or decide whether a conclusion is suitable for a
+business decision.
 
-The agent uses the same explicitly bounded snapshot gathered during authoring, repairs
-one object at a time, and resolves every blocker before passing a ref to an analysis
-session:
-
-```python
-import marivo.semantic as ms
-
-catalog = ms.load()
-revenue = catalog.get("metric.sales.revenue")
-catalog.verify_object(revenue).show()
-catalog.preview(revenue, using=snapshot).show()
-report = catalog.readiness(refs=[revenue])
-if report.status == "blocked":
-    report.show()                        # bounded card: each blocker + its next step
-    raise SystemExit("resolve readiness blockers before analysis")
-```
-
-The user reviews the proposed business contract alongside this report. Only after
-business approval and a non-blocked scoped report does the agent hand the object to
-`marivo-analysis`.
+The sections below document the report and API behavior for readers who need
+to inspect the technical contract.
 
 ## Zero-query closeout after scoped runtime evidence
 

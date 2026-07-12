@@ -43,63 +43,35 @@ Semantic objects are Python source files under `models/` and belong in version c
 Git makes declarations reviewable and shareable. It does not grant business
 approval or prove current data is ready.
 
-## What the user must confirm
+## Work with the agent on business meaning
 
-The user owns semantic approval. Before the metric enters analysis, confirm every
-business choice that affects its interpretation:
+The agent can inspect datasource evidence, draft semantic objects, validate
+them, and explain unresolved choices. You remain responsible for deciding
+whether a metric represents the business outcome you intend to analyze.
 
-| Contract part | User responsibility | Agent responsibility |
-| --- | --- | --- |
-| Definition and non-definition | State what the number means and what it must not represent. | Record the approved wording in `ai_context`; do not broaden it. |
-| Row population | Approve which business events or records belong in the metric. | Trace the proposed population to declarations and evidence. |
-| Filters | Approve required predicates and when they apply. | Make them explicit rather than inferring them from names or values. |
-| Exclusions, refunds, cancellations | Decide each treatment, including edge cases and test data. | Surface observed fields or values that make the decision necessary. |
-| Time axis | Approve the business event time, timezone, and meaningful grains. | Verify the physical encoding and represent the approved axis as a time dimension. |
-| Units | Approve currency or other unit and any conversion policy. | Preserve the approved unit through measures and metrics. |
-| Additivity | Decide where summing or folding remains valid. | Use the matching additivity declaration and report unsupported use. |
-| Valid breakdowns | Approve which dimensions may segment the number. | Verify the referenced dimensions and encode guardrails for invalid cuts. |
-| Limitations | Accept known coverage, freshness, quality, or interpretation limits. | Keep limitations visible in guardrails and review evidence. |
-| Owner | Name the person accountable for semantic correctness. | Record the owner and return unresolved decisions to that person. |
+When asking the agent to create or revise a metric, share the rules that matter
+to the business: important inclusions or exclusions, the relevant event time,
+the unit, and known limits on how the metric may be used. You do not need to
+translate those rules into Marivo fields or Python.
 
-## What the agent can establish from evidence
+For example:
 
-Using the `marivo-semantic` skill, an agent can inspect physical extent, partition
-state, schema, and execution capabilities; choose an explicitly bounded scope; sample
-once; and reuse query-free snapshot projections. It can compare that evidence with
-`md.help(...)`, `ms.help(...)`, existing catalog objects, project facts, source
-provenance, and prior user decisions.
+> Add a completed-order revenue metric for this project. Exclude cancelled and
+> fully refunded orders, use the order completion time, and ask me about any
+> business rule that cannot be established from the project.
 
-Evidence can establish physical types, observed values, and whether a proposed object
-passes static verification and scoped preview. It cannot establish business meaning,
-primary-key intent, uncommon formats, timezone, aggregation, unit, additivity,
-relationship cardinality, or policy from observation alone. When one required semantic
-decision is missing, the agent asks one evidence-grounded question and stops.
+The agent uses `marivo-semantic` to inspect evidence and handle the authoring
+workflow. Review the proposed definition in business terms: does it measure the
+right outcome, and are the important boundaries visible? Correct the meaning
+before approving it. Passing validation or readiness does not approve the
+business definition on your behalf.
 
-## Copyable agent request
+## When the agent should pause
 
-```text
-Use `marivo-semantic` to create or change the semantic objects needed for this
-business goal. Inspect existing definitions first, and ask me when a definition
-requires a business decision. Show me the metric definition I need to approve,
-and stop before analysis.
-```
-
-## Review a proposed metric
-
-Before approving an agent-authored metric, review its declaration, `details().show()`,
-matching preview, and scoped readiness report together:
-
-- [ ] The definition and non-definition match the decision the metric will support.
-- [ ] Row population, filters, exclusions, refunds, and cancellations are explicit.
-- [ ] The time axis, timezone, units, and additivity are approved.
-- [ ] Every valid breakdown is supported; invalid breakdowns are constrained.
-- [ ] Limitations and guardrails are visible and specific.
-- [ ] The named owner accepts the contract and its intended use.
-- [ ] Preview uses the same explicitly bounded snapshot gathered for authoring.
-- [ ] Readiness has no blockers for the metric's dependency closure.
-
-A `ready` result is technical handoff evidence, not business approval. If the contract
-is wrong, change the declaration even when verification and readiness pass.
+The agent should ask for input when available evidence cannot settle a business
+choice or when two plausible definitions would produce materially different
+results. Technical declaration details, previews, and readiness checks do not
+need separate user instructions.
 
 ## How Marivo represents the contract
 
