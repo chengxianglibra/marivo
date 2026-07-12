@@ -25,6 +25,10 @@ def _fake_uname(bin_dir: Path) -> None:
     )
 
 
+def _fake_unsupported_python(bin_dir: Path, name: str) -> None:
+    _write_executable(bin_dir / name, "#!/usr/bin/env bash\nexit 1\n")
+
+
 def _fake_python(
     bin_dir: Path,
     name: str = "python3",
@@ -178,6 +182,8 @@ def installer_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     log = tmp_path / "commands.log"
     log.touch()
     _fake_uname(bin_dir)
+    for name in ("python3.14", "python3.13", "python3.12"):
+        _fake_unsupported_python(bin_dir, name)
     env = os.environ.copy()
     env.update(
         {
@@ -309,6 +315,29 @@ def test_uses_uv_managed_python_when_local_python_is_too_old(
     log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
     assert "uv:python install 3.12" in log
     assert "uv:python find --managed-python 3.12" in log
+
+
+def test_ignores_host_versioned_python_candidates(
+    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
+) -> None:
+    bin_dir, env = installer_env
+    host_bin = tmp_path / "host-bin"
+    managed_dir = tmp_path / "managed"
+    host_bin.mkdir()
+    managed_dir.mkdir()
+    managed_python = _fake_python(managed_dir, "python")
+    _fake_python(bin_dir, default_version="3.11")
+    host_python = _fake_python(host_bin, "python3.12")
+    _fake_uv(bin_dir)
+    env["FAKE_MANAGED_PYTHON"] = str(managed_python)
+    env["PATH"] = f"{bin_dir}:{host_bin}:{os.defpath}"
+
+    completed = _run_installer(tmp_path, env, "--yes")
+
+    assert completed.returncode == 0, completed.stderr
+    log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
+    assert "uv:python install 3.12" in log
+    assert f"python:{host_python}:-c" not in log
 
 
 def test_installs_uv_when_no_working_uv_is_available(
