@@ -203,7 +203,7 @@ class Materializer:
                     refs=(semantic_id,),
                     details={"source_kind": source.kind},
                 )
-            csv_kwargs: dict[str, object] = {}
+            csv_kwargs: dict[str, object] = {"columns": dict(source.schema)}
             if not source.header:
                 csv_kwargs["header"] = source.header
             if source.delimiter != ",":
@@ -224,7 +224,7 @@ class Materializer:
                     refs=(semantic_id,),
                     details={"source_kind": source.kind},
                 )
-            json_kwargs: dict[str, object] = {}
+            json_kwargs: dict[str, object] = {"columns": dict(source.schema)}
             if source.format != "auto":
                 json_kwargs["format"] = source.format
             return reader(source.path, **json_kwargs)
