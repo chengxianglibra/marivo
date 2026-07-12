@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
+    from marivo.analysis.intents._attribution_mode import AttributionMode
     from marivo.analysis.intents._shape import SemanticShape
     from marivo.analysis.intents._types import SliceValue
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
@@ -671,7 +672,7 @@ class Session:
         frame: DeltaFrame,
         *,
         axes: list[DimensionInput],
-        mode: Literal["joint", "hierarchy"] | None = None,
+        mode: AttributionMode | None = None,
         analysis_purpose: str | None = None,
     ) -> AttributionFrame:
         """Attribute a DeltaFrame's movement over explicit deterministic axes.

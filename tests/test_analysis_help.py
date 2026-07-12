@@ -93,13 +93,14 @@ def test_execution_operators_remain_help_only() -> None:
     assert "mv.compare" not in out
 
 
-def test_help_attribute_mentions_missing_axis_materialization_without_mode() -> None:
+def test_help_attribute_mentions_missing_axis_materialization_and_multi_axis_mode() -> None:
     out = _capture("attribute").lower()
 
     assert "missing" in out
     assert "materialize" in out
     assert "explicit" in out
-    assert "mode=" not in out
+    assert 'mode="joint"' in out
+    assert 'mode="hierarchy"' in out
     assert "recursive" not in out
 
 

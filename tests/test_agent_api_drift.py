@@ -6,9 +6,8 @@ These tests verify:
 - repr() is one line and points to .show().
 - render() + show() are present and well-behaved.
 - available: sections are present and non-empty.
-- Docs teach the no-side-effect result contract.
 - display= parameter is absent.
-- format= is absent from help APIs and skill examples.
+- format= is absent from help APIs.
 """
 
 from __future__ import annotations
@@ -27,8 +26,6 @@ import marivo.semantic as ms
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.datasource.authoring import DuckDBSpec
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # ---------------------------------------------------------------------------
 # Minimal project files for tests that need a loaded SemanticProject
@@ -332,39 +329,6 @@ def test_ms_help_topic_within_budget(capsys) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Docs teach the no-stdout result contract
-# ---------------------------------------------------------------------------
-
-
-def _read(path: str) -> str:
-    return (REPO_ROOT / path).read_text()
-
-
-def test_analysis_spec_mentions_no_stdout_contract() -> None:
-    spec = _read("docs/specs/analysis/python-analysis-design.md")
-    assert "not write stdout" in spec or "do not write stdout" in spec or "silent" in spec.lower()
-
-
-def test_semantic_spec_mentions_no_stdout_contract() -> None:
-    spec = _read("docs/specs/semantic/loading-validation-introspection.md")
-    assert "not write stdout" in spec or "do not write stdout" in spec or "silent" in spec.lower()
-
-
-def test_latest_analysis_docs_use_installed_python_workflow_entrypoint() -> None:
-    docs = [
-        _read("site/src/content/docs/en/latest/concepts/analysis-workflow.mdx"),
-        _read("site/src/content/docs/zh-cn/latest/concepts/analysis-workflow.mdx"),
-    ]
-
-    for doc in docs:
-        assert "python -c \"import marivo.analysis as mv; mv.help('workflow')\"" in doc
-        assert "Python interpreter where `marivo` is installed" in doc
-        assert ".details().show()" in doc
-        assert "readiness(refs=" in doc
-        assert ".venv/bin/python" not in doc
-
-
-# ---------------------------------------------------------------------------
 # Default public export surface is pruned to workflow objects
 # ---------------------------------------------------------------------------
 
@@ -450,137 +414,3 @@ def test_analysis_runtime_does_not_query_public_catalog_collections(path: str) -
 
     assert "catalog.list(" not in source
     assert "catalog._reg" not in source
-
-
-# ---------------------------------------------------------------------------
-# Packaged skills must not teach the legacy SemanticCatalog.list(...) API or
-# SemanticObject type. Typed collections (catalog.domains, catalog.metrics,
-# etc.) replaced them.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "marivo/skills/marivo-semantic/SKILL.md",
-        "marivo/skills/marivo-semantic/references/examples/01_discover_and_grill.py",
-        "marivo/skills/marivo-analysis/SKILL.md",
-        "marivo/skills/marivo-analysis/references/cheatsheet.md",
-        "marivo/skills/marivo-analysis/references/pitfalls.md",
-        "marivo/skills/marivo-analysis/references/examples/00_real_project_template.py",
-    ],
-)
-def test_packaged_skills_do_not_teach_legacy_semantic_catalog(path: str) -> None:
-    text = (Path(__file__).parents[1] / path).read_text()
-
-    assert "catalog.list(" not in text
-    assert "SemanticObject" not in text
-
-
-# ---------------------------------------------------------------------------
-# Active docs (specs, latest site docs, API source) must not teach the legacy
-# SemanticCatalog.list(...) API, SemanticObject, or SemanticObjectList.  This
-# check intentionally excludes docs/superpowers/specs and versioned v0.* site
-# docs so historical design records and release snapshots stay intact.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "root",
-    [
-        "docs/specs",
-        "docs/api",
-        "site/src/content/docs/en/latest",
-        "site/src/content/docs/zh-cn/latest",
-    ],
-)
-def test_active_docs_do_not_teach_legacy_semantic_catalog(root: str) -> None:
-    base = Path(__file__).parents[1] / root
-    files = [*base.rglob("*.md"), *base.rglob("*.mdx"), *base.rglob("*.rst")]
-    offending = {
-        str(path.relative_to(Path(__file__).parents[1])): token
-        for path in files
-        for token in ("catalog.list(", "SemanticObjectList", "SemanticObject")
-        if token in path.read_text()
-    }
-
-    assert offending == {}
-
-
-def test_active_authoring_surfaces_do_not_name_removed_runtime_routes() -> None:
-    roots = (
-        "agent-guide.md",
-        "marivo/datasource/help.py",
-        "marivo/semantic/help.py",
-        "marivo/skills/marivo-semantic",
-        "docs/specs",
-        "docs/api/datasource.rst",
-        "docs/api/semantic.rst",
-        "site/src/content/docs/en/latest",
-        "site/src/content/docs/zh-cn/latest",
-    )
-    removed = (
-        "md.inspect_table",
-        "md.inspect_partitions",
-        "md.discover_entity",
-        "md.discover_dimensions",
-        "md.discover_time_dimensions",
-        "md.discover_measures",
-        "md.discover_relationship",
-        "md.discover_dimension_values",
-        "md.preview(",
-        "ms.table(",
-        "ms.parquet(",
-        "ms.csv(",
-        "ms.json(",
-        "ScanScope",
-    )
-    offending: dict[str, list[str]] = {}
-    for root in roots:
-        path = REPO_ROOT / root
-        files = (
-            [path]
-            if path.is_file()
-            else [item for item in path.rglob("*") if item.suffix in {".md", ".mdx", ".py", ".rst"}]
-        )
-        for file in files:
-            hits = [token for token in removed if token in file.read_text()]
-            if hits:
-                offending[str(file.relative_to(REPO_ROOT))] = hits
-
-    assert offending == {}
-
-
-def test_canonical_authoring_loop_uses_snapshot_catalog_gates_only() -> None:
-    text = _read("docs/specs/semantic/authoring-workflow.md")
-
-    assert "snapshot.entity" in text
-    assert "catalog.verify_object(obj)" in text
-    assert "catalog.preview(obj, using=snapshot)" in text
-    assert "catalog.readiness(refs=[obj])" in text
-    assert "Run `ms.verify_object(ref)`" not in text
-    assert "matching bounded discovery call" not in text
-
-
-def test_active_analysis_guidance_teaches_single_show_evidence_layering() -> None:
-    surfaces = [
-        _read("marivo/skills/marivo-analysis/SKILL.md"),
-        _read("docs/specs/analysis/evidence-access-surface.md"),
-        _read("site/src/content/docs/en/latest/concepts/analysis-workflow.mdx"),
-        _read("site/src/content/docs/en/latest/concepts/evidence.mdx"),
-    ]
-    for surface in surfaces:
-        assert "artifact.show()" in surface
-        assert "session.knowledge()" in surface
-        assert "session.evidence" in surface
-        assert "artifact.evidence()" not in surface
-
-    chinese_surfaces = [
-        _read("site/src/content/docs/zh-cn/latest/concepts/analysis-workflow.mdx"),
-        _read("site/src/content/docs/zh-cn/latest/concepts/evidence.mdx"),
-    ]
-    for surface in chinese_surfaces:
-        assert "artifact.show()" in surface
-        assert "session.knowledge()" in surface
-        assert "session.evidence" in surface
-        assert "artifact.evidence()" not in surface

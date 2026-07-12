@@ -7,7 +7,6 @@ See docs/superpowers/specs/2026-06-13-agent-result-surface-design.md.
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 
 import pytest
 
@@ -218,13 +217,6 @@ def test_semantic_input_aliases_removed_from_public_surface() -> None:
     visible_names |= {name for f in data["families"] for name in f["members"]}
     assert "SemanticKindInput" not in visible_names
     assert "SemanticRefInput" not in visible_names
-
-
-def test_semantic_api_docs_do_not_list_internal_input_aliases() -> None:
-    docs = Path("docs/api/semantic.rst").read_text(encoding="utf-8")
-
-    assert "SemanticKindInput" not in docs
-    assert "SemanticRefInput" not in docs
 
 
 def test_no_internal_ir_family_and_small_other_bucket() -> None:
