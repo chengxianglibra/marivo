@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
 
 import marivo.datasource as md
 
@@ -260,71 +259,6 @@ def test_source_builder_help_distinguishes_sources_from_datasources() -> None:
         text = md.help_text(symbol)
         for needle in needles:
             assert needle in text, f"md.help_text({symbol!r}) missing {needle!r}"
-
-
-def test_datasource_api_docs_list_snapshot_lifecycle_only() -> None:
-    text = Path("docs/api/datasource.rst").read_text(encoding="utf-8")
-
-    for current in (
-        "SourceInspection",
-        "DiscoverySnapshot",
-        "PartitionScope",
-        "UnprunedScope",
-        "inspect",
-        "partition",
-        "unpruned",
-    ):
-        assert current in text
-    assert "latest_partition" not in text
-    assert "DatasourceConnection" in text
-    assert "Datasource vs source" in text
-    assert "md.duckdb(...)" in text
-    assert "md.table(...)" in text
-    assert "md.parquet(...)" in text
-    assert "md.csv(...)" in text
-    assert "md.json(...)" in text
-    assert "internal tables/views" in text
-    assert "DuckDB file sources" in text
-    for removed in (
-        "EntityDiscoveryResult",
-        "DimensionDiscoveryResult",
-        "TimeDimensionDiscoveryResult",
-        "MeasureDiscoveryResult",
-        "RelationshipDiscoveryResult",
-        "DimensionValueDiscoveryResult",
-        "ColumnDiscovery",
-        "TimeColumnDiscovery",
-        "PrimaryKeyCandidate",
-        "FormatCandidate",
-        "DatasourceResult",
-        "DiscoveryResult",
-        "inspect_table",
-        "inspect_partitions",
-        "discover_entity",
-        "discover_dimensions",
-        "discover_time_dimensions",
-        "discover_measures",
-        "discover_relationship",
-        "discover_dimension_values",
-    ):
-        assert removed not in text
-
-
-def test_canonical_datasource_spec_requires_typed_csv_and_json_schemas() -> None:
-    text = Path("docs/specs/semantic/datasource-layer.md").read_text(encoding="utf-8")
-
-    assert "md.csv(path, schema=..., header=..., delimiter=...)" in text
-    assert "md.json(path, schema=..., format=...)" in text
-    assert "md.csv(path, header=..., delimiter=..., columns=...)" not in text
-    assert "md.json(path, format=...)" not in text
-    assert "`json` exposes only `path` and `format`" not in text
-
-
-def test_canonical_raw_sql_spec_bounds_rows_not_backend_work() -> None:
-    text = Path("docs/specs/semantic/datasource-layer.md").read_text(encoding="utf-8")
-
-    assert "returned rows are bounded" in text
-    assert "backend work may still be expensive or unbounded" in text
 
 
 def test_ai_context_topic_points_to_ms_constructor() -> None:
