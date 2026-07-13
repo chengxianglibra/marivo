@@ -438,6 +438,18 @@ fingerprints, typed repair objects, and live discovery ergonomics is named
 future work under **semantic live-surface alignment**; it must preserve the
 authoring partial order rather than flatten it into an analysis-style graph.
 
+The separately specified
+[`business semantic object model`](2026-07-13-business-semantic-object-model-design.md)
+will extend this capability kernel when its atomic cutover adds event and
+lifecycle analysis. Those capabilities use canonical ids such as
+`events.sequence`, `events.funnel`, `events.time_to_event`, and
+`lifecycle.dwell`, hosted by the symmetric `session.events.*` and
+`session.lifecycle.*` namespaces. It does not add a flat
+`session.time_to_event` alias. This future registry extension belongs to the
+business-model cutover and therefore does not change this interface-only
+release's non-goal of adding operators; that cutover must update registry,
+help, affordances, and coverage tests together.
+
 The CLI change in this design is additive at the product root:
 `marivo --help` must retain discoverable semantic-authoring entry instructions
 while adding `marivo help analysis`. Implementing the analysis adapter must not
