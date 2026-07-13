@@ -270,13 +270,34 @@ responsibility.
 Define only the trigger for each handoff, never the target capability's usage
 instructions:
 
+The exact payload/type names below are design-level live-owner acceptance
+criteria. `SKILL.md` refers conceptually to the handoff exposed by the current
+error or semantic readiness result and follows live help/contract; it does not
+copy field names or method recipes.
+
 | Condition | Handoff |
 | --- | --- |
 | A required business object is missing or must change | `marivo-semantic` |
+| Semantic authoring returns ready refs | The registered analysis semantic-handoff boundary |
 | The task needs terminal custom analysis | The live help's controlled terminal exit |
 | A custom result must re-enter typed analysis | The live help's governed entry |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
+
+The missing-business-object handoff consumes the current analysis error's typed
+`AnalysisRepair.semantic_handoff` payload. That payload is the sole mechanical
+owner of the missing kind/requirement, affected capability, current semantic and
+project context, artifact/evidence lineage, and environment fingerprint. The
+skill preserves and transfers it; it does not reconstruct those fields from
+conversation memory or add a broader catalog-cleanup request.
+
+The returning handoff consumes the semantic readiness result's typed
+`SemanticToAnalysisHandoff`. The skill follows its registered live target and
+does not duplicate the exact method or field recipe. The analysis boundary
+mechanically validates the environment, project/catalog identity, refs,
+readiness, and preview evidence and returns `SemanticHandoffReceipt`; only then
+may the skill resume analysis routing. The receipt does not select an operator
+or record warning acceptance.
 
 ### Closeout obligations
 
@@ -290,8 +311,10 @@ Do not prescribe a report structure. Require only that:
   disclosed;
 - semantic gaps that weakened or blocked the task are named and handed back to
   semantic authoring;
-- absolute interpreter and package paths from the environment fingerprint do
-  not enter user-facing reports or deliverables. Internal diagnostic logs and
+- absolute interpreter and package paths remain available only to the live
+  in-memory validator and explicit environment-authority diagnostics. Ordinary
+  handoff/receipt renders mask them, and they do not enter persisted analysis
+  state, user-facing reports, or deliverables. Internal diagnostic logs and
   evaluator transcripts may retain them.
 
 ## Information Flow
@@ -316,7 +339,7 @@ The skill does not provide fallback implementations.
 
 | Situation | Required behavior |
 | --- | --- |
-| Missing or ambiguous semantic object | Stop the affected analysis branch and hand off to semantic authoring |
+| Missing or ambiguous semantic object | Distinguish invalid lookup from genuine absence; for genuine absence stop the affected branch and transfer the typed semantic-authoring handoff |
 | Invalid API, shape, parameter, or operator | Follow the current structured error and live help; do not use a skill-cached workaround |
 | Result-impacting blocker | Repair it, weaken the conclusion explicitly, or stop; never silently emit a stronger claim |
 | Session or artifact cannot be recovered | Use the live recovery surface and disclose evidence-chain loss if recovery still fails |
@@ -416,6 +439,12 @@ rewrite of historical records.
   one package's help to guide another package's runtime.
 - A missing metric causes a semantic-authoring handoff rather than raw-field
   redefinition.
+- The semantic-authoring handoff preserves its typed requirement, affected
+  capability, project/semantic context, artifact/evidence lineage, and
+  environment fingerprint without skill reconstruction.
+- The returning semantic handoff is mechanically validated by the registered
+  analysis boundary before analysis resumes; the skill neither reconstructs
+  nor treats the payload as proof of warning acceptance.
 - A result-impacting blocker prevents an unqualified strong conclusion.
 - An API change is resolved from current help/errors rather than cached skill
   text.

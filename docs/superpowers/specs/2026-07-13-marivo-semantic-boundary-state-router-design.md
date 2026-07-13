@@ -1,6 +1,6 @@
 # Marivo Semantic Boundary State-Router Design
 
-Status: Approved design, pending written-spec review
+Status: follow-up review revisions integrated; pending written-spec re-review
 
 Date: 2026-07-13
 
@@ -36,7 +36,7 @@ live md/ms surface
     what capabilities exist
     what inputs, outputs, prerequisites, and effects they have
     what state the current object is in
-    what transitions are mechanically legal
+    what calls are mechanically available from current typed state
     what typed repair can resolve a mechanical blocker
 
 marivo-semantic skill
@@ -47,17 +47,18 @@ marivo-semantic skill
     when and how to hand off to analysis
 
 agent
-    interprets evidence, drafts explicit Python, and chooses legal transitions
+    interprets evidence, drafts explicit Python, and chooses mechanical continuations allowed by policy
 
 user or business owner
     decides unresolved business meaning and accepts semantic caliber
 ```
 
 The skill may name stable conceptual phases and live entry points. It must not
-reconstruct the current package's legal transition set from prose. If skill
-text and a matching environment's registered mechanical contract disagree, the
-candidate is invalid and must be fixed; the agent must not silently choose one
-source.
+reconstruct the current package's mechanical input/effect contract from prose.
+The live surface does not persist verify-before-preview as a runtime gate; that
+edge is intentionally skill policy. A disagreement exists only when runtime
+facts contradict registered mechanical requirements or effects, not merely
+because a call is mechanically available before the skill permits choosing it.
 
 This semantic-authoring cutover follows the analysis live-interface cutover,
 which supplies the shared introspection and environment-authority foundation.
@@ -157,7 +158,7 @@ Everything else is either a live Marivo fact, agent judgment, or user decision.
 ### Activation-only skill
 
 The skill would only say to verify the environment, open live semantic help,
-and follow result transitions.
+and follow object-near contracts.
 
 This is maximally small, but it does not protect the semantic track's essential
 boundaries: evidence before meaning, dependencies before dependents, one object
@@ -191,11 +192,11 @@ or planner stage, and hides decision provenance. It is rejected.
 
 ## Design Goals
 
-### Preserve real order without prescribing a business model
+### Preserve policy order without prescribing a business model
 
-The skill protects mechanical prerequisites and policy gates. It does not say
-that every project needs every object family or choose the next semantic object
-from a schema.
+The skill protects runtime-reported mechanical prerequisites and its own policy
+gates. It does not say that every project needs every object family or choose
+the next semantic object from a schema.
 
 ### Resume from current state
 
@@ -207,8 +208,8 @@ with a fresh-project example.
 ### Keep the installed package authoritative
 
 The skill enters through a matching environment fingerprint and uses live help,
-result transitions, and typed repair for all mechanical facts. It contains no
-fallback API memory.
+object/result contracts, and typed repair for all mechanical facts. It contains
+no fallback API memory.
 
 ### Preserve evidence continuity
 
@@ -345,10 +346,11 @@ The routing loop is conceptual and stable:
 verify environment authority
     -> inspect current project/runtime state
     -> identify the earliest unsatisfied required boundary for one object
-    -> read focused live help or the current result/error transition
+    -> read the current object/result contract or structured error repair
+    -> use focused live help for the selected capability's exact call
     -> inspect the target effect before invoking it
     -> invoke one explicit capability
-    -> read the returned state, transition, or typed repair
+    -> read returned content plus its object-near contract, or typed repair
     -> preserve or explicitly invalidate evidence lineage
     -> repeat until one object is ready, one user decision is required, or work is blocked
 ```
@@ -360,11 +362,14 @@ not choose which new object a project should have.
 The router prefers object-near live guidance:
 
 1. current structured error repair;
-2. current result transitions;
+2. current object/result `.contract()`;
 3. focused help for the target capability;
 4. root help only when no canonical target is known.
 
 It never substitutes memorized API syntax when the live surface is available.
+Mechanical availability is not policy permission. In particular, the agent
+must complete and read static verification before choosing preview even when
+focused help shows that preview is callable from a loaded object.
 
 ### Durable partial order
 
@@ -385,6 +390,11 @@ readiness before analysis handoff
 The live surface declares which object families require static-only,
 single-snapshot, snapshot-mapping, or future preview modes. The skill does not
 hardcode object-family exceptions.
+
+Verify-before-preview is always a skill-owned policy edge for preview-required
+families. No verification acknowledgement or persisted verification token is
+expected from runtime, the runtime does not mechanically enforce that ordering,
+and readiness performs its own current static checks.
 
 Catalog browse is a behavior rule, not a fake runtime state gate. Marivo does
 not require an acknowledgement that an agent read catalog output.
@@ -409,19 +419,40 @@ multiple evidence inputs, but the authored unit remains one object.
 
 ## Evidence And Judgment Protocol
 
-### Evidence ladder
+### Evidence collection order
 
-Before asking a user or drafting business meaning, the agent checks available
-sources in this order:
+Before asking a user or drafting business meaning, the agent checks every
+relevant source already available in scope:
 
-1. current live constructor/constraint contract;
-2. existing catalog and project definitions;
-3. current datasource inspection and exact snapshot evidence;
-4. source comments, provenance, and project documentation already in scope;
-5. prior explicit user or business-owner decisions.
+1. current live constructor and constraint contract for mechanical legality;
+2. prior explicit user or accountable business-owner decisions;
+3. existing approved catalog and project definitions;
+4. source comments, provenance, and project documentation;
+5. current datasource inspection and exact snapshot observations.
 
-This is an evidence-priority rule, not an API sequence. The live surface owns
-how each source is accessed.
+This is a collection order, not an API sequence or a rule that later physical
+evidence overrides earlier business authority. The live surface owns how each
+source is accessed. The agent still exhausts relevant available evidence before
+asking a question so it can detect conflicts and avoid asking for observable
+facts.
+
+### Authority precedence
+
+Different sources answer different questions:
+
+1. the live contract is authoritative for mechanical validity only;
+2. an explicit accountable business-owner decision is authoritative for
+   business meaning;
+3. an existing approved project definition is adopted semantic context unless
+   a newer accountable decision changes it;
+4. source comments, provenance, and project documentation are supporting
+   business evidence whose authority must be identifiable;
+5. inspection and snapshot results are authoritative only for the physical
+   observations they actually measured.
+
+When sources conflict, the agent does not silently select the highest-looking
+technical source or overwrite an existing business decision. It names the
+conflict in the one-question grill stop and requests accountable resolution.
 
 ### Technical handling
 
@@ -453,7 +484,8 @@ must not supply a guessed value.
 
 ### One-question grill stop
 
-If exactly one business decision remains after the evidence ladder, the agent:
+If exactly one business decision remains after the evidence-collection and
+authority passes, the agent:
 
 1. names one object and one unresolved judgment target;
 2. summarizes the directly relevant evidence and provenance;
@@ -543,10 +575,20 @@ function names.
 
 ## Handoffs
 
+The exact type and field names below specify live-owner acceptance, not prose
+to copy into `SKILL.md`. The packaged skill says conceptually “when the current
+analysis error exposes a semantic handoff” and “when semantic readiness exposes
+an analysis handoff,” then follows object-near contract/help. Exact names such
+as `AnalysisRepair.semantic_handoff` and
+`ReadinessReport.analysis_handoff` remain discoverable from the installed live
+surface, preserving the skill-content ban on exact result fields.
+
 ### Analysis to semantic
 
 When analysis reports that a required business object genuinely does not
-exist, the analysis boundary activates this skill with:
+exist, the analysis boundary activates this skill with the current
+`AnalysisRepair.semantic_handoff` payload. Its typed
+`AnalysisToSemanticHandoff` carries:
 
 - the missing semantic kind or requirement;
 - affected analysis branch or intent;
@@ -554,24 +596,34 @@ exist, the analysis boundary activates this skill with:
 - evidence/artifact lineage that must be preserved;
 - the authoritative environment fingerprint.
 
-The semantic skill does not broaden the request into general catalog cleanup.
-It authors or repairs only the object required for the blocked analysis branch,
-then obtains scoped readiness.
+The semantic skill does not reconstruct these fields from conversation memory
+or broaden the request into general catalog cleanup. It authors or repairs the
+smallest dependency-closed set required for the blocked analysis branch, one
+object and validation cycle at a time, then obtains scoped readiness.
 
 ### Semantic to analysis
 
-The handoff occurs only when the live readiness result marks the required refs
-analysis-ready. The handoff carries:
+The handoff occurs only when the live readiness result exposes a non-`None`
+`ReadinessReport.analysis_handoff`. Its typed `SemanticToAnalysisHandoff` carries:
 
 - exact ready typed refs;
 - project/catalog fingerprint;
 - environment fingerprint;
-- readiness status and accepted warnings;
+- readiness status and current warning ids;
 - snapshot/preview evidence identity required by the live contract;
 - any remaining non-blocking caveats.
 
-The skill does not teach analysis operators or choose the analysis path. It
-activates `marivo-analysis` and transfers the governed inputs.
+The skill does not construct this payload, teach analysis operators, or choose
+the analysis path. It activates `marivo-analysis`, follows the returning
+handoff's live target, and transfers the governed inputs exactly as recorded by
+readiness. Analysis resumes only after its query-free boundary returns a
+`SemanticHandoffReceipt`; fingerprint, ref, readiness, or preview-evidence
+rejection routes back through typed repair.
+
+A `ready_with_warnings` payload reports warnings; it does not prove that the
+runtime captured user or agent acceptance. Before transferring that payload,
+the skill explicitly discloses the warnings and applies its proceed-or-stop
+policy.
 
 ### User-decision handoff
 
@@ -621,12 +673,14 @@ A blocked closeout states:
 | Static verification fails | Repair and reverify the same object |
 | Required preview is missing or stale | Run or repair scoped preview before readiness |
 | Readiness is blocked | Follow typed repair; do not hand off the blocked ref |
-| Analysis needs an absent object | Author only that governed requirement, then return after readiness |
-| Runtime suggests a transition that violates registered order | Treat candidate as internally inconsistent; stop and report the contract defect |
+| Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then return after readiness |
+| Runtime transition contradicts its registered input, state, target-surface, or effect facts | Treat candidate as internally inconsistent; stop and report the contract defect |
 
 The last row prevents the skill from becoming an invisible compatibility shim.
-It may detect a contradiction, but it must not teach agents a permanent
-workaround for an incorrect live surface.
+Mechanical availability before a skill policy edge, including preview before
+explicit verification, is not such a contradiction; the skill simply does not
+choose the call yet. A real registered-fact contradiction is reported without a
+permanent workaround.
 
 ## Content Disposition
 
@@ -636,7 +690,7 @@ workaround for an incorrect live surface.
 | --- | --- |
 | Trigger and semantic-vs-analysis boundary | Retain in skill |
 | Ownership statement | Retain, shortened |
-| Exact help/browse/inspect/sample calls | Live help and result transitions |
+| Exact help/browse/inspect/sample calls | Live help and object/result contracts |
 | Conceptual partial order | Retain in skill |
 | Constructor/object dependency facts | Live registry and semantic help |
 | One-object validation discipline | Retain in skill |
@@ -703,8 +757,9 @@ Historical versioned docs and historical release notes remain unchanged.
 
 After cutover, active documentation uses the same ownership statement:
 
-> Environment-verified datasource and semantic surfaces own API facts, current
-> state, legal transitions, effects, and repair. The `marivo-semantic` skill
+> Environment-verified datasource and semantic surfaces own API facts,
+> observable state, mechanically available calls, orthogonal effects, and
+> repair. The `marivo-semantic` skill
 > owns ordered routing discipline, evidence and safety boundaries, the
 > one-question business-decision protocol, and ready-only handoff. The agent
 > owns technical drafting; the user or business owner owns unresolved meaning.
@@ -716,6 +771,8 @@ No active guide may say that:
   registry;
 - evidence projections recommend semantic meaning;
 - verify success permits skipping a required preview;
+- verify-before-preview is a persisted runtime checkpoint rather than skill
+  policy;
 - readiness can be inferred from skill completion;
 - analysis may consume an unready ref;
 - cumulative or future business object semantics live in packaged skill
@@ -728,6 +785,8 @@ No active guide may say that:
 - The packaged semantic skill contains exactly one `SKILL.md`.
 - No `references/`, examples, attachment runner, redirect, or placeholder
   remains.
+- Nested example support files, including the current
+  `references/examples/_support/` tree, are deleted with the attachment tree.
 - Package manifests and installation tests include the root file and exclude
   deleted paths.
 
@@ -740,6 +799,7 @@ Structural tests assert the presence of:
 - durable partial order;
 - one-object loop;
 - evidence-before-question rule;
+- business-authority precedence and conflict stop;
 - one-question grill stop;
 - scope, privacy, evidence, and judgment boundaries;
 - readiness-only analysis handoff;
@@ -763,7 +823,8 @@ capitalization-sensitive phrases.
 
 Before deleting each attachment, inventory every retained fact and prove its
 live target exists in the candidate package. Every runtime constraint, error,
-transition, and repair help target resolves without a skill path.
+transition, and repair help target resolves through its declared live surface
+without a skill path. Cross-track cases carry complete typed handoff payloads.
 
 ### Behavioral scenarios
 
@@ -830,10 +891,12 @@ it must not fail because deleted skill examples no longer exist.
 
 ### Ownership consistency
 
-- Installed live surfaces own signatures, effects, states, transitions, and
-  typed repair.
+- Installed live surfaces own signatures, orthogonal effects, observable states,
+  mechanical continuations, and typed repair.
 - The skill owns partial-order discipline and hard boundaries without
   duplicating those facts.
+- Verify-before-preview is enforced by skill behavior and is not represented as
+  a persisted runtime checkpoint.
 - The agent and user decision rights are explicit.
 - Runtime code and active docs do not use skill files as API documentation.
 
@@ -849,6 +912,8 @@ it must not fail because deleted skill examples no longer exist.
 ### Judgment behavior
 
 - Evidence is exhausted before asking a user.
+- Explicit accountable business decisions outrank project documentation and
+  physical observations for business meaning; conflicts stop for resolution.
 - One unresolved judgment target produces exactly one grounded question.
 - Unsupported options and inferred business defaults are forbidden.
 - Authoring stops while the answer is unresolved.
@@ -858,6 +923,8 @@ it must not fail because deleted skill examples no longer exist.
 - Environment mismatch, unknown effects, unscoped reads, stale evidence,
   dependency blockers, and readiness blockers produce explicit stops or live
   repair.
+- Analysis-to-semantic and semantic-to-analysis crossings preserve their typed
+  handoff payloads without reconstruction from conversation memory.
 - The skill does not hide a defective live transition behind a memorized
   workaround.
 

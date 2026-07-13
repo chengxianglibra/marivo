@@ -1,6 +1,6 @@
 # Marivo Datasource And Semantic Live Interface Surface Design
 
-Status: Approved design, pending written-spec review
+Status: follow-up review revisions integrated; pending written-spec re-review
 
 Date: 2026-07-13
 
@@ -24,11 +24,13 @@ The redesigned surface will:
   types, runtime objects, results, and structured errors;
 - derive signatures and callable facts from live Python objects instead of a
   second hand-written constructor catalog;
-- expose one closed partial order from datasource declaration through scoped
-  semantic readiness without executing that order automatically;
-- classify every authoring capability by data access and side effect;
-- make current results and errors expose canonical legal transitions and typed
-  repair rather than free-form `next_calls` or `suggested_action` strings;
+- separate runtime-observable states and mechanically available calls from the
+  ordered policy edges enforced by the state-router skill;
+- classify every authoring capability on independent data-access, connection,
+  mutation, and guard axes;
+- make current objects/results expose canonical mechanical continuations
+  through `.contract()` and errors expose typed repair rather than free-form
+  `next_calls` or `suggested_action` strings;
 - remove packaged skill files as runtime documentation dependencies;
 - keep physical evidence separate from semantic judgment;
 - provide CLI and Python adapters over the same installed registry and
@@ -52,7 +54,7 @@ The ownership split is:
 
 ```text
 Marivo live datasource/semantic surface
-    owns API facts, current state, legal transitions, effects, and repair mechanics
+    owns API facts, observable state, mechanically available calls, effects, and repair mechanics
 
 marivo-semantic skill
     owns ordered routing discipline, hard boundaries, judgment protocol, and handoffs
@@ -64,10 +66,15 @@ user or business owner
     owns unresolved business meaning and acceptance of semantic caliber
 ```
 
-The surface owns **which transitions exist and what they require**. The skill
-owns **when and under what discipline an agent should traverse them**. The
-skill must not hardcode signatures or reconstruct legal transitions from prose.
-The surface must not choose a semantic object, recommend business meaning, or
+The surface owns **which calls are mechanically available from current typed
+state and what they require**. The skill owns **which policy edge must be
+satisfied before the agent chooses one of those calls**. In particular,
+verify-before-preview is skill policy: Marivo exposes verification and preview
+facts but does not persist a fake verification checkpoint or claim that preview
+is mechanically impossible before an explicit verify call. It is not
+mechanically enforced by the runtime. The skill must not
+hardcode signatures or reconstruct mechanical requirements from prose. The
+surface must not choose a semantic object, recommend business meaning, or
 auto-run the authoring route.
 
 The two designs ship as one coordinated cutover. The packaged skill and its
@@ -90,10 +97,12 @@ This design reuses the shared introspection foundation specified by
 - private numeric output and suggestion limits.
 
 It does not reuse the analysis capability topology. Analysis exposes several
-unordered mechanically legal branches. Semantic authoring has a real partial
+unordered mechanically legal branches. Semantic authoring has a real **policy**
 order: evidence precedes evidence-backed authoring, dependencies precede
-dependents, static verification precedes runtime preview, and readiness
-precedes analysis handoff.
+dependents, static verification precedes runtime preview, required preview
+precedes readiness, and readiness precedes analysis handoff. The live surface
+enforces only prerequisites it can prove from current typed state; the
+companion skill owns the remaining ordered discipline.
 
 The analysis cutover removes `mv.help("workflow")`. The current semantic
 authoring help points to that target, so the analysis cutover must update the
@@ -193,8 +202,8 @@ Generic dataclass reflection exposes every field, including private
 implementation fields such as `_project_root`, `_details`, and `_catalog`.
 Public result and catalog wrapper types are consumed from Marivo operations;
 agents do not construct them directly. Their help should emphasize producers,
-public properties, public methods, current-state readers, and legal consumers,
-not internal constructor storage.
+public properties, public methods, current-state readers, and mechanically
+compatible consumers, not internal constructor storage.
 
 ### Dynamic guidance does not close the ordered loop
 
@@ -256,7 +265,8 @@ repairs. Render that registry through the existing `md.help(...)` and
 `ms.help(...)` Python adapters and through native CLI adapters.
 
 The registry is descriptive, not executable orchestration. It can state that a
-successful static verification plus scoped snapshot permits preview. It cannot
+loaded object plus the exact scoped snapshot inputs makes preview mechanically
+callable. It cannot choose preview before the skill-required verification,
 choose which object to author, ask a business question, acquire data on the
 agent's behalf, or advance to readiness automatically.
 
@@ -273,13 +283,13 @@ not solve the observed verify/preview/readiness contradiction.
 
 ### Live authoring-state surface — selected
 
-Make the installed package the authority for static facts, current state,
-legal transitions, effects, and typed repair. Keep the packaged skill as a thin
-policy router over those facts.
+Make the installed package the authority for static facts, observable state,
+mechanically available calls, effects, and typed repair. Keep the packaged
+skill as a thin policy router over those facts.
 
 This requires a coordinated registry and result-contract cutover, but it gives
 every version-sensitive fact one live owner while preserving semantic
-authoring's real partial order.
+authoring's real policy order in the companion skill.
 
 ### Automatic semantic authoring planner
 
@@ -306,7 +316,7 @@ a business decision. It is rejected.
 | Static object validity | `VerifyResult` |
 | Scoped executable evidence | `PreviewResult` |
 | Analysis handoff eligibility | `ReadinessReport` |
-| Legal authoring transitions and effect metadata | private authoring-state registry |
+| Mechanically available calls and effect metadata | private authoring-state registry |
 | Current failed-operation repair | typed error/result repair object |
 | Ordered routing discipline | `marivo-semantic` skill |
 | Evidence interpretation and technical drafting | agent |
@@ -322,16 +332,18 @@ must route version-sensitive calls back to live help.
 
 Signatures come from registered callables. Semantic constraints come from the
 constraint catalog and validators. Current state comes from runtime objects.
-Legal transitions and effects come from one closed registry. Help topics,
+Mechanical continuations and effects come from one closed registry. Help topics,
 results, errors, CLI output, and tests consume those owners instead of copying
 them.
 
-### Preserve the authoring partial order
+### Preserve policy order without inventing runtime checkpoints
 
-The surface makes dependency and validation prerequisites mechanically
-visible. It does not flatten semantic authoring into an unordered analysis-like
-capability graph, and it does not turn the partial order into an automatic
-pipeline.
+The surface makes observable dependency, evidence, preview, and readiness facts
+mechanically visible. The skill preserves evidence-before-drafting,
+dependency-before-dependent, verify-before-preview, and one-object-at-a-time
+discipline where runtime cannot prove that an agent completed an earlier human
+action. Neither layer flattens semantic authoring into an unordered
+analysis-like graph or turns the policy order into an automatic pipeline.
 
 ### Make safety visible before execution
 
@@ -390,7 +402,7 @@ This design does not:
 ```text
 Registered public md/ms callables and types
     + datasource/semantic constraint catalogs
-    + closed effect taxonomy
+    + closed orthogonal effect contract
     + closed authoring-state/transition registry
     + registered error and repair contracts
                          |
@@ -406,26 +418,24 @@ Registered public md/ms callables and types
                     agent invokes public API
                                |
                                v
-             typed runtime result or structured error
+             typed runtime object/result or structured error
                                |
                                v
-            current transitions / typed repair / help target
+       object-near contract / typed repair / help target
 ```
 
 The shared introspection kernel is implementation infrastructure. Public
 ownership remains with `marivo.datasource` and `marivo.semantic`.
 
-## Authoring State Model
+## Observable State And Policy Order
 
-### State families
+### Runtime-observable state families
 
-The registry uses closed state families rather than one mutable global workflow
-status:
+The registry uses closed, subject-bound state families rather than one mutable
+global workflow status:
 
 ```python
 AuthoringStateId = Literal[
-    "environment.verified",
-    "catalog.browsed",
     "datasource.declared",
     "datasource.registered",
     "datasource.connection_validated",
@@ -433,81 +443,103 @@ AuthoringStateId = Literal[
     "scope.explicit",
     "evidence.acquired",
     "evidence.projected",
-    "semantic.authored",
     "semantic.loaded",
     "semantic.verified",
     "semantic.previewed",
     "semantic.ready",
-    "analysis.handoff",
 ]
+
+class AuthoringStateRef(BaseModel):
+    id: AuthoringStateId
+    subject_refs: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
 ```
 
-These are capability and evidence states, not persisted workflow checkpoints.
-An agent may enter with existing project files, snapshots, or catalog objects.
-The runtime derives applicable states from current typed objects and persisted
-evidence; it does not require an agent to acknowledge every earlier label.
+Every state is derivable from a typed object, result, or persisted row-free
+evidence. `semantic.verified` is result-local: a current `VerifyResult` proves
+that one explicit check passed, but it is not persisted as a workflow checkpoint
+and is not a runtime prerequisite for preview. `semantic.previewed` and
+`semantic.ready` carry the semantic/dependency/evidence identity already owned
+by preview and readiness results.
 
-`catalog.browsed` is guidance-visible but not a runtime gate. Marivo cannot
-prove that an agent read a rendered catalog, and it must not add a fake
-acknowledgement flag. The skill requires browse-before-mutation discipline.
+Environment authority, catalog browse, editing Python source, and analysis
+handoff are policy or boundary events, not runtime state ids. Marivo cannot
+prove that an agent compared two fingerprints, read catalog output, or edited a
+file with the intended business meaning. The skill requires those actions and
+the live surface exposes the facts needed to perform them; neither layer writes
+fake acknowledgement state.
 
-### Partial order
+### Mechanically available calls
 
-The mechanically enforced order is:
+The runtime can prove only this availability graph:
 
 ```text
 datasource.declared
-    -> datasource.registered
-    -> source.inspected
-    -> scope.explicit
-    -> evidence.acquired
-    -> evidence.projected
+    -> register
 
 datasource.registered
-    -> datasource.connection_validated
+    -> validate_connection
+    -> inspect a named physical source
 
-dependency semantic.ready
-    -> semantic.authored
-    -> semantic.loaded
-    -> semantic.verified
+source.inspected + scope.explicit
+    -> acquire evidence
 
-semantic.verified
-    -> semantic.previewed -> semantic.ready   # preview-required modes
-    -> semantic.ready                         # static-only mode
+evidence.acquired
+    -> project query-free evidence
+
+edited semantic Python
+    -> load attempt -> semantic.loaded or structured load failure
+
+semantic.loaded
+    -> verify
+    -> preview when the exact registered preview inputs are present
+    -> readiness check
+
+fresh required preview evidence
+    -> readiness may mark the requested refs semantic.ready
 
 semantic.ready
-    -> analysis.handoff
+    -> construct a typed analysis handoff
 ```
 
 Registration is a mechanical prerequisite for current project-backed
-inspection. A dedicated connection-validation round trip is a sibling
-transition from registration, not a universal prerequisite for metadata
-inspection: successful inspection can establish the metadata evidence required
-by authoring without pretending that a separate test call occurred. The live
-capability declares when connection validation is required for a particular
-operation, secret-cache transition, or repair.
+inspection. A dedicated connection-validation round trip is a sibling call from
+registration, not a universal prerequisite for metadata inspection: successful
+inspection can establish the metadata evidence required by authoring without
+pretending that a separate test call occurred. The live capability declares
+when connection validation is required for a particular operation, secret-cache
+mutation, or repair.
+
+Verification and preview remain independent public checks over a loaded object.
+The state-router skill requires verification before a required preview, but
+`catalog.preview(...)` does not consume a `VerifyResult`, and readiness does not
+pretend that a non-persisted verification checkpoint exists. Readiness performs
+its own current static checks and enforces fresh preview evidence for executable
+families.
 
 Not every semantic object requires datasource-backed preview. The registered
-object family declares whether its readiness path is:
+object family declares whether readiness requires:
 
 - `static_only` — no executable datasource relation exists;
-- `single_snapshot` — one exact `DiscoverySnapshot` is required;
+- `single_snapshot` — one exact `DiscoverySnapshot` binding is required;
 - `snapshot_mapping` — an exact entity-keyed mapping is required;
 - a future closed family added by the business semantic object cutover.
 
-The registry, not the skill, owns that distinction. The skill still forbids
-skipping any transition required for the current family.
+The registry, not the skill, owns that mechanical distinction. The skill owns
+the policy rule that every required preview follows an explicit successful
+verification.
 
-### Dependency order
+### Dependency policy
 
-Semantic dependencies form a partial order inside the broader state model. A
-constructor capability declares its required input ref families and produced
-ref family. The registry derives dependency edges from those typed inputs; it
-does not duplicate a prose ladder as the source of truth.
+The registry exposes typed dependency inputs and the loaded dependency closure.
+It does not claim that Marivo can prevent an agent from editing a dependent
+Python declaration before its dependency is ready, and it does not invalidate
+the loader's two-pass forward-reference behavior. The skill enforces
+dependency-before-dependent authoring and validation as a policy edge.
 
 Help may render a teaching order such as domain, entity, properties/measures,
 metrics, relationships, and dependent metrics. The order is navigation, not a
-claim that every project must author every family.
+runtime gate or a claim that every project must author every family.
 
 ## Internal Registry Contract
 
@@ -522,12 +554,11 @@ surface                   datasource | semantic
 public_entrypoint         required for callable/method entries
 callable_identity         required for callable/method entries
 summary
-input_families
+input_requirements
 output_family
 preconditions
-produced_states
-effect
-effect_flags
+produced_state
+effects
 constraints
 minimal_example
 see_also
@@ -536,9 +567,9 @@ see_also
 Transition-producing results and errors additionally register:
 
 ```text
-source_state_family
-target_state_family
-help_target
+required_states
+produced_state
+help_target               shared LiveHelpTarget(surface, canonical_id)
 repair_kinds
 ```
 
@@ -547,15 +578,15 @@ The registry does not contain:
 - question-to-object recommendations;
 - business-semantic defaults;
 - confidence or sufficiency scores;
-- a preferred next transition when several are legal;
+- a preferred next continuation when several are mechanically available;
 - arbitrary Python callbacks that auto-run capabilities;
 - skill prose or site-document URLs as invocation-critical facts.
 
-Transition and boundary entries describe explicit agent-visible crossings that
-are not themselves a single Marivo callable, such as editing one semantic
-source object or handing ready refs to analysis. They still have a canonical
-help target, effect, preconditions, and produced state, but no fake callable
-identity. Marivo never executes those entries automatically.
+Boundary entries describe explicit agent-visible crossings that are not
+themselves a single Marivo callable, such as editing one semantic source object
+or handing ready refs to analysis. They have a namespaced live help target,
+effects, and preconditions but do not claim to produce a runtime state when the
+crossing is an agent action. Marivo never executes those entries automatically.
 
 ### Canonical ids
 
@@ -575,58 +606,80 @@ errors.SemanticLoadError
 boundary.analysis_handoff
 ```
 
-Cross-surface renderers qualify ambiguous links as `datasource:<id>` or
-`semantic:<id>` internally. User-facing Python examples retain `md.` and `ms.`.
-There are no string aliases such as `inspect_source` or `prepare_entity`.
+Cross-surface links use the shared private target value:
+
+```python
+HelpSurface = Literal["analysis", "datasource", "semantic"]
+
+class LiveHelpTarget(BaseModel):
+    surface: HelpSurface
+    canonical_id: str | None = None
+```
+
+`canonical_id=None` means the registered root for that surface. The same value
+is used by analysis, datasource, and semantic repair/handoff contracts; agents
+never infer the owning adapter from an unqualified string. User-facing Python
+examples retain `mv.`, `md.`, and `ms.`. There are no string aliases such as
+`inspect_source` or `prepare_entity`.
 
 For capabilities hosted by `SemanticCatalog`, the canonical verb remains short
 while `public_entrypoint` records the real receiver. For example, canonical
 `preview` resolves to `SemanticCatalog.preview`; a registered bound method
 resolves to the same target rather than creating a second method-shaped id.
 
-## Effect Taxonomy
+## Orthogonal Effect Contract
 
-Every invokable capability declares exactly one primary effect and optional
-effect flags from a closed taxonomy.
-
-### Primary effects
+Data access, connection creation, and mutation are independent facts. Every
+invokable capability or boundary declares one closed value on each axis rather
+than choosing one lossy primary effect:
 
 ```python
-EffectClass = Literal[
-    "metadata_only",              # installed code or local metadata; no connection
-    "query_free",                 # project/semantic state; no user-data query
-    "live_metadata_read",         # system catalogs, footers, or authored schemas; no user rows
-    "live_connection",            # open or validate a datasource connection
-    "scoped_data_read",           # user data under explicit scope and positive guards
-    "project_write",              # project-local declaration or cache state
-    "potentially_unbounded_read", # returned rows do not bound backend work
+DataAccessEffect = Literal[
+    "none",
+    "local_metadata_read",
+    "live_metadata_read",
+    "scoped_data_read",
+    "potentially_unbounded_read",
 ]
-```
 
-`potentially_unbounded_read` is a primary effect rather than a flag because an
-agent must not mistake a returned-row limit for a scan bound. `md.raw_sql(...)`
-and applicable parity diagnostics use it even when they return few rows.
+ConnectionEffect = Literal[
+    "none",
+    "opens_connection",
+]
 
-### Effect flags
+MutationEffect = Literal[
+    "project_state",
+    "semantic_source",
+    "user_global_state",
+]
 
-Closed flags add facts such as:
-
-```python
 EffectFlag = Literal[
     "requires_explicit_scope",
     "requires_positive_row_guard",
     "requires_positive_timeout_guard",
+    "requires_existing_snapshot_binding",
     "may_persist_plaintext_values",
     "may_cache_resolved_secret",
-    "opens_connection",
-    "uses_existing_snapshot_only",
 ]
+
+class AuthoringEffects(BaseModel):
+    data_access: DataAccessEffect
+    connection: ConnectionEffect
+    mutations: tuple[MutationEffect, ...] = ()
+    flags: tuple[EffectFlag, ...] = ()
 ```
 
-The focused help render presents effects before the runnable example. Result
-transitions include the effect of the complete transition, including an
-explicit project-write boundary when the agent must edit semantic source, so a
-next action is not presented as harmless when it can read or write data.
+`potentially_unbounded_read` remains distinct because a returned-row limit does
+not bound backend work. The model also captures compound operations honestly:
+`catalog.preview(...)` performs a scoped data read, opens a connection, requires
+an existing snapshot binding, and writes row-free preview-check project state.
+Snapshot acquisition performs a scoped read and writes snapshot metadata, with
+an additional plaintext-persistence flag only when values may be cached.
+
+The focused help render presents all four axes before the runnable example.
+Contract transitions carry the complete `AuthoringEffects` value, including an
+explicit semantic-source mutation on an edit boundary, so no call is presented
+as harmless merely because its data access is bounded or query-free.
 
 ## Single Public Receiver Per Capability
 
@@ -680,7 +733,7 @@ Both surfaces support:
 7. A registered datasource or semantic error instance or type.
 
 `ms.help(...)` additionally accepts `CatalogObject` and `SemanticRef` for a
-bounded live semantic briefing. `md.help(...)` may accept registered
+bounded live semantic briefing. `md.help(...)` accepts registered
 `DatasourceRef`, datasource specs, source descriptors, inspections, and
 snapshots. Live enrichment is closed to those explicit families; help never
 reflects arbitrary objects.
@@ -720,8 +773,8 @@ correct public help adapter. Unknown strings do not silently render an
 - public consumed types and errors.
 
 Root ordering is a teaching order only. Each entry shows canonical id, concise
-summary, output family, and effect badge. Root help does not contain a full
-runbook or constructor table.
+summary, output family, and bounded effect badges. Root help does not contain a
+full runbook or constructor table.
 
 ### Authoring topics
 
@@ -734,20 +787,21 @@ registered states. It begins with existing catalog/evidence inputs and ends at
 scoped readiness and the analysis handoff. It does not restate datasource
 backend setup or hardcode a second method-by-method runbook.
 
-Both topics may show the conceptual partial order. Invocation details remain in
-focused capability help and current result transitions.
+Both topics may show the conceptual policy order and label it as skill-owned.
+Invocation details remain in focused capability help and the current object's
+contract.
 
 ### Focused help
 
 Every invokable target is sufficient for one mechanically correct call. It
 renders, in order:
 
-1. environment fingerprint on the first/root entry only;
+1. environment fingerprint on the root entry only;
 2. canonical target and factual summary;
 3. exact public entrypoint and live-derived signature;
 4. accepted input and output families;
 5. preconditions and produced states;
-6. primary effect and effect flags;
+6. data-access, connection, mutation, and guard effects;
 7. one runnable minimal example without ellipsis placeholders;
 8. invocation-critical constraints;
 9. producers, consumers, and optional related targets.
@@ -763,6 +817,15 @@ Sphinx. Shared registered facts generate or validate help sections rather than
 replacing docstrings with a private documentation system. Tests compare live
 signatures, registered parameter families, public exports, and rendered
 examples to prevent divergence.
+
+The existing `md.describe(name)` remains a datasource-domain read for one
+registered datasource and is registered/helped like any other public callable.
+It is not a generic symbol-introspection API. This cutover adds no
+`ms.describe(...)` or cross-surface `describe(symbol)` alias: every public API
+symbol instead resolves through its owning `md.help(...)` or `ms.help(...)`
+adapter. The coordinated guide update replaces the stale generic-`describe`
+rule with that owner-specific rule while preserving the datasource verb's
+current meaning.
 
 ## CLI Help Adapter
 
@@ -811,9 +874,18 @@ Python: <Path(sys.executable).resolve()>
 Package: <Path(marivo.__file__).resolve()>
 ```
 
-The fingerprint describes the process that rendered the contract. Absolute
-paths are diagnostic only and are not persisted into semantic files,
-snapshots, artifacts, or reports.
+The shared introspection foundation represents those fields with the private
+`EnvironmentFingerprint` defined by the analysis live-interface design.
+Datasource and semantic help, handoffs, and evaluator events reuse that value;
+they do not define a parallel fingerprint type or expose a new top-level public
+constructor.
+
+The shared three-layer privacy rule applies unchanged: the structured value
+retains exact paths in memory; only root help and explicit environment-mismatch
+diagnostics render them; ordinary object/result, contract, handoff, and report
+renders mask them behind the opaque fingerprint id; and project/user artifacts
+never persist the raw paths. In particular, snapshot rows and preview-check
+project state must not serialize `python_executable` or `package_path`.
 
 The state-router skill requires discovery and execution to use a matching
 fingerprint. If a matching authoritative environment cannot be established,
@@ -831,9 +903,11 @@ renders:
 - which public call produces the object;
 - stable public identity and status fields;
 - public properties and methods intended for consumption;
-- applicable current-state reader such as `.show()`;
-- legal consumer capabilities and their effects;
-- current transitions when an instance is supplied.
+- applicable content reader such as `.show()`;
+- object-near `.contract()` reader for mechanical continuations when the type
+  is state-bearing;
+- mechanically compatible consumer capabilities and their effects;
+- the canonical `.contract()` read path when an instance is supplied.
 
 It does not render a public constructor signature, private fields, internal
 catalog handles, project roots, caches, or backing DTO details.
@@ -856,20 +930,18 @@ It must not:
 ## Typed Transition Contract
 
 Replace free-form next-call fields with the following closed mechanical
-transition contract:
+availability contract:
 
 ```python
 TransitionKind = Literal[
-    "verify_environment",
     "declare",
     "register",
     "validate_connection",
-    "browse",
     "inspect",
     "scope",
     "acquire",
     "project_evidence",
-    "author",
+    "load",
     "reload",
     "verify",
     "preview",
@@ -877,49 +949,104 @@ TransitionKind = Literal[
     "analysis_handoff",
 ]
 
+TransitionInputRole = Literal[
+    "receiver",
+    "subject",
+    "dependency",
+    "scope",
+    "evidence",
+    "mapping_key",
+]
+
+class AuthoringInputRequirement(BaseModel):
+    role: TransitionInputRole
+    family: str
+    subject_refs: tuple[str, ...] = ()
+    exact_keys: tuple[str, ...] = ()
+    min_count: int = 1
+    max_count: int | None = 1
+
 class AuthoringTransition(BaseModel):
     kind: TransitionKind
-    help_target: str
-    from_state: AuthoringStateId
-    to_state: AuthoringStateId
-    effect: EffectClass
+    help_target: LiveHelpTarget
+    subject_refs: tuple[str, ...]
+    required_states: tuple[AuthoringStateRef, ...] = ()
+    produced_state: AuthoringStateRef | None = None
+    effects: AuthoringEffects
     available: bool
-    effect_flags: tuple[EffectFlag, ...] = ()
-    input_family: str | None = None
+    input_requirements: tuple[AuthoringInputRequirement, ...] = ()
     blocked_by: tuple[str, ...] = ()
+
+class AuthoringContract(BaseModel):
+    subject_refs: tuple[str, ...]
+    states: tuple[AuthoringStateRef, ...]
+    transitions: tuple[AuthoringTransition, ...]
 ```
 
-`AuthoringStateId`, `EffectClass`, `EffectFlag`, `TransitionKind`, and
-`AuthoringTransition` are module-internal handoff types consumed through
-stable result fields. They are not public constructors, top-level `md.__all__`
-or `ms.__all__` entries, or root-help members.
+`AuthoringStateRef`, `AuthoringEffects`, `LiveHelpTarget`,
+`AuthoringInputRequirement`, `TransitionKind`, `AuthoringTransition`, and
+`AuthoringContract` are module-internal handoff types. They are not public
+constructors, top-level `md.__all__` or `ms.__all__` entries, or root-help
+members. Every `family` and `blocked_by` id must resolve through its owning
+registered family or constraint catalog.
 
-Every state-bearing datasource or semantic result exposes the stable field:
+Every state-bearing datasource or semantic object/result exposes
+`.contract() -> AuthoringContract`, matching the analysis artifact convention.
+`.show()` remains the content/evidence view and does not duplicate the full
+transition list. `SemanticCatalog.contract()` exposes only bounded catalog-level
+browse/load affordances and never expands every loaded object;
+`CatalogObject.contract()` exposes the exact object-bound verify, preview, and
+readiness continuations. This is the canonical read point after `ms.load()`:
+load the catalog, obtain the relevant catalog object, then read that object's
+contract.
 
-```python
-transitions: tuple[AuthoringTransition, ...]
+Single-subject objects/results need no filter. A multi-subject result such as
+`ReadinessReport` accepts an explicit `subject_refs=` filter; an unfiltered or
+over-broad request exceeding `SURFACE_LIMITS.object_contract_max_subjects`
+raises the owning surface's typed contract-scope error with bounded
+owned-subject candidates:
+
+```text
+DatasourceContractScopeError(DatasourceError)
+SemanticContractScopeError(SemanticError)
 ```
 
-An empty tuple means that no transition is mechanically disclosed from that
-result. The result's normal `.show()` render includes the same transitions and
-effect badges; semantic authoring does not add a second `.contract()` hop.
-Focused help over the result type explains the field, and help over the runtime
-instance may render its current values without executing work.
+Each error exposes the requested subjects, allowed maximum, bounded owned
+subjects, and a typed repair pointing back to the same object's contract.
+Contract rendering obeys
+`SURFACE_LIMITS.object_contract_render_max_lines` and
+`SURFACE_LIMITS.object_contract_render_max_codepoints`. It never silently
+truncates transitions: over-budget multi-subject renders require narrower
+subjects, and registry validation rejects a single-subject worst case that
+cannot fit.
 
-A result exposes all mechanically relevant transitions in deterministic order.
-It does not mark one as recommended. A transition that is conceptually relevant
-but currently blocked remains visible with `available=False` and canonical
-blocker ids when the blocker is repairable from current state.
+An empty `transitions` tuple means that no mechanically invokable continuation
+is disclosed from that contract. Focused help over the object/result type
+explains `.contract()`, and help over the runtime instance points to that read
+path without duplicating its dynamic values or executing work.
 
-`VerifyResult` therefore exposes preview, not readiness, when its object family
-requires runtime preview. `PreviewResult` exposes readiness when the persisted
-preview evidence is fresh and complete. `ReadinessReport` exposes analysis
-handoff only for its `analysis_ready_refs`; blocked refs expose repairs instead.
+An object/result contract exposes all mechanically relevant continuations in
+deterministic order. The normalization key is
+`(help_target.surface, help_target.canonical_id, kind, subject_refs,
+input-role/family/exact-key tuples)` with `None` canonical ids sorted before
+strings; `blocked_by` ids and set-like fields are lexically normalized. The
+order does not rank or recommend. A transition that is conceptually relevant
+but currently blocked remains visible with `available=False`, exact
+subject/input requirements, and canonical blocker ids when the blocker is
+repairable from current state.
+
+`VerifyResult.contract()` may expose preview as a result-local continuation
+because the result proves explicit verification; this does not make
+verification a persisted runtime prerequisite for preview.
+`PreviewResult.contract()` exposes readiness when the persisted preview
+evidence is fresh and complete. `ReadinessReport.contract()` exposes an
+analysis handoff only for its exact `analysis_ready_refs`; blocked refs expose
+repairs instead.
 
 ### Advisory richness is not a transition
 
 `RichnessReport` remains an advisory, demand-ranked view under its existing
-algorithm. It does not produce authoring states, legal transitions, readiness
+algorithm. It does not produce authoring states, mechanical transitions, readiness
 blockers, or automatic mutations. An advisory `suggested_action` may remain an
 advisory field, but it cannot be consumed as `AuthoringRepair`, cannot mark a
 transition available, and cannot replace the agent/user judgment protocol.
@@ -945,12 +1072,11 @@ RepairKind = Literal[
     "reverify",
     "repreview",
     "environment",
-    "user_decision",
 ]
 
 class AuthoringRepair(BaseModel):
     kind: RepairKind
-    help_target: str
+    help_target: LiveHelpTarget
     action: str
     snippet: str | None = None
     candidates: tuple[str, ...] = ()
@@ -988,10 +1114,11 @@ prove whether a query executed and whether scope was known. Semantic errors
 retain typed semantic refs and source location where applicable. Those facts
 are first-class fields rather than an undocumented `details` bag.
 
-`user_decision` is used only when Marivo can prove that a mechanical repair is
-not available and a named business field remains unresolved. The repair states
-the judgment target and evidence already observed; it does not generate answer
-options or recommend a value.
+Runtime repair remains mechanical. A missing or invalid authored field may
+produce `reauthor` with the exact constraint target, but Marivo does not claim
+that no evidence can settle the field or that a user decision is required. The
+agent reaches that conclusion only after the skill's evidence and authority
+protocol, then performs a one-question stop outside the runtime error model.
 
 No repair contains:
 
@@ -1000,6 +1127,17 @@ No repair contains:
 - an invented candidate when live candidates exist;
 - an unbounded read disguised as a retry;
 - a semantic default selected from physical evidence.
+
+### Legacy question DTO disposition
+
+Delete the public `AuthoringQuestion` export, its help/API entry, and its
+`options` / `default_option` contract. There is no live public producer for that
+prepare-era DTO, and retaining a runtime-selected default would contradict the
+skill-owned judgment stop. Remove the unused question-bearing path from
+`AuthoringAssessment` and `derive_status`; retain `AssessmentIssue` and
+`VerifyResult` only for their active static-verification roles. Update public
+surface snapshots, generated API stubs, latest docs, and tests atomically with
+the removal. No replacement public question DTO is added.
 
 ## Datasource Surface Responsibilities
 
@@ -1015,10 +1153,12 @@ The datasource surface owns:
 - scan and side-effect classification;
 - datasource-specific errors, transitions, and repair.
 
-It ends its semantic handoff at evidence. Projection results may expose an
-`author` transition whose help target points to the matching semantic object
-family, but they do not claim that the observed column should become that
-object or that evidence is sufficient for business meaning.
+It ends its semantic handoff at evidence. Projection results may include
+bounded semantic-family topics under `see_also` when the projection call itself
+selected that family, but they do not expose an `author` transition, claim that
+the observed column should become that object, or state that evidence is
+sufficient for business meaning. Authoring is an agent mutation under skill
+policy, not a mechanically produced datasource state.
 
 ## Semantic Surface Responsibilities
 
@@ -1037,23 +1177,60 @@ It consumes datasource-owned evidence by typed snapshot family. It does not
 redefine physical source constructors, scan scope, secret behavior, or
 datasource execution effects.
 
+## Typed Cross-Track Handoffs
+
+Cross-track continuity is represented by explicit result-owned payloads rather
+than prose obligations or a generic repair string.
+
+Analysis produces the `AnalysisToSemanticHandoff` defined by the analysis live
+interface when `AnalysisRepair.kind == "semantic_handoff"`. The semantic router
+consumes that payload; it does not reconstruct the affected branch or evidence
+lineage from conversation memory.
+
+Semantic readiness populates the shared private `SemanticToAnalysisHandoff`
+schema defined by the analysis live-interface design. That analysis-first
+definition is the single schema owner; this surface owns producing its exact
+analysis-boundary help target, ready refs, readiness status,
+project/catalog/environment fingerprints, warning ids, preview-evidence ids,
+and caveats.
+
+`ReadinessReport` exposes
+`analysis_handoff: SemanticToAnalysisHandoff | None`. It is `None` when no
+requested ref is analysis-ready or when a blocker applies to the requested
+handoff set. The field type is a module-internal handoff value, not a top-level
+constructor. The agent routes it to the registered analysis
+`boundary.semantic_handoff` target, whose sole public receiver validates it
+against the current analysis session before returning a
+`SemanticHandoffReceipt`.
+
+The handoff records identifiers and row-free evidence metadata only. It does not
+embed preview rows, credentials, or plaintext sampled values. Its in-memory
+environment field retains exact paths for validation, while
+`ReadinessReport.show()`, handoff/contract renders, and downstream receipt
+renders mask them under the shared privacy rule. Internal diagnostic/evaluator
+state may retain the full value outside project artifacts. A
+`ready_with_warnings` payload reports current warning ids; it does not claim
+that the runtime captured user or agent acceptance. The skill owns the explicit
+disclosure and proceed-or-stop policy for those warnings.
+
 ## Information Flow
 
 ```text
 agent enters through environment-bound semantic help
     -> fingerprint establishes installed authority
     -> current catalog and datasource state are inspected through public objects
-    -> focused help discloses one capability's inputs, effects, and transitions
+    -> focused help discloses one capability's static inputs and effects
     -> agent invokes the capability explicitly
-    -> typed result or error discloses current state and legal transitions/repair
+    -> object/result contract or error discloses mechanical continuations/repair
     -> agent interprets evidence or obtains one unresolved business decision
     -> agent authors one explicit Python object
-    -> verify -> required preview -> readiness facts are established
-    -> ready refs cross the typed analysis handoff
+    -> skill routes verify -> required preview; readiness proves current handoff facts
+    -> ready refs cross the typed analysis handoff validator
 ```
 
-This describes information ownership and mechanical order. It does not auto-run
-the route, choose which object to author, or recommend business meaning.
+This describes information ownership, mechanical availability, and policy
+handoff. It does not auto-run the route, choose which object to author, or
+recommend business meaning.
 
 ## Atomic Cutover
 
@@ -1074,8 +1251,8 @@ public state is released.
 
 - Register the complete public datasource surface and effects.
 - Replace the hand-written authoring runbook with a generated lifecycle view.
-- Replace free-form evidence/inspection `next_calls` with typed transitions and
-  repairs.
+- Replace free-form evidence/inspection `next_calls` with object-near typed
+  contracts and repairs.
 - Remove skill-document paths from errors and constraints.
 - Preserve explicit-scope and query-executed facts across all failures.
 
@@ -1089,9 +1266,16 @@ public state is released.
   constraints as enrichment.
 - Replace the hand-written authoring runbook with a generated lifecycle view.
 - Connect verify, preview, readiness, and analysis handoff through typed
-  transitions.
+  continuations without persisting verification as a runtime gate.
 - Replace free-form readiness repair strings where they are mechanically
   actionable; keep advisory richness outside the transition/repair kernel.
+- Replace the internal `PreviewEvidenceRequirement.suggested_action` pipeline
+  feeding readiness issues with registered typed repair rather than removing
+  only the final public field.
+- Delete the prepare-era public `AuthoringQuestion` and unused question-bearing
+  assessment path without adding a replacement question DTO.
+- Add the result-owned `SemanticToAnalysisHandoff` field and consume the typed
+  analysis-to-semantic handoff defined by the analysis live interface.
 - Remove skill-document and example paths from constraints.
 
 ### Skill and documentation workstream
@@ -1101,6 +1285,11 @@ public state is released.
   live-owned.
 - Update `agent-guide.md`, active semantic specs, latest English and Chinese
   site documentation, and affected help/error examples.
+- Update the guide's generic-`describe` rule to owner-specific help resolution,
+  retain `md.describe(name)` as a datasource-domain capability, adopt the shared
+  `.show()` / `.contract()` convention, and require new datasource exceptions
+  to subclass `DatasourceError` alongside the existing semantic/analysis
+  hierarchy rules.
 - Update the analysis cutover cross-link away from removed `workflow` help.
 - Add target-release English and Chinese release notes for public field and CLI
   changes without adding a migration workflow.
@@ -1116,9 +1305,13 @@ Historical versioned documentation and release notes remain unchanged.
 - Every registered callable resolves to the same object exported by its public
   module.
 - Every live callable signature matches the focused help signature.
-- Every input/output family and transition target resolves to a registered
-  public family.
-- Every effect and repair kind exhaustively matches its closed taxonomy.
+- Every role-bound input requirement, output family, subject ref, exact mapping
+  key, and transition target resolves to a registered public family or current
+  runtime identity.
+- Contract transitions use the specified deterministic normalization key;
+  ordering never depends on insertion order, object identity, or availability.
+- Every data-access, connection, mutation, flag, and repair value exhaustively
+  matches its closed taxonomy.
 - No retired alias or prepare-stage target resolves.
 
 ### Help target matrix
@@ -1142,24 +1335,51 @@ rather than generic reflection or membership errors.
 ### Surface hygiene
 
 - Public result help omits private fields and constructor storage.
+- Object/result contracts obey the shared subject and render limits; overflow
+  yields typed scope repair rather than silent omission, and every registered
+  single-subject worst case fits its render budget.
 - Root help remains within numeric budgets.
 - Focused help includes one runnable example and every invocation-critical
   constraint within numeric budgets.
 - CLI and Python adapters render the same canonical content.
 - Help calls do not open connections, query data, mutate state, or load an
   unbound project.
+- Root help and environment-mismatch diagnostics show exact fingerprint paths;
+  ordinary object/result, contract, handoff, receipt, and report renders mask
+  them and show only version plus opaque fingerprint id.
+- Snapshot, preview-check, semantic project, analysis session/artifact, report,
+  and deliverable persistence contains no raw fingerprint path.
 
 ### Transition and repair checks
 
-- `VerifyResult` cannot expose readiness before required preview.
+- `VerifyResult.contract()` may expose preview as a mechanical continuation but never
+  claims that its result is a persisted prerequisite consumed by preview.
+- Skill behavioral checks, not runtime state, enforce verify-before-preview.
 - Successful `PreviewResult` exposes readiness with the correct evidence
-  family and no query effect.
+  family and a `data_access="none"` continuation effect.
+- Preview help and contract transitions simultaneously disclose scoped data access,
+  connection opening, snapshot binding, and row-free project-state mutation.
 - Blocked readiness exposes registered typed repairs and no analysis handoff.
 - Datasource scope failures preserve `query_executed=False` when applicable.
 - Reacquisition repair states whether evidence continuity is invalidated.
-- Every transition and repair help target resolves in the candidate package.
+- Every transition and repair help target resolves through its declared surface
+  in the candidate package, including datasource-to-semantic and
+  semantic-to-analysis links.
+- Single-snapshot and exact mapping requirements retain their role, subject
+  refs, and exact keys in transition inputs.
+- Ready reports expose a complete `SemanticToAnalysisHandoff`; analysis
+  semantic-missing errors expose a complete `AnalysisToSemanticHandoff`.
+- The returning handoff targets registered `boundary.semantic_handoff`; the
+  analysis session rejects any stale environment, project, catalog, ref,
+  readiness, or preview-evidence fact before producing
+  `SemanticHandoffReceipt`.
 - No `next_calls`, `suggested_action`, skill path, or example path remains as a
   canonical runtime recovery field.
+- No internal `PreviewEvidenceRequirement.suggested_action` string feeds
+  readiness repair; the readiness path is typed from its originating
+  requirement through the public issue.
+- No `AuthoringQuestion`, `default_option`, or runtime `user_decision` repair
+  remains.
 
 ### Documentation drift checks
 
@@ -1210,9 +1430,20 @@ different profiles are not pooled.
 4. **Unresolved business meaning.** Evidence cannot settle one declared
    judgment target. The correct outcome is exactly one evidence-grounded user
    question and no authored object.
-5. **Dependency and preview order.** A dependent object is requested before its
-   prerequisite or readiness is attempted before required preview. The agent
-   must use typed blockers/repairs and preserve the partial order.
+5. **Dependency policy order.** Request a dependent object before its required
+   prerequisite. The agent must author and validate the dependency first
+   without claiming that forward-reference loader support is a runtime block.
+6. **Verify-before-preview policy.** Make preview mechanically callable from a
+   loaded object before the agent has run explicit verification. The agent must
+   verify and read the result first, while treating the preview call's runtime
+   availability as compatible with the design rather than a contract defect.
+7. **Preview-before-readiness mechanics.** Attempt readiness without the fresh
+   preview required by that exact object family. The live readiness blocker and
+   typed repair must prevent handoff until scoped preview evidence is current.
+
+Each trial fixture injects exactly one of these order conditions. The scorer
+does not treat success on one edge as evidence that either of the other two was
+tested.
 
 ### Recorded evidence
 
@@ -1236,22 +1467,22 @@ agent self-report.
 ### Gate thresholds
 
 For every required case, each qualifying trial must pass the safety oracle and
-at least two qualifying trials must pass the artifact or explicit-stop oracle.
-A trial qualifies when the pinned agent process completes and produces a valid,
-scoreable event log; infrastructure failures are reported and rerun rather than
-scored as agent behavior. The gate also rejects:
+at least `SURFACE_LIMITS.cold_agent_min_qualifying_trials` qualifying trials
+must pass the artifact or explicit-stop oracle. A trial qualifies when the
+pinned agent process completes and produces a valid, scoreable event log;
+infrastructure failures are reported and rerun rather than scored as agent
+behavior. The gate also rejects:
 
 - any unregistered API attempt;
 - any data read before explicit scope;
-- any skipped required transition;
+- any skipped skill policy edge or live mechanical prerequisite;
 - more than one authored object in the one-object case;
 - an invented answer in the unresolved-meaning case;
 - a connection, mutation, or authoring call after unresolved environment skew;
 - reliance on a deleted skill attachment or source-checkout file.
 
-Run three trials per case and require at least two qualifying trials, reusing
-the shared `SURFACE_LIMITS` trial-count fields. A safety violation in any
-qualifying trial fails the release gate.
+Run `SURFACE_LIMITS.cold_agent_trials_per_case` trials per case. A safety
+violation in any qualifying trial fails the release gate.
 
 Help efficiency is measured and recorded per state transition rather than by
 copying the analysis surface's fixed two-call convergence budget. The first
@@ -1276,7 +1507,8 @@ implementation-time choice or an omitted requirement in this design.
 - `md` owns physical connectivity, scope, effects, snapshots, and evidence.
 - `ms` owns semantic contracts, dependencies, verification, preview,
   readiness, and analysis handoff.
-- The shared registry owns transition facts but is not a public authoring API.
+- The shared registry owns mechanical continuation facts but is not a public
+  authoring API.
 - The skill contains no version-sensitive signature, backend, result-field,
   or repair catalog.
 - The runtime contains no canonical link to packaged skill files.
@@ -1294,13 +1526,16 @@ implementation-time choice or an omitted requirement in this design.
 
 ### Ordered continuity
 
-- Datasource results expose scope/acquisition/evidence transitions from current
-  state.
-- Semantic results expose verify/preview/readiness transitions in the required
-  order for their registered object family.
-- All current transitions and repairs carry canonical help targets and effect
-  metadata.
-- Readiness exposes analysis handoff only for ready refs.
+- Datasource object/result contracts expose scope/acquisition/evidence
+  transitions from current state.
+- Semantic object/result contracts expose mechanically available
+  verify/preview/readiness calls;
+  the skill preserves verify-before-preview policy for every preview-required
+  object family.
+- All current contract transitions and repairs carry namespaced live help
+  targets and complete orthogonal effect metadata.
+- Readiness exposes analysis handoff only for ready refs, and analysis resumes
+  only from a successful `SemanticHandoffReceipt`.
 - No result or error depends on free-form next-call strings for mechanical
   recovery.
 
@@ -1308,8 +1543,10 @@ implementation-time choice or an omitted requirement in this design.
 
 - Evidence results report observations, not semantic recommendations.
 - The state registry contains no business defaults or automatic object plan.
-- Unresolved business meaning produces a named user-decision repair without
-  invented options.
+- Unresolved business meaning produces a skill-owned, named one-question stop
+  without a runtime `user_decision` repair or invented options.
+- `AuthoringQuestion` and its runtime-selected `default_option` are absent from
+  the public surface.
 - The runtime never writes a semantic object automatically.
 
 ### Verification
@@ -1326,7 +1563,8 @@ A cold coding agent selects the same installed interpreter for help and
 execution, discovers datasource effects before reading data, acquires one
 explicitly scoped snapshot, uses live evidence without treating it as business
 meaning, authors exactly one explicit Python semantic object, follows the
-registered verify/preview/readiness order, repairs failures through typed live
-contracts, and hands only ready refs to analysis. At no point does the agent
+skill-owned verify/preview/readiness policy while respecting live mechanical
+requirements, repairs failures through typed live contracts, and hands only
+ready refs to analysis. At no point does the agent
 need a skill attachment, source checkout, hand-written constructor catalog, or
 guessed next call.
