@@ -1,0 +1,879 @@
+# Marivo Semantic Boundary State-Router Design
+
+Status: Approved design, pending written-spec review
+
+Date: 2026-07-13
+
+## Summary
+
+Redesign the packaged `marivo-semantic` skill as a minimal boundary and
+state-routing policy for datasource setup and semantic-layer authoring.
+
+The target skill retains semantic authoring's real partial order and its
+human-judgment boundary. It tells a general-purpose coding agent how to resume
+from current live state, preserve datasource evidence, author one explicit
+object, validate that object through every required stage, stop for one
+unresolved business decision, and hand only ready refs to analysis.
+
+The target skill does not repeat installed API signatures, backend catalogs,
+constructor contracts, result fields, error catalogs, exact repair calls, or
+code examples. Those facts move to the environment-bound datasource and
+semantic surface specified by
+[`2026-07-13-marivo-semantic-live-interface-surface-design.md`](2026-07-13-marivo-semantic-live-interface-surface-design.md).
+
+The packaged target is one `SKILL.md` with no references, runnable examples,
+or attachment runner. This is an atomic replacement: attachments are deleted
+only after their retained facts and mechanics are live-owned and the candidate
+package passes the surface and cold-agent gates.
+
+## Relationship To The Live Surface
+
+The live surface and skill divide authoring responsibility at the line between
+mechanical truth and policy:
+
+```text
+live md/ms surface
+    what capabilities exist
+    what inputs, outputs, prerequisites, and effects they have
+    what state the current object is in
+    what transitions are mechanically legal
+    what typed repair can resolve a mechanical blocker
+
+marivo-semantic skill
+    why and when to activate semantic authoring
+    which ordering and safety boundaries cannot be crossed
+    how to preserve evidence and limit authoring scope
+    when to stop for business judgment
+    when and how to hand off to analysis
+
+agent
+    interprets evidence, drafts explicit Python, and chooses legal transitions
+
+user or business owner
+    decides unresolved business meaning and accepts semantic caliber
+```
+
+The skill may name stable conceptual phases and live entry points. It must not
+reconstruct the current package's legal transition set from prose. If skill
+text and a matching environment's registered mechanical contract disagree, the
+candidate is invalid and must be fixed; the agent must not silently choose one
+source.
+
+This semantic-authoring cutover follows the analysis live-interface cutover,
+which supplies the shared introspection and environment-authority foundation.
+It is not folded into the analysis release. The later business semantic
+object-model cutover extends this state router without adding object-family
+manuals back into the skill.
+
+## Problem
+
+The current skill already states the intended ownership model, but it still
+contains enough version-sensitive detail to act as a second API manual.
+
+### The canonical route repeats exact calls
+
+The skill names current inspection, scope, snapshot projection, catalog,
+verification, preview, and readiness calls. `md.help("authoring")` and
+`ms.help("authoring")` repeat overlapping routes. Result objects and errors
+also provide next-call strings.
+
+This creates multiple owners for one transition. The current successful verify
+result can suggest readiness before required preview, while the skill says to
+preview first. An agent should not need the skill to correct the installed
+runtime's transition facts.
+
+### Hard boundaries mix policy with API facts
+
+Some current hard boundaries are durable policy:
+
+- physical evidence is not business meaning;
+- one explicit scope must precede a user-data read;
+- one snapshot is reused within an active batch;
+- one unresolved semantic decision is asked at a time;
+- readiness precedes analysis handoff.
+
+Other lines are version-sensitive product facts:
+
+- exact source-builder names;
+- exact scope and persistence parameters;
+- exact diagnostic call names;
+- exact typed-ref construction syntax.
+
+The former belong in the skill. The latter belong in live help, effect
+metadata, results, and structured errors.
+
+### References remain API attachments
+
+The packaged skill currently links to datasource setup, closeout, pitfalls,
+cumulative metrics, cumulative anchors, and runnable examples. Runtime
+constraints and errors point back into some of those files.
+
+Attachments make the skill package a documentation tree that can drift from
+the installed code. They also force a cold agent to decide whether a fact lives
+in the root skill, a reference, an example, or runtime help.
+
+### The workflow is not resume-first
+
+The current route is readable from a fresh project, but agents often enter with
+an existing datasource, inspection, snapshot, authored object, failed verify,
+or blocked readiness report. A fixed start-to-finish checklist encourages
+repeating safe work, reacquiring evidence, or ignoring the current object's
+typed state.
+
+The target skill must route from current live state and enforce the earliest
+unsatisfied required boundary, not restart the whole authoring tutorial.
+
+### Judgment ownership needs a concrete stop protocol
+
+The current skill says to ask one evidence-grounded question when one semantic
+decision remains. The target must preserve this behavior while removing
+constructor-specific decision lists and examples.
+
+Without a precise protocol, an agent may still:
+
+- ask before reading available evidence;
+- present invented answer options;
+- bundle multiple business decisions;
+- continue authoring while awaiting an answer;
+- treat observed uniqueness or value shape as authoritative meaning.
+
+## Decision
+
+Adopt a **boundary state-router** skill.
+
+The skill is a small policy adapter between a general-purpose coding agent and
+the environment-bound live authoring surface. It performs no authoring and
+contains no private product catalog. It preserves four kinds of responsibility:
+
+1. activation and environment authority;
+2. ordered state-routing discipline;
+3. evidence, safety, and judgment boundaries;
+4. cross-track handoff and closeout obligations.
+
+Everything else is either a live Marivo fact, agent judgment, or user decision.
+
+## Alternatives Considered
+
+### Activation-only skill
+
+The skill would only say to verify the environment, open live semantic help,
+and follow result transitions.
+
+This is maximally small, but it does not protect the semantic track's essential
+boundaries: evidence before meaning, dependencies before dependents, one object
+at a time, one unresolved question at a time, verification before required
+preview, or readiness before analysis handoff.
+
+### Boundary state-router — selected
+
+Retain the durable partial order and hard boundaries while moving every
+version-sensitive fact and mechanical transition to the live surface.
+
+This gives the agent enough policy to author safely without making the skill a
+second API reference or automatic planner.
+
+### Complete authoring playbook
+
+Retain detailed datasource instructions, constructor recipes, cumulative
+metric guidance, pitfalls, examples, and exact repair calls in the packaged
+skill.
+
+This is convenient when read in isolation but preserves duplicate ownership,
+environment drift, and high context cost. It is rejected.
+
+### Runtime authoring wizard
+
+Replace the skill with a runtime wizard that chooses and writes semantic
+objects.
+
+This moves business judgment and file mutation into Marivo, revives a prepare
+or planner stage, and hides decision provenance. It is rejected.
+
+## Design Goals
+
+### Preserve real order without prescribing a business model
+
+The skill protects mechanical prerequisites and policy gates. It does not say
+that every project needs every object family or choose the next semantic object
+from a schema.
+
+### Resume from current state
+
+An agent inspects the current environment, project, runtime object, result, or
+error and continues from the earliest unsatisfied required boundary. It does
+not repeat datasource reads or authoring work merely because the skill starts
+with a fresh-project example.
+
+### Keep the installed package authoritative
+
+The skill enters through a matching environment fingerprint and uses live help,
+result transitions, and typed repair for all mechanical facts. It contains no
+fallback API memory.
+
+### Preserve evidence continuity
+
+The active object or batch retains one explicit evidence lineage from
+inspection and scope through snapshot projections, preview, and readiness.
+Reacquisition is an explicit invalidation event, not an invisible retry.
+
+### Keep judgment explicit
+
+The agent settles technical facts from live contracts and evidence. The user or
+business owner settles unresolved business meaning. Marivo and the skill do not
+invent semantic caliber.
+
+### Minimize context and navigation cost
+
+One root skill activates one live authoring entry. It does not require reading
+attachments, copying examples, or consulting a matrix of backend and object
+recipes.
+
+## Non-Goals
+
+The skill does not:
+
+- teach constructor signatures or parameter tables;
+- list datasource backends or source-builder APIs;
+- list result fields, error kinds, or exact repair calls;
+- contain cumulative, lifecycle, event, or other object-family manuals;
+- teach general data modeling or analytics methodology;
+- infer a primary key, business key, relationship, aggregation, unit,
+  additivity, time policy, or business definition;
+- plan or rank semantic objects;
+- write files or invoke Marivo automatically;
+- add a prepare stage, authoring brief, checklist acknowledgement, or wizard;
+- require parity or raw diagnostics for readiness unless a future live object
+  contract explicitly changes readiness;
+- replace current project documentation or business-owner decisions;
+- provide compatibility text for retired APIs or deleted attachments.
+
+## Target Package Shape
+
+The target package is:
+
+```text
+marivo/skills/marivo-semantic/
+  SKILL.md
+```
+
+Delete:
+
+```text
+references/datasource.md
+references/closeout.md
+references/pitfalls.md
+references/cumulative-metrics.md
+references/cumulative-anchors-v2.md
+references/examples/01_discover_and_grill.py
+references/examples/02_author_one_object.py
+```
+
+Delete or repurpose attachment-specific runners and tests. No redirect or
+placeholder file remains. The installed package and current latest docs must
+not link to deleted paths.
+
+The single file has no fixed line-count target. It is bounded structurally:
+one trigger, one mission, one live-entry rule, one routing loop, one hard-
+boundary section, one handoff section, and one closeout section. API examples,
+tables, backend matrices, and error catalogs are forbidden regardless of total
+length.
+
+## `SKILL.md` Structure
+
+### Frontmatter and trigger
+
+The description activates the skill when work requires any of:
+
+- datasource declaration or validation for semantic authoring;
+- physical source inspection or evidence acquisition;
+- new or changed semantic objects;
+- semantic verification, preview, or readiness repair;
+- an analysis handoff that reports a genuinely missing business object.
+
+Metric-centered investigation over already-ready refs remains owned by
+`marivo-analysis`. The semantic skill must not remain active merely because an
+analysis uses semantic objects.
+
+### Mission and authority
+
+The mission states:
+
+> Establish or repair explicitly authored semantic objects from bounded,
+> traceable datasource evidence, obtain human decisions for unresolved
+> business meaning, and hand only scoped-ready refs to analysis.
+
+Authority is divided explicitly:
+
+- live Marivo owns mechanical contracts and current state;
+- the skill owns ordering, safety, evidence, and handoff policy;
+- the agent owns technical interpretation and explicit Python drafting;
+- the user or business owner owns unresolved business meaning.
+
+### Environment-bound entry
+
+Before trusting help or invoking a datasource/semantic capability, the agent
+uses the interpreter intended for execution to open the canonical live semantic
+entry and records its version, interpreter, and package path.
+
+The skill may name the stable native entry:
+
+```text
+<selected-python> -m marivo help semantic
+```
+
+It does not name constructor or transition calls. A bare `marivo` command is
+acceptable only after its fingerprint matches the selected execution
+environment.
+
+If authoritative discovery and execution fingerprints differ, the agent must
+repair or stop before:
+
+- opening a datasource connection;
+- reading user data;
+- mutating project or user state;
+- authoring semantic files;
+- handing refs to analysis.
+
+The skill does not prescribe environment-manager-specific activation commands.
+The live environment repair supplies current mechanics.
+
+### Resume-first state router
+
+The routing loop is conceptual and stable:
+
+```text
+verify environment authority
+    -> inspect current project/runtime state
+    -> identify the earliest unsatisfied required boundary for one object
+    -> read focused live help or the current result/error transition
+    -> inspect the target effect before invoking it
+    -> invoke one explicit capability
+    -> read the returned state, transition, or typed repair
+    -> preserve or explicitly invalidate evidence lineage
+    -> repeat until one object is ready, one user decision is required, or work is blocked
+```
+
+“Earliest unsatisfied boundary” means the first prerequisite required by the
+current object's registered path. It is not a recommendation engine and does
+not choose which new object a project should have.
+
+The router prefers object-near live guidance:
+
+1. current structured error repair;
+2. current result transitions;
+3. focused help for the target capability;
+4. root help only when no canonical target is known.
+
+It never substitutes memorized API syntax when the live surface is available.
+
+### Durable partial order
+
+The skill preserves these invariant policy edges:
+
+```text
+matching environment before any trusted operation
+current catalog/project browse before mutation
+physical evidence before evidence-backed semantic drafting
+explicit scope before any user-data read
+dependency before dependent
+one authored object before its validation cycle
+static verification before required runtime preview
+required runtime preview before readiness
+readiness before analysis handoff
+```
+
+The live surface declares which object families require static-only,
+single-snapshot, snapshot-mapping, or future preview modes. The skill does not
+hardcode object-family exceptions.
+
+Catalog browse is a behavior rule, not a fake runtime state gate. Marivo does
+not require an acknowledgement that an agent read catalog output.
+
+### One-object loop
+
+The unit of mutation and validation is one explicit semantic object.
+
+For each object, the agent:
+
+- identifies the exact existing dependency and evidence context;
+- settles all mechanically discoverable facts first;
+- stops for one unresolved business decision when required;
+- edits one explicit Python object;
+- reloads and locates that exact typed object;
+- follows every registered verify, preview, and readiness prerequisite;
+- repairs and revalidates the same object before advancing.
+
+The skill forbids authoring a domain-sized batch followed by deferred
+validation. Relationship or other inherently multi-entity objects may consume
+multiple evidence inputs, but the authored unit remains one object.
+
+## Evidence And Judgment Protocol
+
+### Evidence ladder
+
+Before asking a user or drafting business meaning, the agent checks available
+sources in this order:
+
+1. current live constructor/constraint contract;
+2. existing catalog and project definitions;
+3. current datasource inspection and exact snapshot evidence;
+4. source comments, provenance, and project documentation already in scope;
+5. prior explicit user or business-owner decisions.
+
+This is an evidence-priority rule, not an API sequence. The live surface owns
+how each source is accessed.
+
+### Technical handling
+
+The agent owns technical interpretation that does not invent business meaning,
+including:
+
+- reading physical schemas and execution capabilities;
+- handling uncommon physical formats after obtaining required factual input;
+- translating an approved definition into explicit supported Python/Ibis;
+- choosing a mechanically legal public capability;
+- repairing syntax, typing, loading, or execution failures from typed live
+  guidance.
+
+Technical plausibility is not authority for business caliber.
+
+### Business decision boundary
+
+The user or accountable business owner decides unresolved questions such as:
+
+- whether observed uniqueness is an authoritative identity or key;
+- metric meaning, numerator, denominator, failure handling, and scope;
+- aggregation, unit, additivity, and time attribution;
+- relationship business meaning and cardinality promise;
+- uncommon date/epoch/timezone interpretation not established by source facts;
+- which lifecycle, event, state, or business concept a future object represents.
+
+The live surface may name the unresolved judgment target and show evidence. It
+must not supply a guessed value.
+
+### One-question grill stop
+
+If exactly one business decision remains after the evidence ladder, the agent:
+
+1. names one object and one unresolved judgment target;
+2. summarizes the directly relevant evidence and provenance;
+3. explains why that evidence cannot establish business authority;
+4. asks exactly one question;
+5. stops mutation and validation work for that object until answered.
+
+If several decisions remain, the agent asks only the earliest dependency whose
+answer can change later questions. It does not bundle a questionnaire.
+
+Options are allowed only when each option is grounded in supplied evidence,
+existing project conventions, or an explicit live closed enum. Plausible but
+unsupported options are forbidden.
+
+## Hard Boundaries
+
+### Physical and semantic ownership
+
+- Datasource objects describe connectivity and physical sources; semantic
+  objects describe governed business meaning.
+- The agent never recreates a physical source through an invented semantic
+  builder.
+- Semantic links use the live surface's typed refs; bare ids are not substituted
+  when the current contract requires typed identity.
+
+The skill states this category boundary without listing current builder or ref
+function names.
+
+### Scope and query effects
+
+- Metadata inspection precedes any user-data query.
+- Every user-data read has an explicit live-declared scope and required positive
+  guards.
+- A returned-row limit is not treated as a backend scan bound.
+- A potentially unbounded diagnostic remains outside the canonical route and
+  requires explicit necessity and effect review.
+- The agent never follows a retry string without inspecting the registered
+  effect of the target transition.
+
+### Snapshot continuity
+
+- One acquired snapshot supports all query-free projections for an active
+  object/batch.
+- The agent does not reacquire data merely to obtain another semantic-shaped
+  view.
+- Reacquisition or refresh changes evidence identity and invalidates dependent
+  preview/readiness evidence according to the live contract.
+- Multi-entity objects use the exact registered evidence mapping; snapshots are
+  not silently substituted across entities or sources.
+
+### Privacy, secrets, and persistence
+
+- Credentials remain references, not authored plaintext.
+- Any user-global secret cache or project-local plaintext value cache requires
+  the live surface's explicit effect and privacy contract.
+- Memory-only evidence remains the default unless persistence is knowingly
+  accepted for the data in scope.
+- The skill does not copy current cache paths or parameter names; those are live
+  product facts.
+
+### Evidence is not meaning
+
+- Observed uniqueness is not an authoritative primary or business key.
+- Observed values do not establish exhaustive enum membership or business
+  definitions.
+- Physical type and shape do not establish unit, aggregation, additivity,
+  cardinality, timezone, or temporal policy.
+- Evidence projections report observations and judgment targets; they do not
+  recommend semantic objects or values.
+
+### Explicit authoring
+
+- The final source of truth is explicit project Python, not a prompt-only
+  decision, generated brief, hidden runtime state, or one-off analysis script.
+- The agent writes one object and validates it before advancing.
+- It does not add speculative objects to make a catalog appear richer.
+- Advisory richness is not readiness and cannot create a required object by
+  itself.
+
+### Diagnostics and parity
+
+- Potentially unbounded raw diagnostics are escape hatches, not normal evidence
+  acquisition.
+- Provenance parity is used only when the current object and task require it;
+  it is not promoted to a universal readiness step by skill prose.
+- A diagnostic result cannot override unresolved business meaning.
+
+## Handoffs
+
+### Analysis to semantic
+
+When analysis reports that a required business object genuinely does not
+exist, the analysis boundary activates this skill with:
+
+- the missing semantic kind or requirement;
+- affected analysis branch or intent;
+- current semantic/project context;
+- evidence/artifact lineage that must be preserved;
+- the authoritative environment fingerprint.
+
+The semantic skill does not broaden the request into general catalog cleanup.
+It authors or repairs only the object required for the blocked analysis branch,
+then obtains scoped readiness.
+
+### Semantic to analysis
+
+The handoff occurs only when the live readiness result marks the required refs
+analysis-ready. The handoff carries:
+
+- exact ready typed refs;
+- project/catalog fingerprint;
+- environment fingerprint;
+- readiness status and accepted warnings;
+- snapshot/preview evidence identity required by the live contract;
+- any remaining non-blocking caveats.
+
+The skill does not teach analysis operators or choose the analysis path. It
+activates `marivo-analysis` and transfers the governed inputs.
+
+### User-decision handoff
+
+An unresolved business decision produces the one-question grill stop. The
+agent does not disguise it as a runtime error, create an inferred default, or
+continue authoring dependents.
+
+### Environment handoff
+
+An unresolved fingerprint mismatch produces an environment-repair stop. No
+datasource, semantic, or analysis work proceeds until one authoritative
+environment is established.
+
+## Closeout Obligations
+
+Successful semantic closeout states only Marivo-specific facts:
+
+- which explicit project object was added or changed;
+- which datasource evidence identity and scope grounded it;
+- which business decisions were supplied and by whom when known;
+- which registered validation stages passed;
+- which refs are analysis-ready;
+- which warnings or caveats remain;
+- which analysis task or branch receives the handoff.
+
+Closeout does not generate a general modeling tutorial, repeat constructor
+syntax, or claim that observed data proved business meaning.
+
+A blocked closeout states:
+
+- the exact current object/state;
+- the typed blocker or unresolved judgment target;
+- whether data was queried or project state was mutated;
+- whether evidence remains reusable;
+- the one required user or environment action.
+
+## Boundary-Violation Behavior
+
+| Situation | Required skill behavior |
+| --- | --- |
+| Help and execution fingerprints differ | Stop before connection, read, mutation, or authoring |
+| Proposed call has an unknown effect | Read focused live help; do not invoke it from memory |
+| User-data read has no explicit registered scope | Stop before query |
+| A fresh matching snapshot already exists | Reuse it; do not reacquire for another projection |
+| Evidence suggests but cannot establish business meaning | Ask one grounded question and stop |
+| A dependency is missing or not ready | Repair/ready the dependency before authoring the dependent |
+| Static verification fails | Repair and reverify the same object |
+| Required preview is missing or stale | Run or repair scoped preview before readiness |
+| Readiness is blocked | Follow typed repair; do not hand off the blocked ref |
+| Analysis needs an absent object | Author only that governed requirement, then return after readiness |
+| Runtime suggests a transition that violates registered order | Treat candidate as internally inconsistent; stop and report the contract defect |
+
+The last row prevents the skill from becoming an invisible compatibility shim.
+It may detect a contradiction, but it must not teach agents a permanent
+workaround for an incorrect live surface.
+
+## Content Disposition
+
+### Current `SKILL.md`
+
+| Current content | Target owner |
+| --- | --- |
+| Trigger and semantic-vs-analysis boundary | Retain in skill |
+| Ownership statement | Retain, shortened |
+| Exact help/browse/inspect/sample calls | Live help and result transitions |
+| Conceptual partial order | Retain in skill |
+| Constructor/object dependency facts | Live registry and semantic help |
+| One-object validation discipline | Retain in skill |
+| One-question grill behavior | Retain in skill |
+| Source builder and typed-ref names | Live datasource/semantic help |
+| Scope, scan, persistence, and secret principles | Retain as policy; mechanics move live |
+| Exact raw diagnostic/parity calls | Live boundary help/effect registry |
+| Analysis handoff requirement | Retain in skill; mechanics move live |
+
+### `references/datasource.md`
+
+Move constructor, inspection, scope, snapshot, persistence, and diagnostic facts
+to registered datasource help, effects, results, and errors. Retain only the
+durable scope/privacy/evidence rules in the root skill. Delete the file.
+
+### `references/closeout.md`
+
+Move readiness fields and exact calls to live semantic results/help. Retain the
+ready-only handoff and closeout obligations in the root skill. Delete the file.
+
+### `references/pitfalls.md`
+
+Convert mechanically detectable failures into typed errors, transitions,
+repair, and tests. Retain only true policy boundaries in the root skill. Delete
+the file rather than preserving a second error catalog.
+
+### Cumulative references
+
+Move cumulative constructor semantics, anchors, constraints, and minimal
+examples to the live semantic callable/help owners. General modeling prose is
+deleted or moved to current site concepts if it remains user-documentation
+material. The skill does not retain object-family manuals.
+
+### Runnable examples
+
+Focused live help owns one minimal runnable example per capability. Current site
+documentation owns longer walkthroughs. Delete packaged skill examples and
+their attachment-specific runner; do not keep examples as a hidden API test
+source.
+
+## Atomic Replacement Scope
+
+The skill replacement is released only with the companion live-surface
+cutover. Implementation may prepare the root file earlier on a branch, but no
+candidate package may delete attachments while runtime constraints, errors, or
+latest documentation still depend on them.
+
+The coordinated cutover updates:
+
+- `marivo/skills/marivo-semantic/SKILL.md`;
+- all files under its current `references/` tree;
+- attachment/example runners and tests;
+- runtime constraint and error links;
+- datasource and semantic help topics;
+- result transition and repair fields;
+- `agent-guide.md` and active semantic specs;
+- latest English and Chinese site authoring documentation;
+- CLI entry guidance;
+- release notes for the target public changes.
+
+Historical versioned docs and historical release notes remain unchanged.
+
+## Active Contract Alignment
+
+After cutover, active documentation uses the same ownership statement:
+
+> Environment-verified datasource and semantic surfaces own API facts, current
+> state, legal transitions, effects, and repair. The `marivo-semantic` skill
+> owns ordered routing discipline, evidence and safety boundaries, the
+> one-question business-decision protocol, and ready-only handoff. The agent
+> owns technical drafting; the user or business owner owns unresolved meaning.
+
+No active guide may say that:
+
+- the skill is the source of constructor or backend truth;
+- help topics are complete step-by-step runbooks independent of the state
+  registry;
+- evidence projections recommend semantic meaning;
+- verify success permits skipping a required preview;
+- readiness can be inferred from skill completion;
+- analysis may consume an unready ref;
+- cumulative or future business object semantics live in packaged skill
+  references.
+
+## Verification Strategy
+
+### Package-shape checks
+
+- The packaged semantic skill contains exactly one `SKILL.md`.
+- No `references/`, examples, attachment runner, redirect, or placeholder
+  remains.
+- Package manifests and installation tests include the root file and exclude
+  deleted paths.
+
+### Skill-content checks
+
+Structural tests assert the presence of:
+
+- environment-bound entry;
+- resume-first routing;
+- durable partial order;
+- one-object loop;
+- evidence-before-question rule;
+- one-question grill stop;
+- scope, privacy, evidence, and judgment boundaries;
+- readiness-only analysis handoff;
+- closeout obligations.
+
+They assert the absence of:
+
+- constructor signatures and parameter tables;
+- backend or source-builder catalogs;
+- exact result fields or error kinds;
+- exact transition and repair call recipes;
+- cumulative/object-family manuals;
+- generic modeling methodology;
+- prepare, planner, wizard, or automatic authoring language;
+- links to deleted attachments.
+
+Tests should prefer structural ownership assertions over pinning long prose or
+capitalization-sensitive phrases.
+
+### Live-owner checks
+
+Before deleting each attachment, inventory every retained fact and prove its
+live target exists in the candidate package. Every runtime constraint, error,
+transition, and repair help target resolves without a skill path.
+
+### Behavioral scenarios
+
+Review at least:
+
+1. fresh datasource-to-one-object authoring;
+2. resume from an existing snapshot;
+3. resume from failed verification;
+4. stale/missing preview repair;
+5. dependency-not-ready repair;
+6. one unresolved business decision;
+7. unscoped or potentially unbounded read prevention;
+8. environment mismatch stop;
+9. analysis missing-semantic handoff and return;
+10. future object family whose preview mode differs from current objects.
+
+The skill must route from live state without knowing version-specific mechanics
+for any scenario.
+
+### Cold-agent gate
+
+Use the candidate, fixtures, event logging, and required cases defined by the
+companion live-surface design. The trial receives only the target one-file
+skill, installed package, fixed project/data fixtures, and task prompt. It does
+not receive the repository, deleted references/examples, site docs, previous
+transcript, or web browsing.
+
+The gate fails if the agent:
+
+- guesses an unregistered API;
+- queries before explicit scope;
+- reacquires evidence without a registered reason;
+- authors more than one object before validation;
+- skips a required dependency, verification, preview, or readiness edge;
+- invents business meaning;
+- asks more than one unresolved decision in a grill turn;
+- proceeds after unresolved environment skew;
+- hands an unready ref to analysis;
+- opens a deleted attachment path.
+
+### Repository checks
+
+The implementation plan runs narrow skill, introspection, datasource,
+semantic-result, readiness, CLI, packaging, and site tests first, followed by:
+
+```text
+make test
+make typecheck
+make lint
+make examples-check
+```
+
+`make examples-check` must be updated to validate only retained example owners;
+it must not fail because deleted skill examples no longer exist.
+
+## Acceptance Criteria
+
+### Skill shape
+
+- The packaged skill is one root `SKILL.md` with no attachments or examples.
+- Its sections are limited to trigger, authority, live entry, routing,
+  boundaries, handoffs, and closeout.
+- It contains no version-sensitive API catalog or fallback mechanics.
+
+### Ownership consistency
+
+- Installed live surfaces own signatures, effects, states, transitions, and
+  typed repair.
+- The skill owns partial-order discipline and hard boundaries without
+  duplicating those facts.
+- The agent and user decision rights are explicit.
+- Runtime code and active docs do not use skill files as API documentation.
+
+### Ordered behavior
+
+- The agent can enter at any current state and resume at the earliest required
+  unsatisfied boundary.
+- Existing fresh evidence is reused.
+- One object is authored and fully validated before the next.
+- Required preview cannot be skipped between verification and readiness.
+- Only ready refs cross to analysis.
+
+### Judgment behavior
+
+- Evidence is exhausted before asking a user.
+- One unresolved judgment target produces exactly one grounded question.
+- Unsupported options and inferred business defaults are forbidden.
+- Authoring stops while the answer is unresolved.
+
+### Boundary behavior
+
+- Environment mismatch, unknown effects, unscoped reads, stale evidence,
+  dependency blockers, and readiness blockers produce explicit stops or live
+  repair.
+- The skill does not hide a defective live transition behind a memorized
+  workaround.
+
+### Verification
+
+- Package-shape, skill-content, live-owner, behavioral, repository, and
+  cold-agent gates pass against one target-only candidate.
+- Deleted attachment names and paths are absent from the built wheel and active
+  latest documentation.
+
+## Success Test
+
+A cold general-purpose coding agent receives only the one-file skill and an
+installed Marivo environment. It verifies that environment, resumes from the
+current typed state, inspects effects before invocation, preserves one bounded
+evidence lineage, asks at most one grounded business question, authors and
+fully validates exactly one explicit Python object, and hands only live-marked
+ready refs to analysis. It never needs a packaged reference, copied example,
+memorized constructor, automatic planner, or inferred semantic default.
