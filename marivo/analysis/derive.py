@@ -218,7 +218,11 @@ def derive_metric_frame(
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> MetricFrame:
-    from marivo.analysis.intents.observe import _commit_observe_metric_frame, _meta_additivity
+    from marivo.analysis.intents._observe_persist import (
+        _commit_observe_metric_frame,
+        _meta_additivity,
+        _meta_aggregation,
+    )
     from marivo.analysis.semantic_inputs import normalize_dimension_input, normalize_metric_input
 
     resolved_session = session if session is not None else require_current_session()
@@ -226,6 +230,8 @@ def derive_metric_frame(
     metric_id = normalize_metric_input(resolved_session.catalog, metric)
     metric_details = resolved_session.catalog.get(f"metric.{metric_id}").details()
     metric_additivity = _meta_additivity(getattr(metric_details, "additivity", None))
+    metric_aggregation = _meta_aggregation(getattr(metric_details, "aggregation", None))
+    metric_status_time_dimension = getattr(metric_details, "status_time_dimension", None)
     scope = normalize_timescope_input(time_scope)
     resolved_window = make_absolute_window(
         scope,
@@ -335,6 +341,8 @@ def derive_metric_frame(
         semantic_kind=semantic_kind,
         semantic_model=_semantic_model_from_metric(metric_id),
         additivity=metric_additivity,
+        aggregation=metric_aggregation,
+        status_time_dimension=metric_status_time_dimension,
     )
     frame = MetricFrame(_df=df, meta=meta)
     frame = _commit_observe_metric_frame(

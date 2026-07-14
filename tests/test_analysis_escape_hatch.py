@@ -781,6 +781,9 @@ def test_promote_delta_frame_inherits_source_metric_metadata():
     assert delta.meta.source_current_ref == current.ref
     assert delta.meta.source_baseline_ref == baseline.ref
     assert delta.meta.alignment == {"kind": "window_bucket"}
+    assert delta.meta.additivity is None
+    assert delta.meta.aggregation is None
+    assert delta.meta.status_time_dimension is None
     assert delta.lineage.steps[-1].intent == "promote_delta_frame"
     assert [step.intent for step in delta.lineage.steps].count("promote_metric_frame") == 2
     assert set(current.lineage.external_inputs).issubset(delta.lineage.external_inputs)
@@ -955,7 +958,7 @@ def test_promote_delta_frame_rejects_source_axes_mismatch():
     assert "axes_mismatch" in exc_info.value._context["ambiguous"]
 
 
-def test_promoted_segmented_delta_alignment_includes_axes_for_decompose():
+def test_catalogless_promoted_segmented_delta_fails_closed_for_attribute():
     session = mv.session.get_or_create(name="demo")
     current = _promoted_scalar_metric(session, 30.0, semantic_kind="segmented")
     baseline = _promoted_scalar_metric(session, 20.0, semantic_kind="segmented")
@@ -979,9 +982,10 @@ def test_promoted_segmented_delta_alignment_includes_axes_for_decompose():
 
     assert delta.meta.alignment["axes"] == current.meta.axes
     assert "country" in delta.to_pandas().columns
-    attribution = session.attribute(delta, axes=[make_ref("country", SemanticKind.DIMENSION)])
-    assert attribution.meta.driver_field == "path"
-    assert attribution.to_pandas().iloc[0]["contribution"] == 10.0
+    with pytest.raises(mv.errors.AttributionAdditivityError) as exc_info:
+        session.attribute(delta, axes=[make_ref("country", SemanticKind.DIMENSION)])
+
+    assert exc_info.value._context["reason"] == "missing_additivity_metadata"
 
 
 def test_promote_delta_frame_rejects_missing_inherited_axis_column():
@@ -1376,6 +1380,53 @@ def test_promote_metric_frame_accepts_metric_defined_in_ready_catalog(tmp_path):
     )
 
     assert metric.meta.metric_id == "sales.revenue"
+    assert metric.meta.additivity == "additive"
+    assert metric.meta.aggregation is None
+    assert metric.meta.status_time_dimension is None
+
+
+def test_catalog_aware_promoted_delta_inherits_additivity_metadata(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = mv.session.get_or_create(name="demo")
+    current = _promoted_scalar_metric(session, 30.0)
+    baseline = _promoted_scalar_metric(session, 20.0)
+
+    delta = escape_hatch.promote_delta_frame(
+        pd.DataFrame({"current": [30.0], "baseline": [20.0], "delta": [10.0]}),
+        session=session,
+        current=mv.ArtifactRef(current.ref),
+        baseline=mv.ArtifactRef(baseline.ref),
+        delta_column="delta",
+        current_column="current",
+        baseline_column="baseline",
+    )
+
+    assert delta.meta.additivity == "additive"
+    assert delta.meta.aggregation is None
+    assert delta.meta.status_time_dimension is None
+
+
+def test_promoted_delta_does_not_inherit_one_sided_additivity_metadata(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    session = mv.session.get_or_create(name="demo")
+    current = _promoted_scalar_metric(session, 30.0)
+    baseline = _promoted_scalar_metric(session, 20.0)
+    baseline.meta = baseline.meta.model_copy(update={"additivity": None})
+    baseline.meta = persist_frame(session, baseline)
+
+    delta = escape_hatch.promote_delta_frame(
+        pd.DataFrame({"current": [30.0], "baseline": [20.0], "delta": [10.0]}),
+        session=session,
+        current=mv.ArtifactRef(current.ref),
+        baseline=mv.ArtifactRef(baseline.ref),
+        delta_column="delta",
+        current_column="current",
+        baseline_column="baseline",
+    )
+
+    assert delta.meta.additivity is None
+    assert delta.meta.aggregation is None
+    assert delta.meta.status_time_dimension is None
 
 
 def test_promote_delta_frame_rejects_inherited_metric_missing_from_ready_catalog(tmp_path):

@@ -201,6 +201,8 @@ class MetricFrameMeta(BaseFrameMeta):
     fold: dict[str, Any] | None = None
     reaggregatable: bool = True
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
+    aggregation: str | None = None
+    status_time_dimension: str | None = None
     sample_set_digest: str | None = None
     quantile_mode: Literal["exact", "approximate"] | None = None
     quantile_method: str | None = None
@@ -258,6 +260,8 @@ class MetricFrame(BaseFrame):
                 "column": self.VALUE_COLUMN,
                 "unit": self.meta.unit,
                 "additivity": self.meta.additivity,
+                "aggregation": self.meta.aggregation,
+                "status_time_dimension": self.meta.status_time_dimension,
                 "reaggregatable": self.meta.reaggregatable,
                 "cumulative": self.meta.cumulative,
             }

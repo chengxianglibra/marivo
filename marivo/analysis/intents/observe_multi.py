@@ -33,6 +33,10 @@ from marivo.analysis.executor.windowing import (
     resolve_window_time_field,
 )
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.intents._observe_persist import (
+    _meta_aggregation,
+    _metric_semantics_payload,
+)
 from marivo.analysis.intents._shape import SemanticShape, observe_output_shape
 from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.intents.observe import (
@@ -437,6 +441,10 @@ def observe_multi(
                 }
                 for pm in planned
             },
+            "metric_semantics": {
+                pm.metric_id: _metric_semantics_payload(pm.metric_ir)
+                for pm in sorted(planned, key=lambda item: item.metric_id)
+            },
             "warnings": [w for pm in planned for w in pm.plan.warnings],
         }
         models = list(dict.fromkeys(pm.model_name for pm in planned))
@@ -492,6 +500,8 @@ def observe_multi(
             "column": pm.column,
             "unit": pm.metric_ir.unit,
             "additivity": _meta_additivity(pm.metric_ir.additivity),
+            "aggregation": _meta_aggregation(pm.metric_ir.aggregation),
+            "status_time_dimension": pm.metric_ir.status_time_dimension,
             "reaggregatable": True,
         }
         for pm in planned

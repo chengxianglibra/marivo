@@ -171,6 +171,10 @@ report = session.observe(
 revenue_only = report.metric("sales.revenue")
 ```
 
+对于 single、derived、cumulative 和 multi-metric frame，观测时得到的 additivity、
+aggregation 与 status-time 语义都会参与 artifact identity。升级后重新执行
+`observe` 时，不会复用缺少当前语义门的旧缓存 frame。
+
 ### `compare` → `DeltaFrame`
 
 量化两个 `observe` 结果之间的变化（current 减 baseline）。两个 frame 必须共享 metric 与
@@ -196,12 +200,34 @@ delta = session.compare(current, baseline)
 `mv.dow_aligned()`、`mv.holiday_aligned()` 或 `mv.holiday_and_dow_aligned()`；calendar
 支持的几种还接受 `calendar=mv.CalendarRef(...)`。
 
+只有两侧 source frame 的 additivity、aggregation 与 status-time 三项语义完全一致，
+且 additivity 已知时，delta 才会携带这些语义。任一项缺失或不一致时，语义门保持
+unknown，使后续归因 fail closed，而不是继承单侧语义。
+
 ### `attribute` → `AttributionFrame`
 
 把 delta 的变动归因到显式 axes 上。这是“为什么变了？”分析的默认 public 入口。
 component-aware 的 ratio 和 weighted-average delta 会使用 mix attribution。普通
 非线性 sampled fold（例如 quantile、min、max、first 或 last）不能直接按 axis 求和；
 除非它们属于已持久化 component-aware derived metric delta，否则仍不支持。
+
+`DeltaFrame` 会持久化归因门所需的语义；执行归因时，Marivo 不会回查一个可能已经
+变化的 catalog。若请求的 axis 尚未物化，Marivo 也会先校验原始 delta，再 replay
+observe 来补齐 axis。`DeltaFrame.contract()` 会把同一边界暴露为 attribution
+precondition：unknown 与普通 non-additive delta 标记为失败；semi-additive delta
+要求 axes 排除 status time dimension；已持久化的 ratio/weighted-average component
+路径仍保持可用。
+
+| 已持久化的 metric 语义 | Axis 归因 |
+| --- | --- |
+| `additive` | 支持 sum 与 hierarchy 归因。 |
+| `semi_additive` | 支持非时间轴；在其 `status_time_dimension` 上拒绝。 |
+| Component-aware `ratio` / `weighted_average` | 支持 ratio/weighted mix 归因。 |
+| 其他 `non_additive` metric | 拒绝，包括 mean、median、percentile、min、max、count-distinct、tier-2 non-additive metric，以及 non-additive linear composition。 |
+| 缺少 additivity metadata | 拒绝；重新执行 `observe` 和 `compare` 后再归因。 |
+
+对于被拒绝的 metric，请建模显式 ratio/weighted-average components，或分别归因
+可加的 numerator 与 denominator metric。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |

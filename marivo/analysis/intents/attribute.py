@@ -23,6 +23,7 @@ from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.decompose import (
     _effective_component_axis_column,
     _normalize_axis_boundary,
+    _validate_attribution_semantics,
     decompose,
 )
 from marivo.analysis.semantic_inputs import DimensionInput
@@ -128,6 +129,7 @@ def attribute(
             },
         )
 
+    _validate_attribution_semantics(frame, axes=axis_ids, session=resolved_session)
     current = _load_metric_source(
         resolved_session,
         frame.meta.source_current_ref,

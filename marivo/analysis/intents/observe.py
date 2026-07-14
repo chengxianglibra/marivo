@@ -109,6 +109,8 @@ from marivo.analysis.intents._observe_persist import (
     _attach_metric_component_ref,
     _commit_observe_metric_frame,
     _meta_additivity,
+    _meta_aggregation,
+    _metric_semantics_payload,
     _persist_and_attach_coverage_sidecar,
     _persist_metric_component_frame,
 )
@@ -163,6 +165,7 @@ __all__ = [
     "_field_details",
     "_gen_ref",
     "_meta_additivity",
+    "_meta_aggregation",
     "_metric_expr",
     "_metric_planner_scope",
     "_normalize_dimension_boundary",
@@ -411,6 +414,10 @@ def observe(
                             else "as_of_end"
                         ),
                     },
+                    "metric_semantics": _metric_semantics_payload(
+                        metric_ir,
+                        force_additivity="non_additive",
+                    ),
                 }
                 prospective_id = compute_prospective_artifact_id(
                     step_type="observe",
@@ -452,6 +459,7 @@ def observe(
                     ],
                     "warnings": derived_plan.warnings,
                     "lineage_metadata": derived_plan.lineage_metadata,
+                    "metric_semantics": _metric_semantics_payload(metric_ir),
                 }
                 prospective_id = compute_prospective_artifact_id(
                     step_type="observe",
@@ -521,6 +529,8 @@ def observe(
                 unit=metric_ir.unit,
                 reaggregatable=False,
                 additivity="non_additive",
+                aggregation=_meta_aggregation(metric_ir.aggregation),
+                status_time_dimension=metric_ir.status_time_dimension,
                 cumulative=cumulative_meta,
                 rollup_fold="last",
             )
@@ -593,6 +603,8 @@ def observe(
                 fold=_derived_fold,
                 reaggregatable=not _any_folded and _derived_cumulative is None,
                 additivity=_meta_additivity(metric_ir.additivity),
+                aggregation=_meta_aggregation(metric_ir.aggregation),
+                status_time_dimension=metric_ir.status_time_dimension,
                 cumulative=_derived_cumulative,
             )
             frame = MetricFrame(_df=result.df, meta=meta)
@@ -701,6 +713,7 @@ def observe(
             "fanout_policy": plan.lineage_metadata.get("fanout_policy"),
             "fanouts": plan.lineage_metadata.get("fanouts") or [],
             "warnings": plan.warnings,
+            "metric_semantics": _metric_semantics_payload(metric_ir),
         }
         prospective_id = compute_prospective_artifact_id(
             step_type="observe",
@@ -778,6 +791,8 @@ def observe(
         fold=_build_fold_meta(metric_ir, catalog) if metric_ir.time_fold is not None else None,
         reaggregatable=metric_ir.time_fold is None,
         additivity=_meta_additivity(metric_ir.additivity),
+        aggregation=_meta_aggregation(metric_ir.aggregation),
+        status_time_dimension=metric_ir.status_time_dimension,
         quantile_mode=quantile_mode,
         quantile_method=quantile_method,
     )

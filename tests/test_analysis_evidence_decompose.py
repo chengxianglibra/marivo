@@ -54,6 +54,7 @@ def _delta(session) -> DeltaFrame:
         alignment={"kind": "window_bucket"},
         semantic_kind="segmented",
         semantic_model="sales",
+        additivity="additive",
     )
     return DeltaFrame(_df=df, meta=meta)
 
