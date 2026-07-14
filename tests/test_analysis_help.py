@@ -236,6 +236,24 @@ def test_attribute_help_explains_additivity_boundary() -> None:
     assert "denominator" in text
 
 
+def test_compare_help_explains_cumulative_component_compatibility() -> None:
+    text = _text("compare")
+
+    assert "cumulative_compare_compatible" in text
+    assert "outer component" in text
+    assert "trailing" in text
+    assert "grain_to_date" in text
+    assert "all_history" in text
+
+
+def test_attribute_help_explains_cumulative_hard_gate() -> None:
+    text = _text("attribute")
+
+    assert "cumulative_attribution_unsupported" in text
+    assert "cumulative" in text
+    assert "underlying flow" in text
+
+
 def test_focused_help_includes_producer_consumer_edges() -> None:
     text = _text("MetricFrame")
     # Type help should show producers (who creates MetricFrame).

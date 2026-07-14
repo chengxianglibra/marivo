@@ -505,6 +505,11 @@ Two cross-anchor rules govern query-time grain choices:
 - **Integer-multiple rule** (`trailing`): the window span must be an integer multiple of
   the query grain (`W_buckets = span / grain`). Trailing requires a time grain.
 
+Derived metrics may compose cumulative components. Compare is supported only when every
+outer component is cumulative and all components use the same `trailing` or
+`grain_to_date` anchor. `all_history`, mixed anchors, and cumulative/non-cumulative mixes
+are rejected; `attribute`, `decompose`, and `forecast` remain unsupported.
+
 ## Use and check the model
 
 ### Read a metric before an agent uses it

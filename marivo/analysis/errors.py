@@ -12,6 +12,7 @@ from marivo.analysis._capabilities.model import (
     EnvironmentFingerprint,
     LiveHelpTarget,
 )
+from marivo.analysis._cumulative import cumulative_compare_blocker
 from marivo.datasource import errors as _datasource_errors
 from marivo.semantic.catalog import SemanticKind
 
@@ -1297,17 +1298,7 @@ class PropositionNotFoundError(AnalysisError): ...
 
 
 class CumulativeFrameUnsupportedError(AnalysisError):
-    """Intent received a cumulative frame whose running-total semantics are unsupported.
-
-    Cumulative metrics store monotonically increasing running totals anchored to
-    all history.  Compare, attribute, decompose, and forecast operate on
-    period-level flow values; feeding a cumulative frame produces deltas or
-    forecasts of running totals rather than of the underlying flow.
-
-    The error teaches the agent to re-observe the base flow metric (the
-    ``base`` field in the cumulative marker) and retry the intent on that
-    frame instead.
-    """
+    """Intent received a cumulative frame outside the supported intent boundary."""
 
     def __init__(
         self,
@@ -1319,6 +1310,11 @@ class CumulativeFrameUnsupportedError(AnalysisError):
     ) -> None:
         base = cumulative.get("base")
         components = cumulative.get("components")
+        compare_blocker = (
+            cumulative_compare_blocker(cumulative)
+            if cumulative.get("kind") == "derived_contains_cumulative"
+            else cumulative.get("compare_blocker")
+        )
         if base is None and isinstance(components, dict):
             base = ", ".join(
                 sorted(
@@ -1327,13 +1323,32 @@ class CumulativeFrameUnsupportedError(AnalysisError):
                     if isinstance(payload, dict)
                 )
             )
-        if intent == "forecast":
-            hint = "Forecast the base flow metric instead of the all-history running total."
-        else:
+        anchor = cumulative.get("anchor")
+        if intent == "compare" and isinstance(compare_blocker, str):
             hint = (
-                "Use the base flow metric for this intent. A cumulative delta over a "
-                "window equals the base total over that window."
+                f"Derived cumulative compare is blocked by {compare_blocker!r}. Every outer "
+                "component must be cumulative and share one trailing or grain_to_date anchor."
             )
+        elif intent == "compare" and anchor == "all_history":
+            hint = (
+                "All-history cumulative compare is unsupported. Compare the base flow "
+                "metric: a cumulative delta equals the base total over that window. "
+                "Alternatively, use matching trailing or grain_to_date cumulative anchors."
+            )
+        elif intent == "compare":
+            hint = (
+                "Use the base flow metric for this intent: a cumulative delta equals the "
+                "base total over that window."
+            )
+        elif intent in {"attribute", "decompose"}:
+            hint = (
+                f"{intent} is unsupported for direct and derived cumulative deltas. "
+                "Use the underlying flow metrics separately."
+            )
+        elif intent == "forecast":
+            hint = "Forecast the base flow metric instead of a cumulative frame."
+        else:
+            hint = "Use the underlying flow metric for this intent."
         super().__init__(
             message=f"{intent} does not support cumulative metric frames.",
             hint=hint,
@@ -1342,6 +1357,8 @@ class CumulativeFrameUnsupportedError(AnalysisError):
                 "frame_ref": frame_ref,
                 "metric_id": metric_id,
                 "base_metric_id": base,
+                "compare_blocker": compare_blocker,
+                "cumulative_anchor": anchor,
                 "cumulative": dict(cumulative),
             },
         )
@@ -1351,16 +1368,36 @@ class CumulativeFrameUnsupportedError(AnalysisError):
         intent_str = intent if isinstance(intent, str) and intent else "<intent>"
         base = self._context.get("base_metric_id")
         base_str = base if isinstance(base, str) and base else None
+        blocker = self._context.get("compare_blocker")
+        anchor = self._context.get("cumulative_anchor")
+        if intent_str in {"attribute", "decompose"}:
+            action = (
+                f"Use the underlying flow metrics separately; {intent_str} is unsupported "
+                "for cumulative deltas."
+            )
+        elif intent_str == "compare" and isinstance(blocker, str):
+            action = (
+                f"Resolve {blocker!r}: every outer component must be cumulative and share "
+                "one trailing or grain_to_date anchor, then re-observe both frames."
+            )
+        elif intent_str == "compare" and anchor == "all_history":
+            action = (
+                "Compare the base flow metric, or re-observe both frames with matching "
+                "trailing or grain_to_date anchors."
+            )
+        else:
+            metric = f" ({base_str})" if base_str is not None else ""
+            action = (
+                f"Re-observe the underlying flow metric{metric} and retry {intent_str} "
+                "on that frame."
+            )
         return _DerivedFields(
             expected="period-level flow metric frame",
             received="cumulative metric frame",
             location=f"session.{intent_str}",
             repair=AnalysisRepair(
                 kind="retry",
-                action=(
-                    f"Re-observe the base flow metric ({base_str}) "
-                    f"and retry {intent_str} on that frame."
-                ),
+                action=action,
                 help_target=LiveHelpTarget(surface="analysis", canonical_id=intent_str),
             ),
         )

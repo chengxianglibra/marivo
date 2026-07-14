@@ -354,8 +354,11 @@ Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFram
   - `grain_to_date`：对单周期、边界锚定的窗口允许。窗口必须从重置边界开始，至多跨越一个
     重置周期，且两个 frame 必须共享重置粒度和查询粒度。结果 DeltaFrame 会在
     `alignment_dump["to_date"]` 下记录 to-date 对齐信息。
-- `attribute` 和 `forecast` 无论锚点如何都拒绝累计 frame；请为这些意图重新 observe base
-  流量 metric。
+- 对 derived metric，仅当所有外层 component 都是 cumulative，且完全共享一个 `trailing` 或
+  `grain_to_date` 锚点时，才复用上述 compare 路径。`all_history`、混合锚点、累计与非累计混合、
+  非法 metadata，以及 current/baseline 锚点不一致都会 fail closed。
+- `attribute`、`decompose` 和 `forecast` 无论锚点如何都拒绝累计 frame；即使 compare 已接受
+  derived cumulative DeltaFrame 也不例外。请为这些意图重新 observe base 流量 metric。
 - `transform.rollup(...)` 通过 `rollup_fold="last"` 重新聚合累计 frame：时间轴被重新分桶到目标
   `grain`，每个周期贡献其最后一个 bucket（周期末值）。既不可重新聚合、又未携带 `rollup_fold`
   的 frame 会被拒绝——请在目标粒度重新 observe。

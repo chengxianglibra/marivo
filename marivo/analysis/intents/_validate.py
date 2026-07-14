@@ -8,8 +8,10 @@ both fail-fast raising and structured ValidationIssue conversion.
 
 from __future__ import annotations
 
+from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING
 
+from marivo.analysis._cumulative import cumulative_compare_anchor
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyNotApplicableError,
@@ -91,30 +93,54 @@ def cumulative_issue(frame: MetricFrame, *, intent: str) -> AnalysisError | None
     )
 
 
-def cumulative_compare_issue(current: MetricFrame, baseline: MetricFrame) -> AnalysisError | None:
-    """Anchor-dispatched compare gate for directly-observed arity-1 cumulative frames.
+def cumulative_compare_issue(
+    current: MetricFrame,
+    baseline: MetricFrame,
+    *,
+    report_tz: str | None = None,
+) -> AnalysisError | None:
+    """Anchor-dispatched compare gate for arity-1 cumulative frames.
 
     Returns a teaching error when the compare must be rejected, or None when the
     anchor's compare path is allowed:
 
-    - ``derived_contains_cumulative``: stays gated (no anchor on the wrapper).
     - ``all_history``: rejected (existing class; hint names the base ref).
     - ``trailing``: allowed iff both frames' anchor payloads match exactly.
     - ``grain_to_date``: allowed via :func:`_grain_to_date_compare_validations`.
+    - incompatible derived wrappers and malformed markers: rejected.
     """
     cur_cum = current.meta.cumulative
     base_cum = baseline.meta.cumulative
-    # Derived-contains-cumulative stays gated (no anchor on the wrapper).
-    if cur_cum is not None and cur_cum.get("kind") == "derived_contains_cumulative":
+    if cur_cum is None and base_cum is None:
+        return None
+    if cur_cum is None or base_cum is None:
+        return AnalysisError(
+            message="compare requires both frames to share cumulative metadata state.",
+            hint="Re-observe both frames from the same metric contract before comparing.",
+            context={
+                "kind": "CumulativeMarkerPresenceMismatch",
+                "current_cumulative": cur_cum,
+                "baseline_cumulative": base_cum,
+            },
+        )
+    if cur_cum.get("kind") != base_cum.get("kind"):
+        return AnalysisError(
+            message="compare requires both frames to share the same cumulative marker kind.",
+            hint="Re-observe both frames from the same metric contract before comparing.",
+            context={
+                "kind": "CumulativeMarkerKindMismatch",
+                "current_kind": cur_cum.get("kind"),
+                "baseline_kind": base_cum.get("kind"),
+            },
+        )
+    anchor = cumulative_compare_anchor(cur_cum)
+    if anchor is None:
         return CumulativeFrameUnsupportedError(
             intent="compare",
             frame_ref=current.ref,
             metric_id=current.meta.metric_id,
             cumulative=cur_cum,
         )
-    if cur_cum is None:
-        return None
-    anchor = cur_cum.get("anchor")
     if anchor == "all_history":
         return CumulativeFrameUnsupportedError(
             intent="compare",
@@ -124,8 +150,8 @@ def cumulative_compare_issue(current: MetricFrame, baseline: MetricFrame) -> Ana
         )
     if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
         # Allowed iff both frames' anchor payloads match exactly.
-        base_anchor = base_cum.get("anchor") if base_cum else None
-        if base_cum is None or base_anchor != anchor:
+        base_anchor = cumulative_compare_anchor(base_cum)
+        if base_anchor != anchor:
             return AnalysisError(
                 message=(
                     "compare(trailing) requires both frames to share the same "
@@ -140,14 +166,28 @@ def cumulative_compare_issue(current: MetricFrame, baseline: MetricFrame) -> Ana
             )
         return None
     if isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
-        return _grain_to_date_compare_validations(current, baseline, anchor[1])
-    return None
+        return _grain_to_date_compare_validations(
+            current,
+            baseline,
+            anchor[1],
+            report_tz=report_tz,
+        )
+    return CumulativeFrameUnsupportedError(
+        intent="compare",
+        frame_ref=current.ref,
+        metric_id=current.meta.metric_id,
+        cumulative=cur_cum,
+    )
 
 
 def _grain_to_date_compare_validations(
-    current: MetricFrame, baseline: MetricFrame, reset_grain: str
+    current: MetricFrame,
+    baseline: MetricFrame,
+    reset_grain: str,
+    *,
+    report_tz: str | None = None,
 ) -> AnalysisError | None:
-    """Validations for compare(grain_to_date) on directly-observed cumulative frames.
+    """Validations for compare(grain_to_date) on effective cumulative anchors.
 
     Three structural validations plus a scalar elapsed-span check. Each returns a
     teaching error stating expected/received/next-step. Returns None on success.
@@ -167,7 +207,7 @@ def _grain_to_date_compare_validations(
     # Validation 1: both frames share reset grain AND query grain.
     base_cum = baseline.meta.cumulative
     if base_cum is not None:
-        base_anchor = base_cum.get("anchor")
+        base_anchor = cumulative_compare_anchor(base_cum)
         if (
             not (
                 isinstance(base_anchor, tuple) and base_anchor and base_anchor[0] == "grain_to_date"
@@ -212,26 +252,27 @@ def _grain_to_date_compare_validations(
             },
         )
 
-    def _elapsed_days(window: dict[str, object]) -> int | None:
+    def _elapsed_span(window: dict[str, object]) -> timedelta | None:
         start = window.get("start")
         end = window.get("end")
         if not isinstance(start, str) or not isinstance(end, str):
             return None
         try:
-            s = _parse_window_datetime(start, field="start")
-            e = _parse_window_datetime(end, field="end")
+            s = _parse_window_datetime(start, field="start", report_tz=report_tz)
+            e = _parse_window_datetime(end, field="end", report_tz=report_tz)
         except (AlignmentFailedError, ValueError, TypeError):
             return None
-        return int((e - s).total_seconds() // 86400)
+        return e - s
 
     # Validation 2: window starts on a reset boundary (raw inclusive start).
     for label, window in (("current", cur_window), ("baseline", base_window)):
         start_raw = window.get("start")
         if not isinstance(start_raw, str):
             continue
-        start_dt = _parse_window_datetime(start_raw, field="start")
+        start_dt = _parse_window_datetime(start_raw, field="start", report_tz=report_tz)
         truncated = _truncate_bucket_date(start_dt.date(), grain=reset_grain)
-        if start_dt.date() != truncated:
+        expected_boundary = datetime.combine(truncated, time.min)
+        if start_dt != expected_boundary:
             return AnalysisError(
                 message=(
                     f"compare(grain_to_date) requires the {label} window to start on "
@@ -246,30 +287,34 @@ def _grain_to_date_compare_validations(
                     "frame": label,
                     "reset_grain": reset_grain,
                     "window_start": start_raw,
-                    "expected_boundary": truncated.isoformat(),
+                    "expected_boundary": expected_boundary.isoformat(),
                 },
             )
 
     # Validation 3: window spans at most one reset period.
     for label, window in (("current", cur_window), ("baseline", base_window)):
-        span_days = _elapsed_days(window)
-        if span_days is None:
+        span = _elapsed_span(window)
+        if span is None:
             continue
         # Use window start (already boundary-validated) truncated to the reset
         # grain, then advance one reset period to get the next boundary.
         start_raw = window.get("start")
         if not isinstance(start_raw, str):
             continue
-        start_dt = _parse_window_datetime(start_raw, field="start")
+        end_raw = window.get("end")
+        if not isinstance(end_raw, str):
+            continue
+        start_dt = _parse_window_datetime(start_raw, field="start", report_tz=report_tz)
+        end_dt = _parse_window_datetime(end_raw, field="end", report_tz=report_tz)
         period_start = _truncate_bucket_date(start_dt.date(), grain=reset_grain)
         next_period = _advance_bucket_date(period_start, grain=reset_grain)
-        period_days = (next_period - period_start).days
-        if span_days > period_days:
+        next_boundary = datetime.combine(next_period, time.min)
+        if end_dt > next_boundary:
             return AnalysisError(
                 message=(
                     f"compare(grain_to_date) requires the {label} window to span at most "
-                    f"one {reset_grain} reset period; got a window of {span_days} days "
-                    f"under a {period_days}-day period."
+                    f"one {reset_grain} reset period; window end {end_raw!r} is after "
+                    f"the next reset boundary {next_boundary.isoformat()!r}."
                 ),
                 hint=(
                     "Observe a single reset period per frame (e.g. one month for MTD). "
@@ -280,8 +325,8 @@ def _grain_to_date_compare_validations(
                     "kind": "GrainToDateMultiPeriod",
                     "frame": label,
                     "reset_grain": reset_grain,
-                    "window_span_days": span_days,
-                    "reset_period_days": period_days,
+                    "window_span_seconds": span.total_seconds(),
+                    "next_reset_boundary": next_boundary.isoformat(),
                 },
             )
 
@@ -290,13 +335,16 @@ def _grain_to_date_compare_validations(
     # ordinal alignment, which produces baseline_tail_buckets for length
     # differences instead of rejecting them.
     if cur_query_grain is None and base_query_grain is None:
-        cur_span = _elapsed_days(cur_window)
-        base_span = _elapsed_days(base_window)
+        cur_span = _elapsed_span(cur_window)
+        base_span = _elapsed_span(base_window)
         if cur_span is not None and base_span is not None and cur_span != base_span:
+            cur_seconds = cur_span.total_seconds()
+            base_seconds = base_span.total_seconds()
             return AnalysisError(
                 message=(
                     "compare(grain_to_date) requires both frames to cover the same elapsed "
-                    f"window span; current spans {cur_span} days, baseline spans {base_span} days."
+                    f"window span; current spans {cur_seconds} seconds, baseline spans "
+                    f"{base_seconds} seconds."
                 ),
                 hint=(
                     "Re-observe so both windows cover the same elapsed span (e.g. 3 days "
@@ -304,8 +352,8 @@ def _grain_to_date_compare_validations(
                 ),
                 context={
                     "kind": "GrainToDateElapsedSpanMismatch",
-                    "current_elapsed_days": cur_span,
-                    "baseline_elapsed_days": base_span,
+                    "current_elapsed_seconds": cur_seconds,
+                    "baseline_elapsed_seconds": base_seconds,
                 },
             )
     return None
@@ -316,16 +364,42 @@ def validate_compare(
     baseline: MetricFrame,
     *,
     alignment: AlignmentPolicy,
+    report_tz: str | None = None,
 ) -> list[AnalysisError]:
     """Shape/policy compatibility for compare; returns the first issue or []."""
     from marivo.analysis.intents._window_pairs import _panel_grains
     from marivo.analysis.intents.compare import _dimension_columns
 
-    # Compare uses the anchor-dispatched gate (allows trailing / grain_to_date
-    # under validations; all_history and derived-contains-cumulative stay gated).
-    issue = cumulative_compare_issue(current, baseline)
+    # Compare uses the effective anchor-dispatched gate. Compatible derived
+    # cumulative wrappers reuse the trailing / grain_to_date validations;
+    # all_history and blocked wrappers stay gated.
+    issue = cumulative_compare_issue(current, baseline, report_tz=report_tz)
     if issue is not None:
         return [issue]
+    anchor = cumulative_compare_anchor(current.meta.cumulative)
+    if (
+        isinstance(anchor, tuple)
+        and anchor
+        and anchor[0] == "grain_to_date"
+        and (alignment.kind != "window_bucket" or alignment.mode != "ordinal_bucket")
+    ):
+        return [
+            AnalysisError(
+                message=(
+                    "compare(grain_to_date) requires ordinal window-bucket alignment; "
+                    f"got kind={alignment.kind!r}, mode={alignment.mode!r}."
+                ),
+                hint=(
+                    "Use AlignmentPolicy(kind='window_bucket', mode='ordinal_bucket') "
+                    "for period-position comparison."
+                ),
+                context={
+                    "kind": "GrainToDateAlignmentPolicyUnsupported",
+                    "alignment_kind": alignment.kind,
+                    "alignment_mode": alignment.mode,
+                },
+            )
+        ]
     if current.meta.metric_id != baseline.meta.metric_id:
         return [
             SemanticKindMismatchError(

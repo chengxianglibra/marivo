@@ -26,6 +26,14 @@ Do not use cumulative over `mean`, percentile, expression-body metrics, or deriv
 For a cumulative mean-like quantity, model cumulative numerator and denominator separately and
 compose them with `ms.ratio(...)`.
 
+## Derived compare boundary
+
+A derived metric over cumulative components can compare only when every outer component is
+cumulative and all components use exactly the same `trailing` or `grain_to_date` anchor.
+`all_history`, mixed anchors, cumulative/non-cumulative mixes, and unresolved anchors are hard
+rejections. `attribute`, `decompose`, and `forecast` remain unsupported for the resulting
+cumulative delta; operate on the underlying flow components instead.
+
 ## Cross-anchor constraints
 
 - **Grain-compatibility rule** (`grain_to_date`): every display bucket must lie entirely

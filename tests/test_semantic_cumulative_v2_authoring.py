@@ -289,6 +289,17 @@ def test_validator_rejects_cumulative_over_derived_base() -> None:
             assert "cumulative base" in messages
             assert "derived" in messages
             assert "ratio of two cumulative metrics" in messages
+            assert "same" in messages
+            assert "anchor" in messages
+
+
+def test_cumulative_semantic_help_explains_derived_compare_boundary() -> None:
+    text = ms.help_text("cumulative")
+
+    assert "same trailing or grain_to_date anchor" in text
+    assert "all_history" in text
+    assert "attribute" in text
+    assert "decompose" in text
 
 
 def test_loader_resolves_grain_to_date_anchor_over_from_single_time_entity() -> None:
