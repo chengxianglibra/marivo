@@ -24,6 +24,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 import marivo.datasource as md
+from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis._capabilities.validation import (
     classify_input_family,
     validate_capability_inputs,
@@ -149,7 +150,9 @@ def test_gate_compare_rejects_delta_frame_for_a():
         )
     assert exc.value.location == "compare.a"
     assert exc.value.repair is not None
-    assert exc.value.repair.help_target == "compare"
+    assert exc.value.repair.help_target == LiveHelpTarget(
+        surface="analysis", canonical_id="compare"
+    )
 
 
 def test_gate_compare_rejects_delta_frame_for_b():
@@ -171,7 +174,9 @@ def test_gate_compare_rejects_wrong_alignment():
         validate_capability_inputs("compare", a=a, b=b, alignment="window_bucket")
     assert exc.value.location == "compare.alignment"
     assert exc.value.repair is not None
-    assert exc.value.repair.help_target == "compare"
+    assert exc.value.repair.help_target == LiveHelpTarget(
+        surface="analysis", canonical_id="compare"
+    )
 
 
 def test_gate_attribute_accepts_delta_frame():
@@ -189,7 +194,9 @@ def test_gate_attribute_rejects_metric_frame():
         validate_capability_inputs("attribute", frame=mf, axes=axes)
     assert exc.value.location == "attribute.frame"
     assert exc.value.repair is not None
-    assert exc.value.repair.help_target == "attribute"
+    assert exc.value.repair.help_target == LiveHelpTarget(
+        surface="analysis", canonical_id="attribute"
+    )
 
 
 def test_gate_forecast_accepts_metric_frame():
@@ -325,7 +332,9 @@ def test_session_compare_rejects_delta_at_gate():
         session.compare(mf, df)  # type: ignore[arg-type]
     assert exc.value.location == "compare.b"
     assert exc.value.repair is not None
-    assert exc.value.repair.help_target == "compare"
+    assert exc.value.repair.help_target == LiveHelpTarget(
+        surface="analysis", canonical_id="compare"
+    )
 
 
 def test_session_attribute_rejects_metric_frame_at_gate():
@@ -440,7 +449,11 @@ def test_compare_calls_gate_with_compare_id():
         mock_gate.side_effect = AnalysisError(
             message="gate spy",
             location="compare.b",
-            repair=AnalysisRepair(kind="retry", action="spy", help_target="compare"),
+            repair=AnalysisRepair(
+                kind="retry",
+                action="spy",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+            ),
         )
         with pytest.raises(AnalysisError):
             session.compare(mf, df)
@@ -456,7 +469,11 @@ def test_attribute_calls_gate_with_attribute_id():
         mock_gate.side_effect = AnalysisError(
             message="gate spy",
             location="attribute.frame",
-            repair=AnalysisRepair(kind="retry", action="spy", help_target="attribute"),
+            repair=AnalysisRepair(
+                kind="retry",
+                action="spy",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            ),
         )
         with pytest.raises(AnalysisError):
             session.attribute(

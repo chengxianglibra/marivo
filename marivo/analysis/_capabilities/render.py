@@ -696,7 +696,8 @@ def _render_error_briefing(error_name: str, error_kind: str | None, error_instan
             lines.append(f"    action: {action}")
         help_target = getattr(repair, "help_target", None)
         if help_target:
-            lines.append(f"    help_target: {help_target}")
+            display = getattr(help_target, "display", None) or str(help_target)
+            lines.append(f"    help_target: {display}")
         snippet = getattr(repair, "snippet", None)
         if snippet:
             lines.append("    snippet:")

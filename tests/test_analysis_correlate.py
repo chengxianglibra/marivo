@@ -5,6 +5,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AnalysisError,
@@ -369,7 +370,9 @@ def test_correlate_rejects_non_alignment_policy():
 
     assert exc.value.location == "correlate.alignment"
     assert exc.value.repair is not None
-    assert exc.value.repair.help_target == "correlate"
+    assert exc.value.repair.help_target == LiveHelpTarget(
+        surface="analysis", canonical_id="correlate"
+    )
 
 
 def test_correlate_rejects_calendar_backed_alignment_for_now():

@@ -359,6 +359,13 @@ class LiveHelpTarget(BaseModel):
     surface: HelpSurface
     canonical_id: str | None = None
 
+    @property
+    def display(self) -> str:
+        """Return the display string for rendering in help and repair text."""
+        if self.canonical_id is not None:
+            return self.canonical_id
+        return self.surface
+
 
 class AnalysisToSemanticHandoff(BaseModel):
     """Typed request from analysis to the semantic layer.

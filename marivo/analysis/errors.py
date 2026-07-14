@@ -2,17 +2,34 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
+import marivo
+from marivo.analysis._capabilities.model import (
+    AnalysisToSemanticHandoff,
+    EnvironmentFingerprint,
+    LiveHelpTarget,
+)
 from marivo.datasource import errors as _datasource_errors
+from marivo.semantic.catalog import SemanticKind
 
 DatasourceFieldInvalidError = _datasource_errors.DatasourceFieldInvalidError
 DatasourceSecretInPlaintextError = _datasource_errors.DatasourceSecretInPlaintextError
 
 RepairKind = Literal["retry", "inspect", "semantic_handoff", "environment"]
+
+
+def _environment_fingerprint() -> EnvironmentFingerprint:
+    return EnvironmentFingerprint(
+        marivo_version=marivo.__version__,
+        python_executable=str(Path(sys.executable).resolve()),
+        package_path=str(Path(marivo.__file__).resolve()),
+    )
 
 
 class AnalysisRepair(BaseModel):
@@ -35,15 +52,19 @@ class AnalysisRepair(BaseModel):
         Optional paste-ready code snippet.
     candidates:
         Optional tuple of live candidate strings (e.g. available metric ids).
+    semantic_handoff:
+        Typed handoff to the semantic layer, populated when ``kind`` is
+        ``semantic_handoff``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: RepairKind
     action: str
-    help_target: str
+    help_target: LiveHelpTarget
     snippet: str | None = None
     candidates: tuple[str, ...] = ()
+    semantic_handoff: AnalysisToSemanticHandoff | None = None
 
 
 class _DerivedFields(TypedDict, total=False):
@@ -130,7 +151,7 @@ class AnalysisError(Exception):
                 lines.extend(f"  {line}" for line in self.repair.snippet.splitlines())
             if self.repair.candidates:
                 lines.append(f"  Candidates: {', '.join(self.repair.candidates)}")
-            lines.append(f"Help: mv.help('{self.repair.help_target}')")
+            lines.append(f"Help: mv.help('{self.repair.help_target.display}')")
 
         return "\n".join(lines)
 
@@ -185,7 +206,7 @@ class MetricNotFoundError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="Use a registered metric id from the catalog.",
-                    help_target="observe",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     snippet=(
                         "import marivo.semantic as ms\n"
                         "catalog = ms.load()\n"
@@ -209,7 +230,7 @@ class MetricNotFoundError(AnalysisError):
                     "catalog; author and register the metric in the semantic "
                     "layer, then reload and retry."
                 ),
-                help_target="semantic.authoring",
+                help_target=LiveHelpTarget(surface="semantic"),
                 snippet=(
                     "import marivo.semantic as ms\n"
                     "ms.help('authoring')  # read the authoring workflow\n"
@@ -218,6 +239,12 @@ class MetricNotFoundError(AnalysisError):
                     "catalog = ms.load()\n"
                     'session.observe(catalog.get("metric.<new_metric_id>"), '
                     'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
+                ),
+                semantic_handoff=AnalysisToSemanticHandoff(
+                    required_kind=SemanticKind.METRIC,
+                    requirement=f"metric_id={metric_ref} is not registered in the active semantic model",
+                    affected_capability_id="observe",
+                    environment_fingerprint=_environment_fingerprint(),
                 ),
             ),
         )
@@ -235,7 +262,7 @@ class WindowInvalidError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="Pass a parseable absolute time_scope.",
-                help_target="observe",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                 snippet=(
                     str(fix_snippet)
                     if isinstance(fix_snippet, str) and fix_snippet
@@ -284,7 +311,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="Pass a non-empty search_space with catalog dimension refs.",
-                    help_target="discover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
                         'region = session.catalog.get("dimension.sales.orders.region").ref\n'
                         "session.discover.driver_axes(delta, search_space=[region])"
@@ -307,7 +334,7 @@ class SemanticKindMismatchError(AnalysisError):
                         f"as_{expected_semantic_shape}() requires a "
                         f"{expected_semantic_shape} frame."
                     ),
-                    help_target="artifacts",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
                     snippet=(
                         f'if frame.semantic_shape == "{expected_semantic_shape}":\n'
                         f"    typed = frame.as_{expected_semantic_shape}()"
@@ -329,7 +356,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="Match expect_shape to the predicted semantic shape.",
-                    help_target=intent,
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id=intent),
                     snippet=(
                         f'frame = session.{intent}(metric, expect_shape="{predicted_semantic_shape}")'
                     ),
@@ -351,7 +378,7 @@ class SemanticKindMismatchError(AnalysisError):
                         f"as_{expected_attribution_shape}() requires a "
                         f"{expected_attribution_shape} attribution frame."
                     ),
-                    help_target="attribute",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
                     snippet=(
                         f'if frame.attribution_shape == "{expected_attribution_shape}":\n'
                         f"    typed = frame.as_{expected_attribution_shape}()"
@@ -368,7 +395,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action=f"Check CandidateSet.shape before as_{expected_shape}().",
-                    help_target="discover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
                         'if cands.meta.shape == "' + str(expected_shape) + '":\n'
                         "    typed = cands.as_" + str(expected_shape) + "()"
@@ -385,7 +412,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="Use a rank within the candidate set's row count.",
-                    help_target="discover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
                         "if cands.meta.row_count >= 1:\n"
                         '    value = cands.select(rank=1, attribute="...")'
@@ -415,7 +442,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action=cause,
-                    help_target="discover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(f'value = cands.select(rank=1, attribute="{first_valid}")'),
                     candidates=tuple(sorted(valid_fields))
                     if isinstance(valid_fields, list) and valid_fields
@@ -446,7 +473,7 @@ class SemanticKindMismatchError(AnalysisError):
                         f"discover objective {objective!r} does not accept "
                         f"semantic_kind {semantic_kind_value!r} on a {source_kind_value}."
                     ),
-                    help_target="discover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                 ),
             )
         if isinstance(objective, str) and isinstance(source_kind_value, str):
@@ -460,7 +487,7 @@ class SemanticKindMismatchError(AnalysisError):
                         f"discover objective {objective!r} does not accept source kind "
                         f"{source_kind_value!r}."
                     ),
-                    help_target="discover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                 ),
             )
         if expected_kind_raw == "implemented_objective":
@@ -469,7 +496,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="inspect",
                     action=f"discover objective {objective!r} is not yet implemented in this build.",
-                    help_target="discover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                 ),
             )
         # Measure-rejection shape: a measure SemanticRef was passed where a
@@ -507,7 +534,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action=cause,
-                    help_target="observe",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     snippet=fix_snippet,
                     candidates=candidates,
                 ),
@@ -547,7 +574,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action=cause,
-                    help_target="observe",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     snippet=fix_snippet,
                     candidates=candidates,
                 ),
@@ -569,7 +596,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="CandidateSet.select only operates on CandidateSet artifacts.",
-                    help_target="discover",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
                         "cands = session.discover.point_anomalies(metric)\n"
                         'window = cands.select(rank=1, attribute="window")'
@@ -584,7 +611,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="observe requires a catalog metric object or ref.",
-                    help_target="observe",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     snippet=(
                         'session.observe(session.catalog.get("metric.sales.revenue"), '
                         'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
@@ -598,7 +625,7 @@ class SemanticKindMismatchError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="Input frame kind does not match the requested analysis operation.",
-                    help_target="compare",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 ),
             )
         return _DerivedFields(
@@ -608,7 +635,7 @@ class SemanticKindMismatchError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="Pass an observe result (MetricFrame) instead of a compare result (DeltaFrame).",
-                help_target="compare",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 snippet=(
                     'revenue = session.catalog.get("metric.sales.revenue")\n'
                     'cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})\n'
@@ -640,7 +667,7 @@ class DiscoverInsufficientDataError(AnalysisError):
                     f"discover objective {objective_ref!r} needs at least {minimum_ref} "
                     f"time buckets in one series."
                 ),
-                help_target="discover",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                 snippet=(
                     "delta = session.compare(cur, base, alignment=mv.window_bucket())\n"
                     'session.discover.period_shifts(delta, value="delta")  # use a wider window'
@@ -660,7 +687,7 @@ class AlignmentPolicyValidationError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action=f"alignment kind {kind_str!r} requires a calendar.",
-                    help_target="alignment",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="alignment"),
                     snippet=(
                         f"mv.{kind_str}(\n"
                         '    calendar=mv.CalendarRef("cn_holidays"),\n'
@@ -675,7 +702,7 @@ class AlignmentPolicyValidationError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="Use 'window_bucket' for request-window bucket spine alignment.",
-                    help_target="alignment",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="alignment"),
                     snippet="mv.window_bucket()",
                 ),
             )
@@ -685,7 +712,7 @@ class AlignmentPolicyValidationError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="window_bucket alignment does not accept a calendar argument.",
-                    help_target="alignment",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="alignment"),
                     snippet="mv.window_bucket()  # no calendar argument",
                 ),
             )
@@ -720,7 +747,9 @@ class PromotionFailedError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action=f"Promotion is missing required metadata: {', '.join(map(str, missing))}.",
-                    help_target="boundary.derive_metric_frame",
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id="boundary.derive_metric_frame"
+                    ),
                     snippet=snippet,
                 ),
             )
@@ -737,7 +766,9 @@ class PromotionFailedError(AnalysisError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action="Use a metric id defined in the loaded semantic catalog.",
-                    help_target="boundary.derive_metric_frame",
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id="boundary.derive_metric_frame"
+                    ),
                     snippet=(
                         "import marivo.semantic as ms\n"
                         "catalog = ms.load()\n"
@@ -750,7 +781,9 @@ class PromotionFailedError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="Promotion metadata is incomplete or ambiguous.",
-                help_target="boundary.derive_metric_frame",
+                help_target=LiveHelpTarget(
+                    surface="analysis", canonical_id="boundary.derive_metric_frame"
+                ),
             ),
         )
 
@@ -762,7 +795,7 @@ class TestShapeNotTestableError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="mean_changed needs paired observations; re-observe with enough history.",
-                help_target="hypothesis_test",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="hypothesis_test"),
                 snippet=(
                     'revenue = session.catalog.get("metric.sales.revenue")\n'
                     'cur = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-08-01"}, grain="day")\n'
@@ -780,7 +813,7 @@ class TestPolicyError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="hypothesis_test v1 only supports mean_changed, window_bucket alignment, and shape-compatible SamplingPolicy.pairing.",
-                help_target="hypothesis_test",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="hypothesis_test"),
                 snippet="session.hypothesis_test(cur, base, sampling=mv.SamplingPolicy(pairing='window_bucket'), alpha=0.05)",
             ),
         )
@@ -793,7 +826,7 @@ class TestAlignmentError(AlignmentFailedError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="The input frames did not produce any paired samples after alignment and null dropping.",
-                help_target="hypothesis_test",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="hypothesis_test"),
                 snippet="session.hypothesis_test(cur, base, alignment=mv.window_bucket())",
             ),
         )
@@ -806,7 +839,7 @@ class ForecastShapeUnsupportedError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="forecast v1 accepts only MetricFrame time_series or panel shapes.",
-                help_target="forecast",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet=(
                     'history = session.observe(session.catalog.get("metric.sales.revenue"), time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")\n'
                     "session.forecast(history, horizon=30)"
@@ -822,7 +855,7 @@ class ForecastPolicyError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="horizon, interval_level, model, seasonality_period, or grain is outside the v1 supported contract.",
-                help_target="forecast",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet="session.forecast(history, horizon=30, model='seasonal_naive', seasonality_period=7, interval_level=0.95)",
             ),
         )
@@ -835,7 +868,7 @@ class ForecastInsufficientHistoryError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="The time_series input has fewer training points than the selected model requires.",
-                help_target="forecast",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet=(
                     'history = session.observe(session.catalog.get("metric.sales.revenue"), '
                     'time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")'
@@ -851,7 +884,7 @@ class ForecastInputQualityError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="Forecast does not silently impute NaN values or fill missing time buckets.",
-                help_target="forecast",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="forecast"),
                 snippet="clean = history.transform.window(window={...})  # or impute upstream before forecasting",
             ),
         )
@@ -864,7 +897,7 @@ class QualityShapeUnsupportedError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="assess_quality v1 only supports MetricFrame targets.",
-                help_target="assess_quality",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="assess_quality"),
                 snippet="report = session.assess_quality(metric_frame)",
             ),
         )
@@ -918,7 +951,7 @@ class FrameReadError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="Use frame.show() for bounded inspection or frame.to_pandas() for terminal custom analysis.",
-                help_target="artifacts",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
                 snippet="frame.show()",
             ),
         )
@@ -939,7 +972,7 @@ class FrameCacheCorruptedError(AnalysisError):
             repair=AnalysisRepair(
                 kind="environment",
                 action=f"Persisted frame data is unreadable: {cause}. Delete the corrupted artifact directory to force re-computation.",
-                help_target="recovery",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="recovery"),
                 snippet=f"# rm -rf .marivo/analysis/sessions/*/frames/{ref}/",
             ),
         )
@@ -960,7 +993,7 @@ class NoBackendFactoryError(AnalysisError):
                         "Session has no backend factory configured; data-materializing "
                         "analysis intents need a datasource, backends={...}, or backend_factory=..."
                     ),
-                    help_target="datasources",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="datasources"),
                     snippet=(
                         "import marivo.analysis as mv\n"
                         "import marivo.datasource as md\n"
@@ -987,7 +1020,7 @@ class NoBackendFactoryError(AnalysisError):
                     f"datasource={datasource!r} resolved to None "
                     "or a non-ibis object; the analysis runtime needs a live ibis backend."
                 ),
-                help_target="datasources",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="datasources"),
                 snippet=(
                     "import marivo.analysis as mv\n"
                     "import marivo.datasource as md\n"
@@ -1024,7 +1057,7 @@ class HelpTargetError(AnalysisError):
             repair=AnalysisRepair(
                 kind="inspect",
                 action="Use a canonical registered target from mv.help().",
-                help_target="help",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="help"),
                 candidates=suggestions,
             ),
         )
@@ -1053,7 +1086,7 @@ class SessionTimezoneConflict(SessionStateError):  # noqa: N818
                     "Use the persisted report timezone, create a new session, "
                     "or delete and recreate this session to re-bucket under a new report timezone."
                 ),
-                help_target="session",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="session"),
             ),
         )
 
@@ -1092,7 +1125,7 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                 repair=AnalysisRepair(
                     kind="retry",
                     action=cause,
-                    help_target="observe",
+                    help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                     snippet=(
                         "import marivo.semantic as ms\n"
                         "catalog = ms.load()\n"
@@ -1116,7 +1149,7 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                     "datasets; author and register the dimension in the semantic "
                     "layer, then reload and retry."
                 ),
-                help_target="semantic.authoring",
+                help_target=LiveHelpTarget(surface="semantic"),
                 snippet=(
                     "import marivo.semantic as ms\n"
                     "ms.help('authoring')          # read the authoring workflow\n"
@@ -1125,6 +1158,12 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                     "catalog = ms.load()\n"
                     'session.observe(catalog.get("metric.sales.revenue"), '
                     'dimensions=[catalog.get("dimension.<new_dimension>").ref])'
+                ),
+                semantic_handoff=AnalysisToSemanticHandoff(
+                    required_kind=SemanticKind.DIMENSION,
+                    requirement=f"dimension {dim_ref} is not found on the metric's datasets",
+                    affected_capability_id="observe",
+                    environment_fingerprint=_environment_fingerprint(),
                 ),
             ),
         )
@@ -1144,7 +1183,7 @@ class AmbiguousDimensionError(SemanticKindMismatchError):
             repair=AnalysisRepair(
                 kind="retry",
                 action="v1 requires unique dimension names across a metric's datasets.",
-                help_target="observe",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
                 candidates=tuple(str(c) for c in candidates)
                 if isinstance(candidates, list) and candidates
                 else (),
@@ -1163,7 +1202,7 @@ class DimensionAcrossDatasetsError(SemanticKindMismatchError):
                     "All dimensions must resolve to the same dataset in v1; "
                     f"got dimensions_by_dataset={mapping!r}."
                 ),
-                help_target="observe",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
             ),
         )
 
@@ -1190,7 +1229,7 @@ class AxisNotInPanelDimensionsError(SemanticKindMismatchError):
                     f"({available_list}); attribute requires axis to be one of the frame's "
                     "segment dimensions."
                 ),
-                help_target="attribute",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
                 snippet=(
                     f"# Choose the full catalog ref for panel dimension column {first_available!r}.\n"
                     'axis = session.catalog.get("dimension.<domain.entity.dimension>").ref\n'
@@ -1227,7 +1266,7 @@ class SegmentDimensionMismatchError(AlignmentFailedError):
             repair=AnalysisRepair(
                 kind="retry",
                 action=cause,
-                help_target="compare",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
                 snippet=(
                     "metric = session.catalog.get('metric.model.metric')\n"
                     'common_dim = session.catalog.get("dimension.model.entity.common_dim").ref\n'
@@ -1333,7 +1372,7 @@ class CumulativeFrameUnsupportedError(AnalysisError):
                     f"Re-observe the base flow metric ({base_str}) "
                     f"and retry {intent_str} on that frame."
                 ),
-                help_target=intent_str,
+                help_target=LiveHelpTarget(surface="analysis", canonical_id=intent_str),
             ),
         )
 
@@ -1348,7 +1387,7 @@ class ComponentFrameUnavailableError(AnalysisError):
                     "Component frames are only available for derived ratio or "
                     "weighted-average frames produced by component-aware observe/compare."
                 ),
-                help_target="artifacts",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="artifacts"),
                 snippet=(
                     'frame = session.observe(session.catalog.get("metric.model.derived_ratio"))\n'
                     "components = frame.components()"
@@ -1380,7 +1419,7 @@ class AttributionMaterializationError(AnalysisError):
                     f"Attribute could not materialize missing axes ({axis_text}) from "
                     "the input DeltaFrame lineage without guessing."
                 ),
-                help_target="attribute",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
                 snippet=(
                     "cur = session.observe(metric, time_scope=current_window, dimensions=[axis])\n"
                     "base = session.observe(metric, time_scope=baseline_window, dimensions=[axis])\n"

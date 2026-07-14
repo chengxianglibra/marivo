@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from marivo.analysis._capabilities.model import (
     BoundaryCapability,
+    LiveHelpTarget,
     OperatorCapability,
 )
 from marivo.analysis._capabilities.registry import REGISTRY
@@ -175,7 +176,7 @@ def classify_input_family(value: object) -> str:
                 "Pass a typed Marivo artifact, semantic catalog object/ref, "
                 "alignment policy, sampling policy, or time scope."
             ),
-            help_target="help",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="help"),
         ),
     )
 
@@ -249,6 +250,8 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
                 repair=AnalysisRepair(
                     kind="retry",
                     action=(f"Pass a value whose family is one of: {accepted_str}."),
-                    help_target=descriptor.help_target,
+                    help_target=LiveHelpTarget(
+                        surface="analysis", canonical_id=descriptor.help_target
+                    ),
                 ),
             )
