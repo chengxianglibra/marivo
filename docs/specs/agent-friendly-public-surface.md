@@ -48,7 +48,7 @@ Three consequences drive the whole design:
 
 The single organizing rule that falls out of this is a division of labor:
 
-> **The library owns the contract. The skill owns the process. The agent owns
+> **The library owns the contract. The skill owns the boundaries. The agent owns
 > the judgment.**
 
 Everything else in this document is an elaboration of that sentence.
@@ -196,12 +196,11 @@ enforced, not aspirational
 - **The library owns the contract.** Anything derivable from real state at the
   call site is the library's to emit: signatures, field lists, valid next
   actions, constraints, runnable examples, and the meaning-plus-fix of an error.
-- **The skill owns the process.** The cross-object, cross-step judgment no single
-  object's help can express: which capability to reach for and in what order,
-  when to stop and read versus bundle a chain, session discipline, and
-  final-report synthesis.
-- **The agent owns the judgment.** Given the contract and the process, the
-  business decision is the agent's.
+- **The skill owns the boundaries.** Hard boundaries, handoffs, evidence
+  continuity, and closeout obligations.
+- **The agent owns planning and judgment.** Which capability to reach for and
+  in what order, when to stop and read versus bundle a chain, session
+  discipline, and final-report synthesis.
 
 The test that keeps these separate is the **eviction test**: for any line in a
 skill file, ask *"could the library teach this from real state at the call

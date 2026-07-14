@@ -163,8 +163,9 @@ Which operator to reach for follows the artifact in hand: observe a metric first
 `discover.<objective>` when the axis/window/slice worth examining is unknown;
 `hypothesis_test` to check an explicit hypothesis; `forecast` to project observed
 history; `assess_quality` to gate any of them. Concrete intent paths, composition
-patterns, and report shape are owned by the `marivo-analysis` skill; the mechanical
-next actions from any given artifact come from its `contract()`.
+patterns, and report shape are the agent's responsibility; the `marivo-analysis`
+skill owns boundaries and handoffs only. The mechanical next actions from any
+given artifact come from its `contract()`.
 
 ## Non-goals
 
