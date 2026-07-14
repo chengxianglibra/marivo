@@ -26,6 +26,7 @@ import marivo.semantic as ms
 from marivo.analysis._capabilities.model import SURFACE_LIMITS
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
+from marivo.cli import main
 from marivo.datasource.authoring import DuckDBSpec
 
 # ---------------------------------------------------------------------------
@@ -133,6 +134,19 @@ def test_mv_help_no_format_parameter() -> None:
 def test_ms_help_no_format_parameter() -> None:
     sig = inspect.signature(ms.help)
     assert "format" not in sig.parameters
+
+
+def test_phase2_cli_exposes_datasource_help_and_defers_semantic_track(capsys) -> None:
+    """Semantic CLI help remains a Phase 3 surface while Python help owns it."""
+    main(["help", "datasource", "inspect"])
+    assert capsys.readouterr().out.strip() == md.help_text("inspect")
+    assert ms.help.__module__ == "marivo.semantic.help"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["help", "semantic"])
+
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_md_help_no_format_or_print_parameter() -> None:

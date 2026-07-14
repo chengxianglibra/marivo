@@ -52,7 +52,7 @@ def test_set_returns_summary(project_root: Path) -> None:
 def test_set_rejects_model_qualified_name(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
-    assert exc_info.value.details["field"] == "<name>"
+    assert exc_info.value.expected == "a storage name without a kind prefix"
     assert "storage name without kind prefix" in str(exc_info.value)
 
 
@@ -106,7 +106,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     result = md.test("wh")
 
     assert result.ok is True
-    assert result.error is None
+    assert result.repair is None
     assert backend.disconnected is True
 
 
@@ -298,7 +298,8 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     result = md.test("wh")
 
     assert result.ok is False
-    assert "authentication failed" in str(result.error)
+    assert result.repair is not None
+    assert result.repair.kind == "reconnect"
     assert persisted == []
 
 

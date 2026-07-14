@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.introspection.live.model import AuthoringContract
 
 type TableSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
@@ -19,6 +20,12 @@ class PartitionScope:
     max_rows: int
     timeout_seconds: int
 
+    def contract(self) -> AuthoringContract:
+        """Return the blocked acquisition contract for this explicit scope."""
+        from marivo.datasource._capabilities.contracts import contract_for_scope
+
+        return contract_for_scope("partition")
+
 
 @dataclass(frozen=True)
 class UnprunedScope:
@@ -26,6 +33,12 @@ class UnprunedScope:
 
     max_rows: int
     timeout_seconds: int
+
+    def contract(self) -> AuthoringContract:
+        """Return the blocked acquisition contract for this explicit scope."""
+        from marivo.datasource._capabilities.contracts import contract_for_scope
+
+        return contract_for_scope("unpruned")
 
 
 type AuthoringScope = PartitionScope | UnprunedScope

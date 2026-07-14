@@ -144,8 +144,7 @@ def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch
     )
     with pytest.raises(DatasourceEnvVarMissingError) as exc_info:
         datasource_backends._effective_kwargs(datasource)
-    assert exc_info.value.details["env_var"] == "TRINO_AUTH"
-    assert exc_info.value.details["field"] == "auth"
+    assert exc_info.value.received == "TRINO_AUTH"
 
 
 def test_unsupported_backend_type(project_root: Path) -> None:
@@ -161,14 +160,14 @@ def test_unsupported_backend_type(project_root: Path) -> None:
     )
     with pytest.raises(DatasourceBackendTypeUnsupportedError) as exc_info:
         datasource_backends.build_backend(datasource)
-    assert exc_info.value.details["backend_type"] == "wat-backend"
+    assert exc_info.value.received == "wat-backend"
 
 
 def test_trino_required_field_missing(project_root: Path) -> None:
     datasource = _raw_ir("wh", backend_type="trino", fields={"host": "h"})
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_backends.build_backend(datasource)
-    assert exc_info.value.details["field"] == "catalog"
+    assert exc_info.value.expected == "required datasource field 'catalog'"
 
 
 def test_trino_session_properties_pass_through(
@@ -350,7 +349,7 @@ def test_clickhouse_required_field_missing(project_root: Path) -> None:
     datasource = _raw_ir("ch_ds", backend_type="clickhouse", fields={})
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_backends.build_backend(datasource)
-    assert exc_info.value.details["field"] == "host"
+    assert exc_info.value.expected == "required datasource field 'host'"
 
 
 def test_clickhouse_optional_fields_pass_through(

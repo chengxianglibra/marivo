@@ -94,6 +94,13 @@ def test_snapshot_exposes_projection_methods_and_affordances(
     assert all(hasattr(DiscoverySnapshot, name) for name in projection_names)
     rendered = snapshot.render()
     assert all(f".{name}(" in rendered for name in projection_names)
+    assert ".contract()" in rendered
+    contract = snapshot.contract()
+    assert contract.subject_refs[0] == "datasource.warehouse"
+    assert [(state.id, state.evidence_ids) for state in contract.states] == [
+        ("evidence.acquired", (snapshot.id,)),
+        ("scope.explicit", ()),
+    ]
 
 
 def test_sample_executes_one_query_with_limit_plus_one(
@@ -182,8 +189,12 @@ def test_unsupported_timeout_blocks_before_execution(
             columns=("order_id",),
         )
 
-    assert exc_info.value.details["code"] == "timeout_not_enforceable"
-    assert exc_info.value.details["query_executed"] is False
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "configure"
+    assert exc_info.value.repair.help_target.canonical_id == "inspect"
+    assert exc_info.value.repair.preserves_evidence is False
     assert query_spy.user_data_queries == 0
 
 
@@ -202,8 +213,12 @@ def test_unknown_column_blocks_before_backend_connection(
             columns=("missing",),
         )
 
-    assert exc_info.value.details["code"] == "unknown_source_column"
-    assert exc_info.value.details["query_executed"] is False
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "inspect"
+    assert exc_info.value.repair.help_target.canonical_id == "inspect"
+    assert exc_info.value.repair.preserves_evidence is True
 
 
 @pytest.mark.parametrize(
@@ -291,8 +306,12 @@ def test_any_transformed_partition_blocks_even_when_capability_claims_support(
             columns=("order_id",),
         )
 
-    assert exc_info.value.details["code"] == "transformed_partition_unsupported"
-    assert exc_info.value.details["query_executed"] is False
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "configure"
+    assert exc_info.value.repair.help_target.canonical_id == "inspect"
+    assert exc_info.value.repair.preserves_evidence is False
 
 
 def test_timeout_setup_failure_reports_no_query_executed(
@@ -319,8 +338,12 @@ def test_timeout_setup_failure_reports_no_query_executed(
             columns=("order_id",),
         )
 
-    assert exc_info.value.details["code"] == "timeout_not_enforceable"
-    assert exc_info.value.details["query_executed"] is False
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.kind == "configure"
+    assert exc_info.value.repair.help_target.canonical_id == "inspect"
+    assert exc_info.value.repair.preserves_evidence is False
     assert query_spy.user_data_queries == 0
 
 

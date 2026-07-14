@@ -5,7 +5,6 @@ from __future__ import annotations
 import inspect
 from dataclasses import fields
 from pathlib import Path
-from typing import cast
 
 import pytest
 
@@ -23,14 +22,8 @@ from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
 )
-from marivo.datasource.help import _surface as datasource_surface
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
-from marivo.introspection.surface import render as surface_render
 from tests.test_agent_result_protocol import assert_conforms
-
-
-def _help_json(symbol: str) -> dict[str, object]:
-    return cast("dict[str, object]", surface_render(datasource_surface(), symbol, "json"))
 
 
 def _ir(
@@ -115,8 +108,7 @@ def test_empty_required_string_raises_teaching_error() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         TrinoSpec(name="warehouse", host="", catalog="hive")
 
-    assert exc_info.value.details["datasource"] == "warehouse"
-    assert exc_info.value.details["field"] == "host"
+    assert exc_info.value.location == "models/datasources/ entry 'warehouse' field 'host'"
     assert "non-empty string" in str(exc_info.value)
 
 
@@ -143,7 +135,7 @@ def test_extra_rejects_plaintext_sensitive_stems() -> None:
             extra={"password": "literal-secret"},
         )
 
-    assert exc_info.value.details["field"] == "password"
+    assert exc_info.value.received == "password"
     assert "password_env" in str(exc_info.value)
 
 
@@ -156,7 +148,7 @@ def test_extra_rejects_non_json_values() -> None:
             extra={"custom_option": object()},
         )
 
-    assert exc_info.value.details["field"] == "custom_option"
+    assert exc_info.value.location.endswith("field 'custom_option'")
 
 
 def test_datasource_specs_do_not_accept_description() -> None:
@@ -208,27 +200,27 @@ def test_spec_ai_context_maps_to_ir() -> None:
 
 
 def test_trino_help_has_signature_without_description() -> None:
-    result = _help_json("trino")
+    signature = inspect.signature(md.trino)
+    result = md.help_text("trino")
 
-    assert result["kind"] == "callable"
-    assert result["symbol"] == "trino"
-    assert "host" in result["signature"]
-    assert "catalog" in result["signature"]
-    assert "description" not in result["signature"]
-    assert "ai_context" in result["signature"]
-    assert result["summary"]
+    assert "host" in signature.parameters
+    assert "catalog" in signature.parameters
+    assert "description" not in signature.parameters
+    assert "ai_context" in signature.parameters
+    assert "trino" in result
+    assert "Signature:" in result
 
 
 def test_duckdb_help_has_signature_without_description() -> None:
-    result = _help_json("duckdb")
+    signature = inspect.signature(md.duckdb)
+    result = md.help_text("duckdb")
 
-    assert result["kind"] == "callable"
-    assert result["symbol"] == "duckdb"
-    assert "name" in result["signature"]
-    assert "path" in result["signature"]
-    assert "description" not in result["signature"]
-    assert "ai_context" in result["signature"]
-    assert result["summary"]
+    assert "name" in signature.parameters
+    assert "path" in signature.parameters
+    assert "description" not in signature.parameters
+    assert "ai_context" in signature.parameters
+    assert "duckdb" in result
+    assert "Signature:" in result
 
 
 # -- Store persistence tests --

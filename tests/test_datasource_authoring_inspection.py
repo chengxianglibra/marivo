@@ -11,9 +11,14 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+from marivo.datasource._capabilities.registry import REGISTRY
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
-from marivo.datasource.errors import DatasourceError
+from marivo.datasource.errors import (
+    DatasourceAuthoringError,
+    DatasourceError,
+    DatasourceObservedEffects,
+)
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata, TableMetadata
 
 
@@ -217,26 +222,15 @@ def test_unknown_partition_state_rejects_partition_scope_before_field_validation
             columns=("order_id", "amount"),
         )
 
-    assert exc_info.value.details == {
-        "code": "partition_state_unknown",
-        "stage": "preflight",
-        "status": "blocked",
-        "expected": "an explicit unpruned scope acknowledging unknown partition state",
-        "received": "partition scope",
-        "reason": "metadata could not prove whether the source is partitioned",
-        "query_executed": False,
-        "scope_state": "unknown",
-        "next_calls": (
-            "inspection.show()",
-            "inspection.sample(scope=md.unpruned(max_rows=1000, timeout_seconds=30), "
-            "columns=('order_id', 'amount'))",
-        ),
-    }
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
+    assert exc_info.value.effect_observed.scope_state == "unknown"
     assert query_spy.user_data_queries == 0
 
 
-def test_unknown_partition_affordances_offer_explicit_unpruned_sample(
+def test_unknown_partition_state_returns_typed_rescope_repair_without_query(
     project_root: Path,
+    query_spy: _QuerySpy,
 ) -> None:
     path = _register_duckdb(project_root)
     _create_orders(path)
@@ -246,11 +240,22 @@ def test_unknown_partition_affordances_offer_explicit_unpruned_sample(
         partitioning=replace(inspection.partitioning, state="unknown", fields=()),
     )
 
-    assert inspection.partitions().next_calls == (
-        "inspection.show()",
-        "inspection.sample(scope=md.unpruned(max_rows=1000, timeout_seconds=30), "
-        "columns=('order_id', 'amount'))",
+    with pytest.raises(DatasourceAuthoringError) as exc_info:
+        inspection.sample(
+            scope=md.partition({"dt": "2026-07-10"}, max_rows=10, timeout_seconds=30),
+            columns=("order_id", "amount"),
+        )
+
+    error = exc_info.value
+    assert error.effect_observed == DatasourceObservedEffects(
+        query_executed=False,
+        scope_state="unknown",
     )
+    assert error.repair is not None
+    assert error.repair.kind == "rescope"
+    assert error.repair.help_target.canonical_id == "SourceInspection.partitions"
+    assert error.repair.preserves_evidence is True
+    assert query_spy.user_data_queries == 0
 
 
 def test_unknown_partition_state_allows_explicit_unpruned_scope(
@@ -306,8 +311,8 @@ def test_file_source_requires_duckdb_without_opening_backend(
             md.csv("orders.csv", schema={"order_id": "string"}),
         )
 
-    assert exc_info.value.details["code"] == "source_mismatch"
-    assert exc_info.value.details["query_executed"] is False
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
 
 
 def test_sample_rejects_unknown_source_column_before_executor(project_root: Path) -> None:
@@ -323,17 +328,9 @@ def test_sample_rejects_unknown_source_column_before_executor(project_root: Path
             columns=("missing",),
         )
 
-    assert exc_info.value.details == {
-        "code": "unknown_source_column",
-        "stage": "preflight",
-        "status": "blocked",
-        "expected": "columns from the inspected source schema",
-        "received": "missing",
-        "reason": "selected column 'missing' is not present in the inspected source schema",
-        "query_executed": False,
-        "scope_state": "none",
-        "next_calls": ("md.inspect(...)",),
-    }
+    assert exc_info.value.received == "missing"
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
 
 
 def test_sample_rejects_unenforceable_timeout_before_executor(project_root: Path) -> None:
@@ -356,8 +353,8 @@ def test_sample_rejects_unenforceable_timeout_before_executor(project_root: Path
             columns=("order_id",),
         )
 
-    assert exc_info.value.details["code"] == "timeout_not_enforceable"
-    assert exc_info.value.details["query_executed"] is False
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
 
 
 def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: Path) -> None:
@@ -381,8 +378,8 @@ def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: P
             scope=md.unpruned(max_rows=10, timeout_seconds=30),
             columns=("order_id",),
         )
-    assert incomplete.value.details["code"] == "incomplete_partition_fields"
-    assert incomplete.value.details["query_executed"] is False
+    assert incomplete.value.effect_observed is not None
+    assert incomplete.value.effect_observed.query_executed is False
 
     transformed = replace(
         known,
@@ -396,8 +393,8 @@ def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: P
             scope=md.partition({"dt": "2026-07-10"}, max_rows=10, timeout_seconds=30),
             columns=("order_id",),
         )
-    assert unsupported.value.details["code"] == "transformed_partition_unsupported"
-    assert unsupported.value.details["query_executed"] is False
+    assert unsupported.value.effect_observed is not None
+    assert unsupported.value.effect_observed.query_executed is False
 
 
 def test_identity_partition_transform_is_rejected_in_v1(project_root: Path) -> None:
@@ -426,7 +423,7 @@ def test_identity_partition_transform_is_rejected_in_v1(project_root: Path) -> N
             columns=("order_id",),
         )
 
-    assert exc_info.value.details["code"] == "transformed_partition_unsupported"
+    assert exc_info.value.effect_observed is not None
 
 
 def test_transformed_partition_inspection_does_not_call_value_hook(
@@ -463,10 +460,11 @@ def test_transformed_partition_inspection_does_not_call_value_hook(
     assert inspection.partitioning.values == ()
     assert inspection.partitioning.values_complete is False
     assert partition_result.status == "incomplete"
-    assert all("md.partition" not in call for call in partition_result.next_calls)
+    assert not hasattr(partition_result, "next_calls")
+    assert ".contract()" in partition_result.render()
 
 
-def test_affordances_advertise_available_sampling_without_self_refresh(
+def test_inspection_contract_exposes_factual_scope_state_without_string_guidance(
     project_root: Path,
 ) -> None:
     _register_duckdb(project_root)
@@ -475,8 +473,42 @@ def test_affordances_advertise_available_sampling_without_self_refresh(
         md.csv("orders.csv", schema={"order_id": "string"}),
     )
 
-    assert "sample(" in inspection.next_safe_action
-    assert inspection.partitions().next_calls == ("md.unpruned(max_rows=..., timeout_seconds=...)",)
+    contract = inspection.contract()
+
+    assert contract.subject_refs[0] == "datasource.warehouse"
+    assert {state.id for state in contract.states} == {
+        "datasource.registered",
+        "source.inspected",
+    }
+    assert [transition.help_target.canonical_id for transition in contract.transitions] == [
+        "SourceInspection.sample",
+        "unpruned",
+    ]
+    acquire = contract.transitions[0]
+    assert acquire.available is False
+    assert [requirement.family for requirement in acquire.input_requirements] == [
+        "SourceInspection",
+        "AuthoringScope",
+        "Columns",
+    ]
+    assert contract.transitions[1].available is True
+    for transition in contract.transitions:
+        canonical_id = transition.help_target.canonical_id
+        assert canonical_id is not None
+        assert transition.effects == REGISTRY.by_canonical_id(canonical_id).effects
+
+    partition_contract = inspection.partitions().contract()
+    assert partition_contract.subject_refs == contract.subject_refs
+    assert [
+        transition.help_target.canonical_id for transition in partition_contract.transitions
+    ] == [
+        "unpruned",
+    ]
+    assert not hasattr(inspection, "next_safe_action")
+    rendered = inspection.render().lower()
+    assert ".contract()" in rendered
+    assert "next safe action" not in rendered
+    assert "next calls" not in rendered
 
 
 def test_direct_partition_scope_rejects_duplicate_fields(project_root: Path) -> None:
@@ -503,8 +535,8 @@ def test_direct_partition_scope_rejects_duplicate_fields(project_root: Path) -> 
     with pytest.raises(DatasourceError) as exc_info:
         known.sample(scope=duplicate_scope, columns=("order_id",))
 
-    assert exc_info.value.details["code"] == "incomplete_partition_fields"
-    assert exc_info.value.details["query_executed"] is False
+    assert exc_info.value.effect_observed is not None
+    assert exc_info.value.effect_observed.query_executed is False
 
 
 @pytest.mark.parametrize(

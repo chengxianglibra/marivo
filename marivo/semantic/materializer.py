@@ -17,7 +17,7 @@ from ibis.expr.operations.relations import SQLQueryResult
 
 from marivo.datasource.backends import apply_json_http_settings
 from marivo.datasource.engines import require_profile_for_backend_type
-from marivo.datasource.errors import DatasourceConfigError
+from marivo.datasource.errors import DatasourceError
 from marivo.datasource.source import AuthoringScope, PartitionScope
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
@@ -128,7 +128,7 @@ class Materializer:
 
         try:
             table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
-        except DatasourceConfigError:
+        except DatasourceError:
             raise
         except SemanticRuntimeError:
             raise

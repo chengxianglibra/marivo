@@ -27,6 +27,19 @@ from marivo.config import (
 _s3_client_factory = default_s3_client_factory
 
 
+def _render_track_help(track: str, target: str | None) -> str:
+    """Render environment-bound help for one supported CLI track."""
+    if track == "analysis":
+        from marivo.analysis.help import help_text as analysis_help_text
+
+        return analysis_help_text(target)
+    if track == "datasource":
+        from marivo.datasource.help import help_text as datasource_help_text
+
+        return datasource_help_text(target)
+    raise AssertionError(f"argparse admitted unsupported help track {track!r}")
+
+
 def _skills_source_dir() -> Path:
     """Resolve the installed package's skills directory."""
     import marivo.skills
@@ -189,6 +202,9 @@ def main(argv: list[str] | None = None) -> None:
             "  marivo help analysis\n"
             "  marivo help analysis <target>\n"
             "  Use the Python interpreter where marivo is installed.\n\n"
+            "Datasource workflow:\n"
+            "  marivo help datasource\n"
+            "  marivo help datasource <target>\n\n"
             "Semantic authoring workflow:\n"
             "  python -c \"import marivo.datasource as md; md.help('authoring')\"\n"
             "  python -c \"import marivo.semantic as ms; ms.help('authoring')\"\n\n"
@@ -229,8 +245,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     help_parser.add_argument(
         "track",
-        choices=("analysis",),
-        help="Help track (currently only 'analysis' is supported)",
+        choices=("analysis", "datasource"),
+        help="Environment-bound help track",
     )
     help_parser.add_argument(
         "target",
@@ -283,11 +299,21 @@ def main(argv: list[str] | None = None) -> None:
         if code:
             raise SystemExit(code)
     elif args.command == "help":
-        from marivo.analysis.errors import HelpTargetError
-        from marivo.analysis.help import help_text
+        if args.track == "analysis":
+            from marivo.analysis.errors import HelpTargetError
 
-        try:
-            print(help_text(args.target))
-        except HelpTargetError as exc:
-            print(str(exc), file=sys.stderr)
-            raise SystemExit(2) from None
+            try:
+                print(_render_track_help(args.track, args.target))
+            except HelpTargetError as exc:
+                print(str(exc), file=sys.stderr)
+                raise SystemExit(2) from None
+        elif args.track == "datasource":
+            from marivo.datasource.errors import DatasourceHelpTargetError
+
+            try:
+                print(_render_track_help(args.track, args.target))
+            except DatasourceHelpTargetError as exc:
+                print(str(exc), file=sys.stderr)
+                raise SystemExit(2) from None
+        else:
+            raise AssertionError(f"argparse admitted unsupported help track {args.track!r}")

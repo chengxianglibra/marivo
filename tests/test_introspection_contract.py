@@ -1,9 +1,9 @@
 """Cross-surface tests for the agent-facing help() contract.
 
-The analysis surface no longer uses the shared JSON ``Surface`` introspection
-infrastructure — it has its own capability-registry-based renderer.  Only the
-datasource and semantic surfaces are covered by the JSON-based parametrised
-tests below.  Analysis-specific help invariants live in
+The analysis and datasource surfaces no longer use the shared JSON ``Surface``
+introspection infrastructure — each has its own capability-registry-based
+renderer. Only the semantic surface is covered by the JSON-based parametrised
+tests below. Live help invariants live in
 ``tests/test_analysis_help.py``.
 """
 
@@ -20,20 +20,12 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.constraints import CONSTRAINTS as ANALYSIS_CONSTRAINTS
-from marivo.datasource.constraints import CONSTRAINTS as DATASOURCE_CONSTRAINTS
 from marivo.semantic.constraints import CONSTRAINTS as SEMANTIC_CONSTRAINTS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Datasource and semantic surfaces still use the shared JSON Surface.
+# Semantic still uses the shared JSON Surface.
 SURFACES = [
-    pytest.param(
-        "marivo.datasource",
-        md,
-        DATASOURCE_CONSTRAINTS,
-        {"authoring", "ai_context"},
-        id="datasource",
-    ),
     pytest.param(
         "marivo.semantic",
         ms,
@@ -359,9 +351,9 @@ def test_l2_method_drilldowns_resolve(
 
 
 def test_no_inherited_or_module_docstring_leaks() -> None:
-    # Analysis no longer uses JSON help; this test only applies to datasource/semantic.
-    result = _json_help(md, "trino")
-    assert result["kind"] == "callable"
+    text = md.help_text("trino")
+    assert "Signature:" in text
+    assert "__init__" not in text
 
 
 def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:
@@ -409,40 +401,23 @@ def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
 
 
 def test_datasource_trino_descriptor_lists_secret_env_constraint() -> None:
-    result = _json_help(md, "trino")
-
-    assert result["kind"] == "callable"
-    assert result["symbol"] == "trino"
-    constraints = cast("list[dict[str, Any]]", result["constraints"])
-    assert {constraint["id"] for constraint in constraints} >= {"datasource_secret_env_ref"}
+    assert "datasource_secret_env_ref" in md.help_text("trino")
 
 
 def test_datasource_help_does_not_resolve_private_symbols() -> None:
-    result = _json_help(md, "_build_ai_context")
+    from marivo.datasource.errors import DatasourceHelpTargetError
 
-    assert result["kind"] == "unknown"
-    assert result["symbol"] == "_build_ai_context"
+    with pytest.raises(DatasourceHelpTargetError):
+        md.help_text("_build_ai_context")
 
 
-def test_datasource_constraint_defaults_use_error_details() -> None:
-    from marivo.datasource.constraints import default_constraint_for_error
+def test_datasource_constraint_defaults_use_error_kind_only() -> None:
+    from marivo.datasource.constraints import default_constraint_for_error_kind
 
-    backend_type = default_constraint_for_error(
-        "DatasourceFieldInvalid",
-        {"field": "backend_type", "reason": "backend_type is required"},
-    )
-    loader_context = default_constraint_for_error(
-        "DatasourceFieldInvalid",
-        {"field": "<context>", "reason": "outside loader"},
-    )
-    load_error = default_constraint_for_error("DatasourceLoad", {"path": "broken.py"})
+    constraint = default_constraint_for_error_kind("DatasourceLoad")
 
-    assert backend_type is not None
-    assert backend_type.id == "datasource_backend_type_required"
-    assert loader_context is not None
-    assert loader_context.id == "datasource_loader_context"
-    assert load_error is not None
-    assert load_error.id == "datasource_file_loadable"
+    assert constraint is not None
+    assert constraint.id == "datasource_file_loadable"
 
 
 def test_datasource_text_help_prints_and_help_text_returns_string(
@@ -452,11 +427,11 @@ def test_datasource_text_help_prints_and_help_text_returns_string(
 
     captured = capsys.readouterr()
     assert result is None
-    assert "marivo.datasource: trino" in captured.out
+    assert captured.out.startswith("trino\n")
 
     text = md.help_text("trino")
     captured = capsys.readouterr()
-    assert "marivo.datasource: trino" in text
+    assert text.startswith("trino\n")
     assert captured.out == ""
 
 
@@ -488,16 +463,19 @@ def test_analysis_error_can_receive_catalog_default_hint() -> None:
     assert "show()" in err.hint.lower()
 
 
-def test_datasource_error_can_receive_catalog_default_hint() -> None:
-    from marivo.datasource.errors import DatasourceSecretInPlaintextError
+def test_datasource_error_requires_typed_repair() -> None:
+    from marivo.datasource.errors import DatasourceSecretInPlaintextError, repair
 
     err = DatasourceSecretInPlaintextError(
         message="secret",
-        details={"datasource": "warehouse", "field": "password"},
+        expected="an environment-variable reference",
+        received="password",
+        location="models/datasources/",
+        repair=repair(kind="environment", canonical_id="trino", action="Use password_env."),
     )
 
-    assert err.hint is not None
-    assert "*_env" in err.hint
+    assert err.repair is not None
+    assert not hasattr(err, "hint")
 
 
 def test_analysis_constraints_do_not_reference_deleted_skill_attachments() -> None:

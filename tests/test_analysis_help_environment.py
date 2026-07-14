@@ -207,7 +207,7 @@ def test_unknown_target_renders_same_error_as_sdk(
 def test_unknown_track_exits_nonzero(capsys: pytest.CaptureFixture[str]) -> None:
     """``marivo help <unknown-track>`` must exit non-zero."""
     with pytest.raises(SystemExit) as exc_info:
-        main(["help", "datasource"])
+        main(["help", "semantic"])
     assert exc_info.value.code != 0
 
 
