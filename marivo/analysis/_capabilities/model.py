@@ -341,6 +341,20 @@ class EnvironmentFingerprint(BaseModel):
     python_executable: str
     package_path: str
 
+    @classmethod
+    def current(cls) -> EnvironmentFingerprint:
+        """Construct from the current runtime environment."""
+        import sys
+        from pathlib import Path
+
+        import marivo
+
+        return cls(
+            marivo_version=marivo.__version__,
+            python_executable=str(Path(sys.executable).resolve()),
+            package_path=str(Path(marivo.__file__).resolve()),
+        )
+
 
 class LiveHelpTarget(BaseModel):
     """Typed target for a live help lookup across surfaces.
