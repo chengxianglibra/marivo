@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ConfigDict
 
+from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactAffordance,
@@ -78,7 +79,7 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
         repair=AnalysisRepair(
             kind="retry",
             action=repair_action,
-            help_target="compare",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         ),
     )
 
@@ -124,7 +125,7 @@ def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondit
                     "Ensure both cumulative frames use the same trailing anchor "
                     "payload (same count and unit) before calling compare()."
                 ),
-                help_target="compare",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
             ),
         )
     elif isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
@@ -142,7 +143,7 @@ def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondit
                     "Ensure both grain_to_date cumulative frames use "
                     "single-period, boundary-anchored windows before calling compare()."
                 ),
-                help_target="compare",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
             ),
         )
     else:
@@ -340,7 +341,7 @@ class MetricFrame(BaseFrame):
             repair=AnalysisRepair(
                 kind="retry",
                 action=f'Call .metric("{first_metric}") to project to a single metric first.',
-                help_target="MetricFrame.metric",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="MetricFrame.metric"),
                 snippet=f'frame.metric("{first_metric}")',
             ),
         )

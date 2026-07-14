@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
+from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
@@ -332,7 +333,7 @@ def test_failed_precondition_with_repair_remains_visible() -> None:
             repair=AnalysisRepair(
                 kind="retry",
                 action='Call .metric("sales.revenue") first',
-                help_target="MetricFrame.metric",
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="MetricFrame.metric"),
             ),
         )
     ]

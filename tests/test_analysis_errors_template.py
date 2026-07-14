@@ -1,5 +1,6 @@
 """Structured string template for analysis errors."""
 
+from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -16,7 +17,7 @@ def test_analysis_error_renders_stable_fields_and_repair() -> None:
     repair = AnalysisRepair(
         kind="retry",
         action="Pass a parseable time_scope.",
-        help_target="observe",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         snippet='session.observe(metric, time_scope={"start": "2026-07-01", "end": "2026-10-01"})',
     )
     err = AnalysisError(
@@ -94,7 +95,7 @@ def test_metric_not_found_renders_repair_with_candidates() -> None:
     repair = AnalysisRepair(
         kind="retry",
         action="Use a registered metric id from the catalog.",
-        help_target="observe",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         snippet=(
             "import marivo.semantic as ms\n"
             "catalog = ms.load()\n"
@@ -126,7 +127,7 @@ def test_semantic_kind_mismatch_has_compare_fix_repair() -> None:
     repair = AnalysisRepair(
         kind="retry",
         action="Pass an observe result (MetricFrame) instead of a compare result (DeltaFrame).",
-        help_target="compare",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
         snippet=(
             'revenue = session.catalog.get("metric.sales.revenue")\n'
             'cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})\n'
@@ -165,7 +166,7 @@ def test_window_invalid_has_repair_snippet() -> None:
     repair = AnalysisRepair(
         kind="retry",
         action="Pass a parseable absolute time_scope.",
-        help_target="observe",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         snippet=(
             'session.observe(session.catalog.get("metric.sales.revenue"), '
             'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'

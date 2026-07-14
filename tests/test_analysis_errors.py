@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AnalysisError,
@@ -25,6 +26,7 @@ from marivo.analysis.errors import (
     WindowAmbiguousError,
     WindowInvalidError,
 )
+from marivo.semantic.catalog import SemanticKind
 
 
 def test_base_is_exception():
@@ -62,7 +64,7 @@ def test_analysis_repair_accepts_known_kinds() -> None:
         repair = AnalysisRepair(
             kind=kind,
             action="do something",
-            help_target="observe",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         )
         assert repair.kind == kind
 
@@ -72,7 +74,7 @@ def test_analysis_repair_rejects_unknown_kind() -> None:
         AnalysisRepair(
             kind="custom",  # type: ignore[arg-type]
             action="do something",
-            help_target="observe",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         )
 
 
@@ -80,7 +82,7 @@ def test_analysis_repair_is_frozen() -> None:
     repair = AnalysisRepair(
         kind="retry",
         action="Use the registered metric id.",
-        help_target="observe",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
     )
     with pytest.raises(ValidationError):
         repair.action = "mutated"  # type: ignore[misc]
@@ -91,7 +93,7 @@ def test_analysis_repair_rejects_extra_fields() -> None:
         AnalysisRepair(
             kind="retry",
             action="do something",
-            help_target="observe",
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
             extra_field="nope",  # type: ignore[call-arg]
         )
 
@@ -100,7 +102,7 @@ def test_analysis_repair_defaults() -> None:
     repair = AnalysisRepair(
         kind="inspect",
         action="Check the catalog.",
-        help_target="help",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="help"),
     )
     assert repair.snippet is None
     assert repair.candidates == ()
@@ -110,7 +112,7 @@ def test_analysis_repair_candidates_is_tuple() -> None:
     repair = AnalysisRepair(
         kind="retry",
         action="Use the registered metric id.",
-        help_target="observe",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         candidates=["metric.sales.revenue", "metric.sales.orders"],
     )
     assert repair.candidates == ("metric.sales.revenue", "metric.sales.orders")
@@ -121,7 +123,7 @@ def test_actionable_analysis_error_exposes_typed_repair() -> None:
     repair = AnalysisRepair(
         kind="retry",
         action="Use the registered metric id.",
-        help_target="observe",
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
         snippet='session.observe(catalog.get("metric.sales.revenue"), time_scope=window)',
         candidates=("metric.sales.revenue",),
     )
@@ -231,7 +233,7 @@ def test_metric_not_found_uses_retry_when_candidates_exist() -> None:
     assert err.repair is not None
     assert err.repair.kind == "retry"
     assert err.repair.candidates == ("sales.revenue", "sales.orders")
-    assert err.repair.help_target == "observe"
+    assert err.repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="observe")
     assert err.received == "sales.revenu"
 
 
@@ -249,7 +251,9 @@ def test_metric_not_found_uses_semantic_handoff_when_no_candidates() -> None:
     assert err.repair is not None
     assert err.repair.kind == "semantic_handoff"
     assert err.repair.candidates == ()
-    assert err.repair.help_target == "semantic.authoring"
+    assert err.repair.help_target == LiveHelpTarget(surface="semantic")
+    assert err.repair.semantic_handoff is not None
+    assert err.repair.semantic_handoff.required_kind == SemanticKind.METRIC
     assert err.received == "sales.nonexistent"
     assert "semantic layer" in err.repair.action
 
@@ -282,7 +286,7 @@ def test_dimension_field_not_found_uses_retry_when_candidates_exist() -> None:
     assert err.repair is not None
     assert err.repair.kind == "retry"
     assert err.repair.candidates == ("region", "country")
-    assert err.repair.help_target == "observe"
+    assert err.repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="observe")
     assert err.received == "regio"
 
 
@@ -301,7 +305,9 @@ def test_dimension_field_not_found_uses_semantic_handoff_when_no_candidates() ->
     assert err.repair is not None
     assert err.repair.kind == "semantic_handoff"
     assert err.repair.candidates == ()
-    assert err.repair.help_target == "semantic.authoring"
+    assert err.repair.help_target == LiveHelpTarget(surface="semantic")
+    assert err.repair.semantic_handoff is not None
+    assert err.repair.semantic_handoff.required_kind == SemanticKind.DIMENSION
     assert err.received == "unknown"
     assert "semantic layer" in err.repair.action
 
@@ -328,7 +334,7 @@ def test_cumulative_frame_unsupported_derives_fields_via_derive_fields() -> None
     assert err.location == "session.forecast"
     assert err.repair is not None
     assert err.repair.kind == "retry"
-    assert err.repair.help_target == "forecast"
+    assert err.repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="forecast")
     assert "sales.gmv_base" in err.repair.action
     assert "forecast the base flow" in err.hint.lower()
 
@@ -347,5 +353,5 @@ def test_cumulative_frame_unsupported_derives_fields_for_compare() -> None:
 
     assert err.location == "session.compare"
     assert err.repair is not None
-    assert err.repair.help_target == "compare"
+    assert err.repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="compare")
     assert "base total over that window" in err.hint
