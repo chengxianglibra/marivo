@@ -183,7 +183,10 @@ def test_authoring_timeout_orders_setup_execute_cleanup_on_error(
         if callable(disconnect):
             disconnect()
 
-    assert events == ["setup", "execute", "cleanup"]
+    if backend_type == "mysql":
+        assert events == ["setup", "execute", "cleanup", "cleanup"]
+    else:
+        assert events == ["setup", "execute", "cleanup"]
     if backend_type == "trino":
         assert isinstance(backend_object, _RawBackend)
         assert backend_object.calls == [
@@ -195,7 +198,9 @@ def test_authoring_timeout_orders_setup_execute_cleanup_on_error(
         assert isinstance(backend_object, _RawBackend)
         assert backend_object.calls == [
             "SELECT @@SESSION.MAX_EXECUTION_TIME",
+            "START TRANSACTION READ ONLY",
             "SET SESSION MAX_EXECUTION_TIME = 2000",
+            "ROLLBACK",
             "SET SESSION MAX_EXECUTION_TIME = 2500",
         ]
     elif backend_type == "postgres":
@@ -262,7 +267,10 @@ def test_authoring_timeout_setup_failure_never_enters_execution(
             disconnect()
 
     assert executions == 0
-    assert events == ["setup", "cleanup"]
+    if backend_type == "mysql":
+        assert events == ["setup", "cleanup", "cleanup"]
+    else:
+        assert events == ["setup", "cleanup"]
     if not isinstance(backend_object, _RawBackend):
         return
     if backend_type == "trino":

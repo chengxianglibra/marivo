@@ -285,7 +285,7 @@ ObservationDigest = Annotated[
 
 
 class ObservationSummary(_FrozenModel):
-    """Bounded Surface 2 record of one observe / derive_metric_frame commit.
+    """Bounded Surface 2 record of one observe commit.
 
     Observations are ground truth, not assessed claims: unlike facts they
     carry no status, confidence, or assessment linkage.

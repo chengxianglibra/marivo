@@ -32,7 +32,7 @@ business data. The target API:
 
 The decisive test: if a capability would return different artifact families under
 different parameters, it is not one public core operator — it is split, promoted to
-a typed composite, or demoted to a projection/escape hatch. Closed typed shapes
+a typed composite, or demoted to a projection/terminal exit. Closed typed shapes
 within a family (e.g. `MetricFrame[time_series]`, `CandidateSet[driver_axis]`) are
 allowed for ergonomics.
 
@@ -89,7 +89,8 @@ The API is five layers. The agent-facing surface is the small core; the rest is
 either family-preserving reshaping or controlled escape.
 
 1. **Source-to-artifact** — read a semantic metric into the start of a chain:
-   `observe -> MetricFrame`, plus the governed `derive_metric_frame -> MetricFrame`.
+   `observe -> MetricFrame`. `session.observe(...)` is the sole canonical
+   `MetricFrame` producer.
 2. **Family-preserving transform** — reshape/scope/rank an artifact without changing
    its family: `session.transform.<op>` over a `MetricFrame` or `DeltaFrame`. The
    output family follows the input; cross-family derivation must use a named
@@ -102,9 +103,10 @@ either family-preserving reshaping or controlled escape.
 4. **Composite** — stable multi-step entry points admitted only when they carry a
    cross-step constraint an agent would miss; each fixes one output family. No
    composite is on the current default surface (`attribute` is a core operator).
-5. **Projection / escape hatch** — bounded reads (`show()`, `render()`,
-   `contract()`) and the controlled boundary in/out of the canonical chain
-   (`derive_metric_frame` in, `to_pandas()` out).
+5. **Projection / terminal exit** — bounded reads (`show()`, `render()`,
+   `contract()`) and terminal exits out of the canonical chain
+   (`frame.to_pandas()`, `md.raw_sql(...)`). There is no inbound path from
+   ad-hoc Ibis/pandas/SQL back into typed analysis.
 
 Layers 1–4 and the artifact algebra are specified in
 [`operators-and-frames.md`](operators-and-frames.md).
@@ -180,8 +182,8 @@ This overview is the entry point. The focused specs:
 
 - [`operators-and-frames.md`](operators-and-frames.md) — the operator algebra:
   frame/result families, typed shapes and policies, the agent-facing core surface,
-  per-operator detail, the result/read contract, the shape-aware DAG, and the escape
-  hatch.
+  per-operator detail, the result/read contract, the shape-aware DAG, and the
+  terminal boundaries.
 - [`session-state-and-runtime.md`](session-state-and-runtime.md) — the `Session`
   object, the project-local `.marivo/analysis/` layout, content-addressed identity,
   cold-start rehydration, cross-session ownership, and failure recovery.

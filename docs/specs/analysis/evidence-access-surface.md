@@ -87,7 +87,7 @@ wrapper and no extra read call:
 | `artifact_id` | `str` | Generated at commit (replay-stable canonical id) |
 | `subject` | `Subject` | Derived from the artifact's typed semantics |
 | `source_refs` | `list[ArtifactRef]` | Upstream step artifact refs |
-| `lineage` | `Lineage` | Alignment, definition compatibility, cleaning steps, promotion refs, `triggered_by_followup` |
+| `lineage` | `Lineage` | Alignment, definition compatibility, cleaning steps, `triggered_by_followup` |
 | `confidence_scope` | `ConfidenceScope` | See [ConfidenceScope](#confidencescope-cross-step-compatibility) |
 | `quality_summary` | `QualitySummary \| None` | Lightweight summary computed synchronously from artifact payload + lineage; **not** `assess_quality` output; not a step |
 | `blocking_issues` | `list[BlockingIssue]` | Filled synchronously at commit |
@@ -209,7 +209,7 @@ knowledge = session.knowledge()   # immutable SessionKnowledge snapshot
 `SessionKnowledge` exposes:
 
 - `facts(kind=None)` — established facts; `kind ∈ {change, driver, tested_hypothesis, forecast, association}`.
-- `observations()` — bounded digests for every `observe`/`derive_metric_frame` commit, oldest first.
+- `observations()` — bounded digests for every `observe` commit, oldest first.
 - `open_items(kind=None)` — items awaiting judgment/review; `kind ∈ {anomaly, question}`.
 - `blocked_followups()` — follow-ups a `BlockingIssue` prevents executing.
 - `next_steps(top=5)` — deduped, commit-ordered, not-yet-executed follow-ups across all results.
@@ -374,7 +374,6 @@ compatibility); the runtime does not auto-reject a step. A `ConfidenceScope` car
 session.observe(...); session.compare(...); session.attribute(...)
 session.discover.<objective>(...); session.correlate(...)
 session.hypothesis_test(...); session.forecast(...); session.assess_quality(...)
-session.derive_metric_frame(...)
 session.knowledge() -> SessionKnowledge
 
 # Result meta fields (auto-filled)

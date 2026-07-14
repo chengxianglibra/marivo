@@ -63,14 +63,12 @@ def test_session_class_exposes_execution_surface():
     assert not hasattr(mv.MetricFrame, "from_dataframe")
 
 
-def test_analysis_exports_non_execution_escape_hatch_types():
+def test_analysis_exports_no_promotion_types():
     import marivo.analysis as mv
 
     assert mv.ArtifactRef("frame_1").id == "frame_1"
-    from marivo.analysis.policies import PromotionPolicy
-
-    assert PromotionPolicy().on_missing == "fail_closed"
-    assert hasattr(mv.errors, "PromotionFailedError")
+    assert not hasattr(mv, "PromotionPolicy")
+    assert not hasattr(mv.errors, "PromotionFailedError")
 
 
 def test_analysis_exports_public_surface_by_layer() -> None:
@@ -95,10 +93,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "holiday_aligned",
         "holiday_and_dow_aligned",
         "AlignmentPolicy",
-        "ibis_query",
-        "metric_columns",
-        "time_column",
-        "dimension_column",
         "SemanticRef",
         "CatalogObject",
         "ArtifactRef",
@@ -141,7 +135,7 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     assert PreviewResult is not None
     assert not hasattr(md, "TableMetadata")
     assert not hasattr(md, "PreviewResult")
-    assert mv.errors.PromotionFailedError is not None
+    assert not hasattr(mv.errors, "PromotionFailedError")
     assert mv.errors.DiscoverInsufficientDataError is not None
 
 
@@ -157,3 +151,33 @@ def test_analysis_keeps_report_types_out_of_public_surface() -> None:
     ]:
         assert name not in mv.__all__
         assert not hasattr(mv, name)
+
+
+def test_analysis_exports_no_derive_symbols() -> None:
+    import marivo.analysis as mv
+
+    for name in (
+        "ibis_query",
+        "metric_columns",
+        "time_column",
+        "dimension_column",
+        "DeriveContext",
+        "IbisQuerySpec",
+        "MetricColumnBinding",
+        "MetricColumns",
+    ):
+        assert not hasattr(mv, name), f"mv.{name} should be removed"
+
+
+def test_analysis_derive_module_is_deleted() -> None:
+    import importlib
+
+    with __import__("pytest").raises(ModuleNotFoundError):
+        importlib.import_module("marivo.analysis.derive")
+
+
+def test_analysis_escape_hatch_module_is_deleted() -> None:
+    import importlib
+
+    with __import__("pytest").raises(ModuleNotFoundError):
+        importlib.import_module("marivo.analysis.escape_hatch")

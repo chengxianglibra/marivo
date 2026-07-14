@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import copy
 import re
 import time
 from collections.abc import Iterator
@@ -10,6 +11,9 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+import pandas as pd
+from pandas.api.types import is_object_dtype
 
 from marivo.datasource import backends as _backends
 from marivo.datasource import secrets as _secrets
@@ -130,7 +134,7 @@ class DatasourceTestResult(RenderableResult):
 
 @dataclass(frozen=True, repr=False)
 class RawSqlResult(RenderableResult):
-    """Bounded result from the explicit datasource raw-SQL escape hatch."""
+    """Bounded terminal result from the datasource raw-SQL execution path."""
 
     datasource: DatasourceRef
     backend_type: str
@@ -142,12 +146,14 @@ class RawSqlResult(RenderableResult):
     requested_limit: int
     returned_row_count: int
     is_truncated: bool
+    timeout_seconds: int
+    duration_ms: int
     warnings: tuple[str, ...]
 
     def _repr_identity(self) -> str:
         return (
             f"RawSqlResult datasource={self.datasource.id} "
-            f"rows={self.returned_row_count} escape_hatch"
+            f"rows={self.returned_row_count} terminal_only"
         )
 
     def _card(self) -> Card:
@@ -157,10 +163,18 @@ class RawSqlResult(RenderableResult):
         card = (
             Card(
                 identity=self._repr_identity(),
-                available=(".rows", ".columns", ".types", ".reason", ".render()", ".show()"),
+                available=(".rows", ".columns", ".types", ".to_pandas()", ".render()", ".show()"),
             )
-            .status(f"escape_hatch truncated={self.is_truncated} warnings={len(self.warnings)}")
+            .status(f"terminal_only truncated={self.is_truncated} warnings={len(self.warnings)}")
+            .field("datasource", str(self.datasource.id))
+            .field("backend_type", self.backend_type)
             .field("reason", self.reason)
+            .field(
+                "rows",
+                f"{self.returned_row_count} of {self.requested_limit} (truncated={self.is_truncated})",
+            )
+            .field("timeout_seconds", str(self.timeout_seconds))
+            .field("duration_ms", str(self.duration_ms))
             .table(self.columns, preview_rows, row_count=self.returned_row_count)
             .field(
                 "scope",
@@ -170,6 +184,21 @@ class RawSqlResult(RenderableResult):
         if self.warnings:
             card.listing("warnings", self.warnings)
         return card
+
+    def to_pandas(self) -> pd.DataFrame:
+        """Return a defensively isolated pandas DataFrame from bounded result rows.
+
+        The DataFrame is built in declared column order. Object-dtype columns
+        are recursively deep-copied so mutations to the DataFrame or mutable
+        values within object columns cannot propagate back to this result.
+        The conversion does not use backend type labels to coerce values,
+        execute a new query, or preserve Marivo metadata on the DataFrame.
+        """
+        df = pd.DataFrame(builtins.list(self.rows), columns=builtins.list(self.columns))
+        for column in df.columns:
+            if is_object_dtype(df[column].dtype):
+                df[column] = df[column].map(copy.deepcopy)
+        return df
 
 
 class DatasourceConnection:
@@ -531,36 +560,6 @@ def _is_metadata_diagnostic_sql(sql: str) -> bool:
     return _raw_sql_keyword(sql) in _RAW_SQL_METADATA_KEYWORDS
 
 
-def _execute_readonly(
-    backend: Any,
-    backend_type: str,
-    sql: str,
-    *,
-    use_transaction: bool = True,
-) -> Any:
-    """Run ``sql`` against ``backend`` under read-only enforcement.
-
-    DuckDB, ClickHouse, and Trino run the query directly (read-only is enforced
-    elsewhere — connection-level for DuckDB/ClickHouse, subquery wrapper for
-    Trino). Postgres and MySQL run the query inside a ``BEGIN/START TRANSACTION
-    READ ONLY`` transaction that is committed on success or rolled back on
-    failure.
-    """
-    profile = require_profile_for_backend_type(backend_type)
-    start = profile.readonly_tx_start if use_transaction else None
-    if start is None:
-        return backend.raw_sql(sql)
-    backend.raw_sql(start)
-    try:
-        cursor = backend.raw_sql(sql)
-    except BaseException:
-        with suppress(Exception):
-            backend.raw_sql("ROLLBACK")
-        raise
-    backend.raw_sql("COMMIT")
-    return cursor
-
-
 def _extract_raw_sql_frame(
     cursor: Any,
     include_types: bool,
@@ -581,44 +580,53 @@ def raw_sql(
     datasource: DatasourceRef,
     sql: str,
     *,
-    limit: int = 100,
     reason: str,
+    limit: int = 100,
+    timeout_seconds: int = 30,
     include_types: bool = True,
     project_root: Path | None = None,
 ) -> RawSqlResult:
-    """Run a bounded read-only SQL diagnostic against a datasource.
+    """Run a bounded read-only SQL terminal diagnostic against a datasource.
 
     Args:
         datasource: Datasource reference returned by ``md.ref("datasource.warehouse")``.
         sql: Single read-only SQL statement. ``SELECT`` and ``WITH`` diagnostics
-            are bounded with a wrapper query; metadata diagnostics such as
-            ``SHOW``, ``DESCRIBE``, ``DESC``, and ``EXPLAIN`` execute directly
-            so backend metadata syntax remains valid.
+            are bounded with a wrapper query capped at ``limit + 1`` rows;
+            metadata diagnostics such as ``SHOW``, ``DESCRIBE``, ``DESC``, and
+            ``EXPLAIN`` execute directly so backend metadata syntax remains valid.
+        reason: Required terminal-analysis reason; shown in the result.
         limit: Maximum rows to return.
-        reason: Required diagnostic reason; shown in the result.
+        timeout_seconds: Backend execution timeout; fail-closed if unenforceable.
         include_types: Whether to include returned column type labels when available.
         project_root: Optional project root for tests and embedded callers.
 
     Returns:
-        A bounded ``RawSqlResult`` labeled as ``escape_hatch`` evidence.
+        A bounded ``RawSqlResult`` labeled as ``terminal_only``.
 
     Example:
         >>> import marivo.datasource as md
         >>> md.raw_sql(md.ref("datasource.warehouse"), "SELECT 1 AS ok", reason="check query path")
 
     Constraints:
-        Rejects empty reasons, empty SQL, and multi-statement SQL before execution.
+        Rejects empty reasons, empty SQL, multi-statement SQL, non-positive limit,
+        and non-positive timeout before execution. Read-only is enforced at the
+        connection level: DuckDB and ClickHouse open in read-only mode, Postgres
+        and MySQL run inside a ``READ ONLY`` transaction via the engine profile
+        ``authoring_timeout`` context, and Trino runs ordinary SELECT/WITH queries
+        through a read-only subquery wrapper. The timeout is armed before the user
+        statement executes; if the profile has no enforceable timeout the function
+        fails closed with ``DatasourceRawSqlError(stage="timeout_setup")``.
         Returned rows are bounded, but the backend diagnostic itself can still be
         expensive; callers must inspect query plans and supply a narrow statement.
-        Read-only is enforced at the connection level: DuckDB and ClickHouse open in
-        read-only mode, Postgres/MySQL run inside a ``READ ONLY`` transaction, and
-        Trino runs ordinary SELECT/WITH queries through a read-only subquery
-        wrapper. Unsupported backends are refused with a typed datasource error. Any
-        execution failure (including a write attempt) surfaces as a
-        ``DatasourceRawSqlError``; the backend is always disconnected.
+        Any execution failure (including a write attempt) surfaces as a
+        ``DatasourceRawSqlError``; the backend is always disconnected. The result
+        is terminal custom analysis — it carries no metric, time-scope, slice,
+        lineage, or canonical analysis contract.
     """
     if limit < 1:
         raise ValueError("limit must be positive.")
+    if timeout_seconds < 1:
+        raise ValueError("timeout_seconds must be positive.")
     reason_text = _require_raw_sql_reason(reason)
     statement = _require_single_statement(sql)
     datasource_id = _storage_name(datasource)
@@ -632,29 +640,33 @@ def raw_sql(
             },
         )
     backend_type = datasource_ir.backend_type
+    profile = require_profile_for_backend_type(backend_type)
+    timeout = profile.authoring_timeout
+    if timeout is None:
+        raise DatasourceRawSqlError(
+            message="raw_sql failed: backend profile has no enforceable timeout.",
+            details={
+                "datasource": datasource_id,
+                "backend_type": backend_type,
+                "reason": reason_text,
+                "timeout_seconds": timeout_seconds,
+                "stage": "timeout_setup",
+                "backend_cause": "authoring_timeout is not configured for this backend",
+            },
+        )
     service = DatasourceConnectionService(project_root)
     with service.use_backend(datasource_id, read_only=True) as backend:
         is_metadata_diagnostic = _is_metadata_diagnostic_sql(statement)
+        fetch_limit = limit
         execution_sql = (
             statement
             if is_metadata_diagnostic
-            else f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {limit}"
+            else f"SELECT * FROM ({statement}) AS marivo_raw_sql LIMIT {limit + 1}"
         )
-        use_transaction = (
-            require_profile_for_backend_type(backend_type).readonly_tx_start is not None
-        )
+        start = time.monotonic()
         try:
-            cursor = _execute_readonly(
-                backend,
-                backend_type,
-                execution_sql,
-                use_transaction=use_transaction,
-            )
-            columns, extracted_rows, types = _extract_raw_sql_frame(
-                cursor,
-                include_types,
-                limit=limit if is_metadata_diagnostic else None,
-            )
+            with timeout(backend, timeout_seconds):
+                cursor = backend.raw_sql(execution_sql)
         except DatasourceError:
             raise
         except Exception as exc:
@@ -664,11 +676,34 @@ def raw_sql(
                     "datasource": datasource_id,
                     "backend_type": backend_type,
                     "reason": reason_text,
-                    "cause": str(exc),
+                    "timeout_seconds": timeout_seconds,
+                    "stage": "execution",
+                    "backend_cause": str(exc),
                 },
             ) from exc
+        try:
+            columns, extracted_rows, types = _extract_raw_sql_frame(
+                cursor,
+                include_types,
+                limit=fetch_limit,
+            )
+        except DatasourceError:
+            raise
+        except Exception as exc:
+            raise DatasourceRawSqlError(
+                message="raw_sql result decoding failed.",
+                details={
+                    "datasource": datasource_id,
+                    "backend_type": backend_type,
+                    "reason": reason_text,
+                    "timeout_seconds": timeout_seconds,
+                    "stage": "result_decode",
+                    "backend_cause": str(exc),
+                },
+            ) from exc
+        duration_ms = int((time.monotonic() - start) * 1000)
         rows = extracted_rows[:limit]
-        is_truncated = len(extracted_rows) > limit if is_metadata_diagnostic else len(rows) >= limit
+        is_truncated = len(extracted_rows) > limit
         return RawSqlResult(
             datasource=datasource,
             backend_type=backend_type,
@@ -680,5 +715,10 @@ def raw_sql(
             requested_limit=limit,
             returned_row_count=len(rows),
             is_truncated=is_truncated,
-            warnings=("raw SQL diagnostics can be expensive even when returned rows are bounded",),
+            timeout_seconds=timeout_seconds,
+            duration_ms=duration_ms,
+            warnings=(
+                "raw SQL diagnostics can be expensive even when returned rows are bounded",
+                "terminal custom analysis; no metric, time-scope, slice, lineage, or canonical analysis contract",
+            ),
         )

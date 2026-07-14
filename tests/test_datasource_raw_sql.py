@@ -13,7 +13,6 @@ from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
 from marivo.datasource.backends import build_backend
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.datasource.errors import DatasourceError, DatasourceRawSqlError
-from marivo.datasource.manage import _execute_readonly
 
 
 def _register_raw_sql_fixture(project_root: Path) -> None:
@@ -43,7 +42,7 @@ def test_raw_sql_rejects_multi_statement_input(tmp_path: Path) -> None:
         )
 
 
-def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
+def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     from marivo.datasource.manage import RawSqlResult
 
     _register_raw_sql_fixture(tmp_path)
@@ -62,7 +61,8 @@ def test_raw_sql_returns_bounded_escape_hatch_result(tmp_path: Path) -> None:
     assert result.returned_row_count == 1
     assert result.is_truncated is True
     rendered = result.render()
-    assert "escape_hatch" in rendered
+    assert "terminal_only" in rendered
+    assert "escape_hatch" not in rendered
     assert "diagnose order amount sample" in rendered
     assert "expensive" in rendered
     assert 'md.help("raw_sql")' in rendered
@@ -150,20 +150,6 @@ def test_apply_read_only_kwargs_injects_connection_level_read_only() -> None:
     assert mysql_profile.apply_read_only_kwargs({"host": "h"}) == {"host": "h"}
 
 
-class _FakeBackend:
-    """Records raw_sql calls and optionally fails on a specific statement."""
-
-    def __init__(self, fail_on: str | None = None) -> None:
-        self.calls: list[str] = []
-        self._fail_on = fail_on
-
-    def raw_sql(self, sql: str) -> str:
-        self.calls.append(sql)
-        if self._fail_on is not None and sql == self._fail_on:
-            raise RuntimeError("boom")
-        return sql
-
-
 class _FakeCursor:
     def __init__(self, columns: list[str], rows: list[tuple[object, ...]]) -> None:
         self.description = [(column, None) for column in columns]
@@ -176,6 +162,9 @@ class _FakeCursor:
 
     def fetchall(self) -> list[tuple[object, ...]]:
         return self._rows
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        return self._rows[0] if self._rows else None
 
 
 class _RawSqlBackend:
@@ -212,33 +201,26 @@ class _RawSqlService:
         return _RawSqlBackendContext(self.backend)
 
 
-def test_execute_readonly_transaction_sequence_per_backend() -> None:
-    # DuckDB/ClickHouse/Trino: no transaction control.
-    duck = _FakeBackend()
-    assert _execute_readonly(duck, "duckdb", "SELECT 1") == "SELECT 1"
-    assert duck.calls == ["SELECT 1"]
-    click = _FakeBackend()
-    assert _execute_readonly(click, "clickhouse", "SELECT 1") == "SELECT 1"
-    assert click.calls == ["SELECT 1"]
-    trino = _FakeBackend()
-    assert _execute_readonly(trino, "trino", "SELECT 1") == "SELECT 1"
-    assert trino.calls == ["SELECT 1"]
+def _patch_trino_timeout_to_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    import dataclasses
+    from contextlib import nullcontext
 
-    # Postgres/MySQL: BEGIN/START TRANSACTION READ ONLY ... COMMIT.
-    pg = _FakeBackend()
-    assert _execute_readonly(pg, "postgres", "SELECT 1") == "SELECT 1"
-    assert pg.calls == ["BEGIN READ ONLY", "SELECT 1", "COMMIT"]
-    mysql = _FakeBackend()
-    _execute_readonly(mysql, "mysql", "SELECT 1")
-    assert mysql.calls[0] == "START TRANSACTION READ ONLY"
-    assert mysql.calls[-1] == "COMMIT"
+    from marivo.datasource import manage as manage_mod
+    from marivo.datasource.engines import require_profile_for_backend_type
 
+    original = require_profile_for_backend_type
+    trino_profile = original("trino")
+    noop_profile = dataclasses.replace(
+        trino_profile,
+        authoring_timeout=lambda backend, ts: nullcontext(),
+    )
 
-def test_execute_readonly_rolls_back_on_failure() -> None:
-    pg = _FakeBackend(fail_on="SELECT 1")
-    with pytest.raises(RuntimeError, match="boom"):
-        _execute_readonly(pg, "postgres", "SELECT 1")
-    assert pg.calls == ["BEGIN READ ONLY", "SELECT 1", "ROLLBACK"]
+    def _patched(backend_type: str):
+        if backend_type == "trino":
+            return noop_profile
+        return original(backend_type)
+
+    monkeypatch.setattr(manage_mod, "require_profile_for_backend_type", _patched)
 
 
 def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
@@ -259,6 +241,7 @@ def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
     import marivo.datasource.manage as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
+    _patch_trino_timeout_to_noop(monkeypatch)
 
     result = md.raw_sql(
         md.ref("datasource.trino_wh"),
@@ -296,6 +279,7 @@ def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
     import marivo.datasource.manage as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
+    _patch_trino_timeout_to_noop(monkeypatch)
 
     result = md.raw_sql(
         md.ref("datasource.trino_wh"),
@@ -324,6 +308,7 @@ def test_raw_sql_trino_select_uses_subquery_wrap_without_transaction(
     import marivo.datasource.manage as manage_mod
 
     monkeypatch.setattr(manage_mod, "DatasourceConnectionService", lambda _root: service)
+    _patch_trino_timeout_to_noop(monkeypatch)
 
     result = md.raw_sql(
         md.ref("datasource.trino_wh"),
@@ -333,6 +318,251 @@ def test_raw_sql_trino_select_uses_subquery_wrap_without_transaction(
     )
 
     assert backend.calls == [
-        "SELECT * FROM (SELECT count(*) AS n FROM orders) AS marivo_raw_sql LIMIT 100"
+        "SELECT * FROM (SELECT count(*) AS n FROM orders) AS marivo_raw_sql LIMIT 101"
     ]
     assert result.rows == ({"n": 2},)
+
+
+def test_mysql_authoring_timeout_opens_readonly_transaction() -> None:
+    from marivo.datasource.engines.mysql import authoring_timeout
+
+    class _MysqlBackend:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def raw_sql(self, sql: str) -> _FakeCursor:
+            self.calls.append(sql)
+            if "MAX_EXECUTION_TIME" in sql and sql.startswith("SELECT"):
+                return _FakeCursor(["val"], [(1000,)])
+            return _FakeCursor([], [])
+
+    backend = _MysqlBackend()
+    with authoring_timeout(backend, 5):
+        backend.raw_sql("SELECT 1")
+    assert backend.calls[0] == "SELECT @@SESSION.MAX_EXECUTION_TIME"
+    assert backend.calls[1] == "START TRANSACTION READ ONLY"
+    assert "SET SESSION MAX_EXECUTION_TIME = 5000" in backend.calls[2]
+    assert backend.calls[3] == "SELECT 1"
+    assert backend.calls[-2] == "ROLLBACK"
+    assert "SET SESSION MAX_EXECUTION_TIME = 1000" in backend.calls[-1]
+
+
+def test_raw_sql_rejects_non_positive_timeout(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
+        md.raw_sql(
+            md.ref("datasource.warehouse"),
+            "SELECT 1",
+            reason="check",
+            timeout_seconds=0,
+            project_root=tmp_path,
+        )
+
+
+def test_raw_sql_result_carries_timeout_seconds(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        md.ref("datasource.warehouse"),
+        "SELECT 1 AS ok",
+        reason="check timeout",
+        timeout_seconds=15,
+        project_root=tmp_path,
+    )
+    assert result.timeout_seconds == 15
+
+
+def test_raw_sql_fails_closed_when_timeout_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    from marivo.datasource import manage as manage_mod
+    from marivo.datasource.engines import require_profile_for_backend_type
+
+    _register_raw_sql_fixture(tmp_path)
+
+    real_profile = require_profile_for_backend_type("duckdb")
+    no_timeout_caps = dataclasses.replace(
+        real_profile.authoring_capabilities, timeout_enforced=False
+    )
+    no_timeout_profile = dataclasses.replace(
+        real_profile,
+        authoring_timeout=None,
+        authoring_capabilities=no_timeout_caps,
+    )
+    monkeypatch.setattr(
+        manage_mod, "require_profile_for_backend_type", lambda bt: no_timeout_profile
+    )
+
+    with pytest.raises(DatasourceRawSqlError) as exc_info:
+        md.raw_sql(
+            md.ref("datasource.warehouse"),
+            "SELECT 1",
+            reason="check fail-closed",
+            project_root=tmp_path,
+        )
+    assert exc_info.value.details["stage"] == "timeout_setup"
+
+
+def test_raw_sql_exact_limit_reports_not_truncated(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        md.ref("datasource.warehouse"),
+        "SELECT id FROM orders ORDER BY id",
+        limit=2,
+        reason="exact limit check",
+        project_root=tmp_path,
+    )
+    assert result.returned_row_count == 2
+    assert result.is_truncated is False
+
+
+def test_raw_sql_extra_row_reports_truncated(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        md.ref("datasource.warehouse"),
+        "SELECT id FROM orders ORDER BY id",
+        limit=1,
+        reason="truncation check",
+        project_root=tmp_path,
+    )
+    assert result.returned_row_count == 1
+    assert result.is_truncated is True
+
+
+def test_raw_sql_result_display_shows_terminal_only_and_duration(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        md.ref("datasource.warehouse"),
+        "SELECT 1 AS ok",
+        reason="display check",
+        timeout_seconds=10,
+        project_root=tmp_path,
+    )
+    rendered = result.render()
+    assert "terminal_only" in rendered
+    assert "escape_hatch" not in rendered
+    assert "10" in rendered
+    assert "duration" in rendered.lower() or "ms" in rendered.lower()
+    assert "no metric" in rendered.lower() or "no semantic" in rendered.lower()
+    assert ".to_pandas()" in rendered
+
+
+def test_raw_sql_result_carries_duration_ms(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        md.ref("datasource.warehouse"),
+        "SELECT 1 AS ok",
+        reason="duration check",
+        project_root=tmp_path,
+    )
+    assert isinstance(result.duration_ms, int)
+    assert result.duration_ms >= 0
+
+
+def test_raw_sql_to_pandas_preserves_column_order_and_values(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        md.ref("datasource.warehouse"),
+        "SELECT id, amount FROM orders ORDER BY id",
+        limit=2,
+        reason="to_pandas check",
+        project_root=tmp_path,
+    )
+    df = result.to_pandas()
+    assert list(df.columns) == ["id", "amount"]
+    assert len(df) == 2
+    assert df.iloc[0]["id"] == 1
+    assert df.iloc[0]["amount"] == 10.0
+
+
+def test_raw_sql_to_pandas_is_defensively_isolated(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        md.ref("datasource.warehouse"),
+        "SELECT id FROM orders ORDER BY id",
+        limit=1,
+        reason="isolation check",
+        project_root=tmp_path,
+    )
+    df = result.to_pandas()
+    df.iloc[0, 0] = 999
+    assert result.rows[0]["id"] == 1
+
+
+def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
+    from marivo.datasource.manage import RawSqlResult
+
+    result = RawSqlResult(
+        datasource=md.ref("datasource.wh"),
+        backend_type="duckdb",
+        sql="SELECT data FROM tbl",
+        reason="recursive isolation",
+        columns=("data",),
+        types={},
+        rows=({"data": [1, 2, 3]},),
+        requested_limit=10,
+        returned_row_count=1,
+        is_truncated=False,
+        timeout_seconds=30,
+        duration_ms=5,
+        warnings=(),
+    )
+    df = result.to_pandas()
+    assert df.iloc[0, 0] == [1, 2, 3]
+    df.iloc[0, 0].append(999)
+    assert result.rows[0]["data"] == [1, 2, 3]
+
+
+def test_raw_sql_error_includes_stage_and_timeout(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    with pytest.raises(DatasourceRawSqlError) as exc_info:
+        md.raw_sql(
+            md.ref("datasource.warehouse"),
+            "INSERT INTO orders VALUES (3, 30.0)",
+            reason="write attempt",
+            timeout_seconds=10,
+            project_root=tmp_path,
+        )
+    details = exc_info.value.details
+    assert details["stage"] == "execution"
+    assert details["timeout_seconds"] == 10
+    assert details["reason"] == "write attempt"
+    rendered = str(exc_info.value)
+    assert "terminal" in rendered.lower()
+    assert "no analysis artifact" in rendered.lower()
+    assert "md.help" in rendered.lower() or "raw_sql" in rendered.lower()
+
+
+def test_raw_sql_error_timeout_setup_stage_mentions_no_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import dataclasses
+
+    from marivo.datasource import manage as manage_mod
+    from marivo.datasource.engines import require_profile_for_backend_type
+
+    _register_raw_sql_fixture(tmp_path)
+    real_profile = require_profile_for_backend_type("duckdb")
+    no_timeout_caps = dataclasses.replace(
+        real_profile.authoring_capabilities, timeout_enforced=False
+    )
+    no_timeout_profile = dataclasses.replace(
+        real_profile,
+        authoring_timeout=None,
+        authoring_capabilities=no_timeout_caps,
+    )
+    monkeypatch.setattr(
+        manage_mod, "require_profile_for_backend_type", lambda bt: no_timeout_profile
+    )
+
+    with pytest.raises(DatasourceRawSqlError) as exc_info:
+        md.raw_sql(
+            md.ref("datasource.warehouse"),
+            "SELECT 1",
+            reason="no timeout",
+            project_root=tmp_path,
+        )
+    assert exc_info.value.details["stage"] == "timeout_setup"
+    rendered = str(exc_info.value)
+    assert "did not begin execution" in rendered.lower()

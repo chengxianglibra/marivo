@@ -15,15 +15,12 @@ Tests cover two layers:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-import marivo.datasource as md
 from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis._capabilities.validation import (
     classify_input_family,
@@ -409,31 +406,6 @@ def test_metric_frame_metric_rejects_delta_receiver_at_gate():
     with pytest.raises(AnalysisError) as exc:
         validate_capability_inputs("MetricFrame.metric", receiver=df)
     assert exc.value.location == "MetricFrame.metric.receiver"
-
-
-def test_derive_metric_frame_rejects_wrong_spec_at_gate():
-    session = session_attach.get_or_create(name="int")
-    with pytest.raises(AnalysisError) as exc:
-        session.derive_metric_frame(
-            metric=make_ref("sales.revenue", SemanticKind.METRIC),
-            query="not_an_ibis_query_spec",  # type: ignore[arg-type]
-            columns=mv.metric_columns(value="value"),
-        )
-    assert exc.value.location == "boundary.derive_metric_frame.spec"
-
-
-def test_derive_metric_frame_rejects_wrong_columns_at_gate():
-    session = session_attach.get_or_create(name="int")
-    with pytest.raises(AnalysisError) as exc:
-        session.derive_metric_frame(
-            metric=make_ref("sales.revenue", SemanticKind.METRIC),
-            query=mv.ibis_query(
-                datasource=md.ref("datasource.warehouse"),
-                build=lambda db, ctx: SimpleNamespace(),
-            ),
-            columns="not_metric_columns",  # type: ignore[arg-type]
-        )
-    assert exc.value.location == "boundary.derive_metric_frame.columns"
 
 
 # ---------------------------------------------------------------------------

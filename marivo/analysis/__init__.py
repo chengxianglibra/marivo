@@ -5,16 +5,6 @@ from typing import Any as _Any
 from marivo.analysis import errors as errors
 from marivo.analysis import session
 from marivo.analysis.calendar.model import CalendarPolicy
-from marivo.analysis.derive import (
-    DeriveContext,
-    IbisQuerySpec,
-    MetricColumnBinding,
-    MetricColumns,
-    dimension_column,
-    ibis_query,
-    metric_columns,
-    time_column,
-)
 from marivo.analysis.followups import (
     BlockingIssue,
     ConfidenceScope,
@@ -110,15 +100,11 @@ __all__ = [
     "SemanticRef",
     "Session",
     "TimeScope",
-    "dimension_column",
     "dow_aligned",
     "help",
     "help_text",
     "holiday_aligned",
     "holiday_and_dow_aligned",
-    "ibis_query",
-    "metric_columns",
     "session",
-    "time_column",
     "window_bucket",
 ]

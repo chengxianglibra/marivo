@@ -2,15 +2,10 @@ import pytest
 from pydantic import ValidationError
 
 import marivo.analysis as mv
-from marivo.analysis.errors import (
-    AlignmentPolicyValidationError,
-    PromotionFailedError,
-)
+from marivo.analysis.errors import AlignmentPolicyValidationError
 from marivo.analysis.policies import (
     AlignmentKind,
     AlignmentPolicy,
-    PromotionPolicy,
-    PromotionSemanticAnchors,
     dow_aligned,
     holiday_aligned,
     holiday_and_dow_aligned,
@@ -143,128 +138,3 @@ def test_sampling_policy_defaults_and_forbids_extra():
 
     with pytest.raises(ValidationError):
         SamplingPolicy(extra_field=True)  # type: ignore[call-arg]
-
-
-def test_promotion_policy_defaults_and_forbids_extra_fields():
-    policy = PromotionPolicy()
-
-    assert policy.on_missing == "fail_closed"
-    assert policy.required_fields == []
-    assert policy.semantic_anchors == PromotionSemanticAnchors()
-
-    with pytest.raises(ValidationError):
-        PromotionPolicy(on_missing="warn")  # type: ignore[arg-type]
-
-    with pytest.raises(ValidationError):
-        PromotionPolicy(extra_field=True)  # type: ignore[call-arg]
-
-    with pytest.raises(ValidationError):
-        PromotionPolicy(auto_infer=True)  # type: ignore[call-arg]
-
-
-def test_promotion_policy_accepts_typed_anchors_only():
-    policy = PromotionPolicy(
-        semantic_anchors=PromotionSemanticAnchors(
-            metric=make_ref("sales.revenue", SemanticKind.METRIC),
-            subject=make_ref("account", SemanticKind.DIMENSION),
-            time_axis=make_ref("order_day", SemanticKind.DIMENSION),
-            source_metric=ArtifactRef("frame_metric"),
-            source_delta=ArtifactRef("frame_delta"),
-            current=ArtifactRef("frame_current"),
-            baseline=ArtifactRef("frame_baseline"),
-            axis=make_ref("country", SemanticKind.DIMENSION),
-        ),
-        required_fields=["measure_column", "semantic_model"],
-    )
-
-    assert policy.semantic_anchors.metric == "sales.revenue"
-    assert policy.semantic_anchors.subject == "account"
-    assert policy.semantic_anchors.time_axis == "order_day"
-    assert policy.semantic_anchors.current == ArtifactRef("frame_current")
-    assert policy.semantic_anchors.axis == "country"
-    assert policy.required_fields == ["measure_column", "semantic_model"]
-
-    with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(metric={"id": "sales.revenue", "extra": 1})
-
-
-def test_promotion_semantic_anchors_store_plain_strings():
-    from marivo.semantic.catalog import SemanticKind
-
-    anchors = PromotionSemanticAnchors(
-        metric=make_ref("sales.revenue", SemanticKind.METRIC),
-        subject=make_ref("sales.orders.country", SemanticKind.DIMENSION),
-    )
-
-    assert anchors.metric == "sales.revenue"
-    assert anchors.subject == "sales.orders.country"
-
-
-def test_promotion_semantic_anchors_reject_wrong_ref_kinds():
-    from marivo.semantic.catalog import SemanticKind
-
-    with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(metric=make_ref("sales.orders.country", SemanticKind.DIMENSION))
-
-    with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(subject=make_ref("sales.revenue", SemanticKind.METRIC))
-
-    with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(subject=make_ref("sales.revenue", SemanticKind.METRIC))
-
-    with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(metric=make_ref("sales.orders.country", SemanticKind.DIMENSION))
-
-
-def test_promotion_semantic_anchors_accept_semantic_object(semantic_project_factory):
-    from marivo.semantic.catalog import SemanticCatalog
-
-    project = semantic_project_factory(
-        {
-            "sales/__init__.py": "",
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/model.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
-                "@ms.dimension(entity=orders)\n"
-                "def country(orders):\n"
-                "    return orders.country\n"
-                "@ms.metric(entities=[orders], additivity='additive', "
-                "name='revenue', )\n"
-                "def revenue(orders):\n"
-                "    return orders.amount.sum()\n"
-            ),
-        }
-    )
-    catalog = SemanticCatalog(project)
-
-    anchors = PromotionSemanticAnchors(
-        metric=catalog.get("metric.sales.revenue"),
-        subject=catalog.get("dimension.sales.orders.country"),
-    )
-
-    assert anchors.metric == "sales.revenue"
-    assert anchors.subject == "sales.orders.country"
-
-
-def test_promotion_semantic_anchors_reject_arbitrary_objects():
-    class DuckTypedSemanticId:
-        semantic_id = "sales.revenue"
-
-    with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(metric=123)  # type: ignore[arg-type]
-
-    with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(subject=object())  # type: ignore[arg-type]
-
-    with pytest.raises(ValidationError):
-        PromotionSemanticAnchors(metric=DuckTypedSemanticId())  # type: ignore[arg-type]
-
-
-def test_promotion_failed_error_uses_metric_snippet_when_metric_field_is_later():
-    error = PromotionFailedError(
-        message="missing promotion metadata",
-        context={"target_kind": "metric_frame", "missing": ["subject", "metric"]},
-    )
-
-    assert "promote_metric_frame(" in str(error)

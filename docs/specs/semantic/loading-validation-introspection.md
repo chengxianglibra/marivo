@@ -264,9 +264,9 @@ style. The mapping from error kind to agent action is mechanical:
 | `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.ref(...)`. |
 | `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.weighted_average(...)` components point to registered metrics. |
 | `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.weighted_average`/`ms.linear`. |
-| `outside_loader_context` | Move the definition into `<root>/models/semantic/<domain>/<file>.py`; use scratch Ibis in notebooks. |
+| `outside_loader_context` | Move the definition into `<root>/models/semantic/<domain>/<file>.py`; use `md.raw_sql(...)` for ad-hoc queries outside the semantic model. |
 | `unverified_provenance` | Add `provenance=ms.from_sql(...)`, or stop and confirm the business caliber. |
-| `sql_escape_hatch` | Move raw SQL to a persisted backend view exposed via `md.table(...)`; keep the body Ibis. |
+| `sql_escape_hatch` | Use `md.raw_sql(...)` for terminal raw SQL execution; raw SQL in semantic expression bodies is still rejected by the validator. |
 
 ## Readiness and richness
 

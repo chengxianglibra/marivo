@@ -243,15 +243,17 @@ evidence in plaintext project-local cache and therefore requires an explicit
 privacy judgment. Uncommon formats, keys, timezones, aggregation, units,
 additivity, relationship cardinality, and business meaning remain agent-owned.
 
-### Raw SQL diagnostics
+### Raw SQL terminal exit
 
 ```python
 md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="verify pruning").show()
 ```
 
-`md.raw_sql(...)` is a read-only diagnostic escape hatch for checks that
-inspection and snapshots cannot express; returned rows are bounded, but backend work may still be expensive or unbounded for `SHOW`/`DESCRIBE`/`EXPLAIN` and
-probe `SELECT` statements. It is a last resort, not a general query path.
+`md.raw_sql(...)` is the sole terminal raw SQL execution path — bounded by
+`timeout_seconds` (default 30), exact row limiting, and read-only enforcement.
+It returns a `RawSqlResult` that cannot re-enter typed analysis; use
+`RawSqlResult.to_pandas()` for the terminal pandas exit. It is for custom
+analysis that `session.observe(...)` cannot express, not a general query path.
 
 ## Handoff to semantics
 

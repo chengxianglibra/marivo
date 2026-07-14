@@ -26,21 +26,6 @@ def test_to_pandas_is_one_aggregate_terminal_edge() -> None:
     assert terminal[0].source_families == frozenset(ARTIFACT_FAMILIES)
 
 
-def test_derive_metric_frame_is_governed_entry_row() -> None:
-    """boundary.derive_metric_frame appears as a governed-entry producer of
-    MetricFrame with its accepted input families as sources."""
-    rows = REGISTRY.type_algebra_rows()
-    gov = [row for row in rows if row.help_target == "boundary.derive_metric_frame"]
-    assert len(gov) == 1
-    row = gov[0]
-    assert row.is_terminal is False
-    assert row.output_family == "MetricFrame"
-    assert row.source_families == frozenset({"IbisQuerySpec", "MetricColumns"})
-    assert row.render() == (
-        "IbisQuerySpec, MetricColumns -> boundary.derive_metric_frame -> MetricFrame"
-    )
-
-
 def test_to_pandas_row_source_families_are_all_artifact_families() -> None:
     descriptor = REGISTRY.by_id("boundary.to_pandas")
     assert descriptor.kind == "boundary"
