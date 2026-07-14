@@ -60,13 +60,13 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if not meta_path.is_file():
             raise FrameCacheCorruptedError(
                 message=f"frame '{ref}' is registered but meta file is missing",
-                details={"ref": ref, "meta_path": str(meta_path)},
+                context={"ref": ref, "meta_path": str(meta_path)},
             )
         data_path = session.project_root / artifact_row["path"]
         if not data_path.is_file():
             raise FrameCacheCorruptedError(
                 message=f"frame '{ref}' is registered but data file is missing",
-                details={"ref": ref, "data_path": str(data_path)},
+                context={"ref": ref, "data_path": str(data_path)},
             )
         try:
             import pandas as pd
@@ -76,14 +76,14 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         except Exception as exc:
             raise FrameCacheCorruptedError(
                 message=f"frame '{ref}' exists on disk but cannot be loaded",
-                details={"ref": ref, "cause": str(exc)},
+                context={"ref": ref, "cause": str(exc)},
             ) from exc
     else:
         # No store row — the frame is not registered in the session's artifacts
         # table, so it cannot be loaded through this session.
         raise FrameRefNotFound(
             message=f"no frame '{ref}' under session {session.id!r}",
-            details={"session_id": session.id, "ref": ref},
+            context={"session_id": session.id, "ref": ref},
         )
 
     if meta.get("session_id") != session.id:
@@ -97,12 +97,12 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     if "quality" in meta:
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' uses legacy quality metadata",
-            details={"ref": ref, "field": "quality", "expected": "quality_summary"},
+            context={"ref": ref, "field": "quality", "expected": "quality_summary"},
         )
     if "recommended_followups" in meta:
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' uses legacy recommended followup metadata",
-            details={"ref": ref, "field": "recommended_followups", "expected": "affordances"},
+            context={"ref": ref, "field": "recommended_followups", "expected": "affordances"},
         )
     if kind not in _FRAME_CLASSES:
         raise FrameRefNotFound(message=f"unknown frame kind '{kind}' for ref '{ref}'")
@@ -137,7 +137,7 @@ def _coerce_metric_window_meta(meta: dict[str, object], *, frame_ref: str) -> No
         except ValidationError as exc:
             raise FrameMetaInvalidError(
                 message=f"frame '{frame_ref}' has invalid legacy metric window metadata",
-                details={
+                context={
                     "kind": "LegacyWindowShapeInvalid",
                     "ref": frame_ref,
                     "window": window,
@@ -149,7 +149,7 @@ def _coerce_metric_window_meta(meta: dict[str, object], *, frame_ref: str) -> No
 
     raise FrameMetaInvalidError(
         message=f"frame '{frame_ref}' has unparseable legacy metric window metadata",
-        details={
+        context={
             "kind": "LegacyWindowShapeInvalid",
             "ref": frame_ref,
             "window": window,

@@ -6,10 +6,20 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
+import pytest
 
+from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
-from marivo.analysis.frames.base import ArtifactContract, ArtifactSchema, ArtifactState
+from marivo.analysis.frames.base import (
+    ArtifactAffordance,
+    ArtifactBoundaryPort,
+    ArtifactContract,
+    ArtifactPrecondition,
+    ArtifactSchema,
+    ArtifactState,
+)
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
@@ -204,3 +214,162 @@ def test_public_artifact_families_share_phase1_protocol() -> None:
             assert "recommend" not in str(projection).lower(), (
                 f"{tag}: {projection_name} contains 'recommend'"
             )
+
+
+# ---------------------------------------------------------------------------
+# Task 7: capability_id affordances, typed repair preconditions, boundary ports
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_affordance_model_fields_use_capability_id_not_operator() -> None:
+    fields = ArtifactAffordance.model_fields
+    assert "capability_id" in fields
+    assert "public_entrypoint" in fields
+    assert "help_target" in fields
+    assert "operator" not in fields
+
+
+def test_artifact_precondition_has_repair_field() -> None:
+    fields = ArtifactPrecondition.model_fields
+    assert "repair" in fields
+
+
+def test_artifact_boundary_port_model_fields() -> None:
+    fields = ArtifactBoundaryPort.model_fields
+    assert "kind" in fields
+    assert "capability_id" in fields
+    assert "public_entrypoint" in fields
+    assert "help_target" in fields
+    assert "preserves" in fields
+    assert "does_not_preserve" in fields
+
+
+def test_artifact_contract_has_boundary_ports() -> None:
+    fields = ArtifactContract.model_fields
+    assert "boundary_ports" in fields
+
+
+def test_every_artifact_has_one_terminal_boundary_port() -> None:
+    for artifact in _artifact_cases():
+        tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"
+        contract = artifact.contract()
+        assert len(contract.boundary_ports) == 1, f"{tag}: expected 1 boundary port"
+        port = contract.boundary_ports[0]
+        assert isinstance(port, ArtifactBoundaryPort), f"{tag}: boundary port type"
+        assert port.kind == "terminal_exit", f"{tag}: boundary port kind"
+        assert port.capability_id == "boundary.to_pandas", f"{tag}: boundary capability_id"
+        assert port.help_target == "boundary.to_pandas", f"{tag}: boundary help_target"
+
+
+def test_affordances_match_registry_edges() -> None:
+    """Every affordance capability_id is a registered consumer of this family."""
+    for artifact in _artifact_cases():
+        tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"
+        family = type(artifact).__name__
+        contract = artifact.contract()
+        registered = set(REGISTRY.constructor_consumers.get(family, ()))
+        # boundary.to_pandas is in boundary_ports, not affordances.
+        affordance_ids = {a.capability_id for a in contract.affordances}
+        # All affordance ids must be registered consumers (excluding boundary).
+        non_boundary = affordance_ids - {"boundary.to_pandas"}
+        assert non_boundary <= registered, (
+            f"{tag}: affordance ids {non_boundary - registered} not in registry consumers"
+        )
+
+
+def test_every_affordance_output_family_is_non_null() -> None:
+    for artifact in _artifact_cases():
+        tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"
+        contract = artifact.contract()
+        for aff in contract.affordances:
+            assert aff.expected_output_family is not None, (
+                f"{tag}: affordance {aff.capability_id} has null expected_output_family"
+            )
+
+
+def test_every_affordance_has_public_entrypoint_and_help_target() -> None:
+    for artifact in _artifact_cases():
+        tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"
+        contract = artifact.contract()
+        for aff in contract.affordances:
+            assert aff.public_entrypoint, (
+                f"{tag}: affordance {aff.capability_id} has empty public_entrypoint"
+            )
+            assert aff.help_target, f"{tag}: affordance {aff.capability_id} has empty help_target"
+
+
+def test_failed_precondition_without_repair_suppresses_affordance() -> None:
+    """An affordance with a failed precondition and no repair is suppressed."""
+    preconditions = [
+        ArtifactPrecondition(
+            check="blocking_issue",
+            status="fail",
+            reason="something is wrong",
+            repair=None,
+        )
+    ]
+    affordance = ArtifactAffordance(
+        capability_id="compare",
+        public_entrypoint="session.compare(...)",
+        help_target="compare",
+        required_inputs=["metric_frame"],
+        preconditions=preconditions,
+        param_template=ArtifactAffordance.model_fields["param_template"].default,
+        expected_output_family="delta_frame",
+    )
+    from marivo.analysis.frames.base import _visible_precondition
+
+    assert not _visible_precondition(preconditions[0])
+
+
+def test_failed_precondition_with_repair_remains_visible() -> None:
+    """A failed precondition with a non-empty repair action is visible."""
+    preconditions = [
+        ArtifactPrecondition(
+            check="single_metric",
+            status="fail",
+            reason="frame carries 2 metrics",
+            repair=AnalysisRepair(
+                kind="retry",
+                action='Call .metric("sales.revenue") first',
+                help_target="MetricFrame.metric",
+            ),
+        )
+    ]
+    from marivo.analysis.frames.base import _visible_precondition
+
+    assert _visible_precondition(preconditions[0])
+
+
+def test_passing_precondition_visible_only_with_non_empty_reason() -> None:
+    """A passing precondition is visible only when reason is non-empty."""
+    from marivo.analysis.frames.base import _visible_precondition
+
+    visible = ArtifactPrecondition(
+        check="to_date_baseline_tail",
+        status="pass",
+        reason="ordinal alignment matched 3 buckets",
+    )
+    invisible = ArtifactPrecondition(
+        check="ok",
+        status="pass",
+        reason=None,
+    )
+    empty_reason = ArtifactPrecondition(
+        check="ok",
+        status="pass",
+        reason="  ",
+    )
+    assert _visible_precondition(visible)
+    assert not _visible_precondition(invisible)
+    assert not _visible_precondition(empty_reason)
+
+
+def test_removed_pandas_conveniences_are_plain_attribute_errors() -> None:
+    """describe() and plot() must raise plain AttributeError, not return data."""
+    for artifact in _artifact_cases():
+        tag = f"{type(artifact).__name__}(ref={artifact.ref!r})"
+        with pytest.raises(AttributeError):
+            artifact.describe()  # type: ignore[attr-defined]
+        with pytest.raises(AttributeError):
+            artifact.plot()  # type: ignore[attr-defined]

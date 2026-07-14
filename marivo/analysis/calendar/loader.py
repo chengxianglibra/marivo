@@ -29,7 +29,7 @@ class CalendarCache:
         if not calendar_file.is_file():
             raise CalendarNotFoundError(
                 message=f"calendar '{name}' was not found",
-                details={
+                context={
                     "kind": "CalendarNotFound",
                     "calendar_name": name,
                     "calendar_path": str(calendar_file),
@@ -41,7 +41,7 @@ class CalendarCache:
         except OSError as exc:
             raise CalendarPolicyError(
                 message=f"calendar '{name}' file read failed",
-                details={
+                context={
                     "kind": "CalendarFileReadFailed",
                     "calendar_name": name,
                     "calendar_path": str(calendar_file),
@@ -64,7 +64,7 @@ class CalendarCache:
                 details["cause"] = str(exc)
             raise CalendarPolicyError(
                 message=f"calendar '{name}' file is invalid",
-                details=details,
+                context=details,
             ) from exc
 
         self._cache[name] = calendar
@@ -88,7 +88,7 @@ class CalendarCache:
         if reason is not None:
             raise CalendarPolicyError(
                 message=f"calendar name '{name}' is invalid",
-                details={
+                context={
                     "kind": "CalendarNameInvalid",
                     "calendar_name": name,
                     "reason": reason,

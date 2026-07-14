@@ -427,8 +427,8 @@ def test_observe_rejects_bare_metric_string(tmp_path):
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe("sales.revenue", session=s)  # type: ignore[arg-type]
 
-    assert exc_info.value.details["expected_kind"] == "metric"
-    assert exc_info.value.details["actual_kind"] == "str"
+    assert exc_info.value._context["expected_kind"] == "metric"
+    assert exc_info.value._context["actual_kind"] == "str"
     rendered = str(exc_info.value)
     assert "metric requires a metric SemanticRef or CatalogObject" in rendered
 
@@ -444,10 +444,12 @@ def test_session_observe_accepts_catalog_object_and_ref(sales_session, sales_cat
 
 
 def test_session_observe_rejects_bare_metric_string(sales_session):
-    from marivo.analysis.errors import SemanticKindMismatchError
+    from marivo.analysis.errors import AnalysisError
 
-    with pytest.raises(SemanticKindMismatchError):
+    with pytest.raises(AnalysisError) as exc:
         sales_session.observe("sales.revenue")
+
+    assert exc.value.location == "observe.metric"
 
 
 def test_observe_applies_window(tmp_path):
@@ -623,7 +625,7 @@ def test_observe_rejects_bare_string_time_field(tmp_path):
             time_dimension="created_at",
             session=s,
         )
-    assert exc_info.value.details["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "dimension"
 
 
 def test_observe_rejects_bare_string_where_key(tmp_path):
@@ -636,7 +638,7 @@ def test_observe_rejects_bare_string_where_key(tmp_path):
             slice_by={"region": "NORTH"},
             session=s,
         )
-    assert exc_info.value.details["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "dimension"
 
 
 def test_observe_unknown_metric_raises(tmp_path):

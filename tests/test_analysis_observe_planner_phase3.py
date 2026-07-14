@@ -104,7 +104,7 @@ def test_unsafe_fanout_repair_payload_lists_root_then_policy(tmp_path):
             session=_session(con),
         )
 
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["code"] == "unsafe-fanout"
     repair = details["repair"]
     assert [r["action"] for r in repair] == ["set_metric_root", "set_fanout_policy"]
@@ -215,7 +215,7 @@ def test_unsafe_fanout_error_payload_schema_version():
                 ),
             ],
         )
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["schema_version"] == "observe-error/v1"
     assert details["code"] == "unsafe-fanout"
     assert [r["action"] for r in details["repair"]] == [

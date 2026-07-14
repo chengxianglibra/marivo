@@ -1,0 +1,115 @@
+---
+slug: en/latest/release-notes/0.3.2
+title: Marivo 0.3.2
+description: Release notes for Marivo 0.3.2.
+---
+
+Marivo 0.3.2 is an atomic breaking cutover of the analysis surface. The
+help system, artifact contract, error model, boundary model, packaged skill,
+and CLI route all change together. There are no aliases, redirects, deprecated
+fields, dual-read paths, or compatibility flags.
+
+## Highlights
+
+- A closed capability kernel replaces the old topic-based help surface. Every
+  public operator, constructor, read, recovery, and boundary crossing is
+  registered with a stable `capability_id`, `accepted_inputs`, and
+  `output_family`. The CLI route `marivo help analysis [target]` (or
+  `python -m marivo help analysis [target]`) prints a fingerprinted capability
+  index; `mv.help()` and `mv.help(target)` provide the same surface from
+  Python. A runtime family gate validates submitted inputs against the
+  registry's `accepted_inputs` before any backend work begins.
+- `ArtifactAffordance.operator` is replaced by `capability_id`,
+  `public_entrypoint`, `help_target`, and `expected_output_family`. Each
+  affordance is a mechanical compatibility gate derived from the capability
+  registry, not a recommendation.
+- `ArtifactContract` now carries `boundary_ports`: typed
+  `ArtifactBoundaryPort` objects describing terminal-exit ports (e.g.
+  `boundary.to_pandas`) with `preserves` and `does_not_preserve` guarantees.
+- The generic `AnalysisError.details` bag is replaced by stable typed fields:
+  `expected`, `received`, `location`, and `repair`. The `repair` field is a
+  typed `AnalysisRepair` object with `kind`, `action`, `help_target`, optional
+  `snippet`, and optional `candidates` drawn from live state.
+- `BaseFrame.describe()` and `BaseFrame.plot()` are removed. Accessing them
+  raises `AttributeError`. Use `frame.show()` for bounded inspection and
+  `frame.to_pandas()` for terminal custom analysis.
+- The `marivo-analysis` skill is now a one-file boundary kernel. It owns hard
+  boundaries, handoffs, evidence continuity, and closeout obligations. It does
+  not duplicate API signatures, operator inventory, call examples, ordered
+  process, methodology checklists, or report templates. The `references/`
+  attachment tree is deleted.
+
+## Breaking changes
+
+- **Removed help topics.** `mv.help('workflow')` and `mv.help('advanced')` no
+  longer resolve. The new help system uses `mv.help()` (root index),
+  `mv.help(target)` (focused capability), and `mv.help(ClassName)` (type help).
+  String aliases for help targets are removed; use canonical registered targets
+  from the live surface.
+- **`ArtifactAffordance.operator` removed.** Replaced by `capability_id`,
+  `public_entrypoint`, `help_target`, and `expected_output_family`.
+- **`AnalysisError.details` removed.** Replaced by stable typed fields
+  (`expected`, `received`, `location`, `repair`) with typed `AnalysisRepair`
+  objects. There is no generic details bag.
+- **`ArtifactContract.boundary_ports` added.** Typed terminal-exit boundary
+  ports derived from the capability registry.
+- **`BaseFrame.describe()` and `BaseFrame.plot()` removed.** Intentional
+  `AttributeError`. Use `frame.show()` and `frame.to_pandas()`.
+- **`marivo-analysis` skill reduced to one file.** The `references/` tree is
+  deleted. The skill is a boundary protocol, not a manual.
+- **New CLI route and fingerprint.** `marivo help analysis [target]` prints the
+  Marivo version, resolved Python executable, and package path as an
+  environment fingerprint. A bare `marivo` resolved from `PATH` is not
+  authoritative unless its fingerprint matches the analysis interpreter.
+- **Runtime family gate.** Submitted inputs are validated against the
+  registry's `accepted_inputs` before backend work. Mismatches fail closed
+  with a structured `AnalysisError`.
+- **`boundary.derive_metric_frame` capability id.** `Session.derive_metric_frame(...)`
+  has exactly one capability id: `boundary.derive_metric_frame`. The terminal
+  `to_pandas()` exit has `boundary.to_pandas`.
+
+## No compatibility or migration behavior
+
+This is an atomic cutover. There are no aliases, redirects, deprecated fields,
+dual-read paths, compatibility flags, or automatic migration. Code that
+references removed symbols, topics, or fields must be updated to the new
+surface.
+
+## Documentation
+
+- Updated the analysis-workflow, first-analysis, and evidence docs in English
+  and Chinese to route entry through the project interpreter and fingerprint,
+  explain capability discovery, object-near help, static type algebra, artifact
+  `show`/`contract`, structured errors, typed boundary exit/re-entry, and
+  semantic handoff.
+- Updated `agent-guide.md` and active analysis specs with the new ownership
+  model: environment-verified live surfaces own capabilities and runtime
+  guidance; the skill owns hard boundaries, handoffs, evidence continuity, and
+  closeout obligations; the agent owns planning and judgment.
+- Marked both 2026-07-13 design specs as `approved; implementation planned`.
+
+## Installation
+
+```bash
+pip install marivo
+```
+
+Install the backend extra for the datasource you plan to use:
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.2 requires Python 3.12 or newer.
+
+## Documentation
+
+- [Install Marivo](/en/latest/installation/)
+- [Quick Start](/en/latest/quick-start/)
+- [Semantic Layer](/en/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/en/latest/concepts/analysis-workflow/)

@@ -1,4 +1,4 @@
-"""Session class and session-local summaries."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -109,6 +109,8 @@ class FrameSummaryEntry(RenderableResult):
 
 
 class Session:
+    """Call mv.help(Session) for its public consumption contract."""
+
     __slots__ = (
         "_calendars",
         "_catalog",
@@ -325,7 +327,7 @@ class Session:
         if row is None:
             raise JobNotFoundError(
                 message=f"no job '{job_id}' in session {self.id!r}",
-                details={"session_id": self.id, "job_id": job_id},
+                context={"session_id": self.id, "job_id": job_id},
             )
         return read_job_record(self._layout, job_id)
 
@@ -532,6 +534,7 @@ class Session:
             ... )
             >>> frame.show()
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.observe import observe
 
         with _track_session_operation(
@@ -541,6 +544,7 @@ class Session:
             intent="observe",
             attributes={"marivo.analysis.dimension_count": len(dimensions or [])},
         ):
+            validate_capability_inputs("observe", metric=metric, time_scope=time_scope)
             return observe(
                 metric,
                 time_scope=time_scope,
@@ -580,19 +584,18 @@ class Session:
         ``time_scope`` defaults to ``None`` (no window) for frames without a time
         axis.
         """
-        from marivo.analysis.derive import IbisQuerySpec, MetricColumns, derive_metric_frame
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
+        from marivo.analysis.derive import derive_metric_frame
 
-        if not isinstance(query, IbisQuerySpec):
-            raise TypeError("derive_metric_frame query must be mv.ibis_query(...)")
-        if not isinstance(columns, MetricColumns):
-            raise TypeError("derive_metric_frame columns must be mv.metric_columns(...)")
+        dim_count = len(columns.dimensions) if hasattr(columns, "dimensions") else 0
         with _track_session_operation(
             self,
             "marivo.analysis.derive_metric_frame",
             family="core",
             intent="derive_metric_frame",
-            attributes={"marivo.analysis.dimension_count": len(columns.dimensions)},
+            attributes={"marivo.analysis.dimension_count": dim_count},
         ):
+            validate_capability_inputs("boundary.derive_metric_frame", spec=query, columns=columns)
             return derive_metric_frame(
                 metric=metric,
                 query=query,
@@ -644,6 +647,7 @@ class Session:
             ...     analysis_purpose="量化三季度收入同比变化",
             ... )
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.compare import compare
 
         semantic_kind = getattr(current.meta, "semantic_kind", None)
@@ -659,6 +663,7 @@ class Session:
             intent="compare",
             attributes=attrs,
         ):
+            validate_capability_inputs("compare", a=current, b=baseline, alignment=alignment)
             return compare(
                 current,
                 baseline,
@@ -716,6 +721,7 @@ class Session:
             ...     analysis_purpose="按国家归因收入变化",
             ... )
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.attribute import attribute
 
         semantic_kind = getattr(frame.meta, "semantic_kind", None)
@@ -731,6 +737,7 @@ class Session:
             intent="attribute",
             attributes=attrs,
         ):
+            validate_capability_inputs("attribute", frame=frame, axes=axes)
             return attribute(
                 frame,
                 axes=axes,
@@ -779,6 +786,7 @@ class Session:
             ... )
             >>> result.show()
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.correlate import correlate
 
         semantic_kind = getattr(a.meta, "semantic_kind", None)
@@ -794,6 +802,7 @@ class Session:
             intent="correlate",
             attributes=attrs,
         ):
+            validate_capability_inputs("correlate", a=a, b=b, alignment=alignment)
             return correlate(
                 a,
                 b,
@@ -853,6 +862,7 @@ class Session:
             ... )
             >>> forecast.show()
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.forecast import forecast
 
         semantic_kind = getattr(history.meta, "semantic_kind", None)
@@ -869,6 +879,7 @@ class Session:
             intent="forecast",
             attributes=attrs,
         ):
+            validate_capability_inputs("forecast", history=history)
             return forecast(
                 history,
                 horizon=horizon,
@@ -907,6 +918,7 @@ class Session:
             >>> for issue in report.blocking_issues:
             ...     print(issue)
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.assess_quality import assess_quality
 
         with _track_session_operation(
@@ -915,6 +927,7 @@ class Session:
             family="core",
             intent="assess_quality",
         ):
+            validate_capability_inputs("assess_quality", target=frame)
             return assess_quality(frame, analysis_purpose=analysis_purpose, session=self)
 
     def hypothesis_test(
@@ -966,6 +979,7 @@ class Session:
             ... )
             >>> result.show()
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.hypothesis_test import hypothesis_test
 
         semantic_kind = getattr(a.meta, "semantic_kind", None)
@@ -981,6 +995,7 @@ class Session:
             intent="hypothesis_test",
             attributes=attrs,
         ):
+            validate_capability_inputs("hypothesis_test", a=a, b=b, alignment=alignment)
             return hypothesis_test(
                 a,
                 b,
@@ -1002,7 +1017,7 @@ def ensure_session_can_execute(session: Session) -> None:
     if session.is_read_only:
         raise NoBackendFactoryError(
             message=f"session '{session.name}' has no backend factory configured",
-            details={"session_name": session.name},
+            context={"session_name": session.name},
         )
 
 
@@ -1032,6 +1047,7 @@ class SessionDiscoverNamespace:
         ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 3.0.
         Lower values flag more candidates.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
 
         with _track_session_operation(
@@ -1040,6 +1056,7 @@ class SessionDiscoverNamespace:
             family="discover",
             intent="point_anomalies",
         ):
+            validate_capability_inputs("discover.point_anomalies", source=source)
             return discover.point_anomalies(
                 source,
                 value=value,
@@ -1063,6 +1080,7 @@ class SessionDiscoverNamespace:
         ``threshold`` is an absolute z-score cutoff on rolling window means
         (|z| >= threshold); default 2.0.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
 
         with _track_session_operation(
@@ -1071,6 +1089,7 @@ class SessionDiscoverNamespace:
             family="discover",
             intent="period_shifts",
         ):
+            validate_capability_inputs("discover.period_shifts", source=source)
             return discover.period_shifts(
                 source,
                 value=value,
@@ -1093,6 +1112,7 @@ class SessionDiscoverNamespace:
         Source must be a DeltaFrame. ``search_space`` is required and lists
         the candidate dimensions to evaluate for explanatory power.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
 
         with _track_session_operation(
@@ -1102,6 +1122,9 @@ class SessionDiscoverNamespace:
             intent="driver_axes",
             attributes={"marivo.analysis.search_space_count": len(search_space)},
         ):
+            validate_capability_inputs(
+                "discover.driver_axes", source=source, search_space=search_space
+            )
             return discover.driver_axes(
                 source,
                 search_space=search_space,
@@ -1128,6 +1151,7 @@ class SessionDiscoverNamespace:
         ``threshold`` is an absolute z-score for MetricFrame (|z| >= threshold)
         or absolute delta value for DeltaFrame; default 2.0.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
 
         with _track_session_operation(
@@ -1137,6 +1161,7 @@ class SessionDiscoverNamespace:
             intent="interesting_slices",
             attributes={"marivo.analysis.search_space_count": len(search_space or [])},
         ):
+            validate_capability_inputs("discover.interesting_slices", source=source)
             return discover.interesting_slices(
                 source,
                 search_space=search_space,
@@ -1161,6 +1186,7 @@ class SessionDiscoverNamespace:
         the metric exhibits significant trends, level shifts, or volatility.
         ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 2.0.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
 
         with _track_session_operation(
@@ -1169,6 +1195,7 @@ class SessionDiscoverNamespace:
             family="discover",
             intent="interesting_windows",
         ):
+            validate_capability_inputs("discover.interesting_windows", source=source)
             return discover.interesting_windows(
                 source,
                 value=value,
@@ -1194,6 +1221,7 @@ class SessionDiscoverNamespace:
         ``threshold`` is a robust z-score cutoff using MAD
         (|robust_z| >= threshold); default 3.0.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
 
         with _track_session_operation(
@@ -1203,6 +1231,7 @@ class SessionDiscoverNamespace:
             intent="cross_sectional_outliers",
             attributes={"marivo.analysis.peer_scope_count": len(peer_scope or [])},
         ):
+            validate_capability_inputs("discover.cross_sectional_outliers", source=source)
             return discover.cross_sectional_outliers(
                 source,
                 peer_scope=peer_scope,

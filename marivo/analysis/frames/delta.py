@@ -1,4 +1,4 @@
-"""DeltaFrame and DeltaFrameMeta."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -45,6 +45,8 @@ class DeltaFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class DeltaFrame(BaseFrame):
+    """Call mv.help(DeltaFrame) for its public consumption contract."""
+
     meta: DeltaFrameMeta
 
     _NEXT_INTENTS = ("attribute", "discover", "transform")
@@ -118,7 +120,7 @@ class DeltaFrame(BaseFrame):
         contract = super().contract()
         affordances = []
         for affordance in contract.affordances:
-            if affordance.operator == "attribute":
+            if affordance.capability_id == "attribute":
                 affordance = affordance.model_copy(
                     update={
                         "param_template": ArtifactParamTemplate(
@@ -170,8 +172,10 @@ class DeltaFrame(BaseFrame):
 
     def components(self) -> ComponentFrame:
         """Load the linked ComponentFrame for component-aware deltas."""
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.frames._component import _load_component_frame
 
+        validate_capability_inputs("DeltaFrame.components", receiver=self)
         return _load_component_frame(
             parent_ref=self.ref,
             parent_kind=self.meta.kind,

@@ -38,7 +38,10 @@ and correct it through `marivo-semantic`; more analysis cannot repair the wrong
 business contract.
 
 The sections below explain Marivo's evidence records and audit APIs for readers
-who need the complete technical trace.
+who need the complete technical trace. When an operator fails, it raises a
+typed `AnalysisError` with stable `expected`/`received`/`location`/`repair`
+fields — the `repair` field is a typed `AnalysisRepair` pointing to the exact
+`mv.help(...)` target for the failing capability.
 
 ## Evidence model and audit reference
 

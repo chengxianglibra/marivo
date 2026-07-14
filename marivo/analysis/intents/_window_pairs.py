@@ -70,7 +70,7 @@ def _parse_window_datetime(value: object, *, field: str) -> datetime:
     if not isinstance(value, str) or not value:
         raise AlignmentFailedError(
             message=f"window_bucket alignment requires window.{field}",
-            details={"kind": "WindowBucketWindowMissing", "field": field},
+            context={"kind": "WindowBucketWindowMissing", "field": field},
         )
     if is_date_only(value):
         return datetime.combine(date.fromisoformat(value), time.min)
@@ -79,7 +79,7 @@ def _parse_window_datetime(value: object, *, field: str) -> datetime:
     except ValueError as exc:
         raise AlignmentFailedError(
             message=f"window_bucket alignment requires valid ISO window.{field}",
-            details={"kind": "WindowBucketWindowInvalid", "field": field, "value": value},
+            context={"kind": "WindowBucketWindowInvalid", "field": field, "value": value},
         ) from exc
 
 
@@ -105,7 +105,7 @@ def _truncate_bucket_date(value: date, *, grain: str) -> date:
         return value.replace(month=1, day=1)
     raise AlignmentFailedError(
         message=f"window_bucket alignment does not support grain {grain!r}",
-        details={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
+        context={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
     )
 
 
@@ -122,7 +122,7 @@ def _advance_bucket_date(value: date, *, grain: str) -> date:
         return value.replace(year=value.year + 1)
     raise AlignmentFailedError(
         message=f"window_bucket alignment does not support grain {grain!r}",
-        details={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
+        context={"kind": "WindowBucketUnsupportedGrain", "grain": grain},
     )
 
 
@@ -165,12 +165,12 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
                 "window_bucket ordinal alignment requires metric frame window metadata "
                 "when bucket_start values do not overlap"
             ),
-            details={"kind": "WindowBucketWindowMissing", "frame_ref": frame.ref},
+            context={"kind": "WindowBucketWindowMissing", "frame_ref": frame.ref},
         )
     if not isinstance(window.get("end"), str):
         raise AlignmentFailedError(
             message="window_bucket ordinal alignment requires window.end metadata",
-            details={"kind": "WindowBucketWindowMissing", "frame_ref": frame.ref},
+            context={"kind": "WindowBucketWindowMissing", "frame_ref": frame.ref},
         )
     grain_ok = isinstance(grain, str) and (
         grain in {"hour", "day", "week", "month", "quarter", "year"}
@@ -179,7 +179,7 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
     if not grain_ok:
         raise AlignmentFailedError(
             message=("window_bucket ordinal alignment requires a calendar or sub-day grain"),
-            details={"kind": "WindowBucketGrainMissing", "frame_ref": frame.ref, "grain": grain},
+            context={"kind": "WindowBucketGrainMissing", "frame_ref": frame.ref, "grain": grain},
         )
     assert isinstance(grain, str)  # narrowed by grain_ok guard
 
@@ -202,7 +202,7 @@ def _window_bucket_values(frame: MetricFrame) -> list[object]:
                         "window_bucket ordinal alignment would exceed "
                         f"{_WINDOW_BUCKET_CAP} buckets; coarsen the grain or shrink the window"
                     ),
-                    details={
+                    context={
                         "kind": "WindowBucketCapExceeded",
                         "frame_ref": frame.ref,
                         "grain": grain,
@@ -257,7 +257,7 @@ def _prepared_value_map(
     if keys.duplicated().any():
         raise AlignmentFailedError(
             message="window_bucket ordinal alignment requires unique bucket_start values",
-            details={"kind": "WindowBucketDuplicateBuckets"},
+            context={"kind": "WindowBucketDuplicateBuckets"},
         )
     return {
         str(key): (row[time_column], row[value_column])

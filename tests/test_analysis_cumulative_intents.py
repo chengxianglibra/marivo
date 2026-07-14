@@ -150,8 +150,8 @@ def test_compare_rejects_cumulative_metric_frame(tmp_path, monkeypatch) -> None:
     with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
         compare(current, baseline, session=session)
 
-    assert exc_info.value.details["intent"] == "compare"
-    assert exc_info.value.details["base_metric_id"] == "sales.gmv"
+    assert exc_info.value._context["intent"] == "compare"
+    assert exc_info.value._context["base_metric_id"] == "sales.gmv"
 
 
 def test_forecast_rejects_cumulative_history(tmp_path, monkeypatch) -> None:
@@ -171,8 +171,8 @@ def test_decompose_rejects_cumulative_delta(tmp_path, monkeypatch) -> None:
     with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
         decompose(delta, axis="sales.orders.region", session=session)
 
-    assert exc_info.value.details["intent"] == "decompose"
-    assert exc_info.value.details["base_metric_id"] == "sales.gmv"
+    assert exc_info.value._context["intent"] == "decompose"
+    assert exc_info.value._context["base_metric_id"] == "sales.gmv"
 
 
 def test_attribute_rejects_cumulative_delta(tmp_path, monkeypatch) -> None:
@@ -182,8 +182,8 @@ def test_attribute_rejects_cumulative_delta(tmp_path, monkeypatch) -> None:
     with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
         attribute(delta, axes=["sales.orders.region"], session=session)
 
-    assert exc_info.value.details["intent"] == "attribute"
-    assert exc_info.value.details["base_metric_id"] == "sales.gmv"
+    assert exc_info.value._context["intent"] == "attribute"
+    assert exc_info.value._context["base_metric_id"] == "sales.gmv"
 
 
 # ---------------------------------------------------------------------------
@@ -414,10 +414,10 @@ def test_compare_grain_to_date_grain_mismatch_rejected(tmp_path, monkeypatch) ->
     )
     with pytest.raises(AnalysisError) as exc_info:
         compare(current, baseline, session=session)
-    assert exc_info.value.details["kind"] == "GrainToDateQueryGrainMismatch"
+    assert exc_info.value._context["kind"] == "GrainToDateQueryGrainMismatch"
     assert (
-        exc_info.value.details["current_query_grain"]
-        != exc_info.value.details["baseline_query_grain"]
+        exc_info.value._context["current_query_grain"]
+        != exc_info.value._context["baseline_query_grain"]
     )
 
 
@@ -535,7 +535,7 @@ def test_compare_grain_to_date_tail_shown_in_delta_card(tmp_path, monkeypatch) -
     # The contract affordances should carry a to_date tail note (prose).
     contract = delta.contract()
     rendered_contract = "\n".join(
-        f"{a.operator}: {[p.reason for p in a.preconditions]}" for a in contract.affordances
+        f"{a.capability_id}: {[p.reason for p in a.preconditions]}" for a in contract.affordances
     )
     assert "tail bucket" in rendered_contract
     assert "ordinal alignment matched" in rendered_contract
@@ -608,7 +608,7 @@ def test_contract_all_history_compare_gated(tmp_path, monkeypatch) -> None:
     session = _session(tmp_path, monkeypatch)
     frame = _anchor_frame(session, anchor="all_history")
     c = frame.contract()
-    cmp = next(a for a in c.affordances if a.operator == "compare")
+    cmp = next(a for a in c.affordances if a.capability_id == "compare")
     assert any(p.check == "running_total_caveat" for p in cmp.preconditions)
 
 
@@ -617,7 +617,7 @@ def test_contract_grain_to_date_compare_condional(tmp_path, monkeypatch) -> None
     session = _session(tmp_path, monkeypatch)
     frame = _anchor_frame(session, anchor=("grain_to_date", "month"))
     c = frame.contract()
-    cmp = next(a for a in c.affordances if a.operator == "compare")
+    cmp = next(a for a in c.affordances if a.capability_id == "compare")
     # compare is a conditional affordance stating preconditions (not a hard fail)
     reasons = " ".join(p.reason or "" for p in cmp.preconditions)
     assert "single-period" in reasons.lower() or "boundary" in reasons.lower()
@@ -645,14 +645,14 @@ def test_contract_rollup_affordance_iff_rollup_fold(tmp_path, monkeypatch) -> No
     # Fold frame: rollup affordance present.
     c_fold = fold_frame.contract()
     assert any(
-        a.operator == "transform"
+        a.capability_id.startswith("transform.")
         and "rollup" in (a.param_template.deterministic_slots.get("op", "") or "")
         for a in c_fold.affordances
     )
     # Non-fold frame: no rollup affordance.
     c_plain = plain_frame.contract()
     assert not any(
-        a.operator == "transform"
+        a.capability_id.startswith("transform.")
         and "rollup" in (a.param_template.deterministic_slots.get("op", "") or "")
         for a in c_plain.affordances
     )

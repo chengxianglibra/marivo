@@ -73,7 +73,7 @@ def correlate(
     if not isinstance(alignment, AlignmentPolicy):
         raise SemanticKindMismatchError(
             message="correlate requires alignment=AlignmentPolicy(...)",
-            details={
+            context={
                 "expected_kind": "AlignmentPolicy",
                 "got_kind": type(alignment).__name__,
             },
@@ -81,17 +81,17 @@ def correlate(
     if alignment.kind != "window_bucket":
         raise SemanticKindMismatchError(
             message="correlate only supports AlignmentPolicy(kind='window_bucket')",
-            details={"alignment": alignment.model_dump(mode="json")},
+            context={"alignment": alignment.model_dump(mode="json")},
         )
     if alignment.mode != "ordinal_bucket" or alignment.strict_lengths:
         raise SemanticKindMismatchError(
             message="correlate only supports default window_bucket alignment",
-            details={"alignment": alignment.model_dump(mode="json")},
+            context={"alignment": alignment.model_dump(mode="json")},
         )
     if a.meta.semantic_kind != b.meta.semantic_kind:
         raise SemanticKindMismatchError(
             message="correlate requires matching semantic_kind",
-            details={"a": a.meta.semantic_kind, "b": b.meta.semantic_kind},
+            context={"a": a.meta.semantic_kind, "b": b.meta.semantic_kind},
         )
     if method != "pearson":
         raise SemanticKindMismatchError(message=f"unsupported correlation method {method!r}")
@@ -309,5 +309,5 @@ def _ensure_unique_keys(df: pd.DataFrame, *, keys: list[str], label: str) -> Non
     examples = df.loc[duplicates, keys].drop_duplicates().head(5).to_dict("records")
     raise AlignmentFailedError(
         message=f"correlate {label} has duplicate key tuples",
-        details={"side": label, "keys": keys, "duplicates": examples},
+        context={"side": label, "keys": keys, "duplicates": examples},
     )

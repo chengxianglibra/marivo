@@ -131,8 +131,8 @@ def test_recover_observe_replay_requires_observe_params() -> None:
     with pytest.raises(AttributionMaterializationError) as exc_info:
         recover_observe_replay(frame, session=session)
 
-    assert exc_info.value.details["recoverability_status"] == "observe_params_missing"
-    assert exc_info.value.details["source_ref"] == "frame_current"
+    assert exc_info.value._context["recoverability_status"] == "observe_params_missing"
+    assert exc_info.value._context["source_ref"] == "frame_current"
 
 
 def test_recover_alignment_policy_filters_enriched_compare_metadata() -> None:
@@ -164,8 +164,8 @@ def test_recover_alignment_policy_reports_invalid_policy_fields() -> None:
     with pytest.raises(AttributionMaterializationError) as exc_info:
         recover_alignment_policy(delta)
 
-    assert exc_info.value.details["recoverability_status"] == "alignment_policy_invalid"
-    assert exc_info.value.details["delta_ref"] == "frame_delta"
+    assert exc_info.value._context["recoverability_status"] == "alignment_policy_invalid"
+    assert exc_info.value._context["delta_ref"] == "frame_delta"
 
 
 _OBSERVE_PARAMS: dict[str, object] = {

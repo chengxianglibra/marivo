@@ -44,7 +44,7 @@ def to_validation_issues(intent: str, issues: list[AnalysisError]) -> list[Valid
             intent=intent,
             error_type=type(error).__name__,
             message=error.message,
-            details=error.details,
+            context=dict(error._context),
         )
         for error in issues
     ]
@@ -64,7 +64,7 @@ def require_single_metric(frame: MetricFrame, *, intent: str) -> None:
             f'call frame.metric("{metric_ids[0]}") (or another id above) to project '
             "a single-metric frame first"
         ),
-        details={
+        context={
             "intent": intent,
             "expected_arity": 1,
             "got_arity": len(metric_ids),
@@ -132,7 +132,7 @@ def cumulative_compare_issue(current: MetricFrame, baseline: MetricFrame) -> Ana
                     "trailing anchor payload."
                 ),
                 hint=f"Observe the baseline with the same anchor {anchor!r}.",
-                details={
+                context={
                     "kind": "TrailingAnchorMismatch",
                     "current_anchor": anchor,
                     "baseline_anchor": base_anchor,
@@ -179,7 +179,7 @@ def _grain_to_date_compare_validations(
                     "compare(grain_to_date) requires both frames to share the same reset grain."
                 ),
                 hint=(f"Observe the baseline with anchor grain_to_date(grain={reset_grain!r})."),
-                details={
+                context={
                     "kind": "GrainToDateResetGrainMismatch",
                     "current_reset_grain": reset_grain,
                     "baseline_anchor": base_anchor,
@@ -191,7 +191,7 @@ def _grain_to_date_compare_validations(
         return AnalysisError(
             message=("compare(grain_to_date) requires both frames to share the same query grain."),
             hint=("Re-observe current and baseline at the same time grain before comparing."),
-            details={
+            context={
                 "kind": "GrainToDateQueryGrainMismatch",
                 "current_query_grain": cur_query_grain,
                 "baseline_query_grain": base_query_grain,
@@ -205,7 +205,7 @@ def _grain_to_date_compare_validations(
         return AnalysisError(
             message="compare(grain_to_date) requires window metadata on both frames.",
             hint="Re-observe with an explicit time_scope so window metadata is recorded.",
-            details={
+            context={
                 "kind": "GrainToDateWindowMissing",
                 "current_window": cur_window,
                 "baseline_window": base_window,
@@ -241,7 +241,7 @@ def _grain_to_date_compare_validations(
                     f"Re-observe the {label} frame starting at a {reset_grain} boundary "
                     f"(e.g. the first day of the {reset_grain})."
                 ),
-                details={
+                context={
                     "kind": "GrainToDateBoundaryRequired",
                     "frame": label,
                     "reset_grain": reset_grain,
@@ -276,7 +276,7 @@ def _grain_to_date_compare_validations(
                     "Multi-period cumulative compares are ambiguous; re-observe the base "
                     "flow metric and aggregate periods separately."
                 ),
-                details={
+                context={
                     "kind": "GrainToDateMultiPeriod",
                     "frame": label,
                     "reset_grain": reset_grain,
@@ -302,7 +302,7 @@ def _grain_to_date_compare_validations(
                     "Re-observe so both windows cover the same elapsed span (e.g. 3 days "
                     "into the month for both current and baseline)."
                 ),
-                details={
+                context={
                     "kind": "GrainToDateElapsedSpanMismatch",
                     "current_elapsed_days": cur_span,
                     "baseline_elapsed_days": base_span,
@@ -352,7 +352,7 @@ def validate_compare(
             return [
                 SegmentDimensionMismatchError(
                     message="compare requires matching segment dimension columns",
-                    details={
+                    context={
                         "kind": "SegmentDimensionMismatch",
                         "current_dimensions": current_dimensions,
                         "baseline_dimensions": baseline_dimensions,
@@ -365,7 +365,7 @@ def validate_compare(
             return [
                 PanelGrainMismatchError(
                     message="panel compare requires matching time grain",
-                    details={
+                    context={
                         "kind": "PanelGrainMismatch",
                         "current_grain": current_grain,
                         "baseline_grain": baseline_grain,
@@ -376,7 +376,7 @@ def validate_compare(
         return [
             AlignmentPolicyNotApplicableError(
                 message="segmented compare supports only window_bucket alignment",
-                details={
+                context={
                     "kind": "AlignmentPolicyNotApplicable",
                     "semantic_kind": "segmented",
                     "alignment_kind": alignment.kind,
@@ -387,7 +387,7 @@ def validate_compare(
         return [
             SemanticKindMismatchError(
                 message="calendar-backed compare alignment requires time_series MetricFrames",
-                details={
+                context={
                     "kind": "CalendarAlignRequiresTimeSeries",
                     "expected_kind": "time_series",
                     "got_kind": {
@@ -425,7 +425,7 @@ def validate_decompose_columns(
                     f"Use axis=session.catalog.get('dimension.<dimension_id>').ref for {normalized_axis!r} "
                     "if that column exists in the DeltaFrame."
                 ),
-                details={
+                context={
                     "requested_axis": axis_id,
                     "normalized_axis": normalized_axis,
                     "available_columns": available_columns,
@@ -445,7 +445,7 @@ def validate_decompose_columns(
             return [
                 AxisNotInPanelDimensionsError(
                     message="decompose axis is not a panel dimension",
-                    details={
+                    context={
                         "axis": axis_column,
                         "available_dimensions": dim_columns,
                     },
@@ -455,7 +455,7 @@ def validate_decompose_columns(
             return [
                 SemanticKindMismatchError(
                     message="decompose panel bucket column does not exist in the DeltaFrame",
-                    details={"bucket_column": bucket_column, "columns": list(source_df.columns)},
+                    context={"bucket_column": bucket_column, "columns": list(source_df.columns)},
                 )
             ]
     return []

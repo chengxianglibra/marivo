@@ -12,7 +12,7 @@ from marivo.analysis.errors import FrameMutationError
 from marivo.analysis.evidence.types import ArtifactEvidenceItem, ArtifactEvidenceSummary
 from marivo.analysis.followups import BlockingIssue
 from marivo.analysis.frames._content_hash import stable_meta_payload
-from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis.frames.base import ArtifactAffordance, BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
 
 
@@ -365,14 +365,16 @@ def test_phase1_protocol_objects_are_closed_models() -> None:
         (
             ArtifactAffordance,
             {
-                "operator": "compare",
+                "capability_id": "compare",
+                "public_entrypoint": "session.compare(...)",
+                "help_target": "compare",
                 "required_inputs": ["metric_frame"],
                 "preconditions": [],
                 "param_template": {
                     "deterministic_slots": {"left": "frame_x"},
                     "judgment_slots": ["right"],
                 },
-                "expected_output_family": "delta_frame",
+                "expected_output_family": "DeltaFrame",
             },
         ),
         (
@@ -384,6 +386,7 @@ def test_phase1_protocol_objects_are_closed_models() -> None:
                 "artifact_schema": ArtifactSchema(columns=[]),
                 "blocking_issues": [],
                 "affordances": [],
+                "boundary_ports": [],
             },
         ),
         (
@@ -395,27 +398,67 @@ def test_phase1_protocol_objects_are_closed_models() -> None:
             model_cls(**kwargs, unexpected=True)
 
 
-def test_base_frame_contract_emits_affordances_for_non_empty_next_intents() -> None:
-    class _ContractedFrame(BaseFrame):
-        _NEXT_INTENTS: tuple[str, ...] = ("compare", "assess_quality")
+def test_base_frame_contract_emits_affordances_from_registry() -> None:
+    """MetricFrame contract emits affordances driven by the capability registry."""
+    from datetime import UTC, datetime
 
-    df = pd.DataFrame({"value": [1.0]})
-    frame = _ContractedFrame(
-        _df=df,
-        meta=_meta(kind="metric_frame", ref="frame_contracted"),
+    from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+    from marivo.analysis.lineage import Lineage
+
+    meta = MetricFrameMeta(
+        kind="metric_frame",
+        ref="frame_contracted",
+        session_id="sess_test",
+        project_root="/tmp",
+        produced_by_job=None,
+        created_at=datetime(2026, 6, 28, tzinfo=UTC),
+        row_count=1,
+        byte_size=0,
+        lineage=Lineage(),
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "revenue"},
+        window=None,
+        where={},
+        semantic_kind="time_series",
+        semantic_model="sales",
     )
+    frame = MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
 
     contract = frame.contract()
 
     assert contract.is_canonical is True
-    assert [a.operator for a in contract.affordances] == ["compare", "assess_quality"]
-    assert contract.affordances[0].expected_output_family == "delta_frame"
-    assert contract.affordances[1].expected_output_family == "quality_report"
-    assert contract.affordances[0].required_inputs == ["metric_frame"]
-    assert contract.affordances[0].param_template.deterministic_slots == {
-        "source_ref": "frame_contracted"
-    }
-    assert contract.affordances[0].param_template.judgment_slots == []
+    capability_ids = [a.capability_id for a in contract.affordances]
+    assert "compare" in capability_ids
+    assert "assess_quality" in capability_ids
+    assert "operator" not in ArtifactAffordance.model_fields
+    compare_aff = next(a for a in contract.affordances if a.capability_id == "compare")
+    assert compare_aff.expected_output_family == "DeltaFrame"
+    assert compare_aff.public_entrypoint == "session.compare(...)"
+    assert compare_aff.help_target == "compare"
+    assert compare_aff.param_template.deterministic_slots == {"source_ref": "frame_contracted"}
+    assert compare_aff.param_template.judgment_slots == []
+
+
+def test_base_frame_contract_has_terminal_boundary_port() -> None:
+    df = pd.DataFrame({"value": [1.0]})
+    frame = BaseFrame(_df=df, meta=_meta(kind="metric_frame", ref="frame_bp"))
+    contract = frame.contract()
+    assert len(contract.boundary_ports) == 1
+    port = contract.boundary_ports[0]
+    assert port.kind == "terminal_exit"
+    assert port.capability_id == "boundary.to_pandas"
+    assert port.public_entrypoint == "frame.to_pandas()"
+    assert port.help_target == "boundary.to_pandas"
+
+
+def test_removed_pandas_conveniences_are_plain_attribute_errors() -> None:
+    df = pd.DataFrame({"value": [1.0]})
+    frame: BaseFrame = BaseFrame(_df=df, meta=_meta())
+    with pytest.raises(AttributeError):
+        frame.describe()  # type: ignore[attr-defined]
+    with pytest.raises(AttributeError):
+        frame.plot()  # type: ignore[attr-defined]
 
 
 def test_evidence_summary_is_session_local_for_content_identity() -> None:

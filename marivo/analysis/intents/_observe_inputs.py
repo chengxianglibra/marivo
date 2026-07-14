@@ -74,7 +74,7 @@ def _validate_dimension_ids(dimensions: list[str] | None) -> list[str]:
     if duplicate_ids:
         raise SemanticKindMismatchError(
             message="observe dimensions must not contain duplicate dimension ids",
-            details={
+            context={
                 "expected_kind": "unique dimension ids",
                 "got_kind": "duplicate dimension ids",
                 "duplicate_dimensions": sorted(duplicate_ids),

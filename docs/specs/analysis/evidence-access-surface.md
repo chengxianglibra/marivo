@@ -330,8 +330,8 @@ Follow-up execution lineage is an internal field
 
 ## Exception taxonomy
 
-All evidence exceptions subclass `AnalysisError` and carry `kind`/`message`/`hint`/
-`details`:
+All evidence exceptions subclass `AnalysisError` and carry `kind`/`message`/
+`hint`/`expected`/`received`/`location`/`repair` (stable typed fields):
 
 | Exception | Trigger |
 | --- | --- |

@@ -126,7 +126,7 @@ def _evaluate_composition_on_frame(metric_ir: Any, frame: Any) -> Any:
         return acc
     raise MetricShapeUnsupportedError(
         message=f"unsupported derived metric composition kind {kind!r}",
-        details={
+        context={
             "kind": "DerivedMetricCompositionUnsupported",
             "metric": metric_ir.semantic_id,
             "composition_kind": kind,
@@ -144,7 +144,7 @@ def _require_component_role_column(
     if component_id is None:
         raise MetricShapeUnsupportedError(
             message=f"derived metric {metric_ir.semantic_id!r} is missing component role {role!r}",
-            details={
+            context={
                 "kind": "DerivedMetricComponentMissing",
                 "metric": metric_ir.semantic_id,
                 "role": role,
@@ -156,7 +156,7 @@ def _require_component_role_column(
                 f"derived metric {metric_ir.semantic_id!r} component role column "
                 f"{column_name!r} (role {role!r}) is missing"
             ),
-            details={
+            context={
                 "kind": "DerivedMetricComponentColumnMissing",
                 "metric": metric_ir.semantic_id,
                 "role": role,

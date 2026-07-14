@@ -58,12 +58,12 @@ def require_numeric_column(df: pd.DataFrame, value: str | None, *, purpose: str)
         if value not in df.columns:
             raise SemanticKindMismatchError(
                 message=f"{purpose} value column {value!r} does not exist",
-                details={"columns": list(df.columns)},
+                context={"columns": list(df.columns)},
             )
         if not is_numeric_dtype(df[value]):
             raise SemanticKindMismatchError(
                 message=f"{purpose} value column {value!r} is not numeric",
-                details={"column": value, "dtype": str(df[value].dtype)},
+                context={"column": value, "dtype": str(df[value].dtype)},
             )
         return value
 
@@ -71,7 +71,7 @@ def require_numeric_column(df: pd.DataFrame, value: str | None, *, purpose: str)
     if len(numeric) != 1:
         raise SemanticKindMismatchError(
             message=f"{purpose} requires exactly one numeric column when value is omitted",
-            details={"numeric_columns": numeric},
+            context={"numeric_columns": numeric},
         )
     return str(numeric[0])
 

@@ -113,12 +113,20 @@ meaning before analysis handoff.
 
 ## Analysis Guidance Layering
 
-The `marivo-analysis` skill owns workflow only — intent paths, session
-discipline, observation points, and final report shape. `mv.help` owns the
-static analysis contract — signatures, artifact families, constraints, return
-types, errors, and runnable examples. Frames and results own dynamic guidance —
-`show()` describes current state, `contract()` describes mechanically valid
-next actions, and judgment stays with the agent.
+Environment-verified live surfaces own capabilities and runtime guidance: the
+CLI route `python -m marivo help analysis [target]` and the Python
+`mv.help(...)` surface own the static analysis contract — signatures, artifact
+families, constraints, return types, errors, and runnable examples. Frames and
+results own dynamic guidance — `show()` describes current state, `contract()`
+describes mechanically valid next actions, and structured errors own repair
+guidance. The `marivo-analysis` skill owns hard boundaries, handoffs, evidence
+continuity, and closeout obligations. The agent owns planning and judgment.
+
+The skill is a one-file boundary kernel. It does not duplicate the help
+contract, frame/result guidance, or error repair guidance. It does not
+prescribe an ordered operator sequence or a report template. Intentional
+teaching order is documented in the live help surface and the active specs,
+not in the skill.
 
 ## Tests
 

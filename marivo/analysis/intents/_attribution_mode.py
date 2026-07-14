@@ -20,7 +20,7 @@ def validate_attribution_mode(
         if mode is not None:
             raise SemanticKindMismatchError(
                 message=f"{intent} mode is only valid when multiple axes are requested",
-                details={
+                context={
                     "argument": "mode",
                     "reason": "single_axis_mode_not_applicable",
                     "axis_count": 1,
@@ -38,7 +38,7 @@ def validate_attribution_mode(
         message = f"{intent} mode must be 'joint' or 'hierarchy' for multiple axes"
     raise SemanticKindMismatchError(
         message=message,
-        details={
+        context={
             "argument": "mode",
             "reason": reason,
             "axis_count": len(axis_ids),

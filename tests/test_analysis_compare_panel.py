@@ -144,7 +144,7 @@ def test_window_bucket_panel_strict_lengths_rejects_different_expected_counts(tm
         )
 
     assert "equal expected bucket counts" in str(exc_info.value)
-    assert exc_info.value.details["kind"] == "WindowBucketExpectedCountMismatch"
+    assert exc_info.value._context["kind"] == "WindowBucketExpectedCountMismatch"
 
 
 def _panel_metric(

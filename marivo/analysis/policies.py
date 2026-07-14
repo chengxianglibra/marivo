@@ -1,4 +1,4 @@
-"""Typed analysis policies for analysis operators."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def _validate_anchor_kind(value: object, *, field_name: str, kind: SemanticKind 
                     f"{field_name} cannot be a measure; measures are aggregated values, "
                     "not analysis anchors. Use a metric, entity, categorical dimension, or time dimension."
                 ),
-                details={"field": field_name, "actual_kind": "measure"},
+                context={"field": field_name, "actual_kind": "measure"},
             )
         if kind != SemanticKind.METRIC:
             _reject_anchor_kind(field_name=field_name, value=value, actual_kind=kind)
@@ -61,7 +61,7 @@ def _validate_anchor_kind(value: object, *, field_name: str, kind: SemanticKind 
                     f"{field_name} cannot be a measure; measures are aggregated values, "
                     "not analysis anchors. Use a metric, entity, categorical dimension, or time dimension."
                 ),
-                details={"field": field_name, "actual_kind": "measure"},
+                context={"field": field_name, "actual_kind": "measure"},
             )
         if kind not in {
             SemanticKind.DIMENSION,
@@ -87,6 +87,12 @@ def _semantic_anchor_id(value: SemanticAnchorInput | None, *, field_name: str) -
 
 
 class AlignmentPolicy(BaseModel):
+    """Call mv.help(AlignmentPolicy) for its public consumption contract.
+
+    Immutable policy governing how two observation windows are aligned
+    before comparison, correlation, or hypothesis testing.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: AlignmentKind = "window_bucket"
@@ -102,7 +108,7 @@ class AlignmentPolicy(BaseModel):
         if isinstance(data, dict) and data.get("kind") == "calendar_bucket":
             raise AlignmentPolicyValidationError(
                 message="alignment kind 'calendar_bucket' was renamed to 'window_bucket'",
-                details={"case": "legacy_calendar_bucket", "kind": "calendar_bucket"},
+                context={"case": "legacy_calendar_bucket", "kind": "calendar_bucket"},
             )
         return data
 
@@ -111,7 +117,7 @@ class AlignmentPolicy(BaseModel):
         if self.kind != "window_bucket" and self.mode != "ordinal_bucket":
             raise AlignmentPolicyValidationError(
                 message="calendar-backed alignment does not accept window_bucket mode",
-                details={
+                context={
                     "case": "window_bucket_mode_not_applicable",
                     "kind": self.kind,
                     "mode": self.mode,
@@ -120,7 +126,7 @@ class AlignmentPolicy(BaseModel):
         if self.kind != "window_bucket" and self.strict_lengths:
             raise AlignmentPolicyValidationError(
                 message="calendar-backed alignment does not accept strict_lengths",
-                details={
+                context={
                     "case": "window_bucket_strict_lengths_not_applicable",
                     "kind": self.kind,
                 },
@@ -128,12 +134,12 @@ class AlignmentPolicy(BaseModel):
         if self.kind != "window_bucket" and self.calendar is None:
             raise AlignmentPolicyValidationError(
                 message=f"alignment kind {self.kind!r} requires calendar=CalendarRef(...)",
-                details={"case": "missing_calendar", "kind": self.kind},
+                context={"case": "missing_calendar", "kind": self.kind},
             )
         if self.kind == "window_bucket" and self.calendar is not None:
             raise AlignmentPolicyValidationError(
                 message="window_bucket does not accept calendar",
-                details={"case": "unexpected_calendar", "kind": self.kind},
+                context={"case": "unexpected_calendar", "kind": self.kind},
             )
         return self
 
@@ -263,6 +269,12 @@ def holiday_and_dow_aligned(
 
 
 class SamplingPolicy(BaseModel):
+    """Call mv.help(SamplingPolicy) for its public consumption contract.
+
+    Immutable policy controlling paired-sample extraction for compare,
+    correlate, and hypothesis_test.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     unit: Literal["bucket"] = "bucket"

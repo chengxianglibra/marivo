@@ -26,14 +26,14 @@ def zoneinfo_from_name(name: str) -> ZoneInfo:
     if not isinstance(name, str):
         raise TimezoneInvalidError(
             message=f"timezone name must be a string, got {type(name).__name__}",
-            details={"kind": "TimezoneNameInvalid", "tz": repr(name)},
+            context={"kind": "TimezoneNameInvalid", "tz": repr(name)},
         )
     try:
         return ZoneInfo(name)
     except ZoneInfoNotFoundError as exc:
         raise TimezoneInvalidError(
             message=f"timezone {name!r} was not found",
-            details={"kind": "TimezoneNotFound", "tz": name},
+            context={"kind": "TimezoneNotFound", "tz": name},
         ) from exc
 
 

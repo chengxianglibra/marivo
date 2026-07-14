@@ -186,16 +186,19 @@ def test_root_help_points_analysis_to_python_workflow(capsys: pytest.CaptureFixt
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
     assert "Analysis workflow:" in captured.out
-    assert "python -c \"import marivo.analysis as mv; mv.help('workflow')\"" in captured.out
+    assert "marivo help analysis" in captured.out
     assert "Use the Python interpreter where marivo is installed." in captured.out
     assert ".venv/bin/python" not in captured.out
     assert "marivo doctor --semantic" in captured.out
     assert "marivo doctor --datasource <name> --connect" in captured.out
-    # Frozen CLI command set must remain unchanged: exactly init, publish,
-    # doctor and no new subcommands. argparse renders the subcommand group as
-    # "{init,publish,doctor}" rather than the literal "marivo <cmd>".
-    assert "{init,publish,doctor}" in captured.out
+    # The CLI command set is init, publish, doctor, and help.
+    # argparse renders the subcommand group as
+    # "{init,publish,doctor,help}" (insertion order) rather than the literal
+    # "marivo <cmd>".
+    assert "{init,publish,doctor,help}" in captured.out
     assert "marivo doctor" in captured.out
+    # Root help advertises the CLI analysis help subcommand.
+    assert "marivo help analysis" in captured.out
     # Semantic authoring routing block points agents to Python help topics.
     # Uses bare `python -c` to match the Analysis workflow convention.
     assert "Semantic authoring workflow:" in captured.out

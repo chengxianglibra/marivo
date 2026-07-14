@@ -34,7 +34,7 @@ def align_calendar_frames(
     if policy.align_period == "day":
         raise CalendarPolicyError(
             message="align_period='day' is not supported for calendar alignment",
-            details={
+            context={
                 "kind": "CalendarPolicyInvalid",
                 "align_period": policy.align_period,
                 "mode": policy.mode,
@@ -237,7 +237,7 @@ def _coerce_local_date(value: object, *, report_tz: str) -> date:
         except (TypeError, ValueError) as exc:
             raise AlignmentFailedError(
                 message=f"failed to parse date value {value!r}",
-                details={
+                context={
                     "kind": "CalendarAlignDateParseFailed",
                     "value": value,
                 },
@@ -245,7 +245,7 @@ def _coerce_local_date(value: object, *, report_tz: str) -> date:
         return _timestamp_to_local_date(pd.Timestamp(parsed_dt), tz)
     raise AlignmentFailedError(
         message=f"unsupported date value {value!r}",
-        details={
+        context={
             "kind": "CalendarAlignDateParseFailed",
             "value": str(value),
         },
@@ -265,7 +265,7 @@ def _period_id(day: date, align_period: str) -> str:
         return f"{day.year:04d}"
     raise CalendarPolicyError(
         message=f"unsupported align_period {align_period!r}",
-        details={"kind": "CalendarPolicyInvalid", "align_period": align_period},
+        context={"kind": "CalendarPolicyInvalid", "align_period": align_period},
     )
 
 
@@ -281,7 +281,7 @@ def _period_start(day: date, align_period: str) -> date:
         return date(day.year, 1, 1)
     raise CalendarPolicyError(
         message=f"unsupported align_period {align_period!r}",
-        details={"kind": "CalendarPolicyInvalid", "align_period": align_period},
+        context={"kind": "CalendarPolicyInvalid", "align_period": align_period},
     )
 
 
@@ -313,7 +313,7 @@ def _period_pairing(dates_a: pd.Series, dates_b: pd.Series, align_period: str) -
                 "calendar alignment requires current and baseline to span the same "
                 f"number of periods for align_period={align_period!r}"
             ),
-            details={
+            context={
                 "kind": "CalendarAlignPeriodPairMismatch",
                 "align_period": align_period,
                 "current_period_ids": [period_id for period_id, _start in current_periods],
@@ -413,7 +413,7 @@ def _align_keys(
             )
         raise CalendarPolicyError(
             message=f"unsupported calendar mode {policy.mode!r}",
-            details={"kind": "CalendarPolicyInvalid", "mode": policy.mode},
+            context={"kind": "CalendarPolicyInvalid", "mode": policy.mode},
         )
 
     return dates.map(_key_for)
@@ -477,7 +477,7 @@ def _require_unique_keys(keys: pd.Series, *, side: str) -> None:
     duplicates = sorted({_json_key(tuple(value)) for value in duplicated.tolist()})
     raise AlignmentFailedError(
         message=f"frame '{side}' has duplicate calendar align keys",
-        details={
+        context={
             "kind": "CalendarAlignKeyNotUnique",
             "side": side,
             "duplicate_keys": duplicates,
@@ -508,7 +508,7 @@ def _json_key(value: tuple[object, ...]) -> str:
     else:
         raise CalendarPolicyError(
             message=f"unsupported calendar align key kind {key_kind!r}",
-            details={"kind": "CalendarAlignKeyInvalid", "align_key_kind": key_kind},
+            context={"kind": "CalendarAlignKeyInvalid", "align_key_kind": key_kind},
         )
     return json.dumps(public_key, ensure_ascii=False, separators=(",", ":"))
 
@@ -518,7 +518,7 @@ def _require_no_na_dates(series: pd.Series, *, report_tz: str) -> None:
         return
     raise AlignmentFailedError(
         message=f"failed to parse date values with session timezone {report_tz!r}",
-        details={"kind": "CalendarAlignDateParseFailed", "session_timezone": report_tz},
+        context={"kind": "CalendarAlignDateParseFailed", "session_timezone": report_tz},
     )
 
 

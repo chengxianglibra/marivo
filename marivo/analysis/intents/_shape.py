@@ -62,7 +62,7 @@ def attribution_output_shape(delta_meta: DeltaFrameMeta) -> AttributionShape:
         return "sum"
     raise ComponentDecompositionError(
         message="cannot predict attribution shape: unknown component composition kind",
-        details={
+        context={
             "component_ref": delta_meta.component_ref,
             "composition_kind": kind,
         },

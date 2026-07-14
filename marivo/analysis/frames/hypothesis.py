@@ -1,4 +1,4 @@
-"""HypothesisTestResult frame family."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -31,6 +31,8 @@ class HypothesisTestResultMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class HypothesisTestResult(BaseFrame):
+    """Call mv.help(HypothesisTestResult) for its public consumption contract."""
+
     meta: HypothesisTestResultMeta
 
     def _repr_identity(self) -> str:

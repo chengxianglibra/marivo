@@ -1,4 +1,4 @@
-"""ForecastFrame frame family."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -34,6 +34,8 @@ class ForecastFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class ForecastFrame(BaseFrame):
+    """Call mv.help(ForecastFrame) for its public consumption contract."""
+
     meta: ForecastFrameMeta
 
     def _repr_identity(self) -> str:

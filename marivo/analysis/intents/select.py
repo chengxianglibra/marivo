@@ -81,7 +81,7 @@ def select(
     if not isinstance(candidate_set, CandidateSet):
         raise SemanticKindMismatchError(
             message="select requires a CandidateSet input",
-            details={
+            context={
                 "expected_kind": "candidate_set",
                 "got_kind": type(candidate_set).__name__,
             },
@@ -91,7 +91,7 @@ def select(
     if rank < 1 or rank > row_count:
         raise SemanticKindMismatchError(
             message=f"select rank {rank} is out of range",
-            details={
+            context={
                 "row_count": row_count,
                 "requested_rank": rank,
             },
@@ -104,14 +104,14 @@ def select(
         if base_attr not in {"keys", "selector"}:
             raise SemanticKindMismatchError(
                 message=f"select dot-path attribute {attribute!r} is not supported",
-                details={"shape": shape, "attribute": attribute},
+                context={"shape": shape, "attribute": attribute},
             )
         return _select_dot_path(row, shape, base_attr, sub_attr)
 
     if base_attr not in _FIELD_BY_SHAPE.get(shape, set()):
         raise SemanticKindMismatchError(
             message=f"select attribute {attribute!r} is not available for shape {shape!r}",
-            details={
+            context={
                 "shape": shape,
                 "attribute": attribute,
                 "valid_fields": sorted(_FIELD_BY_SHAPE.get(shape, set())),
@@ -128,7 +128,7 @@ def select(
         if not raw:
             raise SemanticKindMismatchError(
                 message="select(attribute='selector') row has empty selector_json",
-                details={"shape": shape, "attribute": attribute},
+                context={"shape": shape, "attribute": attribute},
             )
         decoded = json.loads(raw)
         return {_selector_key(name): value for name, value in decoded.items()}
@@ -155,7 +155,7 @@ def select(
         return [ArtifactAffordance.model_validate(entry) for entry in json.loads(raw)]
     raise SemanticKindMismatchError(
         message=f"select attribute {attribute!r} is not recognized",
-        details={"shape": shape, "attribute": attribute},
+        context={"shape": shape, "attribute": attribute},
     )
 
 
@@ -165,7 +165,7 @@ def _select_dot_path(row: pd.Series, shape: CandidateShape, base_attr: str, key:
     if not raw:
         raise SemanticKindMismatchError(
             message=f"select(attribute='{base_attr}.{key}') row has empty {column}",
-            details={"shape": shape, "attribute": f"{base_attr}.{key}"},
+            context={"shape": shape, "attribute": f"{base_attr}.{key}"},
         )
     decoded = json.loads(raw)
     if key not in decoded:
@@ -181,7 +181,7 @@ def _select_dot_path(row: pd.Series, shape: CandidateShape, base_attr: str, key:
             return decoded[matched_key]
         raise SemanticKindMismatchError(
             message=f"select(attribute='{base_attr}.{key}') key not present in row",
-            details={
+            context={
                 "shape": shape,
                 "attribute": f"{base_attr}.{key}",
                 "available_keys": sorted(decoded.keys()),

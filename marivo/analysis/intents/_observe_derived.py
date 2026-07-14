@@ -83,7 +83,7 @@ def _execute_folded_component(
     if root_time_adapter is None:
         raise MetricNotFoundError(
             message=f"time field adapter for '{component_metric_ir.status_time_dimension}' not found",
-            details={"status_time_dimension": component_metric_ir.status_time_dimension},
+            context={"status_time_dimension": component_metric_ir.status_time_dimension},
         )
     sample_interval = root_time_adapter.sample_interval
     assert sample_interval is not None

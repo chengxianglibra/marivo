@@ -175,8 +175,8 @@ def test_parse_item_followups_typed_round_trip() -> None:
 def test_parse_item_followups_rejects_object_payload() -> None:
     with pytest.raises(FrameMetaInvalidError) as exc:
         _parse_item_followups('{"action_id": "a1", "kind": "submit_step"}')
-    assert exc.value.details.get("kind") == "ItemFollowupShapeInvalid"
-    assert exc.value.details.get("actual_type") == "dict"
+    assert exc.value._context.get("kind") == "ItemFollowupShapeInvalid"
+    assert exc.value._context.get("actual_type") == "dict"
 
 
 def test_parse_item_followups_rejects_invalid_followup_entry() -> None:
@@ -226,7 +226,12 @@ def test_candidate_set_meta_defaults_typed_followup_fields() -> None:
 def test_candidate_set_meta_round_trip_with_typed_followups() -> None:
     meta = _meta_minimal(
         affordances=[
-            mv.ArtifactAffordance(operator="assess_quality", required_inputs=["metric_frame"]),
+            mv.ArtifactAffordance(
+                capability_id="assess_quality",
+                public_entrypoint="session.assess_quality(...)",
+                help_target="assess_quality",
+                required_inputs=["metric_frame"],
+            ),
         ],
         blocking_issues=[
             BlockingIssue(issue_id="i1", kind="quality", severity="warning", message="x"),

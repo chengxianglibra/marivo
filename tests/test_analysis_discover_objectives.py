@@ -12,7 +12,11 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import DiscoverInsufficientDataError, SemanticKindMismatchError
+from marivo.analysis.errors import (
+    AnalysisError,
+    DiscoverInsufficientDataError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.semantic.catalog import SemanticKind
@@ -171,10 +175,9 @@ def test_unknown_objective_raises():
 def test_period_shifts_rejects_metric_frame():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
-    with pytest.raises(SemanticKindMismatchError) as exc:
+    with pytest.raises(AnalysisError) as exc:
         session.discover.period_shifts(frame)  # type: ignore[arg-type]
-    assert exc.value.details.get("objective") == "period_shifts"
-    assert exc.value.details.get("source_kind") == "metric_frame"
+    assert exc.value.location == "discover.period_shifts.source"
 
 
 @pytest.mark.parametrize("row_count", [1, 3])
@@ -194,8 +197,8 @@ def test_period_shifts_rejects_time_series_with_too_few_buckets(row_count: int):
     with pytest.raises(DiscoverInsufficientDataError) as exc:
         session.discover.period_shifts(delta)
 
-    assert exc.value.details["minimum"] == 4
-    assert exc.value.details["row_count"] == row_count
+    assert exc.value._context["minimum"] == 4
+    assert exc.value._context["row_count"] == row_count
 
 
 def test_period_shifts_rejects_panel_when_all_series_have_too_few_buckets():
@@ -215,9 +218,9 @@ def test_period_shifts_rejects_panel_when_all_series_have_too_few_buckets():
     with pytest.raises(DiscoverInsufficientDataError) as exc:
         session.discover.period_shifts(delta)
 
-    assert exc.value.details["minimum"] == 4
-    assert exc.value.details["row_count"] == 3
-    assert exc.value.details["group_columns"] == ["region"]
+    assert exc.value._context["minimum"] == 4
+    assert exc.value._context["row_count"] == 3
+    assert exc.value._context["group_columns"] == ["region"]
 
 
 def test_period_shifts_allows_panel_when_one_series_has_enough_buckets():
@@ -246,10 +249,11 @@ def test_period_shifts_allows_panel_when_one_series_has_enough_buckets():
 def test_driver_axes_rejects_metric_frame():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
-    with pytest.raises(SemanticKindMismatchError):
+    with pytest.raises(AnalysisError) as exc:
         session.discover.driver_axes(
             frame, search_space=[make_ref("country", SemanticKind.DIMENSION)]
         )  # type: ignore[arg-type]
+    assert exc.value.location == "discover.driver_axes.source"
 
 
 def test_driver_axes_requires_search_space():
@@ -622,5 +626,5 @@ def test_persistence_round_trip(objective, source_kind, builder):
     assert loaded.meta.shape == out.meta.shape
     assert loaded.meta.objective == out.meta.objective
     assert loaded.meta.strategy == out.meta.strategy
-    assert [aff.operator for aff in loaded.meta.affordances] == ["assess_quality"]
+    assert [aff.capability_id for aff in loaded.meta.affordances] == ["assess_quality"]
     assert list(loaded.to_pandas().columns) == list(out.to_pandas().columns)

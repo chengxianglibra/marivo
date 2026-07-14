@@ -159,9 +159,9 @@ def test_require_single_metric_raises_teaching_error():
     with pytest.raises(MetricArityError) as excinfo:
         require_single_metric(make_multi_frame(), intent="compare")
     err = excinfo.value
-    assert err.details["intent"] == "compare"
-    assert err.details["got_arity"] == 2
-    assert err.details["metrics"] == ["sales.revenue", "sales.order_count"]
+    assert err._context["intent"] == "compare"
+    assert err._context["got_arity"] == 2
+    assert err._context["metrics"] == ["sales.revenue", "sales.order_count"]
     assert 'frame.metric("sales.revenue")' in str(err)
 
 
@@ -287,7 +287,7 @@ def test_multi_frame_render_lists_measures():
 def test_multi_frame_contract_marks_single_metric_gate():
     frame = make_multi_frame()
     contract = frame.contract()
-    compare_affordance = next(a for a in contract.affordances if a.operator == "compare")
+    compare_affordance = next(a for a in contract.affordances if a.capability_id == "compare")
     checks = {p.check for p in compare_affordance.preconditions}
     assert "single_metric" in checks
     unmet = next(p for p in compare_affordance.preconditions if p.check == "single_metric")

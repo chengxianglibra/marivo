@@ -218,7 +218,7 @@ def test_derive_metric_frame_rejects_missing_output_columns(tmp_path, monkeypatc
             grain=None,
         )
 
-    assert exc_info.value.details["missing"] == ["value"]
+    assert exc_info.value._context["missing"] == ["value"]
 
 
 def test_derive_helpers_keep_string_columns_and_semantic_refs_separate() -> None:

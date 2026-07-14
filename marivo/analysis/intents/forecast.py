@@ -74,18 +74,18 @@ def forecast(
     if cumulative_gate is not None:
         raise cumulative_gate
     if horizon < 1:
-        raise ForecastPolicyError(message="horizon must be >= 1", details={"horizon": horizon})
+        raise ForecastPolicyError(message="horizon must be >= 1", context={"horizon": horizon})
     if not 0 < interval_level < 1:
         raise ForecastPolicyError(
             message="interval_level must be in (0, 1)",
-            details={"interval_level": interval_level},
+            context={"interval_level": interval_level},
         )
 
     time_col, grain = _time_axis(history)
     if grain not in _FREQ:
         raise ForecastShapeUnsupportedError(
             message=f"forecast does not support grain {grain!r}",
-            details={"grain": grain},
+            context={"grain": grain},
         )
     effective_seasonality = _resolve_seasonality(
         model=model,
@@ -285,7 +285,7 @@ def _forecast_one(
         if not fail_open:
             raise ForecastInsufficientHistoryError(
                 message="not enough history for selected forecast model",
-                details={"row_count": len(y), "minimum": minimum},
+                context={"row_count": len(y), "minimum": minimum},
             )
         return [
             {

@@ -90,8 +90,8 @@ def test_reopen_conflicting_report_timezone_fails_closed(monkeypatch):
     with pytest.raises(SessionTimezoneConflict) as exc_info:
         session_attach.get_or_create(name="demo", report_timezone="UTC")
 
-    assert exc_info.value.details["persisted_report_tz"] == "Asia/Shanghai"
-    assert exc_info.value.details["requested_report_tz"] == "UTC"
+    assert exc_info.value._context["persisted_report_tz"] == "Asia/Shanghai"
+    assert exc_info.value._context["requested_report_tz"] == "UTC"
     assert "delete and recreate" in str(exc_info.value)
 
 

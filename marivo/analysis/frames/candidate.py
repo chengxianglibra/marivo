@@ -1,4 +1,4 @@
-"""CandidateSet and CandidateSetMeta."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -62,6 +62,8 @@ class CandidateSetMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class CandidateSet(BaseFrame):
+    """Call mv.help(CandidateSet) for its public consumption contract."""
+
     meta: CandidateSetMeta
 
     _NEXT_INTENTS = ("select",)
@@ -78,7 +80,7 @@ class CandidateSet(BaseFrame):
 
             raise SemanticKindMismatchError(
                 message=f"CandidateSet shape mismatch: expected {expected!r}",
-                details={
+                context={
                     "got_shape": self.meta.shape,
                     "expected_shape": expected,
                 },

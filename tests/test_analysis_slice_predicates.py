@@ -124,7 +124,7 @@ def test_observe_rejects_physical_only_dimension_ref_slice_keys(tmp_path, slice_
     where = {make_ref(key, SemanticKind.DIMENSION): value for key, value in slice_spec.items()}
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe(make_ref("sales.revenue", SemanticKind.METRIC), slice_by=where, session=session)
-    assert exc_info.value.details["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "dimension"
 
 
 def test_non_json_safe_slice_fails_before_session_meta_side_effect(tmp_path):

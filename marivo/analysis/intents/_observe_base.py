@@ -80,7 +80,7 @@ def _execute_sampled_base(
     if root_time_adapter is None:
         raise MetricNotFoundError(
             message=f"time field adapter for '{metric_ir.status_time_dimension}' not found",
-            details={"status_time_dimension": metric_ir.status_time_dimension},
+            context={"status_time_dimension": metric_ir.status_time_dimension},
         )
     sample_interval = root_time_adapter.sample_interval
     assert sample_interval is not None
@@ -210,7 +210,7 @@ def _resolve_fold_time_field(catalog: Any, status_time_dimension_id: str) -> Tim
     if not isinstance(details, TimeDimensionDetails):
         raise SemanticKindMismatchError(
             message=f"status time dimension {status_time_dimension_id!r} is not a time dimension",
-            details={"status_time_dimension": status_time_dimension_id},
+            context={"status_time_dimension": status_time_dimension_id},
         )
     return details
 

@@ -141,7 +141,7 @@ def _load_delta_component_frame(frame: DeltaFrame, *, session: Session) -> Compo
     if not isinstance(loaded, ComponentFrame):
         raise ComponentDecompositionError(
             message="delta component_ref did not resolve to a ComponentFrame",
-            details={
+            context={
                 "delta_ref": frame.ref,
                 "component_ref": frame.meta.component_ref,
                 "loaded_kind": loaded.meta.kind,
@@ -182,7 +182,7 @@ def _raise_non_linear_fold_error(frame: DeltaFrame, fold_labels: list[str]) -> N
             "decompose cannot sum non-linear sampled time fold deltas by axis; "
             "component-aware ratio or weighted-average deltas can use mix attribution"
         ),
-        details={
+        context={
             "reason": "non_linear_time_fold",
             "delta_ref": frame.ref,
             "time_folds": fold_labels,
@@ -203,7 +203,7 @@ def _component_measure_role(component: ComponentFrame) -> str:
         return _component_role_column_name(component, "weight")
     raise ComponentDecompositionError(
         message="unsupported component composition kind",
-        details={"composition_kind": component.meta.composition_kind},
+        context={"composition_kind": component.meta.composition_kind},
     )
 
 
@@ -218,7 +218,7 @@ def _component_value_role(component: ComponentFrame) -> str:
         return "value"
     raise ComponentDecompositionError(
         message="unsupported component composition kind for value role",
-        details={"composition_kind": component.meta.composition_kind},
+        context={"composition_kind": component.meta.composition_kind},
     )
 
 
@@ -229,7 +229,7 @@ def _component_method(component: ComponentFrame) -> str:
         return "weighted_mix"
     raise ComponentDecompositionError(
         message="unsupported component composition kind",
-        details={"composition_kind": component.meta.composition_kind},
+        context={"composition_kind": component.meta.composition_kind},
     )
 
 
@@ -256,7 +256,7 @@ def _infer_delta_value_column_name(component: ComponentFrame) -> str:
                 return name
     raise ComponentDecompositionError(
         message="component delta frame has no metric value column",
-        details={"component_ref": component.ref},
+        context={"component_ref": component.ref},
     )
 
 
@@ -282,7 +282,7 @@ def _component_mix_output_for_df(
     if missing:
         raise ComponentDecompositionError(
             message="component-aware decompose requires component delta columns",
-            details={"component_ref": component.ref, "missing_columns": missing},
+            context={"component_ref": component.ref, "missing_columns": missing},
         )
     output = df[required].copy()
     current_basis = pd.to_numeric(output[f"current_{share_role}"], errors="coerce")
@@ -307,7 +307,7 @@ def _component_mix_output_for_df(
     if not bool(valid.any()):
         raise ComponentDecompositionError(
             message="component-aware decompose could not form any valid contribution rows",
-            details={"component_ref": component.ref, "share_role": share_role},
+            context={"component_ref": component.ref, "share_role": share_role},
         )
     total = float(output.loc[valid, "contribution"].sum())
     output["pct_contribution"] = np.where(
@@ -412,7 +412,7 @@ def _component_mix_output(
     if bucket_column not in df.columns:
         raise ComponentDecompositionError(
             message="component-aware panel decompose requires a bucket column",
-            details={"component_ref": component.ref, "bucket_column": bucket_column},
+            context={"component_ref": component.ref, "bucket_column": bucket_column},
         )
 
     pieces: list[pd.DataFrame] = []
@@ -427,7 +427,7 @@ def _component_mix_output(
     if not pieces:
         raise ComponentDecompositionError(
             message="component-aware decompose could not form any bucket groups",
-            details={"component_ref": component.ref, "bucket_column": bucket_column},
+            context={"component_ref": component.ref, "bucket_column": bucket_column},
         )
     return pd.concat(pieces, ignore_index=True)
 
@@ -453,7 +453,7 @@ def _component_joint_mix_output_for_df(
     if missing:
         raise ComponentDecompositionError(
             message="component-aware decompose requires component delta columns",
-            details={"component_ref": component.ref, "missing_columns": missing},
+            context={"component_ref": component.ref, "missing_columns": missing},
         )
     output = (
         df[required]
@@ -487,7 +487,7 @@ def _component_joint_mix_output_for_df(
     if not bool(valid.any()):
         raise ComponentDecompositionError(
             message="component-aware decompose could not form any valid contribution rows",
-            details={"component_ref": component.ref, "share_role": share_role},
+            context={"component_ref": component.ref, "share_role": share_role},
         )
     total = float(output.loc[valid, "contribution"].sum())
     output["pct_contribution"] = np.where(
@@ -640,7 +640,7 @@ def _component_multi_axis_output(
     if bucket_column not in df.columns:
         raise ComponentDecompositionError(
             message="component-aware panel decompose requires a bucket column",
-            details={"component_ref": component.ref, "bucket_column": bucket_column},
+            context={"component_ref": component.ref, "bucket_column": bucket_column},
         )
     pieces = []
     for bucket_value, bucket_df in df.groupby(bucket_column, dropna=False, sort=True):
@@ -650,7 +650,7 @@ def _component_multi_axis_output(
     if not pieces:
         raise ComponentDecompositionError(
             message="component-aware decompose could not form any bucket groups",
-            details={"component_ref": component.ref, "bucket_column": bucket_column},
+            context={"component_ref": component.ref, "bucket_column": bucket_column},
         )
     return pd.concat(pieces, ignore_index=True)
 
@@ -665,13 +665,13 @@ def _normalize_axes_boundary(
     if not axes:
         raise SemanticKindMismatchError(
             message="decompose requires at least one axis",
-            details={"argument": "axes"},
+            context={"argument": "axes"},
         )
     axis_ids = [_normalize_axis_boundary(session, item) for item in axes]
     if len(set(axis_ids)) != len(axis_ids):
         raise SemanticKindMismatchError(
             message="decompose axes must be distinct",
-            details={"argument": "axes", "reason": "duplicate_axes", "axes": axis_ids},
+            context={"argument": "axes", "reason": "duplicate_axes", "axes": axis_ids},
         )
     return axis_ids
 
@@ -693,7 +693,7 @@ def _axis_columns_for_delta(
     if len(set(axis_columns)) != len(axis_columns):
         raise SemanticKindMismatchError(
             message="decompose axes must resolve to distinct columns",
-            details={
+            context={
                 "argument": "axes",
                 "reason": "duplicate_axis_columns",
                 "axis_columns": axis_columns,
@@ -950,7 +950,7 @@ def decompose(
         if missing_component_axes:
             raise ComponentDecompositionError(
                 message="component-aware decompose could not resolve every requested axis",
-                details={
+                context={
                     "delta_ref": frame.ref,
                     "component_ref": component.ref,
                     "axes": axis_ids,
@@ -964,7 +964,7 @@ def decompose(
             if bucket_column is None:
                 raise ComponentDecompositionError(
                     message="component-aware panel decompose requires a bucket column",
-                    details={"delta_ref": frame.ref, "component_ref": component.ref},
+                    context={"delta_ref": frame.ref, "component_ref": component.ref},
                 )
         if validated_mode is None and component.meta.composition_kind == "linear":
             output = _component_linear_output_for_df(

@@ -195,7 +195,7 @@ def bucket_time_expression(
         if window is None:
             raise WindowInvalidError(
                 message="bucket_time_expression requires a window for timestamp bucketing.",
-                details={"data_type": time_meta.data_type},
+                context={"data_type": time_meta.data_type},
             )
         return _local_bucket_expr(
             raw,
@@ -214,7 +214,7 @@ def bucket_time_expression(
         if window is None:
             raise WindowInvalidError(
                 message="bucket_time_expression requires a window for strptime bucketing.",
-                details={"data_type": time_meta.data_type, "format": time_meta.format},
+                context={"data_type": time_meta.data_type, "format": time_meta.format},
             )
         parsed = _parse_string_column(raw, time_meta, profile=profile)
         classification = _classify_strptime_format(time_meta.format)
@@ -245,7 +245,7 @@ def bucket_time_expression(
         return bucket_start_expr(local_parsed, grain)
     raise WindowInvalidError(
         message="bucket_time_expression requires a datetime, timestamp, or strptime time field.",
-        details={"data_type": time_meta.data_type},
+        context={"data_type": time_meta.data_type},
     )
 
 

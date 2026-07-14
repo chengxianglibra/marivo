@@ -111,3 +111,52 @@ def test_frame_transform_namespace_methods_have_docstrings() -> None:
         for name in names:
             method = getattr(cls, name)
             assert inspect.getdoc(method), f"{cls.__name__}.{name} has no docstring"
+
+
+# ---------------------------------------------------------------------------
+# Registry coverage: every delegating method and discover/transform member
+# is registered in the capability registry.
+# ---------------------------------------------------------------------------
+
+
+def test_all_intent_methods_are_in_registry() -> None:
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    for name, method, _intent in _delegating_methods():
+        desc = REGISTRY.by_callable(method)
+        assert desc is not None, f"Session.{name} is not registered in REGISTRY"
+
+
+def test_all_discover_namespace_methods_are_in_registry() -> None:
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    for name in (
+        "point_anomalies",
+        "period_shifts",
+        "driver_axes",
+        "interesting_slices",
+        "interesting_windows",
+        "cross_sectional_outliers",
+    ):
+        method = getattr(SessionDiscoverNamespace, name)
+        desc = REGISTRY.by_callable(method)
+        assert desc is not None, f"SessionDiscoverNamespace.{name} is not registered"
+
+
+def test_all_transform_namespace_methods_are_in_registry() -> None:
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    for cls, names in (
+        (
+            MetricFrameTransforms,
+            ("filter", "slice", "rollup", "topk", "bottomk", "rank", "normalize", "window"),
+        ),
+        (
+            DeltaFrameTransforms,
+            ("filter", "slice", "rollup", "topk", "bottomk", "rank", "window"),
+        ),
+    ):
+        for name in names:
+            method = getattr(cls, name)
+            desc = REGISTRY.by_callable(method)
+            assert desc is not None, f"{cls.__name__}.{name} is not registered"

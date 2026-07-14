@@ -1,0 +1,13 @@
+profile_id = "analysis-surface-gpt54-high-v1"
+provider = "openai"
+model_snapshot = "gpt-5.4-2026-03-05"
+agent_client = "codex-cli"
+agent_client_version = "0.139.0"
+reasoning_effort = "high"
+tool_policy = "sandboxed-local-shell-no-web"
+sampling_seed_supported = false
+cases = ["clean_convergence", "environment_skew"]
+
+[prompt_hashes]
+clean_convergence = "ad95fd48bb26b9dc7a9fa3648b1e102c6f9fa24683623fb64969a417d98c6837"
+environment_skew = "f51178bdf61f137c6a60cfd305e3e1b386b8d8bc9de79c1428c82a4813c49dfd"

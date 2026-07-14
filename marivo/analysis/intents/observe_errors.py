@@ -81,7 +81,7 @@ def raise_observe_planning_error(
 ) -> NoReturn:
     raise ObservePlanningError(
         message=message,
-        details={
+        context={
             "schema_version": "observe-error/v1",
             "code": code,
             "candidates": candidates or {},

@@ -1,6 +1,6 @@
 # Marivo Analysis Live Interface Surface Design
 
-Status: follow-up review revisions integrated; pending written-spec re-review
+Status: approved; implementation planned
 
 Date: 2026-07-13
 

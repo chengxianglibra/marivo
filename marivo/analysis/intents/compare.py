@@ -101,7 +101,7 @@ def _require_metric_frame(label: str, frame: object) -> MetricFrame:
         message=(
             f"compare(current, baseline) expected MetricFrame for `{label}`, got {_display_kind(got_kind)}."
         ),
-        details={
+        context={
             "parameter": label,
             "expected_kind": EXPECTED_METRIC_FRAME_KIND,
             "got_kind": got_kind,
@@ -153,7 +153,7 @@ def _load_component_for_compare(frame: MetricFrame, session: Session, label: str
                 f"compare input '{label}' has decomposition metadata but no "
                 "component_ref; component frame was not persisted by observe"
             ),
-            details={"frame_ref": frame.ref, "label": label},
+            context={"frame_ref": frame.ref, "label": label},
         )
     loaded = load_frame(frame.meta.component_ref, session=session)
     if not isinstance(loaded, ComponentFrame):
@@ -162,7 +162,7 @@ def _load_component_for_compare(frame: MetricFrame, session: Session, label: str
                 f"compare input '{label}' component_ref resolved to "
                 f"{loaded.meta.kind!r}, expected component_frame"
             ),
-            details={
+            context={
                 "frame_ref": frame.ref,
                 "component_ref": frame.meta.component_ref,
                 "loaded_kind": loaded.meta.kind,
@@ -185,7 +185,7 @@ def _require_compatible_components(
                 f"{current_comp.meta.composition_kind!r} vs "
                 f"{baseline_comp.meta.composition_kind!r}"
             ),
-            details={
+            context={
                 "current_kind": current_comp.meta.composition_kind,
                 "baseline_kind": baseline_comp.meta.composition_kind,
             },
@@ -193,7 +193,7 @@ def _require_compatible_components(
     if current_comp.meta.components != baseline_comp.meta.components:
         raise ComponentFrameMismatchError(
             message="compare inputs have incompatible component maps",
-            details={
+            context={
                 "current_components": current_comp.meta.components,
                 "baseline_components": baseline_comp.meta.components,
             },
@@ -201,7 +201,7 @@ def _require_compatible_components(
     if current_comp.meta.semantic_kind != baseline_comp.meta.semantic_kind:
         raise ComponentFrameMismatchError(
             message="compare inputs have incompatible component semantic kinds",
-            details={
+            context={
                 "current_semantic_kind": current_comp.meta.semantic_kind,
                 "baseline_semantic_kind": baseline_comp.meta.semantic_kind,
             },
@@ -209,7 +209,7 @@ def _require_compatible_components(
     if current_comp.meta.axes != baseline_comp.meta.axes:
         raise ComponentFrameMismatchError(
             message="compare inputs have incompatible component axes",
-            details={
+            context={
                 "current_axes": current_comp.meta.axes,
                 "baseline_axes": baseline_comp.meta.axes,
             },
@@ -217,7 +217,7 @@ def _require_compatible_components(
     if current_comp.meta.semantic_model != baseline_comp.meta.semantic_model:
         raise ComponentFrameMismatchError(
             message="compare inputs have incompatible component semantic models",
-            details={
+            context={
                 "current_semantic_model": current_comp.meta.semantic_model,
                 "baseline_semantic_model": baseline_comp.meta.semantic_model,
             },
@@ -340,7 +340,7 @@ def _align_component_role(
         if not isinstance(calendar_ref, CalendarRef):
             raise CalendarPolicyError(
                 message="calendar-backed alignment requires CalendarRef",
-                details={
+                context={
                     "kind": "CalendarRefMissing",
                     "alignment": alignment.model_dump(mode="json"),
                 },
@@ -453,7 +453,7 @@ def _align_component_frames(
         if role_keys != key_columns:
             raise ComponentFrameMismatchError(
                 message="component role alignment produced incompatible key columns",
-                details={
+                context={
                     "role_column": col,
                     "expected_key_columns": key_columns,
                     "got_key_columns": role_keys,
@@ -471,7 +471,7 @@ def _align_component_frames(
     if result is None:
         raise ComponentFrameMismatchError(
             message="component frame has no role columns to align",
-            details={"component_ref": current_comp.ref},
+            context={"component_ref": current_comp.ref},
         )
     return result
 
@@ -525,7 +525,7 @@ def compare(
     if not isinstance(alignment, AlignmentPolicy):
         raise SemanticKindMismatchError(
             message="compare requires alignment=AlignmentPolicy(...)",
-            details={
+            context={
                 "expected_kind": "AlignmentPolicy",
                 "got_kind": type(alignment).__name__,
             },
@@ -586,7 +586,7 @@ def compare(
             ):
                 raise AlignmentFailedError(
                     message="scalar compare requires exactly one row per frame",
-                    details={
+                    context={
                         "kind": "ScalarCompareRequiresSingleRow",
                         "current_rows": len(current_df),
                         "baseline_rows": len(baseline_df),
@@ -598,7 +598,7 @@ def compare(
         if not isinstance(calendar_ref, CalendarRef):
             raise CalendarPolicyError(
                 message="calendar-backed alignment requires CalendarRef",
-                details={
+                context={
                     "kind": "CalendarRefMissing",
                     "alignment": alignment.model_dump(mode="json"),
                 },
@@ -617,7 +617,7 @@ def compare(
         if baseline_time_column != time_column:
             raise AlignmentFailedError(
                 message="calendar-backed compare alignment requires matching time axis columns",
-                details={
+                context={
                     "kind": "CalendarAlignTimeAxisMismatch",
                     "source_time_column": time_column,
                     "baseline_time_column": baseline_time_column,
@@ -819,7 +819,7 @@ def _time_axis_column(frame: MetricFrame) -> str:
             return column
     raise AlignmentFailedError(
         message="time axis column is required for calendar-backed alignment",
-        details={"kind": "NoTimeAxis"},
+        context={"kind": "NoTimeAxis"},
     )
 
 
@@ -833,7 +833,7 @@ def _require_matching_time_series_bucket_grain(a: MetricFrame, b: MetricFrame) -
     if a_time_column != b_time_column:
         raise AlignmentFailedError(
             message="window_bucket time_series alignment requires matching time axis columns",
-            details={
+            context={
                 "kind": "WindowBucketTimeAxisMismatch",
                 "current_time_column": a_time_column,
                 "baseline_time_column": b_time_column,
@@ -843,7 +843,7 @@ def _require_matching_time_series_bucket_grain(a: MetricFrame, b: MetricFrame) -
     if a_grain != b_grain:
         raise AlignmentFailedError(
             message="window_bucket ordinal alignment requires same-grain time_series windows",
-            details={
+            context={
                 "kind": "WindowBucketGrainMismatch",
                 "current_grain": a_grain,
                 "baseline_grain": b_grain,
@@ -930,7 +930,7 @@ def _align_ordinal_window_bucket(
                 f"current window has {len(current_buckets)} buckets, baseline window has "
                 f"{len(baseline_buckets)} buckets"
             ),
-            details={
+            context={
                 "kind": "WindowBucketExpectedCountMismatch",
                 "current_expected_buckets": len(current_buckets),
                 "baseline_expected_buckets": len(baseline_buckets),
@@ -1008,7 +1008,7 @@ def _align_prepared_window_bucket(
     if grain != _panel_grain(baseline_frame) or not isinstance(grain, str):
         raise AlignmentFailedError(
             message="window_bucket ordinal alignment requires same-grain windows",
-            details={
+            context={
                 "kind": "WindowBucketGrainMismatch",
                 "current_grain": grain,
                 "baseline_grain": _panel_grain(baseline_frame),
@@ -1080,11 +1080,11 @@ def _value_column(frame: MetricFrame, df: pd.DataFrame, *, time_column: str) -> 
     if not non_time_columns:
         raise AlignmentFailedError(
             message="calendar-backed compare alignment requires at least one value column",
-            details={"kind": "CalendarAlignValueColumnMissing", "time_column": time_column},
+            context={"kind": "CalendarAlignValueColumnMissing", "time_column": time_column},
         )
     raise AlignmentFailedError(
         message="calendar-backed compare alignment requires exactly one value column",
-        details={
+        context={
             "kind": "CalendarAlignValueColumnAmbiguous",
             "time_column": time_column,
             "value_candidates": non_time_columns,
@@ -1098,7 +1098,7 @@ def _value_column_segmented(frame: MetricFrame, df: pd.DataFrame, *, dim_columns
     if missing_dimensions:
         raise AlignmentFailedError(
             message="segmented compare alignment frame is missing dimension columns",
-            details={
+            context={
                 "kind": "SegmentDimensionColumnMissing",
                 "missing_columns": missing_dimensions,
                 "available_columns": [str(column) for column in df.columns],
@@ -1121,11 +1121,11 @@ def _value_column_segmented(frame: MetricFrame, df: pd.DataFrame, *, dim_columns
     if not non_dimension_columns:
         raise AlignmentFailedError(
             message="segmented compare alignment requires at least one value column",
-            details={"kind": "SegmentValueColumnMissing", "dimension_columns": dim_columns},
+            context={"kind": "SegmentValueColumnMissing", "dimension_columns": dim_columns},
         )
     raise AlignmentFailedError(
         message="segmented compare alignment requires exactly one value column",
-        details={
+        context={
             "kind": "SegmentValueColumnAmbiguous",
             "dimension_columns": dim_columns,
             "value_candidates": non_dimension_columns,
@@ -1140,7 +1140,7 @@ def _align_segmented(a: MetricFrame, b: MetricFrame) -> tuple[pd.DataFrame, dict
     if dim_columns != b_dim_columns:
         raise SegmentDimensionMismatchError(
             message="compare requires matching segment dimension columns",
-            details={
+            context={
                 "kind": "SegmentDimensionMismatch",
                 "current_dimensions": dim_columns,
                 "baseline_dimensions": b_dim_columns,
@@ -1149,7 +1149,7 @@ def _align_segmented(a: MetricFrame, b: MetricFrame) -> tuple[pd.DataFrame, dict
     if not dim_columns:
         raise AlignmentFailedError(
             message="segmented compare requires at least one dimension axis",
-            details={"kind": "SegmentDimensionMissing"},
+            context={"kind": "SegmentDimensionMissing"},
         )
     a_df = a.to_pandas()
     b_df = b.to_pandas()
@@ -1198,14 +1198,14 @@ def _align_panel(
     if not dim_columns:
         raise AlignmentFailedError(
             message="panel compare requires at least one dimension axis",
-            details={"kind": "PanelDimensionMissing"},
+            context={"kind": "PanelDimensionMissing"},
         )
     time_column = _time_column_for_frame(a)
     b_time_column = _time_column_for_frame(b)
     if b_time_column != time_column:
         raise AlignmentFailedError(
             message="panel compare requires matching time axis columns",
-            details={
+            context={
                 "kind": "PanelTimeAxisMismatch",
                 "source_time_column": time_column,
                 "baseline_time_column": b_time_column,
@@ -1464,13 +1464,13 @@ def _calendar_context(
     if alignment.kind == "window_bucket":
         raise AlignmentPolicyNotApplicableError(
             message="window_bucket alignment does not require calendar context",
-            details={"kind": "AlignmentPolicyNotApplicable", "alignment_kind": alignment.kind},
+            context={"kind": "AlignmentPolicyNotApplicable", "alignment_kind": alignment.kind},
         )
     calendar_ref = alignment.calendar
     if not isinstance(calendar_ref, CalendarRef):
         raise CalendarPolicyError(
             message="calendar-backed alignment requires CalendarRef",
-            details={
+            context={
                 "kind": "CalendarRefMissing",
                 "alignment": alignment.model_dump(mode="json"),
             },
@@ -1504,7 +1504,7 @@ def _require_calendar_columns(
         message=(
             f"calendar-backed compare alignment frame '{frame_label}' is missing required columns"
         ),
-        details={
+        context={
             "kind": "CalendarAlignColumnMissing",
             "frame": frame_label,
             "missing_columns": missing_columns,
@@ -1524,7 +1524,7 @@ def _align_time_series_window_bucket(
     if b_time_column != time_column:
         raise AlignmentFailedError(
             message="window_bucket time_series alignment requires matching time axis columns",
-            details={
+            context={
                 "kind": "WindowBucketTimeAxisMismatch",
                 "current_time_column": time_column,
                 "baseline_time_column": b_time_column,
@@ -1591,7 +1591,7 @@ def _ordinal_bucket_align(a_df: pd.DataFrame, b_df: pd.DataFrame, *, key: str) -
                 current_rows=len(a_df),
                 baseline_rows=len(b_df),
             ),
-            details={
+            context={
                 "kind": "WindowBucketNoComparableBuckets",
                 "current_rows": len(a_df),
                 "baseline_rows": len(b_df),
@@ -1600,14 +1600,14 @@ def _ordinal_bucket_align(a_df: pd.DataFrame, b_df: pd.DataFrame, *, key: str) -
     if a_df[key].duplicated().any() or b_df[key].duplicated().any():
         raise AlignmentFailedError(
             message="window_bucket ordinal alignment requires unique bucket_start values",
-            details={"kind": "WindowBucketDuplicateBuckets"},
+            context={"kind": "WindowBucketDuplicateBuckets"},
         )
     value_cols_a = [column for column in a_df.columns if column != key]
     value_cols_b = [column for column in b_df.columns if column != key]
     if len(value_cols_a) != 1 or len(value_cols_b) != 1:
         raise AlignmentFailedError(
             message="window_bucket ordinal alignment requires exactly one value column per frame",
-            details={
+            context={
                 "kind": "WindowBucketValueColumnAmbiguous",
                 "current_value_columns": [str(column) for column in value_cols_a],
                 "baseline_value_columns": [str(column) for column in value_cols_b],

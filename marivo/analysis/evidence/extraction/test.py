@@ -50,7 +50,7 @@ def extract_test_result_findings(
     if df.empty:
         raise FindingExtractionFailedError(
             message="hypothesis_test extraction requires at least one row",
-            details={"artifact_id": artifact_id},
+            context={"artifact_id": artifact_id},
         )
 
     row = df.iloc[0]

@@ -23,6 +23,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.analysis._capabilities.model import SURFACE_LIMITS
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.datasource.authoring import DuckDBSpec
@@ -109,6 +110,14 @@ def test_richness_is_silent(semantic_project_factory, capsys) -> None:
 # ---------------------------------------------------------------------------
 # Help APIs return None
 # ---------------------------------------------------------------------------
+
+
+def test_mv_help_returns_none() -> None:
+    assert mv.help() is None
+
+
+def test_mv_help_with_target_returns_none() -> None:
+    assert mv.help("observe") is None
 
 
 # ---------------------------------------------------------------------------
@@ -271,16 +280,9 @@ def test_readiness_render_contains_available(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 # Help output stays within line budget
 # ---------------------------------------------------------------------------
-# The original spec budget was 80 lines, but the top-level listing for
-# marivo.analysis is currently ~138 lines because it covers all public
-# symbols, constraints, and frame types. Raising to 150 preserves the
-# drift-test intent (catch unbounded growth) without failing on the
-# current well-scoped output.
 
 
 def test_analysis_help_teaches_two_artifact_exits() -> None:
-    import marivo.analysis as mv
-
     rendered = mv.help_text("MetricFrame")
     assert ".show()" in rendered
     assert ".contract()" in rendered
@@ -289,37 +291,18 @@ def test_analysis_help_teaches_two_artifact_exits() -> None:
     assert ".schema()" not in rendered
     assert ".preview(" not in rendered
     assert ".next_intents()" not in rendered
-    assert "contract().affordances" not in rendered
 
 
 def test_mv_help_top_level_within_budget(capsys) -> None:
     mv.help()
     captured = capsys.readouterr()
-    # Budget: 150 lines. Current output is ~138 lines.
-    assert len(captured.out.splitlines()) <= 150
+    assert len(captured.out.splitlines()) <= SURFACE_LIMITS.root_help_max_lines
 
 
 def test_mv_help_topic_within_budget(capsys) -> None:
     mv.help("observe")
     captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= 80
-
-
-def test_mv_help_workflow_topic_within_budget(capsys) -> None:
-    mv.help("workflow")
-    captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= 80
-
-
-def test_mv_help_workflow_reads_context_before_observe(capsys) -> None:
-    mv.help("workflow")
-    output = capsys.readouterr().out
-
-    assert "revenue.details().show()" in output
-    assert "region.details().show()" in output
-    assert "session.catalog.readiness(refs=[revenue.ref, region.ref]).show()" in output
-    assert output.index("revenue.details().show()") < output.index("frame = session.observe(")
-    assert output.index("session.catalog.readiness(") < output.index("frame = session.observe(")
+    assert len(captured.out.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
 
 
 def test_ms_help_topic_within_budget(capsys) -> None:

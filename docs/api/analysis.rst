@@ -31,9 +31,8 @@ Alignment & window helpers
 Help and agent surface
 ----------------------
 
-Start with ``mv.help("workflow")`` to see the default operator surface, base
-artifact protocol, bounded read order, governed derive boundary, and mechanical
-affordance language.
+Start with ``python -m marivo help analysis`` to see the capability surface,
+artifact families, constraints, and recovery guidance.
 
 .. autosummary::
    :toctree: api/

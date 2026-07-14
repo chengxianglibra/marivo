@@ -45,7 +45,7 @@ def _resolve_slice_field(dataset_ir: Any, field_name: str, table: ibis.Table) ->
             f"slice key '{field_name}' is neither a declared field on dataset "
             f"'{dataset_ir.name}' nor a physical column"
         ),
-        details={
+        context={
             "dataset": dataset_ir.name,
             "declared_fields": sorted(dataset_ir.fields),
             "physical_columns": sorted(table.columns),
@@ -62,7 +62,7 @@ def _normalize_slice_predicate(raw: Any) -> tuple[str, Any]:
         if "op" not in raw or "value" not in raw:
             raise SliceInvalidError(
                 message="structured slice predicate must include 'op' and 'value'",
-                details={"predicate": dict(raw)},
+                context={"predicate": dict(raw)},
             )
         op = raw["op"]
         value = raw["value"]
@@ -70,7 +70,7 @@ def _normalize_slice_predicate(raw: Any) -> tuple[str, Any]:
             _supported = sorted(_SUPPORTED_SLICE_OPS)
             raise SliceInvalidError(
                 message=f"unsupported slice predicate op {op!r}; supported ops: {_supported}",
-                details={"supported_ops": _supported},
+                context={"supported_ops": _supported},
             )
         _validate_slice_value_shape(op, value)
         return str(op), value
@@ -86,7 +86,7 @@ def _validate_slice_value_shape(op: str, value: Any) -> None:
         if isinstance(value, (Mapping, list, tuple, set)):
             raise SliceInvalidError(
                 message=f"slice op {op!r} requires a scalar value",
-                details={"op": op, "value_type": type(value).__name__},
+                context={"op": op, "value_type": type(value).__name__},
             )
         return
     if op == "in":
@@ -131,7 +131,7 @@ def _ensure_json_safe(value: Any) -> None:
     except (TypeError, ValueError) as exc:
         raise SliceInvalidError(
             message="slice predicate value must be JSON serializable",
-            details={"error": str(exc)},
+            context={"error": str(exc)},
         ) from exc
 
 
@@ -272,7 +272,7 @@ def execute(
             )
         raise BackendError(
             message=str(exc),
-            details=_debug_details(expr, datasource_name),
+            context=_debug_details(expr, datasource_name),
         ) from exc
     finally:
         if compile_fn is not None:

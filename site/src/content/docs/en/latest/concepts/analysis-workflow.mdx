@@ -62,15 +62,19 @@ import marivo.semantic as ms
 
 :::note[Agent discovery]
 From the command line, start with `marivo --help` for the CLI entry point.
-For the full analysis workflow contract, run:
+For the full analysis capability index and fingerprint, run:
 
 ```bash
-python -c "import marivo.analysis as mv; mv.help('workflow')"
+python -m marivo help analysis
 ```
 
-Use the Python interpreter where `marivo` is installed.
-Then drill into specific topics such as `mv.help("observe")`,
-`mv.help("catalog")`, or `mv.help("artifacts")` before authoring a call.
+Use the Python interpreter where `marivo` is installed. The rendered version,
+Python executable, and package path form the environment fingerprint — a bare
+`marivo` resolved from `PATH` is not authoritative unless its fingerprint
+matches the analysis interpreter. Then drill into specific capabilities with
+`mv.help("observe")`, `mv.help("compare")`, or `mv.help("MetricFrame")` before
+authoring a call. Each focused help topic is self-contained for one correct
+minimal invocation.
 :::
 
 Analysis starts only after the authoring route has completed:
@@ -317,7 +321,7 @@ candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 ```
 
-## Advanced reference — `frame.transform.*`
+## Transform reference — `frame.transform.*`
 
 Transforms reshape a frame while preserving its family (`MetricFrame` →
 `MetricFrame`, `DeltaFrame` → `DeltaFrame`). Each transform is a method on the
@@ -439,9 +443,41 @@ for the immediate step. Use `session.knowledge()` when reviewing or synthesizing
 multiple steps, and use `session.evidence` for full typed records and audit
 traces.
 
-Use `artifact.contract().affordances` to inspect mechanical compatibility. It
-only describes which public operators can mechanically consume the artifact and
-which inputs are missing; it does not rank, recommend, or decide the next step.
+Use `artifact.contract().affordances` to inspect mechanical compatibility. Each
+affordance carries a `capability_id` (stable registry id), `public_entrypoint`,
+`help_target`, `required_inputs`, `preconditions`, and `expected_output_family`.
+It only describes which public operators can mechanically consume the artifact
+and which inputs are missing; it does not rank, recommend, or decide the next
+step. `artifact.contract().boundary_ports` lists typed terminal-exit ports
+(e.g. `boundary.to_pandas`) with `preserves` and `does_not_preserve` guarantees.
+
+### Structured errors
+
+When an operator fails, it raises a typed `AnalysisError` subclass. Every error
+carries stable typed fields — `expected`, `received`, `location`, and `repair` —
+not a generic details bag. The `repair` field is a typed `AnalysisRepair` object
+with `kind` (`retry`, `inspect`, `semantic_handoff`, `environment`), `action`,
+`help_target`, optional `snippet`, and optional `candidates` drawn from live
+state. Follow the repair guidance; it points to the exact `mv.help(...)` target
+for the failing capability.
+
+### Typed boundary exit and re-entry
+
+Marivo maintains a typed analysis chain. The only terminal exit is
+`frame.to_pandas()`, which returns a defensive copy for custom local analysis —
+it does not preserve lineage or evidence continuity. The only governed re-entry
+is `session.derive_metric_frame(...)`, which validates a custom Ibis query
+against a semantic metric and produces a canonical `MetricFrame` with full
+lineage. A pandas result is scratch; to re-enter the typed chain it must go back
+through `derive_metric_frame` validation, never a silent promotion.
+
+### Semantic handoff
+
+Analysis consumes stable semantic refs and never guesses business meaning. If a
+required metric, dimension, or time dimension is missing or disputed, the
+analysis stops and hands off to `marivo-semantic` rather than silently changing
+the definition during analysis. The semantic layer owns the business-object
+contract; the analysis layer owns typed computation over those objects.
 
 When a later script needs previous work, recover persisted facts instead of
 rerunning upstream queries:

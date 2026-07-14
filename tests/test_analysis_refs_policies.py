@@ -264,7 +264,7 @@ def test_promotion_semantic_anchors_reject_arbitrary_objects():
 def test_promotion_failed_error_uses_metric_snippet_when_metric_field_is_later():
     error = PromotionFailedError(
         message="missing promotion metadata",
-        details={"target_kind": "metric_frame", "missing": ["subject", "metric"]},
+        context={"target_kind": "metric_frame", "missing": ["subject", "metric"]},
     )
 
     assert "promote_metric_frame(" in str(error)

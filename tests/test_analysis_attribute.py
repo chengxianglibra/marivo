@@ -182,7 +182,7 @@ def test_attribute_rejects_duplicate_axes() -> None:
             ],
         )
 
-    assert exc_info.value.details["reason"] == "duplicate_axes"
+    assert exc_info.value._context["reason"] == "duplicate_axes"
 
 
 def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_factory) -> None:
@@ -257,9 +257,9 @@ def test_attribute_missing_axis_without_replayable_sources_fails_closed() -> Non
     with pytest.raises(AttributionMaterializationError) as exc_info:
         session.attribute(frame, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)])
 
-    assert exc_info.value.details["delta_ref"] == "frame_delta"
-    assert exc_info.value.details["missing_axes"] == ["sales.orders.region"]
-    assert exc_info.value.details["recoverability_status"] in {
+    assert exc_info.value._context["delta_ref"] == "frame_delta"
+    assert exc_info.value._context["missing_axes"] == ["sales.orders.region"]
+    assert exc_info.value._context["recoverability_status"] in {
         "source_frame_missing",
         "observe_params_missing",
     }

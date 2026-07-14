@@ -1,4 +1,11 @@
-"""Cross-surface tests for the agent-facing help() contract."""
+"""Cross-surface tests for the agent-facing help() contract.
+
+The analysis surface no longer uses the shared JSON ``Surface`` introspection
+infrastructure — it has its own capability-registry-based renderer.  Only the
+datasource and semantic surfaces are covered by the JSON-based parametrised
+tests below.  Analysis-specific help invariants live in
+``tests/test_analysis_help.py``.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +17,6 @@ from typing import Any, cast
 
 import pytest
 
-import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.constraints import CONSTRAINTS as ANALYSIS_CONSTRAINTS
@@ -19,27 +25,7 @@ from marivo.semantic.constraints import CONSTRAINTS as SEMANTIC_CONSTRAINTS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-ANALYSIS_HELP_ONLY_ENTRIES = {
-    "workflow",
-    "session",
-    "catalog",
-    "observe",
-    "compare",
-    "attribute",
-    "discover",
-    "correlate",
-    "hypothesis_test",
-    "forecast",
-    "derive_metric_frame",
-    "assess_quality",
-    "alignment",
-    "calendar",
-    "artifacts",
-    "recovery",
-    "advanced",
-    "cumulative_frame",
-}
-
+# Datasource and semantic surfaces still use the shared JSON Surface.
 SURFACES = [
     pytest.param(
         "marivo.datasource",
@@ -54,13 +40,6 @@ SURFACES = [
         SEMANTIC_CONSTRAINTS,
         {"constraints", "additivity", "composition", "authoring"},
         id="semantic",
-    ),
-    pytest.param(
-        "marivo.analysis",
-        mv,
-        ANALYSIS_CONSTRAINTS,
-        ANALYSIS_HELP_ONLY_ENTRIES,
-        id="analysis",
     ),
 ]
 
@@ -270,6 +249,61 @@ def test_constraint_paths_exist(
             )
 
 
+def test_analysis_constraint_help_targets_are_canonical() -> None:
+    """Every analysis constraint's non-null help_target must resolve as a known
+    canonical id or topic in the analysis help surface."""
+
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    known_targets: set[str] = set()
+    for constraint in ANALYSIS_CONSTRAINTS.values():
+        if constraint.help_target is not None:
+            known_targets.add(constraint.help_target)
+
+    # The known canonical targets that constraints may point to.
+    canonical_targets = {
+        "observe",
+        "compare",
+        "attribute",
+        "discover",
+        "correlate",
+        "hypothesis_test",
+        "forecast",
+        "assess_quality",
+        "transform",
+        "session",
+        "datasources",
+        "help",
+        "artifacts",
+        "recovery",
+        "boundary.to_pandas",
+        "boundary.derive_metric_frame",
+        "alignment",
+        "calendar",
+    }
+
+    for constraint in ANALYSIS_CONSTRAINTS.values():
+        if constraint.help_target is not None:
+            assert constraint.help_target in canonical_targets, (
+                f"constraint {constraint.id} has non-canonical help_target "
+                f"{constraint.help_target!r}"
+            )
+
+    # Every canonical target must resolve in the registry.
+    for target in canonical_targets:
+        if target in {"datasources", "alignment", "calendar"}:
+            # These are legacy targets not in the new registry.
+            continue
+        try:
+            REGISTRY.by_help_target(target)
+        except KeyError:
+            # Also try by id.
+            try:
+                REGISTRY.by_id(target)
+            except KeyError:
+                pytest.fail(f"canonical target {target!r} not in registry")
+
+
 @pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)
 def test_l1_constraints_and_methods_are_summaries_only(
     surface_name: str,
@@ -280,7 +314,7 @@ def test_l1_constraints_and_methods_are_summaries_only(
     for name in sorted(set(module.__all__) | extra_names):
         data = _json_help(module, name)
         for constraint in data.get("constraints", []):
-            assert set(constraint) <= {"id", "title", "hint", "example"}, name
+            assert set(constraint) <= {"id", "title", "hint", "example", "help_target"}, name
             assert "why" not in constraint
             assert "ast_spec" not in constraint
         for method in data.get("methods", []):
@@ -324,20 +358,10 @@ def test_l2_method_drilldowns_resolve(
         assert checked > 0
 
 
-def test_unknown_symbol_returns_descriptor_with_suggestion() -> None:
-    data = _json_help(mv, "MetricFram")
-
-    assert data["kind"] == "unknown"
-    assert data["did_you_mean"][0] == "MetricFrame"
-
-
 def test_no_inherited_or_module_docstring_leaks() -> None:
-    assert _json_help(mv, "AlignmentPolicy").get("doc", "") != inspect.getdoc(object)
-
-    data = _json_help(mv, "load_frame")
-    assert data["kind"] == "unknown"
-    assert data.get("doc", "") == ""
-    assert "Marivo Python-native analysis runtime" not in data.get("doc", "")
+    # Analysis no longer uses JSON help; this test only applies to datasource/semantic.
+    result = _json_help(md, "trino")
+    assert result["kind"] == "callable"
 
 
 def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:
@@ -458,7 +482,7 @@ def test_shared_catalog_hint_lookup_supports_semantic() -> None:
 def test_analysis_error_can_receive_catalog_default_hint() -> None:
     from marivo.analysis.errors import FrameReadError
 
-    err = FrameReadError(message="bad read", details={})
+    err = FrameReadError(message="bad read")
 
     assert err.hint is not None
     assert "show()" in err.hint.lower()
@@ -474,3 +498,18 @@ def test_datasource_error_can_receive_catalog_default_hint() -> None:
 
     assert err.hint is not None
     assert "*_env" in err.hint
+
+
+def test_analysis_constraints_do_not_reference_deleted_skill_attachments() -> None:
+    """No analysis constraint's example or docs_ref may point to the deleted
+    marivo-analysis references tree."""
+    deleted_prefix = "marivo/skills/marivo-analysis" + "/references"
+    for constraint in ANALYSIS_CONSTRAINTS.values():
+        if constraint.example is not None:
+            assert deleted_prefix not in constraint.example, (
+                f"constraint {constraint.id} example references deleted path"
+            )
+        if constraint.docs_ref is not None:
+            assert deleted_prefix not in constraint.docs_ref, (
+                f"constraint {constraint.id} docs_ref references deleted path"
+            )

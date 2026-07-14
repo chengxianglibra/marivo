@@ -186,7 +186,8 @@ def main(argv: list[str] | None = None) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Analysis workflow:\n"
-            "  python -c \"import marivo.analysis as mv; mv.help('workflow')\"\n"
+            "  marivo help analysis\n"
+            "  marivo help analysis <target>\n"
             "  Use the Python interpreter where marivo is installed.\n\n"
             "Semantic authoring workflow:\n"
             "  python -c \"import marivo.datasource as md; md.help('authoring')\"\n"
@@ -222,6 +223,20 @@ def main(argv: list[str] | None = None) -> None:
     )
     doctor_parser.add_argument(
         "--datasource", default=None, help="Limit datasource checks to one name"
+    )
+    help_parser = subparsers.add_parser(
+        "help", help="Show environment-bound help for a Marivo track"
+    )
+    help_parser.add_argument(
+        "track",
+        choices=("analysis",),
+        help="Help track (currently only 'analysis' is supported)",
+    )
+    help_parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Canonical help target string (e.g. 'observe', 'Session')",
     )
 
     args = parser.parse_args(argv)
@@ -267,3 +282,12 @@ def main(argv: list[str] | None = None) -> None:
         code = exit_code(report)
         if code:
             raise SystemExit(code)
+    elif args.command == "help":
+        from marivo.analysis.errors import HelpTargetError
+        from marivo.analysis.help import help_text
+
+        try:
+            print(help_text(args.target))
+        except HelpTargetError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(2) from None

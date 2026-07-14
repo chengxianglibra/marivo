@@ -99,7 +99,7 @@ def _accumulate_path_unreachable(
     we attribute the failure to the first dimension or filter whose dataset matches
     the unreachable target.  If no match is found, re-raise.
     """
-    details = exc.details or {}
+    details = exc._context or {}
     candidates = details.get("candidates", {}) if isinstance(details, dict) else {}
     to_dataset = candidates.get("to_dataset") if isinstance(candidates, dict) else None
     # Try to match to a dimension
@@ -459,7 +459,7 @@ def _plan_derived_observe(
                     allow_unqualified_outside_scope=True,
                 )
         except ObservePlanningError as exc:
-            details = exc.details
+            details = exc._context
             code = details.get("code") if isinstance(details, dict) else None
             if code in ("field-ref-not-found", "field-ref-ambiguous"):
                 _accumulate_unreachable_ref(

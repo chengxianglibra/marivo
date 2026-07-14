@@ -1,8 +1,9 @@
-"""Base frame wrapper and metadata."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
+import importlib
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time
@@ -12,6 +13,7 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 from marivo.analysis.errors import (
+    AnalysisRepair,
     FrameMutationError,
     SemanticKindMismatchError,
 )
@@ -76,7 +78,7 @@ def assert_semantic_shape(*, got: str, expected: str, frame_kind: str) -> None:
     if got != expected:
         raise SemanticKindMismatchError(
             message=f"{frame_kind} semantic_shape is {got!r}, expected {expected!r}",
-            details={
+            context={
                 "got_semantic_shape": got,
                 "expected_semantic_shape": expected,
                 "frame_kind": frame_kind,
@@ -89,7 +91,7 @@ def assert_attribution_shape(*, got: str, expected: str, frame_kind: str) -> Non
     if got != expected:
         raise SemanticKindMismatchError(
             message=f"{frame_kind} attribution_shape is {got!r}, expected {expected!r}",
-            details={
+            context={
                 "got_attribution_shape": got,
                 "expected_attribution_shape": expected,
                 "frame_kind": frame_kind,
@@ -130,6 +132,7 @@ class ArtifactPrecondition(BaseModel):
     check: str
     status: ArtifactPreconditionStatus
     reason: str | None = None
+    repair: AnalysisRepair | None = None
 
 
 class ArtifactParamTemplate(BaseModel):
@@ -146,11 +149,26 @@ class ArtifactAffordance(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    operator: str
+    capability_id: str
+    public_entrypoint: str
+    help_target: str
     required_inputs: list[str] = Field(default_factory=list)
     preconditions: list[ArtifactPrecondition] = Field(default_factory=list)
     param_template: ArtifactParamTemplate = Field(default_factory=ArtifactParamTemplate)
     expected_output_family: str | None = None
+
+
+class ArtifactBoundaryPort(BaseModel):
+    """Terminal exit boundary port derived from the capability registry."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["terminal_exit"]
+    capability_id: Literal["boundary.to_pandas"]
+    public_entrypoint: str
+    help_target: Literal["boundary.to_pandas"]
+    preserves: tuple[str, ...]
+    does_not_preserve: tuple[str, ...]
 
 
 class ArtifactContract(BaseModel):
@@ -164,6 +182,7 @@ class ArtifactContract(BaseModel):
     artifact_schema: ArtifactSchema
     blocking_issues: list[BlockingIssue] = Field(default_factory=list)
     affordances: list[ArtifactAffordance] = Field(default_factory=list)
+    boundary_ports: list[ArtifactBoundaryPort] = Field(default_factory=list)
 
 
 class ArtifactState(BaseModel):
@@ -199,16 +218,42 @@ class BaseFrameMeta(BaseModel):
     content_hash: str | None = None
 
 
-_OUTPUT_FAMILY_BY_OPERATOR: dict[str, str] = {
-    "compare": "delta_frame",
-    "attribute": "attribution_frame",
-    "discover": "candidate_set",
-    "select": "selection",
-    "correlate": "association_result",
-    "assess_quality": "quality_report",
-    "hypothesis_test": "hypothesis_test_result",
-    "forecast": "forecast_frame",
-}
+def _visible_precondition(precondition: ArtifactPrecondition) -> bool:
+    """Return True when a precondition is visible (has actionable content).
+
+    A passing precondition is visible only when it carries a non-empty reason.
+    A failing precondition is visible only when it carries a repair with a
+    non-empty action.
+    """
+    if precondition.status == "pass":
+        return bool(precondition.reason and precondition.reason.strip())
+    return bool(precondition.repair and precondition.repair.action.strip())
+
+
+def _output_family_str(desc: Any) -> str:
+    """Return a string representation of a capability descriptor's output family."""
+    model_module = importlib.import_module("marivo.analysis._capabilities.model")
+    output = desc.output_family
+    if isinstance(output, model_module.SameAsInputFamily):
+        return f"same as {output.parameter}"
+    return str(output)
+
+
+def _build_boundary_ports(registry: Any) -> list[ArtifactBoundaryPort]:
+    """Build the single terminal boundary port from the registry."""
+    model_module = importlib.import_module("marivo.analysis._capabilities.model")
+    desc = registry.by_id("boundary.to_pandas")
+    assert isinstance(desc, model_module.BoundaryCapability)
+    return [
+        ArtifactBoundaryPort(
+            kind="terminal_exit",
+            capability_id="boundary.to_pandas",
+            public_entrypoint=desc.public_entrypoint,
+            help_target="boundary.to_pandas",
+            preserves=desc.preserves,
+            does_not_preserve=desc.does_not_preserve,
+        )
+    ]
 
 
 def _column_role(column_name: str) -> ArtifactColumnRole:
@@ -229,6 +274,8 @@ def _column_role(column_name: str) -> ArtifactColumnRole:
 
 @dataclass(repr=False)
 class BaseFrame(RenderableResult):
+    """Call mv.help(BaseFrame) for its public consumption contract."""
+
     _df: pd.DataFrame
     meta: BaseFrameMeta
 
@@ -292,11 +339,13 @@ class BaseFrame(RenderableResult):
     def contract(self) -> ArtifactContract:
         """Return the mechanical consumption contract for the artifact.
 
-        Affordances are mechanical compatibility entries derived from
-        ``_NEXT_INTENTS``, not recommendations.
+        Affordances are mechanical compatibility entries derived from the
+        capability registry's reverse edges (``constructor_consumers``),
+        not recommendations.
 
         Returns:
-            ArtifactContract listing artifact_schema, blocking issues, and affordances.
+            ArtifactContract listing artifact_schema, blocking issues,
+            affordances, and boundary_ports.
 
         Example:
             >>> frame.contract().artifact_schema.columns
@@ -305,18 +354,38 @@ class BaseFrame(RenderableResult):
         Constraints:
             Does not materialize a data copy.
         """
-        affordances = [
-            ArtifactAffordance(
-                operator=operator,
-                required_inputs=[self.meta.kind],
+        registry_module = importlib.import_module("marivo.analysis._capabilities.registry")
+        model_module = importlib.import_module("marivo.analysis._capabilities.model")
+        registry = registry_module.REGISTRY
+        operator_cls = model_module.OperatorCapability
+
+        family = type(self).__name__
+        consumer_ids = registry.constructor_consumers.get(family, ())
+        affordances: list[ArtifactAffordance] = []
+        for cap_id in consumer_ids:
+            if cap_id == "boundary.to_pandas":
+                continue
+            desc = registry.by_id(cap_id)
+            assert isinstance(desc, operator_cls)
+            required_inputs: list[str] = sorted(
+                {str(fam) for families in desc.accepted_inputs.values() for fam in families}
+            )
+            output_family = _output_family_str(desc)
+            affordance = ArtifactAffordance(
+                capability_id=desc.id,
+                public_entrypoint=desc.public_entrypoint,
+                help_target=desc.help_target,
+                required_inputs=required_inputs,
                 param_template=ArtifactParamTemplate(
                     deterministic_slots={"source_ref": self.meta.ref},
                     judgment_slots=[],
                 ),
-                expected_output_family=_OUTPUT_FAMILY_BY_OPERATOR.get(operator),
+                expected_output_family=output_family,
             )
-            for operator in type(self)._NEXT_INTENTS
-        ]
+            # Suppress affordances with failed preconditions that lack visible repair.
+            visible = all(_visible_precondition(p) for p in affordance.preconditions)
+            if visible:
+                affordances.append(affordance)
         return ArtifactContract(
             kind=self.meta.kind,
             ref=self.meta.ref,
@@ -324,6 +393,7 @@ class BaseFrame(RenderableResult):
             artifact_schema=self._build_schema(),
             blocking_issues=list(self.meta.blocking_issues),
             affordances=affordances,
+            boundary_ports=_build_boundary_ports(registry),
         )
 
     def to_pandas(self) -> pd.DataFrame:
@@ -333,9 +403,6 @@ class BaseFrame(RenderableResult):
     def __getitem__(self, key: Any) -> Any:
         return self._df[key]
 
-    def describe(self) -> pd.DataFrame:
-        return self._df.describe()
-
     @property
     def shape(self) -> tuple[int, int]:
         return self._df.shape
@@ -343,9 +410,6 @@ class BaseFrame(RenderableResult):
     @property
     def columns(self) -> list[str]:
         return list(self._df.columns)
-
-    def plot(self, *args: Any, **kwargs: Any) -> Any:
-        return self._df.plot(*args, **kwargs)
 
     def __len__(self) -> int:
         return len(self._df)

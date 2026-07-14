@@ -167,7 +167,7 @@ def _require_grain_to_date_compat(query_grain_token: str, reset_grain: str) -> N
                 f"{query_grain_token!r}: week buckets straddle {reset_grain} boundaries."
             ),
             hint=("Use day or hour query grain, or grain_to_date(grain='week') for a week reset."),
-            details={"reset_grain": reset_grain, "query_grain": query_grain_token},
+            context={"reset_grain": reset_grain, "query_grain": query_grain_token},
         )
 
 

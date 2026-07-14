@@ -196,7 +196,6 @@ def _top_level_entries(surface):
     [
         "marivo.semantic.help._surface",
         "marivo.datasource.help._surface",
-        "marivo.analysis.help._surface",
     ],
 )
 def test_help_index_has_no_blank_summary(surface_factory: str) -> None:

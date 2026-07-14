@@ -684,7 +684,11 @@ def main(argv: list[str] | None = None) -> int:
             failures.append(md_failure)
         examples_dir = skill_dir / "references" / "examples"
         if not examples_dir.is_dir():
-            failures.append(Failure(examples_dir, "missing examples dir", ""))
+            # The marivo-analysis skill is a single-file boundary kernel with
+            # no packaged examples.  Only the marivo-semantic skill is
+            # required to ship examples.
+            if skill_dir.name != "marivo-analysis":
+                failures.append(Failure(examples_dir, "missing examples dir", ""))
             continue
         examples = _iter_example_files(examples_dir)
         if skill_dir.name == "marivo-semantic":

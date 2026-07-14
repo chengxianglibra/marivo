@@ -51,7 +51,7 @@ def extract_forecast_point_findings(
     if df.empty:
         raise FindingExtractionFailedError(
             message="forecast extraction requires at least one bucket",
-            details={"artifact_id": artifact_id},
+            context={"artifact_id": artifact_id},
         )
 
     findings: list[Finding] = []
@@ -61,7 +61,7 @@ def extract_forecast_point_findings(
         if _is_missing(bucket_start) or _is_missing(bucket_end):
             raise FindingExtractionFailedError(
                 message="forecast bucket boundaries must be defined",
-                details={"artifact_id": artifact_id},
+                context={"artifact_id": artifact_id},
             )
         item_key = _bucket_key(bucket_start, bucket_end)
         lower = _to_float(row.get("lower"))

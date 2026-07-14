@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import QualityShapeUnsupportedError
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._load import load_frame
@@ -277,8 +277,9 @@ def test_non_metric_frame_raises(tmp_path):
             semantic_kind="time_series",
         ),
     )
-    with pytest.raises(QualityShapeUnsupportedError):
+    with pytest.raises(AnalysisError) as exc:
         session.assess_quality(delta)
+    assert exc.value.location == "assess_quality.target"
 
 
 def test_quality_report_render_surfaces_check_results(tmp_path):

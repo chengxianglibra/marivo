@@ -203,7 +203,7 @@ def ensure_grain_supported(grain: Grain, base_granularity: str) -> None:
                     f"base granularity {base!r}"
                 ),
                 hint=f"Use a grain of {base!r} or coarser.",
-                details={"kind": "GrainFinerThanBase", "requested": grain.to_token(), "base": base},
+                context={"kind": "GrainFinerThanBase", "requested": grain.to_token(), "base": base},
             )
         base_w = _UNIT_SECONDS[base]
         if grain.width_seconds() % base_w != 0:
@@ -213,7 +213,7 @@ def ensure_grain_supported(grain: Grain, base_granularity: str) -> None:
                     f"base granularity {base!r}"
                 ),
                 hint=f"Choose a width that is a whole multiple of {base_w} seconds.",
-                details={
+                context={
                     "kind": "GrainNotMultipleOfBase",
                     "requested": grain.to_token(),
                     "base": base,
@@ -226,5 +226,5 @@ def ensure_grain_supported(grain: Grain, base_granularity: str) -> None:
                 f"base granularity {base!r}"
             ),
             hint=f"Use a grain of {base!r} or coarser.",
-            details={"kind": "GrainFinerThanBase", "requested": grain.to_token(), "base": base},
+            context={"kind": "GrainFinerThanBase", "requested": grain.to_token(), "base": base},
         )

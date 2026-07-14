@@ -1,3 +1,5 @@
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -40,11 +42,12 @@ def is_date_only(value: str) -> bool:
 
 
 class AbsoluteWindow(BaseModel):
-    """Half-open time interval [start, end) — start is inclusive, end is exclusive.
+    """Call mv.help(AbsoluteWindow) for its public consumption contract.
 
-    For date-only strings like ``"2026-07-31"``, the exclusive end means data
-    from that date is **not** included.  To include all of July, use
-    ``end="2026-08-01"``.
+    Half-open time interval [start, end) with optional grain and time
+    dimension.  For date-only strings like ``"2026-07-31"``, the exclusive
+    end means data from that date is **not** included.  To include all of
+    July, use ``end="2026-08-01"``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -66,7 +69,10 @@ class AbsoluteWindow(BaseModel):
 
 
 class TimeScope(BaseModel):
-    """Half-open time interval [start, end) — start is inclusive, end is exclusive."""
+    """Call mv.help(TimeScope) for its public consumption contract.
+
+    Half-open time interval [start, end) for observe time_scope.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -92,7 +98,7 @@ def _raise_timescope_model_invalid(
     raise WindowInvalidError(
         message="time_scope form is invalid",
         hint=hint,
-        details={
+        context={
             "kind": "TimeScopeModelInvalid",
             "time_scope": dict(raw),
             "validation_errors": error.errors(),
@@ -118,7 +124,7 @@ def normalize_timescope_input(raw: object) -> TimeScope | None:
             _raise_timescope_model_invalid(raw=raw, error=exc)
     raise WindowInvalidError(
         message=f"unsupported time_scope input type {type(raw).__name__}",
-        details={"kind": "TimeScopeTypeInvalid", "time_scope": repr(raw)},
+        context={"kind": "TimeScopeTypeInvalid", "time_scope": repr(raw)},
     )
 
 
@@ -135,7 +141,7 @@ def normalize_absolute_window_input(raw: object) -> AbsoluteWindow | None:
         except ValidationError as exc:
             raise WindowInvalidError(
                 message="absolute window form is invalid",
-                details={
+                context={
                     "kind": "AbsoluteWindowModelInvalid",
                     "window": dict(raw),
                     "validation_errors": exc.errors(),
@@ -143,7 +149,7 @@ def normalize_absolute_window_input(raw: object) -> AbsoluteWindow | None:
             ) from exc
     raise WindowInvalidError(
         message=f"unsupported absolute window input type {type(raw).__name__}",
-        details={"kind": "AbsoluteWindowTypeInvalid", "window": repr(raw)},
+        context={"kind": "AbsoluteWindowTypeInvalid", "window": repr(raw)},
     )
 
 
@@ -159,7 +165,7 @@ def make_absolute_window(
         raise WindowInvalidError(
             message="time_scope is required when grain or time_dimension is provided",
             hint='Pass time_scope={"start": "2026-07-01", "end": "2026-08-01"}.',
-            details={"kind": "TimeScopeRequired"},
+            context={"kind": "TimeScopeRequired"},
         )
     resolved_grain = normalize_grain(grain)
     return AbsoluteWindow(

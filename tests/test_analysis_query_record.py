@@ -535,7 +535,7 @@ def test_failed_query_logs_and_no_queries_in_record(tmp_path, monkeypatch):
     def _failing_execute(*args, **kwargs):
         raise mv.errors.BackendError(
             message="forced failure for test",
-            details={"datasource": "warehouse"},
+            context={"datasource": "warehouse"},
         )
 
     with (

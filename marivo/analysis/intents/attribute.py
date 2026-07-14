@@ -33,13 +33,13 @@ def _normalize_attribute_axes(session: Session, axes: list[DimensionInput]) -> l
     if not axes:
         raise SemanticKindMismatchError(
             message="attribute requires at least one axis",
-            details={"argument": "axes"},
+            context={"argument": "axes"},
         )
     axis_ids = [_normalize_axis_boundary(session, axis) for axis in axes]
     if len(set(axis_ids)) != len(axis_ids):
         raise SemanticKindMismatchError(
             message="attribute axes must be distinct",
-            details={"argument": "axes", "reason": "duplicate_axes", "axes": axis_ids},
+            context={"argument": "axes", "reason": "duplicate_axes", "axes": axis_ids},
         )
     return axis_ids
 
@@ -66,7 +66,7 @@ def _load_metric_source(
     except Exception as exc:
         raise AttributionMaterializationError(
             message=f"attribute could not load {label} source frame",
-            details={
+            context={
                 "recoverability_status": "source_frame_missing",
                 "delta_ref": delta.ref,
                 "missing_axes": missing_axes,
@@ -79,7 +79,7 @@ def _load_metric_source(
     if not isinstance(frame, MetricFrame):
         raise AttributionMaterializationError(
             message=f"attribute {label} source is not a MetricFrame",
-            details={
+            context={
                 "recoverability_status": "source_frame_not_metric",
                 "delta_ref": delta.ref,
                 "missing_axes": missing_axes,

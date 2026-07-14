@@ -229,7 +229,7 @@ def test_folded_metric_rejects_observe_with_different_time_dimension(
             time_dimension=make_ref("sales.bandwidth_samples.dt", SemanticKind.DIMENSION),
         )
 
-    assert exc_info.value.details["code"] == "status-time-dimension-mismatch"
+    assert exc_info.value._context["code"] == "status-time-dimension-mismatch"
 
 
 def test_sampled_mean_fold_aggregates_space_then_time(sampled_bandwidth_project) -> None:
@@ -285,7 +285,7 @@ def test_sampled_fold_rejects_grain_finer_than_effective_floor(sampled_bandwidth
             dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
         )
 
-    assert exc_info.value.details["code"] == "grain-finer-than-sampled-floor"
+    assert exc_info.value._context["code"] == "grain-finer-than-sampled-floor"
 
 
 @pytest.mark.parametrize(
@@ -441,8 +441,8 @@ def test_rollup_rejects_non_reaggregatable_folded_frame(sampled_bandwidth_projec
             drop_axes=[make_ref("province", SemanticKind.DIMENSION)],
         )
 
-    assert exc_info.value.details["op"] == "rollup"
-    assert exc_info.value.details["reason"] == "non_reaggregatable"
+    assert exc_info.value._context["op"] == "rollup"
+    assert exc_info.value._context["reason"] == "non_reaggregatable"
 
 
 def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_project) -> None:
@@ -465,8 +465,8 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_project) -> N
             delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
         )
 
-    assert exc_info.value.details["reason"] == "non_linear_time_fold"
-    assert exc_info.value.details["recommended_path"] == (
+    assert exc_info.value._context["reason"] == "non_linear_time_fold"
+    assert exc_info.value._context["recommended_path"] == (
         "Use a component-aware derived ratio or weighted-average metric for mix "
         "attribution, or attribute numerator and denominator separately and "
         "synthesize the ratio externally."

@@ -192,8 +192,8 @@ def test_ordinary_metric_frame_components_raise_structured_unavailable_error():
     with pytest.raises(ComponentFrameUnavailableError) as exc_info:
         parent.components()
 
-    assert exc_info.value.details["parent_ref"] == "frame_metric"
-    assert exc_info.value.details["parent_kind"] == "metric_frame"
+    assert exc_info.value._context["parent_ref"] == "frame_metric"
+    assert exc_info.value._context["parent_kind"] == "metric_frame"
 
 
 def test_component_frame_meta_accepts_time_series_semantic_kind():

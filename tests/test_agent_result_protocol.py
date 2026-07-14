@@ -9,9 +9,9 @@ import pytest
 
 import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
+from marivo.analysis._capabilities.resolve import _TYPE_REGISTRY
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-from marivo.analysis.help import _FRAME_SYMBOLS as ANALYSIS_FRAME_SYMBOLS
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
 from marivo.datasource.authoring import ref as datasource_ref
@@ -409,25 +409,27 @@ def _walk_concrete_analysis_frame_classes() -> list[type[BaseFrame]]:
 
 def test_concrete_analysis_frames_are_public_and_descriptive() -> None:
     assert analysis_frames.__all__
+    # Build the set of registered frame type names from the capability kernel.
+    analysis_frame_symbols = set(_TYPE_REGISTRY.values())
     # ExplorationResult is a scratch/promotion frame demoted off the default
     # public surface in Phase 2; it remains an internal frame type.
     demoted_frames = {"ExplorationResult"}
     # ComponentFrame and CoverageFrame are advanced frame types that remain
-    # resolvable via explicit help (kept in _FRAME_SYMBOLS) but are pruned
+    # resolvable via explicit help (kept in the type registry) but are pruned
     # from the default __all__ surface.
     advanced_frames = {"ComponentFrame", "CoverageFrame"}
     for cls in _walk_concrete_analysis_frame_classes():
         assert cls._repr_identity is not BaseFrame._repr_identity, cls.__name__
         if cls.__name__ in demoted_frames:
             assert cls.__name__ not in ma.__all__, cls.__name__
-            assert cls.__name__ not in ANALYSIS_FRAME_SYMBOLS, cls.__name__
+            assert cls.__name__ not in analysis_frame_symbols, cls.__name__
             continue
         if cls.__name__ in advanced_frames:
             assert cls.__name__ not in ma.__all__, cls.__name__
-            assert cls.__name__ in ANALYSIS_FRAME_SYMBOLS, cls.__name__
+            assert cls.__name__ in analysis_frame_symbols, cls.__name__
             continue
         assert cls.__name__ in ma.__all__, cls.__name__
-        assert cls.__name__ in ANALYSIS_FRAME_SYMBOLS, cls.__name__
+        assert cls.__name__ in analysis_frame_symbols, cls.__name__
 
 
 def _metric_frame() -> MetricFrame:
@@ -480,6 +482,9 @@ def test_metric_frame_contract_warns_for_cumulative_values() -> None:
     ]
     assert warnings
     assert "shared monotonic trend" in (warnings[0].reason or "")
+    # Failed preconditions on cumulative all_history must carry a repair.
+    assert warnings[0].repair is not None
+    assert warnings[0].repair.action.strip()
 
 
 def test_public_analysis_frames_expose_two_agent_exits() -> None:

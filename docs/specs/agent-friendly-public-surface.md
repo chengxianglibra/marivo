@@ -223,10 +223,13 @@ This layering is instantiated once per domain:
   issues — never parameter tables or semantic-selection judgments. Discovery
   deliberately dropped names like `candidates` and `judgment_targets` precisely
   because they implied a selection the library must not make.
-- **Analysis**: the `marivo-analysis` skill owns workflow only. `mv.help(...)`
-  owns the static analysis contract. Frames and results own *dynamic* guidance:
+- **Analysis**: environment-verified live surfaces own capabilities and runtime
+  guidance. `mv.help(...)` and the CLI route `python -m marivo help analysis`
+  own the static analysis contract. Frames and results own *dynamic* guidance:
   `show()` describes the current state, `contract()` describes the mechanically
-  valid next actions, and judgment stays with the agent.
+  valid next actions, and structured errors own repair guidance. The
+  `marivo-analysis` skill owns hard boundaries, handoffs, evidence continuity,
+  and closeout obligations. The agent owns planning and judgment.
 
 ## Progressive disclosure: how a core API reveals itself
 
@@ -246,7 +249,7 @@ There are three disclosure ladders, and they compose:
    ```python
    ms.help()                     # compact top-level index, grouped by family
    ms.help("time_dimension_column")  # full authoring contract for one constructor
-   mv.help("workflow")           # the analysis loop, then mv.help("observe") for one operator
+   mv.help()                     # the analysis capability index, then mv.help("observe") for one operator
    ```
 
    `help()` prints bounded text and returns `None`. It has exactly one output
@@ -318,7 +321,7 @@ recommendation to author.
 ### The analysis loop
 
 ```text
-help("workflow") → load catalog → observe → show → contract → compose → closeout
+help() → load catalog → observe → show → contract → compose → closeout
 ```
 
 Analysis deliberately narrows the agent's mental model to **two exits per

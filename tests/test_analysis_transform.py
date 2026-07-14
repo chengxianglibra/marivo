@@ -587,7 +587,7 @@ def test_transform_window_rejects_relative_window(tmp_path):
             window={"expr": "today", "as_of": "2026-07-02T12:00:00"},
         )
 
-    assert excinfo.value.details["kind"] == "TimeScopeModelInvalid"
+    assert excinfo.value._context["kind"] == "TimeScopeModelInvalid"
 
 
 def test_transform_window_rejects_relative_window_with_as_of(monkeypatch):
@@ -625,7 +625,7 @@ def test_transform_window_rejects_relative_window_with_as_of(monkeypatch):
             window={"expr": "last 2 days", "as_of": "2026-07-03T01:00:00+00:00"},
         )
 
-    assert excinfo.value.details["kind"] == "TimeScopeModelInvalid"
+    assert excinfo.value._context["kind"] == "TimeScopeModelInvalid"
 
 
 def test_transform_window_absolute_rejects_tz_field(tmp_path):
@@ -640,7 +640,7 @@ def test_transform_window_absolute_rejects_tz_field(tmp_path):
             window={"start": "2026-07-01", "end": "2026-07-02", "tz": "UTC"},
         )
 
-    assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
+    assert exc_info.value._context["kind"] == "TimeScopeModelInvalid"
 
 
 def test_transform_window_absolute_timezone_clips_tz_aware_axis():
@@ -925,9 +925,9 @@ def test_transform_normalize_pct_change_requires_time_axis(tmp_path):
         _active_transform(frame, op="normalize", mode="pct_change")
 
     err = excinfo.value
-    assert err.details["op"] == "normalize"
-    assert err.details["mode"] == "pct_change"
-    assert err.details["required_axis"] == "time"
+    assert err._context["op"] == "normalize"
+    assert err._context["mode"] == "pct_change"
+    assert err._context["required_axis"] == "time"
 
 
 def test_transform_normalize_pct_change_rejects_zero_denominator():
@@ -960,9 +960,9 @@ def test_transform_normalize_pct_change_rejects_zero_denominator():
         _active_transform(frame, op="normalize", mode="pct_change")
 
     err = excinfo.value
-    assert err.details["op"] == "normalize"
-    assert err.details["mode"] == "pct_change"
-    assert err.details["column"] == "value"
+    assert err._context["op"] == "normalize"
+    assert err._context["mode"] == "pct_change"
+    assert err._context["column"] == "value"
 
 
 def test_transform_normalize_per_unit_requires_base(tmp_path):
@@ -1145,8 +1145,8 @@ def test_transform_rank_rejects_null_by_values():
     assert "rank" in str(err)
     assert "by" in str(err)
     assert "null" in str(err) or "non-finite" in str(err)
-    assert err.details["op"] == "rank"
-    assert err.details["by"] == "value"
+    assert err._context["op"] == "rank"
+    assert err._context["by"] == "value"
 
 
 def test_transform_rank_dense_method_uses_dense_tie_ranks():
@@ -1705,8 +1705,8 @@ def test_rollup_rejects_non_reaggregatable_metric_frame(sampled_bandwidth_for_ro
             drop_axes=[make_ref("province", SemanticKind.DIMENSION)],
         )
 
-    assert exc_info.value.details["op"] == "rollup"
-    assert exc_info.value.details["reason"] == "non_reaggregatable"
+    assert exc_info.value._context["op"] == "rollup"
+    assert exc_info.value._context["reason"] == "non_reaggregatable"
 
 
 # ---------------------------------------------------------------------------
@@ -1875,8 +1875,8 @@ def test_rollup_rejects_non_reaggregatable_without_fold(sampled_bandwidth_for_ro
     )
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
         frame.transform.rollup(grain="day")
-    assert exc_info.value.details["reason"] == "non_reaggregatable"
-    assert exc_info.value.details["op"] == "rollup"
+    assert exc_info.value._context["reason"] == "non_reaggregatable"
+    assert exc_info.value._context["op"] == "rollup"
 
 
 def test_rollup_grain_target_must_be_coarser(cumulative_day_session):
@@ -1887,10 +1887,10 @@ def test_rollup_grain_target_must_be_coarser(cumulative_day_session):
     frame = _observe_cumulative_day(session)
     with pytest.raises(TransformArgError) as exc_info:
         frame.transform.rollup(grain="hour")  # finer than day
-    assert exc_info.value.details["op"] == "rollup"
-    assert exc_info.value.details["argument"] == "grain"
-    assert exc_info.value.details["target_grain"] == "hour"
-    assert exc_info.value.details["current_grain"] == "day"
+    assert exc_info.value._context["op"] == "rollup"
+    assert exc_info.value._context["argument"] == "grain"
+    assert exc_info.value._context["target_grain"] == "hour"
+    assert exc_info.value._context["current_grain"] == "day"
 
 
 def test_rollup_grain_compat_rule(cumulative_day_session):
@@ -1902,10 +1902,10 @@ def test_rollup_grain_compat_rule(cumulative_day_session):
     frame = _observe_cumulative_day(session)
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
         frame.transform.rollup(grain="week")
-    assert exc_info.value.details["op"] == "rollup"
-    assert exc_info.value.details["reason"] == "grain_incompatible"
-    assert exc_info.value.details["target_grain"] == "week"
-    assert exc_info.value.details["reset_grain"] == "month"
+    assert exc_info.value._context["op"] == "rollup"
+    assert exc_info.value._context["reason"] == "grain_incompatible"
+    assert exc_info.value._context["target_grain"] == "week"
+    assert exc_info.value._context["reset_grain"] == "month"
 
 
 def test_rollup_chains_day_month_quarter(cumulative_day_session):

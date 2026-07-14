@@ -53,7 +53,7 @@ def extract_correlation_findings(
     if df.empty:
         raise FindingExtractionFailedError(
             message="correlation extraction requires at least one row",
-            details={"artifact_id": artifact_id},
+            context={"artifact_id": artifact_id},
         )
 
     row = df.iloc[0]
