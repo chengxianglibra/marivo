@@ -37,6 +37,39 @@ def _reset_analysis_session_process_state():
     reset_process_state()
 
 
+@pytest.fixture
+def installer_env(tmp_path):
+    """Shared fixture for the Marivo installer black-box tests.
+
+    Builds a fake ``bin`` directory of shimmed tools (uname, unsupported
+    pythons) and a sanitized environment. Lives in ``conftest`` so the two
+    split installer test modules can use it without importing it (which would
+    collide with the parameter name under ruff F811). The python/uv shims are
+    added per-test by the modules themselves.
+    """
+    import os
+
+    from tests.install_marivo_helpers import _fake_uname, _fake_unsupported_python
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "commands.log"
+    log.touch()
+    _fake_uname(bin_dir)
+    for name in ("python3.14", "python3.13", "python3.12"):
+        _fake_unsupported_python(bin_dir, name)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{bin_dir}:{os.defpath}",
+            "FAKE_LOG": str(log),
+            "FAKE_UNAME": "Linux",
+            "HOME": str(tmp_path / "home"),
+        }
+    )
+    return bin_dir, env
+
+
 @pytest.fixture(scope="session")
 def _sales_orders_template_path():
     """Session-scoped: ensure the DuckDB template is built once per worker."""
