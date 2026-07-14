@@ -40,7 +40,11 @@ from marivo.analysis.frames.component import (
     ComponentFrameMeta,
     resolve_role_columns,
 )
-from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.frames.delta import (
+    DeltaFrame,
+    DeltaFrameMeta,
+    _compatible_metric_semantics,
+)
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._validate import raise_first, require_single_metric, validate_compare
 from marivo.analysis.intents._window_pairs import (
@@ -657,6 +661,10 @@ def compare(
         alignment_dump["segment_info"] = segment_info
     if current.meta.semantic_kind in {"segmented", "panel", "time_series"}:
         alignment_dump["axes"] = current.meta.axes
+    additivity, aggregation, status_time_dimension = _compatible_metric_semantics(
+        current.meta,
+        baseline.meta,
+    )
     # Record to-date alignment when the current frame is grain_to_date cumulative.
     # The ordinal alignment (window_info / coverage) is reused: paired_buckets
     # become matched_buckets, baseline_unpaired_buckets become the tail.
@@ -677,6 +685,9 @@ def compare(
         "source_current_ref": current.ref,
         "source_baseline_ref": baseline.ref,
         "alignment": alignment_dump,
+        "additivity": additivity,
+        "aggregation": aggregation,
+        "status_time_dimension": status_time_dimension,
     }
 
     # Check cache before constructing the frame and committing.
@@ -723,6 +734,9 @@ def compare(
         composition=current.meta.composition if current_component is not None else None,
         fold=getattr(current.meta, "fold", None),
         component_folds=_component_fold_payload(current, session=session),
+        additivity=additivity,
+        aggregation=aggregation,
+        status_time_dimension=status_time_dimension,
         cumulative=cur_cumulative,
     )
     output_frame = DeltaFrame(_df=df, meta=meta)

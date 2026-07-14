@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
+    AttributionAdditivityError,
     CrossSessionFrameError,
     NoBackendFactoryError,
     SemanticKindMismatchError,
@@ -33,7 +34,17 @@ def _now():
     return datetime(2026, 5, 24, 10, 0, 0, tzinfo=UTC)
 
 
-def _delta(session, df, *, semantic_kind="time_series", ref="frame_delta"):
+def _delta(
+    session,
+    df,
+    *,
+    semantic_kind="time_series",
+    ref="frame_delta",
+    additivity="additive",
+    aggregation=None,
+    status_time_dimension=None,
+    fold=None,
+):
     meta = DeltaFrameMeta(
         kind="delta_frame",
         ref=ref,
@@ -59,6 +70,10 @@ def _delta(session, df, *, semantic_kind="time_series", ref="frame_delta"):
         alignment={"kind": "window_bucket"},
         semantic_kind=semantic_kind,
         semantic_model="sales",
+        additivity=additivity,
+        aggregation=aggregation,
+        status_time_dimension=status_time_dimension,
+        fold=fold,
     )
     return DeltaFrame(_df=df, meta=meta)
 
@@ -650,6 +665,97 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_for_decompose
         )
 
     assert exc_info.value._context["reason"] == "non_linear_time_fold"
+
+
+def test_decompose_rejects_delta_missing_additivity_metadata() -> None:
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US"], "delta": [10.0]}),
+        semantic_kind="segmented",
+        additivity=None,
+    )
+
+    with pytest.raises(AttributionAdditivityError) as exc_info:
+        decompose(
+            frame,
+            axis=make_ref("region", SemanticKind.DIMENSION),
+            session=session,
+        )
+
+    assert exc_info.value._context["reason"] == "missing_additivity_metadata"
+    assert exc_info.value.repair.help_target.canonical_id == "attribute"
+
+
+@pytest.mark.parametrize("aggregation", ["count_distinct", None])
+def test_decompose_rejects_non_additive_delta(aggregation) -> None:
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US"], "delta": [10.0]}),
+        semantic_kind="segmented",
+        additivity="non_additive",
+        aggregation=aggregation,
+    )
+
+    with pytest.raises(AttributionAdditivityError) as exc_info:
+        decompose(
+            frame,
+            axis=make_ref("region", SemanticKind.DIMENSION),
+            session=session,
+        )
+
+    assert exc_info.value._context["reason"] == "non_additive_metric"
+    assert exc_info.value._context["aggregation"] == aggregation
+
+
+def test_decompose_allows_semi_additive_delta_over_spatial_axis() -> None:
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US", "CN"], "delta": [10.0, -2.0]}),
+        semantic_kind="segmented",
+        additivity="semi_additive",
+        aggregation="sum",
+        status_time_dimension="sales.orders.status_at",
+        fold={
+            "time_fold": "mean",
+            "status_time_dimension": "sales.orders.status_at",
+        },
+    )
+
+    out = decompose(
+        frame,
+        axis=make_ref("region", SemanticKind.DIMENSION),
+        session=session,
+    )
+
+    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.to_pandas()["contribution"].sum() == pytest.approx(8.0)
+
+
+def test_decompose_rejects_semi_additive_delta_over_status_time_axis() -> None:
+    session = session_attach.get_or_create(name="demo")
+    status_time = "sales.orders.status_at"
+    frame = _delta(
+        session,
+        pd.DataFrame({"status_at": ["2026-01-01"], "delta": [10.0]}),
+        semantic_kind="time_series",
+        additivity="semi_additive",
+        aggregation="sum",
+        status_time_dimension=status_time,
+        fold={"time_fold": "mean", "status_time_dimension": status_time},
+    )
+
+    with pytest.raises(AttributionAdditivityError) as exc_info:
+        decompose(
+            frame,
+            axis=make_ref(status_time, SemanticKind.TIME_DIMENSION),
+            session=session,
+        )
+
+    assert exc_info.value._context["reason"] == "semi_additive_time_axis"
+    assert exc_info.value._context["status_time_dimension"] == status_time
 
 
 def test_decompose_axes_empty_delta_returns_empty_hierarchy():

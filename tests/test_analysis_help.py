@@ -224,6 +224,18 @@ def test_focused_help_includes_invocation_critical_constraints() -> None:
         assert constraint_id in text, f"missing constraint: {constraint_id}"
 
 
+def test_attribute_help_explains_additivity_boundary() -> None:
+    text = _text("attribute")
+
+    assert "attribution_additivity_compatible" in text
+    assert "compatible persisted additivity" in text
+    assert "ratio" in text
+    assert "weighted-average" in text
+    assert "status time axis" in text
+    assert "numerator" in text
+    assert "denominator" in text
+
+
 def test_focused_help_includes_producer_consumer_edges() -> None:
     text = _text("MetricFrame")
     # Type help should show producers (who creates MetricFrame).

@@ -5,6 +5,7 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import SemanticKindMismatchError
+from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
@@ -196,6 +197,9 @@ def test_meta_measures_ordered_and_scalars_none(sales_session):
         "sales.order_count",
     ]
     assert [m["column"] for m in frame.meta.measures] == ["revenue", "order_count"]
+    assert [m["additivity"] for m in frame.meta.measures] == ["additive", "additive"]
+    assert [m["aggregation"] for m in frame.meta.measures] == [None, None]
+    assert [m["status_time_dimension"] for m in frame.meta.measures] == [None, None]
     assert frame.meta.semantic_model == "sales"
 
 
@@ -204,6 +208,29 @@ def test_params_record_metric_list_and_fusion(sales_session):
     params = frame.meta.lineage.steps[0].params
     assert params["metrics"] == ["sales.revenue", "sales.order_count"]
     assert params["fusion"] == [["sales.revenue", "sales.order_count"]]
+    assert params["metric_semantics"] == {
+        "sales.order_count": {
+            "additivity": "additive",
+            "aggregation": None,
+            "status_time_dimension": None,
+        },
+        "sales.revenue": {
+            "additivity": "additive",
+            "aggregation": None,
+            "status_time_dimension": None,
+        },
+    }
+    legacy_params = dict(params)
+    legacy_params.pop("metric_semantics")
+    assert frame.ref != make_artifact_id(
+        step_type="observe",
+        normalized_inputs=[],
+        normalized_params=legacy_params,
+        semantic_anchors={
+            "metrics": ["sales.revenue", "sales.order_count"],
+            "models": ["sales"],
+        },
+    )
 
 
 def test_repeat_call_hits_frame_cache(sales_session):

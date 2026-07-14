@@ -34,6 +34,9 @@ def make_metric_frame(
     semantic_model: str,
     window: object | None = None,
     where: dict[str, Any] | None = None,
+    additivity: Literal["additive", "semi_additive", "non_additive"] | None = "additive",
+    aggregation: str | None = None,
+    status_time_dimension: str | None = None,
     session: Any,
 ) -> Any:
     """Create a persisted MetricFrame for tests without exposing a public constructor."""
@@ -85,6 +88,9 @@ def make_metric_frame(
         where=where or {},
         semantic_kind=semantic_kind,
         semantic_model=semantic_model,
+        additivity=additivity,
+        aggregation=aggregation,
+        status_time_dimension=status_time_dimension,
     )
     frame = MetricFrame(_df=df, meta=meta)
     frame.meta = persist_frame(session, frame)

@@ -19,10 +19,15 @@ from pandas.api.types import is_numeric_dtype, is_object_dtype
 from marivo.analysis.errors import CrossSessionFrameError, PromotionFailedError
 from marivo.analysis.executor.runner import execute
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
-from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
+from marivo.analysis.frames.delta import (
+    DeltaFrame,
+    DeltaFrameMeta,
+    _compatible_metric_semantics,
+)
 from marivo.analysis.frames.exploration import ExplorationResult, ExplorationResultMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._derived import compose_lineage
+from marivo.analysis.intents._observe_persist import _meta_additivity, _meta_aggregation
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy, PromotionPolicy
 from marivo.analysis.refs import ArtifactRef
@@ -204,6 +209,13 @@ def _catalog_metric_ids(catalog: Any) -> set[str]:
         return set(catalog._require_index().semantic_ids(CatalogSemanticKind.METRIC))
     except Exception:
         return set()
+
+
+def _catalog_metric_details(metric_id: str, *, session: Session) -> Any | None:
+    """Return semantic metric details only when the catalog can prove the id."""
+    if metric_id not in _catalog_metric_ids(session.catalog):
+        return None
+    return session.catalog.get(f"metric.{metric_id}").details()
 
 
 def _load_metric_ref(ref: ArtifactRef | None, *, session: Session) -> MetricFrame | None:
@@ -751,6 +763,18 @@ def promote_metric_frame(
         available_columns=available_columns,
         source_refs=source_refs,
     )
+    metric_details = _catalog_metric_details(metric_id, session=resolved_session)
+    metric_additivity = _meta_additivity(
+        getattr(metric_details, "additivity", None) if metric_details is not None else None
+    )
+    metric_aggregation = _meta_aggregation(
+        getattr(metric_details, "aggregation", None) if metric_details is not None else None
+    )
+    metric_status_time_dimension = (
+        getattr(metric_details, "status_time_dimension", None)
+        if metric_details is not None
+        else None
+    )
     _validate_semantic_shape(
         semantic_kind=semantic_kind,
         axes=axes,
@@ -807,6 +831,9 @@ def promote_metric_frame(
         else None,
         "window": dump_window(resolved_window),
         "where": slice_by or {},
+        "additivity": metric_additivity,
+        "aggregation": metric_aggregation,
+        "status_time_dimension": metric_status_time_dimension,
     }
     meta = MetricFrameMeta(
         kind="metric_frame",
@@ -836,6 +863,9 @@ def promote_metric_frame(
         where=slice_by or {},
         semantic_kind=semantic_kind,
         semantic_model=semantic_model,
+        additivity=metric_additivity,
+        aggregation=metric_aggregation,
+        status_time_dimension=metric_status_time_dimension,
     )
     frame = MetricFrame(_df=df, meta=meta)
     frame.meta = cast(
@@ -1013,6 +1043,10 @@ def promote_delta_frame(
     )
     final_alignment = alignment or AlignmentPolicy(kind="window_bucket")
     alignment_dump = _dump_delta_alignment(final_alignment, axes=alignment_axes)
+    additivity, aggregation, status_time_dimension = _compatible_metric_semantics(
+        current_frame.meta if current_frame is not None else None,
+        baseline_frame.meta if baseline_frame is not None else None,
+    )
     promotion_params = {
         "source_current_ref": current_ref.id if current_ref else None,
         "source_baseline_ref": baseline_ref.id if baseline_ref else None,
@@ -1023,6 +1057,9 @@ def promote_delta_frame(
         "current_column": current_column,
         "baseline_column": baseline_column,
         "alignment": alignment_dump,
+        "additivity": additivity,
+        "aggregation": aggregation,
+        "status_time_dimension": status_time_dimension,
     }
     source_lineage_steps = [
         *scratch.lineage.steps,
@@ -1064,6 +1101,9 @@ def promote_delta_frame(
         alignment=alignment_dump,
         semantic_kind=final_kind,
         semantic_model=final_model,
+        additivity=additivity,
+        aggregation=aggregation,
+        status_time_dimension=status_time_dimension,
     )
     frame = DeltaFrame(_df=df, meta=meta)
     frame.meta = cast(

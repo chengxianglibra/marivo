@@ -9,7 +9,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
+    AnalysisRepair,
+    AttributionAdditivityError,
     ComponentDecompositionError,
     CumulativeFrameUnsupportedError,
     SemanticKindMismatchError,
@@ -190,6 +193,136 @@ def _raise_non_linear_fold_error(frame: DeltaFrame, fold_labels: list[str]) -> N
             "recommended_path": _NON_LINEAR_FOLD_RECOMMENDED_PATH,
         },
     )
+
+
+def _status_time_dimension(frame: DeltaFrame) -> str | None:
+    if frame.meta.status_time_dimension is not None:
+        return frame.meta.status_time_dimension
+    fold = frame.meta.fold
+    if isinstance(fold, dict):
+        value = fold.get("status_time_dimension")
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _raise_attribution_additivity_error(
+    frame: DeltaFrame,
+    *,
+    axes: list[str],
+    reason: str,
+    status_time_dimension: str | None = None,
+    component: ComponentFrame | None = None,
+) -> None:
+    if status_time_dimension is None:
+        status_time_dimension = _status_time_dimension(frame)
+    if reason == "missing_additivity_metadata":
+        message = "decompose requires persisted additivity metadata before summing deltas by axis"
+        action = (
+            "Re-run observe and compare with the current semantic model so the DeltaFrame "
+            "carries additivity metadata, then retry attribute."
+        )
+    elif reason == "semi_additive_time_axis":
+        message = "decompose cannot sum a semi-additive metric delta over its status time axis"
+        action = (
+            "Attribute over non-time dimensions only, or model additive components and "
+            "attribute those components separately."
+        )
+    else:
+        message = "decompose cannot sum a non-additive metric delta by axis"
+        action = (
+            "Model the metric as a component-aware ratio or weighted average, or attribute "
+            "its additive numerator and denominator separately."
+        )
+    composition_kind: str | None = (
+        component.meta.composition_kind if component is not None else None
+    )
+    if composition_kind is None and isinstance(frame.meta.composition, dict):
+        persisted_kind = frame.meta.composition.get("kind")
+        if isinstance(persisted_kind, str):
+            composition_kind = persisted_kind
+    raise AttributionAdditivityError(
+        message=message,
+        expected="an additive delta or a component-aware ratio/weighted-average delta",
+        received=(
+            f"additivity={frame.meta.additivity!r}, aggregation={frame.meta.aggregation!r}, "
+            f"composition_kind={composition_kind!r}"
+        ),
+        location="session.attribute",
+        repair=AnalysisRepair(
+            kind="retry",
+            action=action,
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+        ),
+        context={
+            "reason": reason,
+            "delta_ref": frame.ref,
+            "metric": frame.meta.metric_id,
+            "metric_id": frame.meta.metric_id,
+            "additivity": frame.meta.additivity,
+            "aggregation": frame.meta.aggregation,
+            "axes": axes,
+            "status_time_dimension": status_time_dimension,
+            "composition_kind": composition_kind,
+            "supported_component_kinds": ["ratio", "weighted_average"],
+            "recommended_path": action,
+        },
+    )
+
+
+def _validate_attribution_additivity(
+    frame: DeltaFrame,
+    *,
+    axes: list[str],
+    component: ComponentFrame | None,
+) -> None:
+    if _component_allows_non_linear_fold(component):
+        return
+    if frame.meta.additivity == "additive":
+        return
+    if frame.meta.additivity == "semi_additive":
+        status_time_dimension = _status_time_dimension(frame)
+        if status_time_dimension is None:
+            _raise_attribution_additivity_error(
+                frame,
+                axes=axes,
+                reason="missing_additivity_metadata",
+                component=component,
+            )
+        if status_time_dimension not in axes:
+            return
+        _raise_attribution_additivity_error(
+            frame,
+            axes=axes,
+            reason="semi_additive_time_axis",
+            status_time_dimension=status_time_dimension,
+            component=component,
+        )
+    _raise_attribution_additivity_error(
+        frame,
+        axes=axes,
+        reason=(
+            "missing_additivity_metadata"
+            if frame.meta.additivity is None
+            else "non_additive_metric"
+        ),
+        component=component,
+    )
+
+
+def _validate_attribution_semantics(
+    frame: DeltaFrame,
+    *,
+    axes: list[str],
+    session: Session,
+) -> ComponentFrame | None:
+    """Validate persisted attribution semantics before any materialization."""
+    component = _load_delta_component_frame(frame, session=session)
+    non_linear_fold_labels = _non_linear_fold_labels(frame)
+    if non_linear_fold_labels and not _component_allows_non_linear_fold(component):
+        _raise_non_linear_fold_error(frame, non_linear_fold_labels)
+    _validate_attribution_additivity(frame, axes=axes, component=component)
+    return component
 
 
 def _component_role_column_name(component: ComponentFrame, role: str) -> str:
@@ -920,10 +1053,7 @@ def decompose(
             message=f"decompose does not support semantic_kind={frame.meta.semantic_kind!r}",
         )
 
-    component = _load_delta_component_frame(frame, session=session)
-    non_linear_fold_labels = _non_linear_fold_labels(frame)
-    if non_linear_fold_labels and not _component_allows_non_linear_fold(component):
-        _raise_non_linear_fold_error(frame, non_linear_fold_labels)
+    component = _validate_attribution_semantics(frame, axes=axis_ids, session=session)
 
     started_at = datetime.now(UTC)
     started = monotonic()

@@ -198,6 +198,11 @@ report = session.observe(
 revenue_only = report.metric("sales.revenue")
 ```
 
+Observed additivity, aggregation, and status-time semantics participate in the
+artifact identity for single, derived, cumulative, and multi-metric frames.
+After an upgrade, re-running `observe` therefore bypasses legacy cached frames
+that do not carry the current semantic gate.
+
 ### `compare` → `DeltaFrame`
 
 Quantify change between two `observe` results (current minus baseline). The frames
@@ -224,6 +229,11 @@ override — `mv.dow_aligned()`, `mv.holiday_aligned()`, or
 `mv.holiday_and_dow_aligned()`; the calendar-backed kinds also take
 `calendar=mv.CalendarRef(...)`.
 
+The delta carries additivity, aggregation, and status-time semantics only when
+both source frames have the same three values and additivity is known. Missing
+or mismatched source semantics remain unknown, causing attribution to fail
+closed instead of inheriting one side.
+
 ### `attribute` → `AttributionFrame`
 
 Attribute a delta's movement across explicit axes. This is the default public
@@ -232,6 +242,25 @@ Component-aware ratio and weighted-average deltas use mix attribution. Plain
 non-linear sampled folds such as quantile, min, max, first, or last cannot be
 summed by axis unless they are part of a persisted component-aware derived
 metric delta.
+
+The `DeltaFrame` persists the semantic gate used by attribution; Marivo does
+not look up a possibly changed catalog at attribution time. The original delta
+is checked before Marivo replays observations to materialize a requested axis.
+`DeltaFrame.contract()` exposes this boundary as an attribution precondition:
+unknown and ordinary non-additive deltas fail, semi-additive deltas require axes
+that exclude the status time dimension, and persisted ratio/weighted-average
+component paths remain available.
+
+| Persisted metric semantics | Axis attribution |
+| --- | --- |
+| `additive` | Supported by sum and hierarchy attribution. |
+| `semi_additive` | Supported on non-time axes; rejected on its `status_time_dimension`. |
+| Component-aware `ratio` / `weighted_average` | Supported by ratio/weighted mix attribution. |
+| Other `non_additive` metrics | Rejected, including mean, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
+| Missing additivity metadata | Rejected. Re-run `observe` and `compare` before retrying. |
+
+For rejected metrics, model explicit ratio/weighted-average components or
+attribute additive numerator and denominator metrics separately.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
