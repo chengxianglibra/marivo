@@ -64,6 +64,7 @@ def _delta(session, df, *, semantic_kind="segmented"):
         alignment={},
         semantic_kind=semantic_kind,
         semantic_model="sales",
+        additivity="additive",
     )
     return DeltaFrame(_df=df, meta=meta)
 

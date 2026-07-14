@@ -9,6 +9,7 @@ from marivo.analysis.errors import (
     FrameCacheCorruptedError,
     FrameRefNotFound,
 )
+from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
@@ -48,6 +49,20 @@ def _make_session(tmp_path, con):
     return session_attach.get_or_create(name="demo", backends=_backends(con))
 
 
+def _legacy_observe_artifact_id(frame: MetricFrame) -> str:
+    params = dict(frame.lineage.steps[-1].params)
+    params.pop("metric_semantics")
+    return make_artifact_id(
+        step_type="observe",
+        normalized_inputs=[],
+        normalized_params=params,
+        semantic_anchors={
+            "metric_id": frame.meta.metric_id,
+            "model": frame.meta.semantic_model,
+        },
+    )
+
+
 # --- observe idempotent caching ---
 
 
@@ -63,6 +78,12 @@ def test_observe_idempotent_cache_hit(tmp_path):
     second = s.observe(make_ref("sales.revenue", SemanticKind.METRIC))
     assert isinstance(second, MetricFrame)
     assert second.ref == first.ref
+    assert first.lineage.steps[-1].params["metric_semantics"] == {
+        "additivity": "additive",
+        "aggregation": None,
+        "status_time_dimension": None,
+    }
+    assert first.ref != _legacy_observe_artifact_id(first)
 
 
 def test_observe_cache_hit_after_reattach(tmp_path):
@@ -260,6 +281,12 @@ def test_observe_derived_metric_cache_hit(tmp_path):
     second = s.observe(make_ref("sales.failure_rate", SemanticKind.METRIC))
     assert isinstance(second, MetricFrame)
     assert second.ref == first.ref
+    assert first.lineage.steps[-1].params["metric_semantics"] == {
+        "additivity": "non_additive",
+        "aggregation": None,
+        "status_time_dimension": None,
+    }
+    assert first.ref != _legacy_observe_artifact_id(first)
 
 
 def test_observe_derived_metric_cache_hit_components_accessible(tmp_path):

@@ -695,10 +695,15 @@ class Session:
         axis combination, or ``mode="hierarchy"`` for prefix-level drill-down
         rows. Joint rows are additive; hierarchy rows repeat parent totals, so
         only the deepest level is additive.
+        Additive deltas support axis-sum attribution. Semi-additive deltas
+        support non-time axes but reject their persisted status time axis.
         Component-aware ratio and weighted-average deltas use mix attribution.
+        Other non-additive metrics, non-additive linear compositions, and
+        deltas missing persisted additivity metadata fail closed. Re-observe
+        and compare old artifacts before retrying attribution.
         Plain non-linear sampled folds such as percentile, min, max, first, or
-        last cannot be summed by axis and remain unsupported unless they are
-        part of a persisted component-aware derived metric delta.
+        last retain their earlier guard unless they are part of a persisted
+        component-aware ratio or weighted-average delta.
 
         Args:
             frame: A DeltaFrame produced by ``session.compare``.
@@ -712,6 +717,8 @@ class Session:
                 missing, contain duplicates, or use an invalid multi-axis mode.
             AttributionMaterializationError: A requested axis is missing from
                 the DeltaFrame and replay is not recoverable.
+            AttributionAdditivityError: Persisted metric additivity is missing
+                or incompatible with the requested attribution axes.
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:

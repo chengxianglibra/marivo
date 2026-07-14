@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ConfigDict, Field
 
+from marivo.analysis._capabilities.model import LiveHelpTarget
+from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactParamTemplate,
     ArtifactPrecondition,
@@ -19,8 +21,84 @@ from marivo.render import Card
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import ArtifactContract
     from marivo.analysis.frames.component import ComponentFrame
+    from marivo.analysis.frames.metric import MetricFrameMeta
     from marivo.analysis.frames.transforms import DeltaFrameTransforms
     from marivo.analysis.intents._shape import AttributionShape
+
+
+Additivity = Literal["additive", "semi_additive", "non_additive"]
+
+
+def _compatible_metric_semantics(
+    current: MetricFrameMeta | None,
+    baseline: MetricFrameMeta | None,
+) -> tuple[Additivity | None, str | None, str | None]:
+    """Return shared metric semantics, or unknown when either source disagrees."""
+    if current is None or baseline is None or current.additivity is None:
+        return None, None, None
+    current_values = (
+        current.additivity,
+        current.aggregation,
+        current.status_time_dimension,
+    )
+    baseline_values = (
+        baseline.additivity,
+        baseline.aggregation,
+        baseline.status_time_dimension,
+    )
+    if current_values != baseline_values:
+        return None, None, None
+    return current_values
+
+
+def _supports_component_attribution(meta: DeltaFrameMeta) -> bool:
+    if meta.component_ref is None or not isinstance(meta.composition, dict):
+        return False
+    return meta.composition.get("kind") in {"ratio", "weighted_average"}
+
+
+def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondition | None:
+    """Describe the persisted additivity gate without loading sidecars."""
+    if _supports_component_attribution(meta) or meta.additivity == "additive":
+        return None
+    help_target = LiveHelpTarget(surface="analysis", canonical_id="attribute")
+    if meta.additivity == "semi_additive" and meta.status_time_dimension is not None:
+        status_time_dimension = meta.status_time_dimension
+        return ArtifactPrecondition(
+            check="attribution_status_time_axis_excluded",
+            status="fail",
+            reason=(
+                "semi-additive attribution requires axes that exclude status time dimension "
+                f"{status_time_dimension!r}"
+            ),
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Choose attribution axes that exclude "
+                    f"{status_time_dimension!r}, then retry attribute."
+                ),
+                help_target=help_target,
+            ),
+        )
+    if meta.additivity is None or meta.additivity == "semi_additive":
+        reason = "delta lacks complete persisted additivity metadata required by attribute"
+        action = "Re-run observe and compare with the current semantic model, then retry attribute."
+    else:
+        reason = "non-additive metric delta requires component-aware attribution math"
+        action = (
+            "Model the metric as a ratio or weighted average, or attribute its additive "
+            "numerator and denominator separately."
+        )
+    return ArtifactPrecondition(
+        check="attribution_additivity_compatible",
+        status="fail",
+        reason=reason,
+        repair=AnalysisRepair(
+            kind="retry",
+            action=action,
+            help_target=help_target,
+        ),
+    )
 
 
 class DeltaFrameMeta(BaseFrameMeta):
@@ -39,6 +117,9 @@ class DeltaFrameMeta(BaseFrameMeta):
     composition: dict[str, Any] | None = None
     fold: dict[str, Any] | None = None
     component_folds: list[dict[str, Any]] = Field(default_factory=list)
+    additivity: Additivity | None = None
+    aggregation: str | None = None
+    status_time_dimension: str | None = None
     cumulative: dict[str, Any] | None = None
     rollup_fold: Literal["last"] | None = None
 
@@ -117,10 +198,12 @@ class DeltaFrame(BaseFrame):
         return card
 
     def contract(self) -> ArtifactContract:
+        """Return the mechanical contract with persisted attribution gates."""
         contract = super().contract()
         affordances = []
         for affordance in contract.affordances:
             if affordance.capability_id == "attribute":
+                precondition = _attribution_contract_precondition(self.meta)
                 affordance = affordance.model_copy(
                     update={
                         "param_template": ArtifactParamTemplate(
@@ -130,7 +213,12 @@ class DeltaFrame(BaseFrame):
                                 "axes",
                                 "mode when axes has multiple entries: joint|hierarchy",
                             ],
-                        )
+                        ),
+                        "preconditions": (
+                            [*affordance.preconditions, precondition]
+                            if precondition is not None
+                            else affordance.preconditions
+                        ),
                     }
                 )
             affordances.append(affordance)

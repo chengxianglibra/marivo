@@ -9,6 +9,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AlignmentPolicyValidationError,
+    AttributionAdditivityError,
     ComponentFrameUnavailableError,
     SemanticKindMismatchError,
 )
@@ -86,6 +87,68 @@ def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
     )
     d = compare(q3, q2, session=s)
     assert d.to_pandas().iloc[0]["delta"] == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize(
+    ("baseline_additivity", "baseline_aggregation", "baseline_status_time_dimension"),
+    [
+        (None, "sum", None),
+        ("additive", "mean", None),
+        ("additive", "sum", "sales.orders.snapshot_at"),
+    ],
+)
+def test_compare_fails_attribution_closed_when_metric_semantics_differ(
+    tmp_path,
+    baseline_additivity,
+    baseline_aggregation,
+    baseline_status_time_dimension,
+):
+    bootstrap_sales_project(tmp_path)
+    session = session_attach.get_or_create(
+        name="demo", backends={"warehouse": lambda: ibis.duckdb.connect(":memory:")}
+    )
+    axes = {
+        "region": {
+            "role": "dimension",
+            "column": "region",
+            "ref": "sales.orders.region",
+        }
+    }
+    current = make_metric_frame(
+        pd.DataFrame({"region": ["NORTH"], "value": [30.0]}),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        additivity="additive",
+        aggregation="sum",
+        session=session,
+    )
+    baseline = make_metric_frame(
+        pd.DataFrame({"region": ["NORTH"], "value": [20.0]}),
+        metric_id="sales.revenue",
+        axes=axes,
+        measure={"name": "value"},
+        semantic_kind="segmented",
+        semantic_model="sales",
+        additivity=baseline_additivity,
+        aggregation=baseline_aggregation,
+        status_time_dimension=baseline_status_time_dimension,
+        session=session,
+    )
+
+    delta = compare(current, baseline, session=session)
+
+    assert delta.meta.additivity is None
+    assert delta.meta.aggregation is None
+    assert delta.meta.status_time_dimension is None
+    with pytest.raises(AttributionAdditivityError) as exc_info:
+        session.attribute(
+            delta,
+            axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+        )
+    assert exc_info.value._context["reason"] == "missing_additivity_metadata"
 
 
 def test_compare_rejects_delta_frame_as_second_argument(tmp_path):

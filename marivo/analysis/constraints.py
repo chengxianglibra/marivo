@@ -39,6 +39,7 @@ class ConstraintId(StrEnum):
     DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
     COMPONENT_FRAME_AVAILABLE = "component_frame_available"
+    ATTRIBUTION_ADDITIVITY_COMPATIBLE = "attribution_additivity_compatible"
 
 
 _DATASOURCE_DOC = "marivo/skills/marivo-semantic/references/datasource.md"
@@ -257,6 +258,25 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Base sum metrics and non-derived frames have no linked component_ref to load.",
         "Call frame.components() only when frame.meta.component_ref is present.",
         help_target="artifacts",
+    ),
+    ConstraintId.ATTRIBUTION_ADDITIVITY_COMPATIBLE: _constraint(
+        ConstraintId.ATTRIBUTION_ADDITIVITY_COMPATIBLE,
+        "AttributionAdditivity",
+        "runtime",
+        (
+            "attribute",
+            "decompose",
+            "DeltaFrame",
+            "AttributionAdditivityError",
+        ),
+        "Axis attribution requires compatible persisted additivity: additive, semi-additive "
+        "off the status time axis, or component-aware ratio/weighted-average; otherwise "
+        "re-observe or attribute additive numerator and denominator separately.",
+        "Axis-sum attribution is valid for additive metrics, semi-additive metrics away "
+        "from their status time axis, and component-aware ratio or weighted-average deltas.",
+        "Re-observe and compare old artifacts; model non-additive metrics as ratio or "
+        "weighted_average components, or attribute additive numerator and denominator separately.",
+        help_target="attribute",
     ),
 }
 

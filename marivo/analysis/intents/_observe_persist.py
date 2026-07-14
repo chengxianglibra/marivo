@@ -228,3 +228,35 @@ def _meta_additivity(
     if value == "non_additive":
         return "non_additive"
     return None
+
+
+def _meta_aggregation(value: object) -> str | None:
+    """Render a semantic aggregation as stable frame metadata."""
+    if isinstance(value, str):
+        return value
+    if (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and value[0] == "percentile"
+        and isinstance(value[1], (int, float))
+    ):
+        return f"percentile({value[1]})"
+    return None
+
+
+def _metric_semantics_payload(
+    metric_ir: Any,
+    *,
+    force_additivity: Literal["additive", "semi_additive", "non_additive"] | None = None,
+) -> dict[str, str | None]:
+    """Return output metric semantics that participate in artifact identity."""
+    additivity = (
+        force_additivity
+        if force_additivity is not None
+        else _meta_additivity(getattr(metric_ir, "additivity", None))
+    )
+    return {
+        "additivity": additivity,
+        "aggregation": _meta_aggregation(getattr(metric_ir, "aggregation", None)),
+        "status_time_dimension": getattr(metric_ir, "status_time_dimension", None),
+    }
