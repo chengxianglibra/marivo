@@ -14,6 +14,10 @@ from marivo.analysis.timezone import resolve_system_timezone
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
+    from marivo.analysis._capabilities.model import (
+        SemanticHandoffReceipt,
+        SemanticToAnalysisHandoff,
+    )
     from marivo.analysis.derive import IbisQuerySpec, MetricColumns
     from marivo.analysis.evidence import (
         Assessment,
@@ -1008,6 +1012,330 @@ class Session:
                 analysis_purpose=analysis_purpose,
                 session=self,
             )
+
+    def validate_semantic_handoff(
+        self, handoff: SemanticToAnalysisHandoff
+    ) -> SemanticHandoffReceipt:
+        """Validate a semantic readiness handoff against the current session.
+
+        This is the sole public receiver for ``boundary.semantic_handoff``.
+        It accepts the shared ``SemanticToAnalysisHandoff`` value produced by
+        semantic readiness and returns a consumed-not-constructed
+        :class:`SemanticHandoffReceipt`.
+
+        It performs no datasource query, opens no connection, mutates no
+        project/session state, and chooses no analysis operator. It validates,
+        against the current session and loaded catalog:
+
+        - exact environment identity;
+        - project and catalog fingerprints;
+        - existence and kind of every ready ref;
+        - current readiness of the handed-off refs;
+        - consistency of readiness status, warning ids, and caveats;
+        - freshness and ownership of every required preview-evidence id.
+
+        An environment mismatch emits environment repair. A stale project,
+        catalog, ref, readiness, or preview-evidence fact emits a new
+        :class:`AnalysisToSemanticHandoff` through typed semantic repair.
+        Success returns a :class:`SemanticHandoffReceipt`.
+
+        Args:
+            handoff: The semantic-to-analysis handoff value produced by
+                semantic readiness.
+
+        Returns:
+            SemanticHandoffReceipt proving the mechanical facts were current
+            at validation time. In-memory only; not persisted.
+
+        Raises:
+            AnalysisError: With ``kind="environment"`` repair when the
+                environment has drifted, or with ``kind="semantic_handoff"``
+                repair when project/catalog/ref/readiness/preview-evidence
+                state is stale.
+
+        Example:
+            >>> import marivo.semantic as ms
+            >>> catalog = ms.load()
+            >>> revenue = catalog.get("metric.sales.revenue")
+            >>> report = catalog.readiness(refs=[revenue.ref])
+            >>> handoff = SemanticToAnalysisHandoff(
+            ...     help_target=LiveHelpTarget(surface="semantic"),
+            ...     ready_refs=(revenue.ref,),
+            ...     project_fingerprint=session._project_fingerprint(),
+            ...     catalog_fingerprint=session._catalog_fingerprint(),
+            ...     environment_fingerprint=EnvironmentFingerprint.current(),
+            ...     readiness_status="ready",
+            ... )
+            >>> receipt = session.validate_semantic_handoff(handoff)
+            >>> receipt.ready_refs
+            (SemanticRef('sales.revenue'),)
+
+        Constraints:
+            No datasource query, no connection opened, no state mutation, no
+            operator selection. The receipt is in-memory only.
+        """
+        from marivo.analysis._capabilities.model import (
+            AnalysisToSemanticHandoff,
+            EnvironmentFingerprint,
+            LiveHelpTarget,
+            SemanticHandoffReceipt,
+        )
+        from marivo.analysis.errors import AnalysisError, AnalysisRepair
+
+        current_env = EnvironmentFingerprint.current()
+        if handoff.environment_fingerprint != current_env:
+            raise AnalysisError(
+                message=(
+                    "Environment has changed since the semantic readiness check. "
+                    "Re-run readiness in the current environment."
+                ),
+                expected=f"environment_fingerprint={current_env}",
+                received=f"environment_fingerprint={handoff.environment_fingerprint}",
+                location="session.validate_semantic_handoff",
+                repair=AnalysisRepair(
+                    kind="environment",
+                    action=(
+                        "Environment has changed since the semantic readiness check. "
+                        "Re-run readiness in the current environment."
+                    ),
+                    help_target=LiveHelpTarget(surface="semantic"),
+                ),
+            )
+
+        current_project_fp = self._project_fingerprint()
+        current_catalog_fp = self._catalog_fingerprint()
+
+        if (
+            handoff.project_fingerprint != current_project_fp
+            or handoff.catalog_fingerprint != current_catalog_fp
+        ):
+            raise AnalysisError(
+                message=(
+                    "Project or catalog state has changed since the semantic "
+                    "readiness check. Re-run readiness."
+                ),
+                expected=(
+                    f"project_fingerprint={current_project_fp}, "
+                    f"catalog_fingerprint={current_catalog_fp}"
+                ),
+                received=(
+                    f"project_fingerprint={handoff.project_fingerprint}, "
+                    f"catalog_fingerprint={handoff.catalog_fingerprint}"
+                ),
+                location="session.validate_semantic_handoff",
+                repair=AnalysisRepair(
+                    kind="semantic_handoff",
+                    action=(
+                        "Project or catalog state has changed since the semantic "
+                        "readiness check. Re-run readiness."
+                    ),
+                    help_target=LiveHelpTarget(surface="semantic"),
+                    semantic_handoff=AnalysisToSemanticHandoff(
+                        required_kind=None,
+                        requirement=(
+                            "Project/catalog state drift detected during handoff validation"
+                        ),
+                        affected_capability_id="boundary.semantic_handoff",
+                        environment_fingerprint=current_env,
+                        project_fingerprint=current_project_fp,
+                    ),
+                ),
+            )
+
+        index = self._catalog._require_index()
+        for ref in handoff.ready_refs:
+            current_kind = index.kind_of(ref.id)
+            if current_kind is None:
+                available_ids = sorted(obj.id for obj in index._by_id.values())
+                raise AnalysisError(
+                    message=(
+                        f"Semantic ref {ref.id!r} from the handoff is not present "
+                        f"in the loaded catalog."
+                    ),
+                    expected=f"ref {ref.id!r} in catalog",
+                    received=f"ref {ref.id!r} not found",
+                    location="session.validate_semantic_handoff ready_refs",
+                    repair=AnalysisRepair(
+                        kind="semantic_handoff",
+                        action=(
+                            f"Semantic ref {ref.id!r} is absent from the loaded "
+                            "catalog; author and register it in the semantic "
+                            "layer, then reload and re-run readiness."
+                        ),
+                        help_target=LiveHelpTarget(surface="semantic"),
+                        candidates=tuple(available_ids[:10]),
+                        semantic_handoff=AnalysisToSemanticHandoff(
+                            required_kind=ref.kind,
+                            requirement=(f"ref {ref.id!r} is not present in the loaded catalog"),
+                            affected_capability_id="boundary.semantic_handoff",
+                            environment_fingerprint=current_env,
+                            project_fingerprint=current_project_fp,
+                        ),
+                    ),
+                )
+            if current_kind != ref.kind:
+                raise AnalysisError(
+                    message=(
+                        f"Semantic ref {ref.id!r} has kind {current_kind.value!r} "
+                        f"in the catalog, not {ref.kind.value!r} as declared in "
+                        f"the handoff."
+                    ),
+                    expected=f"kind={ref.kind.value!r}",
+                    received=f"kind={current_kind.value!r}",
+                    location="session.validate_semantic_handoff ready_refs",
+                    repair=AnalysisRepair(
+                        kind="semantic_handoff",
+                        action=(
+                            f"Semantic ref {ref.id!r} changed kind from "
+                            f"{ref.kind.value!r} to {current_kind.value!r}; "
+                            "re-run readiness with the correct ref."
+                        ),
+                        help_target=LiveHelpTarget(surface="semantic"),
+                        semantic_handoff=AnalysisToSemanticHandoff(
+                            required_kind=current_kind,
+                            requirement=(
+                                f"ref {ref.id!r} kind drift: "
+                                f"{ref.kind.value!r} -> {current_kind.value!r}"
+                            ),
+                            affected_capability_id="boundary.semantic_handoff",
+                            environment_fingerprint=current_env,
+                            project_fingerprint=current_project_fp,
+                        ),
+                    ),
+                )
+
+        readiness_report = self._catalog.readiness(refs=list(handoff.ready_refs))
+        if readiness_report.status == "blocked":
+            blocker_messages = "; ".join(
+                f"{b.kind}: {b.message}" for b in readiness_report.blockers
+            )
+            raise AnalysisError(
+                message=(f"Readiness is blocked for handed-off refs: {blocker_messages}"),
+                expected="readiness_status in ('ready', 'ready_with_warnings')",
+                received=f"readiness_status={readiness_report.status!r}",
+                location="session.validate_semantic_handoff readiness",
+                repair=AnalysisRepair(
+                    kind="semantic_handoff",
+                    action=(
+                        "Readiness is blocked; resolve blockers and re-run "
+                        "readiness before re-handing off."
+                    ),
+                    help_target=LiveHelpTarget(surface="semantic"),
+                    semantic_handoff=AnalysisToSemanticHandoff(
+                        required_kind=None,
+                        requirement=(f"readiness blocked: {blocker_messages}"),
+                        affected_capability_id="boundary.semantic_handoff",
+                        environment_fingerprint=current_env,
+                        project_fingerprint=current_project_fp,
+                    ),
+                ),
+            )
+
+        current_warning_ids = tuple(sorted(w.kind for w in readiness_report.warnings))
+        if current_warning_ids != tuple(sorted(handoff.warning_ids)):
+            raise AnalysisError(
+                message=("Warning ids from the handoff do not match current readiness warnings."),
+                expected=f"warning_ids={current_warning_ids}",
+                received=f"warning_ids={tuple(sorted(handoff.warning_ids))}",
+                location="session.validate_semantic_handoff warning_ids",
+                repair=AnalysisRepair(
+                    kind="semantic_handoff",
+                    action=(
+                        "Warning set has changed since the semantic readiness "
+                        "check; re-run readiness and re-hand off."
+                    ),
+                    help_target=LiveHelpTarget(surface="semantic"),
+                    semantic_handoff=AnalysisToSemanticHandoff(
+                        required_kind=None,
+                        requirement=("warning_ids drift detected during handoff validation"),
+                        affected_capability_id="boundary.semantic_handoff",
+                        environment_fingerprint=current_env,
+                        project_fingerprint=current_project_fp,
+                    ),
+                ),
+            )
+
+        for evidence_id in handoff.preview_evidence_ids:
+            if not self._preview_evidence_exists(evidence_id):
+                raise AnalysisError(
+                    message=(
+                        f"Preview-evidence id {evidence_id!r} from the handoff "
+                        f"is not found in the session evidence store."
+                    ),
+                    expected=f"evidence_id {evidence_id!r} in session evidence",
+                    received=f"evidence_id {evidence_id!r} not found",
+                    location="session.validate_semantic_handoff preview_evidence_ids",
+                    repair=AnalysisRepair(
+                        kind="semantic_handoff",
+                        action=(
+                            f"Preview-evidence {evidence_id!r} is stale or missing; "
+                            "re-run semantic readiness to regenerate preview evidence."
+                        ),
+                        help_target=LiveHelpTarget(surface="semantic"),
+                        semantic_handoff=AnalysisToSemanticHandoff(
+                            required_kind=None,
+                            requirement=(f"preview-evidence {evidence_id!r} is stale or missing"),
+                            affected_capability_id="boundary.semantic_handoff",
+                            environment_fingerprint=current_env,
+                            project_fingerprint=current_project_fp,
+                        ),
+                    ),
+                )
+
+        return SemanticHandoffReceipt(
+            ready_refs=handoff.ready_refs,
+            project_fingerprint=current_project_fp,
+            catalog_fingerprint=current_catalog_fp,
+            environment_fingerprint=current_env,
+            readiness_status=handoff.readiness_status,
+            warning_ids=handoff.warning_ids,
+            preview_evidence_ids=handoff.preview_evidence_ids,
+            caveats=handoff.caveats,
+        )
+
+    def _project_fingerprint(self) -> str:
+        """Return a deterministic fingerprint of the project root state."""
+        import hashlib
+
+        parts: list[str] = []
+        marivo_toml = self._project_root / "marivo.toml"
+        if marivo_toml.is_file():
+            parts.append(f"marivo.toml:{marivo_toml.read_text()}")
+        models_dir = self._project_root / "models"
+        if models_dir.is_dir():
+            for py_file in sorted(models_dir.rglob("*.py")):
+                rel = py_file.relative_to(self._project_root)
+                parts.append(f"{rel}:{py_file.read_text()}")
+        digest = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+        return digest
+
+    def _catalog_fingerprint(self) -> str:
+        """Return a deterministic fingerprint of the loaded catalog state."""
+        import hashlib
+
+        index = self._catalog._require_index()
+        typed_ids = sorted(obj.id for obj in index._by_id.values())
+        return hashlib.sha256("|".join(typed_ids).encode("utf-8")).hexdigest()
+
+    def _preview_evidence_exists(self, evidence_id: str) -> bool:
+        """Check whether a preview-evidence id exists in the session evidence store."""
+        db_path = self._layout.session_dir / "judgment.db"
+        if not db_path.exists():
+            return False
+        import sqlite3
+
+        try:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                cursor = conn.execute(
+                    "SELECT 1 FROM propositions WHERE proposition_id = ? LIMIT 1",
+                    (evidence_id,),
+                )
+                return cursor.fetchone() is not None
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            return False
 
 
 def ensure_session_can_execute(session: Session) -> None:
