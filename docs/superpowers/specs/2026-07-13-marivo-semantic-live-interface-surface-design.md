@@ -121,9 +121,10 @@ kernel with equivalent types or behavior.
 The matching
 [`2026-07-13-marivo-analysis-boundary-kernel-design.md`](2026-07-13-marivo-analysis-boundary-kernel-design.md)
 defines semantic handoff as an explicit analysis boundary. A missing required
-semantic object activates `marivo-semantic`; analysis resumes only after the
-required refs reach scoped readiness. This design supplies the authoritative
-semantic entry and readiness transition used by that handoff.
+semantic object activates `marivo-semantic`; analysis consumes handed-off refs
+only after they reach scoped readiness and pass the analysis boundary. This
+design supplies the authoritative semantic entry, readiness producer, and
+atomic cross-track cutover used by that handoff.
 
 ### Business semantic object model
 
@@ -140,15 +141,21 @@ than creating a parallel discovery surface.
 The delivery order is:
 
 1. analysis live-interface cutover, including removal of the stale semantic
-   link to `mv.help("workflow")` and retention of a discoverable semantic entry;
-2. this datasource/semantic live-surface cutover and its companion skill
-   replacement as one semantic-authoring release;
+   link to `mv.help("workflow")` and retention of a discoverable semantic entry,
+   but excluding `boundary.semantic_handoff`, directional handoff schemas,
+   `SemanticHandoffReceipt`, and receipt-only skill policy;
+2. this datasource/semantic live-surface cutover as one cross-module
+   semantic-authoring release. It atomically adds both directional schemas, the
+   analysis-side validator and receipt, the semantic readiness producer, and
+   the corresponding rules in both packaged skills;
 3. the business semantic object-model cutover, extending the resulting
    registries and authoring families atomically.
 
 This order is normative. It prevents three competing introspection kernels and
 keeps the business-model cutover from targeting an interface that is being
-replaced simultaneously.
+replaced simultaneously. Step 2 directly replaces the prior conceptual
+cross-track handoff; it exposes no consumer-before-producer state, legacy
+ready-ref branch, compatibility alias, or migration interval.
 
 ## Problem
 
@@ -1188,9 +1195,11 @@ consumes that payload; it does not reconstruct the affected branch or evidence
 lineage from conversation memory.
 
 Semantic readiness populates the shared private `SemanticToAnalysisHandoff`
-schema defined by the analysis live-interface design. That analysis-first
-definition is the single schema owner; this surface owns producing its exact
-analysis-boundary help target, ready refs, readiness status,
+schema defined by the analysis live-interface design. That analysis-side
+definition is the single schema owner, but its implementation and consumer land
+in this same semantic-authoring cutover as the producer and both skill rules.
+This surface owns producing the exact analysis-boundary help target, ready
+refs, readiness status,
 project/catalog/environment fingerprints, warning ids, preview-evidence ids,
 and caveats.
 
@@ -1200,8 +1209,10 @@ requested ref is analysis-ready or when a blocker applies to the requested
 handoff set. The field type is a module-internal handoff value, not a top-level
 constructor. The agent routes it to the registered analysis
 `boundary.semantic_handoff` target, whose sole public receiver validates it
-against the current analysis session before returning a
-`SemanticHandoffReceipt`.
+against a newly created, current, or recovered analysis session before
+returning a `SemanticHandoffReceipt`. A prior analysis branch is not required;
+semantic-first work creates or recovers a session before invoking the
+validator.
 
 The handoff records identifiers and row-free evidence metadata only. It does not
 embed preview rows, credentials, or plaintext sampled values. Its in-memory
@@ -1234,9 +1245,11 @@ recommend business meaning.
 
 ## Atomic Cutover
 
-The surface and state-router skill ship together as one candidate package.
-Implementation may use parallel internal workstreams, but no intermediate
-public state is released.
+The datasource/semantic surfaces, state-router skill, analysis-side handoff
+extension, and analysis-skill handoff clause ship as one target-only candidate
+package. Implementation may use parallel internal workstreams, but no
+intermediate public state is released and no mixed old/new crossing is tested
+or supported.
 
 ### Shared introspection workstream
 
@@ -1278,9 +1291,23 @@ public state is released.
   analysis-to-semantic handoff defined by the analysis live interface.
 - Remove skill-document and example paths from constraints.
 
+### Analysis handoff-extension workstream
+
+- Add both shared directional handoff schemas as one contract.
+- Make genuine semantic absence produce complete
+  `AnalysisToSemanticHandoff` payloads.
+- Register `boundary.semantic_handoff` and
+  `Session.validate_semantic_handoff(...)` only with the semantic producer.
+- Return `SemanticHandoffReceipt` only after query-free validation against a
+  newly created, current, or recovered session.
+- Remove any conceptual or bare-ready-ref crossing in the target candidate;
+  there is no compatibility branch or migration adapter.
+
 ### Skill and documentation workstream
 
-- Replace the packaged skill according to the companion state-router design.
+- Replace the packaged semantic skill according to the companion state-router
+  design and update the packaged analysis skill's handoff clause in the same
+  candidate.
 - Delete attachments and example runners only after their retained facts are
   live-owned.
 - Update `agent-guide.md`, active semantic specs, latest English and Chinese
@@ -1369,7 +1396,8 @@ rather than generic reflection or membership errors.
   refs, and exact keys in transition inputs.
 - Ready reports expose a complete `SemanticToAnalysisHandoff`; analysis
   semantic-missing errors expose a complete `AnalysisToSemanticHandoff`.
-- The returning handoff targets registered `boundary.semantic_handoff`; the
+- The semantic-to-analysis handoff targets registered
+  `boundary.semantic_handoff`; the
   analysis session rejects any stale environment, project, catalog, ref,
   readiness, or preview-evidence fact before producing
   `SemanticHandoffReceipt`.
@@ -1534,8 +1562,9 @@ implementation-time choice or an omitted requirement in this design.
   object family.
 - All current contract transitions and repairs carry namespaced live help
   targets and complete orthogonal effect metadata.
-- Readiness exposes analysis handoff only for ready refs, and analysis resumes
-  only from a successful `SemanticHandoffReceipt`.
+- Readiness exposes an analysis handoff only for ready refs, and analysis
+  consumes those handed-off refs only from a successful
+  `SemanticHandoffReceipt`, whether this is first entry or re-entry.
 - No result or error depends on free-form next-call strings for mechanical
   recovery.
 

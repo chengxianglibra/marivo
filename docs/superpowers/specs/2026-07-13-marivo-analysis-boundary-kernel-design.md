@@ -1,6 +1,6 @@
 # Marivo Analysis Boundary Kernel Design
 
-Status: approved; implementation planned
+Status: base analysis cutover implemented; semantic-handoff follow-up pending written-spec re-review
 
 Date: 2026-07-13
 
@@ -120,7 +120,10 @@ preview, and reach scoped readiness before analysis handoff; the
 and exposes a non-linear graph of legal operators, so its skill owns boundaries
 rather than a route. Aligning semantic fingerprints, typed repair objects, and
 discovery ergonomics is named future work under **semantic live-surface
-alignment**, not part of this breaking analysis cutover.
+alignment**, not part of the base breaking analysis cutover. The typed
+bidirectional handoff, analysis validator, semantic producer, and corresponding
+rules in both skills land later as one atomic semantic-authoring cutover; none
+of those pieces is published early.
 
 ## Design Goals
 
@@ -275,29 +278,42 @@ criteria. `SKILL.md` refers conceptually to the handoff exposed by the current
 error or semantic readiness result and follows live help/contract; it does not
 copy field names or method recipes.
 
+The base analysis skill treats a genuine missing business object as a
+conceptual semantic-authoring handoff. It does not require
+`SemanticToAnalysisHandoff` or `SemanticHandoffReceipt`, because their producer
+and validator are not part of the base analysis release.
+
+The later datasource/semantic live-surface cutover atomically replaces that
+clause in both skills with the complete target contract below. Within that
+target package the typed rule is unconditional; the release does not detect an
+older producer, accept bare ready refs, or provide a transition period.
+
 | Condition | Handoff |
 | --- | --- |
 | A required business object is missing or must change | `marivo-semantic` |
-| Semantic authoring returns ready refs | The registered analysis semantic-handoff boundary |
+| Semantic authoring hands ready refs to analysis | The registered analysis semantic-handoff boundary |
 | The task needs terminal custom analysis | The live help's controlled terminal exit |
 | A custom result must re-enter typed analysis | The live help's governed entry |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
 
-The missing-business-object handoff consumes the current analysis error's typed
-`AnalysisRepair.semantic_handoff` payload. That payload is the sole mechanical
-owner of the missing kind/requirement, affected capability, current semantic and
-project context, artifact/evidence lineage, and environment fingerprint. The
-skill preserves and transfers it; it does not reconstruct those fields from
-conversation memory or add a broader catalog-cleanup request.
+In the target semantic-authoring cutover, the missing-business-object handoff
+consumes the current analysis error's typed `AnalysisRepair.semantic_handoff`
+payload. That payload is the sole mechanical owner of the missing
+kind/requirement, affected capability, current semantic and project context,
+artifact/evidence lineage, and environment fingerprint. The skill preserves
+and transfers it; it does not reconstruct those fields from conversation
+memory or add a broader catalog-cleanup request.
 
-The returning handoff consumes the semantic readiness result's typed
-`SemanticToAnalysisHandoff`. The skill follows its registered live target and
-does not duplicate the exact method or field recipe. The analysis boundary
-mechanically validates the environment, project/catalog identity, refs,
-readiness, and preview evidence and returns `SemanticHandoffReceipt`; only then
-may the skill resume analysis routing. The receipt does not select an operator
-or record warning acceptance.
+Every semantic-to-analysis handoff in that target package consumes the semantic
+readiness result's typed `SemanticToAnalysisHandoff`. The skill follows its
+registered live target and does not duplicate the exact method or field recipe.
+The analysis boundary mechanically validates the environment, project/catalog
+identity, refs, readiness, and preview evidence and returns
+`SemanticHandoffReceipt`; analysis consumes the handed-off refs only from that
+receipt. For a semantic-first task, the agent creates or recovers a `Session`
+before validation; no prior analysis branch is required. The receipt does not
+select an operator or record warning acceptance.
 
 ### Closeout obligations
 
@@ -357,6 +373,12 @@ Current attachments are audit inputs only. For each still-required fact,
 implement the target owner directly; delete duplicated, historical, generic,
 or invalid guidance. Do not preserve wording, paths, runners, redirects,
 compatibility copies, or tombstones merely to ease the cutover.
+
+The later semantic-authoring release makes one further atomic edit to this
+single-file analysis skill: it installs the typed bidirectional handoff rule in
+the same candidate that adds the analysis validator and semantic producer. It
+does not ship that rule before those live owners or keep the earlier conceptual
+handoff as a fallback afterward.
 
 Expected ownership:
 
@@ -442,9 +464,11 @@ rewrite of historical records.
 - The semantic-authoring handoff preserves its typed requirement, affected
   capability, project/semantic context, artifact/evidence lineage, and
   environment fingerprint without skill reconstruction.
-- The returning semantic handoff is mechanically validated by the registered
-  analysis boundary before analysis resumes; the skill neither reconstructs
-  nor treats the payload as proof of warning acceptance.
+- In the atomic semantic-authoring target, analysis consumes handed-off ready
+  refs only after the registered boundary produces
+  `SemanticHandoffReceipt`; this applies to first entry and re-entry, and the
+  skill neither reconstructs nor treats the payload as proof of warning
+  acceptance.
 - A result-impacting blocker prevents an unqualified strong conclusion.
 - An API change is resolved from current help/errors rather than cached skill
   text.
@@ -475,6 +499,12 @@ The implementation must:
 
 Scenario-based review covers the agent-behavior acceptance criteria. It is a
 review of outcomes and boundaries, not a prose snapshot of the skill.
+
+Base-analysis package checks assert that no receipt-only rule or
+`boundary.semantic_handoff` target is exposed without the semantic producer.
+The later semantic-authoring candidate verifies producer, consumer, both
+directional schemas, both skill rules, first entry, and re-entry together; no
+mixed-version or legacy-ready-ref scenario is supported or scored.
 
 Before the atomic cutover is merged or released, a target-only candidate must
 pass the isolated cold-agent evaluation gate defined by

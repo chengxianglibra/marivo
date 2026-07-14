@@ -1,6 +1,6 @@
 # Marivo Analysis Live Interface Surface Design
 
-Status: approved; implementation planned
+Status: base analysis cutover implemented; semantic-handoff follow-up pending written-spec re-review
 
 Date: 2026-07-13
 
@@ -432,14 +432,27 @@ requirements. Analysis
 starts from ready semantic objects and exposes multiple mechanically legal
 branches, so its skill must not choose the next operator.
 
-Cross-track consistency still matters. A missing analysis semantic object
-produces a typed `AnalysisToSemanticHandoff`, activates `marivo-semantic`, and
-returns only through the query-free `boundary.semantic_handoff` validator with
-a typed `SemanticToAnalysisHandoff`. The shared handoff schemas and analysis
-consumer land in this analysis cutover before the semantic producer; the later
-semantic live-surface cutover activates the producer atomically with its
-state-router skill. That work must preserve the authoring policy order rather
-than flatten it into an analysis-style graph.
+Cross-track consistency still matters, but the bidirectional typed handoff must
+not be split across releases. The base analysis cutover removes stale workflow
+links and retains a discoverable semantic entry; it does **not** publish
+`boundary.semantic_handoff`, either directional handoff schema,
+`SemanticHandoffReceipt`, or a receipt-only skill rule.
+
+The follow-up datasource/semantic live-surface cutover atomically adds all of
+these pieces across both modules and both skills:
+
+- analysis produces `AnalysisToSemanticHandoff` for genuine semantic absence;
+- semantic readiness produces `SemanticToAnalysisHandoff`;
+- analysis validates that payload through `boundary.semantic_handoff` and
+  returns `SemanticHandoffReceipt`;
+- the analysis and semantic skills require the typed boundary for every
+  semantic-to-analysis crossing.
+
+No released package may contain the consumer or receipt-only policy without
+the semantic producer. The target cutover directly replaces the prior
+conceptual handoff; it provides no legacy ready-ref return, compatibility
+branch, alias, or migration interval. The policy order remains semantic-owned
+rather than being flattened into an analysis-style graph.
 
 The tracks share one object-near mechanical-reading convention:
 `.show()` renders the result or evidence content, while `.contract()` renders
@@ -613,9 +626,12 @@ The initial boundary capabilities are:
 
 - `boundary.to_pandas`: terminal defensive-copy exit from a typed artifact;
 - `boundary.derive_metric_frame`: governed Ibis result entry into a typed
-  `MetricFrame`;
-- `boundary.semantic_handoff`: query-free governed re-entry from a semantic
-  readiness handoff into the current analysis session.
+  `MetricFrame`.
+
+The follow-up semantic-authoring cutover atomically adds
+`boundary.semantic_handoff`: query-free governed entry of a semantic readiness
+handoff into a created or recovered analysis session. It is not registered or
+advertised by the base analysis cutover.
 
 At registry finalization, `boundary.to_pandas.accepted_inputs["receiver"]` is
 materialized as the closed set of all registered artifact families, and its
@@ -636,8 +652,11 @@ descriptor.
 `SemanticToAnalysisHandoff` value produced by semantic readiness and returns a
 consumed-not-constructed `SemanticHandoffReceipt`. It performs no datasource
 query, opens no connection, mutates no project/session state, and chooses no
-analysis operator. It validates, against the current session and loaded
-catalog:
+analysis operator. “Session” here means a newly created, current, or recovered
+receiver; no prior analysis artifact, blocked branch, or earlier handoff is
+required. A semantic-first task creates or recovers the session and then
+validates the handoff before analysis consumes its ready refs. The boundary
+validates, against that session and its loaded catalog:
 
 - exact environment identity;
 - project and catalog fingerprints;
@@ -664,11 +683,10 @@ class SemanticHandoffReceipt(BaseModel):
 
 The receipt proves only that those mechanical facts were current at validation
 time. It does not record warning acceptance, recommend an operator, or claim
-that the original analysis branch must resume unchanged. The full receipt is
-in-memory only and the boundary does not persist it. Later analysis artifacts
-record the semantic refs and evidence they actually consume through existing
-lineage; they never inherit or persist the receipt's raw interpreter or package
-paths.
+that a prior analysis branch exists. The full receipt is in-memory only and the
+boundary does not persist it. Later analysis artifacts record the semantic refs
+and evidence they actually consume through existing lineage; they never inherit
+or persist the receipt's raw interpreter or package paths.
 
 The registry states boundary mechanics only. The skill owns when a task must
 cross one of these boundaries.
@@ -721,7 +739,8 @@ The root groups capabilities by role, not by Python suffix or presumed level:
 7. **Artifact inspection** — `show`, `contract`, metadata, bounded properties.
 8. **Recovery** — jobs, summaries, and frame restoration.
 9. **Boundaries** — terminal exit and governed entry, including
-   `boundary.derive_metric_frame` and `boundary.semantic_handoff`.
+   `boundary.derive_metric_frame`; after the semantic-authoring cutover this
+   group also contains `boundary.semantic_handoff`.
 
 Groups are deterministic and deliberately teaching-ordered. Session,
 semantic-input, and policy concepts appear before artifact production because
@@ -779,6 +798,7 @@ all registered artifact families -> boundary.to_pandas -> pandas.DataFrame
   (terminal)
 semantic readiness -> SemanticToAnalysisHandoff ->
   boundary.semantic_handoff -> SemanticHandoffReceipt
+  (registered atomically by the semantic-authoring cutover)
 ```
 
 `discover` and `transform` in this block are canonical grouping-topic targets,
@@ -933,6 +953,8 @@ boundary.derive_metric_frame
 boundary.semantic_handoff
 ```
 
+`boundary.semantic_handoff` joins this grammar only in the atomic
+semantic-authoring cutover; it is not a pre-registered base-analysis target.
 Only canonical targets appear in root help, `see also`, artifact affordances,
 constraints, and errors.
 
@@ -1243,8 +1265,9 @@ does_not_preserve = typed artifact identity, automatic lineage for custom work
 
 Governed entry is not an artifact-local next action and therefore does not
 appear as a port on every artifact. It remains discoverable through the root
-boundary group as `boundary.derive_metric_frame` or
-`boundary.semantic_handoff`, depending on the accepted input family.
+boundary group as `boundary.derive_metric_frame`; the semantic-authoring
+cutover adds `boundary.semantic_handoff` to that group with its producer and
+policy in the same release.
 
 ## Static Constraints And Examples
 
@@ -1269,6 +1292,13 @@ It must not copy a complete error catalog or full site guide into one topic.
 `AnalysisError` remains the common exception base. Add a precise repair model
 rather than encoding recovery only in rendered strings or a generic details
 dictionary:
+
+The base analysis cutover retains the closed `semantic_handoff` repair kind but
+does not expose the directional payload schemas below. The semantic-authoring
+cutover replaces that conceptual repair directly with the complete
+bidirectional contract, validator, producer, and both skill rules in one
+target-only candidate. There is no dual payload shape or compatibility
+projection.
 
 ```python
 RepairKind = Literal["retry", "inspect", "semantic_handoff", "environment"]
@@ -1397,8 +1427,11 @@ This describes information ownership. It is not a required operator sequence.
 
 ## Implementation And Atomic Cutover
 
-Implementation has parallel workstreams, not public migration phases. None may
-ship independently.
+The base analysis implementation has parallel kernel, public-surface, skill,
+guidance, and verification workstreams, not public migration phases. Those base
+workstreams ship together. The separately labeled semantic-authoring follow-up
+is not part of that release; it is a later target-only cutover whose own
+producer, consumer, schemas, and skill rules may not ship independently.
 
 ### Kernel workstream
 
@@ -1426,14 +1459,30 @@ ship independently.
 - Delete `BaseFrame.describe()` and `BaseFrame.plot()` without a bridge.
 - Replace `ArtifactAffordance.operator` directly and add boundary ports.
 - Replace string-only recovery hints with the target typed repair fields.
+
+### Semantic-authoring follow-up workstream
+
+This workstream belongs to the later datasource/semantic live-surface cutover,
+not the base analysis cutover. That release atomically changes analysis and
+semantic code, both packaged skills, active docs, and tests to:
+
 - Add `LiveHelpTarget`, `EnvironmentFingerprint`, and the shared directional
-  handoff schemas. Semantic-missing repair must carry a complete
+  handoff schemas where not already supplied by the shared foundation.
+- Make semantic-missing repair carry a complete
   `AnalysisToSemanticHandoff`; `Session.validate_semantic_handoff(...)` must
   validate `SemanticToAnalysisHandoff` and return `SemanticHandoffReceipt`.
+- Register and publish `boundary.semantic_handoff` only when
+  `ReadinessReport.analysis_handoff` and both target skill rules are present in
+  the same candidate.
+- Replace the prior conceptual cross-track handoff directly. Do not add a
+  legacy ready-ref branch, fallback construction, alias, deprecation period, or
+  migration adapter.
 
 ### Skill and guidance workstream
 
 - Replace the packaged analysis skill with the one-file boundary kernel.
+- Keep its base semantic handoff conceptual; do not add a receipt-only rule
+  before the semantic-authoring follow-up installs both live owners.
 - Delete all attachments, examples, attachment runners, and active links to
   them.
 - Add any still-valid Marivo contract fact directly to its target live owner;
@@ -1655,6 +1704,11 @@ question, oracle, model profile, or thresholds to make the candidate pass.
 - No active datasource or semantic help, error, result, or current doc points
   to removed `workflow` or `advanced` analysis targets.
 
+The two directional-payload and `boundary.semantic_handoff` assertions above
+belong to the semantic-authoring target candidate. They are not release gates
+for the earlier base analysis cutover in isolation; that candidate must not
+expose either half of the typed crossing.
+
 ### Help target matrix
 
 Test equivalent resolution for:
@@ -1735,10 +1789,11 @@ Review at least these independent legal paths:
    contract.
 6. Encounter a missing metric and receive a semantic-authoring handoff rather
    than a raw-field workaround.
-7. Return from scoped semantic readiness through
+7. Enter or re-enter analysis from scoped semantic readiness through
    `boundary.semantic_handoff`, reject one stale-fingerprint fixture, and
-   continue from the validated receipt without choosing an operator for the
-   agent.
+   consume ready refs only from the validated receipt without choosing an
+   operator for the agent. Run both a semantic-first fixture with a newly
+   created session and a blocked-analysis fixture with a recovered session.
 8. Encounter an invalid shape or parameter and repair it from the structured
    error plus live help.
 9. Use governed Ibis entry to produce a typed `MetricFrame`.
@@ -1827,9 +1882,10 @@ and verify that historical versioned docs have no diff.
   `AnalysisToSemanticHandoff` with requirement, affected capability,
   semantic/project context, evidence/artifact lineage, and environment
   fingerprint.
-- A returning `SemanticToAnalysisHandoff` is accepted only through the
-  query-free registered boundary and yields a validated
-  `SemanticHandoffReceipt`; stale facts return typed repair instead.
+- Analysis consumes handed-off ready refs only from a
+  `SemanticHandoffReceipt` produced by the query-free registered boundary;
+  this applies equally to first entry and re-entry, and stale facts return
+  typed repair instead.
 - No active constraint or error points into the packaged analysis skill.
 
 ### Surface hygiene

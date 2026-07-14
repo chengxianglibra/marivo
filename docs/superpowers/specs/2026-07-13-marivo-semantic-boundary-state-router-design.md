@@ -62,9 +62,11 @@ because a call is mechanically available before the skill permits choosing it.
 
 This semantic-authoring cutover follows the analysis live-interface cutover,
 which supplies the shared introspection and environment-authority foundation.
-It is not folded into the analysis release. The later business semantic
-object-model cutover extends this state router without adding object-family
-manuals back into the skill.
+It is not folded into the base analysis release. Its own atomic candidate also
+adds the analysis-side handoff schemas, validator/receipt, and analysis-skill
+handoff clause together with the semantic producer; none of those requirements
+is published early. The later business semantic object-model cutover extends
+this state router without adding object-family manuals back into the skill.
 
 ## Problem
 
@@ -614,11 +616,13 @@ The handoff occurs only when the live readiness result exposes a non-`None`
 - any remaining non-blocking caveats.
 
 The skill does not construct this payload, teach analysis operators, or choose
-the analysis path. It activates `marivo-analysis`, follows the returning
-handoff's live target, and transfers the governed inputs exactly as recorded by
-readiness. Analysis resumes only after its query-free boundary returns a
-`SemanticHandoffReceipt`; fingerprint, ref, readiness, or preview-evidence
-rejection routes back through typed repair.
+the analysis path. It activates `marivo-analysis`, follows the
+semantic-to-analysis handoff's live target, and transfers the governed inputs
+exactly as recorded by readiness. Analysis consumes those handed-off refs only
+after its query-free boundary returns a `SemanticHandoffReceipt`; fingerprint,
+ref, readiness, or preview-evidence rejection routes back through typed repair.
+A semantic-first task creates or recovers an analysis session before validation;
+no prior blocked analysis branch is required.
 
 A `ready_with_warnings` payload reports warnings; it does not prove that the
 runtime captured user or agent acceptance. Before transferring that payload,
@@ -673,7 +677,7 @@ A blocked closeout states:
 | Static verification fails | Repair and reverify the same object |
 | Required preview is missing or stale | Run or repair scoped preview before readiness |
 | Readiness is blocked | Follow typed repair; do not hand off the blocked ref |
-| Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then return after readiness |
+| Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then hand off ready refs through the analysis boundary |
 | Runtime transition contradicts its registered input, state, target-surface, or effect facts | Treat candidate as internally inconsistent; stop and report the contract defect |
 
 The last row prevents the skill from becoming an invisible compatibility shim.
@@ -734,22 +738,29 @@ source.
 ## Atomic Replacement Scope
 
 The skill replacement is released only with the companion live-surface
-cutover. Implementation may prepare the root file earlier on a branch, but no
-candidate package may delete attachments while runtime constraints, errors, or
-latest documentation still depend on them.
+cutover and the analysis-side handoff extension. Implementation may prepare
+files earlier on a branch, but no candidate package may delete attachments or
+publish either handoff half while runtime constraints, errors, skills, or latest
+documentation still depend on the earlier conceptual crossing.
 
 The coordinated cutover updates:
 
 - `marivo/skills/marivo-semantic/SKILL.md`;
+- the handoff clause in `marivo/skills/marivo-analysis/SKILL.md`;
 - all files under its current `references/` tree;
 - attachment/example runners and tests;
 - runtime constraint and error links;
 - datasource and semantic help topics;
 - result transition and repair fields;
+- both directional handoff schemas, `boundary.semantic_handoff`,
+  `Session.validate_semantic_handoff(...)`, and `SemanticHandoffReceipt`;
 - `agent-guide.md` and active semantic specs;
 - latest English and Chinese site authoring documentation;
 - CLI entry guidance;
 - release notes for the target public changes.
+
+The target is a direct breaking replacement. It has no bare-ready-ref fallback,
+mixed-version branch, compatibility alias, or migration adapter.
 
 Historical versioned docs and historical release notes remain unchanged.
 
@@ -825,6 +836,9 @@ Before deleting each attachment, inventory every retained fact and prove its
 live target exists in the candidate package. Every runtime constraint, error,
 transition, and repair help target resolves through its declared live surface
 without a skill path. Cross-track cases carry complete typed handoff payloads.
+Package checks reject a candidate that contains the semantic producer without
+the analysis validator, the validator without the producer, or either target
+skill rule without both live owners.
 
 ### Behavioral scenarios
 
@@ -838,8 +852,9 @@ Review at least:
 6. one unresolved business decision;
 7. unscoped or potentially unbounded read prevention;
 8. environment mismatch stop;
-9. analysis missing-semantic handoff and return;
-10. future object family whose preview mode differs from current objects.
+9. analysis missing-semantic handoff followed by validated re-entry;
+10. semantic-first handoff into a newly created or recovered analysis session;
+11. future object family whose preview mode differs from current objects.
 
 The skill must route from live state without knowing version-specific mechanics
 for any scenario.
@@ -925,6 +940,8 @@ it must not fail because deleted skill examples no longer exist.
   repair.
 - Analysis-to-semantic and semantic-to-analysis crossings preserve their typed
   handoff payloads without reconstruction from conversation memory.
+- Analysis consumes handed-off ready refs only from
+  `SemanticHandoffReceipt`, for both first entry and re-entry.
 - The skill does not hide a defective live transition behind a memorized
   workaround.
 
