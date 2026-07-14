@@ -729,6 +729,26 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
+    descriptors.append(
+        BoundaryCapability(
+            id="boundary.semantic_handoff",
+            public_entrypoint="session.validate_semantic_handoff(...)",
+            help_target="boundary.semantic_handoff",
+            summary="Query-free governed re-entry from a semantic readiness handoff into the current analysis session.",
+            root_group="boundaries",
+            root_visibility="direct",
+            constraint_ids=(),
+            callable_path="marivo.analysis.session.core.Session.validate_semantic_handoff",
+            direction="governed_entry",
+            accepted_inputs={
+                "handoff": frozenset({"SemanticToAnalysisHandoff"}),
+            },
+            output_family="SemanticHandoffReceipt",
+            preserves=("semantic_refs", "project_fingerprint", "catalog_fingerprint"),
+            does_not_preserve=(),
+        )
+    )
+
     # -- Constructors -----------------------------------------------------
 
     constructor_specs: tuple[tuple[str, str, str, str, object, str], ...] = (

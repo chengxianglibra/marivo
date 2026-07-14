@@ -519,6 +519,7 @@ EXPECTED_CONSTRUCTOR_IDS = {
 EXPECTED_BOUNDARY_IDS = {
     "boundary.derive_metric_frame",
     "boundary.to_pandas",
+    "boundary.semantic_handoff",
 }
 
 

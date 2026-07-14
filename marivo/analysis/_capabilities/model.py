@@ -64,6 +64,7 @@ InputFamily = (
         "TimeScopeInput",
         "IbisQuerySpec",
         "MetricColumns",
+        "SemanticToAnalysisHandoff",
     ]
 )
 
