@@ -79,8 +79,9 @@ These rules govern every public surface change:
   single-line repr carrying kind and identity, pointing to `.show()` for
   detail. Default dataclass reprs are not acceptable on public result types.
 - Terminal results (objects an agent stops to read) implement the shared
-  result protocol: bounded `.show()` output, deterministic ordering, and
-  closing affordance hints generated from real state.
+  result protocol: bounded `.show()` output, `.contract()` for mechanically
+  valid next actions, deterministic ordering, and closing affordance hints
+  generated from real state.
 - Surface growth is gated: public `__all__` sets are pinned by a snapshot
   test. A new public result type must join an existing family (naming and
   protocol) or justify a new one. Type aliases and module-internal handoff
@@ -160,7 +161,7 @@ When working on a task, read the right docs first:
 | Semantic authoring workflow | `docs/specs/semantic/authoring-workflow.md` |
 | Semantic loading, validation, runtime | `docs/specs/semantic/loading-validation-introspection.md` |
 | Python analysis design | `docs/specs/analysis/python-analysis-design.md` |
-| Agent usage examples | `marivo/skills/marivo-semantic/` or `marivo/skills/marivo-analysis/` |
+| Agent usage examples | `marivo/skills/marivo-semantic/` |
 
 ## Documentation Updates
 
