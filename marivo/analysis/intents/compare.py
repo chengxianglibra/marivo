@@ -12,6 +12,7 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
+from marivo.analysis._cumulative import cumulative_compare_anchor
 from marivo.analysis.calendar.align import _local_dates, align_calendar_frames
 from marivo.analysis.calendar.model import CalendarPolicy
 from marivo.analysis.delta_math import PCT_CHANGE_STATUS_COLUMN, compute_delta_columns
@@ -513,6 +514,24 @@ def _persist_delta_component_frame(
     return comp_frame
 
 
+def _drop_unpaired_grain_to_date_rows(
+    df: pd.DataFrame,
+    frame: MetricFrame,
+) -> pd.DataFrame:
+    """Keep only rows whose current and baseline ordinal buckets are both present."""
+    anchor = cumulative_compare_anchor(frame.meta.cumulative)
+    if not (isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date"):
+        return df
+    if frame.meta.semantic_kind not in {"time_series", "panel"}:
+        return df
+    time_column = _time_axis_column(frame)
+    baseline_time_column = f"{time_column}_b"
+    if time_column not in df.columns or baseline_time_column not in df.columns:
+        return df
+    paired = df[time_column].notna() & df[baseline_time_column].notna()
+    return df.loc[paired].reset_index(drop=True)
+
+
 def compare(
     current: MetricFrame,
     baseline: MetricFrame,
@@ -550,7 +569,14 @@ def compare(
                     f"{source_frame.meta.session_id!r}, not {session.id!r}"
                 ),
             )
-    raise_first(validate_compare(current, baseline, alignment=alignment))
+    raise_first(
+        validate_compare(
+            current,
+            baseline,
+            alignment=alignment,
+            report_tz=session.report_tz_name,
+        )
+    )
 
     # --- Component-aware validation ---
     current_decomp_kind = _component_composition_kind(current)
@@ -644,6 +670,7 @@ def compare(
             report_tz=report_tz,
         )
         calendar_info = info.model_dump(mode="json")
+    df = _drop_unpaired_grain_to_date_rows(df, current)
     if df.empty:
         raise AlignmentFailedError(message=f"alignment '{alignment.kind}' produced no rows")
     finished_at = datetime.now(UTC)
@@ -669,15 +696,15 @@ def compare(
     # The ordinal alignment (window_info / coverage) is reused: paired_buckets
     # become matched_buckets, baseline_unpaired_buckets become the tail.
     cur_cumulative = current.meta.cumulative
+    cur_cumulative_anchor = cumulative_compare_anchor(cur_cumulative)
     if (
         cur_cumulative is not None
-        and isinstance(cur_cumulative.get("anchor"), tuple)
-        and cur_cumulative["anchor"]
-        and cur_cumulative["anchor"][0] == "grain_to_date"
+        and isinstance(cur_cumulative_anchor, tuple)
+        and cur_cumulative_anchor[0] == "grain_to_date"
         and isinstance(window_info, dict)
     ):
         alignment_dump["to_date"] = {
-            "reset_grain": cur_cumulative["anchor"][1],
+            "reset_grain": cur_cumulative_anchor[1],
             "matched_buckets": window_info.get("paired_buckets"),
             "baseline_tail_buckets": window_info.get("baseline_unpaired_buckets"),
         }
@@ -776,6 +803,7 @@ def compare(
             alignment=alignment,
             session=session,
         )
+        comp_df = _drop_unpaired_grain_to_date_rows(comp_df, current)
         delta_comp = _persist_delta_component_frame(
             session,
             comp_df,

@@ -59,6 +59,20 @@ def _supports_component_attribution(meta: DeltaFrameMeta) -> bool:
 
 def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondition | None:
     """Describe the persisted additivity gate without loading sidecars."""
+    if meta.cumulative is not None:
+        return ArtifactPrecondition(
+            check="cumulative_attribution_unsupported",
+            status="fail",
+            reason="attribute does not support cumulative deltas, including derived wrappers",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Attribute the underlying flow metrics separately; cumulative wrapper "
+                    "attribution is not supported."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
+            ),
+        )
     if _supports_component_attribution(meta) or meta.additivity == "additive":
         return None
     help_target = LiveHelpTarget(surface="analysis", canonical_id="attribute")

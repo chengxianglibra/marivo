@@ -291,7 +291,11 @@ def _build_registry() -> CapabilityRegistry:
             summary="Compute the typed delta between two MetricFrames.",
             root_group="typed_analysis",
             root_visibility="direct",
-            constraint_ids=("frame_kind_compatible", "alignment_policy_shape"),
+            constraint_ids=(
+                "frame_kind_compatible",
+                "alignment_policy_shape",
+                "cumulative_compare_compatible",
+            ),
             callable_path="marivo.analysis.session.core.Session.compare",
             receiver="Session",
             accepted_inputs={
@@ -315,6 +319,7 @@ def _build_registry() -> CapabilityRegistry:
             constraint_ids=(
                 "frame_kind_compatible",
                 "attribution_additivity_compatible",
+                "cumulative_attribution_unsupported",
             ),
             callable_path="marivo.analysis.session.core.Session.attribute",
             receiver="Session",

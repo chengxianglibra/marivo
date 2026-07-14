@@ -201,7 +201,7 @@ and (2) divide a day evenly (`7minute` is rejected).
 **Cumulative frames.** Cumulative `MetricFrame`s store running totals whose
 semantics depend on the accumulation anchor (`all_history`, `grain_to_date`,
 `trailing`). `transform.window(...)` clips display rows for every anchor;
-`attribute` and `forecast` reject cumulative frames (re-observe the base flow
+`attribute`, `decompose`, and `forecast` reject cumulative frames (re-observe the base flow
 metric). `compare` is anchor-dispatched: `all_history` is rejected (a cumulative
 delta over a window equals the base total — observe and compare the base flow
 metric); `trailing` is allowed when both frames share the same trailing anchor
@@ -209,6 +209,17 @@ payload; `grain_to_date` is allowed for a single reset-boundary-anchored period
 that spans at most one reset period and equal elapsed length. `transform.rollup`
 re-aggregates with `rollup_fold="last"`. The anchor-specific caveat is surfaced
 by `contract()`, `show()`, and `mv.help(ref)`.
+
+For a derived metric, compare applies the same anchor rules only when every
+outer component is cumulative and every component has exactly the same anchor.
+Its `derived_contains_cumulative` marker is the required closed structure
+`{kind, anchor, compare_blocker, components}`. `anchor` is the common anchor or
+`None`; `compare_blocker` is `non_cumulative_component`,
+`mixed_component_anchors`, `unresolved_component_anchor`, or `None`. Mixed,
+incomplete, malformed, and `all_history` wrappers fail closed. Both sides must
+carry the same marker kind and effective anchor. This is a breaking artifact
+contract: cumulative observes include contract version 2 in artifact identity,
+and persisted legacy markers are neither read nor migrated.
 
 **Versioned joins.** `ms.snapshot()` / `ms.validity()` declare dataset
 versioning. The planner auto-selects `as_of_root_time` when the root dataset has
