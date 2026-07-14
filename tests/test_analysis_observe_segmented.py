@@ -318,8 +318,8 @@ def test_observe_duplicate_dimensions_are_rejected(tmp_path):
             session=s,
         )
 
-    assert exc_info.value.details["expected_kind"] == "unique dimension ids"
-    assert exc_info.value.details["duplicate_dimensions"] == ["sales.orders.region"]
+    assert exc_info.value._context["expected_kind"] == "unique dimension ids"
+    assert exc_info.value._context["duplicate_dimensions"] == ["sales.orders.region"]
 
 
 def test_observe_segmented_multi_dataset_metric_with_root_dimension(tmp_path):
@@ -354,7 +354,7 @@ def test_observe_segmented_multi_dataset_missing_dimension_is_blocked(tmp_path):
             session=s,
         )
 
-    assert exc_info.value.details["actual_kind"] == "not_found"
+    assert exc_info.value._context["actual_kind"] == "not_found"
 
 
 def test_observe_dimensions_are_persisted_in_job_params_and_digest(tmp_path):
@@ -400,8 +400,8 @@ def test_observe_dimension_not_found(tmp_path):
             session=s,
         )
 
-    assert exc_info.value.details["actual_kind"] == "not_found"
-    assert exc_info.value.details["ref"] == "not_a_real_field"
+    assert exc_info.value._context["actual_kind"] == "not_found"
+    assert exc_info.value._context["ref"] == "not_a_real_field"
 
 
 def test_observe_dimension_rejects_bare_string(tmp_path):
@@ -419,7 +419,7 @@ def test_observe_dimension_rejects_bare_string(tmp_path):
             session=s,
         )
 
-    assert exc_info.value.details["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "dimension"
 
 
 def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path):

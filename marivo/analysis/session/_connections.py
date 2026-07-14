@@ -39,7 +39,7 @@ class AnalysisConnectionRuntime:
                 raise
             raise NoBackendFactoryError(
                 message="session has no backend_factory; data-materializing intents need one",
-                details={"datasource": datasource_name},
+                context={"datasource": datasource_name},
                 hint=(
                     "Register a project datasource and call mv.session.get_or_create(name=...), "
                     "or pass backends={...}/backend_factory=... only for explicit overrides."

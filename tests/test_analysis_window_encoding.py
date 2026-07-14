@@ -465,7 +465,7 @@ def test_timescope_rejects_tz_field():
     with pytest.raises(WindowInvalidError) as exc_info:
         normalize_timescope_input({"start": "2026-05-01", "end": "2026-05-31", "tz": "UTC"})
 
-    assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
+    assert exc_info.value._context["kind"] == "TimeScopeModelInvalid"
 
 
 # ---------------------------------------------------------------------------
@@ -857,5 +857,5 @@ def test_timescope_rejects_expr_field():
     with pytest.raises(WindowInvalidError) as exc_info:
         normalize_timescope_input({"expr": "today", "tz": "UTC"})
 
-    assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
-    assert any(error["loc"] == ("tz",) for error in exc_info.value.details["validation_errors"])
+    assert exc_info.value._context["kind"] == "TimeScopeModelInvalid"
+    assert any(error["loc"] == ("tz",) for error in exc_info.value._context["validation_errors"])

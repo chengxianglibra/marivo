@@ -81,7 +81,7 @@ def _c1_for_source(ctx: GenerationContext) -> list[tuple[str, dict[str, Any], _O
         if rules is None:
             raise FollowupGenerationRuleViolatedError(
                 message=f"no C1 rule for metric_frame[{ctx.source_semantic_kind}]",
-                details={"family": ctx.source_family, "semantic_kind": ctx.source_semantic_kind},
+                context={"family": ctx.source_family, "semantic_kind": ctx.source_semantic_kind},
             )
         return rules
     if ctx.source_family == "delta_frame":
@@ -92,7 +92,7 @@ def _c1_for_source(ctx: GenerationContext) -> list[tuple[str, dict[str, Any], _O
         return _C1_BY_FAMILY[ctx.source_family]
     raise FollowupGenerationRuleViolatedError(
         message=f"family {ctx.source_family!r} not in C1 whitelist",
-        details={"family": ctx.source_family},
+        context={"family": ctx.source_family},
     )
 
 
@@ -241,17 +241,17 @@ def generate_followups(ctx: GenerationContext) -> list[FollowupAction]:
         if action.category is None:
             raise FollowupGenerationRuleViolatedError(
                 message="generated FollowupAction without category",
-                details={"action_id": action.action_id, "operator": action.operator},
+                context={"action_id": action.action_id, "operator": action.operator},
             )
         if action.category == "quality_remediation" and action.source_issue_id is None:
             raise FollowupGenerationRuleViolatedError(
                 message="quality_remediation followup must have source_issue_id",
-                details={"action_id": action.action_id},
+                context={"action_id": action.action_id},
             )
         if action.category == "dag_continuation" and action.source_issue_id is not None:
             raise FollowupGenerationRuleViolatedError(
                 message="dag_continuation followup must not have source_issue_id",
-                details={"action_id": action.action_id},
+                context={"action_id": action.action_id},
             )
     return actions
 

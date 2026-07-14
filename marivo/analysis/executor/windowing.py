@@ -79,7 +79,7 @@ def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
         if fmt is None or not fmt.startswith("%"):
             raise WindowInvalidError(
                 message=f"unsupported window bound format (data_type={data_type}, format={fmt!r})",
-                details={"data_type": data_type, "format": fmt},
+                context={"data_type": data_type, "format": fmt},
             )
         classification = _classify_strptime_format(fmt)
 
@@ -88,7 +88,7 @@ def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
         if classification in {"hour_only", "hour_only_minute"}:
             raise WindowInvalidError(
                 message=f"unsupported window bound format (data_type={data_type}, format={fmt!r})",
-                details={"data_type": data_type, "format": fmt},
+                context={"data_type": data_type, "format": fmt},
             )
 
         # Hour-precision formats: parse ISO bound and reformat
@@ -106,7 +106,7 @@ def _encode_window_bound(iso_string: str, time_meta: Any) -> Any:
 
     raise WindowInvalidError(
         message=f"unsupported window bound format (data_type={data_type}, format={fmt!r})",
-        details={"data_type": data_type, "format": fmt},
+        context={"data_type": data_type, "format": fmt},
     )
 
 
@@ -257,7 +257,7 @@ def _raise_window_bound_invalid(
 ) -> None:
     raise WindowInvalidError(
         message=f"window.{bound_name}={value!r} is not a valid ISO-8601 date/datetime",
-        details={
+        context={
             "kind": "WindowBoundInvalid",
             "bound": bound_name,
             "value": value,
@@ -346,7 +346,7 @@ def effective_time_context(
     if actual_name is not None and declared_name is not None and actual_name != declared_name:
         raise TimezoneInvalidError(
             message="timezone declaration conflicts with the time field expression timezone",
-            details={
+            context={
                 "kind": "TimezoneDeclarationConflict",
                 "declared": declared_name,
                 "actual": actual_name,
@@ -407,7 +407,7 @@ def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
                 f"not a native temporal type; provide parse=ms.strptime(...) "
                 f"for string/integer time columns.",
                 hint="Add parse=ms.strptime(format) to the time_dimension declaration.",
-                details={
+                context={
                     "kind": "InferredNonTemporal",
                     "inferred_data_type": declared,
                     "actual_ibis_dtype": dtype_name,
@@ -429,7 +429,7 @@ def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
                         "Use a datetime/timestamp column for sub-day granularity, "
                         "or change granularity to 'day' or coarser."
                     ),
-                    details={
+                    context={
                         "kind": "InferredDateWithSubDayGranularity",
                         "inferred_data_type": declared,
                         "granularity": granularity,
@@ -451,7 +451,7 @@ def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
             f"TypeError at execution.",
             hint=f"Change data_type to {sorted(compatible)[0]!r} or adjust "
             f"the body to produce a {declared!r}-compatible expression.",
-            details={
+            context={
                 "kind": "DataTypeDeclarationMismatch",
                 "declared": declared,
                 "actual_ibis_dtype": dtype_name,
@@ -465,7 +465,7 @@ def _validate_time_field_dtype(field_expr: Any, time_meta: Any) -> None:
             f"temporal time dimensions require date or timestamp dtype.",
             hint="Adjust the body to produce a date or timestamp expression, "
             "or change data_type to match the column's actual dtype.",
-            details={
+            context={
                 "kind": "DataTypeUnexpectedForTemporal",
                 "declared": declared,
                 "actual_ibis_dtype": dtype_name,
@@ -516,7 +516,7 @@ def resolve_time_parse(dimension_ir: Any, field_expr: Any) -> Any:
             f"which is not a native temporal type; provide parse=ms.strptime(...) "
             f"for string/integer time columns.",
             hint="Add parse=ms.strptime(format) to the time_dimension declaration.",
-            details={
+            context={
                 "kind": "InferredNonTemporalNoParse",
                 "inferred_data_type": inferred,
             },
@@ -525,7 +525,7 @@ def resolve_time_parse(dimension_ir: Any, field_expr: Any) -> Any:
         message="time_dimension column has unrecognized ibis dtype; "
         "cannot infer parse variant. Provide an explicit parse parameter.",
         hint="Use parse=ms.datetime(...), ms.timestamp(...), or ms.strptime(...).",
-        details={
+        context={
             "kind": "InferredUnknown",
             "inferred_data_type": inferred,
         },
@@ -617,7 +617,7 @@ def _validate_time_field_timezone(field_expr: Any, time_meta: Any) -> None:
         raise TimezoneInvalidError(
             message="timezone declarations are only supported on datetime or timestamp time fields",
             hint="date and partition time fields do not support timezone declarations; remove timezone= or use a time-bearing datetime/timestamp parse.",
-            details={
+            context={
                 "kind": "TimezoneDeclarationUnsupported",
                 "data_type": data_type,
                 "format": getattr(time_meta, "format", None),
@@ -630,7 +630,7 @@ def _validate_time_field_timezone(field_expr: Any, time_meta: Any) -> None:
     if actual is not None and actual != declared:
         raise TimezoneInvalidError(
             message="timezone declaration conflicts with the time field expression timezone",
-            details={
+            context={
                 "kind": "TimezoneDeclarationConflict",
                 "declared": declared,
                 "actual": actual,
@@ -758,7 +758,7 @@ def _window_bound_predicates(
             raise WindowInvalidError(
                 message="strptime format time fields require an explicit report timezone",
                 hint="Pass timezone= when attaching the session.",
-                details={"format": fmt},
+                context={"format": fmt},
             )
         parsed_expr = _parse_string_column(field_expr, time_meta, profile=profile)
         classification = _classify_strptime_format(fmt)
@@ -835,7 +835,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
                 f"candidates: {candidates}"
             ),
             hint="Pass one of the dataset time dimensions as observe(..., time_dimension=...).",
-            details={
+            context={
                 "candidates": candidates,
                 "fix_snippet": (
                     'session.observe(session.catalog.get("metric.sales.revenue"), '
@@ -856,7 +856,7 @@ def _resolve_time_field(dataset_ir: Any, window: Mapping[str, Any]) -> Any:
             "or mark one time dimension as @ms.time_dimension(..., is_default=True) "
             "in the semantic definition."
         ),
-        details={
+        context={
             "candidates": candidates,
             "fix_snippet": (
                 'session.observe(session.catalog.get("metric.sales.revenue"), '

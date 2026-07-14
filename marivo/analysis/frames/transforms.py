@@ -44,8 +44,10 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         Constraints:
             Requires the frame's owning session to be current and writable.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_filter
 
+        validate_capability_inputs("transform.filter", receiver=self._frame)
         session = require_current_session()
         with _track_session_operation(
             session,
@@ -82,8 +84,10 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         Constraints:
             String dimension keys are rejected; pass catalog refs or objects.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_slice
 
+        validate_capability_inputs("transform.slice", receiver=self._frame)
         session = require_current_session()
         with _track_session_operation(
             session,
@@ -125,8 +129,10 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         Constraints:
             At least one of ``drop_axes`` or ``grain`` is required.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_rollup
 
+        validate_capability_inputs("transform.rollup", receiver=self._frame)
         session = require_current_session()
         axis_count = len(drop_axes) if drop_axes is not None else 0
         with _track_session_operation(
@@ -161,8 +167,10 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         Constraints:
             `by` is a raw column name, not a catalog ref.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_topk
 
+        validate_capability_inputs("transform.topk", receiver=self._frame)
         session = require_current_session()
         with _track_session_operation(
             session,
@@ -196,8 +204,10 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         Constraints:
             For deltas, the largest decline is the most-negative `delta`.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_bottomk
 
+        validate_capability_inputs("transform.bottomk", receiver=self._frame)
         session = require_current_session()
         with _track_session_operation(
             session,
@@ -239,8 +249,10 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         Constraints:
             `rank_column` must not already exist.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_rank
 
+        validate_capability_inputs("transform.rank", receiver=self._frame)
         session = require_current_session()
         with _track_session_operation(
             session,
@@ -273,8 +285,10 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
         Constraints:
             Requires a persisted time axis.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_window
 
+        validate_capability_inputs("transform.window", receiver=self._frame, window=window)
         session = require_current_session()
         with _track_session_operation(
             session,
@@ -319,8 +333,10 @@ class MetricFrameTransforms(_FrameTransforms[MetricFrame]):
             Only MetricFrame exposes normalize; DeltaFrameTransforms has no
             normalize method.
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_normalize
 
+        validate_capability_inputs("transform.normalize", receiver=self._frame)
         session = require_current_session()
         with _track_session_operation(
             session,

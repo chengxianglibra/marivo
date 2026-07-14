@@ -917,21 +917,38 @@ def commit_result(
     }
     # CandidateSetMeta declares affordances; other metas do not have it.
     if hasattr(frame.meta, "affordances"):
+        import importlib
+
         from marivo.analysis.frames.base import ArtifactAffordance, ArtifactParamTemplate
 
-        affordances = [
-            ArtifactAffordance(
-                operator=f.operator or "",
-                required_inputs=f.input_refs,
-                preconditions=[],
-                param_template=ArtifactParamTemplate(
-                    deterministic_slots=f.params,
-                    judgment_slots=[],
-                ),
-                expected_output_family=f.expected_output_family,
+        registry_module = importlib.import_module("marivo.analysis._capabilities.registry")
+        registry = registry_module.REGISTRY
+        affordances = []
+        for f in followups:
+            cap_id = f.operator or ""
+            public_entrypoint = ""
+            help_target = ""
+            try:
+                desc = registry.by_id(cap_id)
+                public_entrypoint = desc.public_entrypoint
+                help_target = desc.help_target
+            except KeyError:
+                public_entrypoint = cap_id
+                help_target = cap_id
+            affordances.append(
+                ArtifactAffordance(
+                    capability_id=cap_id,
+                    public_entrypoint=public_entrypoint,
+                    help_target=help_target,
+                    required_inputs=f.input_refs,
+                    preconditions=[],
+                    param_template=ArtifactParamTemplate(
+                        deterministic_slots=f.params,
+                        judgment_slots=[],
+                    ),
+                    expected_output_family=f.expected_output_family,
+                )
             )
-            for f in followups
-        ]
         meta_update["affordances"] = affordances
     new_meta = frame.meta.model_copy(update=meta_update)
     frame.meta = new_meta

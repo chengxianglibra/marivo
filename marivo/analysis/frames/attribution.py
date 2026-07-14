@@ -1,4 +1,4 @@
-"""AttributionFrame and AttributionFrameMeta."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ class AttributionFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class AttributionFrame(BaseFrame):
+    """Call mv.help(AttributionFrame) for its public consumption contract."""
+
     meta: AttributionFrameMeta
 
     def _repr_identity(self) -> str:

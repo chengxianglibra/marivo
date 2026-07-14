@@ -2,33 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
-
 import marivo.analysis as mv
-from marivo.introspection.surface import render as surface_render
-
-
-def _mv_json_data(symbol: str | None = None) -> dict[str, Any]:
-    """Return the JSON descriptor dict for an analysis symbol using internal render."""
-    from marivo.analysis.help import _surface
-
-    return cast("dict[str, Any]", surface_render(_surface(), symbol, "json"))
-
-
-EXPECTED_SESSION_IDENTITY_FIELDS = (
-    "id",
-    "name",
-    "question",
-    "created_at",
-    "updated_at",
-    "default_calendar",
-    "tz",
-    "report_tz",
-    "report_tz_name",
-    "cwd",
-    "project_root",
-    "catalog",
-)
 
 
 def _session(tmp_path, monkeypatch):
@@ -117,38 +91,6 @@ def test_internal_fields_not_publicly_accessible(tmp_path, monkeypatch):
     assert callable(session._evidence_store)
 
 
-def test_help_session_lists_object_methods():
-    data = _mv_json_data("session")
-    assert isinstance(data, dict)
-    assert data["kind"] == "topic"
-    expected_method_names = {
-        "observe",
-        "compare",
-        "attribute",
-        "correlate",
-        "forecast",
-        "assess_quality",
-        "hypothesis_test",
-        "derive_metric_frame",
-        "discover",
-        "evidence",
-        "knowledge",
-        "jobs",
-        "recent_jobs",
-        "job",
-        "is_read_only",
-        "close",
-    }
-    method_names = [m["name"] for m in data["content"]["methods"]]
-    assert len(method_names) == len(set(method_names))
-    assert set(method_names) == expected_method_names
-    assert "validate" not in method_names
-    assert "run_followup" not in method_names
-    assert data["constraints"]
-    assert data["content"]["constraints"]
-    assert "Constraints:" in mv.help_text("session")
-
-
 def test_session_no_longer_exposes_transform_namespace(tmp_path, monkeypatch) -> None:
     session = _session(tmp_path, monkeypatch)
 
@@ -161,18 +103,3 @@ def test_session_namespaces_are_typed_helpers_only(tmp_path, monkeypatch):
     assert not callable(session.discover)
     assert callable(session.discover.point_anomalies)
     assert callable(session.discover.driver_axes)
-
-
-def test_help_session_lists_identity_fields():
-    data = _mv_json_data("session")
-    assert isinstance(data, dict)
-    content = data["content"]
-    identity_fields = [field["name"] for field in content["identity_fields"]]
-    assert len(identity_fields) == len(set(identity_fields))
-    assert tuple(identity_fields) == EXPECTED_SESSION_IDENTITY_FIELDS
-
-    text = mv.help_text("session")
-    assert "Identity fields:" in text
-    identity_section = text.split("Identity fields:\n", 1)[1].split("\n\nLifecycle:", 1)[0]
-    text_fields = tuple(line.split(None, 1)[0] for line in identity_section.splitlines())
-    assert text_fields == EXPECTED_SESSION_IDENTITY_FIELDS

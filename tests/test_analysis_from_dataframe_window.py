@@ -47,4 +47,4 @@ def test_make_metric_frame_rejects_relative_window_dict():
             session=session,
         )
 
-    assert exc_info.value.details["kind"] == "AbsoluteWindowModelInvalid"
+    assert exc_info.value._context["kind"] == "AbsoluteWindowModelInvalid"

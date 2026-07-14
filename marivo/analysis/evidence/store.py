@@ -161,7 +161,7 @@ class JudgmentStore:
             if "locked" in str(exc).lower() or "busy" in str(exc).lower():
                 raise SessionLockedByAnotherProcessError(
                     message=f"judgment.db locked: {self.db_path}",
-                    details={"db_path": str(self.db_path)},
+                    context={"db_path": str(self.db_path)},
                 ) from exc
             raise
         tx = _Transaction(self._conn)
@@ -189,7 +189,7 @@ def open_judgment_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> Judgme
     except sqlite3.OperationalError as exc:
         raise EvidenceStoreUnavailableError(
             message=f"cannot open judgment.db at {db_path}",
-            details={"db_path": str(db_path), "cause": str(exc)},
+            context={"db_path": str(db_path), "cause": str(exc)},
         ) from exc
 
     conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
@@ -205,7 +205,7 @@ def open_judgment_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> Judgme
             conn.close()
             raise MigrationFailedError(
                 message=f"failed to initialize schema at {db_path}",
-                details={"db_path": str(db_path), "cause": str(exc)},
+                context={"db_path": str(db_path), "cause": str(exc)},
             ) from exc
     elif user_version > EXPECTED_SCHEMA_VERSION:
         conn.close()
@@ -214,13 +214,13 @@ def open_judgment_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> Judgme
                 f"db schema version {user_version} is newer than expected "
                 f"{EXPECTED_SCHEMA_VERSION}; refusing to open"
             ),
-            details={"got": user_version, "expected": EXPECTED_SCHEMA_VERSION},
+            context={"got": user_version, "expected": EXPECTED_SCHEMA_VERSION},
         )
     elif user_version < EXPECTED_SCHEMA_VERSION:
         conn.close()
         raise MigrationFailedError(
             message=f"no migration registered for v{user_version} -> v{EXPECTED_SCHEMA_VERSION}",
-            details={"got": user_version, "expected": EXPECTED_SCHEMA_VERSION},
+            context={"got": user_version, "expected": EXPECTED_SCHEMA_VERSION},
         )
 
     return JudgmentStore(conn, db_path)

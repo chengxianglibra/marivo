@@ -223,7 +223,7 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
             session=_session(con),
         )
 
-    assert exc_info.value.details["code"] == "unsafe-fanout"
+    assert exc_info.value._context["code"] == "unsafe-fanout"
 
 
 def _bootstrap_snapshot(tmp_path):

@@ -131,6 +131,6 @@ def test_transform_without_analysis_purpose_does_not_inherit_parent_purpose(tmp_
 
 
 def test_help_examples_teach_analysis_purpose() -> None:
-    for topic in ("session", "observe", "discover", "transform", "workflow"):
+    for topic in ("observe", "boundary.derive_metric_frame"):
         text = mv.help_text(topic)
         assert "analysis_purpose" in text, topic

@@ -216,7 +216,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                         message=(
                             f"candidate row {index} missing required {shape!r} column {column!r}"
                         ),
-                        details={
+                        context={
                             "kind": "CandidateRowSchemaInvalid",
                             "shape": shape,
                             "column": column,
@@ -236,7 +236,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                         f"candidate row {index} has unexpected value in column {column!r} "
                         f"for shape {shape!r}"
                     ),
-                    details={
+                    context={
                         "kind": "CandidateRowSchemaInvalid",
                         "shape": shape,
                         "column": column,
@@ -253,7 +253,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
             if not isinstance(payload, list):
                 raise FrameMetaInvalidError(
                     message=f"candidate row {index} has invalid affordances_json",
-                    details={
+                    context={
                         "kind": "ItemAffordanceShapeInvalid",
                         "row_index": int(cast("Any", index)),
                         "shape": shape,
@@ -267,7 +267,7 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
         except Exception as exc:
             raise FrameMetaInvalidError(
                 message=(f"candidate row {index} has invalid affordances_json"),
-                details={
+                context={
                     "kind": "ItemAffordanceShapeInvalid",
                     "row_index": int(cast("Any", index)),
                     "shape": shape,

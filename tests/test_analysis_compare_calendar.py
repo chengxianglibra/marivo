@@ -204,7 +204,7 @@ def test_public_align_key_rejects_unknown_key_kind():
     with pytest.raises(CalendarPolicyError) as exc_info:
         _json_key(("mystery", 1))
 
-    assert exc_info.value.details == {
+    assert exc_info.value._context == {
         "kind": "CalendarAlignKeyInvalid",
         "align_key_kind": "mystery",
     }
@@ -544,9 +544,9 @@ def test_rejects_mismatched_multi_period_counts():
             report_tz="Asia/Shanghai",
         )
 
-    assert exc_info.value.details["kind"] == "CalendarAlignPeriodPairMismatch"
-    assert exc_info.value.details["current_period_ids"] == ["2026-05", "2026-06"]
-    assert exc_info.value.details["baseline_period_ids"] == ["2026-04"]
+    assert exc_info.value._context["kind"] == "CalendarAlignPeriodPairMismatch"
+    assert exc_info.value._context["current_period_ids"] == ["2026-05", "2026-06"]
+    assert exc_info.value._context["baseline_period_ids"] == ["2026-04"]
 
 
 def test_rejects_duplicate_calendar_keys():
@@ -565,7 +565,7 @@ def test_rejects_duplicate_calendar_keys():
             report_tz="Asia/Shanghai",
         )
 
-    assert exc_info.value.details["kind"] == "CalendarAlignKeyNotUnique"
+    assert exc_info.value._context["kind"] == "CalendarAlignKeyNotUnique"
 
 
 def test_rejects_align_period_day():
@@ -584,7 +584,7 @@ def test_rejects_align_period_day():
             report_tz="Asia/Shanghai",
         )
 
-    assert exc_info.value.details["kind"] == "CalendarPolicyInvalid"
+    assert exc_info.value._context["kind"] == "CalendarPolicyInvalid"
 
 
 def test_compare_rejects_loose_calendar_alignment_args(calendar_project):
@@ -613,7 +613,7 @@ def test_compare_calendar_rejects_scalar(calendar_project):
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "CalendarAlignRequiresTimeSeries"
+    assert exc_info.value._context["kind"] == "CalendarAlignRequiresTimeSeries"
 
 
 def test_compare_calendar_returns_delta_frame(calendar_project):
@@ -728,7 +728,7 @@ def test_compare_calendar_rejects_missing_calendar_ref(calendar_project):
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "CalendarRefMissing"
+    assert exc_info.value._context["kind"] == "CalendarRefMissing"
     assert len(s.jobs()) == before_jobs
     assert len(s.frame_summaries()) == before_frames
 
@@ -750,7 +750,7 @@ def test_compare_calendar_wraps_policy_validation_error(calendar_project):
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "CalendarPolicyInvalid"
+    assert exc_info.value._context["kind"] == "CalendarPolicyInvalid"
 
 
 def test_compare_calendar_rejects_missing_time_axis(calendar_project):
@@ -775,7 +775,7 @@ def test_compare_calendar_rejects_missing_time_axis(calendar_project):
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "NoTimeAxis"
+    assert exc_info.value._context["kind"] == "NoTimeAxis"
 
 
 def test_compare_calendar_rejects_missing_required_columns_on_baseline(calendar_project):
@@ -807,9 +807,9 @@ def test_compare_calendar_rejects_missing_required_columns_on_baseline(calendar_
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "CalendarAlignColumnMissing"
-    assert exc_info.value.details["frame"] == "baseline"
-    assert set(exc_info.value.details["missing_columns"]) == {"bucket_start", "value"}
+    assert exc_info.value._context["kind"] == "CalendarAlignColumnMissing"
+    assert exc_info.value._context["frame"] == "baseline"
+    assert set(exc_info.value._context["missing_columns"]) == {"bucket_start", "value"}
 
 
 def test_compare_calendar_rejects_ambiguous_value_column(calendar_project):
@@ -853,7 +853,7 @@ def test_compare_calendar_rejects_ambiguous_value_column(calendar_project):
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "CalendarAlignValueColumnAmbiguous"
+    assert exc_info.value._context["kind"] == "CalendarAlignValueColumnAmbiguous"
 
 
 def test_compare_calendar_rejects_missing_value_column(calendar_project):
@@ -885,7 +885,7 @@ def test_compare_calendar_rejects_missing_value_column(calendar_project):
             session=s,
         )
 
-    assert exc_info.value.details["kind"] == "CalendarAlignValueColumnMissing"
+    assert exc_info.value._context["kind"] == "CalendarAlignValueColumnMissing"
 
 
 def test_compare_calendar_time_series_ratio_persists_component_delta(calendar_project):

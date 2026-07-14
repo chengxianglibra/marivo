@@ -69,7 +69,7 @@ def test_help_default_operator_surface_is_phase2_core() -> None:
         "forecast_frame(",
         "explain",
         "scan(",
-        " test ",
+        "session.test(",
         "assess(",
         "decompose",
         "promote_metric_frame",
@@ -113,6 +113,6 @@ def test_delta_affordance_uses_attribute_not_decompose(tmp_path, monkeypatch) ->
         ),
     )
 
-    operators = {item.operator for item in delta.contract().affordances}
-    assert "attribute" in operators
-    assert "decompose" not in operators
+    capability_ids = {item.capability_id for item in delta.contract().affordances}
+    assert "attribute" in capability_ids
+    assert "decompose" not in capability_ids

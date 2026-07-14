@@ -1,4 +1,4 @@
-"""Marivo Python-native analysis runtime (analysis)."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from typing import Any as _Any
 

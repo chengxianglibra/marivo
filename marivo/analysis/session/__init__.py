@@ -173,7 +173,7 @@ def get_or_create(
                 if persisted != requested.name:
                     raise SessionTimezoneConflict(
                         message="session report timezone conflicts with requested report_timezone",
-                        details={
+                        context={
                             "session": row["name"],
                             "persisted_report_tz": persisted,
                             "requested_report_tz": requested.name,

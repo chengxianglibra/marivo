@@ -120,11 +120,27 @@ irreducible primitive. This is why there is no `measure` (use `observe`), no
 `attribute`), no `scan(objective=...)` (use `discover.<objective>`), no `test`
 (use `hypothesis_test`), and no bare `assess` (use `assess_quality`).
 
+### Capability registry and runtime family gate
+
+Every public operator, constructor, read, recovery, and boundary crossing is
+registered in a closed capability registry. Each entry carries a stable
+`capability_id`, `public_entrypoint`, `help_target`, `accepted_inputs` (a
+mapping from parameter name to the closed set of accepted input families), and
+`output_family`. The registry is the single source of truth for the help
+surface, the `contract()` affordances, and the runtime family gate.
+
+The runtime family gate validates submitted inputs against the registry's
+`accepted_inputs` before any backend work begins. When an input family does not
+match, the gate fails closed with a structured `AnalysisError` carrying typed
+`expected`/`received`/`location`/`repair` fields. The `derive_metric_frame`
+boundary capability has the capability id `boundary.derive_metric_frame`; the
+terminal `to_pandas()` exit has `boundary.to_pandas`.
+
 ### Internal / expert surface
 
 These exist for debugging, implementation decomposition, and a few expert cases.
-They are reachable via `mv.help("advanced")` but are never taught alongside the
-core surface:
+They are reachable via focused `mv.help("<target>")` calls but are never taught
+alongside the core surface:
 
 | API | Output | Notes |
 | --- | --- | --- |
@@ -331,6 +347,13 @@ Interface rules:
   from operator id, compiled query, params, metric ref, definition version,
   columns, `time_scope`, `grain`, datasource freshness, and schema version.
 
+`derive_metric_frame` has exactly one capability id in the registry:
+`boundary.derive_metric_frame`. Its `accepted_inputs` map
+(`IbisQuerySpec`, `MetricColumns`) to the closed input-family vocabulary, and
+the runtime family gate validates submitted inputs against the registry before
+any backend work begins. The gate fails closed with a structured `AnalysisError`
+when an input family does not match the registry's `accepted_inputs`.
+
 ## Result contract and read protocol
 
 Analysis operators never write to stdout; every result is silent and returns a
@@ -352,7 +375,10 @@ repr(result)  ->  result.show() / result.render()  ->  result.contract()  ->  re
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to
 `.to_pandas()`. Frames also expose `.ref`, `.kind`, `.lineage`, `.state`,
-`.quality_summary`, `.blocking_issues`, `.columns`, `.shape`, and `.describe()`.
+`.quality_summary`, `.blocking_issues`, `.columns`, and `.shape`. The
+`BaseFrame.describe()` and `BaseFrame.plot()` methods are intentionally removed;
+accessing them raises `AttributeError`. Use `frame.show()` for bounded inspection
+and `frame.to_pandas()` for terminal custom analysis.
 
 ### The mechanical contract
 
@@ -363,10 +389,16 @@ only — it never ranks, recommends, or narrates:
   `semantic_shape`).
 - `blocking_issues` — why the artifact may be unusable/untrustworthy.
 - `affordances: ArtifactAffordance[]` — each a gate that mechanically exists:
-  `operator` (a public API path such as `compare` or `discover.driver_axes`),
-  `required_inputs`, `preconditions` (`(check, pass|fail, reason)`),
-  `param_template` (`deterministic_slots` already filled, `judgment_slots` the
-  agent must decide), and `expected_output_family`.
+  `capability_id` (the stable registry id such as `compare` or
+  `discover.driver_axes`), `public_entrypoint` (the public API path),
+  `help_target` (the canonical `mv.help(...)` target), `required_inputs`,
+  `preconditions` (`(check, pass|fail, reason)`), `param_template`
+  (`deterministic_slots` already filled, `judgment_slots` the agent must
+  decide), and `expected_output_family`.
+- `boundary_ports: ArtifactBoundaryPort[]` — typed terminal-exit ports derived
+  from the capability registry. Each port carries `capability_id`
+  (e.g. `boundary.to_pandas`), `public_entrypoint`, `help_target`,
+  `preserves`, and `does_not_preserve`.
 
 Affordances are not recommendations: Marivo says which doors mechanically exist
 and what each needs; the agent decides which to open, which judgment slots to

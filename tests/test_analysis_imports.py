@@ -76,7 +76,7 @@ def test_analysis_exports_non_execution_escape_hatch_types():
 def test_analysis_exports_public_surface_by_layer() -> None:
     import marivo.analysis as mv
 
-    # Default workflow exports — these are the pruned public surface.
+    # Public surface exports listed in __all__.
     default_exports = {
         "help",
         "help_text",
@@ -110,8 +110,8 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         assert name in mv.__all__, name
         assert hasattr(mv, name), name
 
-    # Advanced/internal types are still importable via explicit attribute
-    # access but are NOT in the default __all__ surface.
+    # Types importable via explicit attribute access but not listed in the
+    # top-level __all__ help index.
     advanced_internal = {
         "BaseFrame",
         "BaseFrameMeta",

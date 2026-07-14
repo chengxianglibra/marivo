@@ -98,7 +98,7 @@ def _catalog_object(catalog: Any, ref: str, kind: SemanticKind) -> Any:
 def _entity_details(catalog: Any, ref: str) -> EntityDetails:
     details = _catalog_object(catalog, ref, SemanticKind.ENTITY).details()
     if not isinstance(details, EntityDetails):
-        raise MetricNotFoundError(message=f"entity {ref!r} not found", details={"entity": ref})
+        raise MetricNotFoundError(message=f"entity {ref!r} not found", context={"entity": ref})
     return details
 
 
@@ -107,13 +107,13 @@ def _field_details(catalog: Any, ref: str) -> DimensionDetails | TimeDimensionDe
     if kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
         raise SemanticKindMismatchError(
             message=f"field {ref!r} is not a dimension or time dimension",
-            details={"ref": ref, "actual_kind": str(kind) if kind is not None else None},
+            context={"ref": ref, "actual_kind": str(kind) if kind is not None else None},
         )
     details = _catalog_object(catalog, ref, kind).details()
     if not isinstance(details, (DimensionDetails, TimeDimensionDetails)):
         raise SemanticKindMismatchError(
             message=f"field {ref!r} is not a dimension or time dimension",
-            details={"ref": ref, "actual_kind": getattr(details, "kind", None)},
+            context={"ref": ref, "actual_kind": getattr(details, "kind", None)},
         )
     return details
 

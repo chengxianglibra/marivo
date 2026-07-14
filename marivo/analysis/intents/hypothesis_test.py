@@ -76,28 +76,28 @@ def hypothesis_test(
     if hypothesis != "mean_changed":
         raise TestPolicyError(message=f"unsupported hypothesis {hypothesis!r}")
     if not 0 < alpha <= 0.5:
-        raise TestPolicyError(message="alpha must be in (0, 0.5]", details={"alpha": alpha})
+        raise TestPolicyError(message="alpha must be in (0, 0.5]", context={"alpha": alpha})
     alignment = alignment or AlignmentPolicy(kind="window_bucket")
     sampling = sampling or SamplingPolicy()
     if alignment.kind != "window_bucket":
         raise TestPolicyError(
             message="hypothesis_test v1 only supports window_bucket alignment",
-            details={"alignment": alignment.model_dump(mode="json")},
+            context={"alignment": alignment.model_dump(mode="json")},
         )
     if alignment.mode != "ordinal_bucket" or alignment.strict_lengths:
         raise TestPolicyError(
             message="hypothesis_test v1 only supports default window_bucket alignment",
-            details={"alignment": alignment.model_dump(mode="json")},
+            context={"alignment": alignment.model_dump(mode="json")},
         )
     if a.meta.semantic_kind != b.meta.semantic_kind:
         raise SemanticKindMismatchError(
             message="hypothesis_test requires matching semantic_kind",
-            details={"a": a.meta.semantic_kind, "b": b.meta.semantic_kind},
+            context={"a": a.meta.semantic_kind, "b": b.meta.semantic_kind},
         )
     if a.meta.semantic_model != b.meta.semantic_model:
         raise SemanticKindMismatchError(
             message="hypothesis_test requires matching semantic_model",
-            details={"a": a.meta.semantic_model, "b": b.meta.semantic_model},
+            context={"a": a.meta.semantic_model, "b": b.meta.semantic_model},
         )
     if a.meta.semantic_kind == "scalar":
         raise TestShapeNotTestableError(
@@ -108,7 +108,7 @@ def hypothesis_test(
     if sampling.pairing != expected_pairing:
         raise TestPolicyError(
             message="SamplingPolicy.pairing does not match input shape",
-            details={
+            context={
                 "semantic_kind": a.meta.semantic_kind,
                 "pairing": sampling.pairing,
                 "expected": expected_pairing,
@@ -151,7 +151,7 @@ def hypothesis_test(
         if row["reason_code"] == "insufficient_pairs":
             raise TestShapeNotTestableError(
                 message="paired sample size is below SamplingPolicy.min_n",
-                details={"sample_size": row["sample_size"], "min_n": sampling.min_n},
+                context={"sample_size": row["sample_size"], "min_n": sampling.min_n},
             )
         rows = [row]
         result_shape = "single"
@@ -306,7 +306,7 @@ def _ordinal_paired_values(
     if not isinstance(grain, str) or not grain:
         raise AlignmentFailedError(
             message="hypothesis_test alignment requires a time axis grain",
-            details={"kind": "WindowBucketGrainMissing"},
+            context={"kind": "WindowBucketGrainMissing"},
         )
     time_column = _time_column(frame_a)
     a_map = _prepared_value_map(a_df, time_column=time_column, value_column=a_value, grain=grain)

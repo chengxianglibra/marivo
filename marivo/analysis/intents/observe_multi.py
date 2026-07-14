@@ -99,7 +99,7 @@ def _normalize_metric_list(catalog: Any, metrics: list[Any]) -> list[str]:
         raise SemanticKindMismatchError(
             message=f"observe received duplicate metrics {duplicates!r}",
             hint="pass each metric once; the frame carries one column per metric",
-            details={"argument": "metric", "duplicates": duplicates},
+            context={"argument": "metric", "duplicates": duplicates},
         )
     return metric_ids
 
@@ -117,7 +117,7 @@ def _reject_unsupported_metric(metric_id: str, metric_details: Any, metric_ir: A
                 "Observe cumulative metrics one at a time so the baseline/flow "
                 "query cost and frame metadata are explicit."
             ),
-            details={"metric": metric_id, "reason": "cumulative"},
+            context={"metric": metric_id, "reason": "cumulative"},
         )
     if isinstance(metric_details, DerivedMetricDetails) or metric_ir.metric_type == "derived":
         raise SemanticKindMismatchError(
@@ -126,7 +126,7 @@ def _reject_unsupported_metric(metric_id: str, metric_details: Any, metric_ir: A
                 f"{metric_id!r} is a derived metric"
             ),
             hint=f"observe {metric_id!r} separately: observe(catalog.get({metric_id!r}), ...)",
-            details={"metric": metric_id, "reason": "derived"},
+            context={"metric": metric_id, "reason": "derived"},
         )
     if getattr(metric_ir, "time_fold", None) is not None:
         raise SemanticKindMismatchError(
@@ -135,7 +135,7 @@ def _reject_unsupported_metric(metric_id: str, metric_details: Any, metric_ir: A
                 f"{metric_id!r} declares a time fold"
             ),
             hint=f"observe {metric_id!r} separately: observe(catalog.get({metric_id!r}), ...)",
-            details={"metric": metric_id, "reason": "folded"},
+            context={"metric": metric_id, "reason": "folded"},
         )
 
 
@@ -335,7 +335,7 @@ def observe_multi(
                     f"to resolve identically for every metric; {metric_id!r} resolved "
                     "differently"
                 ),
-                details={
+                context={
                     "metric": metric_id,
                     "expected_dimensions": normalized_dimensions,
                     "got_dimensions": metric_dimensions,
@@ -357,7 +357,7 @@ def observe_multi(
                     f"observe will produce semantic_shape {predicted_shape!r} for these "
                     f"inputs, but expect_shape={expect_shape!r} was requested"
                 ),
-                details={
+                context={
                     "intent": "observe",
                     "predicted_semantic_shape": predicted_shape,
                     "expect_shape": expect_shape,

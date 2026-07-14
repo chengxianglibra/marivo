@@ -49,16 +49,14 @@ import marivo.semantic as ms
 ```
 
 :::note[Agent discovery]
-从命令行开始，先用 `marivo --help` 查看 CLI 入口。要获取完整的 analysis workflow
-契约，运行：
+从命令行开始，先用 `marivo --help` 查看 CLI 入口。要获取完整的 analysis 能力索引与环境指纹，运行：
 
 ```bash
-python -c "import marivo.analysis as mv; mv.help('workflow')"
+python -m marivo help analysis
 ```
 
-Use the Python interpreter where `marivo` is installed.
-然后深入具体主题，例如 `mv.help("observe")`、`mv.help("catalog")` 或
-`mv.help("artifacts")`，再编写调用。
+使用安装了 `marivo` 的 Python 解释器。输出的版本号、Python 可执行路径和包路径构成环境指纹——从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器一致时才可信。然后深入具体能力，例如
+`mv.help("observe")`、`mv.help("compare")` 或 `mv.help("MetricFrame")`，再编写调用。每个 focused help 主题都自包含一次正确的最小调用。
 :::
 
 只有完成 authoring route 后才进入 analysis：`md.inspect(...)` → explicit scope →
@@ -290,7 +288,7 @@ candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
 ```
 
-## Advanced reference —— `frame.transform.*`
+## Transform 参考 —— `frame.transform.*`
 
 Transforms 在保持 frame 家族（`MetricFrame` → `MetricFrame`，`DeltaFrame` →
 `DeltaFrame`）的前提下重塑 frame。每个 transform 是 frame 自身的方法——调用
@@ -403,8 +401,34 @@ delta.to_pandas()    # 终端导出，用于自定义本地分析
 commit-time evidence 摘要。理解当前步骤只需一次 `show()`；回顾或综合多个步骤时使用
 `session.knowledge()`，需要完整 typed records 与审计链时使用 `session.evidence`。
 
-用 `artifact.contract().affordances` 查看接口兼容性。它只说明哪些 public operator
-可以通过接口消费该 artifact、缺哪些输入；它不排序、不推荐，也不决定下一步。
+用 `artifact.contract().affordances` 查看接口兼容性。每个 affordance 携带
+`capability_id`（稳定的注册表 id）、`public_entrypoint`、`help_target`、
+`required_inputs`、`preconditions` 和 `expected_output_family`。它只说明哪些
+public operator 可以通过接口消费该 artifact、缺哪些输入；它不排序、不推荐，也不决定下一步。`artifact.contract().boundary_ports` 列出类型化的终端出口端口
+（例如 `boundary.to_pandas`），并附带 `preserves` 和 `does_not_preserve` 保证。
+
+### 结构化错误
+
+当 operator 失败时，它会抛出一个类型化的 `AnalysisError` 子类。每个错误都携带稳定的
+类型化字段——`expected`、`received`、`location` 和 `repair`——而不是一个通用的
+details 包。`repair` 字段是一个类型化的 `AnalysisRepair` 对象，包含 `kind`
+（`retry`、`inspect`、`semantic_handoff`、`environment`）、`action`、`help_target`、
+可选的 `snippet` 和从实时状态生成的可选 `candidates`。按照修复指引操作即可；它会指向
+失败能力的确切 `mv.help(...)` 目标。
+
+### 类型化边界出口与重入
+
+Marivo 维护一条类型化分析链。唯一的终端出口是 `frame.to_pandas()`，它返回一个防御性
+副本用于自定义本地分析——它不保留 lineage 或 evidence 连续性。唯一的受管重入是
+`session.derive_metric_frame(...)`，它根据语义 metric 验证自定义 Ibis 查询，并产出带有
+完整 lineage 的规范 `MetricFrame`。pandas 结果是 scratch；要重新进入类型化链，必须再次
+通过 `derive_metric_frame` 验证，绝不可以通过隐式提升。
+
+### 语义交接
+
+分析消费稳定的 semantic refs，绝不猜测业务含义。如果缺少或有争议的 metric、dimension
+或 time dimension，分析会停止并交给 `marivo-semantic`，而不是在分析过程中悄悄修改定义。
+语义层拥有业务对象契约；分析层拥有基于这些对象的类型化计算。
 
 后续脚本需要前序结果时，读取持久化事实，而不是重跑上游查询：
 

@@ -30,7 +30,7 @@ def _load_coverage_frame(
     if coverage_ref is None:
         raise FrameReadError(
             message="metric frame has no coverage sidecar",
-            details={"frame_ref": parent_ref},
+            context={"frame_ref": parent_ref},
         )
 
     session = resolve_frame_session(session_id, project_root)
@@ -58,7 +58,7 @@ def _load_coverage_frame(
             "coverage frame referenced by this metric frame is no longer "
             "available on disk; re-run observe() to regenerate it"
         ),
-        details={
+        context={
             "parent_ref": parent_ref,
             "coverage_ref": coverage_ref,
             "deterministic_ref": deterministic_ref,

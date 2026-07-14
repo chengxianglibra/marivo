@@ -41,6 +41,9 @@ class ConstraintId(StrEnum):
     COMPONENT_FRAME_AVAILABLE = "component_frame_available"
 
 
+_DATASOURCE_DOC = "marivo/skills/marivo-semantic/references/datasource.md"
+
+
 def _constraint(
     id: ConstraintId,
     error_kind: str,
@@ -52,6 +55,7 @@ def _constraint(
     *,
     example: str | None = None,
     docs_ref: str | None = None,
+    help_target: str | None = None,
 ) -> Constraint:
     return Constraint(
         id=id.value,
@@ -63,13 +67,9 @@ def _constraint(
         hint=hint,
         example=example,
         docs_ref=docs_ref,
+        help_target=help_target,
     )
 
-
-_EXAMPLE_BASE = "marivo/skills/marivo-analysis/references/examples"
-_PITFALLS = "marivo/skills/marivo-analysis/references/pitfalls.md"
-_CHEATSHEET = "marivo/skills/marivo-analysis/references/cheatsheet.md"
-_DATASOURCE_DOC = "marivo/skills/marivo-semantic/references/datasource.md"
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
     ConstraintId.METRIC_REF_REGISTERED: _constraint(
@@ -80,8 +80,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Observed metrics must resolve to a registered semantic metric.",
         "Analysis frames are materialized from semantic metric ids; unresolved ids cannot produce SQL.",
         "Use session.catalog.get('metric.<model.metric>') and confirm the id with session.catalog.metrics.ids().",
-        example=f"{_EXAMPLE_BASE}/01_observe_single_window.py",
-        docs_ref=_PITFALLS,
+        help_target="observe",
     ),
     ConstraintId.WINDOW_ABSOLUTE_PARSEABLE: _constraint(
         ConstraintId.WINDOW_ABSOLUTE_PARSEABLE,
@@ -91,8 +90,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Windows and time scopes must be explicit, parseable absolute ranges.",
         "Analysis persistence records concrete bucket ranges and cannot infer an ambiguous natural-language window.",
         'Pass time_scope={"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} or an AbsoluteWindow.',
-        example=f"{_EXAMPLE_BASE}/01_observe_single_window.py",
-        docs_ref=_PITFALLS,
+        help_target="observe",
     ),
     ConstraintId.FRAME_KIND_COMPATIBLE: _constraint(
         ConstraintId.FRAME_KIND_COMPATIBLE,
@@ -114,8 +112,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Intent inputs must match the required frame family and semantic shape.",
         "Each intent consumes a bounded frame contract; accepting the wrong family silently would corrupt follow-up lineage.",
         "Check frame.meta.kind, frame.semantic_shape, or CandidateSet.meta.shape before narrowing or dispatching.",
-        example=f"{_EXAMPLE_BASE}/99_pitfall_pass_delta_to_compare.py",
-        docs_ref=_PITFALLS,
+        help_target="compare",
     ),
     ConstraintId.DISCOVER_MINIMUM_EVIDENCE: _constraint(
         ConstraintId.DISCOVER_MINIMUM_EVIDENCE,
@@ -125,8 +122,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Discovery objectives need enough rows or buckets to rank candidates.",
         "Candidate scoring needs a minimum evidence set; too few observations make rankings misleading.",
         "Use a wider time_scope or choose a discovery objective compatible with the source shape.",
-        example=f"{_EXAMPLE_BASE}/04_discover_point_anomaly.py",
-        docs_ref=_PITFALLS,
+        help_target="discover",
     ),
     ConstraintId.ALIGNMENT_POLICY_SHAPE: _constraint(
         ConstraintId.ALIGNMENT_POLICY_SHAPE,
@@ -136,8 +132,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "AlignmentPolicy arguments must match the selected alignment kind.",
         "Calendar-backed variants require a calendar, while window_bucket uses request-window buckets without one.",
         "Use kind='window_bucket' without calendar, or pass calendar=mv.CalendarRef(...) for calendar-backed kinds.",
-        example=f"{_EXAMPLE_BASE}/02_compare_yoy.py",
-        docs_ref=_PITFALLS,
+        help_target="alignment",
     ),
     ConstraintId.TRANSFORM_ARGUMENTS: _constraint(
         ConstraintId.TRANSFORM_ARGUMENTS,
@@ -147,7 +142,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Transform operators require their documented keyword arguments.",
         "Each transform op has a specific parameter contract; missing or contradictory kwargs produce ambiguous frames.",
         "Inspect mv.help('transform') and pass the required args for the selected op.",
-        docs_ref=_CHEATSHEET,
+        help_target="transform",
     ),
     ConstraintId.TRANSFORM_FRAME_SHAPE: _constraint(
         ConstraintId.TRANSFORM_FRAME_SHAPE,
@@ -157,7 +152,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Transform operators require compatible axes and value columns.",
         "Shape-changing transforms can only preserve lineage when the requested axes exist on the frame.",
         "Use frame.columns, frame.meta.axes, or mv.help('transform') before topk, rollup, slice, or rank.",
-        docs_ref=_CHEATSHEET,
+        help_target="transform",
     ),
     ConstraintId.TRANSFORM_OPERATOR_SUPPORTED: _constraint(
         ConstraintId.TRANSFORM_OPERATOR_SUPPORTED,
@@ -167,7 +162,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Transform op names are limited to the supported v1 operator set.",
         "The runtime records transform lineage by stable op id; unknown ops cannot be replayed.",
         "Use filter, slice, rollup, topk, bottomk, rank, normalize, or window.",
-        docs_ref=_CHEATSHEET,
+        help_target="transform",
     ),
     ConstraintId.FORECAST_INPUT_SHAPE: _constraint(
         ConstraintId.FORECAST_INPUT_SHAPE,
@@ -177,7 +172,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Forecast accepts MetricFrame time_series or panel inputs.",
         "Forecast models need ordered history buckets and cannot operate on scalar or segmented-only frames.",
         "Observe the metric with a grain and enough history before calling session.forecast(...).",
-        docs_ref=_PITFALLS,
+        help_target="forecast",
     ),
     ConstraintId.QUALITY_TARGET_SHAPE: _constraint(
         ConstraintId.QUALITY_TARGET_SHAPE,
@@ -187,7 +182,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Quality assessment v1 accepts MetricFrame targets.",
         "Quality checks are currently defined against observed metric frames and their metric metadata.",
         "Call session.assess_quality(metric_frame) on an observe result.",
-        docs_ref=_PITFALLS,
+        help_target="assess_quality",
     ),
     ConstraintId.FRAME_IMMUTABLE: _constraint(
         ConstraintId.FRAME_IMMUTABLE,
@@ -197,7 +192,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Persisted frames are immutable through the analysis wrapper.",
         "Lineage and persisted metadata assume frame contents do not change after materialization.",
         "Call frame.to_pandas() and mutate the copy when ad hoc analysis needs local changes.",
-        docs_ref=_CHEATSHEET,
+        help_target="boundary.to_pandas",
     ),
     ConstraintId.FRAME_READ_BOUNDS: _constraint(
         ConstraintId.FRAME_READ_BOUNDS,
@@ -207,7 +202,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Frame read helpers enforce bounded inspection arguments.",
         "Help and show APIs should stay small enough for agents and terminals.",
         "Use frame.show() for bounded inspection, or frame.to_pandas() for terminal custom analysis.",
-        docs_ref=_CHEATSHEET,
+        help_target="artifacts",
     ),
     ConstraintId.BACKEND_FACTORY_CONFIGURED: _constraint(
         ConstraintId.BACKEND_FACTORY_CONFIGURED,
@@ -217,7 +212,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Materializing analysis intents need a configured ibis backend factory.",
         "Observe and related intents need a live backend to compile and execute semantic metrics.",
         "Register a datasource and use mv.session.get_or_create(name=...), or pass an explicit backend override.",
-        example=f"{_EXAMPLE_BASE}/00_real_project_template.py",
+        help_target="datasources",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_CONFIGURED: _constraint(
@@ -228,6 +223,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Named datasources must exist before analysis runtime lookup.",
         "Datasource-backed sessions resolve semantic source refs through persisted datasource metadata.",
         "Register the datasource with md.register(...) before creating or attaching the session.",
+        help_target="datasources",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_ENV_AVAILABLE: _constraint(
@@ -238,6 +234,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Datasource secret environment variables must be available at runtime.",
         "The datasource contract stores secret references, not plaintext credentials.",
         "Export the referenced environment variable or validate and remember it with md.test(...).",
+        help_target="datasources",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.DATASOURCE_BACKEND_SUPPORTED: _constraint(
@@ -248,6 +245,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Datasource backend_type must have a registered backend adapter.",
         "The analysis runtime can only create ibis connections for supported datasource backend types.",
         "Use a supported backend_type or add an adapter before relying on datasource auto-loading.",
+        help_target="datasources",
         docs_ref=_DATASOURCE_DOC,
     ),
     ConstraintId.COMPONENT_FRAME_AVAILABLE: _constraint(
@@ -258,6 +256,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Component frames exist only for component-aware derived metric results.",
         "Base sum metrics and non-derived frames have no linked component_ref to load.",
         "Call frame.components() only when frame.meta.component_ref is present.",
+        help_target="artifacts",
     ),
 }
 

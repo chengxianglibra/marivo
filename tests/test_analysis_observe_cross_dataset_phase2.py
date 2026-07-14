@@ -153,7 +153,7 @@ def test_snapshot_as_of_root_time_partition_missing(tmp_path):
             session=_session(con),
         )
 
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["code"] == "snapshot-partition-missing"
     assert details["candidates"]["dataset"] == "sales.user_profile_daily"
     assert "2026-07-01" in details["candidates"]["missing_anchors"]
@@ -609,7 +609,7 @@ def test_component_axis_unreachable_raises(tmp_path):
             session=_session(con),
         )
 
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["code"] == "component-axis-unreachable"
     assert "sales.session_count" in details["candidates"]["missing_components"]
     assert any(c["metric"] == "sales.gmv" for c in details["candidates"]["resolved_components"])
@@ -628,7 +628,7 @@ def test_component_filter_unreachable_raises(tmp_path):
             slice_by={make_ref("sales.users.country", SemanticKind.DIMENSION): "US"},
             session=_session(con),
         )
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["code"] == "component-filter-unreachable"
     assert details["candidates"]["filter_key"] == "sales.users.country"
     assert "sales.session_count" in details["candidates"]["missing_components"]
@@ -715,7 +715,7 @@ def test_component_version_mismatch_raises_on_mode_difference(tmp_path):
             session=_session(con),
         )
 
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["code"] == "component-version-mismatch"
     assert details["candidates"]["versioned_dataset"] == "sales.user_profile_daily"
 

@@ -81,19 +81,13 @@ _OBJECTIVE_TO_SHAPE: dict[CandidateObjective, CandidateShape] = {
 
 _VALID_OBJECTIVES = set(_OBJECTIVE_TO_SHAPE.keys())
 
-_OBJECTIVE_COMPATIBILITY: dict[CandidateObjective, dict[str, set[str]]] = {
-    "point_anomalies": {"metric_frame": {"time_series", "panel"}},
-    "period_shifts": {"delta_frame": {"time_series", "panel"}},
-    "driver_axes": {"delta_frame": {"scalar", "time_series", "segmented", "panel"}},
-    "interesting_slices": {
-        "metric_frame": {"scalar", "time_series", "segmented", "panel"},
-        "delta_frame": {"scalar", "time_series", "segmented", "panel"},
-    },
-    "interesting_windows": {
-        "metric_frame": {"time_series", "panel"},
-        "delta_frame": {"time_series", "panel"},
-    },
-    "cross_sectional_outliers": {"metric_frame": {"segmented", "panel"}},
+_OBJECTIVE_SEMANTIC_KINDS: dict[CandidateObjective, set[str]] = {
+    "point_anomalies": {"time_series", "panel"},
+    "period_shifts": {"time_series", "panel"},
+    "driver_axes": {"scalar", "time_series", "segmented", "panel"},
+    "interesting_slices": {"scalar", "time_series", "segmented", "panel"},
+    "interesting_windows": {"time_series", "panel"},
+    "cross_sectional_outliers": {"segmented", "panel"},
 }
 
 _OBJECTIVE_REQUIRED_KWARGS: dict[CandidateObjective, tuple[str, ...]] = {
@@ -158,7 +152,7 @@ def _normalize_dimension_inputs_boundary(
 
 
 def _discover_dispatch(
-    source: object,
+    source: MetricFrame | DeltaFrame,
     *,
     objective: CandidateObjective | str,
     strategy: CandidateStrategy | None = None,
@@ -176,8 +170,8 @@ def _discover_dispatch(
 
     When to use: find anomalies, drivers, or outliers without a specific hypothesis.
 
-    Each ``objective`` is compatible with specific source kinds and semantic
-    kinds; mismatches raise ``SemanticKindMismatchError``. ``driver_axes``
+    Each ``objective`` is compatible with specific semantic kinds;
+    mismatches raise ``SemanticKindMismatchError``. ``driver_axes``
     requires a non-empty ``search_space``.
 
     Args:
@@ -202,7 +196,7 @@ def _discover_dispatch(
         session: Defaults to the currently-attached session.
 
     Raises:
-        SemanticKindMismatchError: Wrong source kind/semantic_kind for the objective,
+        SemanticKindMismatchError: Wrong semantic_kind for the objective,
             missing required kwargs (e.g. ``search_space`` for ``driver_axes``), or
             unsupported ``objective``.
         CrossSessionFrameError: ``source`` belongs to a different session.
@@ -228,14 +222,6 @@ def _discover_dispatch(
         argument="peer_scope",
     )
 
-    if not isinstance(source, MetricFrame | DeltaFrame):
-        raise SemanticKindMismatchError(
-            message="discover requires a MetricFrame or DeltaFrame input",
-            details={
-                "expected_kind": "metric_frame|delta_frame",
-                "got_kind": type(source).__name__,
-            },
-        )
     ensure_frame_in_session(source, session=session, label="discover source")
     if isinstance(source, MetricFrame):
         require_single_metric(source, intent=f"discover.{objective}")
@@ -243,7 +229,7 @@ def _discover_dispatch(
     if not _is_valid_objective(objective):
         raise SemanticKindMismatchError(
             message=f"unsupported discover objective {objective!r}",
-            details={
+            context={
                 "expected_kind": "|".join(sorted(_VALID_OBJECTIVES)),
                 "got_kind": str(objective),
             },
@@ -253,7 +239,7 @@ def _discover_dispatch(
     source_kind: CandidateSourceKind = (
         "metric_frame" if isinstance(source, MetricFrame) else "delta_frame"
     )
-    _check_objective_compatibility(discover_objective, source_kind, source.meta.semantic_kind)
+    _check_objective_compatibility(discover_objective, source.meta.semantic_kind)
 
     resolved_strategy = _resolve_strategy(discover_objective, strategy)
     shape = _OBJECTIVE_TO_SHAPE[discover_objective]
@@ -517,39 +503,24 @@ def _resolve_strategy(
         return default
     raise SemanticKindMismatchError(
         message=f"unsupported discover strategy {strategy!r}",
-        details={"expected_kind": default, "got_kind": str(strategy)},
+        context={"expected_kind": default, "got_kind": str(strategy)},
     )
 
 
 def _check_objective_compatibility(
     objective: CandidateObjective,
-    source_kind: CandidateSourceKind,
     semantic_kind: str,
 ) -> None:
-    table = _OBJECTIVE_COMPATIBILITY
-    allowed_kinds = table[objective].get(source_kind)
-    if allowed_kinds is None:
+    allowed = _OBJECTIVE_SEMANTIC_KINDS[objective]
+    if semantic_kind not in allowed:
         raise SemanticKindMismatchError(
             message=(
-                f"discover objective {objective!r} does not accept source kind {source_kind!r}"
+                f"discover objective {objective!r} does not accept semantic_kind {semantic_kind!r}"
             ),
-            details={
+            context={
                 "objective": objective,
-                "source_kind": source_kind,
-                "expected_kind": "|".join(sorted(table[objective].keys())),
-            },
-        )
-    if semantic_kind not in allowed_kinds:
-        raise SemanticKindMismatchError(
-            message=(
-                f"discover objective {objective!r} does not accept "
-                f"semantic_kind {semantic_kind!r} on a {source_kind}"
-            ),
-            details={
-                "objective": objective,
-                "source_kind": source_kind,
                 "semantic_kind": semantic_kind,
-                "expected_kind": "|".join(sorted(allowed_kinds)),
+                "expected_kind": "|".join(sorted(allowed)),
             },
         )
 
@@ -616,7 +587,7 @@ def _run_scorer(
         if not search_space:
             raise SemanticKindMismatchError(
                 message="discover(driver_axes) requires a non-empty search_space",
-                details={"objective": objective, "missing": "search_space"},
+                context={"objective": objective, "missing": "search_space"},
             )
         df = source.to_pandas()
         bucket_column, _ = _delta_axes(cast("DeltaFrame", source))
@@ -703,7 +674,7 @@ def _run_scorer(
             if time_column is None:
                 raise SemanticKindMismatchError(
                     message="interesting_windows requires a time bucket column",
-                    details={
+                    context={
                         "objective": objective,
                         "expected_kind": "time_series|panel",
                     },
@@ -757,7 +728,7 @@ def _run_scorer(
 
     raise SemanticKindMismatchError(
         message=f"discover objective {objective!r} is not implemented",
-        details={
+        context={
             "expected_kind": "implemented_objective",
             "objective": objective,
         },
@@ -787,7 +758,7 @@ def _validate_period_shift_min_buckets(
     if bucket_column not in df.columns:
         raise DiscoverInsufficientDataError(
             message="discover(period_shifts) requires a time bucket column",
-            details={
+            context={
                 "objective": "period_shifts",
                 "minimum": minimum,
                 "row_count": 0,
@@ -803,7 +774,7 @@ def _validate_period_shift_min_buckets(
             message=(
                 f"discover(period_shifts) requires at least 4 time buckets; got {bucket_count}"
             ),
-            details={
+            context={
                 "objective": "period_shifts",
                 "minimum": minimum,
                 "row_count": bucket_count,
@@ -825,7 +796,7 @@ def _validate_period_shift_min_buckets(
             "discover(period_shifts) requires at least one panel series with "
             f"4 time buckets; got max {max_count}"
         ),
-        details={
+        context={
             "objective": "period_shifts",
             "minimum": minimum,
             "row_count": max_count,

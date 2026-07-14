@@ -230,15 +230,17 @@ def test_decompose_multi_axis_requires_an_explicit_mode():
             session=session,
         )
 
-    assert exc_info.value.details["reason"] == "multi_axis_mode_required"
-    assert exc_info.value.details["supported_modes"] == ["joint", "hierarchy"]
+    assert exc_info.value._context["reason"] == "multi_axis_mode_required"
+    assert exc_info.value._context["supported_modes"] == ["joint", "hierarchy"]
 
 
 def test_delta_contract_describes_multi_axis_attribution_mode():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"region": ["US"], "delta": [6.0]}))
 
-    affordance = next(item for item in frame.contract().affordances if item.operator == "attribute")
+    affordance = next(
+        item for item in frame.contract().affordances if item.capability_id == "attribute"
+    )
 
     assert affordance.param_template.judgment_slots == [
         "axes",
@@ -298,7 +300,7 @@ def test_decompose_rejects_duplicate_axes():
             session=session,
         )
 
-    assert exc_info.value.details["reason"] == "duplicate_axes"
+    assert exc_info.value._context["reason"] == "duplicate_axes"
 
 
 def test_decompose_accepts_model_prefixed_axis_ref():
@@ -373,9 +375,9 @@ def test_decompose_scalar_rejects_missing_axis_column():
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         decompose(frame, axis=make_ref("region", SemanticKind.DIMENSION), session=session)
 
-    assert exc_info.value.details["requested_axis"] == "region"
-    assert exc_info.value.details["normalized_axis"] == "region"
-    assert exc_info.value.details["available_columns"] == ["delta"]
+    assert exc_info.value._context["requested_axis"] == "region"
+    assert exc_info.value._context["normalized_axis"] == "region"
+    assert exc_info.value._context["available_columns"] == ["delta"]
 
 
 def test_decompose_writes_job_and_frame():
@@ -419,8 +421,8 @@ def test_decompose_rejects_non_dimension_ref_axis():
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         decompose(frame, axis="region", session=session)  # type: ignore[arg-type]
 
-    assert exc_info.value.details["expected_kind"] == "dimension"
-    assert exc_info.value.details["actual_kind"] == "str"
+    assert exc_info.value._context["expected_kind"] == "dimension"
+    assert exc_info.value._context["actual_kind"] == "str"
 
 
 def test_decompose_rejects_missing_axis_column():
@@ -433,9 +435,9 @@ def test_decompose_rejects_missing_axis_column():
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
 
-    assert exc_info.value.details["requested_axis"] == "bucket"
-    assert exc_info.value.details["normalized_axis"] == "bucket"
-    assert exc_info.value.details["available_columns"] == ["delta"]
+    assert exc_info.value._context["requested_axis"] == "bucket"
+    assert exc_info.value._context["normalized_axis"] == "bucket"
+    assert exc_info.value._context["available_columns"] == ["delta"]
 
 
 def test_decompose_time_series_rejects_missing_non_bucket_dimension():
@@ -456,11 +458,11 @@ def test_decompose_time_series_rejects_missing_non_bucket_dimension():
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         decompose(frame, axis=make_ref("cluster", SemanticKind.DIMENSION), session=session)
 
-    assert exc_info.value.details["requested_axis"] == "cluster"
-    assert exc_info.value.details["normalized_axis"] == "cluster"
+    assert exc_info.value._context["requested_axis"] == "cluster"
+    assert exc_info.value._context["normalized_axis"] == "cluster"
     # Must NOT silently use bucket_start
-    assert "bucket_start" not in exc_info.value.details.get("available_columns", []) or (
-        exc_info.value.details["available_columns"].count("bucket_start") == 1
+    assert "bucket_start" not in exc_info.value._context.get("available_columns", []) or (
+        exc_info.value._context["available_columns"].count("bucket_start") == 1
     )
 
 
@@ -647,7 +649,7 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_for_decompose
             session=sampled_bandwidth_for_decompose,
         )
 
-    assert exc_info.value.details["reason"] == "non_linear_time_fold"
+    assert exc_info.value._context["reason"] == "non_linear_time_fold"
 
 
 def test_decompose_axes_empty_delta_returns_empty_hierarchy():

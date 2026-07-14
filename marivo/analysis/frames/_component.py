@@ -36,7 +36,7 @@ def _load_component_frame(
                 "components are only available for derived ratio or "
                 "weighted-average frames produced by component-aware observe"
             ),
-            details={"parent_ref": parent_ref, "parent_kind": parent_kind},
+            context={"parent_ref": parent_ref, "parent_kind": parent_kind},
         )
 
     session = resolve_frame_session(session_id, project_root)
@@ -65,7 +65,7 @@ def _load_component_frame(
             f"component frame referenced by this {parent_kind} is no longer "
             f"available on disk; {advice}"
         ),
-        details={
+        context={
             "parent_ref": parent_ref,
             "parent_kind": parent_kind,
             "component_ref": component_ref,

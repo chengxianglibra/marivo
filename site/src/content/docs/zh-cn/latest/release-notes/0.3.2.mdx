@@ -1,0 +1,95 @@
+---
+slug: zh-cn/latest/release-notes/0.3.2
+title: Marivo 0.3.2
+description: Marivo 0.3.2 发布说明。
+---
+
+Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact 契约、错误模型、边界模型、
+打包 skill 和 CLI 路由同时变更。不提供别名、重定向、弃用字段、双读路径或兼容性标志。
+
+## 重点
+
+- 闭合能力内核替代了旧的基于主题的 help 接面。每个 public operator、constructor、read、
+  recovery 和 boundary crossing 都注册了稳定的 `capability_id`、`accepted_inputs` 和
+  `output_family`。CLI 路由 `marivo help analysis [target]`（或
+  `python -m marivo help analysis [target]`）打印带指纹的能力索引；`mv.help()` 和
+  `mv.help(target)` 从 Python 提供相同的接面。运行时 family gate 在任何 backend 工作开始
+  之前，根据注册表的 `accepted_inputs` 验证提交的输入。
+- `ArtifactAffordance.operator` 被 `capability_id`、`public_entrypoint`、
+  `help_target` 和 `expected_output_family` 替代。每个 affordance 是从能力注册表派生的
+  机械兼容性门，不是推荐。
+- `ArtifactContract` 现在携带 `boundary_ports`：类型化的 `ArtifactBoundaryPort` 对象，
+  描述终端出口端口（例如 `boundary.to_pandas`），附带 `preserves` 和 `does_not_preserve`
+  保证。
+- 通用的 `AnalysisError.details` 包被稳定的类型化字段替代：`expected`、`received`、
+  `location` 和 `repair`。`repair` 字段是类型化的 `AnalysisRepair` 对象，包含 `kind`、
+  `action`、`help_target`、可选的 `snippet` 和从实时状态生成的可选 `candidates`。
+- `BaseFrame.describe()` 和 `BaseFrame.plot()` 已移除。访问它们会抛出 `AttributeError`。
+  请使用 `frame.show()` 进行有界检查，使用 `frame.to_pandas()` 进行终端自定义分析。
+- `marivo-analysis` skill 现在是一个单文件边界内核。它拥有硬边界、交接、证据连续性和
+  收尾义务。它不重复 API 签名、算子清单、调用示例、有序流程、方法清单或报告模板。
+  `references/` 附件树已删除。
+
+## 破坏性变更
+
+- **移除 help 主题。** `mv.help('workflow')` 和 `mv.help('advanced')` 不再可用。新的
+  help 系统使用 `mv.help()`（根索引）、`mv.help(target)`（focused 能力）和
+  `mv.help(ClassName)`（类型 help）。help 目标的字符串别名已移除；使用实时接口上的规范
+  注册目标。
+- **`ArtifactAffordance.operator` 移除。** 由 `capability_id`、`public_entrypoint`、
+  `help_target` 和 `expected_output_family` 替代。
+- **`AnalysisError.details` 移除。** 由稳定的类型化字段（`expected`、`received`、
+  `location`、`repair`）和类型化的 `AnalysisRepair` 对象替代。不再有通用的 details 包。
+- **`ArtifactContract.boundary_ports` 新增。** 从能力注册表派生的类型化终端出口边界端口。
+- **`BaseFrame.describe()` 和 `BaseFrame.plot()` 移除。** 故意抛出 `AttributeError`。
+  使用 `frame.show()` 和 `frame.to_pandas()`。
+- **`marivo-analysis` skill 精简为单文件。** `references/` 树已删除。skill 是边界协议，
+  不是手册。
+- **新 CLI 路由和指纹。** `marivo help analysis [target]` 打印 Marivo 版本、解析的 Python
+  可执行路径和包路径作为环境指纹。从 `PATH` 解析到的裸 `marivo` 只有在指纹与分析解释器
+  一致时才可信。
+- **运行时 family gate。** 提交的输入在 backend 工作之前根据注册表的 `accepted_inputs`
+  进行验证。不匹配会以结构化 `AnalysisError` 闭合失败。
+- **`boundary.derive_metric_frame` 能力 id。** `Session.derive_metric_frame(...)` 有且
+  仅有一个能力 id：`boundary.derive_metric_frame`。终端 `to_pandas()` 出口为
+  `boundary.to_pandas`。
+
+## 无兼容性或迁移行为
+
+这是一次原子性切换。不提供别名、重定向、弃用字段、双读路径、兼容性标志或自动迁移。引用了
+已移除符号、主题或字段的代码必须更新到新接面。
+
+## 文档
+
+- 更新了中英文 analysis-workflow、first-analysis 和 evidence 文档，通过项目解释器和指纹
+  路由入口，解释能力发现、对象邻近 help、静态类型代数、artifact `show`/`contract`、
+  结构化错误、类型化边界出口/重入和语义交接。
+- 更新了 `agent-guide.md` 和活跃分析 spec 的新所有权模型：环境验证的实时接口拥有能力和
+  运行时指引；skill 拥有硬边界、交接、证据连续性和收尾义务；agent 拥有规划和判断。
+- 将两份 2026-07-13 设计 spec 标记为 `approved; implementation planned`。
+
+## 安装
+
+```bash
+pip install marivo
+```
+
+安装你计划使用的 datasource 对应的 backend extra：
+
+```bash
+pip install "marivo[duckdb]"
+pip install "marivo[mysql]"
+pip install "marivo[trino]"
+pip install "marivo[postgres]"
+pip install "marivo[clickhouse]"
+pip install "marivo[all]"
+```
+
+Marivo 0.3.2 要求 Python 3.12 或更高版本。
+
+## 文档
+
+- [安装 Marivo](/zh-cn/latest/installation/)
+- [快速开始](/zh-cn/latest/quick-start/)
+- [Semantic Layer](/zh-cn/latest/concepts/semantic-layer/)
+- [Analysis Workflow](/zh-cn/latest/concepts/analysis-workflow/)

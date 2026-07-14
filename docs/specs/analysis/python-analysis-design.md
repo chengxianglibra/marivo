@@ -114,16 +114,23 @@ Layers 1–4 and the artifact algebra are specified in
 Three layers own analysis guidance, each with one job — an agent consults the right
 one instead of a single monolithic manual:
 
-- **`mv.help` — the static contract.** Signatures, artifact families, constraints,
-  return types, errors, and runnable examples. `mv.help()` is a short index grouped
-  by family; `mv.help("<topic>")` (e.g. `observe`, `workflow`, `recovery`) expands
-  one topic with a minimal example.
-- **Frames and results — dynamic guidance.** `show()` describes an artifact's
-  current state; `contract()` describes the mechanically valid next actions from
-  where it is now. Judgment stays with the agent.
-- **The `marivo-analysis` skill — workflow only.** Intent paths, session discipline,
-  observation points, and final report shape. It does not duplicate the help
-  contract or the frame/result guidance.
+- **Live surfaces — capabilities and runtime guidance.** The CLI route
+  `python -m marivo help analysis [target]` and `mv.help(...)` own the static
+  contract: signatures, artifact families, constraints, return types, errors, and
+  runnable examples. `mv.help()` is a short index grouped by capability family;
+  `mv.help("<target>")` (e.g. `observe`, `compare`, `recover`) expands one
+  capability with a minimal example. Frames and results own dynamic guidance:
+  `show()` describes an artifact's current state; `contract()` describes the
+  mechanically valid next actions from where it is now. Structured errors own
+  repair guidance with typed `AnalysisRepair` instructions. Judgment stays with
+  the agent.
+- **The `marivo-analysis` skill — hard boundaries, handoffs, evidence continuity,
+  and closeout obligations.** It is a one-file boundary kernel. It does not
+  duplicate the help contract, frame/result guidance, or error repair guidance.
+  It does not prescribe an ordered operator sequence or a report template.
+- **The agent — planning and judgment.** Given the contract, the boundaries, and
+  the dynamic guidance, the agent owns which operator to reach for, which judgment
+  slots to fill, whether to stop, and how to synthesize conclusions.
 
 ## Usage model
 

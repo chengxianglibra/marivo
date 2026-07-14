@@ -1,4 +1,4 @@
-"""MetricFrame and MetricFrameMeta."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ConfigDict
 
+from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactAffordance,
     ArtifactContract,
@@ -47,10 +48,18 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
             "trailing values are a rolling window; rolling-series autocorrelation "
             "can pollute correlation and hypothesis-test interpretation"
         )
+        repair_action = (
+            "Use trailing cumulative frames only with identical anchor payloads "
+            "for correlation and hypothesis tests."
+        )
     elif isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
         reason = (
             "grain_to_date values reset at period boundaries; non-stationary within "
             "and across periods, which can pollute correlation and hypothesis-test interpretation"
+        )
+        repair_action = (
+            "Use grain_to_date cumulative frames only with single-period, "
+            "boundary-anchored windows for correlation and hypothesis tests."
         )
     else:
         reason = (
@@ -58,7 +67,20 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
             "shared monotonic trend can pollute correlation and "
             "hypothesis-test interpretation"
         )
-    return ArtifactPrecondition(check="running_total_caveat", status="fail", reason=reason)
+        repair_action = (
+            "Prefer non-cumulative frames for correlation and hypothesis tests; "
+            "or interpret results with awareness of the shared monotonic trend."
+        )
+    return ArtifactPrecondition(
+        check="running_total_caveat",
+        status="fail",
+        reason=reason,
+        repair=AnalysisRepair(
+            kind="retry",
+            action=repair_action,
+            help_target="compare",
+        ),
+    )
 
 
 def _cumulative_status_line(anchor: object) -> str:
@@ -96,6 +118,14 @@ def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondit
                 "trailing cumulative compare requires an identical anchor payload "
                 "(same count and unit) on both frames"
             ),
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Ensure both cumulative frames use the same trailing anchor "
+                    "payload (same count and unit) before calling compare()."
+                ),
+                help_target="compare",
+            ),
         )
     elif isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
         conditional = ArtifactPrecondition(
@@ -105,6 +135,14 @@ def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondit
                 "grain_to_date cumulative compare requires single-period, "
                 "boundary-anchored windows on both frames (window starts on a "
                 "reset boundary and spans exactly one reset period)"
+            ),
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "Ensure both grain_to_date cumulative frames use "
+                    "single-period, boundary-anchored windows before calling compare()."
+                ),
+                help_target="compare",
             ),
         )
     else:
@@ -123,7 +161,7 @@ def _attach_rollup_affordance(contract: ArtifactContract) -> ArtifactContract:
     """
     affordances: list[ArtifactAffordance] = []
     for affordance in contract.affordances:
-        if affordance.operator == "transform":
+        if affordance.capability_id.startswith("transform."):
             updated_slots = {
                 **affordance.param_template.deterministic_slots,
                 "op": "rollup",
@@ -173,6 +211,8 @@ class MetricFrameMeta(BaseFrameMeta):
 
 @dataclass(repr=False)
 class MetricFrame(BaseFrame):
+    """Call mv.help(MetricFrame) for its public consumption contract."""
+
     meta: MetricFrameMeta
 
     #: Canonical column name for the metric value in the wrapped DataFrame.
@@ -233,8 +273,9 @@ class MetricFrame(BaseFrame):
         return len(self.measures_meta())
 
     # Every next-intent is gated at arity > 1; derive from _NEXT_INTENTS so
-    # the two cannot drift.
-    _GATED_INTENTS: tuple[str, ...] = _NEXT_INTENTS
+    # the two cannot drift.  These are capability-id prefixes: any
+    # capability whose id starts with one of these prefixes is gated.
+    _GATED_CAPABILITY_PREFIXES: tuple[str, ...] = _NEXT_INTENTS
 
     def _card(self) -> Card:
         card = super()._card()
@@ -273,7 +314,7 @@ class MetricFrame(BaseFrame):
             compare_preconditions = _compare_conditional_preconditions(anchor)
             updated: list[ArtifactAffordance] = []
             for affordance in contract.affordances:
-                if affordance.operator == "compare":
+                if affordance.capability_id == "compare":
                     # all_history: hard caveat only. trailing/grain_to_date:
                     # conditional affordance (caveat + mechanical preconditions).
                     preconditions = (
@@ -296,13 +337,26 @@ class MetricFrame(BaseFrame):
             check="single_metric",
             status="fail",
             reason=(f'frame carries {self.arity} metrics; call .metric("{first_metric}") first'),
+            repair=AnalysisRepair(
+                kind="retry",
+                action=f'Call .metric("{first_metric}") to project to a single metric first.',
+                help_target="MetricFrame.metric",
+                snippet=f'frame.metric("{first_metric}")',
+            ),
         )
-        gated = set(self._GATED_INTENTS)
+        gated_prefixes = set(self._GATED_CAPABILITY_PREFIXES)
+
+        def _is_gated(capability_id: str) -> bool:
+            return any(
+                capability_id == prefix or capability_id.startswith(prefix + ".")
+                for prefix in gated_prefixes
+            )
+
         affordances = [
             affordance.model_copy(
                 update={"preconditions": [*affordance.preconditions, precondition]}
             )
-            if affordance.operator in gated
+            if _is_gated(affordance.capability_id)
             else affordance
             for affordance in contract.affordances
         ]
@@ -334,8 +388,10 @@ class MetricFrame(BaseFrame):
 
     def components(self) -> ComponentFrame:
         """Load the linked ComponentFrame for component-aware derived metrics."""
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.frames._component import _load_component_frame
 
+        validate_capability_inputs("MetricFrame.components", receiver=self)
         return _load_component_frame(
             parent_ref=self.ref,
             parent_kind=self.meta.kind,
@@ -366,8 +422,10 @@ class MetricFrame(BaseFrame):
         Returns ``None`` coverage (no sidecar) when the parent frame has no
         ``coverage_ref`` (e.g. all_history and grain_to_date cumulatives).
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.frames._coverage import _load_coverage_frame
 
+        validate_capability_inputs("MetricFrame.coverage", receiver=self)
         return _load_coverage_frame(
             parent_ref=self.ref,
             session_id=self.meta.session_id,
@@ -401,6 +459,8 @@ class MetricFrame(BaseFrame):
             Requires the frame's owning session to be current; commits a
             ``select_metric`` step (no backend query).
         """
+        from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.frames._metric_projection import project_metric
 
+        validate_capability_inputs("MetricFrame.metric", receiver=self)
         return project_metric(self, metric_id)

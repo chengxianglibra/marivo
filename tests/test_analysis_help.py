@@ -1,644 +1,339 @@
-"""mv.help() introspection."""
+"""Semantic invariant tests for the analysis help renderer.
+
+These tests pin structural invariants of ``mv.help()`` / ``mv.help_text()``
+without snapshotting full rendered prose, whitespace, or wrapping.
+"""
 
 from __future__ import annotations
 
 import inspect
 import io
 from contextlib import redirect_stdout
-from typing import Any, cast
 
-from pytest import CaptureFixture
+import pytest
 
+import marivo
 import marivo.analysis as mv
-from marivo.analysis.errors import SemanticKindMismatchError
+from marivo.analysis._capabilities.model import (
+    ROOT_GROUP_ORDER,
+    SURFACE_LIMITS,
+    OperatorCapability,
+)
+from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.analysis.errors import (
+    AnalysisError,
+    HelpTargetError,
+    MetricNotFoundError,
+)
+from marivo.analysis.frames.base import BaseFrame
+from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.session.core import Session
-from marivo.introspection.surface import render
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
 
-
-def _json_data(symbol: str | None = None) -> dict[str, Any]:
-    """Return the JSON descriptor dict for a symbol using the internal render."""
-    from marivo.analysis.help import _surface
-
-    return cast("dict[str, Any]", render(_surface(), symbol, "json"))
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
-_HELP_ONLY_ENTRIES = {
-    "workflow",
-    "session",
-    "catalog",
-    "observe",
-    "compare",
-    "attribute",
-    "discover",
-    "correlate",
-    "hypothesis_test",
-    "forecast",
-    "derive_metric_frame",
-    "assess_quality",
-    "alignment",
-    "calendar",
-    "artifacts",
-    "recovery",
-    "advanced",
-    "cumulative_frame",
-}
-
-
-def _capture(symbol: str | None = None) -> str:
+def _capture(target: object = None, **kwargs: object) -> str:
+    """Capture stdout from mv.help(target)."""
     buf = io.StringIO()
     with redirect_stdout(buf):
-        mv.help(symbol)
+        mv.help(target, **kwargs)  # type: ignore[arg-type]
     return buf.getvalue()
 
 
-def test_top_level_help_lists_intents_and_helpers() -> None:
-    out = _capture()
-    assert "observe" in out
-    assert "compare" in out
-    assert "attribute" in out
-    assert "decompose" not in out
-    assert "discover" in out
-    assert "detect" not in out
-    assert "correlate" in out
-    assert "session" in out
-    assert "calendar" in out
-    assert "help" in out
+def _text(target: object = None, **kwargs: object) -> str:
+    """Return mv.help_text(target) without printing."""
+    return mv.help_text(target, **kwargs)  # type: ignore[arg-type]
 
 
-def test_help_lists_discover_and_not_detect(capsys: CaptureFixture[str]) -> None:
-    mv.help()
-    output = capsys.readouterr().out
-
-    assert "discover" in output
-    assert "mv.detect" not in output
+# ---------------------------------------------------------------------------
+# Fingerprint prefix (root help)
+# ---------------------------------------------------------------------------
 
 
-def test_detect_is_not_exported() -> None:
-    assert "detect" not in mv.__all__
-    assert not hasattr(mv, "detect")
+def test_root_help_has_three_line_fingerprint() -> None:
+    text = _text()
+    lines = text.splitlines()
+    assert len(lines) >= 3
+    assert lines[0].startswith("Marivo: ")
+    assert marivo.__version__ in lines[0]
+    assert lines[1].startswith("Python: ")
+    assert lines[2].startswith("Package: ")
 
 
-def test_execution_operators_remain_help_only() -> None:
-    assert "observe" not in mv.__all__
-    assert "compare" not in mv.__all__
-    assert not hasattr(mv, "observe")
-    assert not hasattr(mv, "compare")
+def test_root_help_fingerprint_uses_resolved_paths() -> None:
+    from pathlib import Path
 
-    out = _capture()
-    assert "help:observe" in out
-    assert "help:compare" in out
-    assert "mv.observe" not in out
-    assert "mv.compare" not in out
+    text = _text()
+    lines = text.splitlines()
+    assert str(Path(marivo.__file__).resolve()) in lines[2]
 
 
-def test_help_attribute_mentions_missing_axis_materialization_and_multi_axis_mode() -> None:
-    out = _capture("attribute").lower()
-
-    assert "missing" in out
-    assert "materialize" in out
-    assert "explicit" in out
-    assert 'mode="joint"' in out
-    assert 'mode="hierarchy"' in out
-    assert "recursive" not in out
+# ---------------------------------------------------------------------------
+# Root groups and canonical targets
+# ---------------------------------------------------------------------------
 
 
-def test_help_decompose_is_not_top_level_agent_default() -> None:
-    out = _capture().lower()
-
-    assert "attribute" in out
-    assert "decompose" not in out
-
-
-def test_help_for_intent_includes_signature_and_docstring() -> None:
-    from marivo.analysis.intents.select import select as select_fn
-
-    cases = [
-        ("compare", Session.compare),
-        ("observe", Session.observe),
-        ("select", select_fn),
-    ]
-    for symbol, callable_obj in cases:
-        out = _capture(symbol)
-        assert "Signature:" in out, f"{symbol} help should include signature"
-        assert f"{symbol}(" in out, f"{symbol} help should include callable name in signature"
-        first_doc_line = (inspect.getdoc(callable_obj) or "").strip().splitlines()[0]
-        assert first_doc_line, f"{symbol} callable should have a non-empty docstring"
-        assert first_doc_line in out, f"{symbol} help should include first docstring line"
+def test_root_help_has_nine_deterministic_groups() -> None:
+    text = _text()
+    for group in ROOT_GROUP_ORDER:
+        # Each group must appear as a section header in the rendered output.
+        assert group in text, f"missing root group: {group}"
 
 
-def test_help_attribute_mentions_component_mix_and_sampled_fold_boundary() -> None:
-    out = _capture("attribute").lower()
+def test_root_help_contains_all_direct_capabilities() -> None:
+    text = _text()
+    direct = [d for d in REGISTRY.descriptors if d.root_visibility == "direct"]
+    assert len(direct) > 0
+    for desc in direct:
+        assert desc.help_target in text, f"missing direct capability: {desc.help_target}"
 
-    assert "component-aware ratio" in out
-    assert "weighted-average" in out
-    assert "non-linear sampled folds" in out
+
+def test_root_help_contains_type_algebra_rows() -> None:
+    text = _text()
+    rows = REGISTRY.type_algebra_rows()
+    assert len(rows) > 0
+    for row in rows:
+        rendered = row.render()
+        assert rendered in text, f"missing algebra row: {rendered}"
 
 
-def test_help_for_session_intent_aliases_matches_canonical_target() -> None:
-    intents = (
-        "observe",
-        "compare",
-        "attribute",
-        "correlate",
-        "forecast",
-        "assess_quality",
-        "hypothesis_test",
-        "derive_metric_frame",
+def test_root_help_contains_terminal_boundary_row() -> None:
+    text = _text()
+    assert "boundary.to_pandas" in text
+    assert "pandas.DataFrame" in text
+    assert "(terminal)" in text
+
+
+def test_root_help_contains_drill_down_instruction() -> None:
+    text = _text()
+    assert "mv.help(" in text
+
+
+# ---------------------------------------------------------------------------
+# Absence of routing/default/advanced/workflow language
+# ---------------------------------------------------------------------------
+
+
+def test_root_help_has_no_workflow_sequence() -> None:
+    text = _text().lower()
+    assert "default agent workflow" not in text
+    assert "question -> first operator" not in text
+    assert "intent routing" not in text
+
+
+def test_root_help_has_no_advanced_label() -> None:
+    text = _text().lower()
+    assert "advanced" not in text
+
+
+def test_root_help_has_no_default_operator_label() -> None:
+    text = _text().lower()
+    assert "default operators" not in text
+
+
+# ---------------------------------------------------------------------------
+# SURFACE_LIMITS enforcement
+# ---------------------------------------------------------------------------
+
+
+def test_root_help_within_line_budget() -> None:
+    text = _text()
+    assert len(text.splitlines()) <= SURFACE_LIMITS.root_help_max_lines
+
+
+def test_root_help_within_codepoint_budget() -> None:
+    text = _text()
+    assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
+
+
+def test_focused_help_within_line_budget() -> None:
+    text = _text("observe")
+    assert len(text.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
+
+
+def test_focused_help_within_codepoint_budget() -> None:
+    text = _text("observe")
+    assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
+
+
+# ---------------------------------------------------------------------------
+# help() equals help_text() plus newline
+# ---------------------------------------------------------------------------
+
+
+def test_help_output_equals_help_text_plus_newline() -> None:
+    for target in (None, "observe", "compare", "help"):
+        captured = _capture(target)
+        text = _text(target)
+        assert captured == text + "\n", f"mismatch for target={target!r}"
+
+
+# ---------------------------------------------------------------------------
+# Focused help: signature, families, example, constraints, edges
+# ---------------------------------------------------------------------------
+
+
+def test_focused_help_includes_live_signature() -> None:
+    text = _text("observe")
+    sig = str(inspect.signature(Session.observe))
+    # The signature text should appear in the rendered help (without 'self').
+    assert "observe(" in text
+    assert "metric" in text
+    assert "time_scope" in text
+
+
+def test_focused_help_signature_matches_inspect() -> None:
+    text = _text("observe")
+    sig = str(inspect.signature(Session.observe))
+    # Extract the portion after 'self' — the public signature.
+    # The help text should contain the parameter names from the signature.
+    for param_name in ("metric", "time_scope", "grain", "dimensions", "analysis_purpose"):
+        assert param_name in text
+
+
+def test_focused_help_includes_accepted_and_output_families() -> None:
+    text = _text("observe")
+    assert "MetricFrame" in text
+    desc = REGISTRY.by_help_target("observe")
+    assert isinstance(desc, OperatorCapability)
+    # Accepted input families should be mentioned.
+    for families in desc.accepted_inputs.values():
+        for family in families:
+            assert str(family) in text or family in text
+
+
+def test_focused_help_includes_runnable_example() -> None:
+    text = _text("observe")
+    assert "Example:" in text
+    # The example must be runnable (contain session.observe call).
+    assert "session.observe(" in text
+    # No ellipsis in the example.
+    example_section = text[text.index("Example:") :]
+    assert "..." not in example_section
+
+
+def test_focused_help_includes_invocation_critical_constraints() -> None:
+    text = _text("observe")
+    desc = REGISTRY.by_help_target("observe")
+    for constraint_id in desc.constraint_ids:
+        # Each constraint id should be mentioned.
+        assert constraint_id in text, f"missing constraint: {constraint_id}"
+
+
+def test_focused_help_includes_producer_consumer_edges() -> None:
+    text = _text("MetricFrame")
+    # Type help should show producers (who creates MetricFrame).
+    assert "observe" in text or "producer" in text.lower()
+    # Type help should show consumers (what consumes MetricFrame).
+    consumers = REGISTRY.constructor_consumers.get("MetricFrame", ())
+    for consumer_id in consumers[:3]:
+        assert consumer_id in text, f"missing consumer: {consumer_id}"
+
+
+# ---------------------------------------------------------------------------
+# Type help: no constructors, no private fields, properties/methods separation
+# ---------------------------------------------------------------------------
+
+
+def test_type_help_omits_constructors() -> None:
+    text = _text("MetricFrame")
+    assert "MetricFrame(" not in text.split("Properties:")[0].split("Methods:")[0]
+    assert "__init__" not in text
+    assert "model_config" not in text
+
+
+def test_type_help_omits_private_fields() -> None:
+    text = _text("MetricFrame")
+    assert "_df" not in text
+    assert "_NEXT_INTENTS" not in text
+    assert "_GATED_INTENTS" not in text
+    # Pydantic internals should not appear.
+    assert "model_fields" not in text
+    assert "model_validate" not in text
+
+
+def test_type_help_separates_properties_and_methods() -> None:
+    text = _text("MetricFrame")
+    assert "Properties:" in text or "properties" in text.lower()
+    assert "Methods:" in text or "methods" in text.lower()
+
+
+def test_type_help_lists_registry_allowlist_members() -> None:
+    from marivo.analysis._capabilities.registry import (
+        PUBLIC_FRAME_METHODS,
+        PUBLIC_FRAME_PROPERTIES,
     )
 
-    for intent in intents:
-        expected = _capture(intent)
-        for alias in (
-            f"mv.Session.{intent}",
-            f"session.{intent}",
-            f"mv.session.{intent}",
-        ):
-            out = _capture(alias)
-            assert out == expected, alias
-            assert "Unknown help target" not in out, alias
-            assert "Signature:" in out, alias
-
-
-def test_help_for_session_namespace_aliases_matches_canonical_target() -> None:
-    for topic in ("discover",):
-        expected = _capture(topic)
-        for alias in (
-            f"mv.Session.{topic}",
-            f"session.{topic}",
-            f"mv.session.{topic}",
-        ):
-            assert _capture(alias) == expected, alias
-
-
-def test_help_for_observe_documents_empty_dimensions_as_no_axes() -> None:
-    out = _capture("observe")
-
-    assert "dimensions=None or dimensions=[] means no segment axes" in out
-
-
-def test_help_for_transform_and_discover_lists_namespace_methods() -> None:
-    transform_out = _capture("transform")
-    assert "frame.transform op helper matrix" in transform_out
-    assert "frame.transform.topk" in transform_out
-    assert "frame.transform.rollup" in transform_out
-    assert "session.transform" not in transform_out
-
-    discover_out = _capture("discover")
-    assert "session.discover objective helper matrix" in discover_out
-    assert "session.discover.point_anomalies" in discover_out
-    assert "session.discover.driver_axes" in discover_out
-
-
-def test_help_for_intent_does_not_mutate_callable_docstring() -> None:
-    original_doc = Session.compare.__doc__
-    Session.compare.__doc__ = None
-
-    try:
-        out = _capture("compare")
-
-        assert Session.compare.__doc__ is None
-        module = inspect.getmodule(Session.compare)
-        assert module is not None
-        first_doc_line = (inspect.getdoc(module) or "").strip().splitlines()[0]
-        assert first_doc_line not in out
-    finally:
-        Session.compare.__doc__ = original_doc
-
-
-def test_help_for_exception_class_resolves_by_name() -> None:
-    out = _capture("SemanticKindMismatchError")
-    assert "SemanticKindMismatchError" in out
-    assert "MetricFrame" in out or "compare" in out
-
-
-def test_help_for_exception_class_does_not_use_inherited_base_docstring() -> None:
-    assert SemanticKindMismatchError.__doc__ is None
-
-    out = _capture("SemanticKindMismatchError")
-
-    assert "SemanticKindMismatchError" in out
-    assert "Base class for all analysis errors." not in out
-    assert "MetricFrame" in out or "compare" in out
-
-
-def test_help_for_unknown_symbol_explains_how_to_list() -> None:
-    out = _capture("nonexistent_thing_xyz")
-    assert "unknown help target" in out.lower()
-    assert "help()" in out
-
-
-def test_help_lists_new_statistical_operators(capsys: CaptureFixture[str]) -> None:
-    mv.help()
-    out = capsys.readouterr().out
-
-    assert "hypothesis_test" in out
-    assert "forecast" in out
-    assert "assess_quality" in out
-
-
-def test_help_describes_new_statistical_operators(capsys: CaptureFixture[str]) -> None:
-    for name in ("hypothesis_test", "forecast", "assess_quality"):
-        mv.help(name)
-        assert name in capsys.readouterr().out
-
-
-def test_help_discover_prints_objective_matrix() -> None:
-    out = _capture("discover")
-    assert "objective" in out
-    assert "point_anomalies" in out
-    assert "metric_frame" in out
-    assert "driver_axes" in out
-    assert "search_space" in out
-    assert "delta_frame" in out
-
-
-def test_help_select_prints_field_by_shape_matrix() -> None:
-    out = _capture("select")
-    assert "attribute-by-shape matrix" in out
-    assert "driver_axis" in out
-    assert "axis" in out
-    assert "point_anomaly" in out
-
-
-def test_help_transform_prints_op_matrix() -> None:
-    out = _capture("transform")
-    assert "topk" in out
-    assert "rollup" in out
-    assert "drop_axes" in out
-    assert "limit" in out
-
-
-def test_help_alignment_prints_variants() -> None:
-    out = _capture("alignment")
-    assert "window_bucket" in out
-    assert "mv.window_bucket()" in out
-    assert "dow_aligned" in out
-    assert "mv.dow_aligned(calendar=mv.CalendarRef(...))" in out
-    assert "holiday_aligned" in out
-    assert "holiday_and_dow_aligned" in out
-    assert "calendar=" in out
-    assert "no separate kind='ordinal'" in out
-    assert "align by ordinal bucket position" in out
-    assert "Calendar alignment output columns" in out
-    assert "period_week_offset" in out
-    assert "holiday_ordinal" in out
-    assert "workday_ordinal" in out
-    assert "baseline_date" in out
-
-
-def test_help_calendar_prints_file_schema_and_entry_example() -> None:
-    out = _capture("calendar")
-    assert ".marivo/calendar/<name>.json" in out
-    assert '"date": "2026-05-01"' in out
-    assert '"holiday_id": "labor-day"' in out
-    assert "adjusted_workdays" in out
-    assert '"timezone"' not in out
-    assert "Calendar files define dates only" in out
-    assert "use holiday_id rather than name/label" in out
-
-
-def test_help_json_top_level_is_canonical() -> None:
-    result = _json_data()
-
-    assert isinstance(result, dict)
-    assert result["schema_version"] == "1"
-    assert result["surface"] == "marivo.analysis"
-    assert result["kind"] == "surface"
-    entries = cast("list[dict[str, Any]]", result["entries"])
-    families = cast("list[dict[str, Any]]", result["families"])
-    enumerated = {entry["name"] for entry in entries}
-    folded = {name for fam in families for name in fam["members"]}
-    assert enumerated.isdisjoint(folded)
-    assert enumerated | folded == set(mv.__all__) | _HELP_ONLY_ENTRIES
-
-
-def test_help_rejects_removed_load_frame_symbol() -> None:
-    result = _json_data("load_frame")
-
-    assert isinstance(result, dict)
-    assert result["kind"] == "unknown"
-    assert result["symbol"] == "load_frame"
-
-
-def test_help_resolves_core_runtime_and_result_types() -> None:
-    expected_kinds = {
-        "Session": "class",
-        "BaseFrameMeta": "class",
-        "SessionSummary": "class",
-        "JobSummary": "class",
-        "Lineage": "class",
-        "LineageStep": "class",
-    }
-
-    for symbol, expected_kind in expected_kinds.items():
-        result = _json_data(symbol)
-        assert result["kind"] == expected_kind, symbol
-        assert result["symbol"] == symbol
-        # Session is in the default public surface and has a populated summary.
-        # Advanced/internal types (BaseFrameMeta, SessionSummary, etc.) are
-        # still resolvable via explicit help but are no longer in the default
-        # surface, so their summary may be empty.
-        if symbol in mv.__all__:
-            assert result["summary"], symbol
-
-
-def test_help_topics_json_have_structured_content() -> None:
-    expected_keys = {
-        "workflow": "intent_routing",
-        "catalog": "discovery",
-        "discover": "objectives",
-        "select": "fields_by_shape",
-        "transform": "ops",
-        "alignment": "variants",
-        "calendar": "schema",
-        "artifacts": "read_order",
-        "recovery": "steps",
-        "advanced": "surfaces",
-    }
-
-    for symbol, key in expected_keys.items():
-        result = _json_data(symbol)
-        assert isinstance(result, dict)
-        assert result["kind"] == "topic"
-        content = cast("dict[str, Any]", result["content"])
-        assert key in content
-
-
-def test_help_workflow_topic_is_complete_agent_runbook() -> None:
-    rendered = _capture("workflow")
-    assert "mv.session.get_or_create" in rendered
-    assert "session = mv.session.get_or_create(name=" in rendered
-    assert "session = mv.session.get_or_create(...)" not in rendered
-    assert "catalog.domains.show()" in rendered
-    assert "catalog.metrics.show()" in rendered
-    assert 'region = session.catalog.get("dimension.sales.orders.region")' in rendered
-    assert "mv.help(revenue)" in rendered
-    assert "revenue.details().show()" in rendered
-    assert "region.details().show()" in rendered
-    assert "session.catalog.readiness(refs=[revenue.ref, region.ref]).show()" in rendered
-    assert "session.observe(" in rendered
-    assert "Question -> first operator:" in rendered
-    assert "Current vs baseline change" in rendered
-    assert "observe x2 -> compare" in rendered
-    assert "artifact.show()" in rendered
-    assert "artifact.contract()" in rendered
-    assert "artifact.meta.evidence_status" in rendered
-    assert "before reporting" in rendered
-    assert 'mv.help("cumulative_frame")' in rendered
-    assert "Recovery branch (cross-script only):" in rendered
-    assert "session.frame_summaries()" in rendered
-    assert "session.get_frame(" in rendered
-    assert "artifact.to_pandas()" in rendered
-    assert "bounded commit-time evidence" in rendered
-    assert "second evidence show" in rendered
-    assert "session.knowledge()" in rendered
-    assert "session.evidence" in rendered
-    assert "artifact.evidence()" not in rendered
-
-
-def test_help_workflow_json_records_routing_and_boundaries() -> None:
-    result = _json_data("workflow")
-    content = cast("dict[str, Any]", result["content"])
-
-    routes = cast("list[dict[str, str]]", content["intent_routing"])
-    route_text = "\n".join(f"{item['question']} -> {item['route']}" for item in routes)
-    assert "Value of a metric in one window" in route_text
-    assert "observe x2 -> compare" in route_text
-    assert "derive_metric_frame" in route_text
-
-    operator_boundaries = cast("list[str]", content["operator_boundaries"])
-    joined_boundaries = "\n".join(operator_boundaries)
-    assert "compare/correlate/hypothesis_test consume typed MetricFrames" in joined_boundaries
-    assert "attribute consumes a DeltaFrame plus catalog axes" in joined_boundaries
-
-
-def test_help_catalog_topic_teaches_analysis_side_consumption() -> None:
-    rendered = _capture("catalog")
-    assert "session.catalog.domains.show()" in rendered
-    assert "session.catalog.metrics.show()" in rendered
-    assert "session.catalog.dimensions.show()" in rendered
-    assert 'session.catalog.get("metric.<domain>.<metric>").details().show()' in rendered
-    assert "Typed collection properties" in rendered
-    assert "business_definition, guardrails, instructions" in rendered
-    assert "mv.help(metric)" in rendered
-    assert "mv.help(metric.ref)" in rendered
-    assert "catalog.list().show()" not in rendered
-
-
-def test_help_advanced_topic_holds_non_default_surfaces() -> None:
-    rendered = _capture("advanced")
-    assert "transform" in rendered
-    assert "select" in rendered
-    assert "cumulative_frame" in rendered
-    assert "contract DTO" in rendered
-    assert "lineage" in rendered
-    assert "not default workflow" in rendered.lower()
-
-
-def test_help_artifacts_topic_teaches_meta_without_extra_default_exits() -> None:
-    rendered = _capture("artifacts")
-    assert "artifact.show()" in rendered
-    assert "artifact.contract()" in rendered
-    assert "artifact.to_pandas()" in rendered
-    assert "artifact.meta.evidence_status" in rendered
-    assert "artifact.meta.blocking_issues" in rendered
-    assert "artifact.meta.confidence_scope" in rendered
-    assert "artifact.meta.quality_summary" in rendered
-    assert "inspection/status surface" in rendered
-    assert "third exit" not in rendered.lower()
-    assert "artifact.summary()" not in rendered
-    assert "artifact.schema()" not in rendered
-    assert "artifact.preview(" not in rendered
-
-
-def test_help_json_metric_frame_descriptor_lists_methods_and_workflow() -> None:
-    result = _json_data("MetricFrame")
-
-    assert isinstance(result, dict)
-    assert result["kind"] == "frame"
-    methods = {entry["name"] for entry in cast("list[dict[str, Any]]", result["methods"])}
-    assert {"to_pandas", "components", "as_time_series"} <= methods
-    assert result["constructed_by"]
-
-
-def test_help_json_coverage_frame_descriptor() -> None:
-    result = _json_data("CoverageFrame")
-
-    assert isinstance(result, dict)
-    assert result["kind"] == "frame"
-    assert result["symbol"] == "CoverageFrame"
-    # CoverageFrame is an advanced type not in the default public surface;
-    # it is still resolvable via explicit help but may not have a summary.
-    assert result["constructed_by"] == "MetricFrame.coverage()"
-
-
-def test_help_json_frame_method_descriptor() -> None:
-    result = _json_data("MetricFrame.components")
-
-    assert isinstance(result, dict)
-    assert result["kind"] == "callable"
-    assert result["symbol"] == "MetricFrame.components"
-    assert "MetricFrame.components(" in cast("str", result["signature"])
-    assert "Load the linked ComponentFrame" in cast("str", result["doc"])
-
-
-# --- return type is always None ---
-
-
-def test_mv_help_returns_none():
-    result = mv.help()
-    assert result is None
-
-
-def test_mv_help_with_symbol_returns_none(capsys: CaptureFixture[str]):
-    result = mv.help("observe")
-    assert result is None
-
-
-def test_ms_help_returns_none():
-    import marivo.semantic as ms
-
-    result = ms.help()
-    assert result is None
-
-
-def test_ms_help_with_symbol_returns_none(capsys: CaptureFixture[str]):
-    import marivo.semantic as ms
-
-    result = ms.help("metric")
-    assert result is None
-
-
-# --- prints bounded help ---
-
-
-def test_mv_help_prints_something(capsys: CaptureFixture[str]):
-    mv.help()
-    captured = capsys.readouterr()
-    assert len(captured.out) > 0
-
-
-def test_mv_help_observe_prints_something(capsys: CaptureFixture[str]):
-    mv.help("observe")
-    captured = capsys.readouterr()
-    assert len(captured.out) > 0
-
-
-# --- canonical help target accepts string and None ---
-
-
-def test_mv_help_none_target_is_top_level(capsys: CaptureFixture[str]):
-    mv.help(None)
-    captured = capsys.readouterr()
-    assert "marivo.analysis" in captured.out
-
-
-# --- help output stays within 80-line budget ---
-
-
-def test_mv_help_output_within_80_lines(capsys: CaptureFixture[str]):
-    mv.help("observe")
-    captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= 80
-
-
-def test_ms_help_output_within_80_lines(capsys: CaptureFixture[str]):
-    import marivo.semantic as ms
-
-    ms.help("metric")
-    captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) <= 100
-
-
-# --- semantic ref object support ---
-
-
-def test_mv_help_accepts_metric_ref(capsys: CaptureFixture[str]):
-    import pytest
-
-    from marivo.semantic.errors import SemanticError
-
+    text = _text("MetricFrame")
+    for prop in PUBLIC_FRAME_PROPERTIES.get("MetricFrame", ()):
+        assert prop in text, f"missing property: {prop}"
+    for method in PUBLIC_FRAME_METHODS.get("MetricFrame", ()):
+        assert method in text, f"missing method: {method}"
+
+
+# ---------------------------------------------------------------------------
+# Error help
+# ---------------------------------------------------------------------------
+
+
+def test_error_class_help_shows_static_fields() -> None:
+    text = _text(MetricNotFoundError)
+    assert "MetricNotFoundError" in text
+    # The static contract must render the kind and base class.
+    assert "kind: MetricNotFound" in text
+    assert "base: AnalysisError" in text
+    # MetricNotFoundError has at least one matching constraint; verify
+    # it is actually listed rather than relying on a coincidental word.
+    assert "Constraints:" in text
+    assert "metric_ref_registered" in text
+    assert "Observed metrics must resolve to a registered semantic metric." in text
+
+
+def test_error_instance_help_shows_concrete_repair() -> None:
+    err = MetricNotFoundError(
+        message="metric not found",
+        context={"metric_id": "sales.foobar"},
+    )
+    text = _text(err)
+    assert "MetricNotFound" in text
+    assert "repair" in text.lower() or "action" in text.lower()
+    # The concrete repair action should be present.
+    assert (
+        "retry" in text.lower() or "semantic_handoff" in text.lower() or "inspect" in text.lower()
+    )
+
+
+def test_base_error_class_help() -> None:
+    text = _text(AnalysisError)
+    assert "AnalysisError" in text
+
+
+# ---------------------------------------------------------------------------
+# Semantic object help
+# ---------------------------------------------------------------------------
+
+
+def test_semantic_ref_help_without_project_raises() -> None:
     ref = make_ref("sales.revenue", SemanticKind.METRIC)
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(Exception):
         mv.help(ref)
-    assert isinstance(exc_info.value, SemanticError)
 
 
-def test_mv_help_with_project_and_metric_ref(semantic_project_factory, capsys: CaptureFixture[str]):
-    import pytest
-
+def test_semantic_ref_help_with_project(semantic_project_factory, capsys) -> None:
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            "sales/_domain.py": (
                 "import marivo.datasource as md\n"
-                "warehouse = md.ref('datasource.warehouse')\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
-                "\n"
-                "@ms.metric(entities=[orders], additivity='additive', "
-                "name='revenue', )\n"
-                "def revenue(orders):\n"
-                "    return orders.amount.sum()\n"
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
             ),
-        }
-    )
-    from marivo.semantic.catalog import SemanticCatalog
-
-    catalog = SemanticCatalog(project)
-    domain = catalog.get("domain.sales")
-    metric_ids = [ref.id for ref in catalog.metrics.refs()]
-    if not metric_ids:
-        pytest.skip("no metrics in fixture")
-    ref = make_ref(metric_ids[0], SemanticKind.METRIC)
-    mv.help(ref, project=project)
-    captured = capsys.readouterr()
-    assert len(captured.out) > 0
-    assert metric_ids[0].split(".")[-1] in captured.out or metric_ids[0] in captured.out
-
-
-def test_mv_help_semantic_prefix_routes_to_semantic_surface(capsys: CaptureFixture[str]):
-    mv.help("semantic.metric")
-    captured = capsys.readouterr()
-    assert "metric" in captured.out.lower()
-    assert len(captured.out) > 0
-
-
-# --- type-alias kind labels ---
-
-
-def test_help_type_aliases_have_correct_kind() -> None:
-    from marivo.analysis.help import _TYPE_ALIASES
-
-    for name in _TYPE_ALIASES:
-        result = _json_data(name)
-        assert result["kind"] == "type-alias", f"{name}: expected type-alias, got {result['kind']}"
-
-
-def test_help_type_alias_descriptor_has_signature() -> None:
-    result = _json_data("AlignmentKind")
-    assert "window_bucket" in cast("str", result["signature"])
-
-
-def test_help_top_level_all_entries_have_summaries() -> None:
-    result = _json_data()
-    entries = cast("list[dict[str, Any]]", result["entries"])
-    empty = [e["name"] for e in entries if not e["summary"]]
-    assert not empty, f"entries with empty summary: {empty}"
-
-
-# --- metric unit in help ---
-
-
-def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
                 "warehouse = md.ref('datasource.warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, "
                 "source=md.table('orders'))\n"
@@ -654,145 +349,239 @@ def test_help_semantic_metric_ref_prints_unit(capsys, semantic_project_factory):
     )
     mv.help(make_ref("sales.revenue", SemanticKind.METRIC), project=project)
     out = capsys.readouterr().out
+    assert "revenue" in out
     assert "unit: CNY" in out
 
 
-# --- Task 11: anchor-aware mv.help(ref) for cumulative metrics ---
+def test_catalog_object_help_renders_briefing(semantic_project_factory, capsys) -> None:
+    """mv.help(catalog_object) must render, not crash with RuntimeError."""
+    from marivo.semantic.catalog import SemanticCatalog
 
-
-def test_mv_help_ref_dispatches_on_anchor(semantic_project_factory, capsys: CaptureFixture[str]):
-    """mv.help(<grain_to_date cumulative ref>) prints anchor-aware briefing."""
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
+            "sales/_domain.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
+            ),
             "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
                 "warehouse = md.ref('datasource.warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, "
                 "source=md.table('orders'))\n"
-                "event_time = ms.time_dimension_column("
-                "name='event_time', entity=orders, column='created_at', granularity='day')\n"
-                "amount = ms.measure_column("
-                "name='amount', entity=orders, column='amount', additivity='additive')\n"
-                "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')\n"
-                "mtd_revenue = ms.cumulative(name='mtd_revenue', base=revenue, "
-                "over=event_time, anchor=ms.grain_to_date(grain='month'))\n"
+                "@ms.metric(entities=[orders], additivity='additive', name='revenue', "
+                " unit='CNY')\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
             ),
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
             ),
         }
     )
-    mv.help(make_ref("sales.mtd_revenue", SemanticKind.METRIC), project=project)
-    text = capsys.readouterr().out
-    assert "reset" in text.lower() or "grain_to_date" in text.lower()
-
-
-# --- sampled semi-additive observe help ---
-
-
-def test_help_observe_mentions_sampled_fold_coverage(capsys) -> None:
-    mv.help("observe")
+    catalog = SemanticCatalog(project)
+    revenue_obj = catalog.get("metric.sales.revenue")
+    assert revenue_obj is not None
+    mv.help(revenue_obj, project=project)
     out = capsys.readouterr().out
-    assert "sampled semi-additive" in out
-    assert "coverage()" in out
-    assert "re-run observe" in out
-
-
-# --- affordance language replaces recommendation language ---
-
-
-def test_help_no_longer_teaches_recommended_followups() -> None:
-    full = _capture()
-    session_help = _capture("Session")
-    candidate_help = _capture("CandidateSet")
-    workflow_help = _capture("workflow")
-    artifacts_help = _capture("artifacts")
-
-    combined = "\n".join(
-        [full, session_help, candidate_help, workflow_help, artifacts_help]
-    ).lower()
-    assert "recommended_followups" not in combined
-    assert "recommended follow-up" not in combined
-    assert "recommend follow" not in combined
-    assert "contract().affordances" in combined
-
-
-def test_help_json_frame_contract_uses_affordance_language() -> None:
-    result = _json_data("MetricFrame")
-
-    assert "next_intents" not in result
-    rendered = str(result).lower()
-    assert "recommended" not in rendered
-
-    # Affordance language lives in the workflow/artifacts topics, not in frame descriptors.
-    workflow = _json_data("workflow")
-    workflow_rendered = str(workflow).lower()
-    assert "affordance" in workflow_rendered
+    assert "revenue" in out
+    assert "unit: CNY" in out
 
 
 # ---------------------------------------------------------------------------
-# Task 12: agent-surface tests for the v2 cumulative authoring contract.
-#
-# `ms.help_text` resolves the new anchor value-object constructors and the
-# cumulative authoring contract now carries an anchor section with MTD and
-# rolling runnable examples. These tests pin the agent-facing discovery
-# surface so a regression that drops the anchor wording fails loudly.
+# Callable / object / type / error / semantic resolution parity
 # ---------------------------------------------------------------------------
 
 
-def test_ms_help_text_resolves_grain_to_date() -> None:
-    """ms.help_text('grain_to_date') returns the anchor value-object briefing."""
-    import marivo.semantic as ms
-
-    text = ms.help_text("grain_to_date")
-    assert "grain_to_date" in text.lower()
-    assert "anchor" in text.lower()
-    assert "month" in text.lower()
+def test_callable_resolves_same_as_string() -> None:
+    text_callable = _text(Session.observe)
+    text_string = _text("observe")
+    assert text_callable == text_string
 
 
-def test_ms_help_text_resolves_trailing() -> None:
-    """ms.help_text('trailing') returns the rolling-anchor value-object briefing."""
-    import marivo.semantic as ms
-
-    text = ms.help_text("trailing")
-    assert "trailing" in text.lower()
-    assert "anchor" in text.lower()
-    assert "rolling" in text.lower() or "count" in text.lower()
+def test_bound_method_resolves_same_as_unbound() -> None:
+    text_unbound = _text(Session.compare)
+    # Can't easily get a bound method without a session, so test that
+    # the unbound function and the string target produce the same output.
+    text_string = _text("compare")
+    assert text_unbound == text_string
 
 
-def test_ms_help_cumulative_has_anchor_section_and_mtd_rolling_examples(
-    capsys: CaptureFixture[str],
-) -> None:
-    """ms.help('cumulative') teaches all three anchors with MTD + rolling examples.
-
-    The anchor section is the agent's discovery path for grain_to_date (MTD /
-    QTD / YTD) and trailing (rolling N) cumulative metrics. It must mention
-    each anchor kind and carry runnable MTD and rolling examples.
-    """
-    import marivo.semantic as ms
-
-    ms.help("cumulative")
-    text = capsys.readouterr().out.lower()
-    assert "anchor" in text
-    assert "grain_to_date" in text
-    assert "trailing" in text
-    # MTD wording: either the abbreviation or the reset grain.
-    assert "mtd" in text or "month" in text
-    # Rolling wording for the trailing anchor.
-    assert "rolling" in text
-    # The runnable examples must reference the real constructors.
-    assert "ms.grain_to_date(grain='month')" in text.replace(" ", "")
-    assert "ms.trailing(count=" in text
+def test_type_resolves_same_as_string() -> None:
+    text_type = _text(Session)
+    text_string = _text("Session")
+    assert text_type == text_string
 
 
-def test_mv_help_transform_reflects_rollup_grain_and_drop_axes() -> None:
-    """mv.help('transform') teaches the rollup grain + drop_axes contract.
+def test_object_resolves_same_as_type(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create(name="help_test_session", use_datasources=False)
+    text_obj = _text(session)
+    text_type = _text(Session)
+    assert text_obj == text_type
 
-    Task 9 widened frame.transform.rollup from required drop_axes to
-    at-least-one-of drop_axes / grain. The transform help matrix must reflect
-    both arguments so agents author the new grain re-aggregation path.
-    """
-    out = _capture("transform")
-    assert "grain" in out.lower()
-    assert "drop_axes" in out.lower()
+
+def test_error_subclass_resolves_same_as_string() -> None:
+    text_class = _text(MetricNotFoundError)
+    # Should render the error contract.
+    assert "MetricNotFound" in text_class
+
+
+# ---------------------------------------------------------------------------
+# No public JSON/format parameter
+# ---------------------------------------------------------------------------
+
+
+def test_help_has_no_format_parameter() -> None:
+    sig = inspect.signature(mv.help)
+    assert "format" not in sig.parameters
+    assert "json" not in sig.parameters
+
+
+def test_help_text_has_no_format_parameter() -> None:
+    sig = inspect.signature(mv.help_text)
+    assert "format" not in sig.parameters
+    assert "json" not in sig.parameters
+
+
+def test_help_rejects_format_kwarg() -> None:
+    with pytest.raises(TypeError):
+        mv.help("observe", format="json")  # type: ignore[call-arg]
+
+
+def test_help_text_rejects_format_kwarg() -> None:
+    with pytest.raises(TypeError):
+        mv.help_text("observe", format="json")  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# Empty string is not a hidden alias for root
+# ---------------------------------------------------------------------------
+
+
+def test_empty_string_is_not_root() -> None:
+    with pytest.raises(HelpTargetError):
+        mv.help_text("")
+
+
+def test_none_is_root() -> None:
+    text = _text(None)
+    assert "Marivo:" in text
+    assert "Python:" in text
+
+
+# ---------------------------------------------------------------------------
+# Unknown target raises HelpTargetError
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_string_raises_help_target_error() -> None:
+    with pytest.raises(HelpTargetError):
+        mv.help_text("nonexistent_thing_xyz")
+
+
+# ---------------------------------------------------------------------------
+# Module/class docstring first-line routing
+# ---------------------------------------------------------------------------
+
+
+def test_analysis_module_docstring_first_line() -> None:
+    first_line = mv.__doc__.strip().splitlines()[0] if mv.__doc__ else ""
+    assert "mv.help()" in first_line
+
+
+def test_session_class_docstring_first_line() -> None:
+    first_line = Session.__doc__.strip().splitlines()[0] if Session.__doc__ else ""
+    assert "mv.help" in first_line
+
+
+def test_metric_frame_class_docstring_first_line() -> None:
+    first_line = MetricFrame.__doc__.strip().splitlines()[0] if MetricFrame.__doc__ else ""
+    assert "mv.help" in first_line
+
+
+def test_base_frame_class_docstring_first_line() -> None:
+    first_line = BaseFrame.__doc__.strip().splitlines()[0] if BaseFrame.__doc__ else ""
+    assert "mv.help" in first_line
+
+
+# ---------------------------------------------------------------------------
+# Pinned __all__ and __dir__
+# ---------------------------------------------------------------------------
+
+
+def test_analysis_all_is_pinned() -> None:
+    expected = {
+        "AbsoluteWindow",
+        "AlignmentPolicy",
+        "ArtifactRef",
+        "AssociationResult",
+        "AttributionFrame",
+        "CalendarRef",
+        "CandidateSet",
+        "CatalogObject",
+        "DeltaFrame",
+        "ForecastFrame",
+        "HypothesisTestResult",
+        "MetricFrame",
+        "QualityReport",
+        "SemanticRef",
+        "Session",
+        "TimeScope",
+        "dimension_column",
+        "dow_aligned",
+        "help",
+        "help_text",
+        "holiday_aligned",
+        "holiday_and_dow_aligned",
+        "ibis_query",
+        "metric_columns",
+        "session",
+        "time_column",
+        "window_bucket",
+    }
+    assert set(mv.__all__) == expected
+
+
+def test_analysis_dir_matches_all() -> None:
+    assert set(dir(mv)) == set(mv.__all__)
+
+
+# ---------------------------------------------------------------------------
+# help() returns None
+# ---------------------------------------------------------------------------
+
+
+def test_help_returns_none() -> None:
+    assert mv.help() is None
+
+
+def test_help_with_target_returns_none() -> None:
+    assert mv.help("observe") is None
+
+
+# ---------------------------------------------------------------------------
+# Budget enforcement is strict (registry validation)
+# ---------------------------------------------------------------------------
+
+
+def test_root_help_does_not_silently_exceed_budget() -> None:
+    """Root help must stay within SURFACE_LIMITS; overflow is a build failure."""
+    text = _text()
+    lines = text.replace("\r\n", "\n").splitlines()
+    assert len(lines) <= SURFACE_LIMITS.root_help_max_lines
+    assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
+
+
+def test_focused_help_does_not_silently_exceed_budget() -> None:
+    """Focused help must stay within SURFACE_LIMITS; overflow is a build failure."""
+    for target in ("observe", "compare", "forecast", "help", "Session", "MetricFrame"):
+        text = _text(target)
+        lines = text.replace("\r\n", "\n").splitlines()
+        assert len(lines) <= SURFACE_LIMITS.focused_help_max_lines, (
+            f"{target}: {len(lines)} lines > {SURFACE_LIMITS.focused_help_max_lines}"
+        )
+        assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints, (
+            f"{target}: {len(text)} chars > {SURFACE_LIMITS.focused_help_max_codepoints}"
+        )

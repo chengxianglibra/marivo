@@ -9,6 +9,7 @@ from pandas.api.types import is_float_dtype
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
+    AnalysisError,
     CrossSessionFrameError,
     NoBackendFactoryError,
     SemanticKindMismatchError,
@@ -147,8 +148,10 @@ def test_discover_accepts_panel_metric_frame():
 def test_discover_rejects_non_metric_frame():
     session = session_attach.get_or_create(name="demo")
 
-    with pytest.raises(SemanticKindMismatchError):
+    with pytest.raises(AnalysisError) as exc:
         session.discover.point_anomalies(object())  # type: ignore[arg-type]
+
+    assert exc.value.location == "discover.point_anomalies.source"
 
 
 def test_discover_rejects_ambiguous_numeric_columns():

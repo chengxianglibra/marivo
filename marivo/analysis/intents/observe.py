@@ -201,7 +201,7 @@ def observe(
         if not metric_items:
             raise SemanticKindMismatchError(
                 message="observe requires at least one metric",
-                details={"argument": "metric", "got": "empty sequence"},
+                context={"argument": "metric", "got": "empty sequence"},
             )
         if len(metric_items) > 1:
             from marivo.analysis.intents.observe_multi import observe_multi
@@ -313,7 +313,7 @@ def observe(
                     f"observe will produce semantic_shape {predicted_shape!r} for these "
                     f"inputs, but expect_shape={expect_shape!r} was requested"
                 ),
-                details={
+                context={
                     "intent": "observe",
                     "predicted_semantic_shape": predicted_shape,
                     "expect_shape": expect_shape,
@@ -736,7 +736,7 @@ def observe(
         if primary_datasource is None:
             raise AnalysisError(
                 message="percentile sampled fold requires a primary datasource to resolve backend type.",
-                details={"metric": metric_ir.semantic_id},
+                context={"metric": metric_ir.semantic_id},
             )
         _profile = datasource_engine_profile(session._connection_runtime, primary_datasource)
         _capability = quantile_capability(_profile)

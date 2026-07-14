@@ -92,7 +92,7 @@ def _reject_kind(
         details["available_ids"] = list(available_ids)
     raise SemanticKindMismatchError(
         message=f"{argument} requires a {label} SemanticRef or CatalogObject",
-        details=details,
+        context=details,
         hint=f"Use session.catalog.{expected_kind}s to find a matching {label}.",
     )
 
@@ -156,7 +156,7 @@ def normalize_metric_input(catalog: SemanticCatalog, metric: MetricInput) -> str
         raise MetricNotFoundError(
             message=f"metric {ref!r} not found",
             hint=("Use session.catalog.domains.get('<name>').metrics to browse metric refs."),
-            details={
+            context={
                 "metric": ref,
                 "metric_id": ref,
                 "available_ids": _available_ids(catalog, kind=SemanticKind.METRIC),
@@ -189,7 +189,7 @@ def normalize_dimension_input(
                 f"{ref!r} is a measure, which is aggregated, not a group-by axis; "
                 "slice by a categorical dimension or aggregate it into a metric."
             ),
-            details={
+            context={
                 "ref": ref,
                 "actual_kind": "measure",
                 "expected_kind": "dimension",
@@ -275,7 +275,7 @@ def normalize_dimension_boundary(
                         f"{dimension.ref.id!r} is a measure, which is aggregated, not a group-by axis; "
                         "slice by a categorical dimension or aggregate it into a metric."
                     ),
-                    details={
+                    context={
                         "ref": dimension.ref.id,
                         "actual_kind": "measure",
                         "expected_kind": "dimension",

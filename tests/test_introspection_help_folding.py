@@ -168,29 +168,19 @@ def test_datasource_fold_partition() -> None:
     _assert_no_value_family_leaks(enumerated)
 
 
-def test_analysis_fold_partition() -> None:
-    from marivo.analysis.help import _surface
+def test_analysis_no_longer_uses_json_surface() -> None:
+    """The analysis surface has moved to the capability-registry-based renderer.
 
-    surface = _surface()
-    fams = _families(surface)
-    assert fams["References"] == ["ArtifactRef", "CalendarRef", "SemanticRef"]
-    assert fams["Frames"] == [
-        "AttributionFrame",
-        "DeltaFrame",
-        "ForecastFrame",
-        "MetricFrame",
-    ]
-    assert "Type aliases" not in fams
-    assert fams["Other types"] == [
-        "AbsoluteWindow",
-        "AlignmentPolicy",
-        "AssociationResult",
-        "CandidateSet",
-        "CatalogObject",
-        "HypothesisTestResult",
-        "QualityReport",
-        "TimeScope",
-    ]
-    enumerated = _enumerated(surface)
-    assert "Session" in enumerated
-    _assert_no_value_family_leaks(enumerated)
+    ``_surface`` is no longer available on ``marivo.analysis.help``; this test
+    pins that the old JSON Surface infrastructure is gone for analysis.
+    """
+    import pytest
+
+    from marivo.analysis import help as analysis_help
+    from marivo.analysis import help_text as mv_help_text
+
+    assert not hasattr(analysis_help, "_surface")
+
+    # The new help system does not accept format= or json= kwargs.
+    with pytest.raises(TypeError):
+        mv_help_text("observe", format="json")  # type: ignore[call-arg]

@@ -68,12 +68,12 @@ def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_metric_input(catalog, "sales.revenue")
 
-    assert exc.value.details["expected_kind"] == "metric"
-    assert exc.value.details["actual_kind"] == "str"
+    assert exc.value._context["expected_kind"] == "metric"
+    assert exc.value._context["actual_kind"] == "str"
     # Bare-string path must include available_ids so the agent can discover
     # the correct metric id from the catalog.
-    assert "available_ids" in exc.value.details
-    assert "sales.revenue" in exc.value.details["available_ids"]
+    assert "available_ids" in exc.value._context
+    assert "sales.revenue" in exc.value._context["available_ids"]
     # str(error) must also surface available_ids and repair snippets.
     message = str(exc.value)
     assert "sales.revenue" in message
@@ -87,8 +87,8 @@ def test_normalize_metric_rejects_wrong_semantic_kind(semantic_project_factory) 
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_metric_input(catalog, dim.ref)
 
-    assert exc.value.details["expected_kind"] == "metric"
-    assert exc.value.details["actual_kind"] == "dimension"
+    assert exc.value._context["expected_kind"] == "metric"
+    assert exc.value._context["actual_kind"] == "dimension"
 
 
 def test_normalize_metric_rejects_forged_metric_ref_to_dimension(
@@ -100,8 +100,8 @@ def test_normalize_metric_rejects_forged_metric_ref_to_dimension(
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_metric_input(catalog, forged)
 
-    assert exc.value.details["expected_kind"] == "metric"
-    assert exc.value.details["actual_kind"] == "dimension"
+    assert exc.value._context["expected_kind"] == "metric"
+    assert exc.value._context["actual_kind"] == "dimension"
 
 
 def test_normalize_metric_unknown_ref_raises_metric_not_found(semantic_project_factory) -> None:
@@ -110,9 +110,9 @@ def test_normalize_metric_unknown_ref_raises_metric_not_found(semantic_project_f
     with pytest.raises(MetricNotFoundError) as exc:
         normalize_metric_input(catalog, make_ref("sales.missing", SemanticKind.METRIC))
 
-    assert exc.value.details["metric"] == "sales.missing"
-    assert "sales.revenue" in exc.value.details["available_ids"]
-    assert "Available metrics: sales.revenue" in str(exc.value)
+    assert exc.value._context["metric"] == "sales.missing"
+    assert "sales.revenue" in exc.value._context["available_ids"]
+    assert "Candidates: sales.revenue" in str(exc.value)
 
 
 def test_normalize_metric_does_not_swallow_unexpected_catalog_failure() -> None:
@@ -147,8 +147,8 @@ def test_normalize_dimension_rejects_forged_dimension_ref_to_metric(
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_dimension_input(catalog, forged)
 
-    assert exc.value.details["expected_kind"] == "dimension"
-    assert exc.value.details["actual_kind"] == "metric"
+    assert exc.value._context["expected_kind"] == "dimension"
+    assert exc.value._context["actual_kind"] == "metric"
 
 
 def test_normalize_dimension_boundary_rejects_metric_object_when_catalog_has_no_dimensions(
@@ -160,8 +160,8 @@ def test_normalize_dimension_boundary_rejects_metric_object_when_catalog_has_no_
     with pytest.raises(SemanticKindMismatchError) as exc:
         normalize_dimension_boundary(empty_catalog, source_catalog.get("metric.sales.revenue"))
 
-    assert exc.value.details["expected_kind"] == "dimension"
-    assert exc.value.details["actual_kind"] == "metric"
+    assert exc.value._context["expected_kind"] == "dimension"
+    assert exc.value._context["actual_kind"] == "metric"
 
 
 def test_normalize_dimension_unknown_ref_raises_analysis_error(
@@ -175,12 +175,12 @@ def test_normalize_dimension_unknown_ref_raises_analysis_error(
             make_ref("sales.orders.missing", SemanticKind.DIMENSION),
         )
 
-    assert exc.value.details["argument"] == "dimension"
-    assert exc.value.details["ref"] == "sales.orders.missing"
-    assert exc.value.details["expected_kind"] == "dimension"
-    assert exc.value.details["actual_kind"] == "not_found"
-    assert "sales.orders.country" in exc.value.details["available_ids"]
-    assert "sales.orders.ds" in exc.value.details["available_ids"]
+    assert exc.value._context["argument"] == "dimension"
+    assert exc.value._context["ref"] == "sales.orders.missing"
+    assert exc.value._context["expected_kind"] == "dimension"
+    assert exc.value._context["actual_kind"] == "not_found"
+    assert "sales.orders.country" in exc.value._context["available_ids"]
+    assert "sales.orders.ds" in exc.value._context["available_ids"]
 
 
 def test_normalize_where_inputs_returns_plain_string_keys(semantic_project_factory) -> None:
@@ -207,12 +207,12 @@ def test_normalize_where_inputs_unknown_key_raises_analysis_error(
             {make_ref("sales.orders.missing", SemanticKind.DIMENSION): "US"},
         )
 
-    assert exc.value.details["argument"] == "slice_by"
-    assert exc.value.details["ref"] == "sales.orders.missing"
-    assert exc.value.details["expected_kind"] == "dimension"
-    assert exc.value.details["actual_kind"] == "not_found"
-    assert "sales.orders.country" in exc.value.details["available_ids"]
-    assert "sales.orders.ds" in exc.value.details["available_ids"]
+    assert exc.value._context["argument"] == "slice_by"
+    assert exc.value._context["ref"] == "sales.orders.missing"
+    assert exc.value._context["expected_kind"] == "dimension"
+    assert exc.value._context["actual_kind"] == "not_found"
+    assert "sales.orders.country" in exc.value._context["available_ids"]
+    assert "sales.orders.ds" in exc.value._context["available_ids"]
 
 
 def test_measure_ref_is_rejected_as_dimension_axis(semantic_project_factory) -> None:
@@ -245,7 +245,7 @@ def test_measure_rejection_surfaces_repair_in_str(semantic_project_factory) -> N
             make_ref("sales.orders.amount", SemanticKind.MEASURE),
         )
 
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["actual_kind"] == "measure"
     assert details["expected_kind"] == "dimension"
     assert "repair" in details
@@ -290,7 +290,7 @@ def test_time_dimension_argument_includes_repair_guidance(semantic_project_facto
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_dimension_input(catalog, metric, argument="time_dimension")
 
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["argument"] == "time_dimension"
     assert details["ref"] == "sales.revenue"
     assert details["expected_kind"] == "dimension"
@@ -334,7 +334,7 @@ def test_wrong_kind_metric_includes_repair_and_available_ids(
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_metric_input(catalog, dim.ref)
 
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["argument"] == "metric"
     assert details["ref"] == "sales.orders.country"
     assert details["expected_kind"] == "metric"
@@ -362,7 +362,7 @@ def test_repair_snippets_use_typed_collection_form(semantic_project_factory) -> 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         normalize_dimension_input(catalog, metric, argument="time_dimension")
 
-    details = exc_info.value.details
+    details = exc_info.value._context
     repair = details["repair"]
     assert isinstance(repair, list)
     # At least one snippet must use the typed collection form

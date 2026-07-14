@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class ValidationIssue(BaseModel):
     """One pre-submit incompatibility, mirroring the exception it stands in for.
 
-    Carries the originating exception's class name and its structured ``details``
+    Carries the originating exception's class name and its structured ``context``
     (which already include a ``kind`` code such as ``"AlignmentPolicyNotApplicable"``)
     so the raising and non-raising validation paths cannot drift.
     """
@@ -20,4 +20,4 @@ class ValidationIssue(BaseModel):
     intent: str
     error_type: str
     message: str
-    details: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)

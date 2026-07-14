@@ -34,7 +34,7 @@ def test_new_error_is_subclass(cls, parent):
 def test_dimension_not_found_renders_hint():
     err = DimensionFieldNotFoundError(
         message="dimension 'foo' not found",
-        details={"dimension_id": "foo", "searched_datasets": ["orders"]},
+        context={"dimension_id": "foo", "searched_datasets": ["orders"]},
     )
     rendered = str(err)
     assert "DimensionFieldNotFoundError" in rendered

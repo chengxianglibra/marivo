@@ -216,7 +216,12 @@ def test_select_keys_dot_path_returns_scalar():
 
 def test_select_affordances_returns_typed_list():
     session = session_attach.get_or_create(name="demo")
-    affordance = mv.ArtifactAffordance(operator="assess_quality", required_inputs=["metric_frame"])
+    affordance = mv.ArtifactAffordance(
+        capability_id="assess_quality",
+        public_entrypoint="session.assess_quality(...)",
+        help_target="assess_quality",
+        required_inputs=["metric_frame"],
+    )
     cs = _hand_built_candidate_set(
         session,
         shape="driver_axis",
@@ -233,7 +238,7 @@ def test_select_affordances_returns_typed_list():
     assert isinstance(result, list)
     assert len(result) == 1
     assert isinstance(result[0], mv.ArtifactAffordance)
-    assert result[0].operator == "assess_quality"
+    assert result[0].capability_id == "assess_quality"
 
 
 def test_select_empty_affordances_returns_empty_list():
@@ -265,8 +270,8 @@ def test_select_field_incompatible_with_shape_raises():
     )
     with pytest.raises(SemanticKindMismatchError) as exc:
         cs.select(rank=1, attribute="axis")
-    assert exc.value.details.get("shape") == "point_anomaly"
-    assert exc.value.details.get("attribute") == "axis"
+    assert exc.value._context.get("shape") == "point_anomaly"
+    assert exc.value._context.get("attribute") == "axis"
 
 
 def test_select_observed_baseline_delta_returns_float():
@@ -300,8 +305,8 @@ def test_select_rank_out_of_range_raises():
     )
     with pytest.raises(SemanticKindMismatchError) as exc:
         cs.select(rank=5, attribute="axis")
-    assert exc.value.details.get("row_count") == 1
-    assert exc.value.details.get("requested_rank") == 5
+    assert exc.value._context.get("row_count") == 1
+    assert exc.value._context.get("requested_rank") == 5
 
 
 def test_select_unknown_dot_path_key_raises():
@@ -449,8 +454,8 @@ def test_as_driver_axis_fails_when_shape_mismatches():
     )
     with pytest.raises(SemanticKindMismatchError) as exc:
         cs.as_driver_axis()
-    assert exc.value.details.get("got_shape") == "point_anomaly"
-    assert exc.value.details.get("expected_shape") == "driver_axis"
+    assert exc.value._context.get("got_shape") == "point_anomaly"
+    assert exc.value._context.get("expected_shape") == "driver_axis"
 
 
 @pytest.mark.parametrize(
@@ -537,7 +542,9 @@ def test_candidate_select_exposes_affordances_not_recommended_followups() -> Non
                 "window": {"start": "2026-06-18", "end": "2026-06-19"},
                 "affordances": [
                     {
-                        "operator": "assess_quality",
+                        "capability_id": "assess_quality",
+                        "public_entrypoint": "session.assess_quality(...)",
+                        "help_target": "assess_quality",
                         "required_inputs": ["metric_frame"],
                         "preconditions": [],
                         "param_template": {
@@ -553,6 +560,6 @@ def test_candidate_select_exposes_affordances_not_recommended_followups() -> Non
 
     affordances = candidates.select(rank=1, attribute="affordances")
 
-    assert affordances[0].operator == "assess_quality"
+    assert affordances[0].capability_id == "assess_quality"
     with pytest.raises(SemanticKindMismatchError):
         candidates.select(rank=1, attribute="recommended_followups")

@@ -144,7 +144,7 @@ def test_validate_shape_columns_rejects_missing_required_field() -> None:
     df = build_union_columns("point_anomaly", rows)
     with pytest.raises(FrameMetaInvalidError) as exc:
         validate_shape_columns("point_anomaly", df)
-    assert exc.value.details.get("shape") == "point_anomaly"
+    assert exc.value._context.get("shape") == "point_anomaly"
 
 
 def test_validate_shape_columns_rejects_unexpected_axis_for_point_anomaly() -> None:
@@ -163,7 +163,7 @@ def test_validate_shape_columns_rejects_unexpected_axis_for_point_anomaly() -> N
     df = build_union_columns("point_anomaly", rows)
     with pytest.raises(FrameMetaInvalidError) as exc:
         validate_shape_columns("point_anomaly", df)
-    assert exc.value.details.get("column") == "axis"
+    assert exc.value._context.get("column") == "axis"
 
 
 def test_validate_shape_columns_rejects_invalid_followup_payload() -> None:

@@ -54,7 +54,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         raise MetricArityError(
             message=f"frame carries no metric {metric_id!r}",
             hint=f"available metrics: {sorted(by_id)!r}",
-            details={"metric": metric_id, "metrics": sorted(by_id)},
+            context={"metric": metric_id, "metrics": sorted(by_id)},
         )
     if frame.arity == 1:
         return frame

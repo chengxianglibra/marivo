@@ -122,8 +122,8 @@ def test_decompose_panel_axis_not_in_dimensions(tmp_path):
     with pytest.raises(AxisNotInPanelDimensionsError) as exc_info:
         decompose(delta, axis=make_ref("channel", SemanticKind.DIMENSION), session=session)
 
-    assert exc_info.value.details["axis"] == "channel"
-    assert exc_info.value.details["available_dimensions"] == ["region"]
+    assert exc_info.value._context["axis"] == "channel"
+    assert exc_info.value._context["available_dimensions"] == ["region"]
 
 
 def test_decompose_panel_axes_single_axis_preserves_bucket_scope(tmp_path):

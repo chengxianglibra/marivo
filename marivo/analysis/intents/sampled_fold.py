@@ -21,7 +21,7 @@ def quantile_capability(profile: EngineProfile) -> QuantileCapability:
     if capability is None:
         raise AnalysisError(
             message=f"quantile sampled fold is not registered for backend_type {profile.name!r}",
-            details={
+            context={
                 "backend_type": profile.name,
                 "supported_backend_types": sorted(
                     key

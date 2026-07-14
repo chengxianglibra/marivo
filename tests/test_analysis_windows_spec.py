@@ -14,7 +14,7 @@ def test_normalize_timescope_input_accepts_concrete_instances():
 def test_normalize_timescope_input_rejects_strings():
     with pytest.raises(WindowInvalidError) as exc_info:
         normalize_timescope_input("last 7 days")
-    assert exc_info.value.details["kind"] == "TimeScopeTypeInvalid"
+    assert exc_info.value._context["kind"] == "TimeScopeTypeInvalid"
 
 
 def test_normalize_timescope_input_accepts_start_end_dict():
@@ -34,16 +34,16 @@ def test_normalize_timescope_input_accepts_start_end_dict():
 def test_normalize_timescope_input_rejects_expr_and_non_scope_keys(raw):
     with pytest.raises(WindowInvalidError) as exc_info:
         normalize_timescope_input(raw)
-    assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
+    assert exc_info.value._context["kind"] == "TimeScopeModelInvalid"
 
 
 def test_normalize_timescope_input_rejects_invalid_type():
     with pytest.raises(WindowInvalidError) as exc_info:
         normalize_timescope_input(123)
-    assert exc_info.value.details["kind"] == "TimeScopeTypeInvalid"
+    assert exc_info.value._context["kind"] == "TimeScopeTypeInvalid"
 
 
 def test_normalize_timescope_input_rejects_invalid_model():
     with pytest.raises(WindowInvalidError) as exc_info:
         normalize_timescope_input({"start": "2026-05-01"})
-    assert exc_info.value.details["kind"] == "TimeScopeModelInvalid"
+    assert exc_info.value._context["kind"] == "TimeScopeModelInvalid"

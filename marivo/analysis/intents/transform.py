@@ -88,7 +88,7 @@ def _prepare_transform[TTransformFrame: TransformFrame](
                 f"transform input frame belongs to session {frame.meta.session_id!r}, "
                 f"not {session.id!r}"
             ),
-            details={
+            context={
                 "frame_session": frame.meta.session_id,
                 "active_session": session.id,
                 "frame_ref": frame.ref,
@@ -148,14 +148,14 @@ def _normalize_dimension_boundary(session: Session, value: DimensionInput, *, ar
     try:
         return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
     except SemanticKindMismatchError as exc:
-        ref = exc.details.get("ref", type(value).__name__)
+        ref = exc._context.get("ref", type(value).__name__)
         raise TransformDimensionNotFoundError(
             message=f"transform {argument} dimension {ref!r} is not present",
             hint="Transform dimension refs must resolve to declared catalog dimensions.",
-            details={
+            context={
                 "argument": argument,
                 "dimension": ref,
-                "available_ids": exc.details.get("available_ids", []),
+                "available_ids": exc._context.get("available_ids", []),
             },
         ) from exc
 
@@ -171,7 +171,7 @@ def _normalize_where_boundary(
             raise TransformArgError(
                 message="transform slice(slice_by=...) requires catalog dimension refs",
                 hint="Pass slice_by={session.catalog.get('dimension.sales.orders.country').ref: 'US'}.",
-                details={"expected_kind": "DimensionInput", "got_kind": "str"},
+                context={"expected_kind": "DimensionInput", "got_kind": "str"},
             )
     return {
         _normalize_dimension_boundary(session, key, argument="slice_by"): value
@@ -190,7 +190,7 @@ def _normalize_drop_axes_boundary(
             raise TransformArgError(
                 message="transform rollup(drop_axes=...) requires catalog dimension refs",
                 hint="Pass drop_axes=[session.catalog.get('dimension.sales.orders.country').ref].",
-                details={"expected_kind": "DimensionInput", "got_kind": "str"},
+                context={"expected_kind": "DimensionInput", "got_kind": "str"},
             )
     return [
         _normalize_dimension_boundary(session, axis, argument="drop_axes") for axis in drop_axes
@@ -253,7 +253,7 @@ def transform_rollup[TTransformFrame: TransformFrame](
         raise TransformArgError(
             message="transform(op='rollup') requires at least one of drop_axes= or grain=",
             hint="Pass drop_axes=[...] to drop dimensions, or grain='month' to re-bucket the time axis.",
-            details={"op": "rollup", "argument": "drop_axes_or_grain"},
+            context={"op": "rollup", "argument": "drop_axes_or_grain"},
         )
     session, prepared = _prepare_transform(frame)
     drop_axis_ids = (
@@ -455,13 +455,13 @@ def _dimension_input_id(value: DimensionInput) -> str:
         if value.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
             raise TransformArgError(
                 message="transform dimension input requires a dimension or time_dimension object",
-                details={"actual_kind": str(value.ref.kind), "ref": value.ref.id},
+                context={"actual_kind": str(value.ref.kind), "ref": value.ref.id},
             )
         return value.ref.id
     if value.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
         raise TransformArgError(
             message="transform dimension input requires a dimension or time_dimension ref",
-            details={"actual_kind": str(value.kind), "ref": value.id},
+            context={"actual_kind": str(value.kind), "ref": value.id},
         )
     return value.id
 
@@ -562,7 +562,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
         raise TransformArgError(
             message="transform(op='rollup') requires a non-empty drop_axes list",
             hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
-            details={"op": "rollup", "argument": "drop_axes"},
+            context={"op": "rollup", "argument": "drop_axes"},
         )
 
     axes = _frame_axes(frame)
@@ -575,7 +575,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
                 raise TransformDimensionNotFoundError(
                     message=f"transform(op='rollup') dimension {dimension_id!r} is not present",
                     hint="Rollup catalog refs must reference existing dimension axes.",
-                    details={"op": "rollup", "dimension": dimension_id, "axes": axes},
+                    context={"op": "rollup", "dimension": dimension_id, "axes": axes},
                 )
             drop_ids.add(axis_id)
             continue
@@ -585,14 +585,14 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
                 raise TransformDimensionNotFoundError(
                     message=f"transform(op='rollup') axis {item!r} is not present",
                     hint="Rollup string targets must match existing axis ids such as 'time'.",
-                    details={"op": "rollup", "axis": item, "axes": axes},
+                    context={"op": "rollup", "axis": item, "axes": axes},
                 )
             drop_ids.add(axis_id)
             continue
         raise TransformArgError(
             message="transform(op='rollup') drop_axes items must be catalog dimension refs or str",
             hint='Pass drop_axes=["time"] or drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
-            details={
+            context={
                 "op": "rollup",
                 "argument": "drop_axes",
                 "actual_item_type": type(item).__name__,
@@ -603,7 +603,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
         raise TransformShapeUnsupportedError(
             message="transform(op='rollup') cannot drop every axis",
             hint="Keep at least one time or dimension axis in the rollup output.",
-            details={"op": "rollup", "drop_axes": sorted(drop_ids), "axes": axes},
+            context={"op": "rollup", "drop_axes": sorted(drop_ids), "axes": axes},
         )
     return drop_ids
 
@@ -644,7 +644,7 @@ def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:
                 raise TransformArgError(
                     message="transform(op='normalize') metric measure metadata is invalid",
                     hint="MetricFrameMeta.measure['column'] must name a persisted measure column.",
-                    details={
+                    context={
                         "op": "normalize",
                         "measure_column": declared_column,
                         "columns": list(df.columns),
@@ -654,7 +654,7 @@ def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:
                 raise TransformArgError(
                     message="transform(op='normalize') metric measure column cannot be an axis",
                     hint="MetricFrameMeta.measure['column'] must name a non-axis measure column.",
-                    details={
+                    context={
                         "op": "normalize",
                         "measure_column": declared_column,
                         "axis_columns": sorted(axis_columns),
@@ -675,7 +675,7 @@ def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:
                     "MetricFrameMeta.measure['name'] must match a persisted non-axis measure "
                     "column when measure['column'] is absent."
                 ),
-                details={
+                context={
                     "op": "normalize",
                     "measure_name": declared_name,
                     "axis_columns": sorted(axis_columns),
@@ -685,7 +685,7 @@ def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:
         raise TransformArgError(
             message="transform(op='normalize') requires explicit metric measure metadata",
             hint="MetricFrameMeta.measure must include 'column' or a 'name' matching a df column.",
-            details={
+            context={
                 "op": "normalize",
                 "measure": frame.meta.measure,
                 "axis_columns": sorted(axis_columns),
@@ -700,7 +700,7 @@ def _primary_normalize_column(frame: TransformFrame, df: pd.DataFrame) -> str:
     raise TransformShapeUnsupportedError(
         message="transform(op='normalize') found no numeric measure column",
         hint="Normalize requires a numeric non-axis measure column.",
-        details={
+        context={
             "op": "normalize",
             "axis_columns": sorted(axis_columns),
             "columns": list(df.columns),
@@ -717,7 +717,7 @@ def _coerce_normalize_number(value: Any, *, argument: str, mode: str) -> float:
         raise TransformArgError(
             message=f"transform(op='normalize') {argument} must be numeric",
             hint="Use an int or float value for normalize baseline values.",
-            details={"op": "normalize", "mode": mode, "argument": argument},
+            context={"op": "normalize", "mode": mode, "argument": argument},
         )
     try:
         numeric = float(value)
@@ -725,7 +725,7 @@ def _coerce_normalize_number(value: Any, *, argument: str, mode: str) -> float:
         raise TransformArgError(
             message=f"transform(op='normalize') {argument} must be numeric",
             hint="Use an int or float value for normalize baseline values.",
-            details={
+            context={
                 "op": "normalize",
                 "mode": mode,
                 "argument": argument,
@@ -747,13 +747,13 @@ def _resolve_normalize_base(
             raise TransformArgError(
                 message="transform(op='normalize', mode='per_unit') requires baseline",
                 hint="Pass baseline={'value': 100} or baseline={axis_column: axis_value}.",
-                details={"op": "normalize", "mode": mode, "argument": "baseline"},
+                context={"op": "normalize", "mode": mode, "argument": "baseline"},
             )
         if df.empty:
             raise TransformShapeUnsupportedError(
                 message="transform(op='normalize', mode='index') requires at least one row",
                 hint="Normalize index uses the first row as the default baseline.",
-                details={"op": "normalize", "mode": mode},
+                context={"op": "normalize", "mode": mode},
             )
         return _coerce_normalize_number(df[column].iloc[0], argument="baseline", mode=mode)
 
@@ -761,7 +761,7 @@ def _resolve_normalize_base(
         raise TransformArgError(
             message="transform(op='normalize') baseline must be a non-empty dict",
             hint="Pass baseline={'value': 100} or baseline={axis_column: axis_value}.",
-            details={"op": "normalize", "mode": mode, "argument": "baseline"},
+            context={"op": "normalize", "mode": mode, "argument": "baseline"},
         )
 
     if set(baseline) == {"value"}:
@@ -772,7 +772,7 @@ def _resolve_normalize_base(
         raise TransformArgError(
             message="transform(op='normalize') baseline selector references missing columns",
             hint="Baseline selector keys must match persisted frame columns.",
-            details={
+            context={
                 "op": "normalize",
                 "mode": mode,
                 "argument": "baseline",
@@ -788,7 +788,7 @@ def _resolve_normalize_base(
         raise TransformArgError(
             message="transform(op='normalize') baseline selector matched no rows",
             hint="Choose baseline selector values that identify at least one persisted frame row.",
-            details={"op": "normalize", "mode": mode, "argument": "baseline", "baseline": baseline},
+            context={"op": "normalize", "mode": mode, "argument": "baseline", "baseline": baseline},
         )
     return _coerce_normalize_number(matches[column].iloc[0], argument="baseline", mode=mode)
 
@@ -826,7 +826,7 @@ def _reject_invalid_normalize_denominator(
         raise TransformArgError(
             message=message,
             hint=hint,
-            details={
+            context={
                 "op": "normalize",
                 "mode": mode,
                 "column": column,
@@ -857,7 +857,7 @@ def _resolve_grouped_normalize_base(
         raise TransformArgError(
             message="transform(op='normalize') baseline must be a non-empty dict",
             hint="Pass baseline={'value': 100} or baseline={axis_column: axis_value}.",
-            details={"op": "normalize", "mode": mode, "argument": "baseline"},
+            context={"op": "normalize", "mode": mode, "argument": "baseline"},
         )
 
     if set(baseline) == {"value"}:
@@ -871,7 +871,7 @@ def _resolve_grouped_normalize_base(
         raise TransformArgError(
             message="transform(op='normalize') baseline selector references missing columns",
             hint="Baseline selector keys must match persisted frame columns.",
-            details={
+            context={
                 "op": "normalize",
                 "mode": mode,
                 "argument": "baseline",
@@ -884,7 +884,7 @@ def _resolve_grouped_normalize_base(
         raise TransformArgError(
             message="transform(op='normalize') grouped baseline selector must not include group columns",
             hint="Select the baseline row within each series, for example with a time column.",
-            details={
+            context={
                 "op": "normalize",
                 "mode": mode,
                 "argument": "baseline",
@@ -900,7 +900,7 @@ def _resolve_grouped_normalize_base(
         raise TransformArgError(
             message="transform(op='normalize') baseline selector matched no rows",
             hint="Choose baseline selector values that identify at least one persisted frame row.",
-            details={"op": "normalize", "mode": mode, "argument": "baseline", "baseline": baseline},
+            context={"op": "normalize", "mode": mode, "argument": "baseline", "baseline": baseline},
         )
 
     grouped_matches = matches.groupby(group_columns, dropna=False)[column].first().reset_index()
@@ -912,7 +912,7 @@ def _resolve_grouped_normalize_base(
         raise TransformArgError(
             message="transform(op='normalize') baseline selector matched no rows for some groups",
             hint="Choose selector values that identify a baseline row in every dimension group.",
-            details={
+            context={
                 "op": "normalize",
                 "mode": mode,
                 "argument": "baseline",
@@ -929,7 +929,7 @@ def _pct_change_series(frame: TransformFrame, df: pd.DataFrame, column: str) -> 
         raise TransformShapeUnsupportedError(
             message="transform(op='normalize', mode='pct_change') requires a time axis",
             hint="Use pct_change only on time_series or panel frames with a persisted time axis.",
-            details={
+            context={
                 "op": "normalize",
                 "mode": "pct_change",
                 "required_axis": "time",
@@ -967,14 +967,14 @@ def _resolve_transform_window(raw_window: Any, *, session: Session) -> AbsoluteW
         raise TransformArgError(
             message="transform(op='window') requires window",
             hint='Pass window={"start": "2026-07-01", "end": "2026-08-01"}.',
-            details={"op": "window", "argument": "window"},
+            context={"op": "window", "argument": "window"},
         )
     window = make_absolute_window(timescope)
     if window is None:
         raise TransformArgError(
             message="transform(op='window') requires window",
             hint='Pass window={"start": "2026-07-01", "end": "2026-08-01"}.',
-            details={"op": "window", "argument": "window"},
+            context={"op": "window", "argument": "window"},
         )
     return window
 
@@ -1003,7 +1003,7 @@ def _window_time_axis(frame: TransformFrame, df: pd.DataFrame) -> dict[str, Any]
     raise TransformShapeUnsupportedError(
         message="transform(op='window') requires a time axis",
         hint="Use window only on time_series or panel frames with a persisted time axis.",
-        details={"op": "window", "required_axis": "time", "axes": axes},
+        context={"op": "window", "required_axis": "time", "axes": axes},
     )
 
 
@@ -1013,12 +1013,12 @@ def _coerce_window_bound(value: str, *, bound_name: str) -> pd.Timestamp:
     except (TypeError, ValueError) as exc:
         raise WindowInvalidError(
             message=f"window.{bound_name}={value!r} is not a valid ISO-8601 date/datetime",
-            details={"kind": "WindowBoundInvalid", "bound": bound_name, "value": value},
+            context={"kind": "WindowBoundInvalid", "bound": bound_name, "value": value},
         ) from exc
     if pd.isna(bound):
         raise WindowInvalidError(
             message=f"window.{bound_name}={value!r} is not a valid ISO-8601 date/datetime",
-            details={"kind": "WindowBoundInvalid", "bound": bound_name, "value": value},
+            context={"kind": "WindowBoundInvalid", "bound": bound_name, "value": value},
         )
     return bound
 
@@ -1054,7 +1054,7 @@ def _op_window(
         raise TransformDimensionNotFoundError(
             message="transform(op='window') time axis column is not present",
             hint="Window can only filter by a persisted time axis column.",
-            details={"op": "window", "time_axis": time_axis, "columns": list(df.columns)},
+            context={"op": "window", "time_axis": time_axis, "columns": list(df.columns)},
         )
 
     start = _coerce_window_bound(resolved_window.start, bound_name="start")
@@ -1067,7 +1067,7 @@ def _op_window(
         raise TransformArgError(
             message="transform(op='window') requires window.start before window.end",
             hint="Pass explicit start/end bounds with start before end.",
-            details={
+            context={
                 "op": "window",
                 "kind": "WindowEmptyRange",
                 "start": resolved_window.start,
@@ -1080,7 +1080,7 @@ def _op_window(
         raise TransformArgError(
             message="transform(op='window') time axis comparison is invalid",
             hint="Use window bounds with timezone awareness compatible with the time axis column.",
-            details={
+            context={
                 "op": "window",
                 "kind": "WindowTimeComparisonInvalid",
                 "time_column": time_column,
@@ -1092,7 +1092,7 @@ def _op_window(
         raise TransformArgError(
             message="transform(op='window') requires window",
             hint='Pass window={"start": "2026-07-01", "end": "2026-08-01"}.',
-            details={"op": "window", "argument": "window"},
+            context={"op": "window", "argument": "window"},
         )
 
     if isinstance(frame, MetricFrame):
@@ -1121,7 +1121,7 @@ def _op_normalize(
         raise TransformArgError(
             message="transform(op='normalize') requires mode",
             hint="Pass mode='index', 'share', 'pct_change', 'per_unit', or 'z_score'.",
-            details={"op": "normalize", "argument": "mode"},
+            context={"op": "normalize", "argument": "mode"},
         )
 
     if isinstance(frame, DeltaFrame):
@@ -1131,7 +1131,7 @@ def _op_normalize(
                 "Normalize MetricFrame inputs before compare, or use DeltaFrame transforms that "
                 "preserve current, baseline, delta, and pct_change together."
             ),
-            details={
+            context={
                 "op": "normalize",
                 "mode": mode,
                 "supported_modes": [],
@@ -1147,7 +1147,7 @@ def _op_normalize(
                 "MetricFrame normalize supports index, share, pct_change, per_unit, and z_score. "
                 "DeltaFrame normalize is rejected in v1."
             ),
-            details={
+            context={
                 "op": "normalize",
                 "mode": mode,
                 "supported_modes": sorted(metric_modes),
@@ -1159,7 +1159,7 @@ def _op_normalize(
         raise TransformArgError(
             message=f"transform(op='normalize', mode={mode!r}) does not accept baseline",
             hint="Use baseline only with mode='index' or mode='per_unit'.",
-            details={"op": "normalize", "mode": mode, "unsupported_kwargs": ["baseline"]},
+            context={"op": "normalize", "mode": mode, "unsupported_kwargs": ["baseline"]},
         )
 
     df = frame.to_pandas()
@@ -1171,7 +1171,7 @@ def _op_normalize(
         raise TransformShapeUnsupportedError(
             message=f"transform(op='normalize') column {column!r} is not numeric",
             hint="Normalize requires a numeric non-axis measure column.",
-            details={"op": "normalize", "mode": mode, "column": column},
+            context={"op": "normalize", "mode": mode, "column": column},
         )
 
     if mode == "index":
@@ -1213,7 +1213,7 @@ def _op_normalize(
                 raise TransformArgError(
                     message="transform(op='normalize', mode='share') sum must be finite and non-zero",
                     hint="Normalize share requires a non-zero total measure value.",
-                    details={"op": "normalize", "mode": mode, "column": column},
+                    context={"op": "normalize", "mode": mode, "column": column},
                 )
             new_df[column] = new_df[column] / total
     elif mode == "pct_change":
@@ -1226,7 +1226,7 @@ def _op_normalize(
                     "transform(op='normalize', mode='per_unit') baseline must be finite and non-zero"
                 ),
                 hint="Choose a non-zero baseline row or pass baseline={'value': number}.",
-                details={"op": "normalize", "mode": mode, "argument": "baseline"},
+                context={"op": "normalize", "mode": mode, "argument": "baseline"},
             )
         new_df[column] = new_df[column] / base_value
     else:
@@ -1259,7 +1259,7 @@ def _op_normalize(
                         "transform(op='normalize', mode='z_score') std must be finite and non-zero"
                     ),
                     hint="Normalize z_score requires at least two non-identical measure values.",
-                    details={"op": "normalize", "mode": mode, "column": column},
+                    context={"op": "normalize", "mode": mode, "column": column},
                 )
             new_df[column] = (new_df[column] - mean) / std
 
@@ -1288,14 +1288,14 @@ def _resolve_slice_column(
             raise TransformDimensionNotFoundError(
                 message=f"transform(op='slice') dimension {dimension_id!r} is not present",
                 hint="Slice catalog ref keys must reference existing dimension axes.",
-                details={"op": "slice", "dimension": dimension_id},
+                context={"op": "slice", "dimension": dimension_id},
             )
         column = axis.get("column")
         if not isinstance(column, str) or column not in df.columns:
             raise TransformDimensionNotFoundError(
                 message=f"transform(op='slice') dimension {dimension_id!r} column is not present",
                 hint="Slice catalog ref keys must reference persisted frame columns.",
-                details={"op": "slice", "dimension": dimension_id, "column": column},
+                context={"op": "slice", "dimension": dimension_id, "column": column},
             )
         return column, dimension_id
     if isinstance(key, str):
@@ -1319,7 +1319,7 @@ def _resolve_slice_column(
             raise TransformDimensionNotFoundError(
                 message=f"transform(op='slice') column {key!r} is not an axis column",
                 hint="Slice string keys must match an existing time or dimension axis column.",
-                details={
+                context={
                     "op": "slice",
                     "column": key,
                     "axis_columns": sorted(axis_columns),
@@ -1336,7 +1336,7 @@ def _resolve_slice_column(
             raise TransformDimensionNotFoundError(
                 message=f"transform(op='slice') axis column {column!r} is not present",
                 hint="Slice string keys must reference persisted frame axis columns.",
-                details={"op": "slice", "column": column, "axes": axes},
+                context={"op": "slice", "column": column, "axes": axes},
             )
         return key, dimension_key_id
     raise TransformArgError(
@@ -1345,7 +1345,7 @@ def _resolve_slice_column(
             'Use slice_by={session.catalog.get("dimension.<dimension_id>").ref: "US"} '
             "or slice_by={'value': (10, 20)}."
         ),
-        details={"op": "slice", "actual_key_type": type(key).__name__},
+        context={"op": "slice", "actual_key_type": type(key).__name__},
     )
 
 
@@ -1373,7 +1373,7 @@ def _op_filter(
         raise TransformArgError(
             message="transform(op='filter') requires a callable predicate",
             hint="Pass predicate=lambda df: ... returning a boolean pandas Series.",
-            details={"op": "filter", "argument": "predicate"},
+            context={"op": "filter", "argument": "predicate"},
         )
 
     df = frame.to_pandas()
@@ -1382,7 +1382,7 @@ def _op_filter(
         raise TransformArgError(
             message="transform(op='filter') predicate must return a pandas Series",
             hint="Return a boolean Series with one value per input row.",
-            details={
+            context={
                 "op": "filter",
                 "argument": "predicate",
                 "actual_type": type(mask).__name__,
@@ -1392,13 +1392,13 @@ def _op_filter(
         raise TransformArgError(
             message="transform(op='filter') predicate mask index alignment is invalid",
             hint="Return a boolean Series with the same index as the input DataFrame.",
-            details={"op": "filter", "argument": "predicate"},
+            context={"op": "filter", "argument": "predicate"},
         )
     if len(mask) != len(df):
         raise TransformArgError(
             message="transform(op='filter') predicate returned a mask with the wrong length",
             hint="Return a boolean Series with one value per input row.",
-            details={
+            context={
                 "op": "filter",
                 "expected_length": len(df),
                 "actual_length": len(mask),
@@ -1408,7 +1408,7 @@ def _op_filter(
         raise TransformArgError(
             message="transform(op='filter') predicate mask must be boolean-like",
             hint="Return expressions such as df['column'] > value, not filtered data.",
-            details={"op": "filter", "actual_dtype": str(mask.dtype)},
+            context={"op": "filter", "actual_dtype": str(mask.dtype)},
         )
 
     return df[mask].reset_index(drop=True), {}, {"op": "filter", "predicate": predicate}
@@ -1426,7 +1426,7 @@ def _ordered_take(
         raise TransformArgError(
             message=f"transform(op='{op_name}') requires by to be a column name",
             hint=f"Pass by='value' or another persisted frame column for {op_name}.",
-            details={
+            context={
                 "op": op_name,
                 "argument": "by",
                 "actual_type": type(by).__name__,
@@ -1437,7 +1437,7 @@ def _ordered_take(
         raise TransformArgError(
             message=f"transform(op='{op_name}') requires a positive integer limit",
             hint=f"Pass limit=10 or another positive integer for {op_name}.",
-            details={"op": op_name, "argument": "limit", "limit": limit},
+            context={"op": op_name, "argument": "limit", "limit": limit},
         )
 
     df = frame.to_pandas()
@@ -1445,7 +1445,7 @@ def _ordered_take(
         raise TransformArgError(
             message=f"transform(op='{op_name}') by column {by!r} is not present",
             hint=f"Choose one of the persisted frame columns: {', '.join(map(str, df.columns))}.",
-            details={"op": op_name, "argument": "by", "by": by, "columns": list(df.columns)},
+            context={"op": op_name, "argument": "by", "by": by, "columns": list(df.columns)},
         )
 
     sorted_df = (
@@ -1479,7 +1479,7 @@ def _op_rank(
         raise TransformArgError(
             message="transform(op='rank') requires by to be a column name",
             hint="Pass by='value' or another persisted frame column for rank.",
-            details={"op": "rank", "argument": "by", "actual_type": type(by).__name__},
+            context={"op": "rank", "argument": "by", "actual_type": type(by).__name__},
         )
 
     method_map: dict[str, Literal["dense", "first", "min", "max"]] = {
@@ -1493,7 +1493,7 @@ def _op_rank(
         raise TransformArgError(
             message=f"transform(op='rank') method {method!r} is not supported",
             hint="Use method='ordinal', 'dense', 'min', or 'max'.",
-            details={
+            context={
                 "op": "rank",
                 "argument": "method",
                 "method": method,
@@ -1505,7 +1505,7 @@ def _op_rank(
         raise TransformArgError(
             message="transform(op='rank') rank_column must be a non-empty string",
             hint="Pass rank_column='rank' or another new output column name.",
-            details={
+            context={
                 "op": "rank",
                 "argument": "rank_column",
                 "actual_type": type(rank_column).__name__,
@@ -1517,13 +1517,13 @@ def _op_rank(
         raise TransformArgError(
             message=f"transform(op='rank') by column {by!r} is not present",
             hint=f"Choose one of the persisted frame columns: {', '.join(map(str, df.columns))}.",
-            details={"op": "rank", "argument": "by", "by": by, "columns": list(df.columns)},
+            context={"op": "rank", "argument": "by", "by": by, "columns": list(df.columns)},
         )
     if rank_column in df.columns:
         raise TransformArgError(
             message=f"transform(op='rank') rank_column {rank_column!r} already exists",
             hint="Choose a new rank_column name that does not overwrite an existing column.",
-            details={"op": "rank", "argument": "rank_column", "rank_column": rank_column},
+            context={"op": "rank", "argument": "rank_column", "rank_column": rank_column},
         )
 
     by_values = df[by]
@@ -1536,7 +1536,7 @@ def _op_rank(
         raise TransformArgError(
             message=(f"transform(op='rank') by column {by!r} contains null or non-finite values"),
             hint="Remove or impute null, NaN, inf, and -inf values before ranking.",
-            details={
+            context={
                 "op": "rank",
                 "argument": "by",
                 "by": by,
@@ -1567,7 +1567,7 @@ def _op_rollup(
         raise TransformShapeUnsupportedError(
             message="transform(op='rollup') cannot roll up non-reaggregatable metric values",
             hint="Re-run session.observe(...) at the target grain or target dimensions.",
-            details={"op": "rollup", "reason": "non_reaggregatable", "frame_ref": frame.ref},
+            context={"op": "rollup", "reason": "non_reaggregatable", "frame_ref": frame.ref},
         )
 
     if grain is not None:
@@ -1577,7 +1577,7 @@ def _op_rollup(
         raise TransformArgError(
             message="transform(op='rollup') requires a non-empty drop_axes list",
             hint='Pass drop_axes=[session.catalog.get("dimension.<dimension_id>").ref].',
-            details={"op": "rollup", "argument": "drop_axes"},
+            context={"op": "rollup", "argument": "drop_axes"},
         )
     drop_ids = _normalize_rollup_drop_axes(frame, drop_axes)
     axes = copy.deepcopy(_frame_axes(frame))
@@ -1593,7 +1593,7 @@ def _op_rollup(
         raise TransformDimensionNotFoundError(
             message="transform(op='rollup') remaining axis columns are not present",
             hint="Rollup can only group by persisted frame axis columns.",
-            details={"op": "rollup", "missing_columns": missing_columns, "axes": axes},
+            context={"op": "rollup", "missing_columns": missing_columns, "axes": axes},
         )
 
     all_axis_columns = set(axis_columns.values())
@@ -1602,7 +1602,7 @@ def _op_rollup(
         raise TransformShapeUnsupportedError(
             message="transform(op='rollup') found no measure columns to aggregate",
             hint="Rollup requires at least one non-axis measure column.",
-            details={"op": "rollup", "axes": axes},
+            context={"op": "rollup", "axes": axes},
         )
 
     new_df = (
@@ -1644,7 +1644,7 @@ def _require_target_grain_compatible(frame: TransformFrame, target_grain: str) -
         raise TransformArgError(
             message=(f"transform(op='rollup') unsupported grain {target_grain!r}"),
             hint=("Supported rollup grains: hour, day, week, month, quarter, year."),
-            details={"op": "rollup", "argument": "grain", "grain": target_grain},
+            context={"op": "rollup", "argument": "grain", "grain": target_grain},
         )
     time_axis = _window_time_axis(frame, frame.to_pandas())
     current_grain = time_axis.get("grain") if isinstance(time_axis, dict) else None
@@ -1655,7 +1655,7 @@ def _require_target_grain_compatible(frame: TransformFrame, target_grain: str) -
                 f"supported grain; got {current_grain!r}"
             ),
             hint="Rollup grain re-bucketing needs an hour/day/week/month/quarter/year time axis.",
-            details={"op": "rollup", "time_axis_grain": current_grain},
+            context={"op": "rollup", "time_axis_grain": current_grain},
         )
     if _ROLLUP_GRAIN_RANK[target_grain] <= _ROLLUP_GRAIN_RANK[current_grain]:
         raise TransformArgError(
@@ -1664,7 +1664,7 @@ def _require_target_grain_compatible(frame: TransformFrame, target_grain: str) -
                 f"coarser than the current time-axis grain {current_grain!r}"
             ),
             hint="Pick a target grain strictly coarser than the frame's existing time grain.",
-            details={
+            context={
                 "op": "rollup",
                 "argument": "grain",
                 "target_grain": target_grain,
@@ -1690,7 +1690,7 @@ def _require_target_grain_compatible(frame: TransformFrame, target_grain: str) -
                             f"week buckets straddle {reset_grain} boundaries."
                         ),
                         hint="Use day or hour target grain, or grain_to_date(grain='week') for a week reset.",
-                        details={
+                        context={
                             "op": "rollup",
                             "reason": "grain_incompatible",
                             "target_grain": target_grain,
@@ -1874,7 +1874,7 @@ def _op_slice(
         raise TransformArgError(
             message="transform(op='slice') requires a non-empty slice_by dict",
             hint='Pass slice_by={session.catalog.get("dimension.<dimension_id>").ref: "US"}.',
-            details={"op": "slice", "argument": "slice_by"},
+            context={"op": "slice", "argument": "slice_by"},
         )
 
     df = frame.to_pandas()
@@ -1891,7 +1891,7 @@ def _op_slice(
                         "transform(op='slice') tuple values must be length-2 inclusive ranges"
                     ),
                     hint="Use a list for membership or a (lo, hi) tuple for range slicing.",
-                    details={"op": "slice", "column": column},
+                    context={"op": "slice", "column": column},
                 )
             if not _series_supports_range_slice(series):
                 raise TransformArgError(
@@ -1900,7 +1900,7 @@ def _op_slice(
                         "or date/time axis column"
                     ),
                     hint="Use a list for membership predicates on dimension columns.",
-                    details={"op": "slice", "column": column},
+                    context={"op": "slice", "column": column},
                 )
             lo, hi = value
             try:
@@ -1909,7 +1909,7 @@ def _op_slice(
                 raise TransformArgError(
                     message="transform(op='slice') range tuple bounds are not comparable",
                     hint="Use bounds with the same numeric or date/time type as the axis column.",
-                    details={"op": "slice", "column": column},
+                    context={"op": "slice", "column": column},
                 ) from exc
         elif isinstance(value, list):
             clause = series.isin(list(value))
@@ -1917,13 +1917,13 @@ def _op_slice(
             raise TransformArgError(
                 message="transform(op='slice') does not accept set values",
                 hint="Use a list for membership predicates so params persist deterministically.",
-                details={"op": "slice", "column": column},
+                context={"op": "slice", "column": column},
             )
         elif isinstance(value, dict):
             raise TransformArgError(
                 message="transform(op='slice') slice_by values must be scalar, list, or range tuple",
                 hint="Use a scalar for equality, a list for membership, or a (lo, hi) tuple range.",
-                details={
+                context={
                     "op": "slice",
                     "column": column,
                     "actual_value_type": type(value).__name__,

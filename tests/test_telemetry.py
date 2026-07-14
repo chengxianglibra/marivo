@@ -188,7 +188,7 @@ def test_session_intent_error_records_local_telemetry_with_session_id(
         name="demo", backend_factory=lambda _name: None, use_datasources=False
     )
 
-    with pytest.raises(AttributeError):
+    with pytest.raises(mv.errors.AnalysisError):
         session.assess_quality(object())
 
     entry = _records(telemetry_project / ".marivo" / "telemetry" / "events.jsonl")[-1]
@@ -197,7 +197,7 @@ def test_session_intent_error_records_local_telemetry_with_session_id(
     assert _attr(record, "marivo.intent.family") == "core"
     assert _attr(record, "marivo.intent.name") == "assess_quality"
     assert _attr(record, "marivo.operation.status") == "error"
-    assert _attr(record, "marivo.error.type") == "AttributeError"
+    assert _attr(record, "marivo.error.type") == "AnalysisError"
     assert _attr(record, "marivo.session.id") == session.id
 
 

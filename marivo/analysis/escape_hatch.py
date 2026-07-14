@@ -139,7 +139,7 @@ def _raise_promotion_failed(
 ) -> None:
     raise PromotionFailedError(
         message=f"cannot promote scratch result to {target_kind}",
-        details={
+        context={
             "target_kind": target_kind,
             "missing": missing,
             "ambiguous": ambiguous,
@@ -188,7 +188,7 @@ def _validate_metric_in_catalog(
         return
     raise PromotionFailedError(
         message=f"cannot promote scratch result to {target_kind}",
-        details={
+        context={
             "target_kind": target_kind,
             "missing": [],
             "ambiguous": [f"metric_not_in_catalog:{metric_id}"],

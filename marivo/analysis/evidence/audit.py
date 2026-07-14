@@ -190,7 +190,7 @@ def get_proposition(*, db_path: Path, proposition_id: str) -> Proposition:
     if row is None:
         raise PropositionNotFoundError(
             message=f"proposition_id={proposition_id!r} not found",
-            details={"proposition_id": proposition_id},
+            context={"proposition_id": proposition_id},
         )
     return _row_to_proposition(row)
 

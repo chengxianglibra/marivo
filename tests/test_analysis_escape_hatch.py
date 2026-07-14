@@ -289,16 +289,16 @@ def test_core_operators_reject_exploration_result_inputs():
         semantic_model="sales",
     )
 
-    with pytest.raises(mv.errors.SemanticKindMismatchError):
+    with pytest.raises(mv.errors.AnalysisError):
         session.compare(metric, scratch)  # type: ignore[arg-type]
 
-    with pytest.raises(mv.errors.SemanticKindMismatchError):
+    with pytest.raises(mv.errors.AnalysisError):
         session.attribute(scratch, axes=[make_ref("country", SemanticKind.DIMENSION)])  # type: ignore[arg-type]
 
-    with pytest.raises(mv.errors.SemanticKindMismatchError):
+    with pytest.raises(mv.errors.AnalysisError):
         session.discover.point_anomalies(scratch)  # type: ignore[arg-type]
 
-    with pytest.raises(mv.errors.SemanticKindMismatchError):
+    with pytest.raises(mv.errors.AnalysisError):
         session.hypothesis_test(metric, scratch)  # type: ignore[arg-type]
 
 
@@ -374,8 +374,8 @@ def test_promote_metric_frame_rejects_metric_ref_as_catalog_axis():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["axis_ref_kind:country:sales.revenue:metric"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["axis_ref_kind:country:sales.revenue:metric"]
 
 
 def test_promote_metric_frame_accepts_direct_dataframe():
@@ -404,14 +404,14 @@ def test_promote_metric_frame_fails_closed_with_missing_metadata():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         escape_hatch.promote_metric_frame(scratch, session=session)
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert set(exc_info.value.details["missing"]) >= {
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert set(exc_info.value._context["missing"]) >= {
         "metric",
         "semantic_kind",
         "measure_column",
         "semantic_model",
     }
-    assert exc_info.value.details["available_columns"] == ["value"]
+    assert exc_info.value._context["available_columns"] == ["value"]
 
 
 def test_promote_metric_frame_rejects_non_numeric_measure_column():
@@ -428,11 +428,11 @@ def test_promote_metric_frame_rejects_non_numeric_measure_column():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["missing"] == []
-    assert exc_info.value.details["ambiguous"] == ["non_numeric:value"]
-    assert exc_info.value.details["available_columns"] == ["value"]
-    assert exc_info.value.details["source_refs"] == [scratch.ref]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["missing"] == []
+    assert exc_info.value._context["ambiguous"] == ["non_numeric:value"]
+    assert exc_info.value._context["available_columns"] == ["value"]
+    assert exc_info.value._context["source_refs"] == [scratch.ref]
 
 
 def test_promote_metric_frame_rejects_missing_axis_column():
@@ -450,10 +450,10 @@ def test_promote_metric_frame_rejects_missing_axis_column():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["missing"] == ["country"]
-    assert exc_info.value.details["available_columns"] == ["value"]
-    assert exc_info.value.details["source_refs"] == [scratch.ref]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["missing"] == ["country"]
+    assert exc_info.value._context["available_columns"] == ["value"]
+    assert exc_info.value._context["source_refs"] == [scratch.ref]
 
 
 def test_promote_metric_frame_rejects_segmented_without_axes():
@@ -470,9 +470,9 @@ def test_promote_metric_frame_rejects_segmented_without_axes():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["missing"] == ["axes"]
-    assert exc_info.value.details["available_columns"] == ["value"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["missing"] == ["axes"]
+    assert exc_info.value._context["available_columns"] == ["value"]
 
 
 def test_promote_metric_frame_rejects_cross_session_scratch():
@@ -510,7 +510,7 @@ def test_promote_metric_frame_rejects_relative_window():
             window={"expr": "last 7 days", "as_of": "2026-05-26T12:00:00", "grain": "day"},
         )
 
-    assert exc_info.value.details["kind"] == "AbsoluteWindowModelInvalid"
+    assert exc_info.value._context["kind"] == "AbsoluteWindowModelInvalid"
 
 
 def test_promote_metric_frame_rejects_time_series_without_time_axis():
@@ -527,9 +527,9 @@ def test_promote_metric_frame_rejects_time_series_without_time_axis():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["missing"] == ["time_axis"]
-    assert exc_info.value.details["available_columns"] == ["value"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["missing"] == ["time_axis"]
+    assert exc_info.value._context["available_columns"] == ["value"]
 
 
 def test_promote_metric_frame_rejects_time_series_with_dimension_axes():
@@ -551,9 +551,9 @@ def test_promote_metric_frame_rejects_time_series_with_dimension_axes():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["unexpected_axes"]
-    assert exc_info.value.details["available_columns"] == [
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["unexpected_axes"]
+    assert exc_info.value._context["available_columns"] == [
         "bucket_start",
         "country",
         "value",
@@ -579,8 +579,8 @@ def test_promote_metric_frame_rejects_segmented_with_time_axis():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["unexpected_time_axis"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["unexpected_time_axis"]
 
 
 def test_promote_metric_frame_rejects_scalar_with_axes():
@@ -600,8 +600,8 @@ def test_promote_metric_frame_rejects_scalar_with_axes():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["unexpected_axes"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["unexpected_axes"]
 
 
 def test_promote_metric_frame_rejects_measure_column_used_as_axis():
@@ -621,8 +621,8 @@ def test_promote_metric_frame_rejects_measure_column_used_as_axis():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["measure_axis_collision:country"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["measure_axis_collision:country"]
 
 
 def test_promote_metric_frame_rejects_scalar_with_extra_columns():
@@ -641,8 +641,8 @@ def test_promote_metric_frame_rejects_scalar_with_extra_columns():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["scalar_extra_columns:country"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["scalar_extra_columns:country"]
 
 
 def test_promote_metric_frame_rejects_panel_time_axis_collision():
@@ -664,8 +664,8 @@ def test_promote_metric_frame_rejects_panel_time_axis_collision():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["axis_collision:time"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["axis_collision:time"]
 
 
 def test_promote_metric_frame_rejects_panel_time_axis_ref_collision():
@@ -687,8 +687,8 @@ def test_promote_metric_frame_rejects_panel_time_axis_ref_collision():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["axis_collision:time"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["axis_collision:time"]
 
 
 def test_promote_metric_frame_rejects_panel_time_axis_column_key_collision():
@@ -710,8 +710,8 @@ def test_promote_metric_frame_rejects_panel_time_axis_column_key_collision():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["axis_collision:bucket_start"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["axis_collision:bucket_start"]
 
 
 def test_promote_metric_frame_rejects_panel_time_axis_column_ref_collision():
@@ -733,8 +733,8 @@ def test_promote_metric_frame_rejects_panel_time_axis_column_ref_collision():
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert exc_info.value.details["ambiguous"] == ["axis_collision:bucket_start"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert exc_info.value._context["ambiguous"] == ["axis_collision:bucket_start"]
 
 
 def _promoted_scalar_metric(session, value, *, semantic_kind="scalar", semantic_model="sales"):
@@ -808,8 +808,8 @@ def test_promote_delta_frame_fails_when_delta_formula_does_not_match():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "delta_formula" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "delta_formula" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_delta_frame_rejects_nullable_formula_values():
@@ -838,8 +838,8 @@ def test_promote_delta_frame_rejects_nullable_formula_values():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "delta_formula_null" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "delta_formula_null" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_delta_frame_rejects_metric_override_mismatch():
@@ -863,8 +863,8 @@ def test_promote_delta_frame_rejects_metric_override_mismatch():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "metric_override_mismatch" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "metric_override_mismatch" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_delta_frame_rejects_source_semantic_kind_mismatch():
@@ -887,8 +887,8 @@ def test_promote_delta_frame_rejects_source_semantic_kind_mismatch():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "semantic_kind_mismatch" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "semantic_kind_mismatch" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_delta_frame_rejects_source_semantic_model_mismatch():
@@ -911,8 +911,8 @@ def test_promote_delta_frame_rejects_source_semantic_model_mismatch():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "semantic_model_mismatch" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "semantic_model_mismatch" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_delta_frame_rejects_source_axes_mismatch():
@@ -951,8 +951,8 @@ def test_promote_delta_frame_rejects_source_axes_mismatch():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "axes_mismatch" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "axes_mismatch" in exc_info.value._context["ambiguous"]
 
 
 def test_promoted_segmented_delta_alignment_includes_axes_for_decompose():
@@ -1000,8 +1000,8 @@ def test_promote_delta_frame_rejects_missing_inherited_axis_column():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert exc_info.value.details["missing"] == ["country"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert exc_info.value._context["missing"] == ["country"]
 
 
 def test_promote_delta_frame_rejects_asymmetric_window_grain():
@@ -1036,8 +1036,8 @@ def test_promote_delta_frame_rejects_asymmetric_window_grain():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "window_grain_mismatch" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "window_grain_mismatch" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_delta_frame_rejects_semantic_kind_override_mismatch():
@@ -1061,8 +1061,8 @@ def test_promote_delta_frame_rejects_semantic_kind_override_mismatch():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "semantic_kind_override_mismatch" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "semantic_kind_override_mismatch" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_delta_frame_rejects_semantic_model_override_mismatch():
@@ -1086,8 +1086,8 @@ def test_promote_delta_frame_rejects_semantic_model_override_mismatch():
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "semantic_model_override_mismatch" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "semantic_model_override_mismatch" in exc_info.value._context["ambiguous"]
 
 
 @pytest.mark.parametrize(
@@ -1121,8 +1121,8 @@ def test_promote_delta_frame_rejects_partial_formula_columns(
             baseline_column=baseline_column,
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert missing_column in exc_info.value.details["missing"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert missing_column in exc_info.value._context["missing"]
 
 
 def test_promote_delta_frame_fails_closed_without_provenance():
@@ -1132,7 +1132,7 @@ def test_promote_delta_frame_fails_closed_without_provenance():
     with pytest.raises(mv.errors.PromotionFailedError) as exc_info:
         escape_hatch.promote_delta_frame(scratch, session=session, delta_column="delta")
 
-    assert set(exc_info.value.details["missing"]) >= {
+    assert set(exc_info.value._context["missing"]) >= {
         "current",
         "baseline",
         "metric",
@@ -1206,9 +1206,9 @@ def test_promote_attribution_frame_fails_closed_without_source_delta():
             contribution_column="contribution",
         )
 
-    assert exc_info.value.details["target_kind"] == "attribution_frame"
-    assert exc_info.value.details["missing"] == ["source_delta"]
-    assert exc_info.value.details["available_columns"] == ["country", "contribution"]
+    assert exc_info.value._context["target_kind"] == "attribution_frame"
+    assert exc_info.value._context["missing"] == ["source_delta"]
+    assert exc_info.value._context["available_columns"] == ["country", "contribution"]
 
 
 def test_promote_attribution_frame_rejects_non_delta_source():
@@ -1228,8 +1228,8 @@ def test_promote_attribution_frame_rejects_non_delta_source():
             contribution_column="contribution",
         )
 
-    assert exc_info.value.details["target_kind"] == "attribution_frame"
-    assert exc_info.value.details["ambiguous"] == [f"not_delta_frame:{metric.ref}"]
+    assert exc_info.value._context["target_kind"] == "attribution_frame"
+    assert exc_info.value._context["ambiguous"] == [f"not_delta_frame:{metric.ref}"]
 
 
 def test_promote_attribution_frame_fails_for_missing_driver_column():
@@ -1246,7 +1246,7 @@ def test_promote_attribution_frame_fails_for_missing_driver_column():
             contribution_column="contribution",
         )
 
-    assert exc_info.value.details["missing"] == ["country"]
+    assert exc_info.value._context["missing"] == ["country"]
 
 
 def test_promote_attribution_frame_fails_for_non_numeric_contribution():
@@ -1266,7 +1266,7 @@ def test_promote_attribution_frame_fails_for_non_numeric_contribution():
             contribution_column="contribution",
         )
 
-    assert "non_numeric:contribution" in exc_info.value.details["ambiguous"]
+    assert "non_numeric:contribution" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_attribution_frame_fails_for_null_contribution():
@@ -1286,8 +1286,8 @@ def test_promote_attribution_frame_fails_for_null_contribution():
             contribution_column="contribution",
         )
 
-    assert exc_info.value.details["target_kind"] == "attribution_frame"
-    assert "contribution_null" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "attribution_frame"
+    assert "contribution_null" in exc_info.value._context["ambiguous"]
 
 
 def test_promote_attribution_frame_lineage_digest_includes_method_and_params():
@@ -1356,9 +1356,9 @@ def test_promote_metric_frame_rejects_metric_missing_from_ready_catalog(tmp_path
             semantic_model="sales",
         )
 
-    assert exc_info.value.details["target_kind"] == "metric_frame"
-    assert "metric_not_in_catalog:sales.ghost" in exc_info.value.details["ambiguous"]
-    assert exc_info.value.details["available_metric_ids"] == ["sales.revenue"]
+    assert exc_info.value._context["target_kind"] == "metric_frame"
+    assert "metric_not_in_catalog:sales.ghost" in exc_info.value._context["ambiguous"]
+    assert exc_info.value._context["available_metric_ids"] == ["sales.revenue"]
 
 
 def test_promote_metric_frame_accepts_metric_defined_in_ready_catalog(tmp_path):
@@ -1399,5 +1399,5 @@ def test_promote_delta_frame_rejects_inherited_metric_missing_from_ready_catalog
             baseline_column="baseline",
         )
 
-    assert exc_info.value.details["target_kind"] == "delta_frame"
-    assert "metric_not_in_catalog:sales.ghost" in exc_info.value.details["ambiguous"]
+    assert exc_info.value._context["target_kind"] == "delta_frame"
+    assert "metric_not_in_catalog:sales.ghost" in exc_info.value._context["ambiguous"]

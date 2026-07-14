@@ -212,7 +212,7 @@ def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
             session=s,
         )
 
-    assert exc_info.value.details["code"] == "path-missing"
+    assert exc_info.value._context["code"] == "path-missing"
     assert s.jobs() == []
     assert s.frame_summaries() == []
 

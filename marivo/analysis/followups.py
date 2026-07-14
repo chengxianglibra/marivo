@@ -93,7 +93,7 @@ def _parse_item_followups(raw: str | None) -> list[FollowupAction]:
     if not isinstance(payload, list):
         raise FrameMetaInvalidError(
             message="recommended_followups_json must encode a JSON array",
-            details={
+            context={
                 "kind": "ItemFollowupShapeInvalid",
                 "actual_type": type(payload).__name__,
             },

@@ -65,7 +65,7 @@ def _count_distinct_key_expr(resolver: Any, metric_ir: Any, table: Any) -> Any:
     if measure_ref is None:
         raise AnalysisError(
             message="cumulative count_distinct requires a measure-backed base metric",
-            details={"metric": getattr(metric_ir, "semantic_id", None)},
+            context={"metric": getattr(metric_ir, "semantic_id", None)},
         )
     return resolver.measure_on(measure_ref, table)
 
@@ -158,7 +158,7 @@ def _execute_trailing_distinct(
                 "Choose a trailing span that divides evenly into the query "
                 "grain (e.g. trailing(count=7, unit='day') at day or hour grain)."
             ),
-            details={
+            context={
                 "anchor": anchor,
                 "span_seconds": span_seconds,
                 "grain": resolved_window.grain.to_token(),
@@ -185,7 +185,7 @@ def _execute_trailing_distinct(
                 "coarser grain. For wide ranges prefer all_history or "
                 "grain_to_date over a count_distinct base."
             ),
-            details={
+            context={
                 "anchor": anchor,
                 "w_buckets": w_buckets,
                 "display_buckets": display_bucket_count,
@@ -434,7 +434,7 @@ def _execute_trailing_additive(
                 "Choose a trailing span that divides evenly into the query "
                 "grain (e.g. trailing(count=7, unit='day') at day or hour grain)."
             ),
-            details={
+            context={
                 "anchor": anchor,
                 "span_seconds": span_seconds,
                 "grain": resolved_window.grain.to_token(),
@@ -642,7 +642,7 @@ def _execute_cumulative(
                 "single windowed value."
             ),
             hint="Pass grain='day' (or another grain) to observe a trailing rolling window.",
-            details={"anchor": anchor},
+            context={"anchor": anchor},
         )
 
     if not is_time_series:

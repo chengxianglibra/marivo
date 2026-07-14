@@ -113,10 +113,10 @@ def test_compare_rejects_delta_frame_as_second_argument(tmp_path):
         "SemanticKindMismatchError: compare(current, baseline) expected MetricFrame for `baseline`, got DeltaFrame."
         in rendered
     )
-    assert "Fix:" in rendered
+    assert "Repair:" in rendered
     assert "delta = session.compare(cur, base, alignment=mv.window_bucket())" in rendered
-    assert exc_info.value.details["expected_kind"] == "metric_frame"
-    assert exc_info.value.details["got_kind"] == "delta_frame"
+    assert exc_info.value._context["expected_kind"] == "metric_frame"
+    assert exc_info.value._context["got_kind"] == "delta_frame"
 
 
 def test_compare_semantic_kind_mismatch_raises(tmp_path):
@@ -146,8 +146,8 @@ def test_compare_rejects_non_alignment_policy(tmp_path):
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         compare(a, b, alignment="window_bucket", session=s)  # type: ignore[arg-type]
 
-    assert exc_info.value.details["expected_kind"] == "AlignmentPolicy"
-    assert exc_info.value.details["got_kind"] == "str"
+    assert exc_info.value._context["expected_kind"] == "AlignmentPolicy"
+    assert exc_info.value._context["got_kind"] == "str"
 
 
 def test_compare_rejects_loose_align_parameter(tmp_path):
@@ -226,9 +226,9 @@ def test_window_bucket_ordinal_rejects_time_series_grain_mismatch(tmp_path):
     with pytest.raises(AlignmentFailedError) as exc_info:
         compare(cur, base, alignment=AlignmentPolicy(kind="window_bucket"), session=s)
 
-    assert exc_info.value.details["kind"] == "WindowBucketGrainMismatch"
-    assert exc_info.value.details["current_grain"] == "day"
-    assert exc_info.value.details["baseline_grain"] == "hour"
+    assert exc_info.value._context["kind"] == "WindowBucketGrainMismatch"
+    assert exc_info.value._context["current_grain"] == "day"
+    assert exc_info.value._context["baseline_grain"] == "hour"
 
 
 def test_window_bucket_no_overlap_different_expected_counts_uses_outer_ordinal_union(tmp_path):
@@ -292,7 +292,7 @@ def test_window_bucket_strict_lengths_rejects_different_expected_counts(tmp_path
         )
 
     assert "equal expected bucket counts" in str(exc_info.value)
-    assert exc_info.value.details["kind"] == "WindowBucketExpectedCountMismatch"
+    assert exc_info.value._context["kind"] == "WindowBucketExpectedCountMismatch"
 
 
 def test_window_bucket_overlapping_windows_use_ordinal_mode_by_default(tmp_path):
@@ -489,7 +489,7 @@ def test_alignment_policy_calendar_backed_rejects_window_bucket_mode():
             mode="calendar_bucket",
         )
 
-    assert exc_info.value.details["case"] == "window_bucket_mode_not_applicable"
+    assert exc_info.value._context["case"] == "window_bucket_mode_not_applicable"
 
 
 def test_alignment_policy_calendar_backed_rejects_strict_lengths():
@@ -500,7 +500,7 @@ def test_alignment_policy_calendar_backed_rejects_strict_lengths():
             strict_lengths=True,
         )
 
-    assert exc_info.value.details["case"] == "window_bucket_strict_lengths_not_applicable"
+    assert exc_info.value._context["case"] == "window_bucket_strict_lengths_not_applicable"
 
 
 def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_path):
@@ -613,9 +613,9 @@ def test_compare_scalar_rejects_multirow_inputs(tmp_path):
     with pytest.raises(AlignmentFailedError) as exc_info:
         compare(cur, base, session=s)
 
-    assert exc_info.value.details["kind"] == "ScalarCompareRequiresSingleRow"
-    assert exc_info.value.details["current_rows"] == 2
-    assert exc_info.value.details["baseline_rows"] == 1
+    assert exc_info.value._context["kind"] == "ScalarCompareRequiresSingleRow"
+    assert exc_info.value._context["current_rows"] == 2
+    assert exc_info.value._context["baseline_rows"] == 1
 
 
 def test_window_bucket_no_overlap_supports_quarter_grain(tmp_path):

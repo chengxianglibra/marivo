@@ -7,6 +7,7 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AlignmentFailedError,
+    AnalysisError,
     CrossSessionFrameError,
     SemanticKindMismatchError,
 )
@@ -192,7 +193,7 @@ def test_correlate_rejects_unsupported_window_bucket_sub_modes():
         )
 
     assert "only supports default window_bucket alignment" in str(exc_info.value)
-    assert exc_info.value.details["alignment"]["mode"] == "calendar_bucket"
+    assert exc_info.value._context["alignment"]["mode"] == "calendar_bucket"
 
     with pytest.raises(SemanticKindMismatchError):
         session.correlate(
@@ -363,13 +364,12 @@ def test_correlate_rejects_non_alignment_policy():
     a = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}), metric_id="sales.revenue")
     b = _metric(session, pd.DataFrame({"value": [2.0, 4.0]}), metric_id="sales.orders")
 
-    with pytest.raises(SemanticKindMismatchError) as exc:
+    with pytest.raises(AnalysisError) as exc:
         session.correlate(a, b, alignment="window_bucket")  # type: ignore[arg-type]
 
-    assert exc.value.details == {
-        "expected_kind": "AlignmentPolicy",
-        "got_kind": "str",
-    }
+    assert exc.value.location == "correlate.alignment"
+    assert exc.value.repair is not None
+    assert exc.value.repair.help_target == "correlate"
 
 
 def test_correlate_rejects_calendar_backed_alignment_for_now():
@@ -381,7 +381,7 @@ def test_correlate_rejects_calendar_backed_alignment_for_now():
     with pytest.raises(SemanticKindMismatchError) as exc:
         session.correlate(a, b, alignment=alignment)
 
-    assert exc.value.details == {"alignment": alignment.model_dump(mode="json")}
+    assert exc.value._context == {"alignment": alignment.model_dump(mode="json")}
 
 
 def test_correlate_does_not_accept_lag_policy_argument():

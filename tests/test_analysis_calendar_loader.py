@@ -53,7 +53,7 @@ def test_calendar_cache_invalid_file_raises_policy_error(tmp_path):
     with pytest.raises(CalendarPolicyError) as exc_info:
         cache.get("bad")
 
-    assert exc_info.value.details["kind"] == "CalendarFileInvalid"
+    assert exc_info.value._context["kind"] == "CalendarFileInvalid"
 
 
 @pytest.mark.parametrize(
@@ -66,8 +66,8 @@ def test_calendar_cache_rejects_invalid_calendar_name(tmp_path, calendar_name):
     with pytest.raises(CalendarPolicyError) as exc_info:
         cache.get(calendar_name)
 
-    assert exc_info.value.details["kind"] == "CalendarNameInvalid"
-    assert exc_info.value.details["calendar_name"] == calendar_name
+    assert exc_info.value._context["kind"] == "CalendarNameInvalid"
+    assert exc_info.value._context["calendar_name"] == calendar_name
 
 
 def test_calendar_cache_read_failure_raises_policy_error_with_read_failed_kind(
@@ -94,8 +94,8 @@ def test_calendar_cache_read_failure_raises_policy_error_with_read_failed_kind(
     with pytest.raises(CalendarPolicyError) as exc_info:
         cache.get("cn_holidays")
 
-    assert exc_info.value.details["kind"] == "CalendarFileReadFailed"
-    assert exc_info.value.details["calendar_name"] == "cn_holidays"
+    assert exc_info.value._context["kind"] == "CalendarFileReadFailed"
+    assert exc_info.value._context["calendar_name"] == "cn_holidays"
 
 
 def test_calendar_rejects_timezone_field(tmp_path):
@@ -117,9 +117,9 @@ def test_calendar_rejects_timezone_field(tmp_path):
     with pytest.raises(CalendarPolicyError) as exc_info:
         cache.get("cn_holidays")
 
-    assert exc_info.value.details["calendar_name"] == "cn_holidays"
-    assert exc_info.value.details["kind"] == "CalendarFileInvalid"
-    assert "validation_errors" in exc_info.value.details
+    assert exc_info.value._context["calendar_name"] == "cn_holidays"
+    assert exc_info.value._context["kind"] == "CalendarFileInvalid"
+    assert "validation_errors" in exc_info.value._context
 
 
 def test_calendar_cache_invalid_json_shape_missing_required_field_raises_policy_error(tmp_path):
@@ -141,8 +141,8 @@ def test_calendar_cache_invalid_json_shape_missing_required_field_raises_policy_
     with pytest.raises(CalendarPolicyError) as exc_info:
         cache.get("no_name")
 
-    assert exc_info.value.details["kind"] == "CalendarFileInvalid"
-    assert "validation_errors" in exc_info.value.details
+    assert exc_info.value._context["kind"] == "CalendarFileInvalid"
+    assert "validation_errors" in exc_info.value._context
 
 
 def test_calendar_cache_invalid_json_shape_extra_field_raises_policy_error(tmp_path):
@@ -163,8 +163,8 @@ def test_calendar_cache_invalid_json_shape_extra_field_raises_policy_error(tmp_p
     with pytest.raises(CalendarPolicyError) as exc_info:
         cache.get("bad_shape_extra")
 
-    assert exc_info.value.details["kind"] == "CalendarFileInvalid"
-    assert "validation_errors" in exc_info.value.details
+    assert exc_info.value._context["kind"] == "CalendarFileInvalid"
+    assert "validation_errors" in exc_info.value._context
 
 
 def test_calendar_cache_invalid_entry_date_raises_policy_error(tmp_path):
@@ -184,5 +184,5 @@ def test_calendar_cache_invalid_entry_date_raises_policy_error(tmp_path):
     with pytest.raises(CalendarPolicyError) as exc_info:
         cache.get("bad_date")
 
-    assert exc_info.value.details["kind"] == "CalendarFileInvalid"
-    assert "validation_errors" in exc_info.value.details
+    assert exc_info.value._context["kind"] == "CalendarFileInvalid"
+    assert "validation_errors" in exc_info.value._context

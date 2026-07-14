@@ -51,6 +51,7 @@ class Constraint:
     hint: str
     example: str | None = None
     docs_ref: str | None = None
+    help_target: str | None = None
     ast_spec: ASTSpec | None = None
 
     def to_dict(self) -> dict[str, object]:
@@ -67,6 +68,8 @@ class Constraint:
             data["example"] = self.example
         if self.docs_ref is not None:
             data["docs_ref"] = self.docs_ref
+        if self.help_target is not None:
+            data["help_target"] = self.help_target
         if self.ast_spec is not None:
             data["ast_spec"] = self.ast_spec.to_dict()
         return data
@@ -79,4 +82,6 @@ class Constraint:
         }
         if self.example is not None:
             data["example"] = self.example
+        if self.help_target is not None:
+            data["help_target"] = self.help_target
         return data

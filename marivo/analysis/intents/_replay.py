@@ -83,7 +83,7 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
     if not params:
         raise AttributionMaterializationError(
             message="MetricFrame does not carry recoverable observe params",
-            details={
+            context={
                 "recoverability_status": "observe_params_missing",
                 "source_ref": frame.ref,
                 "source_job_ref": frame.meta.produced_by_job,
@@ -94,7 +94,7 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
     if not isinstance(metric, str) or not metric:
         raise AttributionMaterializationError(
             message="MetricFrame observe replay is missing metric",
-            details={
+            context={
                 "recoverability_status": "observe_params_missing",
                 "source_ref": frame.ref,
                 "missing_param": "metric",
@@ -142,7 +142,7 @@ def recover_alignment_policy(delta: DeltaFrame) -> AlignmentPolicy:
     if not isinstance(raw_alignment, dict):
         raise AttributionMaterializationError(
             message="DeltaFrame alignment metadata is not recoverable",
-            details={
+            context={
                 "recoverability_status": "alignment_policy_missing",
                 "delta_ref": delta.ref,
             },
@@ -155,7 +155,7 @@ def recover_alignment_policy(delta: DeltaFrame) -> AlignmentPolicy:
     except Exception as exc:
         raise AttributionMaterializationError(
             message="DeltaFrame alignment policy is not replayable",
-            details={
+            context={
                 "recoverability_status": "alignment_policy_invalid",
                 "delta_ref": delta.ref,
                 "alignment_keys": sorted(str(key) for key in raw_alignment),

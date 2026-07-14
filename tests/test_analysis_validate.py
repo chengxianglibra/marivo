@@ -30,12 +30,12 @@ def test_validation_issue_carries_type_message_details():
         intent="compare",
         error_type="SemanticKindMismatchError",
         message="boom",
-        details={"kind": "X"},
+        context={"kind": "X"},
     )
     assert issue.intent == "compare"
     assert issue.error_type == "SemanticKindMismatchError"
     assert issue.message == "boom"
-    assert issue.details == {"kind": "X"}
+    assert issue.context == {"kind": "X"}
 
 
 def test_validation_issue_forbids_extra_fields():
@@ -46,7 +46,7 @@ def test_validation_issue_forbids_extra_fields():
             intent="compare",
             error_type="X",
             message="m",
-            details={},
+            context={},
             surprise=True,
         )
 
@@ -63,8 +63,8 @@ def test_raise_first_is_noop_on_empty():
 
 def test_to_validation_issues_maps_each_error():
     errors = [
-        SemanticKindMismatchError(message="m1", details={"a": 1}),
-        SegmentDimensionMismatchError(message="m2", details={"kind": "SegmentDimensionMismatch"}),
+        SemanticKindMismatchError(message="m1", context={"a": 1}),
+        SegmentDimensionMismatchError(message="m2", context={"kind": "SegmentDimensionMismatch"}),
     ]
     issues = to_validation_issues("compare", errors)
     assert [i.error_type for i in issues] == [
@@ -73,8 +73,8 @@ def test_to_validation_issues_maps_each_error():
     ]
     assert issues[0].intent == "compare"
     assert issues[0].message == "m1"
-    assert issues[0].details == {"a": 1}
-    assert issues[1].details == {"kind": "SegmentDimensionMismatch"}
+    assert issues[0].context == {"a": 1}
+    assert issues[1].context == {"kind": "SegmentDimensionMismatch"}
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ def test_validate_compare_segment_dimension_mismatch():
     )
     issues = validate_compare(cur, base, alignment=_WB)
     assert isinstance(issues[0], SegmentDimensionMismatchError)
-    assert issues[0].details["kind"] == "SegmentDimensionMismatch"
+    assert issues[0]._context["kind"] == "SegmentDimensionMismatch"
 
 
 def test_validate_compare_panel_grain_mismatch():
@@ -167,7 +167,7 @@ def test_validate_compare_panel_grain_mismatch():
     )
     issues = validate_compare(cur, base, alignment=_WB)
     assert isinstance(issues[0], PanelGrainMismatchError)
-    assert issues[0].details["kind"] == "PanelGrainMismatch"
+    assert issues[0]._context["kind"] == "PanelGrainMismatch"
 
 
 def test_validate_compare_segmented_requires_window_bucket():
@@ -183,7 +183,7 @@ def test_validate_compare_segmented_requires_window_bucket():
         alignment=AlignmentPolicy(kind="dow_aligned", calendar=CalendarRef("cn_holidays")),
     )
     assert isinstance(issues[0], AlignmentPolicyNotApplicableError)
-    assert issues[0].details["alignment_kind"] == "dow_aligned"
+    assert issues[0]._context["alignment_kind"] == "dow_aligned"
 
 
 def test_validate_compare_scalar_rejects_non_window_bucket():
@@ -195,7 +195,7 @@ def test_validate_compare_scalar_rejects_non_window_bucket():
         alignment=AlignmentPolicy(kind="dow_aligned", calendar=CalendarRef("cn_holidays")),
     )
     assert isinstance(issues[0], SemanticKindMismatchError)
-    assert issues[0].details["kind"] == "CalendarAlignRequiresTimeSeries"
+    assert issues[0]._context["kind"] == "CalendarAlignRequiresTimeSeries"
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ def test_validate_decompose_axis_column_missing():
     issues = validate_decompose_columns(frame, "nonexistent", source_df=frame.to_pandas())
     assert isinstance(issues[0], SemanticKindMismatchError)
     assert "axis column does not exist" in issues[0].message
-    assert issues[0].details["requested_axis"] == "nonexistent"
+    assert issues[0]._context["requested_axis"] == "nonexistent"
 
 
 def test_validate_decompose_delta_not_numeric():
@@ -263,5 +263,5 @@ def test_validate_decompose_panel_axis_not_a_dimension():
     )
     issues = validate_decompose_columns(frame, "bucket_start", source_df=frame.to_pandas())
     assert isinstance(issues[0], AxisNotInPanelDimensionsError)
-    assert issues[0].details["axis"] == "bucket_start"
-    assert "region" in issues[0].details["available_dimensions"]
+    assert issues[0]._context["axis"] == "bucket_start"
+    assert "region" in issues[0]._context["available_dimensions"]

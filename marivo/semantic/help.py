@@ -146,7 +146,7 @@ def _authoring_topic() -> Descriptor:
                 "",
                 "Handoff: the semantic catalog supports browse/preview/readiness/verification",
                 "only — do not guess a query(...) method on the catalog. Metric analysis runs",
-                "through marivo.analysis sessions (see mv.help('workflow')).",
+                "through marivo.analysis sessions (see python -m marivo help analysis).",
             )
         ),
     )

@@ -1,4 +1,4 @@
-"""Governed MetricFrame derivation from custom Ibis queries."""
+"""Call mv.help() for bounded agent help over the Marivo analysis runtime."""
 
 from __future__ import annotations
 
@@ -44,6 +44,12 @@ SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
 @dataclass(frozen=True)
 class DeriveContext:
+    """Call mv.help(DeriveContext) for its public consumption contract.
+
+    Immutable context passed to an ``IbisQuerySpec`` build callback,
+    carrying metric id, resolved timescope, grain token, and label.
+    """
+
     metric_id: str
     timescope: dict[str, Any]
     grain: str | None
@@ -65,6 +71,12 @@ class DeriveContext:
 
 @dataclass(frozen=True)
 class IbisQuerySpec:
+    """Call mv.help(IbisQuerySpec) for its public consumption contract.
+
+    Governed Ibis query specification carrying a datasource ref and a
+    build callback that receives an Ibis backend and a DeriveContext.
+    """
+
     datasource: DatasourceRef
     build: Callable[[Any, DeriveContext], Any]
 
@@ -74,6 +86,12 @@ class IbisQuerySpec:
 
 @dataclass(frozen=True)
 class MetricColumnBinding:
+    """Call mv.help(MetricColumnBinding) for its public consumption contract.
+
+    Binds one query output column to a semantic ref and role
+    (``"time"`` or ``"dimension"``).
+    """
+
     column: str
     ref: SemanticRef | CatalogObject
     role: str
@@ -81,6 +99,12 @@ class MetricColumnBinding:
 
 @dataclass(frozen=True)
 class MetricColumns:
+    """Call mv.help(MetricColumns) for its public consumption contract.
+
+    Column role binding for derive_metric_frame: value column plus
+    optional time and dimension bindings.
+    """
+
     value: str
     time: MetricColumnBinding | None = None
     dimensions: tuple[MetricColumnBinding, ...] = ()
@@ -144,7 +168,7 @@ def _validate_columns(df: pd.DataFrame, *, columns: MetricColumns) -> None:
     if missing or non_numeric:
         raise PromotionFailedError(
             message="cannot derive MetricFrame from query output",
-            details={
+            context={
                 "target_kind": "metric_frame",
                 "missing": missing,
                 "ambiguous": [f"non_numeric:{column}" for column in non_numeric],

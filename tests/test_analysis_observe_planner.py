@@ -44,10 +44,10 @@ def test_observe_planning_error_payload_is_stable():
         )
 
     error = exc_info.value
-    assert error.details["schema_version"] == "observe-error/v1"
-    assert error.details["code"] == "missing-root"
-    assert error.details["candidates"] == {"datasets": ["sales.orders", "sales.users"]}
-    assert error.details["repair"] == [
+    assert error._context["schema_version"] == "observe-error/v1"
+    assert error._context["code"] == "missing-root"
+    assert error._context["candidates"] == {"datasets": ["sales.orders", "sales.users"]}
+    assert error._context["repair"] == [
         {
             "action": "set_metric_root",
             "target": "sales.revenue",
@@ -118,8 +118,8 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
             where=None,
             time_dimension=None,
         )
-    assert exc_info.value.details["code"] == "field-ref-not-found"
-    assert "tier" in exc_info.value.details["candidates"].get("did_you_mean", [])
+    assert exc_info.value._context["code"] == "field-ref-not-found"
+    assert "tier" in exc_info.value._context["candidates"].get("did_you_mean", [])
 
 
 def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_factory):
@@ -154,7 +154,7 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
             where=None,
             time_dimension=None,
         )
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["code"] == "field-ref-not-found"
     assert "region" in details["candidates"].get("did_you_mean", [])
     assert isinstance(details["candidates"].get("available_field_ids"), list)
@@ -200,7 +200,7 @@ def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_f
             where=None,
             time_dimension=None,
         )
-    details = exc_info.value.details
+    details = exc_info.value._context
     assert details["code"] == "field-ref-not-found"
     assert "ibis_builtin_hint" in details["candidates"]
     assert "ibis.desc()" in details["candidates"]["ibis_builtin_hint"]
@@ -310,7 +310,7 @@ def test_field_fn_invalid_expression_preserves_observe_error_code(semantic_proje
     with pytest.raises(ObservePlanningError) as exc_info:
         _field_fn(catalog, "sales.orders.bad_dimension")(table)
 
-    assert exc_info.value.details["code"] == "field-expr-type-error"
+    assert exc_info.value._context["code"] == "field-expr-type-error"
 
 
 def test_field_fn_converts_typed_missing_dimension_kind(monkeypatch, semantic_project_factory):
@@ -343,7 +343,7 @@ def test_field_fn_converts_typed_missing_dimension_kind(monkeypatch, semantic_pr
     with pytest.raises(ObservePlanningError) as exc_info:
         _field_fn(catalog, "sales.orders.missing")(table)
 
-    assert exc_info.value.details["code"] == "field-ref-not-found"
+    assert exc_info.value._context["code"] == "field-ref-not-found"
 
 
 def test_field_fn_does_not_misclassify_callable_not_found_failures(
@@ -371,7 +371,7 @@ def test_field_fn_does_not_misclassify_callable_not_found_failures(
 
     exc = exc_info.value
     if isinstance(exc, ObservePlanningError):
-        assert exc.details["code"] != "field-ref-not-found"
+        assert exc._context["code"] != "field-ref-not-found"
     else:
         assert isinstance(exc, SemanticRuntimeError)
         assert exc.kind == ErrorKind.MATERIALIZE_FAILED

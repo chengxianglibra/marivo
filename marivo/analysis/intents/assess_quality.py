@@ -54,7 +54,7 @@ def assess_quality(
     if not isinstance(frame, MetricFrame):
         raise QualityShapeUnsupportedError(
             message="assess_quality v1 only supports MetricFrame inputs",
-            details={"frame_kind": frame.meta.kind},
+            context={"frame_kind": frame.meta.kind},
         )
     require_single_metric(frame, intent="assess_quality")
     ensure_frame_in_session(frame, session=session, label="assess_quality frame")

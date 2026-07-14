@@ -39,7 +39,7 @@ def test_validate_field_expr_rejects_function() -> None:
     t = ibis.table([("a", "int")], name="t")
     with pytest.raises(ObservePlanningError) as exc_info:
         _validate_field_expr(t.schema, field_id="orders.schema")
-    assert exc_info.value.details["code"] == "field-expr-type-error"
+    assert exc_info.value._context["code"] == "field-expr-type-error"
     assert "bracket notation" in exc_info.value.message
     assert 'table["schema"]' in exc_info.value.message
 
@@ -47,7 +47,7 @@ def test_validate_field_expr_rejects_function() -> None:
 def test_validate_field_expr_rejects_plain_object() -> None:
     with pytest.raises(ObservePlanningError) as exc_info:
         _validate_field_expr(42, field_id="orders.value")
-    assert exc_info.value.details["code"] == "field-expr-type-error"
+    assert exc_info.value._context["code"] == "field-expr-type-error"
     assert "int" in exc_info.value.message
 
 

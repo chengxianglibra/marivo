@@ -149,7 +149,7 @@ def test_window_bound_invalid_iso_raises_window_invalid_error(start: str, end: s
             report_tz=ZoneInfo("UTC"),
             datasource_read_tz=ZoneInfo("UTC"),
         )
-    assert exc_info.value.details["kind"] == "WindowBoundInvalid"
+    assert exc_info.value._context["kind"] == "WindowBoundInvalid"
 
 
 def test_timezone_declaration_on_date_field_fails_closed():
@@ -163,8 +163,8 @@ def test_timezone_declaration_on_date_field_fails_closed():
             report_tz=ZoneInfo("Asia/Shanghai"),
             datasource_read_tz=ZoneInfo("Asia/Shanghai"),
         )
-    assert exc_info.value.details["kind"] == "TimezoneDeclarationUnsupported"
-    assert exc_info.value.details["data_type"] == "date"
+    assert exc_info.value._context["kind"] == "TimezoneDeclarationUnsupported"
+    assert exc_info.value._context["data_type"] == "date"
 
 
 def test_timezone_declaration_on_partition_field_fails_closed():
@@ -178,7 +178,7 @@ def test_timezone_declaration_on_partition_field_fails_closed():
             report_tz=ZoneInfo("Asia/Shanghai"),
             datasource_read_tz=ZoneInfo("Asia/Shanghai"),
         )
-    assert exc_info.value.details["kind"] == "TimezoneDeclarationUnsupported"
+    assert exc_info.value._context["kind"] == "TimezoneDeclarationUnsupported"
     assert (
         exc_info.value.hint
         == "date and partition time fields do not support timezone declarations; remove timezone= or use a time-bearing datetime/timestamp parse."
@@ -328,9 +328,9 @@ def test_timezone_declaration_conflicting_with_tz_aware_field_fails_closed():
             report_tz=ZoneInfo("Asia/Shanghai"),
             datasource_read_tz=ZoneInfo("Asia/Shanghai"),
         )
-    assert exc_info.value.details["kind"] == "TimezoneDeclarationConflict"
-    assert exc_info.value.details["declared"] == "Asia/Shanghai"
-    assert exc_info.value.details["actual"] == "UTC"
+    assert exc_info.value._context["kind"] == "TimezoneDeclarationConflict"
+    assert exc_info.value._context["declared"] == "Asia/Shanghai"
+    assert exc_info.value._context["actual"] == "UTC"
 
 
 def test_day_bucket_for_declared_utc_naive_timestamp_uses_session_local_day():
