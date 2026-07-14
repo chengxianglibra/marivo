@@ -40,6 +40,8 @@ class ConstraintId(StrEnum):
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
     COMPONENT_FRAME_AVAILABLE = "component_frame_available"
     ATTRIBUTION_ADDITIVITY_COMPATIBLE = "attribution_additivity_compatible"
+    CUMULATIVE_COMPARE_COMPATIBLE = "cumulative_compare_compatible"
+    CUMULATIVE_ATTRIBUTION_UNSUPPORTED = "cumulative_attribution_unsupported"
 
 
 _DATASOURCE_DOC = "marivo/skills/marivo-semantic/references/datasource.md"
@@ -276,6 +278,31 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "from their status time axis, and component-aware ratio or weighted-average deltas.",
         "Re-observe and compare old artifacts; model non-additive metrics as ratio or "
         "weighted_average components, or attribute additive numerator and denominator separately.",
+        help_target="attribute",
+    ),
+    ConstraintId.CUMULATIVE_COMPARE_COMPATIBLE: _constraint(
+        ConstraintId.CUMULATIVE_COMPARE_COMPATIBLE,
+        "CumulativeFrameUnsupported",
+        "runtime",
+        ("compare", "MetricFrame", "DeltaFrame"),
+        "Cumulative compare requires matching trailing or grain_to_date anchors; derived "
+        "frames require every outer component to share that anchor; all_history is rejected.",
+        "A derived cumulative frame is comparable only when every outer component is "
+        "cumulative and all components share the same trailing or grain_to_date anchor; "
+        "all_history and mixed or unresolved component anchors are rejected.",
+        "Re-observe both sides from the same metric contract, or compare compatible "
+        "underlying flow or cumulative component metrics separately.",
+        help_target="compare",
+    ),
+    ConstraintId.CUMULATIVE_ATTRIBUTION_UNSUPPORTED: _constraint(
+        ConstraintId.CUMULATIVE_ATTRIBUTION_UNSUPPORTED,
+        "CumulativeFrameUnsupported",
+        "runtime",
+        ("attribute", "decompose", "DeltaFrame"),
+        "Cumulative deltas cannot be attributed or decomposed; use underlying flow metrics.",
+        "The hard gate applies to direct cumulative metrics and derived cumulative "
+        "wrappers even when compare was allowed.",
+        "Attribute or decompose the underlying flow metrics separately.",
         help_target="attribute",
     ),
 }

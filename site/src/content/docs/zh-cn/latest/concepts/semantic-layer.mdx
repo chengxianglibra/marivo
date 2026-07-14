@@ -469,6 +469,10 @@ rolling7_active = ms.cumulative(
 - **整数倍规则**（`trailing`）：窗口 span 必须是查询粒度的整数倍（`W_buckets = span / grain`）。
   Trailing 要求时间粒度。
 
+Derived metric 可以组合 cumulative component。只有所有外层 component 都是 cumulative，且共享
+完全相同的 `trailing` 或 `grain_to_date` 锚点时才支持 compare。`all_history`、混合锚点以及累计与
+非累计 component 混合都会被拒绝；`attribute`、`decompose` 和 `forecast` 仍不支持。
+
 ## 使用并检查模型
 
 ### 智能体使用 metric 前先读取它

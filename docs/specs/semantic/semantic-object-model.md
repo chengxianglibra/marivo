@@ -382,6 +382,12 @@ within one reset period (a `week` grain under a `month` reset is illegal);
 Cumulative metrics may serve as ratio components; do not use cumulative over
 `mean`, percentile, expression-body, or derived metrics.
 
+A derived ratio/weighted/linear metric over cumulative components can be
+compared only when every outer component is cumulative and all components share
+the same `trailing` or `grain_to_date` anchor. `all_history`, mixed anchors, and
+cumulative/non-cumulative mixes are rejected. This compare allowance does not
+extend to `attribute`, `decompose`, or `forecast`.
+
 ## Metric unit (UCUM)
 
 `unit: str | None` (default `None`) is accepted on measures and metrics. Values

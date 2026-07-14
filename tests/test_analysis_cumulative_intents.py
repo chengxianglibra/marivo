@@ -17,6 +17,8 @@ from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.decompose import decompose
 from marivo.analysis.intents.forecast import forecast
 from marivo.analysis.lineage import Lineage, LineageStep
+from marivo.analysis.policies import AlignmentPolicy
+from marivo.analysis.refs import CalendarRef
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -361,6 +363,67 @@ def test_compare_grain_to_date_boundary_required(tmp_path, monkeypatch) -> None:
     assert "boundary" in str(exc_info.value).lower()
 
 
+def test_compare_grain_to_date_rejects_midnight_offset_with_midday_local_start(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 22.0],
+        window_start="2026-07-01T12:00:00",
+        window_end="2026-07-03T12:00:00",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02"],
+        values=[5.0, 11.0],
+        window_start="2026-06-01T00:00:00",
+        window_end="2026-06-03T00:00:00",
+        anchor=anchor,
+    )
+
+    with pytest.raises(AnalysisError) as exc_info:
+        compare(current, baseline, session=session)
+
+    assert exc_info.value._context["kind"] == "GrainToDateBoundaryRequired"
+
+
+def test_validate_grain_to_date_boundary_in_report_timezone(tmp_path, monkeypatch) -> None:
+    from marivo.analysis.intents._validate import validate_compare
+
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 22.0],
+        window_start="2026-06-30T16:00:00+00:00",
+        window_end="2026-07-02T16:00:00+00:00",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02"],
+        values=[5.0, 11.0],
+        window_start="2026-05-31T16:00:00+00:00",
+        window_end="2026-06-02T16:00:00+00:00",
+        anchor=anchor,
+    )
+
+    assert (
+        validate_compare(
+            current,
+            baseline,
+            alignment=AlignmentPolicy(kind="window_bucket"),
+            report_tz="Asia/Shanghai",
+        )
+        == []
+    )
+
+
 def test_compare_grain_to_date_multi_period_rejected(tmp_path, monkeypatch) -> None:
     """Validation 3: window spanning >1 reset period is ambiguous; teach single-period observe."""
     session = _session(tmp_path, monkeypatch)
@@ -388,6 +451,32 @@ def test_compare_grain_to_date_multi_period_rejected(tmp_path, monkeypatch) -> N
         compare(current, baseline, session=session)
     text = str(exc_info.value).lower()
     assert "single" in text or "period" in text
+
+
+def test_compare_grain_to_date_rejects_fraction_past_next_reset(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-31"],
+        values=[10.0, 40.0],
+        window_start="2026-07-01T00:00:00",
+        window_end="2026-08-01T00:00:00.500000",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-30"],
+        values=[5.0, 18.0],
+        window_start="2026-06-01T00:00:00",
+        window_end="2026-07-01T00:00:00",
+        anchor=anchor,
+    )
+
+    with pytest.raises(AnalysisError) as exc_info:
+        compare(current, baseline, session=session)
+
+    assert exc_info.value._context["kind"] == "GrainToDateMultiPeriod"
 
 
 def test_compare_grain_to_date_grain_mismatch_rejected(tmp_path, monkeypatch) -> None:
@@ -456,6 +545,78 @@ def test_compare_grain_to_date_scalar_elapsed_span_mismatch(tmp_path, monkeypatc
         compare(cur_frame, base_frame, session=session)
     text = str(exc_info.value).lower()
     assert "elapsed" in text or "window" in text
+
+
+def test_compare_grain_to_date_scalar_rejects_fractional_elapsed_mismatch(
+    tmp_path, monkeypatch
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = make_metric_frame(
+        pd.DataFrame({"value": [40.0]}),
+        metric_id="sales.cum_gmv",
+        axes={},
+        measure={"name": "cum_gmv"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        window={
+            "start": "2026-07-01T00:00:00",
+            "end": "2026-07-04T00:00:00.500000",
+        },
+        session=session,
+    )
+    current.meta = current.meta.model_copy(update={"cumulative": _cum_marker_anchor(anchor)})
+    baseline = make_metric_frame(
+        pd.DataFrame({"value": [18.0]}),
+        metric_id="sales.cum_gmv",
+        axes={},
+        measure={"name": "cum_gmv"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        window={"start": "2026-06-01T00:00:00", "end": "2026-06-04T00:00:00"},
+        session=session,
+    )
+    baseline.meta = baseline.meta.model_copy(update={"cumulative": _cum_marker_anchor(anchor)})
+
+    with pytest.raises(AnalysisError) as exc_info:
+        compare(current, baseline, session=session)
+
+    assert exc_info.value._context["kind"] == "GrainToDateElapsedSpanMismatch"
+
+
+@pytest.mark.parametrize(
+    "alignment",
+    [
+        AlignmentPolicy(kind="window_bucket", mode="calendar_bucket"),
+        AlignmentPolicy(kind="dow_aligned", calendar=CalendarRef("test_calendar")),
+    ],
+)
+def test_compare_grain_to_date_requires_ordinal_window_bucket(
+    tmp_path, monkeypatch, alignment: AlignmentPolicy
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("grain_to_date", "month")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 22.0],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02"],
+        values=[5.0, 11.0],
+        window_start="2026-06-01",
+        window_end="2026-06-03",
+        anchor=anchor,
+    )
+
+    with pytest.raises(AnalysisError) as exc_info:
+        compare(current, baseline, alignment=alignment, session=session)
+
+    assert exc_info.value._context["kind"] == "GrainToDateAlignmentPolicyUnsupported"
 
 
 def test_compare_grain_to_date_delta_carries_marker(tmp_path, monkeypatch) -> None:
@@ -529,6 +690,10 @@ def test_compare_grain_to_date_tail_shown_in_delta_card(tmp_path, monkeypatch) -
         anchor=anchor,
     )
     delta = compare(current, baseline, session=session)
+    delta_df = delta.to_pandas()
+    assert len(delta_df) == 2
+    assert delta_df["current"].notna().all()
+    assert delta_df["baseline"].notna().all()
     text = delta.render()
     assert "matched_buckets" in text
     assert "baseline_tail_buckets" in text
@@ -541,10 +706,19 @@ def test_compare_grain_to_date_tail_shown_in_delta_card(tmp_path, monkeypatch) -
     assert "ordinal alignment matched" in rendered_contract
 
 
-def test_compare_derived_with_cumulative_components_still_rejected(tmp_path, monkeypatch) -> None:
-    """Derived frames containing cumulative components stay compare-gated in V2."""
+def test_compare_derived_all_history_components_still_rejected(tmp_path, monkeypatch) -> None:
+    """Derived all-history cumulative wrappers stay compare-gated."""
     session = _session(tmp_path, monkeypatch)
-    derived_marker = {"kind": "derived_contains_cumulative", "components": {}}
+    component_marker = _cum_marker_anchor("all_history")
+    derived_marker = {
+        "kind": "derived_contains_cumulative",
+        "anchor": "all_history",
+        "compare_blocker": None,
+        "components": {
+            "numerator": component_marker,
+            "denominator": component_marker,
+        },
+    }
     current = _ts_frame(
         session,
         bucket_starts=["2026-07-01", "2026-07-02", "2026-07-03"],
@@ -562,8 +736,120 @@ def test_compare_derived_with_cumulative_components_still_rejected(tmp_path, mon
         window_end="2026-06-04",
         metric_id="sales.derived_over_cum",
     )
-    with pytest.raises(CumulativeFrameUnsupportedError):
+    baseline.meta = baseline.meta.model_copy(update={"cumulative": derived_marker})
+    with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
         compare(current, baseline, session=session)
+    assert "all-history" in exc_info.value.hint.lower()
+
+
+def test_compare_rejects_cumulative_marker_presence_mismatch(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 22.0],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+        anchor=("trailing", 7, "day"),
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02"],
+        values=[5.0, 11.0],
+        window_start="2026-06-01",
+        window_end="2026-06-03",
+        anchor=("trailing", 7, "day"),
+    )
+    baseline.meta = baseline.meta.model_copy(update={"cumulative": None})
+
+    with pytest.raises(AnalysisError) as exc_info:
+        compare(current, baseline, session=session)
+    assert exc_info.value._context["kind"] == "CumulativeMarkerPresenceMismatch"
+
+
+def test_compare_rejects_direct_and_derived_marker_kind_mismatch(tmp_path, monkeypatch) -> None:
+    session = _session(tmp_path, monkeypatch)
+    anchor = ("trailing", 7, "day")
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 22.0],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+        anchor=anchor,
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02"],
+        values=[5.0, 11.0],
+        window_start="2026-06-01",
+        window_end="2026-06-03",
+        anchor=anchor,
+    )
+    baseline.meta = baseline.meta.model_copy(
+        update={
+            "cumulative": {
+                "kind": "derived_contains_cumulative",
+                "anchor": anchor,
+                "compare_blocker": None,
+                "components": {"component": _cum_marker_anchor(anchor)},
+            }
+        }
+    )
+
+    with pytest.raises(AnalysisError) as exc_info:
+        compare(current, baseline, session=session)
+    assert exc_info.value._context["kind"] == "CumulativeMarkerKindMismatch"
+
+
+@pytest.mark.parametrize(
+    "derived_marker",
+    [
+        {
+            "kind": "derived_contains_cumulative",
+            "anchor": ("trailing", 7, "day"),
+            "components": {"component": _cum_marker_anchor(("trailing", 7, "day"))},
+        },
+        {
+            "kind": "derived_contains_cumulative",
+            "anchor": ("trailing", 7, "day"),
+            "compare_blocker": None,
+        },
+        {
+            "kind": "derived_contains_cumulative",
+            "anchor": ("trailing", 7, "day"),
+            "compare_blocker": None,
+            "components": {"component": _cum_marker_anchor(("trailing", 30, "day"))},
+        },
+    ],
+    ids=["missing-blocker", "missing-components", "component-anchor-mismatch"],
+)
+def test_compare_rejects_malformed_derived_cumulative_marker(
+    tmp_path, monkeypatch, derived_marker
+) -> None:
+    session = _session(tmp_path, monkeypatch)
+    current = _ts_frame(
+        session,
+        bucket_starts=["2026-07-01", "2026-07-02"],
+        values=[10.0, 22.0],
+        window_start="2026-07-01",
+        window_end="2026-07-03",
+        anchor=("trailing", 7, "day"),
+    )
+    baseline = _ts_frame(
+        session,
+        bucket_starts=["2026-06-01", "2026-06-02"],
+        values=[5.0, 11.0],
+        window_start="2026-06-01",
+        window_end="2026-06-03",
+        anchor=("trailing", 7, "day"),
+    )
+    current.meta = current.meta.model_copy(update={"cumulative": derived_marker})
+    baseline.meta = baseline.meta.model_copy(update={"cumulative": derived_marker})
+
+    with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
+        compare(current, baseline, session=session)
+    assert exc_info.value._context["compare_blocker"] == "unresolved_component_anchor"
 
 
 # ---------------------------------------------------------------------------

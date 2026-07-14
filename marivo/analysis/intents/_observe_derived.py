@@ -8,6 +8,10 @@ from __future__ import annotations
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
+from marivo.analysis._cumulative import (
+    CumulativeCompareBlocker,
+    normalize_cumulative_anchor,
+)
 from marivo.analysis.errors import MetricNotFoundError
 from marivo.analysis.executor.bucketing import (
     apply_time_series_bucket,
@@ -200,71 +204,46 @@ def _merge_component_coverages(
     component_coverages: list[Any],
     merge_keys: list[str],
 ) -> Any:
-    """Merge coverage DataFrames from folded components.
-
-    Uses min(actual_samples), max(expected_samples), min(coverage_ratio)
-    across components per bucket.
-    """
+    """Merge homogeneous component coverage using the least-covered component."""
     pandas = __import__("pandas")
     if not component_coverages:
         return None
-    if len(component_coverages) == 1:
-        return component_coverages[0]
-    merged = component_coverages[0]
-    for cov_df in component_coverages[1:]:
-        if merge_keys:
-            merged = pandas.merge(merged, cov_df, on=merge_keys, how="outer", suffixes=("", "_r"))
-            # Take min of actual_samples, max of expected_samples, min of coverage_ratio
-            actual_cols = [
-                c for c in merged.columns if c == "actual_samples" or c == "actual_samples_r"
-            ]
-            expected_cols = [
-                c for c in merged.columns if c == "expected_samples" or c == "expected_samples_r"
-            ]
-            ratio_cols = [
-                c for c in merged.columns if c == "coverage_ratio" or c == "coverage_ratio_r"
-            ]
-            status_cols = [
-                c for c in merged.columns if c == "coverage_status" or c == "coverage_status_r"
-            ]
-
-            merged["actual_samples"] = merged[actual_cols].min(axis=1)
-            merged["expected_samples"] = merged[expected_cols].max(axis=1)
-            merged["coverage_ratio"] = merged[ratio_cols].min(axis=1)
-            merged["coverage_status"] = (
-                merged["coverage_ratio"].eq(1.0).map({True: "complete", False: "partial"})
-            )
-            # Drop merged-in suffix columns
-            drop_cols = [
-                c
-                for c in actual_cols + expected_cols + ratio_cols + status_cols
-                if c != "actual_samples"
-                and c != "expected_samples"
-                and c != "coverage_ratio"
-                and c != "coverage_status"
-            ]
-            merged = merged.drop(columns=drop_cols)
-        else:
-            # No merge keys — scalar coverage, combine as single row
-            merged = pandas.DataFrame(
-                {
-                    "actual_samples": [
-                        min(merged["actual_samples"].iloc[0], cov_df["actual_samples"].iloc[0])
-                    ],
-                    "expected_samples": [
-                        max(merged["expected_samples"].iloc[0], cov_df["expected_samples"].iloc[0])
-                    ],
-                    "coverage_ratio": [
-                        min(merged["coverage_ratio"].iloc[0], cov_df["coverage_ratio"].iloc[0])
-                    ],
-                    "coverage_status": [
-                        "complete"
-                        if min(merged["coverage_ratio"].iloc[0], cov_df["coverage_ratio"].iloc[0])
-                        == 1.0
-                        else "partial"
-                    ],
-                }
-            )
+    window_columns = ["expected_span", "covered_span"]
+    sample_columns = ["actual_samples", "expected_samples"]
+    window_coverages = [
+        frame for frame in component_coverages if set(window_columns).issubset(frame.columns)
+    ]
+    sample_coverages = [
+        frame for frame in component_coverages if set(sample_columns).issubset(frame.columns)
+    ]
+    # Preserve the pre-existing sampled-fold behavior for mixed derived metrics.
+    selected = sample_coverages or window_coverages
+    if not selected:
+        return None
+    fields = (
+        [*sample_columns, "coverage_ratio", "coverage_status"]
+        if sample_coverages
+        else [*window_columns, "coverage_ratio", "coverage_status"]
+    )
+    normalized = [frame[[*merge_keys, *fields]] for frame in selected]
+    combined = pandas.concat(normalized, ignore_index=True)
+    aggregations = {
+        fields[0]: "min" if sample_coverages else "max",
+        fields[1]: "max" if sample_coverages else "min",
+        "coverage_ratio": "min",
+    }
+    if merge_keys:
+        merged = combined.groupby(merge_keys, dropna=False, as_index=False).agg(aggregations)
+    else:
+        merged = pandas.DataFrame(
+            {
+                column: [getattr(combined[column], operation)()]
+                for column, operation in aggregations.items()
+            }
+        )
+    merged["coverage_status"] = (
+        merged["coverage_ratio"].eq(1.0).map({True: "complete", False: "partial"})
+    )
     return merged
 
 
@@ -317,6 +296,8 @@ def _execute_derived(
             )
             df = cum_result.df.rename(columns={"value": component_name})
             component_frames.append(df)
+            if _cum_coverage_df is not None:
+                component_coverages.append(_cum_coverage_df)
             continue
 
         if component_time_fold is not None and has_time:
@@ -452,7 +433,7 @@ def _execute_derived(
                 metric_name,
             )
 
-    # --- Merge coverage from folded components ---
+    # --- Merge coverage from folded and cumulative components ---
     derived_coverage_df: Any | None = None
     if component_coverages:
         derived_coverage_df = _merge_component_coverages(component_coverages, merge_keys)
@@ -593,4 +574,27 @@ def _derived_cumulative_marker(plan: DerivedObservePlan, catalog: Any) -> dict[s
     }
     if not components:
         return None
-    return {"kind": "derived_contains_cumulative", "components": components}
+    non_cumulative_roles = [
+        cp.role
+        for cp in plan.component_plans
+        if not isinstance(cp.base_plan, CumulativeObservePlan)
+    ]
+    anchors = [
+        normalize_cumulative_anchor(payload.get("anchor")) for payload in components.values()
+    ]
+    compare_blocker: CumulativeCompareBlocker | None = None
+    anchor = None
+    if non_cumulative_roles:
+        compare_blocker = "non_cumulative_component"
+    elif any(item is None for item in anchors):
+        compare_blocker = "unresolved_component_anchor"
+    elif anchors and any(item != anchors[0] for item in anchors[1:]):
+        compare_blocker = "mixed_component_anchors"
+    elif anchors:
+        anchor = anchors[0]
+    return {
+        "kind": "derived_contains_cumulative",
+        "anchor": anchor,
+        "compare_blocker": compare_blocker,
+        "components": components,
+    }

@@ -8,6 +8,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import ConfigDict
 
 from marivo.analysis._capabilities.model import LiveHelpTarget
+from marivo.analysis._cumulative import (
+    cumulative_compare_anchor,
+    cumulative_compare_blocker,
+)
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactAffordance,
@@ -28,13 +32,44 @@ if TYPE_CHECKING:
 
 def _cumulative_anchor(meta_cumulative: dict[str, Any] | None) -> object | None:
     """Return the anchor payload from a cumulative marker, or None."""
-    if meta_cumulative is None:
-        return None
-    if meta_cumulative.get("kind") == "derived_contains_cumulative":
-        # Derived wrapper: the contained cumulative is all_history-shaped for
-        # guidance purposes (no per-anchor dispatch on the wrapper).
-        return "all_history"
-    return meta_cumulative.get("anchor")
+    return cumulative_compare_anchor(meta_cumulative)
+
+
+def _cumulative_blocked_precondition(blocker: str) -> ArtifactPrecondition:
+    """Return the hard compare gate for an incompatible derived wrapper."""
+    return ArtifactPrecondition(
+        check="cumulative_compare_compatible",
+        status="fail",
+        reason=f"derived cumulative compare is blocked: {blocker}",
+        repair=AnalysisRepair(
+            kind="retry",
+            action=(
+                "Use cumulative components that all share one trailing or grain_to_date "
+                "anchor, or compare the component metrics separately."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+        ),
+    )
+
+
+def _derived_cumulative_caveat(blocker: str) -> ArtifactPrecondition:
+    """Return a generic caveat without inventing an anchor for blocked wrappers."""
+    return ArtifactPrecondition(
+        check="derived_cumulative_caveat",
+        status="fail",
+        reason=(
+            f"derived metric contains cumulative components but has no valid common anchor: "
+            f"{blocker}"
+        ),
+        repair=AnalysisRepair(
+            kind="retry",
+            action=(
+                "Use the underlying flow components separately, or re-author every outer "
+                "component with one common cumulative anchor."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="compare"),
+        ),
+    )
 
 
 def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
@@ -84,16 +119,19 @@ def _cumulative_caveat(anchor: object) -> ArtifactPrecondition:
     )
 
 
-def _cumulative_status_line(anchor: object) -> str:
+def _cumulative_status_line(anchor: object, *, blocker: str | None = None) -> str:
     """Anchor-dispatched one-line cumulative status for the show() card."""
+    if blocker is not None:
+        return f"derived cumulative compare blocked: {blocker}"
     if isinstance(anchor, tuple) and anchor and anchor[0] == "trailing":
         return (
-            "cumulative=trailing rolling-window; rolling-series autocorrelation "
+            f"cumulative=trailing({anchor[1]}, {anchor[2]}) rolling-window; "
+            "rolling-series autocorrelation "
             "can pollute correlation and hypothesis-test interpretation"
         )
     if isinstance(anchor, tuple) and anchor and anchor[0] == "grain_to_date":
         return (
-            "cumulative=grain_to_date; values reset at period boundaries "
+            f"cumulative=grain_to_date({anchor[1]}); values reset at period boundaries "
             "(non-stationary within and across periods)"
         )
     return (
@@ -285,8 +323,9 @@ class MetricFrame(BaseFrame):
     def _card(self) -> Card:
         card = super()._card()
         anchor = _cumulative_anchor(self.meta.cumulative)
-        if anchor is not None:
-            card.field("cumulative", _cumulative_status_line(anchor))
+        blocker = cumulative_compare_blocker(self.meta.cumulative)
+        if self.meta.cumulative is not None:
+            card.field("cumulative", _cumulative_status_line(anchor, blocker=blocker))
         if self.arity > 1:
             card.listing(
                 label="measures",
@@ -309,15 +348,30 @@ class MetricFrame(BaseFrame):
         keeps the v1 monotonic-trend caveat (hard fail on compare); trailing
         surfaces rolling-window autocorrelation and grain_to_date surfaces
         the non-stationary period-reset caveat, with compare downgraded to a
-        conditional affordance stating the mechanical preconditions. A rollup
-        transform affordance appears iff ``meta.rollup_fold`` is set.
+        conditional affordance stating the mechanical preconditions. Derived
+        wrappers surface either their common anchor or their exact compare
+        blocker. A rollup transform affordance appears iff
+        ``meta.rollup_fold`` is set.
         """
         contract = super().contract()
         anchor = _cumulative_anchor(self.meta.cumulative)
-        if anchor is not None:
+        blocker = cumulative_compare_blocker(self.meta.cumulative)
+        if self.meta.cumulative is not None and blocker is not None:
+            caveat = _derived_cumulative_caveat(blocker)
+            blocked = _cumulative_blocked_precondition(blocker)
+            blocked_affordances = []
+            for affordance in contract.affordances:
+                preconditions = [*affordance.preconditions, caveat]
+                if affordance.capability_id == "compare":
+                    preconditions.append(blocked)
+                blocked_affordances.append(
+                    affordance.model_copy(update={"preconditions": preconditions})
+                )
+            contract = contract.model_copy(update={"affordances": blocked_affordances})
+        elif anchor is not None:
             caveat = _cumulative_caveat(anchor)
             compare_preconditions = _compare_conditional_preconditions(anchor)
-            updated: list[ArtifactAffordance] = []
+            anchored_affordances: list[ArtifactAffordance] = []
             for affordance in contract.affordances:
                 if affordance.capability_id == "compare":
                     # all_history: hard caveat only. trailing/grain_to_date:
@@ -329,8 +383,10 @@ class MetricFrame(BaseFrame):
                     )
                 else:
                     preconditions = [*affordance.preconditions, caveat]
-                updated.append(affordance.model_copy(update={"preconditions": preconditions}))
-            contract = contract.model_copy(update={"affordances": updated})
+                anchored_affordances.append(
+                    affordance.model_copy(update={"preconditions": preconditions})
+                )
+            contract = contract.model_copy(update={"affordances": anchored_affordances})
         # Rollup affordance iff meta.rollup_fold is set; replaces the plain
         # transform re-observe hint with a rollup-tagged transform affordance.
         if self.meta.rollup_fold is not None:
