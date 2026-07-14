@@ -493,6 +493,7 @@ def test_semantic_object_details_render_points_to_verify_and_readiness(
     details = catalog.get("metric.sales.revenue").details()
     rendered = details.render()
     assert "ms.verify_object(" in rendered or "ms.readiness(" in rendered
+    assert "certify authored changes" in rendered
 
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\

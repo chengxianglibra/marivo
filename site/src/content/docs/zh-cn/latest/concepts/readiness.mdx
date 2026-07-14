@@ -1,14 +1,20 @@
 ---
 title: 就绪检查
-description: 在分析前阻止未完成语义对象的结构性门禁。
+description: 对新建或修改的语义对象进行显式技术认证。
 ---
 
-## 为什么智能体会在分析前暂停
+## 智能体什么时候运行 readiness
 
-就绪检查是语义层进入分析前的技术交接。当前任务需要的对象不完整、引用不存在，或者缺少与
-当前范围匹配的验证和预览证据时，智能体会先暂停分析。
+就绪检查是针对所选 semantic objects 的显式技术认证和诊断。新建或修改 object 后，或者
+workflow 要求 fresh technical certification 时运行它。它会识别不完整对象、未知引用，以及
+缺少当前 validation 或 preview evidence 的情况。
 
-暂停不代表业务问题不能分析，而是说明查询数据前还有一个明确的语义或技术缺口需要处理。
+Blocked report 不代表业务问题不能分析，而是说明所选 objects 尚未完成这次认证。先修复明确的
+语义或技术缺口，再声明 semantic change 已完成。
+
+Analysis APIs 不会自动调用 readiness。日常分析复用未变化的 objects 时，依赖 live catalog
+loading、semantic input resolution、planning 和 runtime execution checks，不会在每次调用前刷新
+authoring snapshots。
 
 ## 用户怎么处理
 
@@ -21,8 +27,9 @@ description: 在分析前阻止未完成语义对象的结构性门禁。
 
 ## ready 表示什么
 
-`ready` 表示当前分析范围需要的语义对象已经具备最新的技术交接证据。它不代表业务定义已经
-获批，不保证所有后续查询都能成功，也不会替用户判断结论是否适合业务决策。
+`ready` 表示所选 semantic objects 已经具备当前 scope 所需的技术认证证据。它不是 runtime
+authorization token：不代表业务定义已经获批，不保证所有后续查询都能成功，也不会替用户
+判断结论是否适合业务决策。
 
 需要检查技术契约的读者，可以继续查看下面的报告和 API 参考。
 
@@ -54,9 +61,9 @@ evidence；它不证明每一种未来 analysis query 或 full-source truth。Pa
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | 总体结论（见下）。 |
-| `blockers` | `tuple[ReadinessIssue, ...]` | 交接前必须修复的问题。 |
+| `blockers` | `tuple[ReadinessIssue, ...]` | 阻止所选 refs 完成认证的问题。 |
 | `warnings` | `tuple[ReadinessIssue, ...]` | 不会 block 的建议性问题。 |
-| `analysis_ready_refs` | `tuple[str, ...]` | 通过检查的 refs —— 可安全交给分析。 |
+| `analysis_ready_refs` | `tuple[str, ...]` | 通过当前认证契约的 refs。 |
 | `input_summary` | `ReadinessInputSummary` | 检查了什么：datasources、refs、tables。 |
 | `checked_at` | `str` | 检查的 ISO-8601 时间戳。 |
 
@@ -90,8 +97,8 @@ evidence；它不证明每一种未来 analysis query 或 full-source truth。Pa
 
 ## 限定检查范围
 
-通过 `refs=` 传入 typed catalog objects，把 readiness 限定到一次分析所需的对象；
-Marivo 会解析完整的依赖闭包（metric、它的 measures、dimensions、entities 与
+通过 `refs=` 传入 typed catalog objects，把 readiness 限定到正在 author、修改或明确认证的
+objects；Marivo 会解析完整的依赖闭包（metric、它的 measures、dimensions、entities 与
 datasources）：
 
 ```python
@@ -101,5 +108,5 @@ for issue in report.blockers:
     print(issue.kind, issue.refs, "→", issue.suggested_action)
 ```
 
-这是分析之前必经的语义门禁。关于分析如何记录结论，参见
-[证据链](/zh-cn/latest/concepts/evidence/)。
+使用该 report 完成 semantic changes 的 closeout，或满足更严格 workflow 的认证要求。日常分析
+不会自动调用它。关于分析如何记录结论，参见 [证据链](/zh-cn/latest/concepts/evidence/)。

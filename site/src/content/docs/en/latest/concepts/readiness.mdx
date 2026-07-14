@@ -1,16 +1,23 @@
 ---
 title: Readiness
-description: The structural gate that keeps incomplete semantic objects out of analysis.
+description: Explicit technical certification for new or changed semantic objects.
 ---
 
-## Why the agent may pause before analysis
+## When the agent runs readiness
 
-Readiness is Marivo's technical handoff between the semantic layer and analysis.
-The agent may pause when a required object is incomplete, references something
-unknown, or lacks current validation and preview evidence for the requested task.
+Readiness is Marivo's explicit certification and diagnostic check for selected
+semantic objects. Run it after authoring or changing an object, or when a
+workflow asks for fresh technical certification. It identifies incomplete
+objects, unknown references, and missing current validation or preview evidence.
 
-A readiness pause does not mean the analysis question is invalid. It means the
-agent should resolve a named semantic or technical gap before querying data.
+A blocked report does not mean the analysis question is invalid. It means the
+selected objects have not completed this certification. Repair the named gap
+before declaring the semantic change complete.
+
+Analysis APIs do not invoke readiness automatically. Routine analysis of
+unchanged objects relies on live catalog loading, semantic input resolution,
+planning, and runtime execution checks instead of refreshing authoring snapshots
+before every call.
 
 ## How to respond
 
@@ -25,10 +32,10 @@ individually.
 
 ## What ready means
 
-`ready` means the required semantic objects have current technical handoff
-evidence for the requested scope. It does not approve the business definition,
-guarantee every future query, or decide whether a conclusion is suitable for a
-business decision.
+`ready` means the selected semantic objects have current technical certification
+evidence for the requested scope. It is not a runtime authorization token: it
+does not approve the business definition, guarantee every future query, or
+decide whether a conclusion is suitable for a business decision.
 
 The sections below document the report and API behavior for readers who need
 to inspect the technical contract.
@@ -64,9 +71,9 @@ truth. Parity is never required for readiness.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | Overall verdict (see below). |
-| `blockers` | `tuple[ReadinessIssue, ...]` | Issues that must be fixed before handoff. |
+| `blockers` | `tuple[ReadinessIssue, ...]` | Issues that prevent the selected refs from completing certification. |
 | `warnings` | `tuple[ReadinessIssue, ...]` | Advisory issues that do not block. |
-| `analysis_ready_refs` | `tuple[str, ...]` | Refs that passed — safe to hand to analysis. |
+| `analysis_ready_refs` | `tuple[str, ...]` | Refs that passed the current certification contract. |
 | `input_summary` | `ReadinessInputSummary` | What was checked: datasources, refs, and tables. |
 | `checked_at` | `str` | ISO-8601 timestamp of the check. |
 
@@ -105,8 +112,8 @@ readiness status.
 
 ## Scope the check
 
-Pass typed catalog objects through `refs=` to scope readiness to exactly what an
-analysis needs — Marivo resolves the full dependency closure (the
+Pass typed catalog objects through `refs=` to scope readiness to the objects
+being authored, changed, or explicitly certified. Marivo resolves the full dependency closure (the
 metric, its measures, dimensions, entities, and datasources) for you:
 
 ```python
@@ -116,5 +123,6 @@ for issue in report.blockers:
     print(issue.kind, issue.refs, "→", issue.suggested_action)
 ```
 
-This is the required semantic gate before analysis. For how analysis records what it
-concludes, see [Evidence](/en/latest/concepts/evidence/).
+Use this report to close out semantic changes or satisfy a stricter workflow's
+certification requirement. Routine analysis does not call it automatically. For
+how analysis records what it concludes, see [Evidence](/en/latest/concepts/evidence/).

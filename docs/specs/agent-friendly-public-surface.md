@@ -308,7 +308,7 @@ dt_object = catalog.get("time_dimension.sales.orders.order_date")
 catalog.verify_object(dt_object).show()
 catalog.preview(dt_object, using=snapshot).show()
 
-# 7. readiness — the zero-query gate before analysis handoff
+# 7. readiness — zero-query certification for the authored change
 catalog.readiness(refs=[dt_object]).show()
 ```
 

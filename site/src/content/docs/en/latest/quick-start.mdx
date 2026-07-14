@@ -13,16 +13,16 @@ a confirmed gap.
 
 1. Clone the project and install its dependencies.
 2. Configure datasource environment variables locally.
-3. Ask the agent to check project configuration, existing semantic objects, and readiness for the current analysis.
-4. If checks pass, continue to the [first analysis](/en/latest/first-analysis/).
+3. Ask the agent to check project configuration and whether existing semantic objects fit the current analysis.
+4. If the catalog loads and there is no semantic gap, continue to the [first analysis](/en/latest/first-analysis/).
 
 > Use this project's existing Marivo semantic layer and check whether it can
 > support completed-order revenue analysis. Tell me which configuration,
 > semantic objects, or business definitions are missing or need confirmation.
 > If nothing blocks analysis, do not rebuild existing definitions.
 
-Use `marivo-semantic` to modify the project only for a missing object, a
-readiness blocker requiring a model change, or a requested definition change.
+Use `marivo-semantic` only for a missing object, a requested definition change,
+or fresh certification of an authored change.
 
 ## New project
 
@@ -135,7 +135,8 @@ revenue = ms.aggregate(
 - The definition, population, exclusions, time axis, unit, and breakdowns match the business need.
 - `ai_context` and `guardrails` state important limits clearly.
 - The accountable owner has approved the definition.
-- The agent reports no blocker in scoped readiness.
+- The agent reports no blocker in the new model's scoped authoring certification.
 
-Readiness is a technical handoff, not business approval. After approval, continue
-to the [first agent-guided analysis](/en/latest/first-analysis/).
+Readiness certifies the newly authored model; it is not business approval and is
+not rerun before every analysis. After approval, continue to the
+[first agent-guided analysis](/en/latest/first-analysis/).

@@ -141,12 +141,14 @@ def _authoring_topic() -> Descriptor:
                 "4. Run catalog.verify_object(obj).show(); static verification executes no query.",
                 "5. Run catalog.preview(obj, using=snapshot).show() for a scoped runtime check.",
                 "   Multi-entity objects use an exact entity-keyed snapshot mapping.",
-                "6. Run catalog.readiness(refs=[obj]).show(); readiness executes no query and",
-                "   consumes fresh static verification and scoped-preview evidence.",
+                "6. Run catalog.readiness(refs=[obj]).show() to certify authored changes;",
+                "   readiness executes no query and consumes fresh static verification and",
+                "   scoped-preview evidence.",
                 "",
                 "Handoff: the semantic catalog supports browse/preview/readiness/verification",
-                "only — do not guess a query(...) method on the catalog. Metric analysis runs",
-                "through marivo.analysis sessions (see python -m marivo help analysis).",
+                "only — do not guess a query(...) method on the catalog. Readiness closes out",
+                "new or changed objects; routine metric analysis loads and validates catalog",
+                "inputs through marivo.analysis sessions (see python -m marivo help analysis).",
             )
         ),
     )
