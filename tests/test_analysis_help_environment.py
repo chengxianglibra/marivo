@@ -14,6 +14,7 @@ These tests verify that:
 
 from __future__ import annotations
 
+import functools
 import os
 import subprocess
 import sys
@@ -31,17 +32,52 @@ from marivo.cli import main
 # ---------------------------------------------------------------------------
 
 
+@functools.lru_cache(maxsize=1)
+def _deps_dir() -> str:
+    """A directory of symlinks to the test env's site-packages *minus marivo*.
+
+    The fresh fingerprint venvs install only marivo (``--no-deps``); their
+    runtime dependencies live in the test environment's site-packages and are
+    exposed to subprocesses via ``PYTHONPATH``. We symlink every entry here
+    *except* marivo's dist-info and editable-install files, so that
+    ``importlib.metadata.version("marivo")`` and marivo imports resolve to the
+    venv's own install (editable or copy), not the test environment's. ``.pth``
+    files in ``PYTHONPATH`` directories are not processed by ``site``, so the
+    editable marivo finder never activates from here either.
+    """
+    import site
+    import tempfile
+
+    src = site.getsitepackages()[0]
+    deps = tempfile.mkdtemp(prefix="marivo_deps_")
+    for entry in os.listdir(src):
+        if "marivo" in entry.lower():
+            continue
+        os.symlink(os.path.join(src, entry), os.path.join(deps, entry))
+    return deps
+
+
+def _venv_subprocess_env() -> dict[str, str]:
+    """Environment for a fresh-venv subprocess: inherit env plus deps on ``PYTHONPATH``."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = _deps_dir()
+    return env
+
+
 def _run_cli(
     args: list[str], *, python: str | None = None, cwd: str | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Run marivo CLI via ``python -m marivo`` in the given interpreter."""
     executable = python or sys.executable
+    # A fresh venv only has marivo installed; expose its deps via PYTHONPATH.
+    env = _venv_subprocess_env() if python is not None else None
     return subprocess.run(
         [executable, "-m", "marivo", *args],
         capture_output=True,
         text=True,
         timeout=300,
         cwd=cwd,
+        env=env,
     )
 
 
@@ -51,11 +87,13 @@ def _run_console(
     """Run the ``marivo`` console script."""
     base_dir = Path(bin_dir or os.path.dirname(sys.executable))
     marivo_bin = base_dir / "Scripts" / "marivo.exe" if os.name == "nt" else base_dir / "marivo"
+    env = _venv_subprocess_env() if bin_dir is not None else None
     return subprocess.run(
         [str(marivo_bin), *args],
         capture_output=True,
         text=True,
         timeout=300,
+        env=env,
     )
 
 
@@ -215,7 +253,13 @@ def test_module_version_flag() -> None:
 
 
 def _create_venv(venv_dir: Path) -> Path:
-    """Create a venv and return its python executable path."""
+    """Create a bare venv and return its python executable path.
+
+    The venv only needs marivo itself installed (see ``_install_marivo``); its
+    runtime dependencies are exposed to subprocesses via ``PYTHONPATH`` (see
+    ``_venv_subprocess_env``) instead of being reinstalled, which is what makes
+    these fingerprint venvs fast and independent of the pip wheel cache.
+    """
     result = subprocess.run(
         [sys.executable, "-m", "venv", str(venv_dir)],
         capture_output=True,
@@ -230,9 +274,14 @@ def _create_venv(venv_dir: Path) -> Path:
 
 
 def _install_marivo(python: Path, *, editable: bool = True) -> subprocess.CompletedProcess[str]:
-    """Install marivo into the given python environment."""
+    """Install marivo into the given python environment.
+
+    ``--no-deps`` is safe because the venv's runtime dependencies are exposed
+    via ``PYTHONPATH`` (see ``_venv_subprocess_env``). Skipping dependency
+    resolution/install is what makes these fingerprint venvs fast.
+    """
     repo_root = Path(__file__).resolve().parent.parent
-    cmd: list[str] = [str(python), "-m", "pip", "install"]
+    cmd: list[str] = [str(python), "-m", "pip", "install", "--no-deps"]
     if editable:
         cmd.append("-e")
     cmd.append(str(repo_root))
@@ -241,7 +290,7 @@ def _install_marivo(python: Path, *, editable: bool = True) -> subprocess.Comple
         cmd,
         capture_output=True,
         text=True,
-        timeout=600,
+        timeout=300,
     )
 
 
