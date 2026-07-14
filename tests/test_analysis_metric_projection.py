@@ -107,6 +107,8 @@ def test_single_frame_measures_meta_derived_from_scalars():
             "column": "value",
             "unit": "usd",
             "additivity": None,
+            "aggregation": None,
+            "status_time_dimension": None,
             "reaggregatable": True,
             "cumulative": None,
         }
@@ -216,6 +218,9 @@ def test_projection_returns_arity_1_frame(sales_session):
     assert revenue.arity == 1
     assert revenue.meta.metric_id == "sales.revenue"
     assert revenue.meta.unit == frame.meta.measures[0]["unit"]
+    assert revenue.meta.additivity == frame.meta.measures[0]["additivity"]
+    assert revenue.meta.aggregation == frame.meta.measures[0]["aggregation"]
+    assert revenue.meta.status_time_dimension == frame.meta.measures[0]["status_time_dimension"]
     assert list(revenue.columns) == ["bucket_start", "value"]
     assert revenue.meta.lineage.steps[-1].intent == "select_metric"
     assert revenue.meta.lineage.steps[-1].params == {"metric": "sales.revenue"}

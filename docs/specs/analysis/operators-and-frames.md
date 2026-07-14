@@ -179,6 +179,11 @@ returns an arity-1 `MetricFrame` without re-querying; an unknown id raises
 `MetricArityError`. List elements must be simple, unfolded metrics — derived or
 folded metrics, duplicates, and empty lists fail closed.
 
+Single-, derived-, cumulative-, and multi-metric observations include their
+persisted additivity, aggregation, and status-time semantics in artifact
+identity. Re-running `observe` after upgrading the frame schema therefore does
+not reuse a legacy artifact that lacks those fields.
+
 **Derived metrics.** Derived-metric components share the base-metric planner:
 each component is planned independently, may span multiple datasets, and each
 component plan is single-datasource. Dispatch enforces fail-closed comparability
@@ -226,6 +231,11 @@ baseline = session.observe(metric=m, time_scope={"start": "2026-06-11", "end": "
 delta = session.compare(current, baseline, alignment=mv.window_bucket())
 ```
 
+`compare` propagates additivity, aggregation, and status-time semantics only
+when both source frames carry the same three values and additivity is known.
+Missing or mismatched source semantics produce an unknown gate on the
+`DeltaFrame`, so later attribution fails closed instead of trusting one side.
+
 ### `attribute`
 
 `attribute` performs deterministic attribution of a `DeltaFrame` over explicit
@@ -236,6 +246,26 @@ search policy it fails closed. A multi-axis call explicitly chooses
 their descendants' totals, so only the deepest level is additive. Candidate
 axes, coverage warnings, and budget stops go to metadata/blocking
 issues/lineage, never a next-step recommendation or narrative.
+
+Attribution permission comes from semantics persisted on the `DeltaFrame`; it
+does not re-query a catalog that may have changed since observation. This gate
+runs on the original delta before `attribute` replays observations to
+materialize a missing axis. `DeltaFrame.contract()` mirrors the same persisted
+boundary: unknown and ordinary non-additive deltas carry a failing attribution
+precondition, semi-additive deltas surface the status-time-axis condition, and
+persisted ratio/weighted-average component paths remain available.
+
+| Persisted metric semantics | Axis attribution |
+| --- | --- |
+| `additive` | Supported by the sum/hierarchy paths. |
+| `semi_additive` | Supported on non-time axes; rejected when `axes` contains its `status_time_dimension`. |
+| Component-aware `ratio` / `weighted_average` | Supported by ratio/weighted mix attribution. |
+| `non_additive` without supported component math | Rejected, including mean, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
+| Missing additivity metadata | Rejected; re-run `observe` and `compare` to create a current self-contained delta. |
+
+For an unsupported metric, model explicit ratio/weighted-average components or
+attribute additive numerator and denominator metrics separately. Existing
+non-linear sampled-fold validation still runs first.
 
 ```python
 drivers = session.attribute(

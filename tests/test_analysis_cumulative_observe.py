@@ -8,6 +8,7 @@ import pytest
 
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
+from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
@@ -109,6 +110,19 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
         "anchor": "all_history",
         "components": None,
     }
+    assert frame.lineage.steps[-1].params["metric_semantics"] == {
+        "additivity": "non_additive",
+        "aggregation": None,
+        "status_time_dimension": None,
+    }
+    legacy_params = dict(frame.lineage.steps[-1].params)
+    legacy_params.pop("metric_semantics")
+    assert frame.ref != make_artifact_id(
+        step_type="observe",
+        normalized_inputs=[],
+        normalized_params=legacy_params,
+        semantic_anchors={"metric_id": "sales.cum_gmv", "model": "sales"},
+    )
     by_day = {str(row.bucket_start.date()): row.value for row in df.itertuples()}
     assert by_day == {
         "2026-07-01": pytest.approx(35.0),

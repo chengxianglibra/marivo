@@ -124,6 +124,8 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         unit=entry["unit"],
         reaggregatable=bool(entry["reaggregatable"]),
         additivity=entry["additivity"],
+        aggregation=entry.get("aggregation"),
+        status_time_dimension=entry.get("status_time_dimension"),
         cumulative=frame.meta.cumulative,
     )
     projected = MetricFrame(_df=df, meta=meta)

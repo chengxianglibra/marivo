@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import pytest
@@ -43,6 +43,42 @@ def _base_meta(kind: str, ref: str, row_count: int = 1) -> dict[str, Any]:
         "lineage": Lineage(),
         "content_hash": "sha256:" + "a" * 64,
     }
+
+
+def _delta_contract_frame(
+    *,
+    additivity: Literal["additive", "semi_additive", "non_additive"] | None,
+    status_time_dimension: str | None = None,
+    composition_kind: Literal["ratio", "weighted_average"] | None = None,
+) -> DeltaFrame:
+    component_ref = "frame_delta_components" if composition_kind is not None else None
+    composition = (
+        {"kind": composition_kind, "components": {}} if composition_kind is not None else None
+    )
+    return DeltaFrame(
+        _df=pd.DataFrame({"delta": [1.0]}),
+        meta=DeltaFrameMeta(
+            **_base_meta("delta_frame", "frame_delta_contract"),
+            metric_id="sales.revenue",
+            source_current_ref="frame_current",
+            source_baseline_ref="frame_baseline",
+            alignment={"kind": "window_bucket"},
+            semantic_kind="segmented",
+            semantic_model="sales",
+            component_ref=component_ref,
+            composition=composition,
+            additivity=additivity,
+            status_time_dimension=status_time_dimension,
+        ),
+    )
+
+
+def _attribute_affordance(frame: DeltaFrame) -> ArtifactAffordance:
+    return next(
+        affordance
+        for affordance in frame.contract().affordances
+        if affordance.capability_id == "attribute"
+    )
 
 
 def _artifact_cases():
@@ -340,6 +376,83 @@ def test_failed_precondition_with_repair_remains_visible() -> None:
     from marivo.analysis.frames.base import _visible_precondition
 
     assert _visible_precondition(preconditions[0])
+
+
+@pytest.mark.parametrize(
+    ("additivity", "reason_fragment"),
+    [
+        (None, "persisted additivity metadata"),
+        ("non_additive", "non-additive metric delta"),
+    ],
+)
+def test_delta_contract_fails_unconditionally_invalid_attribution(
+    additivity,
+    reason_fragment,
+) -> None:
+    affordance = _attribute_affordance(_delta_contract_frame(additivity=additivity))
+
+    precondition = next(
+        item
+        for item in affordance.preconditions
+        if item.check == "attribution_additivity_compatible"
+    )
+    assert precondition.status == "fail"
+    assert reason_fragment in (precondition.reason or "")
+    assert precondition.repair is not None
+    assert precondition.repair.help_target.canonical_id == "attribute"
+
+
+def test_delta_contract_surfaces_semi_additive_axis_condition() -> None:
+    affordance = _attribute_affordance(
+        _delta_contract_frame(
+            additivity="semi_additive",
+            status_time_dimension="sales.inventory.snapshot_at",
+        )
+    )
+
+    precondition = next(
+        item
+        for item in affordance.preconditions
+        if item.check == "attribution_status_time_axis_excluded"
+    )
+    assert precondition.status == "fail"
+    assert "sales.inventory.snapshot_at" in (precondition.reason or "")
+    assert precondition.repair is not None
+    assert "exclude" in precondition.repair.action
+
+
+@pytest.mark.parametrize("composition_kind", ["ratio", "weighted_average"])
+def test_delta_contract_preserves_component_aware_attribution_exception(
+    composition_kind,
+) -> None:
+    affordance = _attribute_affordance(
+        _delta_contract_frame(
+            additivity="non_additive",
+            composition_kind=composition_kind,
+        )
+    )
+
+    assert not any(
+        item.check
+        in {
+            "attribution_additivity_compatible",
+            "attribution_status_time_axis_excluded",
+        }
+        for item in affordance.preconditions
+    )
+
+
+def test_delta_contract_keeps_additive_attribution_unblocked() -> None:
+    affordance = _attribute_affordance(_delta_contract_frame(additivity="additive"))
+
+    assert not any(
+        item.check
+        in {
+            "attribution_additivity_compatible",
+            "attribution_status_time_axis_excluded",
+        }
+        for item in affordance.preconditions
+    )
 
 
 def test_passing_precondition_visible_only_with_non_empty_reason() -> None:

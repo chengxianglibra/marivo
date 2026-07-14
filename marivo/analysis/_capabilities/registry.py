@@ -312,7 +312,10 @@ def _build_registry() -> CapabilityRegistry:
             summary="Attribute a DeltaFrame's movement over explicit axes.",
             root_group="typed_analysis",
             root_visibility="direct",
-            constraint_ids=("frame_kind_compatible",),
+            constraint_ids=(
+                "frame_kind_compatible",
+                "attribution_additivity_compatible",
+            ),
             callable_path="marivo.analysis.session.core.Session.attribute",
             receiver="Session",
             accepted_inputs={

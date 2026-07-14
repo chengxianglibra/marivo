@@ -11,6 +11,7 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AttributionMaterializationError,
+    ComponentDecompositionError,
     SemanticKindMismatchError,
 )
 from marivo.analysis.frames.attribution import AttributionFrame
@@ -32,7 +33,11 @@ def _now() -> datetime:
 
 
 def _delta(
-    session: mv.Session, df: pd.DataFrame, *, semantic_kind: str = "segmented"
+    session: mv.Session,
+    df: pd.DataFrame,
+    *,
+    semantic_kind: str = "segmented",
+    additivity: str | None = "additive",
 ) -> DeltaFrame:
     meta = DeltaFrameMeta(
         kind="delta_frame",
@@ -73,6 +78,7 @@ def _delta(
         },
         semantic_kind=semantic_kind,  # type: ignore[arg-type]
         semantic_model="sales",
+        additivity=additivity,  # type: ignore[arg-type]
     )
     return DeltaFrame(_df=df, meta=meta)
 
@@ -248,6 +254,145 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
     ]
     assert [job.intent for job in session.jobs()].count("observe") == 4
     assert [job.intent for job in session.jobs()].count("compare") == 2
+
+
+def test_attribute_validates_original_delta_before_axis_materialization(
+    semantic_project_factory,
+) -> None:
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+            ),
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+            ),
+            "sales/datasets.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "warehouse = md.ref('datasource.warehouse')\n"
+                "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
+                "@ms.time_dimension(entity=orders, granularity='day')\n"
+                "def created_at(orders):\n"
+                "    return orders.created_at.cast('date')\n"
+                "@ms.dimension(entity=orders)\n"
+                "def region(orders):\n"
+                "    return orders.region\n"
+                "@ms.metric(entities=[orders], additivity='additive', name='revenue')\n"
+                "def revenue(orders):\n"
+                "    return orders.amount.sum()\n"
+            ),
+        }
+    )
+    import ibis
+
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE orders (id INTEGER, created_at DATE, region VARCHAR, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 'US', 100.0),"
+        "(2, DATE '2025-07-01', 'US', 70.0)"
+    )
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
+    revenue = session.catalog.get("metric.sales.revenue")
+    region = session.catalog.get("dimension.sales.orders.region").ref
+    current = session.observe(
+        revenue,
+        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+    )
+    baseline = session.observe(
+        revenue,
+        time_scope={"start": "2025-07-01", "end": "2025-08-01"},
+    )
+    delta = session.compare(current, baseline)
+    delta.meta = delta.meta.model_copy(update={"additivity": None})
+
+    with pytest.raises(mv.errors.AttributionAdditivityError) as exc_info:
+        session.attribute(delta, axes=[region])
+
+    assert exc_info.value._context["reason"] == "missing_additivity_metadata"
+    assert [job.intent for job in session.jobs()].count("observe") == 2
+    assert [job.intent for job in session.jobs()].count("compare") == 1
+
+
+def test_attribute_rejects_non_additive_mean_after_axis_materialization(
+    semantic_project_factory,
+) -> None:
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+            ),
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+            ),
+            "sales/datasets.py": (
+                "import marivo.datasource as md\n"
+                "import marivo.semantic as ms\n"
+                "orders = ms.entity("
+                "name='orders', datasource=md.ref('datasource.warehouse'), "
+                "source=md.table('orders'))\n"
+                "created_at = ms.time_dimension_column("
+                "name='created_at', entity=orders, column='created_at', "
+                "granularity='day', is_default=True)\n"
+                "region = ms.dimension_column("
+                "name='region', entity=orders, column='region')\n"
+                "amount = ms.measure_column("
+                "name='amount', entity=orders, column='amount', additivity='additive')\n"
+                "avg_amount = ms.aggregate("
+                "name='avg_amount', measure=amount, agg='mean')\n"
+            ),
+        }
+    )
+    import ibis
+
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql("CREATE TABLE orders (created_at DATE, region VARCHAR, amount DOUBLE)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(DATE '2026-07-01', 'US', 100.0),"
+        "(DATE '2026-07-02', 'US', 200.0),"
+        "(DATE '2026-07-03', 'CN', 10.0),"
+        "(DATE '2025-07-01', 'US', 100.0),"
+        "(DATE '2025-07-02', 'CN', 10.0),"
+        "(DATE '2025-07-03', 'CN', 20.0)"
+    )
+    session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
+    avg_amount = session.catalog.get("metric.sales.avg_amount")
+    region = session.catalog.get("dimension.sales.orders.region").ref
+    cur = session.observe(
+        avg_amount,
+        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+    )
+    base = session.observe(
+        avg_amount,
+        time_scope={"start": "2025-07-01", "end": "2025-08-01"},
+    )
+    delta = session.compare(cur, base)
+
+    assert cur.meta.additivity == "non_additive"
+    assert cur.meta.aggregation == "mean"
+    assert cur.meta.status_time_dimension is None
+    assert delta.meta.additivity == "non_additive"
+    assert delta.meta.aggregation == "mean"
+    assert delta.meta.status_time_dimension is None
+    loaded_delta = session.get_frame(delta.ref)
+    assert isinstance(loaded_delta, DeltaFrame)
+    assert loaded_delta.meta.additivity == "non_additive"
+    assert loaded_delta.meta.aggregation == "mean"
+    assert delta.to_pandas().iloc[0]["delta"] == pytest.approx(60.0)
+    with pytest.raises(ComponentDecompositionError) as exc_info:
+        session.attribute(delta, axes=[region])
+
+    assert isinstance(exc_info.value, mv.errors.AttributionAdditivityError)
+    assert exc_info.value._context["reason"] == "non_additive_metric"
+    assert exc_info.value._context["metric"] == "sales.avg_amount"
+    assert exc_info.value._context["metric_id"] == "sales.avg_amount"
+    assert exc_info.value._context["additivity"] == "non_additive"
+    assert exc_info.value._context["aggregation"] == "mean"
+    assert exc_info.value._context["axes"] == ["sales.orders.region"]
+    assert exc_info.value.repair is not None
+    assert exc_info.value.repair.help_target.canonical_id == "attribute"
 
 
 def test_attribute_missing_axis_without_replayable_sources_fails_closed() -> None:

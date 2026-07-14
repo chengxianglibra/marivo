@@ -7,6 +7,7 @@ import pytest
 
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
+    AttributionAdditivityError,
     ComponentDecompositionError,
     ComponentFrameMismatchError,
     ComponentFrameUnavailableError,
@@ -40,6 +41,8 @@ def _component_aware_metric(
     component_rows: list[dict[str, object]],
     composition_kind: str = "ratio",
     components: dict[str, str] | None = None,
+    additivity: str | None = "non_additive",
+    linear_terms: tuple[tuple[str, str], ...] = (),
 ):
     component_map = components or {
         "numerator": "sales.failed_count",
@@ -65,6 +68,7 @@ def _component_aware_metric(
             semantic_kind="segmented",
             semantic_model="sales",
             composition={"kind": composition_kind, "components": component_map},
+            additivity=additivity,  # type: ignore[arg-type]
         ),
     )
     metric.meta = persist_frame(session, metric)
@@ -84,6 +88,7 @@ def _component_aware_metric(
             metric_id="sales.failure_rate",
             composition_kind=composition_kind,
             components=component_map,
+            linear_terms=linear_terms,
             axes=axes,
             semantic_kind="segmented",
             semantic_model="sales",
@@ -189,6 +194,7 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
 
     delta = session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
+    assert delta.meta.additivity == "non_additive"
     assert delta.meta.component_ref is not None
     assert delta.meta.composition == {
         "kind": "ratio",
@@ -229,6 +235,37 @@ def test_compare_segmented_ratio_persists_clean_delta_and_component_delta():
     assert north["current_failure_rate"] == pytest.approx(0.25)
     assert north["baseline_failure_rate"] == pytest.approx(0.10)
     assert north["delta_failure_rate"] == pytest.approx(0.15)
+
+
+def test_decompose_rejects_non_additive_linear_composition() -> None:
+    session = session_attach.get_or_create(name="demo")
+    components = {"gross": "sales.gross", "refunds": "sales.refunds"}
+    terms = (("+", "sales.gross"), ("-", "sales.refunds"))
+    current = _component_aware_metric(
+        session,
+        ref="frame_current",
+        rows=[{"region": "US", "failure_rate": 13.0}],
+        component_rows=[{"region": "US", "gross": 15.0, "refunds": 2.0, "failure_rate": 13.0}],
+        composition_kind="linear",
+        components=components,
+        linear_terms=terms,
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline",
+        rows=[{"region": "US", "failure_rate": 9.0}],
+        component_rows=[{"region": "US", "gross": 10.0, "refunds": 1.0, "failure_rate": 9.0}],
+        composition_kind="linear",
+        components=components,
+        linear_terms=terms,
+    )
+    delta = session.compare(current, baseline)
+
+    with pytest.raises(AttributionAdditivityError) as exc_info:
+        session.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+
+    assert exc_info.value._context["reason"] == "non_additive_metric"
+    assert exc_info.value._context["composition_kind"] == "linear"
 
 
 def test_compare_component_aware_metric_missing_component_frame_fails_closed():

@@ -94,6 +94,9 @@ def test_derive_metric_frame_materializes_metric_frame_with_governed_contract(
     assert frame.meta.semantic_kind == "panel"
     assert frame.meta.semantic_model == "sales"
     assert frame.meta.measure == {"name": "value"}
+    assert frame.meta.additivity == "additive"
+    assert frame.meta.aggregation is None
+    assert frame.meta.status_time_dimension is None
     assert frame.meta.window == {
         "kind": "absolute",
         "start": "2026-06-18",

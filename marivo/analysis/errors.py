@@ -1393,6 +1393,10 @@ class ComponentDecompositionError(AnalysisError):
     pass
 
 
+class AttributionAdditivityError(ComponentDecompositionError):
+    """A delta cannot be attributed with additive axis-sum math."""
+
+
 class AttributionMaterializationError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
         missing_axes = self._context.get("missing_axes")
