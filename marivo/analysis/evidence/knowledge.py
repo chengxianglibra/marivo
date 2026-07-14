@@ -442,7 +442,7 @@ class SessionKnowledge(BaseModel):
         return []
 
     def observations(self) -> list[ObservationSummary]:
-        """Return observation digests for observe / derive_metric_frame commits, oldest first."""
+        """Return observation digests for observe commits, oldest first."""
         return list(self.observation_summaries)
 
     def open_items(self, kind: OpenItemKind | None = None) -> list[Any]:

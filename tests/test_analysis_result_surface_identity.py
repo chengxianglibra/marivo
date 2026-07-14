@@ -7,7 +7,6 @@ import pandas as pd
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
-from marivo.analysis.frames.exploration import ExplorationResult, ExplorationResultMeta
 from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTestResultMeta
 from marivo.analysis.lineage import Lineage
 
@@ -129,16 +128,3 @@ def test_hypothesis_test_result_identity_includes_hypothesis_method_and_rejectio
     assert repr(frame).startswith(
         "<HypothesisTestResult ref=frame_hypothesis hypothesis=mean_changed"
     )
-
-
-def test_exploration_result_identity_includes_source_kind() -> None:
-    frame = ExplorationResult(
-        _df=pd.DataFrame({"value": [1]}),
-        meta=ExplorationResultMeta(
-            **_base_meta(kind="exploration_result", ref="frame_explore", row_count=1),
-            source_kind="pandas",
-        ),
-    )
-
-    assert frame._repr_identity() == "ExplorationResult ref=frame_explore source=pandas rows=1"
-    assert repr(frame).startswith("<ExplorationResult ref=frame_explore source=pandas")

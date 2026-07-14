@@ -62,8 +62,6 @@ InputFamily = (
         "AlignmentPolicy",
         "SamplingPolicy",
         "TimeScopeInput",
-        "IbisQuerySpec",
-        "MetricColumns",
         "SemanticToAnalysisHandoff",
     ]
 )

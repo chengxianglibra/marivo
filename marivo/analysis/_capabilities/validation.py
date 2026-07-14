@@ -99,7 +99,6 @@ def _classify_semantic_ref(value: object) -> str | None:
 def _classify_policy_or_spec(value: object) -> str | None:
     """Classify policy, sampling, time-scope, query-spec, and column-binding values."""
 
-    from marivo.analysis.derive import IbisQuerySpec, MetricColumns
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
     from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
 
@@ -109,10 +108,6 @@ def _classify_policy_or_spec(value: object) -> str | None:
         return "SamplingPolicy"
     if isinstance(value, (TimeScope, AbsoluteWindow)):
         return "TimeScopeInput"
-    if isinstance(value, IbisQuerySpec):
-        return "IbisQuerySpec"
-    if isinstance(value, MetricColumns):
-        return "MetricColumns"
     # A plain dict is acceptable as a TimeScopeInput (normalized later by
     # the capability-specific validator, which may reject relative windows).
     if isinstance(value, dict):

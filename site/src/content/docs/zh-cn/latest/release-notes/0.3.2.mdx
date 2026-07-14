@@ -29,6 +29,14 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 - `marivo-analysis` skill 现在是一个单文件边界内核。它拥有硬边界、交接、证据连续性和
   收尾义务。它不重复 API 签名、算子清单、调用示例、有序流程、方法清单或报告模板。
   `references/` 附件树已删除。
+- `session.observe(...)` 是唯一的 canonical `MetricFrame` producer。
+  `derive_metric_frame`、`escape_hatch` 和所有 promotion 路径
+  （`promote_metric_frame`、`promote_delta_frame`、`promote_attribution_frame`、
+  `from_pandas`、`explore_ibis`）已移除。任意 Ibis、pandas 或 SQL 数据不再能被升级为
+  canonical 分析 artifact。
+- `md.raw_sql(...)` 是唯一的终端 raw SQL 执行路径。它将 `authoring_timeout` 与只读
+  事务组合，检测精确行截断，并提供 `RawSqlResult.to_pandas()` 用于终端 pandas 导出。
+  终端结果无法回到类型化分析。
 
 ## 破坏性变更
 
@@ -50,9 +58,17 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
   一致时才可信。
 - **运行时 family gate。** 提交的输入在 backend 工作之前根据注册表的 `accepted_inputs`
   进行验证。不匹配会以结构化 `AnalysisError` 闭合失败。
-- **`boundary.derive_metric_frame` 能力 id。** `Session.derive_metric_frame(...)` 有且
-  仅有一个能力 id：`boundary.derive_metric_frame`。终端 `to_pandas()` 出口为
-  `boundary.to_pandas`。
+- **`derive_metric_frame` 和 promotion 路径移除。**
+  `Session.derive_metric_frame(...)`、`escape_hatch.explore_ibis(...)`、
+  `escape_hatch.from_pandas(...)`、`escape_hatch.promote_metric_frame(...)`、
+  `escape_hatch.promote_delta_frame(...)`、`escape_hatch.promote_attribution_frame(...)`、
+  `IbisQuerySpec`、`MetricColumns`、`ibis_query`、`metric_columns`、`time_column`、
+  `dimension_column`、`PromotionPolicy`、`PromotionSemanticAnchors`、`PromotionFailedError`
+  和 `ExplorationResult` 已移除。`session.observe(...)` 是唯一的 canonical `MetricFrame`
+  producer。
+- **`md.raw_sql(...)` 是唯一的终端 raw SQL 路径。** 它将 `authoring_timeout` 与只读
+  事务组合，检测精确行截断，返回 `RawSqlResult`，包含 `timeout_seconds`、`duration_ms`、
+  `truncated` 和 `to_pandas()`。终端结果无法回到类型化分析。
 
 ## 无兼容性或迁移行为
 
@@ -63,7 +79,7 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 
 - 更新了中英文 analysis-workflow、first-analysis 和 evidence 文档，通过项目解释器和指纹
   路由入口，解释能力发现、对象邻近 help、静态类型代数、artifact `show`/`contract`、
-  结构化错误、类型化边界出口/重入和语义交接。
+  结构化错误、终端边界出口和语义交接。
 - 更新了 `agent-guide.md` 和活跃分析 spec 的新所有权模型：环境验证的实时接口拥有能力和
   运行时指引；skill 拥有硬边界、交接、证据连续性和收尾义务；agent 拥有规划和判断。
 - 将两份 2026-07-13 设计 spec 标记为 `approved; implementation planned`。

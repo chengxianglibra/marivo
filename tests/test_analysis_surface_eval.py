@@ -796,7 +796,6 @@ def test_instrumentation_generated_file_wraps_all_analysis_callables(
         "hypothesis_test",
         "forecast",
         "assess_quality",
-        "derive_metric_frame",
     ):
         assert f'"{method}"' in content, f"missing method name {method} in tuple"
     assert "_wrap_analysis_callable" in content

@@ -32,5 +32,4 @@ forbidden_modules =
     marivo.analysis.windows
     marivo.analysis.datasources
     marivo.analysis.profiles
-    marivo.analysis.escape_hatch
     marivo.analysis.policies

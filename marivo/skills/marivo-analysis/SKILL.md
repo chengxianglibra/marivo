@@ -1,6 +1,6 @@
 ---
 name: marivo-analysis
-description: Use for any Marivo metric-centered analysis task: observe, compare, attribute, discover, correlate, hypothesis_test, forecast, quality assessment, governed derive_metric_frame, evidence-aware investigation, or continuing an analysis session over semantic metrics.
+description: Use for any Marivo metric-centered analysis task: observe, compare, attribute, discover, correlate, hypothesis_test, forecast, quality assessment, evidence-aware investigation, or continuing an analysis session over semantic metrics.
 ---
 
 # marivo-analysis
@@ -13,7 +13,7 @@ Use this skill when the task involves:
 - continuation of an existing Marivo analysis session;
 - review of conclusions backed by Marivo artifacts;
 - decisions about staying in typed flow, using a terminal custom-analysis
-  exit, re-entering governed flow, or returning to semantic authoring.
+  exit, or returning to semantic authoring.
 
 Do not trigger solely for ordinary SQL, pandas, generic reporting, or
 general data-analysis questions that do not use Marivo.
@@ -88,12 +88,16 @@ The agent must not hide blockers that affect validity, coverage, or
 confidence, and must not sever the recoverable evidence chain during
 script, session, or agent transitions.
 
-### Governed transition
+### Terminal boundary
 
-Leaving typed Marivo analysis, re-entering governed analysis, adding
-semantic objects, and producing or publishing deliverables must use the
-corresponding public boundary. One-off analysis code must not absorb
-another layer's responsibility.
+Leaving typed Marivo analysis, adding semantic objects, and producing or
+publishing deliverables must use the corresponding public boundary.
+`session.observe(...)` is the sole producer of an initial canonical
+`MetricFrame`. `frame.to_pandas()` and `md.raw_sql(...)` are the sole
+terminal exits; results from either cannot re-enter typed analysis.
+Missing business semantics return to semantic authoring; runtime
+capability gaps remain custom terminal work until modeled explicitly.
+One-off analysis code must not absorb another layer's responsibility.
 
 ## Handoffs
 
@@ -101,8 +105,7 @@ another layer's responsibility.
 | --- | --- |
 | A required business object is missing or must change | `marivo-semantic` |
 | Semantic authoring returns ready refs | The registered analysis semantic-handoff boundary |
-| The task needs terminal custom analysis | The live help's controlled terminal exit |
-| A custom result must re-enter typed analysis | The live help's governed entry |
+| The task needs terminal custom analysis | `md.raw_sql(...)` or `frame.to_pandas()` (terminal; cannot re-enter typed analysis) |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
 

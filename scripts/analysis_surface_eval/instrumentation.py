@@ -163,7 +163,6 @@ def _install_observe_wrapper():
         "hypothesis_test",
         "forecast",
         "assess_quality",
-        "derive_metric_frame",
     )
     for method_name in _analysis_method_names:
         if hasattr(Session, method_name):

@@ -559,16 +559,12 @@ def test_analysis_all_is_pinned() -> None:
         "SemanticRef",
         "Session",
         "TimeScope",
-        "dimension_column",
         "dow_aligned",
         "help",
         "help_text",
         "holiday_aligned",
         "holiday_and_dow_aligned",
-        "ibis_query",
-        "metric_columns",
         "session",
-        "time_column",
         "window_bucket",
     }
     assert set(mv.__all__) == expected

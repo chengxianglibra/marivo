@@ -83,7 +83,7 @@ read-optimized projection an agent consults to decide its next step. It carries
 ```python
 knowledge = session.knowledge()
 
-# What was observed: one bounded digest per observe / derive_metric_frame commit.
+# What was observed: one bounded digest per observe commit.
 for obs in knowledge.observations():
     print(obs.subject.metric, obs.semantic_kind, obs.analysis_purpose, obs.digest)
 

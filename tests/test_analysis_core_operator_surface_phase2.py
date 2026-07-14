@@ -57,7 +57,6 @@ def test_help_default_operator_surface_is_phase2_core() -> None:
         "correlate",
         "hypothesis_test",
         "forecast",
-        "derive_metric_frame",
         "assess_quality",
     ):
         assert expected in text
