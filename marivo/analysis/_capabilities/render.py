@@ -9,11 +9,8 @@ All names are private to ``marivo.analysis``.
 from __future__ import annotations
 
 import inspect
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-import marivo
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
     SURFACE_LIMITS,
@@ -45,11 +42,7 @@ if TYPE_CHECKING:
 
 def environment_fingerprint() -> EnvironmentFingerprint:
     """Return the environment fingerprint for root help."""
-    return EnvironmentFingerprint(
-        marivo_version=marivo.__version__,
-        python_executable=str(Path(sys.executable).resolve()),
-        package_path=str(Path(marivo.__file__).resolve()),
-    )
+    return EnvironmentFingerprint.current()
 
 
 def enforce_budget(text: str, *, max_lines: int, max_codepoints: int) -> str:

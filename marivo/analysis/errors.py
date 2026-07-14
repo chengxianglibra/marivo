@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
-import marivo
 from marivo.analysis._capabilities.model import (
     AnalysisToSemanticHandoff,
     EnvironmentFingerprint,
@@ -22,14 +19,6 @@ DatasourceFieldInvalidError = _datasource_errors.DatasourceFieldInvalidError
 DatasourceSecretInPlaintextError = _datasource_errors.DatasourceSecretInPlaintextError
 
 RepairKind = Literal["retry", "inspect", "semantic_handoff", "environment"]
-
-
-def _environment_fingerprint() -> EnvironmentFingerprint:
-    return EnvironmentFingerprint(
-        marivo_version=marivo.__version__,
-        python_executable=str(Path(sys.executable).resolve()),
-        package_path=str(Path(marivo.__file__).resolve()),
-    )
 
 
 class AnalysisRepair(BaseModel):
@@ -244,7 +233,7 @@ class MetricNotFoundError(AnalysisError):
                     required_kind=SemanticKind.METRIC,
                     requirement=f"metric_id={metric_ref} is not registered in the active semantic model",
                     affected_capability_id="observe",
-                    environment_fingerprint=_environment_fingerprint(),
+                    environment_fingerprint=EnvironmentFingerprint.current(),
                 ),
             ),
         )
@@ -1163,7 +1152,7 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                     required_kind=SemanticKind.DIMENSION,
                     requirement=f"dimension {dim_ref} is not found on the metric's datasets",
                     affected_capability_id="observe",
-                    environment_fingerprint=_environment_fingerprint(),
+                    environment_fingerprint=EnvironmentFingerprint.current(),
                 ),
             ),
         )
