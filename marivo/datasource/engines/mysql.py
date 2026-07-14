@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
@@ -252,14 +252,19 @@ def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[No
     if not row:
         raise RuntimeError("mysql did not expose @@SESSION.MAX_EXECUTION_TIME")
     previous = int(row[0])
+    raw_sql("START TRANSACTION READ ONLY")
     try:
         raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {timeout_seconds * 1000}")
     except BaseException:
+        with suppress(Exception):
+            raw_sql("ROLLBACK")
         raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {previous}")
         raise
     try:
         yield
     finally:
+        with suppress(Exception):
+            raw_sql("ROLLBACK")
         raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {previous}")
 
 

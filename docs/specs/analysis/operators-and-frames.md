@@ -21,7 +21,7 @@ inventing family names. The public families and their producers are:
 
 | Family | Produced by | Meaning |
 | --- | --- | --- |
-| `MetricFrame` | `session.observe(...)`, `session.derive_metric_frame(...)` | Observed metric facts |
+| `MetricFrame` | `session.observe(...)` | Observed metric facts |
 | `DeltaFrame` | `session.compare(...)` | Difference between two `MetricFrame`s |
 | `AttributionFrame` | `session.attribute(...)` | Contribution attribution of a delta |
 | `CandidateSet` | `session.discover.<objective>(...)` | Candidates worth following up |
@@ -41,8 +41,8 @@ are therefore not part of the default `mv.__all__` surface:
 The following are deliberately **not** operator output families: a
 `sample_frame` (an internal materialized sampling node for `hypothesis_test`, it
 enters lineage but is not authored by agents); artifact summaries/profiles
-(projections, not canonical artifacts); and any Ibis/pandas scratch result (see
-[Escape hatch](#escape-hatch)).
+(projections, not canonical artifacts); and ad-hoc pandas DataFrames (terminal
+via `frame.to_pandas()`, cannot re-enter typed analysis).
 
 ## Typed shapes and typed policies
 
@@ -110,7 +110,6 @@ This is the single analysis API an agent learns on the main path. Each entry is 
 | `session.hypothesis_test(...)` | `HypothesisTestResult` | Test over prepared frames/delta/sample. |
 | `session.forecast(history, ...)` | `ForecastFrame` | Project an observed history frame forward. |
 | `session.assess_quality(artifact)` | `QualityReport` | Explicit quality/coverage/comparability assessment. |
-| `session.derive_metric_frame(...)` | `MetricFrame` | Governed Ibis escape hatch producing a canonical frame. |
 
 An operator earns a place here only if it reduces agent steps without hiding
 judgment, fixes an output family, names a computation task (not a primitive
@@ -132,9 +131,8 @@ surface, the `contract()` affordances, and the runtime family gate.
 The runtime family gate validates submitted inputs against the registry's
 `accepted_inputs` before any backend work begins. When an input family does not
 match, the gate fails closed with a structured `AnalysisError` carrying typed
-`expected`/`received`/`location`/`repair` fields. The `derive_metric_frame`
-boundary capability has the capability id `boundary.derive_metric_frame`; the
-terminal `to_pandas()` exit has `boundary.to_pandas`.
+`expected`/`received`/`location`/`repair` fields. The terminal `to_pandas()`
+exit has the capability id `boundary.to_pandas`.
 
 ### Internal / expert surface
 
@@ -148,9 +146,6 @@ alongside the core surface:
 | `session.transform.<op>` | Same family/shape as input | Family-preserving reshape/filter/rank/window/normalize. |
 | `session.select(...)` | Selection | Typed selector over a ranked artifact (e.g. pick candidate rank 1). |
 | Sampling helpers | Sample artifact | Prepare a sample/summary for `hypothesis_test`. |
-
-Scratch/promotion stages (`from_ibis`/`promote.*`) are internal implementation
-detail of `derive_metric_frame`, not an agent-facing promotion API.
 
 ## Operator detail
 
@@ -344,57 +339,6 @@ facts already on the artifact; `assess_quality` runs explicit checks and produce
 a terminal report. A source artifact records at most a
 `latest_quality_report_ref`, never a copied full report.
 
-### `derive_metric_frame`
-
-`derive_metric_frame` is the single default-public governed escape hatch. When a
-semantic metric exists but standard `observe` cannot express a needed backend
-computation, an agent supplies a constrained Ibis query and gets a validated
-canonical `MetricFrame`:
-
-```python
-import marivo.datasource as md
-
-retention = session.derive_metric_frame(
-    metric=session.catalog.get("metric.analytics.retention_7d"),
-    query=mv.ibis_query(datasource=md.ref("datasource.warehouse"), build=lambda db, ctx: ...),
-    columns=mv.metric_columns(
-        value="retention_rate",
-        time=mv.time_column(column="cohort_date", ref=session.catalog.get("time_dimension.analytics.cohorts.cohort_date")),
-        dimensions=[mv.dimension_column(column="platform", ref=session.catalog.get("dimension.analytics.events.platform"))],
-    ),
-    time_scope={"start": "2026-06-18", "end": "2026-06-25"},
-    grain="day",
-    label="ios_7d_retention",
-)
-```
-
-Interface rules:
-
-- `metric` is required and must be a catalog metric ref/object — without a
-  semantic metric there is no canonical `MetricFrame`.
-- `columns` binds only output column names to catalog refs, via
-  `mv.metric_columns` / `mv.time_column` / `mv.dimension_column`. A `column`
-  field is always an output column string; a `ref` field is always a semantic
-  ref. There are no `str | SemanticRef` union slots.
-- `semantic_kind` is inferred mechanically from columns (value → `scalar`;
-  value+time → `time_series`; value+dimensions → `segmented`; value+time+
-  dimensions → `panel`); `semantic_model` is inferred from the metric's catalog
-  model. Neither is a parameter.
-- `time_scope`/`grain` declare the observation range/resolution for lineage,
-  summary, freshness, and cache correctness even when the query filters
-  internally. `label` is a session-local artifact label, not a metric id.
-- The output family is fixed by the function name; there is no `output=`/`family=`
-  switch. `version` is not a parameter — the fingerprint is derived automatically
-  from operator id, compiled query, params, metric ref, definition version,
-  columns, `time_scope`, `grain`, datasource freshness, and schema version.
-
-`derive_metric_frame` has exactly one capability id in the registry:
-`boundary.derive_metric_frame`. Its `accepted_inputs` map
-(`IbisQuerySpec`, `MetricColumns`) to the closed input-family vocabulary, and
-the runtime family gate validates submitted inputs against the registry before
-any backend work begins. The gate fails closed with a structured `AnalysisError`
-when an input family does not match the registry's `accepted_inputs`.
-
 ## Result contract and read protocol
 
 Analysis operators never write to stdout; every result is silent and returns a
@@ -439,7 +383,9 @@ only — it never ranks, recommends, or narrates:
 - `boundary_ports: ArtifactBoundaryPort[]` — typed terminal-exit ports derived
   from the capability registry. Each port carries `capability_id`
   (e.g. `boundary.to_pandas`), `public_entrypoint`, `help_target`,
-  `preserves`, and `does_not_preserve`.
+  `preserves`, and `does_not_preserve`. The terminal exits are
+  `frame.to_pandas()` and `md.raw_sql(...)`; results from either cannot
+  re-enter typed analysis.
 
 Affordances are not recommendations: Marivo says which doors mechanically exist
 and what each needs; the agent decides which to open, which judgment slots to
@@ -506,20 +452,22 @@ is bounded, and its evidence/lineage/failure semantics are definable; otherwise 
 stays `exploratory`. No composite is on the current default agent-facing surface;
 `attribute` is a core operator, not a composite.
 
-## Escape hatch
+## Terminal boundaries
 
-Ibis and pandas are not core operators, but the product provides a controlled
-two-way boundary so long-tail analysis does not invent fake operators or pass off
-free text as a canonical artifact.
+There are two one-way terminal exits from typed analysis. Results from either
+cannot re-enter the typed artifact chain.
 
-- **Into Marivo:** `session.derive_metric_frame(...)` (above) is the single
-  governed inbound path. It validates the Ibis query output against a semantic
-  metric and produces a canonical `MetricFrame`. Internal scratch/promotion
-  stages exist but are not agent-facing.
-- **Out of Marivo:** any tabular frame exposes `.to_pandas()`, returning an
-  isolated copy for ad-hoc pandas exploration, plotting, or modeling. A pandas
-  result is scratch; to re-enter the canonical chain it must go back through
-  `derive_metric_frame` validation, never a silent promotion.
+- **`md.raw_sql(...)`** — the sole public raw SQL execution path. Returns a
+  `RawSqlResult` with timeout enforcement, exact row bounding, and
+  `RawSqlResult.to_pandas()` as the terminal pandas exit. Use for custom
+  analysis that cannot be expressed through `session.observe(...)`.
+- **`frame.to_pandas()`** — any tabular frame exposes `.to_pandas()`, returning
+  an isolated defensive copy for ad-hoc pandas exploration, plotting, or
+  modeling.
+
+Missing business semantics are not resolved through terminal exits; they return
+to semantic authoring (`marivo.semantic`). `session.observe(...)` is the sole
+canonical `MetricFrame` producer.
 
 ## Cross-cutting metadata
 

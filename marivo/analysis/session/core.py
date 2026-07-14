@@ -18,7 +18,6 @@ if TYPE_CHECKING:
         SemanticHandoffReceipt,
         SemanticToAnalysisHandoff,
     )
-    from marivo.analysis.derive import IbisQuerySpec, MetricColumns
     from marivo.analysis.evidence import (
         Assessment,
         EvidenceTrace,
@@ -424,7 +423,7 @@ class Session:
         bounded typed sections:
 
         - ``knowledge.observations()`` -- observation digests for every
-          observe / derive_metric_frame commit, oldest first.
+          observe commit, oldest first.
         - ``knowledge.facts(kind=...)`` -- established facts from compare,
           attribute, hypothesis_test, forecast, and correlate.
         - ``knowledge.open_items()`` / ``knowledge.blocked_followups()`` /
@@ -557,56 +556,6 @@ class Session:
                 slice_by=slice_by,
                 time_dimension=time_dimension,
                 expect_shape=expect_shape,
-                analysis_purpose=analysis_purpose,
-                session=self,
-            )
-
-    def derive_metric_frame(
-        self,
-        *,
-        metric: MetricInput,
-        query: IbisQuerySpec,
-        columns: MetricColumns,
-        time_scope: TimeScopeInput = None,
-        grain: GrainInput = None,
-        label: str | None = None,
-        analysis_purpose: str | None = None,
-    ) -> MetricFrame:
-        """Run a governed Ibis query and attach MetricFrame metadata to the result.
-
-        This is the only default escape hatch that can re-enter the canonical
-        metric-frame workflow. Semantic refs identify the metric and axis
-        bindings; query output columns are always plain strings.
-
-        Unlike ``observe``, this method does not compute, filter, or aggregate
-        data -- the ``build`` callback owns the query output. ``time_scope`` and
-        ``grain`` annotate the frame's window metadata and are passed to ``build``
-        via ``ctx`` for convenience (e.g., ``ctx.bucket()`` for time truncation).
-        The query output is used verbatim. Unbound columns in the build output
-        are retained as-is; project within build to limit the column set.
-
-        ``time_scope`` defaults to ``None`` (no window) for frames without a time
-        axis.
-        """
-        from marivo.analysis._capabilities.validation import validate_capability_inputs
-        from marivo.analysis.derive import derive_metric_frame
-
-        dim_count = len(columns.dimensions) if hasattr(columns, "dimensions") else 0
-        with _track_session_operation(
-            self,
-            "marivo.analysis.derive_metric_frame",
-            family="core",
-            intent="derive_metric_frame",
-            attributes={"marivo.analysis.dimension_count": dim_count},
-        ):
-            validate_capability_inputs("boundary.derive_metric_frame", spec=query, columns=columns)
-            return derive_metric_frame(
-                metric=metric,
-                query=query,
-                columns=columns,
-                time_scope=time_scope,
-                grain=grain,
-                label=label,
                 analysis_purpose=analysis_purpose,
                 session=self,
             )

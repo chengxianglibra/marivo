@@ -323,17 +323,36 @@ class DatasourceRawSqlError(DatasourceError):
     def _template_fields(self) -> dict[str, str]:
         datasource = self.details.get("datasource")
         backend_type = self.details.get("backend_type")
-        cause = self.details.get("cause")
+        cause = self.details.get("backend_cause")
+        timeout_seconds = self.details.get("timeout_seconds")
+        stage = self.details.get("stage")
         ds_ref_literal = _datasource_ref_literal(datasource)
         bt_ref = (
             backend_type if isinstance(backend_type, str) and backend_type else "<backend_type>"
         )
         cause_ref = cause if isinstance(cause, str) and cause else "raw_sql execution failed."
+        stage_ref = stage if isinstance(stage, str) and stage else "execution"
+        timeout_ref = (
+            str(timeout_seconds) if isinstance(timeout_seconds, int) else "<timeout_seconds>"
+        )
+        began = (
+            "The user statement did not begin execution."
+            if stage_ref == "timeout_setup"
+            else "The user statement began execution."
+        )
         return {
-            "location": f"md.raw_sql(md.ref({ds_ref_literal})) backend_type={bt_ref!r}",
+            "location": (
+                f"md.raw_sql(md.ref({ds_ref_literal})) backend_type={bt_ref!r} "
+                f"timeout={timeout_ref}s stage={stage_ref}"
+            ),
             "cause": (
-                f"the read-only diagnostic failed to execute; no side effects were applied. "
+                f"terminal custom analysis failed at stage '{stage_ref}'; "
+                f"no analysis artifact was created. {began} "
                 f"Underlying cause: {cause_ref}"
+            ),
+            "fix_snippet": (
+                'md.help("raw_sql")\n'
+                "# narrow the statement, push aggregation into SQL, or lower the limit"
             ),
             "doc": "marivo/skills/marivo-semantic/references/datasource.md",
         }

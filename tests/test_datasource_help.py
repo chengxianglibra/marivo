@@ -52,6 +52,13 @@ def test_datasource_help_detail_for_raw_sql_warns_about_expensive_diagnostics() 
     assert "expensive" in text.lower()
 
 
+def test_datasource_help_detail_for_raw_sql_teaches_terminal_boundary() -> None:
+    text = md.help_text("raw_sql")
+    assert "timeout_seconds" in text
+    assert "terminal" in text.lower()
+    assert "read-only" in text.lower() or "read only" in text.lower()
+
+
 def test_datasource_help_detail_for_connect_teaches_context_manager() -> None:
     text = md.help_text("connect")
 

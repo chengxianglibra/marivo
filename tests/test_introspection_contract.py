@@ -277,7 +277,6 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "artifacts",
         "recovery",
         "boundary.to_pandas",
-        "boundary.derive_metric_frame",
         "alignment",
         "calendar",
     }

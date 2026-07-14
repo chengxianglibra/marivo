@@ -61,8 +61,10 @@ objects with `catalog = ms.load()` and its typed collections. Then:
 - Observed uniqueness is evidence, not a primary-key or business-key decision.
 - Do not infer uncommon date formats, epoch units, timezone, aggregation, unit,
   additivity, relationship cardinality, or business meaning.
-- `md.raw_sql(...)` and `ms.parity_check(...)` are potentially unbounded
-  diagnostics outside the canonical route. Parity is never readiness-required.
+- `md.raw_sql(...)` is the sole terminal raw SQL execution path — bounded,
+  timeout-enforced, and terminal; results cannot re-enter typed analysis.
+  `ms.parity_check(...)` is a potentially unbounded diagnostic outside the
+  canonical route. Parity is never readiness-required.
 - Semantic links use typed refs, not bare semantic-id strings.
 
 ## References

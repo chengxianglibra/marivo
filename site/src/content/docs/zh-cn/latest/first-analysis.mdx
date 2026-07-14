@@ -24,7 +24,7 @@ closeout 中完成 readiness。
 
 智能体通过 `python -m marivo help analysis`（使用项目解释器）和 focused
 `mv.help(...)` 主题发现实时分析契约。结构化错误携带类型化修复指引，类型化边界
-（`derive_metric_frame` 入、`to_pandas()` 出）确保自定义分析不会断开证据链。
+（`session.observe` 入、`frame.to_pandas()` / `md.raw_sql` 出）确保自定义分析不会断开证据链。
 
 这些执行细节由 live help、frames 和结构化错误负责，不需要写进你的提示词。
 

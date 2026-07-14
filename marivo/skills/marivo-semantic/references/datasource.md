@@ -55,5 +55,7 @@ local views over that snapshot and issue no query. Values stay memory-only unles
 cache data, so make that privacy decision explicitly.
 
 Uncommon formats and all semantic judgments remain agent-owned. Use
-`md.raw_sql(..., reason=...)` only as a potentially expensive diagnostic escape
-hatch, never as the normal schema or authoring route.
+`md.raw_sql(..., reason=...)` as the sole terminal raw SQL execution path —
+bounded rows, timeout-enforced, read-only. The result is terminal custom
+analysis and cannot re-enter typed analysis. It is never the normal schema or
+authoring route.

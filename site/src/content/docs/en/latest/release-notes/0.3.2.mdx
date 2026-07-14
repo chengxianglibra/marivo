@@ -38,6 +38,15 @@ fields, dual-read paths, or compatibility flags.
   not duplicate API signatures, operator inventory, call examples, ordered
   process, methodology checklists, or report templates. The `references/`
   attachment tree is deleted.
+- `session.observe(...)` is the sole canonical `MetricFrame` producer.
+  `derive_metric_frame`, `escape_hatch`, and all promotion paths
+  (`promote_metric_frame`, `promote_delta_frame`, `promote_attribution_frame`,
+  `from_pandas`, `explore_ibis`) are removed. Arbitrary Ibis, pandas, or SQL
+  data can no longer be upgraded into canonical analysis artifacts.
+- `md.raw_sql(...)` is the sole terminal raw SQL execution path. It composes
+  `authoring_timeout` with a read-only transaction, detects exact row
+  truncation, and exposes `RawSqlResult.to_pandas()` for terminal pandas
+  export. Terminal results cannot re-enter typed analysis.
 
 ## Breaking changes
 
@@ -64,9 +73,20 @@ fields, dual-read paths, or compatibility flags.
 - **Runtime family gate.** Submitted inputs are validated against the
   registry's `accepted_inputs` before backend work. Mismatches fail closed
   with a structured `AnalysisError`.
-- **`boundary.derive_metric_frame` capability id.** `Session.derive_metric_frame(...)`
-  has exactly one capability id: `boundary.derive_metric_frame`. The terminal
-  `to_pandas()` exit has `boundary.to_pandas`.
+- **`derive_metric_frame` and promotion paths removed.**
+  `Session.derive_metric_frame(...)`, `escape_hatch.explore_ibis(...)`,
+  `escape_hatch.from_pandas(...)`, `escape_hatch.promote_metric_frame(...)`,
+  `escape_hatch.promote_delta_frame(...)`,
+  `escape_hatch.promote_attribution_frame(...)`, `IbisQuerySpec`, `MetricColumns`,
+  `ibis_query`, `metric_columns`, `time_column`, `dimension_column`,
+  `PromotionPolicy`, `PromotionSemanticAnchors`, `PromotionFailedError`, and
+  `ExplorationResult` are removed. `session.observe(...)` is the sole canonical
+  `MetricFrame` producer.
+- **`md.raw_sql(...)` is the sole terminal raw SQL path.** It enforces
+  `authoring_timeout` composed with a read-only transaction, detects exact row
+  truncation, and returns `RawSqlResult` with `timeout_seconds`, `duration_ms`,
+  `truncated`, and `to_pandas()`. Terminal results cannot re-enter typed
+  analysis.
 
 ## No compatibility or migration behavior
 
@@ -80,7 +100,7 @@ surface.
 - Updated the analysis-workflow, first-analysis, and evidence docs in English
   and Chinese to route entry through the project interpreter and fingerprint,
   explain capability discovery, object-near help, static type algebra, artifact
-  `show`/`contract`, structured errors, typed boundary exit/re-entry, and
+  `show`/`contract`, structured errors, terminal boundary exits, and
   semantic handoff.
 - Updated `agent-guide.md` and active analysis specs with the new ownership
   model: environment-verified live surfaces own capabilities and runtime

@@ -335,10 +335,6 @@ def test_analysis_public_exports_are_default_workflow_surface() -> None:
         "holiday_aligned",
         "holiday_and_dow_aligned",
         "AlignmentPolicy",
-        "ibis_query",
-        "metric_columns",
-        "time_column",
-        "dimension_column",
         "SemanticRef",
         "CatalogObject",
         "ArtifactRef",
@@ -366,10 +362,6 @@ def test_analysis_dir_hides_advanced_and_internal_objects() -> None:
         "errors",
         "evidence",
         "frames",
-        "DeriveContext",
-        "IbisQuerySpec",
-        "MetricColumnBinding",
-        "MetricColumns",
     }
     assert hidden.isdisjoint(dir(mv))
 
@@ -383,7 +375,6 @@ def test_analysis_dir_hides_advanced_and_internal_objects() -> None:
     "path",
     [
         "marivo/analysis/semantic_inputs.py",
-        "marivo/analysis/escape_hatch.py",
         "marivo/analysis/intents/_observe_catalog.py",
         "marivo/analysis/intents/_observe_planner_catalog.py",
         "marivo/analysis/intents/_observe_planner_fields.py",

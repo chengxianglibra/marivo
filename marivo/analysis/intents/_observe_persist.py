@@ -184,11 +184,9 @@ def _commit_observe_metric_frame(
 ) -> MetricFrame:
     """Commit a MetricFrame through the evidence pipeline (shared tail).
 
-    Shared by observe and derive_metric_frame; both are metric_frame-family
-    commits and must emit the same evidence side effects. When ``metric_ids``
-    is provided (arity-N multi-metric path), the anchors carry the full metric
-    list while the commit subject keeps ``metric=None`` — the extractor reads
-    per-measure subjects from ``meta.measures``.
+    When ``metric_ids`` is provided (arity-N multi-metric path), the anchors
+    carry the full metric list while the commit subject keeps ``metric=None``
+    — the extractor reads per-measure subjects from ``meta.measures``.
     """
     if metric_ids is not None:
         anchors: dict[str, Any] = {"metrics": metric_ids, "models": models or [model_name]}

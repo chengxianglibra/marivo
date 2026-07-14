@@ -7,8 +7,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-import marivo.datasource as md
-from marivo.analysis import escape_hatch
 from marivo.analysis.executor.query_record import (
     QueryExecution,
     compute_sql_digest,
@@ -305,31 +303,6 @@ def test_decompose_job_record_has_queries_key(tmp_path, monkeypatch):
     assert "queries" in job
     # Frame-consuming intents issue no datasource SQL
     assert job["queries"] == []
-
-
-def test_explore_ibis_source_query_includes_session_comment(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    session_attach._reset_process_state()
-    bootstrap_sales_project(tmp_path)
-    con = ibis.duckdb.connect(":memory:")
-    con.raw_sql(
-        "CREATE TABLE orders (order_id INTEGER, created_at DATE, "
-        "amount DOUBLE, region VARCHAR, user_id INTEGER)"
-    )
-    con.raw_sql("INSERT INTO orders VALUES (1, DATE '2026-07-01', 10.0, 'north', 100)")
-    s = mv.session.get_or_create(
-        name="explore-audit",
-        question="explore audit",
-        backends={"warehouse": lambda: con},
-    )
-    result = escape_hatch.explore_ibis(
-        lambda backend: backend.table("orders"),
-        datasource=md.ref("datasource.warehouse"),
-        session=s,
-    )
-    assert result.meta.source_query is not None
-    assert "from=marivo" in result.meta.source_query
-    assert result.meta.source_datasource == "datasource.warehouse"
 
 
 def test_time_series_observe_has_queries(tmp_path, monkeypatch):
