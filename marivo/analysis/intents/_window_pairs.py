@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -66,7 +67,12 @@ def _panel_grains(a: MetricFrame, b: MetricFrame) -> tuple[str | None, str | Non
     return _panel_grain(a), _panel_grain(b)
 
 
-def _parse_window_datetime(value: object, *, field: str) -> datetime:
+def _parse_window_datetime(
+    value: object,
+    *,
+    field: str,
+    report_tz: str | None = None,
+) -> datetime:
     if not isinstance(value, str) or not value:
         raise AlignmentFailedError(
             message=f"window_bucket alignment requires window.{field}",
@@ -75,7 +81,10 @@ def _parse_window_datetime(value: object, *, field: str) -> datetime:
     if is_date_only(value):
         return datetime.combine(date.fromisoformat(value), time.min)
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None and report_tz is not None:
+            parsed = parsed.astimezone(ZoneInfo(report_tz))
+        return parsed.replace(tzinfo=None)
     except ValueError as exc:
         raise AlignmentFailedError(
             message=f"window_bucket alignment requires valid ISO window.{field}",

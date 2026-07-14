@@ -787,7 +787,9 @@ def _validate_cumulative_metric(
                 refs=(metric_id, comp.base),
                 constraint_id=ConstraintId.COMPOSITION_SHAPE,
                 hint=(
-                    "Compose in the other direction, for example a ratio of two cumulative metrics."
+                    "Compose in the other direction, for example a ratio of two cumulative "
+                    "metrics. Compare is supported only when every outer component uses the "
+                    "same trailing or grain_to_date anchor; all_history remains observe-only."
                 ),
                 details={
                     "metric": metric_id,

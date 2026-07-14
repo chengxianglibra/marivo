@@ -735,6 +735,9 @@ def _authoring_contracts() -> dict[str, dict[str, object]]:
                 "base aggregation must be sum, count, or count_distinct",
                 "anchor defaults to all_history (monotonic); grain_to_date resets at "
                 "each reset-grain boundary; trailing windows are fixed-size rolling N",
+                "a derived metric over cumulative components can compare only when every "
+                "outer component uses the same trailing or grain_to_date anchor; all_history, "
+                "mixed anchors, attribute, and decompose remain unsupported",
             ],
             "minimal_example": (
                 "user_id = ms.measure_column(name='user_id', entity=events, "

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, cast
 
+from marivo.analysis._cumulative import CUMULATIVE_CONTRACT_VERSION
 from marivo.analysis.errors import (
     AnalysisError,
     MetricNotFoundError,
@@ -342,6 +343,7 @@ def observe(
             )
         }
 
+        derived_cumulative_meta: dict[str, Any] | None = None
         session._connection_runtime.begin_query_capture()
         try:
             derived_plan = plan_observe(
@@ -395,6 +397,7 @@ def observe(
                     }
                 params = {
                     "metric": metric_id,
+                    "cumulative_contract_version": CUMULATIVE_CONTRACT_VERSION,
                     "timescope": params_timescope_cum,
                     "dimensions": _dump_dimensions(dimension_refs),
                     "where": stored_where,
@@ -439,6 +442,7 @@ def observe(
                     resolved_window=resolved_window,
                 )
             else:
+                derived_cumulative_meta = _derived_cumulative_marker(derived_plan, catalog)
                 # Build params and check cache before executing the backend query.
                 params_timescope = None
                 if resolved_window is not None:
@@ -461,6 +465,9 @@ def observe(
                     "lineage_metadata": derived_plan.lineage_metadata,
                     "metric_semantics": _metric_semantics_payload(metric_ir),
                 }
+                if derived_cumulative_meta is not None:
+                    params["cumulative_contract_version"] = CUMULATIVE_CONTRACT_VERSION
+                    params["cumulative"] = derived_cumulative_meta
                 prospective_id = compute_prospective_artifact_id(
                     step_type="observe",
                     inputs=CommitInputs(input_refs=[]),
@@ -569,7 +576,7 @@ def observe(
             _derived_fold: dict[str, Any] | None = None
             if _any_folded:
                 _derived_fold = _build_derived_fold_meta(derived_plan, catalog)
-            _derived_cumulative = _derived_cumulative_marker(derived_plan, catalog)
+            _derived_cumulative = derived_cumulative_meta
             meta = MetricFrameMeta(
                 kind="metric_frame",
                 ref=frame_ref,

@@ -394,7 +394,12 @@ accumulation anchor (`all_history`, `grain_to_date`, or `trailing`).
     must start on a reset boundary and span at most one reset period, and both frames
     must share the reset grain and query grain. The resulting DeltaFrame records the
     to-date alignment under `alignment_dump["to_date"]`.
-- `attribute` and `forecast` reject cumulative frames regardless of anchor; re-observe
+- For derived metrics, the same compare paths are allowed only when every outer component
+  is cumulative and all components share exactly one `trailing` or `grain_to_date` anchor.
+  `all_history`, mixed anchors, cumulative/non-cumulative mixes, malformed metadata, and
+  current/baseline anchor differences fail closed.
+- `attribute`, `decompose`, and `forecast` reject cumulative frames regardless of anchor;
+  this includes a derived cumulative DeltaFrame that compare accepted. Re-observe
   the base flow metric for those intents.
 - `transform.rollup(...)` re-aggregates cumulative frames with `rollup_fold="last"`: the
   time axis is re-bucketed to the target `grain` and each period contributes its last

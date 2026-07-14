@@ -8,7 +8,10 @@ import pytest
 
 import marivo.analysis.session as session_attach
 import marivo.semantic as ms
+from marivo.analysis.errors import CumulativeFrameUnsupportedError
 from marivo.analysis.evidence.identity import make_artifact_id
+from marivo.analysis.intents.attribute import attribute
+from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
@@ -115,7 +118,9 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
         "aggregation": None,
         "status_time_dimension": None,
     }
+    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 2
     legacy_params = dict(frame.lineage.steps[-1].params)
+    legacy_params.pop("cumulative_contract_version")
     legacy_params.pop("metric_semantics")
     assert frame.ref != make_artifact_id(
         step_type="observe",
@@ -397,11 +402,23 @@ def test_ratio_over_cumulative_components_observes_and_marks_cumulative(
     assert frame.meta.semantic_kind == "time_series"
     assert frame.meta.reaggregatable is False
     assert frame.meta.cumulative["kind"] == "derived_contains_cumulative"
+    assert frame.meta.cumulative["anchor"] == "all_history"
+    assert frame.meta.cumulative["compare_blocker"] is None
     assert frame.meta.cumulative["components"]["numerator"]["base"] == "sales.buyers"
     assert frame.meta.cumulative["components"]["denominator"]["base"] == "sales.active_users"
     assert frame.meta.cumulative["components"]["numerator"]["over"] == "sales.events.event_time"
     assert frame.meta.cumulative["components"]["denominator"]["over"] == "sales.events.event_time"
     assert frame.meta.component_ref is not None
+    assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 2
+    legacy_params = dict(frame.lineage.steps[-1].params)
+    legacy_params.pop("cumulative_contract_version")
+    legacy_params.pop("cumulative")
+    assert frame.ref != make_artifact_id(
+        step_type="observe",
+        normalized_inputs=[],
+        normalized_params=legacy_params,
+        semantic_anchors={"metric_id": "sales.cum_active_rate", "model": "sales"},
+    )
     components = frame.components().to_pandas()
     assert {"bucket_start", "cum_buyers", "cum_active_users", "cum_active_rate"}.issubset(
         components.columns
@@ -460,7 +477,17 @@ def _bootstrap_day_project(tmp_path) -> None:
         "trailing7_active_users = ms.cumulative("
         "name='trailing7_active_users', base=active_users, over=event_time,"
         " anchor=ms.trailing(count=7, unit='day'))\n"
-        "cum_gmv = ms.cumulative(name='cum_gmv', base=gmv, over=event_time)\n",
+        "cum_gmv = ms.cumulative(name='cum_gmv', base=gmv, over=event_time)\n"
+        "mtd_gmv_per_active = ms.ratio("
+        "name='mtd_gmv_per_active', numerator=mtd_gmv, denominator=mtd_active_users)\n"
+        "trailing7_gmv_per_active = ms.ratio("
+        "name='trailing7_gmv_per_active', numerator=trailing7_gmv, "
+        "denominator=trailing7_active_users)\n"
+        "mixed_reset_gmv_per_active = ms.ratio("
+        "name='mixed_reset_gmv_per_active', numerator=mtd_gmv, "
+        "denominator=qtd_active_users)\n"
+        "mixed_cumulative_flow = ms.ratio("
+        "name='mixed_cumulative_flow', numerator=mtd_gmv, denominator=active_users)\n",
         encoding="utf-8",
     )
 
@@ -649,6 +676,193 @@ def _recorded_executions(frame) -> list[object]:
     params = frame.meta.lineage.steps[-1].params
     cumulative = params.get("cumulative", {})
     return list(cumulative.get("queries", []))
+
+
+def _observe_named_cumulative_metric(session, name: str, *, start: str, end: str):
+    return observe(
+        make_ref(f"sales.{name}", SemanticKind.METRIC),
+        time_scope={"start": start, "end": end},
+        grain="day",
+        session=session,
+    )
+
+
+def test_compare_mtd_ratio_over_cumulative_components_after_reload(
+    day_project, duckdb_session
+) -> None:
+    current = _observe_named_cumulative_metric(
+        duckdb_session,
+        "mtd_gmv_per_active",
+        start="2026-07-01",
+        end="2026-07-08",
+    )
+    baseline = _observe_named_cumulative_metric(
+        duckdb_session,
+        "mtd_gmv_per_active",
+        start="2026-01-01",
+        end="2026-01-08",
+    )
+
+    current = duckdb_session.get_frame(current.ref)
+    baseline = duckdb_session.get_frame(baseline.ref)
+    assert current.meta.cumulative["anchor"] == ["grain_to_date", "month"]
+    assert current.meta.cumulative["compare_blocker"] is None
+    assert "grain_to_date" in current.render()
+    compare_affordance = next(
+        item for item in current.contract().affordances if item.capability_id == "compare"
+    )
+    assert any("boundary" in item.reason for item in compare_affordance.preconditions)
+
+    delta = compare(current, baseline, session=duckdb_session)
+
+    assert delta.meta.cumulative == current.meta.cumulative
+    assert delta.meta.alignment["to_date"]["reset_grain"] == "month"
+    assert delta.meta.component_ref is not None
+
+
+def test_compare_mtd_ratio_drops_baseline_tail_from_parent_and_components(
+    day_project, duckdb_session
+) -> None:
+    current = _observe_named_cumulative_metric(
+        duckdb_session,
+        "mtd_gmv_per_active",
+        start="2026-07-01",
+        end="2026-07-03",
+    )
+    baseline = _observe_named_cumulative_metric(
+        duckdb_session,
+        "mtd_gmv_per_active",
+        start="2026-01-01",
+        end="2026-01-04",
+    )
+
+    delta = compare(current, baseline, session=duckdb_session)
+    parent_df = delta.to_pandas()
+    component_df = delta.components().to_pandas()
+
+    assert delta.meta.alignment["to_date"]["matched_buckets"] == 2
+    assert delta.meta.alignment["to_date"]["baseline_tail_buckets"] == 1
+    assert len(parent_df) == 2
+    assert len(component_df) == 2
+    assert parent_df["current"].notna().all()
+    assert parent_df["baseline"].notna().all()
+
+
+def test_derived_cumulative_delta_keeps_attribute_gated(day_project, duckdb_session) -> None:
+    current = _observe_named_cumulative_metric(
+        duckdb_session,
+        "mtd_gmv_per_active",
+        start="2026-07-01",
+        end="2026-07-08",
+    )
+    baseline = _observe_named_cumulative_metric(
+        duckdb_session,
+        "mtd_gmv_per_active",
+        start="2026-01-01",
+        end="2026-01-08",
+    )
+    delta = compare(current, baseline, session=duckdb_session)
+
+    attribute_affordance = next(
+        item for item in delta.contract().affordances if item.capability_id == "attribute"
+    )
+    assert any(
+        item.check == "cumulative_attribution_unsupported" and item.status == "fail"
+        for item in attribute_affordance.preconditions
+    )
+    with pytest.raises(CumulativeFrameUnsupportedError):
+        attribute(
+            delta,
+            axes=[make_ref("sales.events.region", SemanticKind.DIMENSION)],
+            session=duckdb_session,
+        )
+
+
+def test_compare_trailing_ratio_over_cumulative_components(day_project, duckdb_session) -> None:
+    current = _observe_named_cumulative_metric(
+        duckdb_session,
+        "trailing7_gmv_per_active",
+        start="2026-07-01",
+        end="2026-07-08",
+    )
+    baseline = _observe_named_cumulative_metric(
+        duckdb_session,
+        "trailing7_gmv_per_active",
+        start="2026-01-01",
+        end="2026-01-08",
+    )
+
+    assert current.meta.cumulative["anchor"] == ("trailing", 7, "day")
+    delta = compare(current, baseline, session=duckdb_session)
+
+    assert delta.meta.cumulative == current.meta.cumulative
+    assert delta.meta.component_ref is not None
+
+
+def test_derived_trailing_ratio_preserves_window_coverage(day_project, duckdb_session) -> None:
+    frame = _observe_named_cumulative_metric(
+        duckdb_session,
+        "trailing7_gmv_per_active",
+        start="2026-01-01",
+        end="2026-01-10",
+    )
+
+    coverage = frame.coverage()
+    coverage_df = coverage.to_pandas()
+
+    assert frame.meta.coverage_ref is not None
+    assert coverage.meta.coverage_kind == "window_coverage"
+    assert {
+        "bucket_start",
+        "expected_span",
+        "covered_span",
+        "coverage_ratio",
+        "coverage_status",
+    }.issubset(coverage_df.columns)
+    assert coverage_df.loc[coverage_df["bucket_start"] == "2026-01-01", "coverage_ratio"].iloc[
+        0
+    ] == pytest.approx(1 / 7)
+
+
+@pytest.mark.parametrize(
+    ("metric_name", "expected_blocker"),
+    [
+        ("mixed_reset_gmv_per_active", "mixed_component_anchors"),
+        ("mixed_cumulative_flow", "non_cumulative_component"),
+    ],
+)
+def test_derived_cumulative_compare_blocker_is_persisted(
+    day_project,
+    duckdb_session,
+    metric_name: str,
+    expected_blocker: str,
+) -> None:
+    current = _observe_named_cumulative_metric(
+        duckdb_session,
+        metric_name,
+        start="2026-07-01",
+        end="2026-07-08",
+    )
+    baseline = _observe_named_cumulative_metric(
+        duckdb_session,
+        metric_name,
+        start="2026-01-01",
+        end="2026-01-08",
+    )
+
+    assert current.meta.cumulative["anchor"] is None
+    assert current.meta.cumulative["compare_blocker"] == expected_blocker
+    assert expected_blocker in current.render()
+    compare_affordance = next(
+        item for item in current.contract().affordances if item.capability_id == "compare"
+    )
+    assert any(
+        item.check == "cumulative_compare_compatible" and item.status == "fail"
+        for item in compare_affordance.preconditions
+    )
+    with pytest.raises(CumulativeFrameUnsupportedError) as exc_info:
+        compare(current, baseline, session=duckdb_session)
+    assert exc_info.value._context["compare_blocker"] == expected_blocker
 
 
 def test_grain_to_date_month_resets_at_month_boundary(day_project, duckdb_session) -> None:

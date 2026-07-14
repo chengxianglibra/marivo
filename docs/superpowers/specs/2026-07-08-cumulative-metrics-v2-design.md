@@ -1,12 +1,16 @@
 # Cumulative Metrics V2 Design
 
 Date: 2026-07-08
-Status: approved (design review complete; implementation not started)
+Status: implemented; amended 2026-07-14 by the breaking derived-compare completion
 Prerequisite: the v1 design
 (`2026-07-08-cumulative-metrics-design.md`) implemented as specified. V2
 never reshapes v1 contracts; every change below is an anchor-kind addition,
 a stage parameterization, or a gate relaxation, per the v1
 forward-compatibility section.
+
+The 2026-07-14 completion deliberately replaces the persisted
+`derived_contains_cumulative` marker and artifact identity. It does not read,
+migrate, or fall back to the old derived marker.
 
 ## Summary
 
@@ -99,12 +103,11 @@ after V2 (regression-tested).
   public additivity contract stays untouched. Discriminator remains the
   composition kind plus its anchor.
 - Nesting: ratio/weighted/linear over cumulative components allowed for all
-  anchors; cumulative-over-derived still rejected. The compare relaxation
-  below applies ONLY to directly observed arity-1 cumulative frames —
-  derived frames containing cumulative components stay compare-gated in V2
-  (teaching error suggests comparing the cumulative components directly).
-  Mixed-anchor component comparison is too easy to misread to be worth the
-  cognitive cost now.
+  anchors; cumulative-over-derived still rejected. Compare also accepts an
+  arity-1 derived wrapper when every outer component is cumulative and every
+  component has the same eligible `trailing` or `grain_to_date` anchor.
+  All-history, mixed-anchor, unresolved-anchor, and cumulative/non-cumulative
+  wrappers stay gated.
 
 ### Surface obligations
 
@@ -243,8 +246,8 @@ dedup, NULL keys dropped, per-slice keys) carry over unchanged.
 
 ## Compare: To-Date Alignment
 
-The v1 blanket compare gate becomes anchor-dispatched, for directly
-observed arity-1 cumulative frames only:
+The v1 blanket compare gate becomes anchor-dispatched for directly observed
+arity-1 cumulative frames and compatible derived cumulative wrappers:
 
 - **all_history: still rejected.** The delta between two windows is
   identically the flow between them; the teaching error names the base
@@ -272,6 +275,14 @@ observed arity-1 cumulative frames only:
   both frames' elapsed-within-period spans are equal (derived from window
   meta); on mismatch the teaching error states the exact baseline window to
   observe.
+- **Derived wrappers**: the required `derived_contains_cumulative` marker is
+  `{kind, anchor, compare_blocker, components}`. `anchor` is the common outer
+  component anchor or `None`; `compare_blocker` is
+  `non_cumulative_component`, `mixed_component_anchors`,
+  `unresolved_component_anchor`, or `None`. The current and baseline marker
+  kind and effective anchor must match. The same trailing or grain-to-date
+  validation then runs as for direct cumulative frames. Marker version 2 is
+  included in observe artifact identity; old persisted markers are unsupported.
 - **DeltaFrame inherits the cumulative marker** (`DeltaFrameMeta` gains the
   same additive field), so attribute/decompose on an MTD delta stay gated
   in V2 — per-bucket attribution of to-date deltas is computable but too
@@ -282,7 +293,7 @@ observed arity-1 cumulative frames only:
 
 | Surface | v1 | v2 |
 |---|---|---|
-| compare | reject all cumulative | anchor-dispatched: all_history reject; grain_to_date to-date; trailing same-anchor; derived-with-components and DeltaFrames still gated |
+| compare | reject all cumulative | anchor-dispatched: all_history reject; grain_to_date to-date; trailing same-anchor; homogeneous same-anchor derived wrappers use the same paths |
 | rollup | reject (`reaggregatable=False`) | allowed with `rollup_fold="last"`, else v1 rejection |
 | attribute / decompose / forecast | reject | unchanged (relaxation needs evidence) |
 | ungated intents caveat | running-total wording | anchor-aware wording (trailing: rolling-series autocorrelation pollutes hypothesis tests) |
@@ -303,6 +314,8 @@ next-step surface anchor-aware — `frame.contract()`, `frame.show()`, and the
 - **trailing**: compare becomes a conditional affordance requiring an
   identical-anchor baseline; the caveat swaps to rolling-window
   autocorrelation wording (correlation / hypothesis tests).
+- **derived wrappers**: `show()` and `contract()` surface the common anchor or
+  the exact persisted `compare_blocker`; no legacy marker is inferred.
 - **rollup**: frames carrying `rollup_fold` surface rollup as an available
   affordance with the target-grain rules; frames without it keep the
   re-observe hint.
@@ -336,8 +349,10 @@ DuckDB golden tests as the core, plus two new regression classes:
 - compare: matched-prefix deltas with tail truncation recorded in
   `alignment_dump.to_date`; the four teaching errors (boundary,
   multi-period, grain mismatch, anchor mismatch); scalar elapsed-span
-  check; all_history and derived-with-components still rejected; DeltaFrame
-  carries the marker and attribute stays gated.
+  check; all_history, mixed-anchor, and mixed cumulative/non-cumulative derived
+  wrappers rejected; same-anchor MTD and trailing derived wrappers accepted;
+  marker survives JSON reload; DeltaFrame carries the marker and component
+  sidecar while attribute stays gated.
 - Dialect compile tests for the three new SQL shapes — period-scoped
   first-seen, period-bounded seed, memtable-spine expansion join — on
   duckdb/trino/clickhouse, plus at least one cumulative-v2 case in each
@@ -374,5 +389,4 @@ DuckDB golden tests as the core, plus two new regression classes:
 
 Calendar-variable trailing windows (sliding months), approximate distinct
 sketches, cross-component query fusion, incremental caching, `first` /
-`average` rollup folds, attribute on to-date deltas, compare for derived
-frames with cumulative components.
+`average` rollup folds, and attribute on to-date deltas.
