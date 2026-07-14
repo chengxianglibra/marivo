@@ -20,8 +20,14 @@ report.show()
 Static verification and readiness execute no datasource query. Preview is the
 explicitly scoped runtime check and must use the matching snapshot; multi-entity
 objects require an exact entity-keyed snapshot mapping. Readiness consumes fresh
-static verification and preview evidence. Do not hand blocked objects to
-`marivo-analysis`.
+static verification and preview evidence.
+
+Use this closeout after authoring or changing an object, or when a workflow asks
+for fresh technical certification. Analysis APIs do not invoke readiness
+automatically; routine analysis of unchanged objects relies on live catalog
+loading, semantic input resolution, planning, and runtime execution checks. A
+blocked report means the object has not completed this certification, so repair
+it before declaring the semantic change complete.
 
 `ms.richness(...)` remains advisory. `ms.parity_check(...)` may run potentially
 unbounded metric and provenance SQL and is never required for readiness.

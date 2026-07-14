@@ -5,9 +5,9 @@ description: Give an agent a business question, then review the analysis and its
 
 ## Start the analysis
 
-Use a project metric whose business meaning is approved and whose technical
-handoff is ready. If either is unresolved, ask the agent to route the named gap
-through `marivo-semantic` first.
+Use a project metric whose business meaning is approved and that the current
+catalog can load. If the metric is missing or disputed, ask the agent to route
+the named gap through `marivo-semantic` first.
 
 You do not need to write Python, select operators, or prescribe checks. State
 the question, metric, comparison, and initial investigation focus:
@@ -19,10 +19,11 @@ the question, metric, comparison, and initial investigation focus:
 
 ## What Marivo handles
 
-The agent reads the relevant definitions, checks readiness for the task,
-performs appropriate typed analysis in one analysis session, and preserves the
-material results and evidence. A semantic gap returns through
-`marivo-semantic` instead of silently changing the definition during analysis.
+The agent reads the relevant definitions, resolves and validates the live
+semantic inputs, performs appropriate typed analysis in one analysis session,
+and preserves the material results and evidence. A semantic gap returns through
+`marivo-semantic` instead of silently changing the definition during analysis;
+new or changed objects complete readiness as part of that authoring closeout.
 
 The agent discovers the live analysis contract through
 `python -m marivo help analysis` (using the project interpreter) and focused
@@ -47,5 +48,5 @@ Before accepting the conclusion or asking for a deeper investigation, confirm th
 
 - [Frame a business question](/en/latest/guides/business-question/) before a broader investigation.
 - [Analysis Workflow](/en/latest/concepts/analysis-workflow/) explains how Marivo structures analysis.
-- [Readiness](/en/latest/concepts/readiness/) explains why analysis may stop before querying data.
+- [Readiness](/en/latest/concepts/readiness/) explains how semantic changes receive explicit technical certification.
 - [Evidence](/en/latest/concepts/evidence/) explains what supports the final recap.

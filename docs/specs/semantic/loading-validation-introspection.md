@@ -273,8 +273,10 @@ style. The mapping from error kind to agent action is mechanical:
 Two checks sit at the end of the write loop:
 
 - **`catalog.readiness(refs=[obj])`** runs pure in-memory checks over the
-  dependency closure of typed catalog objects selected for handoff. It is the
-  required semantic gate before analysis, never writes stdout, and never queries.
+  dependency closure of typed catalog objects selected for certification. It is
+  the explicit certification and diagnostic at the end of an authoring change,
+  never writes stdout, and never queries. Analysis APIs do not invoke it
+  automatically.
   `catalog.preview(..., using=...)` persists the fresh scoped runtime metadata
   that readiness consumes.
   A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a

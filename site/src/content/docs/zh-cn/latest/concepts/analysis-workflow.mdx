@@ -59,10 +59,12 @@ python -m marivo help analysis
 `mv.help("observe")`、`mv.help("compare")` 或 `mv.help("MetricFrame")`，再编写调用。每个 focused help 主题都自包含一次正确的最小调用。
 :::
 
-只有完成 authoring route 后才进入 analysis：`md.inspect(...)` → explicit scope →
-一次 `inspection.sample(...)` → snapshot projections → 一个 Python object →
-`catalog.verify_object(obj)` → `catalog.preview(obj, using=snapshot)` → 零查询
-`catalog.readiness(refs=[obj])`。Uncommon formats 和 semantic judgments 仍由 agent 负责。
+analysis 需要新建或刚修改的 object 时，先完成该变更的 authoring closeout：
+`md.inspect(...)` → explicit scope → 一次 `inspection.sample(...)` → snapshot
+projections → 一个 Python object → `catalog.verify_object(obj)` →
+`catalog.preview(obj, using=snapshot)` → 零查询 `catalog.readiness(refs=[obj])`。
+日常分析复用未变化的 object 时，不重复这条 authoring evidence 流程。Uncommon formats 和
+semantic judgments 仍由 agent 负责。
 
 :::note[Artifacts 是不可变的]
 Artifact 一旦产出便不再改变。用 `repr(artifact)` 获取廉价单行提示，再用
@@ -82,7 +84,6 @@ region = catalog.get("dimension.sales.orders.region")      # a dimension object
 
 revenue.details().show()     # 读取 business_definition、guardrails、instructions
 region.details().show()
-catalog.readiness(refs=[revenue, region]).show()
 ```
 
 `get_or_create` 是幂等的：它会附着到同名的已有 session，或创建一个新 session，并设为当前
@@ -91,11 +92,14 @@ session 的精简 API 为 `get_or_create`、`current()`、`list()` 和 `delete(n
 
 用 `catalog.domains.show()` 和 scoped navigation 发现 refs，然后对本次分析会使用的每个
 metric、dimension 和 time dimension 调用 `.details().show()`。`details` 输出会展示已编写
-的 `ai_context`；首次 `observe` 前先解决限定范围内的 readiness blockers。
+的 `ai_context`；如果所需 object 缺失或定义存在争议，首次 `observe` 前先回到 semantic
+authoring 处理。
 
-:::caution[先通过就绪检查]
-session 只能对通过 `catalog.readiness(refs=[revenue, region])` 的 typed objects 进行推理。
-在 observe 之前，先在 [语义层](/zh-cn/latest/concepts/semantic-layer/) 中解决 readiness blockers。
+:::note[什么时候运行 readiness]
+新建或修改 semantic objects 后，或者某个 workflow 要求 fresh technical certification 时，
+运行 `catalog.readiness(refs=[...])`。Analysis APIs 不会自动调用它；日常分析也不需要在每次
+`observe` 前刷新 authoring snapshots。Blocked report 表示所选 objects 尚未完成这次认证；
+先修复它们，再声明 semantic change 已完成。
 :::
 
 ## 一个 intent 如何被指定

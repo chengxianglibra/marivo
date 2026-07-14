@@ -148,7 +148,7 @@ def readiness(
     *,
     refs: Sequence[CatalogObject | SemanticRef] | None = None,
 ) -> ReadinessReport:
-    """Run the query-free readiness gate for the given semantic refs.
+    """Return explicit certification and diagnostics for the given semantic refs.
 
     Reads loaded state plus persisted row-free preview evidence without
     acquiring, refreshing, or querying. Missing evidence produces exact next
@@ -159,7 +159,8 @@ def readiness(
             for each ref. None checks all loaded objects.
 
     Returns:
-        ReadinessReport indicating whether analysis handoff is safe.
+        ReadinessReport indicating whether the selected refs satisfy the
+        current certification contract.
 
     Example:
         >>> import marivo.semantic as ms
@@ -168,7 +169,9 @@ def readiness(
         ...     report.show()
 
     Constraints:
-        This is the required semantic gate before passing refs to analysis APIs.
+        Use after authoring or changing semantic objects, or when a workflow
+        requests fresh technical certification. Analysis APIs do not invoke
+        readiness automatically.
     """
     from marivo.semantic.reader import SemanticProject
 
@@ -203,7 +206,7 @@ def richness(
         >>> report.show()
 
     Constraints:
-        Advisory only — does not block readiness or analysis handoff.
+        Advisory only — does not block readiness certification or runtime analysis.
     """
     from marivo.semantic.reader import SemanticProject
 

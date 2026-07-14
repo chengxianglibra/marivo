@@ -77,12 +77,13 @@ authoring a call. Each focused help topic is self-contained for one correct
 minimal invocation.
 :::
 
-Analysis starts only after the authoring route has completed:
-`md.inspect(...)` → explicit scope → `inspection.sample(...)` once → snapshot
-projections → one Python object → `catalog.verify_object(obj)` →
+When analysis needs a newly authored or changed object, close out that change
+first: `md.inspect(...)` → explicit scope → `inspection.sample(...)` once →
+snapshot projections → one Python object → `catalog.verify_object(obj)` →
 `catalog.preview(obj, using=snapshot)` → zero-query
-`catalog.readiness(refs=[obj])`. Uncommon formats and semantic judgments remain
-agent-owned.
+`catalog.readiness(refs=[obj])`. Routine analysis of unchanged objects does not
+repeat this authoring evidence flow. Uncommon formats and semantic judgments
+remain agent-owned.
 
 :::note[Artifacts are immutable]
 An artifact never changes after it is produced. Use `repr(artifact)` for a
@@ -104,7 +105,6 @@ region = catalog.get("dimension.sales.orders.region")      # a dimension object
 
 revenue.details().show()     # read business_definition, guardrails, instructions
 region.details().show()
-catalog.readiness(refs=[revenue, region]).show()
 ```
 
 `get_or_create` is idempotent: it attaches to an existing session of that name or
@@ -114,12 +114,16 @@ creates one, and sets it current. The narrow session API is `get_or_create`,
 Use `catalog.domains.show()` and scoped navigation to discover refs, then inspect
 every metric, dimension, and time dimension used by the analysis with
 `.details().show()`. The details output is where authored `ai_context` appears;
-resolve scoped readiness blockers before the first `observe`.
+if a required object is missing or disputed, return to semantic authoring before
+the first `observe`.
 
-:::caution[Readiness first]
-A session can only reason over the typed objects that pass
-`catalog.readiness(refs=[revenue, region])`. Resolve readiness blockers in the
-[semantic layer](/en/latest/concepts/semantic-layer/) before observing.
+:::note[When to run readiness]
+Run `catalog.readiness(refs=[...])` after authoring or changing semantic objects,
+or when a workflow requires fresh technical certification. Analysis APIs do not
+invoke it automatically, and routine analysis does not need to refresh authoring
+snapshots before every `observe`. A blocked report means the selected objects
+have not completed that certification; repair them before declaring the semantic
+change complete.
 :::
 
 ## How an intent is specified

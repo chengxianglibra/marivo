@@ -230,7 +230,7 @@ class _DetailsBase(RenderableResult):
             label="suggested next calls",
             items=(
                 f"ms.verify_object(catalog.get('{typed_id}').ref) to confirm reachability",
-                f"ms.readiness(refs=[catalog.get('{typed_id}').ref]) to gate analysis handoff",
+                f"ms.readiness(refs=[catalog.get('{typed_id}').ref]) to certify authored changes",
             ),
         )
         return card
@@ -2036,7 +2036,7 @@ class SemanticCatalog:
         self,
         refs: Sequence[CatalogObject | SemanticRef] | None = None,
     ) -> ReadinessReport:
-        """Run the query-free readiness gate for the given semantic refs.
+        """Return explicit certification and diagnostics for the given semantic refs.
 
         Reads loaded state plus persisted row-free preview evidence without
         acquiring, refreshing, or querying. Missing evidence produces exact
@@ -2047,7 +2047,8 @@ class SemanticCatalog:
                 for each ref. None checks all loaded objects.
 
         Returns:
-            ReadinessReport indicating whether analysis handoff is safe.
+            ReadinessReport indicating whether the selected refs satisfy the
+            current certification contract.
 
         Example:
             >>> report = catalog.readiness(refs=[revenue.ref, region.ref])
@@ -2056,7 +2057,9 @@ class SemanticCatalog:
             ...     raise SystemExit
 
         Constraints:
-            This is the required semantic gate before passing refs to analysis APIs.
+            Use after authoring or changing semantic objects, or when a workflow
+            requests fresh technical certification. Analysis APIs do not invoke
+            readiness automatically.
         """
         self._require_ready()
         str_refs = (

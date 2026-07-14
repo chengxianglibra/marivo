@@ -339,6 +339,8 @@ def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     # readiness closeout + preview + analysis handoff
     assert "catalog.readiness(" in text
     assert "catalog.preview(" in text and "using=snapshot" in text
+    assert "certify authored changes" in text
+    assert "required semantic gate" not in text
     assert "marivo.analysis" in text
     # routes to constructor help, does not duplicate tables
     assert 'ms.help("entity")' in text or "ms.help('entity')" in text
@@ -347,6 +349,19 @@ def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     assert "prepare_" not in text
     assert "recommend" not in text.lower()
     assert text.count("\n") <= 80
+
+
+def test_readiness_docstrings_describe_explicit_certification() -> None:
+    import inspect
+
+    import marivo.semantic as ms
+    from marivo.semantic.catalog import SemanticCatalog
+
+    for target in (ms.readiness, SemanticCatalog.readiness):
+        doc = inspect.getdoc(target)
+        assert doc is not None
+        assert "explicit certification" in doc
+        assert "required semantic gate" not in doc
 
 
 def test_parity_help_discloses_unbounded_diagnostic_boundary() -> None:

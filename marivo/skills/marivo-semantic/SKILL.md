@@ -45,7 +45,9 @@ objects with `catalog = ms.load()` and its typed collections. Then:
 7. Run `catalog.verify_object(obj)`, then
    `catalog.preview(obj, using=snapshot)`, then
    `catalog.readiness(refs=[obj])`. Repair the same object before advancing.
-8. Hand only ready objects to `marivo-analysis`.
+8. Close out each new or changed object before handing that change to
+   `marivo-analysis`. Routine analysis of unchanged objects does not reacquire
+   authoring evidence.
 
 ## Hard boundaries
 

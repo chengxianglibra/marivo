@@ -253,7 +253,7 @@ def _strict_enrichment_issues(
                     "missing_business_definition",
                     "blocker",
                     (ref,),
-                    f"{ref} has no ai_context.business_definition for analysis handoff.",
+                    f"{ref} has no ai_context.business_definition for semantic certification.",
                     "Add ai_context=ms.ai_context(business_definition=...) so analysis can match and reuse this ref.",
                 )
             )
@@ -464,7 +464,8 @@ def build_readiness_report(
         refs: Semantic refs to scope the check. None checks all loaded objects.
 
     Returns:
-        ReadinessReport indicating readiness for analysis handoff.
+        ReadinessReport indicating whether the selected refs satisfy the
+        current certification contract.
     """
     # Defensive normalization: ensure all refs are plain strings so that
     # downstream code (dict key lookups, .split() calls) works correctly
@@ -611,7 +612,7 @@ def build_readiness_report(
                     "warning",
                     (ref,),
                     f"{ref} has provenance SQL but parity has not been confirmed.",
-                    f"Run ms.parity_check({ref!r}) when parity matters, or report the warning as non-blocking when analysis handoff allows it.",
+                    f"Run ms.parity_check({ref!r}) when parity matters, or report the warning as non-blocking when the certification policy allows it.",
                 )
             )
 

@@ -13,4 +13,4 @@ steps belong to result output and structured errors.
 | Writing several objects before checking | Write one object, reload it, and run `catalog.verify_object(obj)`. |
 | Previewing without evidence scope | Run `catalog.preview(obj, using=snapshot)` or the exact entity-keyed mapping. |
 | Treating parity as a gate | Parity is a potentially unbounded optional diagnostic, never readiness-required. |
-| Handing off a blocked object | Run zero-query readiness and repair the same object before analysis. |
+| Declaring a changed object complete while readiness is blocked | Run zero-query readiness and repair the same object before closing out the semantic change. |

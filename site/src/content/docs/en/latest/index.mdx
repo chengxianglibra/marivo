@@ -27,17 +27,17 @@ supported by typed results and recorded evidence.
 For example, suppose you need to decide how to respond to a Q4 revenue decline.
 You provide the decision to support, the approved meaning of revenue, the periods
 and populations to include or exclude, and the breakdowns that are acceptable.
-The agent reads the semantic catalog, checks readiness, performs typed analysis,
-and records the evidence. You then review the metric contract and accept or reject
-the conclusion.
+The agent reads the semantic catalog, resolves and validates the selected inputs,
+performs typed analysis, and records the evidence. You then review the metric
+contract and accept or reject the conclusion.
 
 ## What you decide and what the agent does
 
 1. **You set the business contract.** State the decision, approve the metric's
    meaning, define the scope and exclusions, and approve meaningful breakdowns.
-2. **The agent executes a bounded investigation.** It reads the catalog, checks
-   the selected objects' readiness, runs typed analysis, and preserves the
-   material results and evidence.
+2. **The agent executes a bounded investigation.** It reads the catalog,
+   validates the selected inputs, runs typed analysis, and preserves the material
+   results and evidence.
 3. **You review the handoff.** Confirm that the metric, scope, comparison, and
    breakdowns still match your intent before accepting the conclusion or asking
    for a deeper investigation.
@@ -65,10 +65,12 @@ the conclusion.
 
 ## From question to reviewed conclusion
 
-The collaboration loop is `business decision → approved metric and scope → catalog
-and readiness → typed analysis → evidence → user review`. If readiness is blocked
-or the requested analysis exceeds the approved metric contract, the agent stops
-instead of silently redefining the question.
+The collaboration loop is `business decision → approved metric and scope → live
+catalog validation → typed analysis → evidence → user review`. If a required
+semantic object is missing or disputed, or the requested analysis exceeds the
+approved metric contract, the agent stops instead of silently redefining the
+question. New or changed semantic objects complete readiness certification in
+their authoring flow.
 
 ## Start here
 
