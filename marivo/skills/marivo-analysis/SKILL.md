@@ -100,10 +100,18 @@ another layer's responsibility.
 | Condition | Handoff |
 | --- | --- |
 | A required business object is missing or must change | `marivo-semantic` |
+| Semantic authoring returns ready refs | The registered analysis semantic-handoff boundary |
 | The task needs terminal custom analysis | The live help's controlled terminal exit |
 | A custom result must re-enter typed analysis | The live help's governed entry |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
+
+The skill preserves and transfers the typed handoff payload carried by the
+current error or semantic readiness result. It does not reconstruct those
+fields from conversation memory or add a broader catalog-cleanup request. The
+returning handoff is mechanically validated by the analysis boundary before
+the skill resumes analysis routing; the receipt does not select an operator
+or record warning acceptance.
 
 ## Boundary-violation behavior
 
@@ -111,7 +119,7 @@ The skill does not provide fallback implementations.
 
 | Situation | Required behavior |
 | --- | --- |
-| Missing or ambiguous semantic object | Stop the affected analysis branch and hand off to semantic authoring |
+| Missing or ambiguous semantic object | Distinguish invalid lookup from genuine absence; for genuine absence stop the affected branch and transfer the typed semantic-authoring handoff |
 | Invalid API, shape, parameter, or operator | Follow the current structured error and live help; do not use a skill-cached workaround |
 | Result-impacting blocker | Repair it, weaken the conclusion explicitly, or stop; never silently emit a stronger claim |
 | Session or artifact cannot be recovered | Use the live recovery surface and disclose evidence-chain loss if recovery still fails |
