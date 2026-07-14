@@ -323,6 +323,24 @@ def test_non_analysis_error_raises() -> None:
         resolve_help_target(ValueError("not an analysis error"))
 
 
+def test_error_name_string_resolves() -> None:
+    result = resolve_help_target("MetricNotFoundError")
+    assert result.kind == "error_contract"
+    assert result.error_name == "MetricNotFoundError"
+
+
+def test_errors_prefixed_string_resolves() -> None:
+    result = resolve_help_target("errors.MetricNotFoundError")
+    assert result.kind == "error_contract"
+    assert result.error_name == "MetricNotFoundError"
+
+
+def test_fully_qualified_error_string_resolves() -> None:
+    result = resolve_help_target("marivo.analysis.errors.MetricNotFoundError")
+    assert result.kind == "error_contract"
+    assert result.error_name == "MetricNotFoundError"
+
+
 # ---------------------------------------------------------------------------
 # Unsupported objects
 # ---------------------------------------------------------------------------

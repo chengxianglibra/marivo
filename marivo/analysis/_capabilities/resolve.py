@@ -224,14 +224,14 @@ def _resolve_string(target: str) -> ResolvedHelpTarget:
     from marivo.analysis.errors import AnalysisError
 
     if target.endswith("Error"):
-        # Search all AnalysisError subclasses.
+        bare_name = target.rsplit(".", 1)[-1] if "." in target else target
         import inspect
 
         for _, cls in inspect.getmembers(
             __import__("marivo.analysis.errors", fromlist=["errors"]),
             inspect.isclass,
         ):
-            if issubclass(cls, AnalysisError) and cls.__name__ == target:
+            if issubclass(cls, AnalysisError) and cls.__name__ == bare_name:
                 return ResolvedHelpTarget(
                     kind="error_contract",
                     error_name=cls.__name__,
