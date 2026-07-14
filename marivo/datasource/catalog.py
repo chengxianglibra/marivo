@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from marivo.datasource import store as _store
-from marivo.datasource.errors import DatasourceMissingError
+from marivo.datasource.errors import DatasourceMissingError, repair
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
     DatasourceConnection,
@@ -120,7 +120,15 @@ class DatasourceCatalog(RenderableResult):
         if datasource is None:
             raise DatasourceMissingError(
                 message=f"datasource {name!r} is not configured",
-                details={"datasource": name, "available": _store.list_names()},
+                expected="a registered project datasource",
+                received=name,
+                location="models/datasources/",
+                repair=repair(
+                    kind="register",
+                    canonical_id="register",
+                    action="Register the datasource before retrying.",
+                    candidates=tuple(_store.list_names()),
+                ),
             )
         return DatasourceSummary(
             name=datasource.name,
@@ -163,7 +171,7 @@ class DatasourceCatalog(RenderableResult):
             name: The datasource name to test.
 
         Returns:
-            A ``DatasourceTestResult`` with ok/error/latency.
+            A ``DatasourceTestResult`` with ok status, latency, and typed repair.
 
         Example:
             >>> result = catalog.test("wh")

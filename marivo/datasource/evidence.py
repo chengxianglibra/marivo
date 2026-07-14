@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
+from marivo.datasource.errors import repair
 from marivo.datasource.source import AuthoringScope
+from marivo.introspection.live.model import AuthoringContract, AuthoringRepair, AuthoringStateRef
 from marivo.render import Card, RenderableResult
 
 type EvidenceValue = str | int | float | bool | None
@@ -84,10 +86,11 @@ class MeasureColumnEvidence:
 @dataclass(frozen=True, repr=False)
 class EntityEvidenceResult(RenderableResult):
     status: Literal["complete", "incomplete"]
+    snapshot_id: str
     columns: tuple[str, ...]
     evidence_by_column: Mapping[str, EntityColumnEvidence]
     issues: tuple[str, ...]
-    next_calls: tuple[str, ...]
+    repair: AuthoringRepair | None
 
     def _repr_identity(self) -> str:
         return f"EntityEvidenceResult status={self.status} columns={len(self.columns)}"
@@ -121,17 +124,22 @@ class EntityEvidenceResult(RenderableResult):
             ),
             row_count=len(self.evidence_by_column),
             issues=self.issues,
-            next_calls=self.next_calls,
+            repair=self.repair,
         )
+
+    def contract(self) -> AuthoringContract:
+        """Return the terminal projected-evidence state for this observation."""
+        return _projected_contract(self.columns, (self.snapshot_id,))
 
 
 @dataclass(frozen=True, repr=False)
 class DimensionEvidenceResult(RenderableResult):
     status: Literal["complete", "incomplete"]
+    snapshot_id: str
     columns: tuple[str, ...]
     evidence_by_column: Mapping[str, DimensionColumnEvidence]
     issues: tuple[str, ...]
-    next_calls: tuple[str, ...]
+    repair: AuthoringRepair | None
 
     def _repr_identity(self) -> str:
         return f"DimensionEvidenceResult status={self.status} columns={len(self.columns)}"
@@ -167,17 +175,22 @@ class DimensionEvidenceResult(RenderableResult):
             ),
             row_count=len(self.evidence_by_column),
             issues=self.issues,
-            next_calls=self.next_calls,
+            repair=self.repair,
         )
+
+    def contract(self) -> AuthoringContract:
+        """Return the terminal projected-evidence state for this observation."""
+        return _projected_contract(self.columns, (self.snapshot_id,))
 
 
 @dataclass(frozen=True, repr=False)
 class TimeEvidenceResult(RenderableResult):
     status: Literal["complete", "incomplete"]
+    snapshot_id: str
     columns: tuple[str, ...]
     evidence_by_column: Mapping[str, TimeColumnEvidence]
     issues: tuple[str, ...]
-    next_calls: tuple[str, ...]
+    repair: AuthoringRepair | None
 
     def _repr_identity(self) -> str:
         return f"TimeEvidenceResult status={self.status} columns={len(self.columns)}"
@@ -193,17 +206,22 @@ class TimeEvidenceResult(RenderableResult):
                 for evidence in self.evidence_by_column.values()
             ),
             issues=self.issues,
-            next_calls=self.next_calls,
+            repair=self.repair,
         )
+
+    def contract(self) -> AuthoringContract:
+        """Return the terminal projected-evidence state for this observation."""
+        return _projected_contract(self.columns, (self.snapshot_id,))
 
 
 @dataclass(frozen=True, repr=False)
 class MeasureEvidenceResult(RenderableResult):
     status: Literal["complete", "incomplete"]
+    snapshot_id: str
     columns: tuple[str, ...]
     evidence_by_column: Mapping[str, MeasureColumnEvidence]
     issues: tuple[str, ...]
-    next_calls: tuple[str, ...]
+    repair: AuthoringRepair | None
 
     def _repr_identity(self) -> str:
         return f"MeasureEvidenceResult status={self.status} columns={len(self.columns)}"
@@ -239,8 +257,12 @@ class MeasureEvidenceResult(RenderableResult):
             ),
             row_count=len(self.evidence_by_column),
             issues=self.issues,
-            next_calls=self.next_calls,
+            repair=self.repair,
         )
+
+    def contract(self) -> AuthoringContract:
+        """Return the terminal projected-evidence state for this observation."""
+        return _projected_contract(self.columns, (self.snapshot_id,))
 
 
 @dataclass(frozen=True, repr=False)
@@ -256,7 +278,7 @@ class DimensionValuesResult(RenderableResult):
     frequency_capacity: int
     values: tuple[tuple[EvidenceValue, int], ...] | None
     issues: tuple[str, ...]
-    next_calls: tuple[str, ...]
+    repair: AuthoringRepair | None
 
     def _repr_identity(self) -> str:
         return (
@@ -274,7 +296,8 @@ class DimensionValuesResult(RenderableResult):
                 ".sample_values_complete",
                 ".scope_values_complete",
                 ".issues",
-                ".next_calls",
+                ".repair",
+                ".contract()",
                 ".render(max_output_bytes=...)",
                 ".show(max_output_bytes=...)",
             ),
@@ -296,9 +319,13 @@ class DimensionValuesResult(RenderableResult):
             )
         if self.issues:
             card.listing("issues", self.issues)
-        if self.next_calls:
-            card.listing("Next calls", self.next_calls)
+        if self.repair is not None:
+            card.field("repair", self.repair.action)
         return card
+
+    def contract(self) -> AuthoringContract:
+        """Return the terminal projected-evidence state for this observation."""
+        return _projected_contract((self.column,), (self.snapshot_id,))
 
 
 @dataclass(frozen=True, repr=False)
@@ -319,7 +346,7 @@ class RelationshipEvidenceResult(RenderableResult):
     retained_right_orphan_count: int | None
     scope_comparability: Literal["unresolved"]
     issues: tuple[str, ...]
-    next_calls: tuple[str, ...]
+    repair: AuthoringRepair | None
 
     def _repr_identity(self) -> str:
         return (
@@ -336,7 +363,8 @@ class RelationshipEvidenceResult(RenderableResult):
                 ".left_profile",
                 ".right_profile",
                 ".issues",
-                ".next_calls",
+                ".repair",
+                ".contract()",
                 ".render(max_output_bytes=...)",
                 ".show(max_output_bytes=...)",
             ),
@@ -362,9 +390,18 @@ class RelationshipEvidenceResult(RenderableResult):
         card.field("scope_comparability", self.scope_comparability)
         if self.issues:
             card.listing("issues", self.issues)
-        if self.next_calls:
-            card.listing("Next calls", self.next_calls)
+        if self.repair is not None:
+            card.field("repair", self.repair.action)
         return card
+
+    def contract(self) -> AuthoringContract:
+        """Return the terminal projected-evidence state for this observation."""
+        return _projected_contract((*self.left, *self.right), self.snapshot_ids)
+
+    @property
+    def snapshot_ids(self) -> tuple[str, str]:
+        """Return the retained snapshot identities that this comparison joins."""
+        return (self.left_snapshot_id, self.right_snapshot_id)
 
 
 def _available_value(value: object | None) -> str:
@@ -407,7 +444,7 @@ def _column_result_card(
     rows: Iterable[Sequence[str]],
     row_count: int,
     issues: tuple[str, ...],
-    next_calls: tuple[str, ...],
+    repair: AuthoringRepair | None,
 ) -> Card:
     card = Card(
         identity=identity,
@@ -415,7 +452,8 @@ def _column_result_card(
             ".columns",
             ".evidence_by_column",
             ".issues",
-            ".next_calls",
+            ".repair",
+            ".contract()",
             ".render(max_output_bytes=...)",
             ".show(max_output_bytes=...)",
         ),
@@ -429,9 +467,51 @@ def _column_result_card(
     )
     if issues:
         card.listing("issues", issues)
-    if next_calls:
-        card.listing("Next calls", next_calls)
+    if repair is not None:
+        card.field("repair", repair.action)
     return card
+
+
+def _projected_contract(
+    subject_refs: tuple[str, ...], evidence_ids: tuple[str, ...]
+) -> AuthoringContract:
+    state = AuthoringStateRef(
+        id="evidence.projected",
+        subject_refs=subject_refs,
+        evidence_ids=evidence_ids,
+    )
+    return AuthoringContract(subject_refs=subject_refs, states=(state,), transitions=())
+
+
+def _reacquire_repair(columns: tuple[str, ...]) -> AuthoringRepair:
+    rendered_columns = ", ".join(f'"{column}"' for column in columns)
+    if len(columns) == 1:
+        rendered_columns += ","
+    return repair(
+        kind="reacquire",
+        canonical_id="SourceInspection.sample",
+        action="Reacquire bounded retained values for this projected column.",
+        snippet=(
+            "inspection.sample(scope=md.unpruned(max_rows=1000, timeout_seconds=30), "
+            f"columns=({rendered_columns}), persist_values=True, refresh=True)"
+        ),
+        preserves_evidence=False,
+    )
+
+
+def _relationship_reacquire_repair(left: str, right: str) -> AuthoringRepair:
+    return repair(
+        kind="reacquire",
+        canonical_id="SourceInspection.sample",
+        action="Reacquire bounded retained values for both relationship snapshots.",
+        snippet=(
+            "left_inspection.sample(scope=md.unpruned(max_rows=1000, timeout_seconds=30), "
+            f'columns=("{left}",), persist_values=True, refresh=True)\n'
+            "right_inspection.sample(scope=md.unpruned(max_rows=1000, timeout_seconds=30), "
+            f'columns=("{right}",), persist_values=True, refresh=True)'
+        ),
+        preserves_evidence=False,
+    )
 
 
 def _profiles(snapshot: DiscoverySnapshot, columns: tuple[str, ...]) -> tuple[ColumnProfile, ...]:
@@ -456,19 +536,19 @@ def _sample_values_complete(profile: ColumnProfile) -> bool:
 
 
 def _value_projection_state(
-    snapshot: DiscoverySnapshot, *, help_topic: str
+    snapshot: DiscoverySnapshot, *, columns: tuple[str, ...]
 ) -> tuple[
     Literal["complete", "incomplete"],
     tuple[str, ...],
-    tuple[str, ...],
+    AuthoringRepair | None,
 ]:
     if snapshot.value_evidence_state == "value_evidence_unavailable":
         return (
             "incomplete",
             ("value_evidence_unavailable",),
-            ("md.inspect(...).sample(..., persist_values=True, refresh=True)",),
+            _reacquire_repair(columns),
         )
-    return "complete", (), (f"ms.help('{help_topic}')",)
+    return "complete", (), None
 
 
 def _project_entity(
@@ -492,10 +572,11 @@ def _project_entity(
     }
     return EntityEvidenceResult(
         status="complete",
+        snapshot_id=snapshot.id,
         columns=columns,
         evidence_by_column=MappingProxyType(evidence),
         issues=(),
-        next_calls=("ms.help('entity')",),
+        repair=None,
     )
 
 
@@ -503,7 +584,7 @@ def _project_dimensions(
     snapshot: DiscoverySnapshot, *, columns: tuple[str, ...]
 ) -> DimensionEvidenceResult:
     profiles = _profiles(snapshot, columns)
-    status, issues, next_calls = _value_projection_state(snapshot, help_topic="dimension")
+    status, issues, repair = _value_projection_state(snapshot, columns=columns)
     evidence: dict[str, DimensionColumnEvidence] = {}
     for profile in profiles:
         sample_complete = _sample_values_complete(profile)
@@ -518,10 +599,11 @@ def _project_dimensions(
         )
     return DimensionEvidenceResult(
         status=status,
+        snapshot_id=snapshot.id,
         columns=columns,
         evidence_by_column=MappingProxyType(evidence),
         issues=issues,
-        next_calls=next_calls,
+        repair=repair,
     )
 
 
@@ -544,10 +626,6 @@ def _project_values(
         issues.append("requested_limit_bounded")
     if snapshot.coverage.scope_exhaustion != "exhaustive":
         issues.append("scope_values_incomplete")
-    if values is None:
-        next_calls = ("md.inspect(...).sample(..., persist_values=True, refresh=True)",)
-    else:
-        next_calls = ("ms.help('dimension')",)
     return DimensionValuesResult(
         status="complete" if scope_complete else "incomplete",
         snapshot_id=snapshot.id,
@@ -560,7 +638,7 @@ def _project_values(
         frequency_capacity=profile.frequency_capacity,
         values=values,
         issues=tuple(issues),
-        next_calls=next_calls,
+        repair=_reacquire_repair((column,)) if values is None else None,
     )
 
 
@@ -579,10 +657,11 @@ def _project_time_dimensions(
     }
     return TimeEvidenceResult(
         status="complete",
+        snapshot_id=snapshot.id,
         columns=columns,
         evidence_by_column=MappingProxyType(evidence),
         issues=(),
-        next_calls=("ms.help('time_dimension')",),
+        repair=None,
     )
 
 
@@ -590,7 +669,7 @@ def _project_measures(
     snapshot: DiscoverySnapshot, *, columns: tuple[str, ...]
 ) -> MeasureEvidenceResult:
     profiles = _profiles(snapshot, columns)
-    status, issues, next_calls = _value_projection_state(snapshot, help_topic="measure")
+    status, issues, repair = _value_projection_state(snapshot, columns=columns)
     evidence = {
         profile.name: MeasureColumnEvidence(
             column=profile.name,
@@ -601,10 +680,11 @@ def _project_measures(
     }
     return MeasureEvidenceResult(
         status=status,
+        snapshot_id=snapshot.id,
         columns=columns,
         evidence_by_column=MappingProxyType(evidence),
         issues=issues,
-        next_calls=next_calls,
+        repair=repair,
     )
 
 
@@ -635,7 +715,15 @@ def _project_relationships(
             retained_right_orphan_count=None,
             scope_comparability="unresolved",
             issues=("multi_column",),
-            next_calls=("ms.help('relationship')",),
+            repair=repair(
+                kind="retry",
+                canonical_id="DiscoverySnapshot.relationships",
+                action="Retry with one retained column on each side.",
+                snippet=(
+                    f'snapshot.relationships(other, left=("{left[0]}",), right=("{right[0]}",))'
+                ),
+                preserves_evidence=True,
+            ),
         )
 
     left_profile = left_profiles[0]
@@ -676,7 +764,11 @@ def _project_relationships(
         retained_right_orphan_count=right_orphan_count,
         scope_comparability="unresolved",
         issues=issues,
-        next_calls=("ms.help('relationship')",),
+        repair=(
+            None
+            if evidence_state == "available"
+            else _relationship_reacquire_repair(left[0], right[0])
+        ),
     )
 
 

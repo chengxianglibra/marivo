@@ -10,10 +10,15 @@ from typing import Literal
 from marivo.config import find_project_root
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
+from marivo.datasource._capabilities.contracts import (
+    contract_for_partition_inspection,
+    contract_for_source_inspection,
+    repair_for_authoring_code,
+)
 from marivo.datasource.authoring import DatasourceRef, _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import EngineProfile, PartitionProbeRequest
-from marivo.datasource.errors import DatasourceAuthoringError
+from marivo.datasource.errors import DatasourceAuthoringError, DatasourceObservedEffects
 from marivo.datasource.ir import (
     CsvSourceIR,
     DatasourceIR,
@@ -36,6 +41,7 @@ from marivo.datasource.source import (
     TableSource,
     UnprunedScope,
 )
+from marivo.introspection.live.model import AuthoringContract
 from marivo.render import Card, RenderableResult
 
 _PARTITION_VALUE_LIMIT = 100
@@ -76,7 +82,6 @@ class PartitionInspection(RenderableResult):
     partitioning: Partitioning
     status: Literal["complete", "incomplete"]
     issues: tuple[str, ...]
-    next_calls: tuple[str, ...]
 
     def _repr_identity(self) -> str:
         return (
@@ -87,16 +92,23 @@ class PartitionInspection(RenderableResult):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".partitioning", ".render()", ".show()"),
+            available=(".contract()", ".render()", ".show()"),
         ).field(
             label="partition fields",
             value=", ".join(field.name for field in self.partitioning.fields) or "none",
         )
         if self.issues:
             card.listing("issues", self.issues)
-        if self.next_calls:
-            card.listing("next calls", self.next_calls)
         return card
+
+    def contract(self) -> AuthoringContract:
+        """Return factual scope constructors for this captured partition state."""
+        return contract_for_partition_inspection(
+            datasource_id=self.datasource.id,
+            source=self.source,
+            partition_state=self.partitioning.state,
+            partition_fields=tuple(field.name for field in self.partitioning.fields),
+        )
 
 
 @dataclass(frozen=True, repr=False)
@@ -107,7 +119,6 @@ class SourceInspection(RenderableResult):
     partitioning: Partitioning
     execution_capabilities: ExecutionCapabilities
     schema: tuple[ColumnMetadata, ...]
-    next_safe_action: str
     warnings: tuple[str, ...]
     _project_root: Path
 
@@ -121,8 +132,7 @@ class SourceInspection(RenderableResult):
         card = Card(
             identity=self._repr_identity(),
             available=(
-                ".partitions()",
-                ".sample(scope=..., columns=(...))",
+                ".contract()",
                 ".render()",
                 ".show()",
             ),
@@ -169,34 +179,28 @@ class SourceInspection(RenderableResult):
             row_count=len(self.schema),
             label="schema",
         )
-        card.field(label="next safe action", value=self.next_safe_action)
         if self.warnings:
             card.listing("warnings", self.warnings)
         return card
 
+    def contract(self) -> AuthoringContract:
+        """Return factual scope and acquisition transitions for this inspection."""
+        return contract_for_source_inspection(
+            datasource_id=self.datasource.id,
+            source=self.source,
+            partition_state=self.partitioning.state,
+            partition_fields=tuple(field.name for field in self.partitioning.fields),
+        )
+
     def partitions(self) -> PartitionInspection:
         """Return partition evidence already captured by ``md.inspect(...)``."""
         issues = _partition_issues(self.partitioning)
-        transformed = any(field.transform is not None for field in self.partitioning.fields)
-        next_calls: tuple[str, ...]
-        if self.partitioning.state == "unknown":
-            next_calls = (
-                "inspection.show()",
-                _unpruned_sample_call(tuple(column.name for column in self.schema)),
-            )
-        elif self.partitioning.state == "none" and self.execution_capabilities.timeout_enforced:
-            next_calls = ("md.unpruned(max_rows=..., timeout_seconds=...)",)
-        elif self.partitioning.values and not transformed:
-            next_calls = ("md.partition({...}, max_rows=..., timeout_seconds=...)",)
-        else:
-            next_calls = ("md.inspect(...)",)
         return PartitionInspection(
             datasource=self.datasource,
             source=self.source,
             partitioning=self.partitioning,
             status="complete" if not issues else "incomplete",
             issues=issues,
-            next_calls=next_calls,
         )
 
     def sample(
@@ -226,7 +230,6 @@ def _authoring_error(
     received: str,
     reason: str,
     scope_state: Literal["known", "none", "unknown"] | None,
-    next_calls: tuple[str, ...],
 ) -> DatasourceAuthoringError:
     return DatasourceAuthoringError(
         code=code,
@@ -234,9 +237,8 @@ def _authoring_error(
         expected=expected,
         received=received,
         reason=reason,
-        query_executed=False,
-        scope_state=scope_state,
-        next_calls=next_calls,
+        effect_observed=DatasourceObservedEffects(query_executed=False, scope_state=scope_state),
+        repair=repair_for_authoring_code(code),
     )
 
 
@@ -257,7 +259,6 @@ def _preflight_sample(
             received="empty columns",
             reason="snapshot acquisition requires at least one selected source column",
             scope_state=state,
-            next_calls=("md.inspect(...)",),
         )
     available = {column.name for column in inspection.schema}
     for column in columns:
@@ -271,7 +272,6 @@ def _preflight_sample(
                     f"selected column {column!r} is not present in the inspected source schema"
                 ),
                 scope_state=state,
-                next_calls=("md.inspect(...)",),
             )
     if not isinstance(scope, PartitionScope | UnprunedScope):
         raise TypeError("scope must be md.PartitionScope or md.UnprunedScope.")
@@ -285,7 +285,6 @@ def _preflight_sample(
             received="partition scope",
             reason="metadata could not prove whether the source is partitioned",
             scope_state=state,
-            next_calls=("inspection.show()", _unpruned_sample_call(columns)),
         )
 
     transformed = tuple(
@@ -299,7 +298,6 @@ def _preflight_sample(
             received=", ".join(transformed),
             reason="transformed partition fields cannot be expressed safely in V1",
             scope_state=state,
-            next_calls=("inspection.partitions()",),
         )
 
     if isinstance(scope, PartitionScope):
@@ -317,7 +315,6 @@ def _preflight_sample(
                 received=", ".join(received_fields) or "none",
                 reason="partition scope must cover every known partition field exactly once",
                 scope_state=state,
-                next_calls=("inspection.partitions()",),
             )
         if not inspection.execution_capabilities.partition_predicate_supported:
             raise _authoring_error(
@@ -327,7 +324,6 @@ def _preflight_sample(
                 received="partition predicate unsupported",
                 reason="the adapter cannot push down the requested partition predicate",
                 scope_state=state,
-                next_calls=("inspection.partitions()",),
             )
     elif state == "known":
         raise _authoring_error(
@@ -337,7 +333,6 @@ def _preflight_sample(
             received="unpruned scope",
             reason="known partition fields require an explicit complete partition scope",
             scope_state=state,
-            next_calls=("inspection.partitions()",),
         )
 
     if not inspection.execution_capabilities.timeout_enforced:
@@ -348,7 +343,6 @@ def _preflight_sample(
             received=f"timeout_seconds={scope.timeout_seconds}",
             reason="the datasource adapter cannot enforce the requested acquisition timeout",
             scope_state=state,
-            next_calls=("md.inspect(...)",),
         )
 
 
@@ -373,13 +367,6 @@ def _validate_scope_values(scope: AuthoringScope) -> None:
             raise TypeError("PartitionScope.values entries must be tuple[str, str].")
         if not name or not partition_value:
             raise ValueError("PartitionScope partition names and values must be non-empty.")
-
-
-def _unpruned_sample_call(columns: tuple[str, ...]) -> str:
-    return (
-        "inspection.sample(scope=md.unpruned(max_rows=1000, timeout_seconds=30), "
-        f"columns={columns!r})"
-    )
 
 
 def _partition_issues(partitioning: Partitioning) -> tuple[str, ...]:
@@ -446,7 +433,6 @@ def _declared_schema(schema: tuple[tuple[str, str], ...]) -> tuple[ColumnMetadat
             received="empty schema",
             reason="CSV and JSON inspection requires an authored typed schema",
             scope_state=None,
-            next_calls=("md.csv(..., schema={...})", "md.json(..., schema={...})"),
         )
     return tuple(
         ColumnMetadata(
@@ -475,7 +461,6 @@ def _parquet_metadata(
                 received=datasource_ir.backend_type,
                 reason="the datasource backend cannot inspect Parquet footer schema",
                 scope_state=None,
-                next_calls=("md.duckdb(...) through md.register(...) next",),
             )
         options: dict[str, object] = {}
         if source.hive_partitioning:
@@ -646,13 +631,12 @@ def inspect(datasource: DatasourceRef, source: TableSource) -> SourceInspection:
     datasource_ir = _store.load_one(datasource_name, project_root=project_root)
     if datasource_ir is None:
         raise _authoring_error(
-            code="datasource_not_found",
+            code="datasource_missing",
             stage="project",
             expected=f"registered datasource {datasource.id}",
             received="missing datasource",
             reason=f"datasource {datasource.id!r} is not registered in the active project",
             scope_state=None,
-            next_calls=("md.register(...) next",),
         )
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
 
@@ -665,7 +649,6 @@ def inspect(datasource: DatasourceRef, source: TableSource) -> SourceInspection:
                 received=datasource_ir.backend_type,
                 reason="CSV and JSON source descriptors require a DuckDB datasource",
                 scope_state=None,
-                next_calls=("md.duckdb(...) through md.register(...) next",),
             )
         metadata = TableMetadata(
             datasource=datasource_name,
@@ -687,7 +670,6 @@ def inspect(datasource: DatasourceRef, source: TableSource) -> SourceInspection:
                 received=datasource_ir.backend_type,
                 reason="Parquet source descriptors require a DuckDB datasource",
                 scope_state=None,
-                next_calls=("md.duckdb(...) through md.register(...) next",),
             )
         metadata = _parquet_metadata(datasource_ir, source)
     else:
@@ -707,12 +689,6 @@ def inspect(datasource: DatasourceRef, source: TableSource) -> SourceInspection:
     warnings = tuple(warning.message for warning in metadata.warnings) + partition_warnings
     if partitioning.state == "unknown":
         warnings = (*warnings, "partition state is unknown")
-    if partitioning.state != "none":
-        next_safe_action = "inspection.partitions()"
-    elif profile.authoring_capabilities.timeout_enforced:
-        next_safe_action = "inspection.sample(scope=md.unpruned(...), columns=(...))"
-    else:
-        next_safe_action = "inspect execution_capabilities before sampling"
     return SourceInspection(
         datasource=datasource,
         source=source,
@@ -720,7 +696,6 @@ def inspect(datasource: DatasourceRef, source: TableSource) -> SourceInspection:
         partitioning=partitioning,
         execution_capabilities=_execution_capabilities(profile),
         schema=metadata.columns,
-        next_safe_action=next_safe_action,
         warnings=warnings,
         _project_root=project_root,
     )

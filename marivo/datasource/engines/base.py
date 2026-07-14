@@ -135,22 +135,36 @@ def quote_identifier(value: str, profile: EngineProfile) -> str:
 
 
 def require_field(name: str, kwargs: Mapping[str, object], key: str) -> object:
-    from marivo.datasource.errors import DatasourceFieldInvalidError
+    from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 
     if key not in kwargs:
         raise DatasourceFieldInvalidError(
             message=f"datasource {name!r} missing required field {key!r}",
-            details={"datasource": name, "field": key, "reason": "required field missing"},
+            expected=f"required datasource field {key!r}",
+            received="missing",
+            location=f"datasource {name!r}",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Provide the required datasource field.",
+            ),
         )
     return kwargs[key]
 
 
 def _generic_connect_unsupported(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError
+    from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError, repair
 
     raise DatasourceBackendTypeUnsupportedError(
         message=f"datasource {name!r} cannot connect through GENERIC_PROFILE",
-        details={"datasource": name, "backend_type": "generic"},
+        expected="a supported datasource backend type",
+        received="generic",
+        location=f"datasource {name!r}",
+        repair=repair(
+            kind="configure",
+            canonical_id="register",
+            action="Use a supported datasource backend type.",
+        ),
     )
 
 

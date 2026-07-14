@@ -16,6 +16,7 @@ from typing import Protocol
 from marivo.datasource.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,
+    repair,
 )
 
 _INSECURE_SECRET_FILE_BITS = stat.S_IRWXG | stat.S_IRWXO
@@ -103,7 +104,15 @@ class LocalPlaintextCache:
                     f"datasource secret store {self.path} has insecure permissions "
                     f"{oct(mode)}; expected 0o600"
                 ),
-                details={"path": str(self.path), "mode": mode},
+                expected="owner-only secret-store permissions (0o600)",
+                received=oct(mode),
+                location=str(self.path),
+                repair=repair(
+                    kind="environment",
+                    canonical_id="test",
+                    action="Restrict the secret store to the current user.",
+                    snippet="chmod 600 ~/.marivo/secrets.toml",
+                ),
             )
 
     def _assert_write_location_is_safe(self) -> None:
@@ -116,7 +125,15 @@ class LocalPlaintextCache:
                         f"refusing to write datasource secret store {self.path} "
                         f"inside a git repository at {candidate}"
                     ),
-                    details={"path": str(self.path), "mode": mode},
+                    expected="owner-only secret-store permissions (0o600)",
+                    received=oct(mode),
+                    location=str(self.path),
+                    repair=repair(
+                        kind="environment",
+                        canonical_id="test",
+                        action="Restrict the secret store to the current user.",
+                        snippet="chmod 600 ~/.marivo/secrets.toml",
+                    ),
                 )
 
 
@@ -173,7 +190,15 @@ def resolve(
             + (f" field {field!r}" if field else "")
             + " is not set and is not present in the datasource secret cache"
         ),
-        details={"datasource": datasource or "", "field": field or "", "env_var": name},
+        expected="an exported or remembered datasource secret environment variable",
+        received=name,
+        location=f"datasource {datasource or '<unknown>'!r} field {field or '<unknown>'!r}",
+        repair=repair(
+            kind="environment",
+            canonical_id="test",
+            action="Export the referenced environment variable and validate the datasource.",
+            snippet=f'export {name}="secret_value"',
+        ),
     )
 
 

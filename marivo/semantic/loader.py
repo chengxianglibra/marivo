@@ -19,8 +19,8 @@ from typing import Any, Literal
 from marivo.config import AUTHORED_DIR
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.errors import (
-    DatasourceConfigError,
     DatasourceDuplicateError,
+    DatasourceError,
     DatasourceLoadError,
 )
 from marivo.datasource.ir import DatasourceIR
@@ -105,8 +105,7 @@ loader_context = LoaderContextManager
 
 def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
     if isinstance(error, DatasourceDuplicateError):
-        datasource = error.details.get("datasource")
-        refs = (datasource,) if isinstance(datasource, str) and datasource else ()
+        refs = (error.received,) if error.received else ()
         return SemanticLoadError(
             kind=ErrorKind.DUPLICATE_NAME,
             message=error.message,
@@ -114,22 +113,20 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             hint="Keep each datasource name unique under models/datasources/.",
         )
     if isinstance(error, DatasourceLoadError):
-        path = error.details.get("path")
-        refs = (path,) if isinstance(path, str) and path else ()
+        refs = (error.location,) if error.location else ()
         return SemanticLoadError(
             kind=ErrorKind.INVALID_PROJECT,
             message=error.message,
             refs=refs,
-            hint=error.hint or "Check models/datasources/*.py datasource declarations.",
+            hint="Check models/datasources/*.py datasource declarations.",
         )
-    if isinstance(error, DatasourceConfigError):
-        datasource = error.details.get("datasource")
-        refs = (datasource,) if isinstance(datasource, str) and datasource else ()
+    if isinstance(error, DatasourceError):
+        refs = (error.received,) if error.received else ()
         return SemanticLoadError(
             kind=ErrorKind.ORGANIZATION_ERROR,
             message=error.message,
             refs=refs,
-            hint=error.hint or "Check models/datasources/*.py datasource declarations.",
+            hint="Check models/datasources/*.py datasource declarations.",
         )
     return SemanticLoadError(
         kind=ErrorKind.ORGANIZATION_ERROR,

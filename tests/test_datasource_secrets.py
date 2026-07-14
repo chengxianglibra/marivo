@@ -68,11 +68,7 @@ def test_missing_env_and_cache_raises_datasource_env_var_missing(
     with pytest.raises(DatasourceEnvVarMissingError) as exc_info:
         secrets.resolve("TRINO_PASSWORD", datasource="wh", field="password")
 
-    assert exc_info.value.details == {
-        "datasource": "wh",
-        "field": "password",
-        "env_var": "TRINO_PASSWORD",
-    }
+    assert exc_info.value.received == "TRINO_PASSWORD"
 
 
 def test_persist_writes_owner_only_secret_file(fake_home: Path) -> None:
@@ -92,8 +88,8 @@ def test_loose_permissions_refuse_read(fake_home: Path) -> None:
     with pytest.raises(DatasourceSecretStorePermissionsError) as exc_info:
         secrets.LocalPlaintextCache.default().get("TRINO_PASSWORD")
 
-    assert exc_info.value.details["path"] == str(path)
-    assert exc_info.value.details["mode"] == 0o644
+    assert exc_info.value.location == str(path)
+    assert exc_info.value.received == "0o644"
 
 
 def test_path_guard_rejects_store_inside_git_repository(
@@ -110,7 +106,7 @@ def test_path_guard_rejects_store_inside_git_repository(
         secrets.LocalPlaintextCache.default().persist("TRINO_PASSWORD", "secret")
 
     assert "inside a git repository" in exc_info.value.message
-    assert exc_info.value.details["path"] == str(repo_home / ".marivo" / "secrets.toml")
+    assert exc_info.value.location == str(repo_home / ".marivo" / "secrets.toml")
 
 
 def test_persistence_disabled_by_env_skips_writes_but_keeps_reads(

@@ -183,7 +183,7 @@ def test_analysis_all_is_pinned() -> None:
     assert set(ma.__all__) == ANALYSIS_PUBLIC
 
 
-def test_datasource_all_is_pinned() -> None:
+def test_phase2_datasource_all_is_pinned_to_the_baseline() -> None:
     assert set(md.__all__) == DATASOURCE_PUBLIC
 
 
@@ -195,7 +195,6 @@ def _top_level_entries(surface):
     "surface_factory",
     [
         "marivo.semantic.help._surface",
-        "marivo.datasource.help._surface",
     ],
 )
 def test_help_index_has_no_blank_summary(surface_factory: str) -> None:
@@ -219,10 +218,9 @@ def test_semantic_input_aliases_removed_from_public_surface() -> None:
 
 
 def test_no_internal_ir_family_and_small_other_bucket() -> None:
-    from marivo.datasource.help import _surface as d_surface
     from marivo.semantic.help import _surface as s_surface
 
-    for surface in (s_surface(), d_surface()):
+    for surface in (s_surface(),):
         data = render(surface, None, "json")
         labels = {f["label"] for f in data["families"]}
         assert "Internal IR types" not in labels

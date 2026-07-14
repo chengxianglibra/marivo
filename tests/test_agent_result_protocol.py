@@ -15,6 +15,7 @@ from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.session._store import SessionSummary
 from marivo.analysis.session.core import FrameSummaryEntry, JobSummary
 from marivo.datasource.authoring import ref as datasource_ref
+from marivo.datasource.errors import repair as datasource_repair
 from marivo.datasource.manage import (
     DatasourceDescription,
     DatasourceList,
@@ -125,7 +126,7 @@ def _datasource_list() -> DatasourceList:
 
 
 def _datasource_test_result() -> DatasourceTestResult:
-    return DatasourceTestResult(name="wh", ok=True, error=None, latency_ms=12)
+    return DatasourceTestResult(name="wh", ok=True, latency_ms=12, repair=None)
 
 
 def _raw_sql_result() -> RawSqlResult:
@@ -292,6 +293,7 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
         [
             "DatasourceSummary name=wh backend=duckdb",
             "available:",
+            "- .contract()",
             "- .render()",
             "- .show()",
         ]
@@ -314,17 +316,28 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
             "DatasourceDescription name=wh backend=trino fields=2 env_refs=1",
             "columns: catalog | host | auth_env",
             "available:",
+            "- .contract()",
             "- .render()",
             "- .show()",
         ]
     )
 
-    failed = DatasourceTestResult(name="wh", ok=False, error="connection refused", latency_ms=None)
+    failed = DatasourceTestResult(
+        name="wh",
+        ok=False,
+        latency_ms=None,
+        repair=datasource_repair(
+            kind="reconnect",
+            canonical_id="test",
+            action="Reconnect the datasource after fixing its connection settings.",
+        ),
+    )
     assert failed.render() == "\n".join(
         [
             "DatasourceTestResult name=wh ok=False latency=n/a",
-            "status: connection refused",
+            "status: Reconnect the datasource after fixing its connection settings.",
             "available:",
+            "- .contract()",
             "- .render()",
             "- .show()",
         ]

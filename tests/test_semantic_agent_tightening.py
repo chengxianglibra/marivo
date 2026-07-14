@@ -2,12 +2,12 @@
 
 
 def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
-    from marivo.datasource.help import _surface as datasource_surface
+    import marivo.datasource as md
     from marivo.introspection.surface import render as surface_render
     from marivo.semantic.help import _surface as semantic_surface
 
     semantic_data = surface_render(semantic_surface(), None, "json")
-    datasource_data = surface_render(datasource_surface(), None, "json")
+    datasource_text = md.help_text()
 
     for name in ("VerifyResult", "domain", "entity", "metric"):
         assert name in str(semantic_data), f"semantic help missing {name}"
@@ -20,4 +20,4 @@ def test_stepwise_authoring_help_lists_new_symbols_only() -> None:
         "DiscoverySnapshot",
         "raw_sql",
     ):
-        assert name in str(datasource_data), f"datasource help missing {name}"
+        assert name in datasource_text, f"datasource help missing {name}"

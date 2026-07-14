@@ -11,9 +11,10 @@ from pathlib import Path
 
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
 from marivo.datasource.errors import (
-    DatasourceConfigError,
     DatasourceDuplicateError,
+    DatasourceError,
     DatasourceLoadError,
+    repair,
 )
 from marivo.datasource.ir import DatasourceIR
 
@@ -61,14 +62,20 @@ def _execute_file(
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
     except Exception as exc:
-        if isinstance(exc, DatasourceConfigError):
+        if isinstance(exc, DatasourceError):
             errors.append(exc)
         else:
             errors.append(
                 DatasourceLoadError(
                     message=f"Error executing {filepath}: {exc}",
-                    hint="Check the datasource file for syntax or runtime errors.",
-                    details={"path": str(filepath), "reason": str(exc)},
+                    expected="a loadable datasource declaration",
+                    received=str(exc),
+                    location=str(filepath),
+                    repair=repair(
+                        kind="reload",
+                        canonical_id="load",
+                        action="Fix the datasource declaration and reload it.",
+                    ),
                 )
             )
     finally:
@@ -91,7 +98,14 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
             errors=(
                 DatasourceLoadError(
                     message=f"Datasource path {root} exists but is not a directory.",
-                    details={"path": str(root), "reason": "datasource path is not a directory"},
+                    expected="a datasource declaration directory",
+                    received=str(root),
+                    location=str(root),
+                    repair=repair(
+                        kind="reload",
+                        canonical_id="load",
+                        action="Point loading at a datasource directory.",
+                    ),
                 ),
             ),
         )
@@ -111,7 +125,14 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
             errors.append(
                 DatasourceDuplicateError(
                     message=f"Duplicate datasource name: {ir.name!r}",
-                    details={"datasource": ir.name},
+                    expected="a unique datasource name",
+                    received=ir.name,
+                    location="models/datasources/",
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="load",
+                        action="Rename or remove the duplicate datasource declaration.",
+                    ),
                 )
             )
         seen.add(ir.name)

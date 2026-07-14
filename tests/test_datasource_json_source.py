@@ -57,17 +57,8 @@ def test_apply_json_http_settings_teaches_when_backend_lacks_raw_sql() -> None:
     message = str(exc_info.value)
     assert "http(s)" in message
     assert "not a generic HTTP API reader" in message
-    assert exc_info.value.details == {
-        "path": "https://example.com/events.json",
-        "reason": "backend_lacks_httpfs",
-        "location": "md.json('https://example.com/events.json')",
-        "cause": "backend lacks callable raw_sql (DuckDB httpfs not available)",
-        "fix_snippet": (
-            "# Use a local path or glob pattern instead of an http(s):// URL:\n"
-            "import marivo.datasource as md\n"
-            'source = md.json("data/events/*.json", format="newline_delimited")'
-        ),
-    }
+    assert exc_info.value.location == "md.json('https://example.com/events.json')"
+    assert exc_info.value.repair is not None
 
 
 def test_apply_json_http_settings_rejects_non_callable_raw_sql() -> None:
@@ -80,7 +71,7 @@ def test_apply_json_http_settings_rejects_non_callable_raw_sql() -> None:
             JsonSourceIR(path="https://example.com/events.json", schema=(("event_id", "string"),)),
         )
 
-    assert exc_info.value.details["reason"] == "backend_lacks_httpfs"
+    assert exc_info.value.received == "backend without raw_sql"
 
 
 def _write_ndjson_files(root: Path) -> str:

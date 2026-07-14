@@ -11,9 +11,11 @@ from typing import Any, ClassVar, TypeAlias, cast, get_args, get_origin
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
+    repair,
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.typing import AiContextValue
+from marivo.introspection.live.model import AuthoringContract
 from marivo.refs import SemanticRef, SymbolKind
 
 
@@ -30,11 +32,14 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
                 "The legacy summary= and glossary= keys are not accepted; use "
                 "business_definition= and instructions= respectively."
             ),
-            details={
-                "datasource": "<unknown>",
-                "field": "ai_context",
-                "reason": "raw dict rejected",
-            },
+            expected="an AiContextValue from ms.ai_context(...)",
+            received=type(ai_context).__name__,
+            location="datasource ai_context",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Construct ai_context with ms.ai_context(...).",
+            ),
         )
     return AiContextIR(
         business_definition=ai_context.business_definition,
@@ -119,14 +124,14 @@ def _validate_jsonable_field(name: str, key: str, value: object) -> JsonValue:
                 f"datasource {name!r} field {key!r} has unsupported value type "
                 f"{type(value).__name__}"
             ),
-            details={
-                "datasource": name,
-                "field": key,
-                "reason": (
-                    "datasource fields must be JSON values (str, int, float, bool, None, "
-                    "lists, or objects with string keys)"
-                ),
-            },
+            expected="a JSON-compatible datasource field value",
+            received=type(value).__name__,
+            location=f"models/datasources/ entry {name!r} field {key!r}",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Use a JSON-compatible datasource field value.",
+            ),
         )
     return normalized
 
@@ -176,6 +181,12 @@ class _SpecBase:
         object.__setattr__(self, "env_refs", env_refs)
         object.__setattr__(self, "ai_context", _build_ai_context(self.ai_context))
 
+    def contract(self) -> AuthoringContract:
+        """Return the mechanical registration contract for this declaration."""
+        from marivo.datasource._capabilities.contracts import contract_for_spec
+
+        return contract_for_spec(self.name)
+
     def _validate_required_string_fields(self) -> None:
         for dataclass_field in fields(self):
             if dataclass_field.name in _META_FIELDS:
@@ -189,11 +200,14 @@ class _SpecBase:
                         f"datasource {self.name!r} field {dataclass_field.name!r} "
                         "must be a non-empty string"
                     ),
-                    details={
-                        "datasource": self.name,
-                        "field": dataclass_field.name,
-                        "reason": "required datasource fields must be non-empty strings",
-                    },
+                    expected="a non-empty string",
+                    received=repr(value),
+                    location=f"models/datasources/ entry {self.name!r} field {dataclass_field.name!r}",
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="duckdb",
+                        action="Provide a non-empty required datasource field.",
+                    ),
                 )
 
     def _split_declared_fields(self) -> tuple[dict[str, JsonValue], dict[str, str]]:
@@ -213,11 +227,14 @@ class _SpecBase:
                 if not isinstance(value, str) or not value:
                     raise DatasourceFieldInvalidError(
                         message=f"datasource {self.name!r} field {key!r} must be a non-empty env var name",
-                        details={
-                            "datasource": self.name,
-                            "field": key,
-                            "reason": "env_ref must reference an env var name as a string",
-                        },
+                        expected="a non-empty environment variable name",
+                        received=repr(value),
+                        location=f"models/datasources/ entry {self.name!r} field {key!r}",
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="duckdb",
+                            action="Reference a non-empty environment variable name.",
+                        ),
                     )
                 env_refs[stem] = value
                 continue
@@ -231,7 +248,15 @@ class _SpecBase:
                             f"datasource {self.name!r} field {key!r} is sensitive and must not "
                             "be stored as a literal"
                         ),
-                        details={"datasource": self.name, "field": key},
+                        expected="an environment-variable reference for a sensitive field",
+                        received=key,
+                        location=f"models/datasources/ entry {self.name!r} field {key!r}",
+                        repair=repair(
+                            kind="environment",
+                            canonical_id="duckdb",
+                            action="Use the matching *_env datasource field.",
+                            snippet=f'{key}_env="<ENV_VAR>"',
+                        ),
                     )
                 literal_fields[key] = _validate_jsonable_field(self.name, key, value)
         return literal_fields, env_refs
@@ -454,7 +479,14 @@ def _require_ctx() -> DatasourceLoaderContext:
     if ctx is None:
         raise DatasourceFieldInvalidError(
             message="md.datasource can only be called while loading models/datasources/ files",
-            details={"datasource": "<unknown>", "field": "<context>", "reason": "outside loader"},
+            expected="a models/datasources loader context",
+            received="outside loader",
+            location="md.datasource",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="load",
+                action="Declare datasources from models/datasources/ files.",
+            ),
         )
     return ctx
 
@@ -463,27 +495,38 @@ def validate_datasource_name(name: Any) -> None:
     if not isinstance(name, str) or not name:
         raise DatasourceFieldInvalidError(
             message="datasource name must be a non-empty string",
-            details={"datasource": name, "field": "<name>", "reason": "empty datasource name"},
+            expected="a non-empty datasource storage name",
+            received=repr(name),
+            location="datasource name",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Provide a non-empty datasource name.",
+            ),
         )
     if "." in name:
         raise DatasourceFieldInvalidError(
             message=f"datasource {name!r} must use a storage name without kind prefix",
-            details={
-                "datasource": name,
-                "field": "<name>",
-                "reason": "datasource spec names must not be kind-qualified",
-            },
+            expected="a storage name without a kind prefix",
+            received=name,
+            location="datasource name",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Remove the kind prefix from the datasource name.",
+            ),
         )
     if not _DATASOURCE_NAME_RE.fullmatch(name):
         raise DatasourceFieldInvalidError(
             message=f"datasource {name!r} is not a valid datasource name",
-            details={
-                "datasource": name,
-                "field": "<name>",
-                "reason": (
-                    "datasource name must contain only letters, digits, underscores, and hyphens"
-                ),
-            },
+            expected="letters, digits, underscores, and hyphens",
+            received=name,
+            location="datasource name",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Use a valid datasource storage name.",
+            ),
         )
 
 

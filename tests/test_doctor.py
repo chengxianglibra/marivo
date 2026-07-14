@@ -906,8 +906,8 @@ def test_doctor_connect_flag_reports_failure(
     class FakeResult:
         name = "warehouse"
         ok = False
-        error = "RuntimeError: connection refused"
         latency_ms = None
+        repair = type("Repair", (), {"action": "Reconnect warehouse."})()
 
     monkeypatch.setattr(
         "marivo.datasource.manage.test_no_persist",
@@ -918,7 +918,7 @@ def test_doctor_connect_flag_reports_failure(
 
     check = _check(report, "connect", "connect.warehouse")
     assert check.status == "fail"
-    assert "connection refused" in check.summary
+    assert check.summary == "Reconnect warehouse."
     assert check.fix == (
         f"marivo doctor --project-root {tmp_path.resolve()} --datasource warehouse --connect",
     )
@@ -970,7 +970,7 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
     result = datasource_manage.test_no_persist("warehouse", project_root=tmp_path)
 
     assert result.ok is True
-    assert result.error is None
+    assert result.repair is None
     assert backend.queries == ["SELECT 1"]
     assert backend.disconnect_calls == 1
     assert load_calls == [("warehouse", tmp_path)]

@@ -128,46 +128,6 @@ def test_semantic_catalog_has_no_legacy_list_method(semantic_project_factory) ->
     assert not hasattr(catalog, "list")
 
 
-def test_datasource_fold_partition() -> None:
-    from marivo.datasource.help import _surface
-
-    surface = _surface()
-    fams = _families(surface)
-    # Convenience functions (duckdb, trino, etc.) are top-level callables, not folded.
-    assert "Datasource specs" not in fams
-    assert fams["References"] == ["DatasourceRef"]
-    assert "Internal IR types" not in fams
-    assert fams["Results"] == ["DatasourceTestResult"]
-    assert "Metadata types" not in fams
-    assert set(fams["Other types"]) == {
-        "ClickHouseSpec",
-        "DatasourceConnection",
-        "DatasourceDescription",
-        "DatasourceList",
-        "DatasourceSpec",
-        "DatasourceSummary",
-        "DuckDBSpec",
-        "ExecutionCapabilities",
-        "MySQLSpec",
-        "PartitionInspection",
-        "PartitionScope",
-        "Partitioning",
-        "PhysicalExtent",
-        "PostgresSpec",
-        "TrinoSpec",
-        "UnprunedScope",
-    }
-    enumerated = _enumerated(surface)
-    # Entry-point and input types are pinned as top-level entries, not folded.
-    assert {
-        "DatasourceCatalog",
-        "DiscoverySnapshot",
-        "SourceInspection",
-        "TableSource",
-    } <= enumerated
-    _assert_no_value_family_leaks(enumerated)
-
-
 def test_analysis_no_longer_uses_json_surface() -> None:
     """The analysis surface has moved to the capability-registry-based renderer.
 

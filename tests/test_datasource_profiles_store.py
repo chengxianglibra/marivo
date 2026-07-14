@@ -86,7 +86,7 @@ def test_save_rejects_plaintext_sensitive_field() -> None:
                 extra={"password": "literal-secret"},
             )
         )
-    assert exc_info.value.details["field"] == "password"
+    assert exc_info.value.received == "password"
     assert "password_env" in str(exc_info.value)
 
 
@@ -100,7 +100,7 @@ def test_save_rejects_plaintext_user() -> None:
                 extra={"user": "analytics"},
             )
         )
-    assert exc_info.value.details["field"] == "user"
+    assert exc_info.value.received == "user"
 
 
 def test_save_rejects_plaintext_auth() -> None:
@@ -113,7 +113,7 @@ def test_save_rejects_plaintext_auth() -> None:
                 extra={"auth": "literal-token"},
             )
         )
-    assert exc_info.value.details["field"] == "auth"
+    assert exc_info.value.received == "auth"
     assert "auth_env" in str(exc_info.value)
 
 
@@ -147,14 +147,14 @@ def test_save_rejects_non_json_object_value() -> None:
 def test_save_rejects_env_ref_non_string() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_store.save_one(TrinoSpec(name="wh", host="h", catalog="c", auth_env=""))
-    assert exc_info.value.details["field"] == "auth_env"
+    assert exc_info.value.location.endswith("field 'auth_env'")
 
 
 @pytest.mark.parametrize("name", ["foo/bar", "foo\\bar", " foo", "foo bar", "../foo"])
 def test_save_rejects_path_unsafe_name(name: str) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_store.save_one(_spec(name, backend_type="duckdb", path=":memory:"))
-    assert exc_info.value.details["field"] == "<name>"
+    assert exc_info.value.location == "datasource name"
     assert not (Path.cwd() / "models" / "datasources" / "foo").exists()
 
 
