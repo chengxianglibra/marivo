@@ -20,6 +20,7 @@ from marivo.analysis._capabilities.model import (
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
+    EnvironmentFingerprint,
     OperatorCapability,
     ReadCapability,
     RecoveryCapability,
@@ -42,12 +43,12 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def environment_fingerprint() -> tuple[str, str, str]:
-    """Return the three-line environment fingerprint for root help."""
-    return (
-        f"Marivo: {marivo.__version__}",
-        f"Python: {Path(sys.executable).resolve()}",
-        f"Package: {Path(marivo.__file__).resolve()}",
+def environment_fingerprint() -> EnvironmentFingerprint:
+    """Return the environment fingerprint for root help."""
+    return EnvironmentFingerprint(
+        marivo_version=marivo.__version__,
+        python_executable=str(Path(sys.executable).resolve()),
+        package_path=str(Path(marivo.__file__).resolve()),
     )
 
 
@@ -153,7 +154,13 @@ def render_root_help() -> str:
 
     # Fingerprint
     fp = environment_fingerprint()
-    lines.extend(fp)
+    lines.extend(
+        [
+            f"Marivo: {fp.marivo_version}",
+            f"Python: {fp.python_executable}",
+            f"Package: {fp.package_path}",
+        ]
+    )
     lines.append("")
 
     # Capability groups
