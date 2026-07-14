@@ -238,12 +238,6 @@ def _build_registry() -> CapabilityRegistry:
     """Build the complete immutable capability registry."""
 
     # Late imports to avoid circular dependencies at module load time.
-    from marivo.analysis.derive import (
-        dimension_column,
-        ibis_query,
-        metric_columns,
-        time_column,
-    )
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.base import BaseFrame
     from marivo.analysis.frames.candidate import CandidateSet
@@ -698,27 +692,6 @@ def _build_registry() -> CapabilityRegistry:
 
     descriptors.append(
         BoundaryCapability(
-            id="boundary.derive_metric_frame",
-            public_entrypoint="session.derive_metric_frame(...)",
-            help_target="boundary.derive_metric_frame",
-            summary="Governed Ibis escape hatch that returns a MetricFrame.",
-            root_group="boundaries",
-            root_visibility="direct",
-            constraint_ids=(),
-            callable_path="marivo.analysis.session.core.Session.derive_metric_frame",
-            direction="governed_entry",
-            accepted_inputs={
-                "spec": frozenset({"IbisQuerySpec"}),
-                "columns": frozenset({"MetricColumns"}),
-            },
-            output_family="MetricFrame",
-            preserves=("semantic_kind", "metric_id", "axes"),
-            does_not_preserve=("backend_query", "raw_sql"),
-        )
-    )
-
-    descriptors.append(
-        BoundaryCapability(
             id="boundary.to_pandas",
             public_entrypoint="frame.to_pandas()",
             help_target="boundary.to_pandas",
@@ -791,38 +764,6 @@ def _build_registry() -> CapabilityRegistry:
             "Construct a holiday-then-day-of-week alignment policy.",
             holiday_and_dow_aligned,
             "AlignmentPolicy",
-        ),
-        (
-            "ibis_query",
-            "mv.ibis_query(...)",
-            "ibis_query",
-            "Construct a governed Ibis query spec for derive_metric_frame.",
-            ibis_query,
-            "IbisQuerySpec",
-        ),
-        (
-            "metric_columns",
-            "mv.metric_columns(...)",
-            "metric_columns",
-            "Bind derive_metric_frame output columns to metric roles.",
-            metric_columns,
-            "MetricColumns",
-        ),
-        (
-            "time_column",
-            "mv.time_column(...)",
-            "time_column",
-            "Bind one query output column to a catalog time dimension.",
-            time_column,
-            "MetricColumnBinding",
-        ),
-        (
-            "dimension_column",
-            "mv.dimension_column(...)",
-            "dimension_column",
-            "Bind one query output column to a catalog dimension.",
-            dimension_column,
-            "MetricColumnBinding",
         ),
         (
             "TimeScope",
@@ -1283,7 +1224,7 @@ def _generate_algebra_rows(
       families.
     - discover.* and transform.* member edges collapse to the canonical
       ``discover`` / ``transform`` grouping topic in the root algebra.
-    - Governed-entry boundary capabilities (e.g. ``boundary.derive_metric_frame``)
+    - Governed-entry boundary capabilities
       produce a row showing their accepted input families and output family.
     - The single terminal ``boundary.to_pandas`` aggregate row appears once.
     """
@@ -1342,7 +1283,7 @@ def _generate_algebra_rows(
             )
         )
 
-    # Governed-entry boundary rows (e.g. boundary.derive_metric_frame).
+    # Governed-entry boundary rows.
     # These produce an artifact family from governed inputs and appear as
     # producer edges alongside the operator that produces the same family.
     for desc in descriptors:

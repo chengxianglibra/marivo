@@ -7,11 +7,9 @@ from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
-import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis import escape_hatch
 
 
 def _records(path: Path) -> list[dict[str, object]]:
@@ -166,21 +164,6 @@ def test_legacy_numeric_env_value_does_not_disable_telemetry(
     assert _attr(_log_record(entry), "marivo.event.name") == "marivo.cli.init"
 
 
-def test_escape_hatch_records_local_telemetry_with_session_id(telemetry_project: Path) -> None:
-    session = mv.session.get_or_create(
-        name="demo", backend_factory=lambda _name: None, use_datasources=False
-    )
-
-    escape_hatch.from_pandas(pd.DataFrame({"value": [1.0]}), session=session)
-
-    entry = _records(telemetry_project / ".marivo" / "telemetry" / "events.jsonl")[-1]
-    record = _log_record(entry)
-    assert _attr(record, "marivo.event.name") == "marivo.analysis.escape_hatch.from_pandas"
-    assert _attr(record, "marivo.intent.family") == "escape_hatch"
-    assert _attr(record, "marivo.intent.name") == "from_pandas"
-    assert _attr(record, "marivo.session.id") == session.id
-
-
 def test_session_intent_error_records_local_telemetry_with_session_id(
     telemetry_project: Path,
 ) -> None:
@@ -209,18 +192,12 @@ def test_declared_intent_coverage_matches_requested_scope() -> None:
         "marivo.analysis.attribute",
         "marivo.analysis.compare",
         "marivo.analysis.correlate",
-        "marivo.analysis.derive_metric_frame",
         "marivo.analysis.discover.cross_sectional_outliers",
         "marivo.analysis.discover.driver_axes",
         "marivo.analysis.discover.interesting_slices",
         "marivo.analysis.discover.interesting_windows",
         "marivo.analysis.discover.period_shifts",
         "marivo.analysis.discover.point_anomalies",
-        "marivo.analysis.escape_hatch.explore_ibis",
-        "marivo.analysis.escape_hatch.from_pandas",
-        "marivo.analysis.escape_hatch.promote_attribution_frame",
-        "marivo.analysis.escape_hatch.promote_delta_frame",
-        "marivo.analysis.escape_hatch.promote_metric_frame",
         "marivo.analysis.forecast",
         "marivo.analysis.hypothesis_test",
         "marivo.analysis.observe",

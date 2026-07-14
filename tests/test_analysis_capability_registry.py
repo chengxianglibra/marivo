@@ -345,15 +345,6 @@ def test_kernel_types_absent_from_mv_all() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_derive_metric_frame_has_one_identity() -> None:
-    from marivo.analysis.session.core import Session
-
-    descriptor = REGISTRY.by_callable(Session.derive_metric_frame)
-    assert descriptor.id == "boundary.derive_metric_frame"
-    assert REGISTRY.by_id("boundary.derive_metric_frame") is descriptor
-    assert "derive_metric_frame" not in REGISTRY.capability_ids
-
-
 def test_registry_has_no_duplicate_ids() -> None:
     ids = [d.id for d in REGISTRY.descriptors]
     assert len(ids) == len(set(ids)), f"duplicate ids: {ids}"
@@ -439,9 +430,6 @@ def test_by_callable_resolves_constructors() -> None:
     descriptor = REGISTRY.by_callable(mv.window_bucket)
     assert descriptor.id == "window_bucket"
 
-    descriptor = REGISTRY.by_callable(mv.ibis_query)
-    assert descriptor.id == "ibis_query"
-
 
 def test_by_callable_resolves_types() -> None:
     import marivo.analysis as mv
@@ -506,10 +494,6 @@ EXPECTED_CONSTRUCTOR_IDS = {
     "dow_aligned",
     "holiday_aligned",
     "holiday_and_dow_aligned",
-    "ibis_query",
-    "metric_columns",
-    "time_column",
-    "dimension_column",
     "TimeScope",
     "AbsoluteWindow",
     "SamplingPolicy",
@@ -517,7 +501,6 @@ EXPECTED_CONSTRUCTOR_IDS = {
 
 
 EXPECTED_BOUNDARY_IDS = {
-    "boundary.derive_metric_frame",
     "boundary.to_pandas",
     "boundary.semantic_handoff",
 }
@@ -549,8 +532,8 @@ def test_boundary_to_pandas_accepted_inputs_cover_all_families() -> None:
 
 
 def test_constructor_consumers_includes_boundary_capabilities() -> None:
-    """boundary.to_pandas and boundary.derive_metric_frame must appear as
-    consumers in the reverse index because they declare accepted_inputs."""
+    """boundary.to_pandas must appear as a consumer in the reverse index
+    because it declares accepted_inputs."""
     cc = REGISTRY.constructor_consumers
 
     # boundary.to_pandas accepts all artifact families as receiver.
@@ -558,10 +541,6 @@ def test_constructor_consumers_includes_boundary_capabilities() -> None:
         assert "boundary.to_pandas" in cc.get(family, ()), (
             f"boundary.to_pandas missing from consumers of {family}"
         )
-
-    # boundary.derive_metric_frame accepts IbisQuerySpec and MetricColumns.
-    assert "boundary.derive_metric_frame" in cc.get("IbisQuerySpec", ())
-    assert "boundary.derive_metric_frame" in cc.get("MetricColumns", ())
 
 
 def test_candidate_set_select_is_read_not_operator() -> None:
@@ -674,8 +653,6 @@ _VALID_INPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {
     "AlignmentPolicy",
     "SamplingPolicy",
     "TimeScopeInput",
-    "IbisQuerySpec",
-    "MetricColumns",
 }
 
 _VALID_OUTPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {
@@ -723,7 +700,6 @@ def test_every_delegating_session_operator_is_registered() -> None:
         "forecast",
         "assess_quality",
         "hypothesis_test",
-        "derive_metric_frame",
     ]
     for name in intent_methods:
         method = getattr(Session, name)

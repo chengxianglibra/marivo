@@ -377,47 +377,28 @@ monthly = cum_frame.transform.rollup(grain="month")
 base_frame = session.observe(active_users, ...)
 ```
 
-## Governed derive —— `session.derive_metric_frame(...)`
+## 终端自定义分析
 
-当自定义 Ibis 计算结果必须回到 typed metric flow 时，使用 `derive_metric_frame`。它总是返回
-`MetricFrame`。Semantic refs 标识 metric、time 和 dimension 绑定；query 输出列是普通字符串。
+当计算无法通过 `session.observe(...)` 表达时，使用 `md.raw_sql(...)`——唯一的终端
+raw SQL 执行路径。它强制 timeout、限制返回行数、只读执行。结果是一个
+`RawSqlResult`，无法回到类型化分析；调用 `RawSqlResult.to_pandas()` 获取终端
+pandas 导出。
 
 ```python
 import marivo.datasource as md
 
-warehouse = md.ref("datasource.warehouse")
-custom = session.derive_metric_frame(
-    metric=session.catalog.get("metric.sales.revenue"),
-    query=mv.ibis_query(
-        datasource=warehouse,
-        build=lambda db, ctx: db.table("orders"),
-    ),
-    columns=mv.metric_columns(
-        value="value",
-        time=mv.time_column(
-            column="order_date",
-            ref=session.catalog.get("time_dimension.sales.orders.order_date"),
-        ),
-        dimensions=[
-            mv.dimension_column(
-                column="region",
-                ref=session.catalog.get("dimension.sales.orders.region"),
-            ),
-        ],
-    ),
-    time_scope={"start": "2026-06-18", "end": "2026-06-25"},
-    grain="day",
-    label="custom_revenue_by_region",
+result = md.raw_sql(
+    md.ref("datasource.warehouse"),
+    "SELECT region, SUM(amount) AS revenue FROM orders GROUP BY region",
+    reason="自定义收入拆分",
 )
-custom.show()
+result.show()
+df = result.to_pandas()
 ```
 
-与 `observe` 不同，`derive_metric_frame` 不会对 `build` 输出进行过滤或聚合——
-`time_scope` 和 `grain` 仅标注 frame 的窗口元数据，并通过 `ctx` 传递给 `build`。
-在 `build()` 内使用 `ctx.bucket(time_expr)` 可将时间戳截断到 grain 边界。
-
-需要做终端本地 pandas 工作、且不必回到 typed Marivo operator 时，使用
-`artifact.to_pandas()`。
+需要从类型化 frame 做终端本地 pandas 工作时，使用 `artifact.to_pandas()`。
+`md.raw_sql(...)` 结果和 `to_pandas()` 导出都无法回到类型化分析。如果缺少业务
+语义，请回到语义层进行 authoring。
 
 ## 读取与恢复 artifacts
 
@@ -449,13 +430,13 @@ details 包。`repair` 字段是一个类型化的 `AnalysisRepair` 对象，包
 可选的 `snippet` 和从实时状态生成的可选 `candidates`。按照修复指引操作即可；它会指向
 失败能力的确切 `mv.help(...)` 目标。
 
-### 类型化边界出口与重入
+### 终端边界出口
 
-Marivo 维护一条类型化分析链。唯一的终端出口是 `frame.to_pandas()`，它返回一个防御性
-副本用于自定义本地分析——它不保留 lineage 或 evidence 连续性。唯一的受管重入是
-`session.derive_metric_frame(...)`，它根据语义 metric 验证自定义 Ibis 查询，并产出带有
-完整 lineage 的规范 `MetricFrame`。pandas 结果是 scratch；要重新进入类型化链，必须再次
-通过 `derive_metric_frame` 验证，绝不可以通过隐式提升。
+Marivo 维护一条类型化分析链。终端出口是 `frame.to_pandas()` 和 `md.raw_sql(...)`。
+`frame.to_pandas()` 返回防御性副本用于自定义本地分析；`md.raw_sql(...)` 返回
+`RawSqlResult`，其 `RawSqlResult.to_pandas()` 是自身的终端 pandas 出口。两者都不
+保留 lineage 或 evidence 连续性。终端结果无法回到类型化分析。如果缺少业务语义，
+请回到语义层进行 authoring。
 
 ### 语义交接
 
@@ -516,7 +497,7 @@ attribution.show()
 
 | Frame | 由谁产出 |
 | --- | --- |
-| `MetricFrame` | `observe`、`derive_metric_frame` |
+| `MetricFrame` | `observe` |
 | `DeltaFrame` | `compare` |
 | `AttributionFrame` | `attribute` |
 | `AssociationResult` | `correlate` |

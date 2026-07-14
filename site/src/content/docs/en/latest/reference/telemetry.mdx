@@ -11,8 +11,8 @@ Marivo writes OpenTelemetry-shaped JSONL events to the project state directory:
 .marivo/telemetry/events.jsonl
 ```
 
-Events cover `marivo init`, analysis intents, discover and transform helpers,
-and escape-hatch promotions. They record low-cardinality metadata such as event
+Events cover `marivo init`, analysis intents, and discover and transform helpers.
+They record low-cardinality metadata such as event
 name, intent family, status, duration, error class, and analysis session ID.
 They exclude SQL text, datasource hosts, credentials, metric IDs, dimension IDs,
 session names, session questions, and frame data.

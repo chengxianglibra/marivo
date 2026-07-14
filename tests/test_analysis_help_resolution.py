@@ -66,12 +66,6 @@ def test_capability_id_resolves() -> None:
     assert result.descriptor.id == "observe"
 
 
-def test_help_target_resolves() -> None:
-    result = resolve_help_target("boundary.derive_metric_frame")
-    assert result.kind == "descriptor"
-    assert result.descriptor.id == "boundary.derive_metric_frame"
-
-
 def test_grouping_topic_discover() -> None:
     result = resolve_help_target("discover")
     assert result.kind == "descriptor"
@@ -183,19 +177,6 @@ def test_bound_session_observe(tmp_path, monkeypatch) -> None:
     result = resolve_help_target(session.observe)
     assert result.kind == "descriptor"
     assert result.descriptor.id == "observe"
-
-
-def test_unbound_session_derive_metric_frame() -> None:
-    result = resolve_help_target(Session.derive_metric_frame)
-    assert result.kind == "descriptor"
-    assert result.descriptor.id == "boundary.derive_metric_frame"
-
-
-def test_bound_session_derive_metric_frame(tmp_path, monkeypatch) -> None:
-    session = _make_session(tmp_path, monkeypatch)
-    result = resolve_help_target(session.derive_metric_frame)
-    assert result.kind == "descriptor"
-    assert result.descriptor.id == "boundary.derive_metric_frame"
 
 
 def test_unbound_session_compare() -> None:

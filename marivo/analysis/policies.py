@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from marivo.analysis.calendar.model import AlignPeriod, CalendarFallback
 from marivo.analysis.errors import (
     AlignmentPolicyValidationError,
     SemanticKindMismatchError,
 )
-from marivo.analysis.refs import ArtifactRef, CalendarRef
+from marivo.analysis.refs import CalendarRef
 from marivo.semantic.catalog import CatalogObject, SemanticKind, SemanticRef
 
 AlignmentKind = Literal[
@@ -282,34 +282,3 @@ class SamplingPolicy(BaseModel):
     pairing: Literal["window_bucket", "segment_key"] = "window_bucket"
     null_handling: Literal["drop_pair"] = "drop_pair"
     min_n: int = Field(default=3, ge=2)
-
-
-class PromotionSemanticAnchors(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    metric: str | None = None
-    subject: str | None = None
-    time_axis: str | None = None
-    source_metric: ArtifactRef | None = None
-    source_delta: ArtifactRef | None = None
-    current: ArtifactRef | None = None
-    baseline: ArtifactRef | None = None
-    axis: str | None = None
-
-    @field_validator("metric", "subject", "time_axis", "axis", mode="before")
-    @classmethod
-    def normalize_semantic_anchor(
-        cls, value: SemanticAnchorInput | None, info: ValidationInfo
-    ) -> str | None:
-        field_name = info.field_name
-        if field_name is None:
-            raise ValueError("semantic anchor field name is required")
-        return _semantic_anchor_id(value, field_name=field_name)
-
-
-class PromotionPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    semantic_anchors: PromotionSemanticAnchors = Field(default_factory=PromotionSemanticAnchors)
-    required_fields: list[str] = Field(default_factory=list)
-    on_missing: Literal["fail_closed"] = "fail_closed"

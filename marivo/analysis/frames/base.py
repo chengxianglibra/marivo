@@ -389,7 +389,7 @@ class BaseFrame(RenderableResult):
         return ArtifactContract(
             kind=self.meta.kind,
             ref=self.meta.ref,
-            is_canonical=self.meta.kind != "exploration_result",
+            is_canonical=True,
             artifact_schema=self._build_schema(),
             blocking_issues=list(self.meta.blocking_issues),
             affordances=affordances,

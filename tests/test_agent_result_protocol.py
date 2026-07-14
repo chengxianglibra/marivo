@@ -140,6 +140,8 @@ def _raw_sql_result() -> RawSqlResult:
         requested_limit=10,
         returned_row_count=1,
         is_truncated=False,
+        timeout_seconds=30,
+        duration_ms=5,
         warnings=(),
     )
 
@@ -411,19 +413,12 @@ def test_concrete_analysis_frames_are_public_and_descriptive() -> None:
     assert analysis_frames.__all__
     # Build the set of registered frame type names from the capability kernel.
     analysis_frame_symbols = set(_TYPE_REGISTRY.values())
-    # ExplorationResult is a scratch/promotion frame demoted off the default
-    # public surface in Phase 2; it remains an internal frame type.
-    demoted_frames = {"ExplorationResult"}
     # ComponentFrame and CoverageFrame are advanced frame types that remain
     # resolvable via explicit help (kept in the type registry) but are pruned
     # from the default __all__ surface.
     advanced_frames = {"ComponentFrame", "CoverageFrame"}
     for cls in _walk_concrete_analysis_frame_classes():
         assert cls._repr_identity is not BaseFrame._repr_identity, cls.__name__
-        if cls.__name__ in demoted_frames:
-            assert cls.__name__ not in ma.__all__, cls.__name__
-            assert cls.__name__ not in analysis_frame_symbols, cls.__name__
-            continue
         if cls.__name__ in advanced_frames:
             assert cls.__name__ not in ma.__all__, cls.__name__
             assert cls.__name__ in analysis_frame_symbols, cls.__name__
