@@ -65,7 +65,7 @@ _DEFAULT_STRATEGY: dict[CandidateObjective, CandidateStrategy] = {
     "point_anomalies": "zscore",
     "period_shifts": "delta_window_zscore",
     "driver_axes": "concentration",
-    "interesting_slices": "delta_magnitude",
+    "interesting_slices": "slice_zscore",
     "interesting_windows": "global_zscore_runs",
     "cross_sectional_outliers": "mad",
 }
@@ -111,12 +111,9 @@ _OBJECTIVE_THRESHOLD: dict[CandidateObjective, dict[str, Any] | None] = {
         "description": "absolute z-score of rolling window mean (|z| >= threshold)",
     },
     "interesting_slices": {
-        "method": "delta_magnitude",
+        "method": "slice_zscore",
         "default": 2.0,
-        "description": (
-            "absolute z-score for MetricFrame (|z| >= threshold); "
-            "absolute delta value for DeltaFrame"
-        ),
+        "description": "absolute z-score of slice totals (|z| >= threshold)",
     },
     "interesting_windows": {
         "method": "global_zscore_runs",
@@ -184,8 +181,7 @@ def _discover_dispatch(
         threshold: Score cutoff whose meaning depends on the objective.
         ``point_anomalies``: absolute z-score cutoff, default 3.0.
         ``period_shifts``: absolute z-score of rolling window mean, default 2.0.
-        ``interesting_slices``: absolute z-score for MetricFrame / absolute delta
-        value for DeltaFrame, default 2.0.
+        ``interesting_slices``: absolute z-score of slice totals, default 2.0.
         ``interesting_windows``: absolute z-score per value, default 2.0.
         ``cross_sectional_outliers``: robust z-score via MAD, default 3.0.
         ``driver_axes`` does not accept threshold.
@@ -624,10 +620,8 @@ def _run_scorer(
         df = source.to_pandas()
         if isinstance(source, DeltaFrame):
             bucket_column, dim_columns = _delta_axes(source)
-            measure_kind = "delta"
             non_value_columns = [bucket_column, *dim_columns]
         else:
-            measure_kind = "metric"
             time_column, dim_columns = _resolve_frame_axes(source, df)
             non_value_columns = [c for c in [time_column, *dim_columns] if c is not None]
         value_column = require_numeric_column(
@@ -641,13 +635,12 @@ def _run_scorer(
             search_space or [],
             available_columns=axes,
         )
-        rows = score_interesting_slices(
+        rows, skipped_subsets = score_interesting_slices(
             df,
             source_ref=source.ref,
             value_column=value_column,
             axes=axes,
             threshold=threshold_value,
-            measure_kind=measure_kind,
             limit=limit,
         )
         _attach_selector_semantic_ids(rows, semantic_id_by_column)
@@ -658,6 +651,8 @@ def _run_scorer(
             "search_space_columns": axes,
             "limit": limit,
         }
+        if skipped_subsets:
+            slice_params["skipped_subsets"] = skipped_subsets
         return rows, slice_params
 
     if objective == "interesting_windows":

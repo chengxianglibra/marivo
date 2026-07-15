@@ -30,7 +30,7 @@ CandidateStrategy = Literal[
     "zscore",
     "delta_window_zscore",
     "concentration",
-    "delta_magnitude",
+    "slice_zscore",
     "global_zscore_runs",
     "mad",
 ]
