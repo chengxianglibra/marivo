@@ -466,7 +466,7 @@ def test_doctor_semantic_flag_uses_semantic_check(
                         "severity": "blocker",
                         "refs": ["sales.total"],
                         "message": "missing",
-                        "suggested_action": "add ai_context",
+                        "repair": None,
                     }
                 ],
                 "warnings": [],
@@ -480,7 +480,7 @@ def test_doctor_semantic_flag_uses_semantic_check(
                             "severity": "blocker",
                             "refs": ["sales.total"],
                             "message": "missing",
-                            "suggested_action": "add ai_context",
+                            "repair": None,
                         }
                     ],
                     "warnings": [],
@@ -525,7 +525,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                         "severity": "blocker",
                         "refs": ["sales.total"],
                         "message": "missing business definition",
-                        "suggested_action": "add ai_context.business_definition",
+                        "repair": None,
                         "details": {"data_type": "datetime"},
                     }
                 ],
@@ -535,7 +535,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                         "severity": "warning",
                         "refs": ["sales.margin"],
                         "message": "parity not verified",
-                        "suggested_action": "run parity check",
+                        "repair": None,
                     }
                 ],
                 "input_summary": {
@@ -554,7 +554,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                             "severity": "blocker",
                             "refs": ["sales.total"],
                             "message": "missing business definition",
-                            "suggested_action": "add ai_context.business_definition",
+                            "repair": None,
                             "details": {"data_type": "datetime"},
                         }
                     ],
@@ -564,7 +564,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                             "severity": "warning",
                             "refs": ["sales.margin"],
                             "message": "parity not verified",
-                            "suggested_action": "run parity check",
+                            "repair": None,
                         }
                     ],
                 },
@@ -585,7 +585,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                 "severity": "blocker",
                 "refs": ["sales.total"],
                 "message": "missing business definition",
-                "suggested_action": "add ai_context.business_definition",
+                "repair": None,
                 "details": {"data_type": "datetime"},
             }
         ],
@@ -595,7 +595,7 @@ def test_doctor_semantic_json_details_preserve_checker_payload(
                 "severity": "warning",
                 "refs": ["sales.margin"],
                 "message": "parity not verified",
-                "suggested_action": "run parity check",
+                "repair": None,
             }
         ],
     }
@@ -628,7 +628,7 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
                         "severity": "warning",
                         "refs": ["sales.margin"],
                         "message": "parity not verified",
-                        "suggested_action": "run parity check",
+                        "repair": None,
                     }
                 ],
                 "analysis_ready_refs": ["sales.margin"],
@@ -645,7 +645,7 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
                             "severity": "warning",
                             "refs": ["sales.margin"],
                             "message": "parity not verified",
-                            "suggested_action": "run parity check",
+                            "repair": None,
                         }
                     ],
                 },
@@ -668,7 +668,7 @@ def test_doctor_semantic_warnings_surface_as_warning_status(
                 "severity": "warning",
                 "refs": ["sales.margin"],
                 "message": "parity not verified",
-                "suggested_action": "run parity check",
+                "repair": None,
             }
         ],
     }
@@ -695,7 +695,7 @@ def test_doctor_semantic_partitions_readiness_by_domain(
                         "severity": "blocker",
                         "refs": ["msgdata.orders"],
                         "message": "missing",
-                        "suggested_action": "add ai_context",
+                        "repair": None,
                     }
                 ],
                 "warnings": [],
@@ -709,7 +709,7 @@ def test_doctor_semantic_partitions_readiness_by_domain(
                             "severity": "blocker",
                             "refs": ["msgdata.orders"],
                             "message": "missing",
-                            "suggested_action": "add ai_context",
+                            "repair": None,
                         }
                     ],
                     "warnings": [],
@@ -773,7 +773,7 @@ def test_doctor_semantic_load_errors_single_check_without_domains(
                         "severity": "blocker",
                         "refs": ["sales.total"],
                         "message": "metric failed to load",
-                        "suggested_action": "fix the expression",
+                        "repair": None,
                     }
                 ],
                 "warnings": [],

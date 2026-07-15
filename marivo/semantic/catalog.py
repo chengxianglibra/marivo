@@ -63,6 +63,7 @@ from marivo.semantic.preview_checks import (
 from marivo.semantic.refs import make_ref
 
 if TYPE_CHECKING:
+    from marivo.introspection.live.model import AuthoringContract
     from marivo.semantic.dtos import VerifyResult
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.readiness import ReadinessReport
@@ -229,8 +230,8 @@ class _DetailsBase(RenderableResult):
         card = card.listing(
             label="suggested next calls",
             items=(
-                f"ms.verify_object(catalog.get('{typed_id}').ref) to confirm reachability",
-                f"ms.readiness(refs=[catalog.get('{typed_id}').ref]) to certify authored changes",
+                f"catalog.verify_object(catalog.get('{typed_id}').ref) to confirm reachability",
+                f"catalog.readiness(refs=[catalog.get('{typed_id}').ref]) to certify authored changes",
             ),
         )
         return card
@@ -685,6 +686,7 @@ class CatalogObject(RenderableResult):
         available = (
             *(f".{name}" for name in self._navigation_names),
             ".details()",
+            ".contract()",
             ".render()",
             ".show()",
         )
@@ -696,6 +698,16 @@ class CatalogObject(RenderableResult):
             collection = cast("CatalogCollection[CatalogObject]", getattr(self, name))
             card = card.field(label=name, value=f"{len(collection)} -> .{name}")
         return card
+
+    def contract(self) -> AuthoringContract:
+        """Return the mechanical continuation contract for this catalog object.
+
+        The contract exposes verify, preview (for executable kinds), and
+        readiness transitions scoped to this object's ref.
+        """
+        from marivo.semantic._capabilities.contracts import contract_for_catalog_object
+
+        return contract_for_catalog_object(self.ref.id, self.ref.kind.value)
 
 
 class Domain(CatalogObject):
@@ -2101,6 +2113,17 @@ class SemanticCatalog:
         result = self._project.verify_object(ref)
         self._reg = self._project._registry
         return result
+
+    def contract(self) -> AuthoringContract:
+        """Return the mechanical continuation contract for this catalog.
+
+        The contract exposes catalog-level browse and load affordances, not
+        per-object transitions. Use ``CatalogObject.contract()`` for
+        object-scoped verify, preview, and readiness transitions.
+        """
+        from marivo.semantic._capabilities.contracts import contract_for_semantic_catalog
+
+        return contract_for_semantic_catalog()
 
     def _resolver(
         self,

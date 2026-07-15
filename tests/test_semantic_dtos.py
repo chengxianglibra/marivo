@@ -9,7 +9,6 @@ from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
-    AuthoringQuestion,
     AuthoringSourceInput,
     TableSource,
     derive_status,
@@ -198,19 +197,7 @@ def test_derive_status_blocked_on_blocker_issue():
         message="x",
         rule_id="r1",
     )
-    assert derive_status((issue,), ()) == "blocked"
-
-
-def test_derive_status_blocked_on_blocking_question():
-    q = AuthoringQuestion(
-        id="q1",
-        decision_kind="metric_provenance_status",
-        subject_refs=("sales.revenue",),
-        prompt="p",
-        reason="r",
-        readiness_effect="blocks",
-    )
-    assert derive_status((), (q,)) == "blocked"
+    assert derive_status((issue,)) == "blocked"
 
 
 def test_derive_status_needs_input_then_supported():
@@ -221,8 +208,8 @@ def test_derive_status_needs_input_then_supported():
         message="x",
         rule_id="r1",
     )
-    assert derive_status((needs,), ()) == "needs_input"
-    assert derive_status((), ()) == "supported"
+    assert derive_status((needs,)) == "needs_input"
+    assert derive_status(()) == "supported"
 
 
 def test_authoring_assessment_status_uses_needs_input():
@@ -233,15 +220,15 @@ def test_authoring_assessment_status_uses_needs_input():
         message="source context is missing",
         rule_id="source_context_present",
     )
-    status = derive_status((issue,), ())
-    assessment = AuthoringAssessment(status=status, issues=(issue,), questions=())
+    status = derive_status((issue,))
+    assessment = AuthoringAssessment(status=status, issues=(issue,))
 
     assert status == "needs_input"
     assert assessment.status == "needs_input"
 
 
 def test_authoring_assessment_is_frozen():
-    assessment = AuthoringAssessment(status="supported", issues=(), questions=())
+    assessment = AuthoringAssessment(status="supported", issues=())
     with pytest.raises(AttributeError):
         assessment.status = "blocked"  # type: ignore[misc]
 
@@ -271,7 +258,7 @@ def test_verify_result_is_public_result_object() -> None:
             "validation_level: static",
             "runtime_checked: false",
             "Next step:",
-            "- continue the batch or run ms.readiness(refs=...)",
+            "- continue the batch or run catalog.readiness(refs=...)",
             "available:",
             "- .issues",
             "- .warnings",
@@ -310,7 +297,7 @@ def test_verify_result_render_shows_issue_details() -> None:
             "issues:",
             "- [blocker] project_load_failed: Cannot verify 'trino_query': project failed to load.",
             "Next step:",
-            "- repair this object, then re-run ms.verify_object(ref)",
+            "- repair this object, then re-run catalog.verify_object(ref)",
             "available:",
             "- .issues",
             "- .warnings",
@@ -348,7 +335,7 @@ def test_verify_result_render_shows_warning_details() -> None:
             "warnings:",
             "- [warning] missing_evidence: No evidence recorded for this object.",
             "Next step:",
-            "- continue the batch or run ms.readiness(refs=...)",
+            "- continue the batch or run catalog.readiness(refs=...)",
             "available:",
             "- .issues",
             "- .warnings",
@@ -402,7 +389,7 @@ def test_verify_result_passed_render_has_continue_next_step() -> None:
     )
     text = result.render()
     assert "Next step" in text
-    assert "ms.readiness(" in text
+    assert "catalog.readiness(" in text
 
 
 def test_verify_result_failed_render_has_repair_next_step() -> None:
@@ -429,4 +416,4 @@ def test_verify_result_failed_render_has_repair_next_step() -> None:
     text = result.render()
     assert "Next step" in text
     assert "repair" in text.lower()
-    assert "ms.verify_object(" in text
+    assert "catalog.verify_object(" in text

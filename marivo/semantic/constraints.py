@@ -153,10 +153,6 @@ def _constraint(
     )
 
 
-_EXAMPLE_BASE = "marivo/skills/marivo-semantic/references/examples"
-_SEMANTIC_AUTHOR_EXAMPLE = f"{_EXAMPLE_BASE}/02_author_one_object.py"
-_SEMANTIC_WORKFLOW_REF = "marivo/skills/marivo-semantic/SKILL.md"
-
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
     ConstraintId.ACTIVE_LOADER_CONTEXT: _constraint(
         ConstraintId.ACTIVE_LOADER_CONTEXT,
@@ -174,7 +170,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Decorators require an active semantic loader context.",
         "Semantic declarations register into the project loader registry, not global process state.",
         "Put declarations under models/semantic/<model>/ and load them with ms.load().",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.ACTIVE_DOMAIN_REQUIRED: _constraint(
         ConstraintId.ACTIVE_DOMAIN_REQUIRED,
@@ -184,7 +179,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Declarations need a domain namespace.",
         "Every semantic object is stored as <domain>.<name>.",
         "Call ms.domain(name=..., owner=...) in _domain.py or pass domain=... explicitly.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.UNIQUE_SEMANTIC_NAME: _constraint(
         ConstraintId.UNIQUE_SEMANTIC_NAME,
@@ -202,7 +196,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Names must be unique within their kind scope. Dimensions and time dimensions are scoped to their entity.",
         "Duplicate semantic ids within the same kind make registry lookups ambiguous. Dimensions are entity-scoped; entities and metrics are domain-scoped within their own kind.",
         "Rename one object, move it to a different entity (for dimensions), or use a different domain namespace.",
-        docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.REF_SHAPE: _constraint(
         ConstraintId.REF_SHAPE,
@@ -212,7 +205,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "References must be typed refs returned by Marivo authoring helpers.",
         "The loader persists semantic ids, not arbitrary Python objects.",
         'Use md.ref("datasource.warehouse") for datasource parameters and EntityRef/DimensionRef/MetricRef values returned by decorators.',
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.COMPOSITION_SHAPE: _constraint(
         ConstraintId.COMPOSITION_SHAPE,
@@ -222,7 +214,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metrics need a supported composition builder.",
         "Composition declares how metric values compose during drilldown and derived calculations.",
         "Run ms.help('composition') to inspect supported builders; SQL aggregation belongs in the metric body.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.CUMULATIVE_ANCHOR: _constraint(
         ConstraintId.CUMULATIVE_ANCHOR,
@@ -233,7 +224,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "The anchor selects the accumulation shape: all_history (default), grain_to_date (MTD/QTD/YTD resets), or trailing (rolling N).",
         "Pass anchor=ms.grain_to_date(grain='month'|'quarter'|'year'|'week'), "
         "anchor=ms.trailing(count=N, unit='day'|'hour'|...), or omit anchor for all-history.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.METRIC_ENTITIES_REQUIRED: _constraint(
         ConstraintId.METRIC_ENTITIES_REQUIRED,
@@ -244,7 +234,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Entity-backed metrics read source rows from their declared entity arguments.",
         "Simple metrics need entities=[...]; use ms.ratio/ms.weighted_average/ms.linear "
         "for metrics composed from other metrics.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
         ConstraintId.METRIC_COMPONENT_SCOPE,
@@ -254,7 +243,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ms.component() is no longer supported in metric bodies.",
         "Derived metrics are body-free and declare composition through ms.ratio/ms.weighted_average/ms.linear.",
         "Remove ms.component() calls; use ms.ratio/ms.weighted_average/ms.linear with composition metadata instead.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.AI_CONTEXT_SCHEMA: _constraint(
         ConstraintId.AI_CONTEXT_SCHEMA,
@@ -264,7 +252,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ai_context must use the supported schema.",
         "Agent-facing metadata is persisted in a stable IR shape.",
         "Use business_definition, guardrails, synonyms, examples, instructions, and owner_notes.",
-        docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.DOMAIN_OWNER_REQUIRED: _constraint(
         ConstraintId.DOMAIN_OWNER_REQUIRED,
@@ -274,7 +261,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Domains require a named human owner.",
         "Domain owners are accountable for semantic correctness and quality.",
         'Pass owner="Mina Zhang" to ms.domain(...).',
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.AST_SINGLE_RETURN: _constraint(
         ConstraintId.AST_SINGLE_RETURN,
@@ -284,7 +270,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Decorator function bodies must be a single return expression.",
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
         "Inline the expression directly as return <ibis expression>.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_FORBIDDEN_STATEMENT: _constraint(
@@ -299,7 +284,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ms.ratio(numerator=, denominator=), ms.linear(add=, subtract=), or "
         "ms.weighted_average(value=, weight=). For conditionals, use ibis "
         ".ifelse() / ibis.cases() inside the one return expression.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_SQL_ESCAPE_HATCH: _constraint(
@@ -310,7 +294,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Raw SQL calls are not allowed in Python-track expression bodies.",
         "The Python semantic track stores ibis expressions; SQL text is provenance only.",
         "Use ibis expressions in the body and put the original SQL in provenance=ms.from_sql(...) on metrics.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_IBIS_ATTR_SHADOW: _constraint(
@@ -321,7 +304,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Attribute accesses on entity table parameters must not shadow ibis Table methods/properties.",
         "Dot notation (e.g. table.schema) resolves to the ibis Table method instead of the column when the name conflicts. The planner then fails with an unhelpful AttributeError.",
         'Use bracket notation for column names that conflict with ibis Table attributes: table["schema"] instead of table.schema.',
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.DOMAIN_FILE_PRESENT: _constraint(
@@ -332,7 +314,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Each domain directory needs a _domain.py file that calls ms.domain().",
         "The loader uses _domain.py to establish the domain namespace.",
         'Create models/semantic/<domain>/_domain.py with ms.domain(name="<domain>", owner="Mina Zhang").',
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.DOMAIN_FILE_MATCHES_DIRECTORY: _constraint(
         ConstraintId.DOMAIN_FILE_MATCHES_DIRECTORY,
@@ -351,7 +332,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Entity and datasource references must resolve.",
         "Semantic objects compile through registered datasource and entity ids.",
         "Reference a declared datasource name or EntityRef/qualified entity id.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.DIMENSION_REF_EXISTS: _constraint(
         ConstraintId.DIMENSION_REF_EXISTS,
@@ -370,7 +350,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Metric component references must resolve.",
         "Derived metrics compose existing metrics.",
         "Reference a declared MetricRef or qualified metric id in decomposition components.",
-        example=_SEMANTIC_AUTHOR_EXAMPLE,
     ),
     ConstraintId.METRIC_GRAPH_ACYCLIC: _constraint(
         ConstraintId.METRIC_GRAPH_ACYCLIC,
@@ -389,7 +368,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Partition time dimensions should preserve raw sortable encodings when possible.",
         "Raw day/hour partition comparisons are easier for SQL engines to push down than parsed or cast expressions.",
         "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer string or integer format with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
-        docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
         ConstraintId.TIME_DIMENSION_DTYPE_COMPAT,
@@ -399,7 +377,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Time dimension data_type declarations must be compatible with the body expression's ibis dtype.",
         "A mismatch between declared data_type and the actual ibis expression dtype causes TypeError at execution.",
         "Ensure the .cast() target in the body matches the declared data_type: .cast('date') → data_type='date'; .cast('timestamp') or raw timestamp column → data_type='datetime' or 'timestamp'.",
-        docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE: _constraint(
         ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE,
@@ -653,7 +630,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Unqualified name lookups must resolve to a single object kind.",
         "Cross-kind name matches make registry lookups ambiguous.",
         'Use catalog.<collection>.get("<typed_id>") to retrieve a specific object, or browse via catalog.domains, catalog.metrics, etc.',
-        docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.BACKEND_FACTORY_AVAILABLE: _constraint(
         ConstraintId.BACKEND_FACTORY_AVAILABLE,
@@ -690,7 +666,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Time granularity must match its parse variant.",
         "Parse variants make most time combinations unconstructable; the remaining rule is granularity compatibility.",
         "Use ms.datetime(...) or ms.timestamp(...) for minute/second grains, and use granularity='hour' with ms.hour_prefix(...).",
-        docs_ref=_SEMANTIC_WORKFLOW_REF,
     ),
     ConstraintId.SAMPLE_INTERVAL_VALID: _constraint(
         ConstraintId.SAMPLE_INTERVAL_VALID,

@@ -37,6 +37,10 @@ def _render_track_help(track: str, target: str | None) -> str:
         from marivo.datasource.help import help_text as datasource_help_text
 
         return datasource_help_text(target)
+    if track == "semantic":
+        from marivo.semantic.help import help_text as semantic_help_text
+
+        return semantic_help_text(target)
     raise AssertionError(f"argparse admitted unsupported help track {track!r}")
 
 
@@ -206,8 +210,8 @@ def main(argv: list[str] | None = None) -> None:
             "  marivo help datasource\n"
             "  marivo help datasource <target>\n\n"
             "Semantic authoring workflow:\n"
-            "  python -c \"import marivo.datasource as md; md.help('authoring')\"\n"
-            "  python -c \"import marivo.semantic as ms; ms.help('authoring')\"\n\n"
+            "  marivo help semantic\n"
+            "  marivo help semantic <target>\n\n"
             "Common diagnostics:\n"
             "  marivo doctor\n"
             "  marivo doctor --semantic\n"
@@ -245,7 +249,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     help_parser.add_argument(
         "track",
-        choices=("analysis", "datasource"),
+        choices=("analysis", "datasource", "semantic"),
         help="Environment-bound help track",
     )
     help_parser.add_argument(
@@ -313,6 +317,14 @@ def main(argv: list[str] | None = None) -> None:
             try:
                 print(_render_track_help(args.track, args.target))
             except DatasourceHelpTargetError as exc:
+                print(str(exc), file=sys.stderr)
+                raise SystemExit(2) from None
+        elif args.track == "semantic":
+            from marivo.semantic.errors import SemanticHelpTargetError
+
+            try:
+                print(_render_track_help(args.track, args.target))
+            except SemanticHelpTargetError as exc:
                 print(str(exc), file=sys.stderr)
                 raise SystemExit(2) from None
         else:

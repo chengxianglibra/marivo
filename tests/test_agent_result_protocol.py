@@ -204,7 +204,7 @@ def _authoring_assessment() -> AuthoringAssessment:
         message="needs evidence",
         rule_id="R1",
     )
-    return AuthoringAssessment(status="needs_input", issues=(issue,), questions=())
+    return AuthoringAssessment(status="needs_input", issues=(issue,))
 
 
 def _verify_result() -> VerifyResult:
@@ -361,7 +361,7 @@ def test_datasource_description_render_includes_all_field_names() -> None:
 def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
     assert _authoring_assessment().render() == "\n".join(
         [
-            "AuthoringAssessment status=needs_input issues=1 questions=0",
+            "AuthoringAssessment status=needs_input issues=1",
             "columns: issue | severity",
             "preview:",
             "missing_evidence | warning",
@@ -377,7 +377,7 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "validation_level: static",
             "runtime_checked: false",
             "Next step:",
-            "- continue the batch or run ms.readiness(refs=...)",
+            "- continue the batch or run catalog.readiness(refs=...)",
             "available:",
             "- .issues",
             "- .warnings",

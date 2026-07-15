@@ -189,13 +189,12 @@ def test_phase3_public_help_mentions_measure_details_and_current_metric_shape() 
     assert "measure" in index
 
     measure_topic = ms.help_text("measure")
-    assert "row-level quantitative measure" in measure_topic
-    assert "aggregate" in measure_topic
+    assert "Declare a calculated measure" in measure_topic
+    assert "additivity" in measure_topic
 
     metric_topic = ms.help_text("metric")
-    assert "Metric constructor decision order" in metric_topic
-    assert "@ms.metric" in metric_topic
-    assert "ms.aggregate" in metric_topic
+    assert "ms.metric" in metric_topic
+    assert "Signature:" in metric_topic
 
 
 def test_phase3_cumulative_constructor_is_describable() -> None:
@@ -203,8 +202,8 @@ def test_phase3_cumulative_constructor_is_describable() -> None:
 
     cumulative_topic = ms.help_text("cumulative")
     assert "ms.cumulative" in cumulative_topic
-    assert "running-total" in cumulative_topic.lower()
-    assert "over" in cumulative_topic
+    assert "cumulative" in cumulative_topic.lower()
+    assert "anchor" in cumulative_topic.lower()
 
 
 def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_factory) -> None:

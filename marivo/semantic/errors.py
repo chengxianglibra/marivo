@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal, NoReturn
 
+from marivo.introspection.live.errors import ContractScopeErrorPayload, HelpTargetErrorPayload
+from marivo.introspection.live.model import AuthoringRepair, LiveHelpTarget
 from marivo.semantic.constraints import (
     ConstraintId,
     default_constraint_for_error_kind,
@@ -23,8 +25,10 @@ from marivo.semantic.ir import SourceLocation
 __all__ = [
     "HINTS",
     "ErrorKind",
+    "SemanticContractScopeError",
     "SemanticDecoratorError",
     "SemanticError",
+    "SemanticHelpTargetError",
     "SemanticLoadError",
     "SemanticLoadFailed",
     "SemanticParityError",
@@ -32,7 +36,46 @@ __all__ = [
     "StructuredWarning",
     "WarningKind",
     "_raise",
+    "repair",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Repair helper
+# ---------------------------------------------------------------------------
+
+
+def repair(
+    *,
+    kind: Literal[
+        "retry",
+        "configure",
+        "register",
+        "reconnect",
+        "inspect",
+        "rescope",
+        "reacquire",
+        "reauthor",
+        "reload",
+        "reverify",
+        "repreview",
+        "environment",
+    ],
+    canonical_id: str,
+    action: str,
+    snippet: str | None = None,
+    candidates: tuple[str, ...] = (),
+    preserves_evidence: bool | None = None,
+) -> AuthoringRepair:
+    """Construct a semantic-owned typed repair."""
+    return AuthoringRepair(
+        kind=kind,
+        help_target=LiveHelpTarget(surface="semantic", canonical_id=canonical_id),
+        action=action,
+        snippet=snippet,
+        candidates=candidates,
+        preserves_evidence=preserves_evidence,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +197,10 @@ class SemanticError(Exception):
     hint: str | None
     details: dict[str, Any]
     constraint_id: str | None
+    repair: AuthoringRepair | None
+    expected: str | None
+    received: str | None
+    location_label: str | None
 
     def __init__(
         self,
@@ -165,6 +212,10 @@ class SemanticError(Exception):
         hint: str | None = None,
         details: dict[str, Any] | None = None,
         constraint_id: ConstraintId | str | None = None,
+        repair: AuthoringRepair | None = None,
+        expected: str | None = None,
+        received: str | None = None,
+        location_label: str | None = None,
     ) -> None:
         if constraint_id is None:
             default_constraint = default_constraint_for_error_kind(kind)
@@ -179,6 +230,10 @@ class SemanticError(Exception):
         self.hint = hint
         self.details = details or {}
         self.constraint_id = str(constraint_id) if constraint_id is not None else None
+        self.repair = repair
+        self.expected = expected
+        self.received = received
+        self.location_label = location_label
         super().__init__(str(self))
 
     def __str__(self) -> str:
@@ -187,11 +242,24 @@ class SemanticError(Exception):
             lines.append(f"  refs: {', '.join(self.semantic_refs)}")
         if self.location is not None:
             lines.append(f"  at: {self.location.file}:{self.location.line}")
+        if self.location_label is not None:
+            lines.append(f"  at: {self.location_label}")
+        if self.expected is not None:
+            lines.append(f"  expected: {self.expected}")
+        if self.received is not None:
+            lines.append(f"  received: {self.received}")
         if self.hint is not None:
             lines.append(f"  hint: {self.hint}")
         dym = self.details.get("did_you_mean")
         if isinstance(dym, list) and dym:
             lines.append(f"  Did you mean: {', '.join(dym)}")
+        if self.repair is not None:
+            lines.extend(("", "Repair:", f"  {self.repair.action}"))
+            if self.repair.candidates:
+                lines.append(f"  Candidates: {', '.join(self.repair.candidates)}")
+            target = self.repair.help_target
+            if target.canonical_id is not None:
+                lines.append(f"Help: ms.help({target.canonical_id!r})")
         return "\n".join(lines)
 
 
@@ -209,6 +277,45 @@ class SemanticRuntimeError(SemanticError):
 
 class SemanticParityError(SemanticError):
     """Error raised during parity checking."""
+
+
+class SemanticHelpTargetError(SemanticError):
+    """Semantic-owned rejection of an unsupported live help target."""
+
+    def __init__(self, payload: HelpTargetErrorPayload) -> None:
+        owning_surface = payload.surface or "unknown"
+        super().__init__(
+            kind="not_found",
+            message=payload.message,
+            expected=f"accepted semantic help target ({', '.join(payload.accepted_kinds)})",
+            received=payload.received,
+            location_label=f"{owning_surface} help surface",
+            repair=repair(
+                kind="retry",
+                canonical_id="help",
+                action="Retry with a registered semantic help target.",
+                candidates=payload.candidates,
+            ),
+        )
+
+
+class SemanticContractScopeError(SemanticError):
+    """Semantic-owned rejection of an over-broad contract request."""
+
+    def __init__(self, payload: ContractScopeErrorPayload) -> None:
+        super().__init__(
+            kind="ambiguous_reference",
+            message=payload.message,
+            expected=f"at most {payload.allowed_maximum} semantic subjects",
+            received=", ".join(payload.requested_subjects),
+            location_label="semantic contract scope",
+            repair=AuthoringRepair(
+                kind="retry",
+                help_target=payload.repair_target,
+                action="Narrow subject_refs to semantic-owned candidates.",
+                candidates=payload.owned_subjects,
+            ),
+        )
 
 
 class SemanticLoadFailed(Exception):  # noqa: N818

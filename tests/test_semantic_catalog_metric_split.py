@@ -111,11 +111,14 @@ def test_simple_metric_details_render_includes_additivity(semantic_project_facto
 def test_help_topics_reflect_split():
     import marivo.semantic as ms
 
-    # The help index text must mention the new topics
+    # The help index text must mention metric-related capabilities
     index = ms.help_text()
     assert "metric" in index
-    assert "composition" in index
-    comp = ms.help_text("composition")
-    assert "ms.sum()" not in comp
-    assert "ratio" in comp
-    assert "linear" in comp
+    assert "ratio" in index
+    assert "linear" in index
+    assert "cumulative" in index
+    assert "weighted_average" in index
+
+    # The metric capability help must reference the constructor family
+    metric_help = ms.help_text("metric")
+    assert "ms.metric" in metric_help

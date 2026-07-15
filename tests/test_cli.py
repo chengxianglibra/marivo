@@ -204,11 +204,9 @@ def test_root_help_points_analysis_to_python_workflow(capsys: pytest.CaptureFixt
     # Root help advertises the CLI analysis help subcommand.
     assert "marivo help analysis" in captured.out
     assert "marivo help datasource" in captured.out
-    # Semantic authoring routing block points agents to Python help topics.
-    # Uses bare `python -c` to match the Analysis workflow convention.
+    # Semantic authoring routing block points agents to the CLI semantic track.
     assert "Semantic authoring workflow:" in captured.out
-    assert "python -c \"import marivo.datasource as md; md.help('authoring')\"" in captured.out
-    assert "python -c \"import marivo.semantic as ms; ms.help('authoring')\"" in captured.out
+    assert "marivo help semantic" in captured.out
 
 
 def test_cli_datasource_help_matches_python_adapter(
@@ -575,3 +573,38 @@ def test_doctor_command_fix_snapshot_takes_precedence_over_json(
 
     captured = capsys.readouterr()
     assert captured.out == "FIX SNAP WINS\n"
+
+
+# ---------------------------------------------------------------------------
+# help semantic track
+# ---------------------------------------------------------------------------
+
+
+def test_cli_help_semantic_root_prints_environment(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main(["help", "semantic"])
+
+    output = capsys.readouterr().out
+    assert "marivo.semantic" in output
+    assert "Capabilities:" in output
+
+
+def test_cli_help_semantic_target_prints_focused_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main(["help", "semantic", "authoring"])
+
+    output = capsys.readouterr().out
+    assert "authoring" in output
+
+
+def test_cli_help_semantic_unknown_target_exits_2(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["help", "semantic", "nonexistent_target"])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "not registered" in captured.err or "semantic help target" in captured.err

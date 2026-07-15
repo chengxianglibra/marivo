@@ -1,19 +1,19 @@
 """Cross-surface tests for the agent-facing help() contract.
 
-The analysis and datasource surfaces no longer use the shared JSON ``Surface``
-introspection infrastructure — each has its own capability-registry-based
-renderer. Only the semantic surface is covered by the JSON-based parametrised
-tests below. Live help invariants live in
-``tests/test_analysis_help.py``.
+All three surfaces (analysis, datasource, semantic) now use
+capability-registry-based live renderers. The old JSON ``Surface``
+infrastructure has been removed. Live help invariants for the semantic
+surface live in ``tests/test_semantic_help_contract.py``; analysis help
+invariants live in ``tests/test_analysis_help.py``.
+
+This file retains catalog-level, constraint-path, and datasource/analysis
+regression tests that do not depend on the removed ``_surface`` function.
 """
 
 from __future__ import annotations
 
 import inspect
-import json
 from pathlib import Path
-from types import ModuleType
-from typing import Any, cast
 
 import pytest
 
@@ -23,137 +23,6 @@ from marivo.analysis.constraints import CONSTRAINTS as ANALYSIS_CONSTRAINTS
 from marivo.semantic.constraints import CONSTRAINTS as SEMANTIC_CONSTRAINTS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-# Semantic still uses the shared JSON Surface.
-SURFACES = [
-    pytest.param(
-        "marivo.semantic",
-        ms,
-        SEMANTIC_CONSTRAINTS,
-        {"constraints", "additivity", "composition", "authoring"},
-        id="semantic",
-    ),
-]
-
-REQUIRED_BY_KIND = {
-    "surface": {"schema_version", "surface", "kind", "symbol", "summary", "entries"},
-    "callable": {
-        "schema_version",
-        "surface",
-        "kind",
-        "symbol",
-        "summary",
-        "signature",
-        "constraints",
-        "examples",
-        "see_also",
-    },
-    "class": {
-        "schema_version",
-        "surface",
-        "kind",
-        "symbol",
-        "summary",
-        "signature",
-        "constraints",
-        "examples",
-        "see_also",
-    },
-    "frame": {
-        "schema_version",
-        "surface",
-        "kind",
-        "symbol",
-        "summary",
-        "constraints",
-        "examples",
-        "see_also",
-        "methods",
-    },
-    "module": {
-        "schema_version",
-        "surface",
-        "kind",
-        "symbol",
-        "summary",
-        "signature",
-        "constraints",
-        "examples",
-        "see_also",
-    },
-    "topic": {
-        "schema_version",
-        "surface",
-        "kind",
-        "symbol",
-        "summary",
-        "constraints",
-        "examples",
-        "see_also",
-        "content",
-    },
-    "unknown": {"schema_version", "surface", "kind", "symbol", "summary", "did_you_mean"},
-    "type-alias": {
-        "schema_version",
-        "surface",
-        "kind",
-        "symbol",
-        "summary",
-        "signature",
-        "constraints",
-        "examples",
-        "see_also",
-    },
-}
-
-
-def _json_size(data: dict[str, object]) -> int:
-    return len(json.dumps(data, sort_keys=True, separators=(",", ":")))
-
-
-def _json_help(module: Any, symbol: str | None = None) -> dict[str, Any]:
-    """Return JSON descriptor dict for a symbol using internal render."""
-    import json as json_mod
-
-    from marivo.introspection.surface import render as surface_render
-
-    # Each help module exposes _surface() and uses Surface.render internally.
-    help_mod_name = getattr(module.help, "__module__", "")
-    if help_mod_name:
-        help_mod = __import__(help_mod_name, fromlist=["_surface"])
-        surface = help_mod._surface()
-    else:
-        raise AssertionError(f"Cannot locate help module for {module.__name__}")
-    data = surface_render(surface, symbol, "json")
-    assert isinstance(data, dict)
-    # Print the JSON to stdout so capsys-based tests that check stdout still pass.
-    print(json_mod.dumps(data, indent=2, sort_keys=True))
-    return cast("dict[str, Any]", data)
-
-
-def _hidden_names_for(module: Any) -> frozenset[str]:
-    """Return names hidden from the top-level help index for a surface."""
-    help_mod_name = getattr(module.help, "__module__", "")
-    if help_mod_name:
-        help_mod = __import__(help_mod_name, fromlist=["_surface"])
-        surface = help_mod._surface()
-        return surface.hidden_names
-    return frozenset()
-
-
-def _help_text(module: Any, name: str) -> str:
-    if hasattr(module, "help_text"):
-        if module.__name__ in {"marivo.analysis", "marivo.datasource"}:
-            assert "help_text" in module.__all__
-        return cast("str", module.help_text(name))
-    if module.__name__ != "marivo.semantic":
-        raise AssertionError(f"{module.__name__} must expose public help_text")
-    help_module = getattr(module.help, "__module__", "")
-    if help_module:
-        imported = __import__(help_module, fromlist=["help_text"])
-        if isinstance(imported, ModuleType) and hasattr(imported, "help_text"):
-            return cast("str", imported.help_text(name))
-    raise AssertionError(f"{module.__name__} has no non-printing text help renderer")
 
 
 def _looks_like_repo_path(value: str) -> bool:
@@ -168,76 +37,17 @@ def _normalize_repo_ref(value: str) -> str:
     return path
 
 
-@pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)
-def test_top_level_listing_matches_public_surface(
-    surface_name: str,
-    module: Any,
-    catalog: dict[Any, Any],
-    extra_names: set[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    data = _json_help(module)
-
-    assert capsys.readouterr().out != ""
-    assert data["schema_version"] == "1"
-    assert data["surface"] == surface_name
-    assert data["kind"] == "surface"
-    entry_names = {entry["name"] for entry in data["entries"]}
-    folded_names = {name for fam in data.get("families", []) for name in fam["members"]}
-    assert entry_names.isdisjoint(folded_names)
-    assert entry_names | folded_names == (set(module.__all__) | extra_names) - _hidden_names_for(
-        module
-    )
-    assert _json_size(data) < 12_000
-
-
-@pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)
-def test_every_listed_name_resolves_to_descriptor(
-    surface_name: str,
-    module: Any,
-    catalog: dict[Any, Any],
-    extra_names: set[str],
-) -> None:
-    names = (set(module.__all__) | extra_names) - _hidden_names_for(module)
-    for name in sorted(names):
-        data = _json_help(module, name)
-        assert data["schema_version"] == "1"
-        assert data["surface"] == surface_name
-        assert data["kind"] != "unknown", name
-        assert REQUIRED_BY_KIND[data["kind"]] <= set(data), name
-        assert _json_size(data) < 14_000, name
-
-
-@pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)
-def test_text_renders_for_every_listed_name(
-    surface_name: str,
-    module: Any,
-    catalog: dict[Any, Any],
-    extra_names: set[str],
-) -> None:
-    for name in sorted(set(module.__all__) | extra_names):
-        result = _help_text(module, name)
-        assert isinstance(result, str)
-        assert result.strip()
-
-
-@pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)
-def test_constraint_paths_exist(
-    surface_name: str,
-    module: Any,
-    catalog: dict[Any, Any],
-    extra_names: set[str],
-) -> None:
-    for constraint in catalog.values():
+def test_constraint_paths_exist() -> None:
+    for constraint in SEMANTIC_CONSTRAINTS.values():
         docs_ref = constraint.docs_ref
         if docs_ref is not None:
             assert (REPO_ROOT / _normalize_repo_ref(docs_ref)).exists(), (
-                f"{surface_name} {constraint.id} docs_ref"
+                f"semantic {constraint.id} docs_ref"
             )
         example = constraint.example
         if isinstance(example, str) and _looks_like_repo_path(example):
             assert (REPO_ROOT / _normalize_repo_ref(example)).exists(), (
-                f"{surface_name} {constraint.id} example"
+                f"semantic {constraint.id} example"
             )
 
 
@@ -296,108 +106,34 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
                 pytest.fail(f"canonical target {target!r} not in registry")
 
 
-@pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)
-def test_l1_constraints_and_methods_are_summaries_only(
-    surface_name: str,
-    module: Any,
-    catalog: dict[Any, Any],
-    extra_names: set[str],
-) -> None:
-    for name in sorted(set(module.__all__) | extra_names):
-        data = _json_help(module, name)
-        for constraint in data.get("constraints", []):
-            assert set(constraint) <= {"id", "title", "hint", "example", "help_target"}, name
-            assert "why" not in constraint
-            assert "ast_spec" not in constraint
-        for method in data.get("methods", []):
-            assert set(method) == {"name", "summary"}, name
-            assert "(" not in method["name"]
-
-
-@pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)
-def test_l2_constraint_drilldowns_resolve(
-    surface_name: str,
-    module: Any,
-    catalog: dict[Any, Any],
-    extra_names: set[str],
-) -> None:
-    for constraint in catalog.values():
-        data = _json_help(module, constraint.id)
-        assert data["kind"] == "topic"
-        assert data["symbol"] == constraint.id
-        assert data["content"]["id"] == constraint.id
-        assert "why" in data["content"]
-
-
-@pytest.mark.parametrize(("surface_name", "module", "catalog", "extra_names"), SURFACES)
-def test_l2_method_drilldowns_resolve(
-    surface_name: str,
-    module: Any,
-    catalog: dict[Any, Any],
-    extra_names: set[str],
-) -> None:
-    checked = 0
-    for name in sorted(set(module.__all__) | extra_names):
-        class_data = _json_help(module, name)
-        for method in class_data.get("methods", []):
-            method_name = method["name"]
-            data = _json_help(module, f"{name}.{method_name}")
-            checked += 1
-            assert data["kind"] == "callable", f"{surface_name} {name}.{method_name}"
-            assert data["symbol"] == f"{name}.{method_name}"
-            assert "signature" in data
-    if surface_name != "marivo.datasource":
-        assert checked > 0
-
-
 def test_no_inherited_or_module_docstring_leaks() -> None:
     text = md.help_text("trino")
     assert "Signature:" in text
     assert "__init__" not in text
 
 
-def test_semantic_catalog_descriptor_lists_agent_workflow_methods() -> None:
-    result = _json_help(ms, "SemanticCatalog")
-
-    assert result["kind"] == "class"
-    assert "catalog.metrics" in result["doc"] or "catalog.domains" in result["doc"]
-    methods = {entry["name"] for entry in cast("list[dict[str, Any]]", result["methods"])}
-    assert {
-        "get",
-        "readiness",
-    } <= methods
+def test_semantic_catalog_help_lists_workflow_methods() -> None:
+    text = ms.help_text(ms.SemanticCatalog)
+    assert "SemanticCatalog" in text
+    assert "get" in text
+    assert "readiness" in text
+    assert "verify_object" in text
 
 
-def test_semantic_load_descriptor_mentions_configured_layer_paths() -> None:
-    result = _json_help(ms, "load")
+def test_semantic_load_help_mentions_entrypoint() -> None:
+    text = ms.help_text("load")
+    assert "ms.load" in text
+    assert "Signature:" in text
+    assert "SemanticCatalog" in text
 
-    assert result["kind"] == "callable"
-    assert "[semantic].layer_paths" in result["doc"]
-    assert "external models roots" in result["doc"]
 
-
-def test_semantic_metric_descriptor_uses_l1_constraint_summaries() -> None:
-    result = _json_help(ms, "metric")
-
-    assert result["kind"] == "topic"
-    assert result["symbol"] == "metric"
-    assert result["doc"]
-    content = cast("dict[str, Any]", result["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-    assert contract["constructor"] == "metric family"
-    assert contract["decision_order"] == [
-        "count",
-        "aggregate",
-        "cumulative",
-        "ratio",
-        "weighted_average",
-        "linear",
-        "expression",
-    ]
-    variants = cast("dict[str, dict[str, Any]]", contract["variants"])
-    assert variants["aggregate"]["constructor"] == "ms.aggregate"
-    assert variants["expression"]["constructor"] == "@ms.metric"
-    assert variants["cumulative"]["constructor"] == "ms.cumulative"
+def test_semantic_metric_help_contains_constructor_and_constraints() -> None:
+    text = ms.help_text("metric")
+    assert "ms.metric" in text
+    assert "Signature:" in text
+    assert "Constraints:" in text
+    assert "metric_entities_required" in text
+    assert "metric_additivity_required" in text
 
 
 def test_datasource_trino_descriptor_lists_secret_env_constraint() -> None:
