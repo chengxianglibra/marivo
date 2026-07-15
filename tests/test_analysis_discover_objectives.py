@@ -745,3 +745,127 @@ def test_discover_dispatch_drops_dead_sensitivity_parameter():
 
     assert "sensitivity" not in inspect.signature(_discover_dispatch).parameters
     assert not hasattr(mv, "DiscoverSensitivity")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "point_anomalies",
+        "period_shifts",
+        "driver_axes",
+        "interesting_slices",
+        "interesting_windows",
+        "cross_sectional_outliers",
+    ],
+)
+def test_discover_methods_expose_limit(name):
+    """Every discover objective exposes ``limit`` (issue #15)."""
+    session = session_attach.get_or_create(name="demo")
+    method = getattr(session.discover, name)
+    assert "limit" in inspect.signature(method).parameters
+
+
+def test_point_anomalies_default_limit_is_applied_and_visible():
+    """Omitting limit applies the conservative default (50) and records it in
+    params; no silent truncation when under the cap (issue #15)."""
+    session = session_attach.get_or_create(name="demo")
+    series = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=10, freq="D", tz="UTC"),
+                "value": [0.0, 0.0, 0.0, 0.0, 10.0, -10.0, 8.0, -8.0, 5.0, -5.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+    out = session.discover.point_anomalies(series, threshold=1.0)
+    assert out.meta.params["limit"] == 50
+    # 4 candidates (< 50) so no truncation flag
+    assert "truncated" not in out.meta.params
+
+
+def test_point_anomalies_limit_truncates_by_abs_score_and_records():
+    """limit truncates to top candidates by |score| and records the fact."""
+    session = session_attach.get_or_create(name="demo")
+    series = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=10, freq="D", tz="UTC"),
+                "value": [0.0, 0.0, 0.0, 0.0, 10.0, -10.0, 8.0, -8.0, 5.0, -5.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+    out = session.discover.point_anomalies(series, threshold=1.0, limit=3)
+    rows = out.to_pandas()
+    # 4 raw candidates (|z| >= 1.0) truncated to 3, top by |z|
+    assert len(rows) == 3
+    assert out.meta.params["limit"] == 3
+    assert out.meta.params["truncated"] is True
+    assert out.meta.params["candidate_count_before_limit"] == 4
+    assert out.meta.params["candidate_count"] == 3
+    scores = [abs(float(s)) for s in rows["score"]]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_point_anomalies_limit_none_is_unbounded():
+    """Explicit ``limit=None`` opts out of the default and stays unbounded."""
+    session = session_attach.get_or_create(name="demo")
+    series = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=10, freq="D", tz="UTC"),
+                "value": [0.0, 0.0, 0.0, 0.0, 10.0, -10.0, 8.0, -8.0, 5.0, -5.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+    out = session.discover.point_anomalies(series, threshold=1.0, limit=None)
+    rows = out.to_pandas()
+    assert len(rows) == 4
+    assert out.meta.params["limit"] is None
+    assert "truncated" not in out.meta.params
+
+
+def test_interesting_windows_limit_truncates_and_records():
+    """limit applies to interesting_windows too (separate scorer path)."""
+    session = session_attach.get_or_create(name="demo")
+    values = [1.0] * 15 + [50.0] * 4 + [1.0] * 15 + [60.0] * 4 + [1.0] * 10
+    series = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=len(values), freq="D", tz="UTC"),
+                "value": values,
+            }
+        ),
+        semantic_kind="time_series",
+    )
+    out = session.discover.interesting_windows(series, threshold=1.5, limit=1)
+    rows = out.to_pandas()
+    # two spike windows, truncated to the top one by |z|
+    assert len(rows) == 1
+    assert out.meta.params["limit"] == 1
+    assert out.meta.params["truncated"] is True
+    assert out.meta.params["candidate_count_before_limit"] == 2
+    assert out.meta.params["candidate_count"] == 1
+
+
+@pytest.mark.parametrize("bad_limit", [0, -1, 1.5, True])
+def test_limit_rejects_invalid(bad_limit):
+    session = session_attach.get_or_create(name="demo")
+    series = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=10, freq="D", tz="UTC"),
+                "value": [0.0, 0.0, 0.0, 0.0, 10.0, -10.0, 8.0, -8.0, 5.0, -5.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+    with pytest.raises(SemanticKindMismatchError):
+        session.discover.point_anomalies(series, threshold=1.0, limit=bad_limit)  # type: ignore[arg-type]
