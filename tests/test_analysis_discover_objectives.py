@@ -649,25 +649,39 @@ def test_cross_sectional_outliers_segmented():
     assert rows.loc[0, "direction"] == "high"
 
 
-def test_cross_sectional_outliers_records_peer_scope():
+def test_cross_sectional_outliers_peer_scope_groups_comparison():
+    """peer_scope must actually group the comparison: a small-magnitude
+    region's intra-region outlier surfaces only when compared against its
+    peers, not against the whole cross-section (issue #7)."""
     session = session_attach.get_or_create(name="demo")
-    metric = _metric(
-        session,
-        pd.DataFrame(
-            {
-                "region": ["a", "b", "c", "d", "e"],
-                "value": [1.0, 1.0, 1.0, 1.0, 100.0],
-            }
-        ),
-        semantic_kind="segmented",
+    df = pd.DataFrame(
+        {
+            "region": [*["A"] * 5, *["B"] * 5],
+            "store": ["a1", "a2", "a3", "a4", "a5", "b1", "b2", "b3", "b4", "b5"],
+            # A ~1 with a spike to 100; B ~100 (100x) with a spike to 10000
+            "value": [1.0, 1.0, 1.0, 1.0, 100.0, 100.0, 100.0, 100.0, 100.0, 10000.0],
+        }
     )
-    out = session.discover.cross_sectional_outliers(
+    metric = _metric(session, df, semantic_kind="segmented")
+
+    without_peer = session.discover.cross_sectional_outliers(metric, threshold=3.0).to_pandas()
+    without_stores = {json.loads(k)["store"] for k in without_peer["keys_json"]}
+    # global median sits at 100: only B's 10000 spike clears, A's spike is buried
+    assert "b5" in without_stores
+    assert "a5" not in without_stores
+
+    with_peer = session.discover.cross_sectional_outliers(
         metric,
         threshold=3.0,
         peer_scope=[make_ref("region", SemanticKind.DIMENSION)],
-    )
-    rows = out.to_pandas()
-    assert json.loads(rows.loc[0, "peer_scope_json"]) == ["region"]
+    ).to_pandas()
+    peer_stores = {json.loads(k)["store"] for k in with_peer["keys_json"]}
+    # each region compared internally: both A's and B's intra-region spikes surface
+    assert "a5" in peer_stores
+    assert "b5" in peer_stores
+    # peer_scope is still recorded on each candidate
+    assert json.loads(with_peer.loc[0, "peer_scope_json"]) == ["region"]
+    assert with_peer["item_id"].is_unique
 
 
 @pytest.mark.parametrize(
@@ -927,3 +941,22 @@ def test_interesting_slices_rejects_scalar_frame():
     frame = _metric(session, pd.DataFrame({"value": [1.0]}), semantic_kind="scalar")
     with pytest.raises(SemanticKindMismatchError):
         session.discover.interesting_slices(frame, threshold=1.0)
+
+
+def test_cross_sectional_outliers_rejects_unmaterialized_peer_scope():
+    """An unmaterialized peer_scope axis fails closed instead of silently
+    falling back to a global comparison (issue #7)."""
+    session = session_attach.get_or_create(name="demo")
+    metric = _metric(
+        session,
+        pd.DataFrame({"region": ["a", "b", "c"], "value": [1.0, 1.0, 100.0]}),
+        semantic_kind="segmented",
+    )
+    with pytest.raises(SemanticKindMismatchError) as exc:
+        session.discover.cross_sectional_outliers(
+            metric,
+            threshold=3.0,
+            peer_scope=[make_ref("nonexistent", SemanticKind.DIMENSION)],
+        )
+    assert exc.value._context["objective"] == "cross_sectional_outliers"
+    assert "nonexistent" in exc.value._context["missing_axes"]
