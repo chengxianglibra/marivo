@@ -724,7 +724,7 @@ def test_validate_semantic_handoff_warning_id_mismatch_raises(
                 severity="warning",
                 refs=("sales.orders",),
                 message="string ref used",
-                suggested_action="Use stable object refs.",
+                repair=None,
             ),
         ),
         input_summary=ReadinessInputSummary(

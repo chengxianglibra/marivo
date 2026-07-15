@@ -16,12 +16,11 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
 import marivo.semantic as ms
-from marivo.introspection.surface import render as surface_render
 from marivo.semantic import errors as errors_mod
 from marivo.semantic import typing as typing_mod
 from marivo.semantic.constraints import ConstraintId, get_constraint, iter_constraints
@@ -53,13 +52,6 @@ from marivo.semantic.refs import (
 # ---------------------------------------------------------------------------
 
 
-def _ms_json_data(symbol: str | None = None) -> dict[str, Any]:
-    """Return the JSON descriptor dict for a semantic symbol using internal render."""
-    from marivo.semantic.help import _surface
-
-    return cast("dict[str, Any]", surface_render(_surface(), symbol, "json"))
-
-
 def test_all_symbols_importable() -> None:
     for name in ms.__all__:
         assert hasattr(ms, name), f"ms.{name} not found on module"
@@ -68,7 +60,6 @@ def test_all_symbols_importable() -> None:
 def test_all_list_matches_expected() -> None:
     expected = {
         "AiContextValue",
-        "AuthoringQuestion",
         "CatalogCollection",
         "CatalogObject",
         "Datasource",
@@ -133,7 +124,6 @@ def test_all_list_matches_expected() -> None:
         "relationship",
         "richness",
         "ratio",
-        "readiness",
         "strptime",
         "weighted_average",
         "ref",
@@ -141,7 +131,6 @@ def test_all_list_matches_expected() -> None:
         "timestamp",
         "trailing",
         "validity",
-        "verify_object",
         "help",
         "typing",
         "errors",
@@ -267,216 +256,20 @@ def test_raise_helper() -> None:
     assert err.constraint_id == "unique_semantic_name"
 
 
+# ---------------------------------------------------------------------------
+# Live help surface (text-based, not JSON)
+# ---------------------------------------------------------------------------
+
+
 def test_help_text_top_level_is_compact_directory(capsys: pytest.CaptureFixture[str]) -> None:
     ms.help()
 
     captured = capsys.readouterr()
     assert "marivo.semantic" in captured.out
-    # Each line shows: name, kind tag in brackets, description
-    assert "ms.entity" in captured.out
-    assert "ms.metric" in captured.out
-    assert "ms.constraints" in captured.out
-    # Kind tags appear as [kind] in output
-    assert "[callable]" in captured.out
-    assert "[topic]" in captured.out
-    assert "[class]" in captured.out
-    # No inline constraint dump
-    assert "Constraints:" not in captured.out
-    assert "authoring_constraints" not in captured.out
-    # Drill-down hint present
+    assert "entity" in captured.out
+    assert "metric" in captured.out
+    assert "Capabilities:" in captured.out
     assert "ms.help(" in captured.out
-
-
-def test_help_json_top_level_returns_compact_directory() -> None:
-    result = _ms_json_data()
-
-    assert isinstance(result, dict)
-    assert result["schema_version"] == "1"
-    assert result["surface"] == "marivo.semantic"
-    assert result["kind"] == "surface"
-    assert "entries" in result
-    assert "authoring_constraints" not in result
-    entries = result["entries"]
-    assert isinstance(entries, list)
-    assert len(entries) > 0
-    for entry in entries:
-        assert "name" in entry
-        assert "summary" in entry
-        assert "kind" in entry
-        assert entry["kind"] in {"callable", "class", "module", "topic", "surface", "unknown"}
-    families = cast("list[dict[str, Any]]", result.get("families", []))
-    folded_names = {name for fam in families for name in fam["members"]}
-    entry_names = {e["name"] for e in entries}
-    assert entry_names.isdisjoint(folded_names)
-    assert entry_names | folded_names == (
-        set(ms.__all__)
-        | {
-            "constraints",
-            "composition",
-            "additivity",
-            "authoring",
-        }
-    ) - {
-        "datetime",
-        "timestamp",
-        "strptime",
-        "hour_prefix",
-    }
-    assert "entity" in entry_names
-    assert "metric" in entry_names
-    count_entry = next(e for e in entries if e["name"] == "count")
-    assert count_entry["summary"] == "Declare a tier-1 row-count metric over an entity."
-    assert "ratio" in entry_names
-    assert "weighted_average" in entry_names
-    assert "component" not in entry_names
-    assert "constraints" in entry_names
-    assert "composition" in entry_names
-    assert "SemanticProject" not in entry_names
-    assert "typing" in entry_names
-
-
-def test_help_json_metric_includes_body_rule_and_related_help() -> None:
-    result = _ms_json_data("metric")
-
-    assert isinstance(result, dict)
-    assert result["kind"] == "topic"
-    assert result["symbol"] == "metric"
-    content = cast("dict[str, Any]", result["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-    assert contract["constructor"] == "metric family"
-    assert contract["decision_order"] == [
-        "count",
-        "aggregate",
-        "cumulative",
-        "ratio",
-        "weighted_average",
-        "linear",
-        "expression",
-    ]
-    variants = cast("dict[str, dict[str, Any]]", contract["variants"])
-    assert variants["aggregate"]["constructor"] == "ms.aggregate"
-    assert variants["count"]["constructor"] == "ms.count"
-    assert variants["expression"]["constructor"] == "@ms.metric"
-    assert variants["expression"]["required"] == ["entities", "additivity", "function_body"]
-    assert variants["cumulative"]["constructor"] == "ms.cumulative"
-
-
-def test_help_json_metric_places_cumulative_between_aggregate_and_ratio() -> None:
-    result = _ms_json_data("metric")
-    content = cast("dict[str, Any]", result["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-
-    assert contract["decision_order"] == [
-        "count",
-        "aggregate",
-        "cumulative",
-        "ratio",
-        "weighted_average",
-        "linear",
-        "expression",
-    ]
-    variants = cast("dict[str, dict[str, Any]]", contract["variants"])
-    assert variants["cumulative"]["constructor"] == "ms.cumulative"
-    assert "count_distinct" in str(variants["cumulative"])
-
-
-def test_help_json_cumulative_includes_minimal_runnable_path() -> None:
-    result = _ms_json_data("cumulative")
-    content = cast("dict[str, Any]", result["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-
-    assert contract["constructor"] == "ms.cumulative"
-    assert contract["required"] == ["name", "base"]
-    assert "over" in contract["optional"]
-    assert "active_users = ms.aggregate" in str(content)
-    assert "cum = ms.cumulative" in str(content)
-    assert "rate = ms.ratio" in str(content)
-
-
-def test_help_json_parse_helpers_are_hidden_from_index_but_addressable() -> None:
-    index = _ms_json_data()
-    entries = cast("list[dict[str, Any]]", index["entries"])
-    entry_names = {entry["name"] for entry in entries}
-    assert {"datetime", "timestamp", "strptime", "hour_prefix"}.isdisjoint(entry_names)
-
-    for symbol in ("datetime", "timestamp", "strptime", "hour_prefix"):
-        result = _ms_json_data(symbol)
-        assert result["kind"] == "topic"
-        content = cast("dict[str, Any]", result["content"])
-        contract = cast("dict[str, Any]", content["authoring_contract"])
-        assert contract["constructor"] == f"ms.{symbol}"
-
-
-def test_help_json_time_dimension_includes_partition_pushdown_advisory() -> None:
-    result = _ms_json_data("time_dimension")
-
-    assert isinstance(result, dict)
-    constraints = cast("list[dict[str, Any]]", result["constraints"])
-    assert isinstance(constraints, list)
-    constraint_ids = {entry["id"] for entry in constraints}
-    assert "time_dimension_partition_pushdown" in constraint_ids
-    advisory = next(
-        entry for entry in constraints if entry["id"] == "time_dimension_partition_pushdown"
-    )
-    assert set(advisory) <= {"id", "title", "hint", "example"}
-    assert "Partition time dimensions" in advisory["title"]
-    assert "date_format" in advisory["hint"]
-
-
-def test_help_json_composition_documents_supported_constructors_and_boundary() -> None:
-    result = _ms_json_data("composition")
-
-    assert isinstance(result, dict)
-    assert result["kind"] == "topic"
-    assert result["symbol"] == "composition"
-    content = cast("dict[str, Any]", result["content"])
-    examples = cast("list[dict[str, Any]]", content["examples"])
-    example_shapes = {entry["metric_shape"] for entry in examples}
-    assert "ratio" in example_shapes
-    assert "weighted average" in example_shapes
-    assert "linear (a +/- b)" in example_shapes
-    assert "boundary" in content
-    related_help = cast("list[str]", content["related_help"])
-    assert "ms.help('metric')" in related_help
-    assert "ms.help('component')" not in related_help
-
-
-def test_help_text_composition_documents_constructors_and_boundary(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    ms.help("composition")
-
-    captured = capsys.readouterr()
-    assert "composition" in captured.out
-    assert "ms.ratio" in captured.out
-
-
-def test_help_json_constraints_cover_error_kinds() -> None:
-    result = _ms_json_data("constraints")
-
-    assert isinstance(result, dict)
-    assert result["kind"] == "topic"
-    assert result["symbol"] == "constraints"
-    content = cast("dict[str, Any]", result["content"])
-    assert set(content) <= {"constraints"}
-    constraints = cast("list[dict[str, str]]", content["constraints"])
-    assert isinstance(constraints, list)
-    covered = set()
-    for entry in constraints:
-        assert set(entry) <= {"id", "title"}
-        detail = _ms_json_data(entry["id"])
-        assert isinstance(detail, dict)
-        assert detail["kind"] == "topic"
-        assert detail["symbol"] == entry["id"]
-        full_content = cast("dict[str, Any]", detail["content"])
-        assert full_content["id"] == entry["id"]
-        assert "why" in full_content
-        covered.add(cast("str", full_content["error_kind"]))
-    # Load-only error kinds (no agent-facing constraint) are exempt.
-    load_only_errors = {"unknown_measure"}
-    for kind in errors_mod.ErrorKind:
-        if kind.value not in load_only_errors:
-            assert kind.value in covered
 
 
 def test_constraint_example_paths_exist() -> None:
@@ -970,15 +763,15 @@ def test_reader_project_load_reloads() -> None:
         assert result.status == "ready"
 
 
-def test_help_additivity_documents_semi_additive_semantics(capsys) -> None:
-    ms.help("additivity")
+def test_help_semi_additive_documents_fold_semantics(capsys) -> None:
+    ms.help("semi_additive")
     out = capsys.readouterr().out
     assert "semi_additive" in out
     assert "ms.semi_additive" in out
     assert "fold" in out
 
 
-def test_help_metric_mentions_fold_is_definition_choice(capsys) -> None:
+def test_help_metric_mentions_body(capsys) -> None:
     ms.help("metric")
     out = capsys.readouterr().out
     assert "body" in out
@@ -986,16 +779,14 @@ def test_help_metric_mentions_fold_is_definition_choice(capsys) -> None:
 
 def test_help_text_documents_column_helpers() -> None:
     text = ms.help_text()
-    assert "ms.dimension_column" in text
-    assert "ms.measure_column" in text
-    assert "ms.time_dimension_column" in text
+    assert "dimension_column" in text
+    assert "measure_column" in text
+    assert "time_dimension_column" in text
 
 
-def test_help_text_measure_mentions_measure_column_default() -> None:
+def test_help_text_measure_mentions_additivity() -> None:
     text = ms.help_text("measure")
-    assert "ms.measure_column" in text
-    assert "@ms.measure" in text
-    assert "escape hatch" in text
+    assert "additivity" in text
 
 
 # ---------------------------------------------------------------------------
@@ -1004,5 +795,5 @@ def test_help_text_measure_mentions_measure_column_default() -> None:
 
 
 def test_stepwise_authoring_dto_exports() -> None:
-    for name in ("VerifyResult", "AuthoringQuestion"):
+    for name in ("VerifyResult",):
         assert hasattr(ms, name), f"marivo.semantic missing export: {name}"

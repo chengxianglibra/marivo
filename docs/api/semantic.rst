@@ -165,7 +165,6 @@ Readiness & assessment
    ReadinessIssue
    ReadinessInputSummary
    RichnessReport
-   AuthoringQuestion
    ParityResult
    VerifyResult
 

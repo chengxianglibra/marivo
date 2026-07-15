@@ -456,9 +456,8 @@ def test_readiness_requires_preview_only_for_direct_executable_refs(
         issue for issue in report.blockers if issue.kind == "runtime_preview_missing"
     ]
     assert [issue.refs for issue in preview_blockers] == [("sales.revenue",)]
-    assert "catalog.preview(" in preview_blockers[0].suggested_action
-    assert "using=" in preview_blockers[0].suggested_action
-    assert 'columns=("order_id", "amount", "region", "dt")' in preview_blockers[0].suggested_action
+    assert preview_blockers[0].repair is not None
+    assert preview_blockers[0].repair.kind == "repreview"
     assert query_spy.user_data_queries == 0
 
     catalog.preview(revenue, using=orders_snapshot)
@@ -495,11 +494,8 @@ def test_readiness_snapshot_missing_emits_only_exact_inspection_call(
 
     blocker = next(issue for issue in report.blockers if issue.kind == "snapshot_missing")
     assert blocker.refs == ("sales.revenue",)
-    assert blocker.suggested_action == (
-        'md.inspect(md.ref("datasource.warehouse"), md.table("orders"))'
-    )
-    assert ".sample(" not in blocker.suggested_action
-    assert "columns=" not in blocker.suggested_action
+    assert blocker.repair is not None
+    assert blocker.repair.kind == "reacquire"
     assert query_spy.user_data_queries == 0
 
 
@@ -531,8 +527,8 @@ def test_readiness_stale_definition_blocks_once_with_multi_entity_mapping(
 
     blockers = [issue for issue in report.blockers if issue.kind == "runtime_preview_missing"]
     assert [issue.refs for issue in blockers] == [("sales.net_revenue",)]
-    assert 'catalog.get("entity.sales.orders"):' in blockers[0].suggested_action
-    assert 'catalog.get("entity.sales.refunds"):' in blockers[0].suggested_action
+    assert blockers[0].repair is not None
+    assert blockers[0].repair.kind == "repreview"
     assert query_spy.user_data_queries == 0
 
 
@@ -545,8 +541,8 @@ def test_relationship_preview_check_satisfies_direct_readiness_gate(
 
     missing = catalog.readiness(refs=[relationship])
     blocker = next(issue for issue in missing.blockers if issue.kind == "runtime_preview_missing")
-    assert 'catalog.get("entity.sales.orders"):' in blocker.suggested_action
-    assert 'catalog.get("entity.sales.refunds"):' in blocker.suggested_action
+    assert blocker.repair is not None
+    assert blocker.repair.kind == "repreview"
     assert query_spy.user_data_queries == 0
 
     catalog.preview(

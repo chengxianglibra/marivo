@@ -9,9 +9,12 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 from marivo.datasource.authoring import DatasourceRef
+from marivo.introspection.live.model import AuthoringRepair
 from marivo.render import Card, RenderableResult
+from marivo.semantic.errors import repair
 
 if TYPE_CHECKING:
+    from marivo.introspection.live.model import AuthoringContract
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
@@ -37,7 +40,7 @@ class ReadinessIssue:
     severity: ReadinessSeverity
     refs: tuple[str, ...]
     message: str
-    suggested_action: str
+    repair: AuthoringRepair | None = None
     details: Mapping[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
@@ -46,7 +49,7 @@ class ReadinessIssue:
             "severity": self.severity,
             "refs": list(self.refs),
             "message": self.message,
-            "suggested_action": self.suggested_action,
+            "repair": self.repair.model_dump() if self.repair is not None else None,
         }
         if self.details:
             payload["details"] = dict(self.details)
@@ -87,14 +90,16 @@ class ReadinessReport(RenderableResult):
             card = card.listing(
                 label=f"blockers ({len(self.blockers)})",
                 items=tuple(
-                    f"{i.kind}: {i.message} -> fix: {i.suggested_action}" for i in self.blockers
+                    f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
+                    for i in self.blockers
                 ),
             )
         if self.warnings:
             card = card.listing(
                 label=f"warnings ({len(self.warnings)})",
                 items=tuple(
-                    f"{i.kind}: {i.message} -> fix: {i.suggested_action}" for i in self.warnings
+                    f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
+                    for i in self.warnings
                 ),
             )
         if self.analysis_ready_refs:
@@ -115,6 +120,18 @@ class ReadinessReport(RenderableResult):
             "input_summary": self.input_summary.to_dict(),
             "checked_at": self.checked_at,
         }
+
+    def contract(self) -> AuthoringContract:
+        """Return the mechanical continuation contract for this readiness report.
+
+        Exposes ``analysis_handoff`` transitions: available for refs that
+        passed readiness certification, blocked for refs with blocking issues.
+        """
+        from marivo.semantic._capabilities.contracts import (
+            contract_for_readiness_report,
+        )
+
+        return contract_for_readiness_report(self.analysis_ready_refs, self.blockers)
 
 
 class _SemanticKind(StrEnum):
@@ -167,7 +184,7 @@ def _issue(
     severity: ReadinessSeverity,
     refs: Iterable[str],
     message: str,
-    suggested_action: str,
+    repair: AuthoringRepair | None = None,
     *,
     details: Mapping[str, object] | None = None,
 ) -> ReadinessIssue:
@@ -176,7 +193,7 @@ def _issue(
         severity=severity,
         refs=_dedupe(refs),
         message=message,
-        suggested_action=suggested_action,
+        repair=repair,
         details={} if details is None else details,
     )
 
@@ -254,7 +271,11 @@ def _strict_enrichment_issues(
                     "blocker",
                     (ref,),
                     f"{ref} has no ai_context.business_definition for semantic certification.",
-                    "Add ai_context=ms.ai_context(business_definition=...) so analysis can match and reuse this ref.",
+                    repair(
+                        kind="reauthor",
+                        canonical_id="metric",
+                        action="Add ai_context=ms.ai_context(business_definition=...) so analysis can match and reuse this ref.",
+                    ),
                 )
             )
             # business_definition missing implies guardrails missing too; report
@@ -268,7 +289,11 @@ def _strict_enrichment_issues(
                         "blocker",
                         (ref,),
                         f"{ref} has no ai_context.guardrails; metrics are the central analysis unit and must declare usage constraints.",
-                        "Add ai_context=ms.ai_context(guardrails=[...]) describing how this metric may and may not be used.",
+                        repair(
+                            kind="reauthor",
+                            canonical_id="metric",
+                            action="Add ai_context=ms.ai_context(guardrails=[...]) describing how this metric may and may not be used.",
+                        ),
                     )
                 )
             else:
@@ -278,7 +303,11 @@ def _strict_enrichment_issues(
                         "warning",
                         (ref,),
                         f"{ref} has no ai_context.guardrails; analysis may proceed but the agent lacks usage constraints.",
-                        "Add ai_context=ms.ai_context(guardrails=[...]) to make safe usage explicit.",
+                        repair(
+                            kind="reauthor",
+                            canonical_id="metric",
+                            action="Add ai_context=ms.ai_context(guardrails=[...]) to make safe usage explicit.",
+                        ),
                     )
                 )
     return blockers, warnings
@@ -433,7 +462,11 @@ def _undeclared_naive_time_axis_issues(
                 (ref,),
                 f"{ref} is a native {data_type} time axis with no declared source timezone; "
                 "analysis will otherwise interpret naive values using the datasource read timezone.",
-                f"Declare the source timezone on this time dimension with parse={parse_call}.",
+                repair(
+                    kind="reauthor",
+                    canonical_id="time_dimension_column",
+                    action=f"Declare the source timezone on this time dimension with parse={parse_call}.",
+                ),
                 details={
                     "data_type": data_type,
                     "declared_timezone": None,
@@ -484,7 +517,11 @@ def build_readiness_report(
                     "blocker",
                     error.semantic_refs,
                     error.message,
-                    error.hint or "Fix semantic load errors and reload the project.",
+                    repair(
+                        kind="reload",
+                        canonical_id="load",
+                        action=error.hint or "Fix semantic load errors and reload the project.",
+                    ),
                 )
             )
         return ReadinessReport(
@@ -528,7 +565,11 @@ def build_readiness_report(
                 "blocker",
                 (ref,),
                 f"Requested semantic ref {ref!r} is not loaded in the project registry.",
-                "Browse loaded refs with catalog.domains.show(), catalog.metrics.show(), etc., inspect a known ref with catalog.get(...).details().show(), then fix or remove the ref from readiness refs.",
+                repair(
+                    kind="inspect",
+                    canonical_id="load",
+                    action="Browse loaded refs with catalog.domains.show(), catalog.metrics.show(), etc., inspect a known ref with catalog.get(...).details().show(), then fix or remove the ref from readiness refs.",
+                ),
             )
         )
 
@@ -565,7 +606,7 @@ def build_readiness_report(
                         "blocker",
                         (ref,),
                         f"{ref} has no fresh matching datasource snapshot metadata.",
-                        requirement.suggested_action,
+                        repair=requirement.repair,
                     )
                 )
                 continue
@@ -575,7 +616,7 @@ def build_readiness_report(
                     "blocker",
                     (ref,),
                     f"{ref} has no fresh preview check matching its current definition and dependencies.",
-                    requirement.suggested_action,
+                    repair=requirement.repair,
                 )
             )
 
@@ -588,7 +629,11 @@ def build_readiness_report(
                     "blocker",
                     (ref,),
                     f"Semantic object {ref} spans multiple datasources without federation support.",
-                    "Move integration upstream, enable a federated backend, or split the metric.",
+                    repair(
+                        kind="reauthor",
+                        canonical_id="metric",
+                        action="Move integration upstream, enable a federated backend, or split the metric.",
+                    ),
                 )
             )
 
@@ -612,7 +657,11 @@ def build_readiness_report(
                     "warning",
                     (ref,),
                     f"{ref} has provenance SQL but parity has not been confirmed.",
-                    f"Run ms.parity_check({ref!r}) when parity matters, or report the warning as non-blocking when the certification policy allows it.",
+                    repair(
+                        kind="reverify",
+                        canonical_id="parity_check",
+                        action=f"Run ms.parity_check({ref!r}) when parity matters, or report the warning as non-blocking when the certification policy allows it.",
+                    ),
                 )
             )
 
@@ -625,7 +674,11 @@ def build_readiness_report(
                     "warning",
                     sw.refs,
                     sw.message,
-                    "Replace fragile string refs with stable object refs where possible.",
+                    repair(
+                        kind="reauthor",
+                        canonical_id="ref",
+                        action="Replace fragile string refs with stable object refs where possible.",
+                    ),
                 )
             )
         if sw.kind == "time_dimension_pushdown_advisory":
@@ -635,7 +688,11 @@ def build_readiness_report(
                     "warning",
                     sw.refs,
                     sw.message,
-                    "If the business axis matches the partition field, keep the raw string/integer column and declare date_format; keep the expression when business semantics require it.",
+                    repair(
+                        kind="reauthor",
+                        canonical_id="time_dimension_column",
+                        action="If the business axis matches the partition field, keep the raw string/integer column and declare date_format; keep the expression when business semantics require it.",
+                    ),
                 )
             )
 
