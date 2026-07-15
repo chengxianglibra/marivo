@@ -62,6 +62,7 @@ def test_discover_point_anomalies_returns_candidate_set():
         "strategy": "zscore",
         "value": None,
         "threshold": 1.0,
+        "limit": 50,
     }
     df = out.to_pandas()
     assert list(df.columns) == CANDIDATE_COLUMNS

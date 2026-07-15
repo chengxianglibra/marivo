@@ -147,6 +147,9 @@ def _normalize_dimension_inputs_boundary(
     return [_normalize_dimension_boundary(session, value, argument=argument) for value in values]
 
 
+_DEFAULT_DISCOVER_LIMIT: int = 50
+
+
 def _discover_dispatch(
     source: MetricFrame | DeltaFrame,
     *,
@@ -154,7 +157,7 @@ def _discover_dispatch(
     strategy: CandidateStrategy | None = None,
     value: str | None = None,
     threshold: float | None = None,
-    limit: int | None = None,
+    limit: int | None = _DEFAULT_DISCOVER_LIMIT,
     search_space: list[DimensionInput] | None = None,
     peer_scope: list[DimensionInput] | None = None,
     session: Session | None = None,
@@ -183,7 +186,9 @@ def _discover_dispatch(
         ``interesting_windows``: absolute z-score per value, default 2.0.
         ``cross_sectional_outliers``: robust z-score via MAD, default 3.0.
         ``driver_axes`` does not accept threshold.
-        limit: Maximum number of candidates to return.
+        limit: Maximum number of candidates to return, applied to every objective
+        (top candidates by |score|; truncation is recorded in ``params``).
+        Defaults to ``_DEFAULT_DISCOVER_LIMIT`` (50); pass ``None`` for unbounded.
         search_space: Required for ``driver_axes`` — dimensions to consider as drivers.
         peer_scope: Optional peer grouping for ``cross_sectional_outliers``.
         session: Defaults to the currently-attached session.
@@ -245,10 +250,11 @@ def _discover_dispatch(
         source_kind=source_kind,
         value=value,
         threshold=threshold,
-        limit=limit,
         search_space=search_space_ids,
         peer_scope=peer_scope_ids,
     )
+    rows, limit_info = _apply_limit(rows, limit)
+    params = {**params, **limit_info}
     df = build_union_columns(shape, rows)
     validate_shape_columns(shape, df)
 
@@ -372,6 +378,7 @@ class DiscoverAPI:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
@@ -380,6 +387,7 @@ class DiscoverAPI:
             objective="point_anomalies",
             value=value,
             threshold=threshold,
+            limit=limit,
             session=session,
             analysis_purpose=analysis_purpose,
         )
@@ -390,6 +398,7 @@ class DiscoverAPI:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
@@ -399,6 +408,7 @@ class DiscoverAPI:
             objective="period_shifts",
             value=value,
             threshold=threshold,
+            limit=limit,
             session=session,
             analysis_purpose=analysis_purpose,
         )
@@ -409,7 +419,7 @@ class DiscoverAPI:
         *,
         search_space: list[DimensionInput],
         value: str | None = None,
-        limit: int | None = None,
+        limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
@@ -430,7 +440,7 @@ class DiscoverAPI:
         search_space: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
-        limit: int | None = None,
+        limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
@@ -451,6 +461,7 @@ class DiscoverAPI:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
@@ -459,6 +470,7 @@ class DiscoverAPI:
             objective="interesting_windows",
             value=value,
             threshold=threshold,
+            limit=limit,
             session=session,
             analysis_purpose=analysis_purpose,
         )
@@ -470,6 +482,7 @@ class DiscoverAPI:
         peer_scope: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
+        limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
@@ -478,6 +491,7 @@ class DiscoverAPI:
             objective="cross_sectional_outliers",
             value=value,
             threshold=threshold,
+            limit=limit,
             peer_scope=peer_scope,
             session=session,
             analysis_purpose=analysis_purpose,
@@ -524,7 +538,6 @@ def _run_scorer(
     source_kind: CandidateSourceKind,
     value: str | None,
     threshold: float | None,
-    limit: int | None,
     search_space: list[str] | None,
     peer_scope: list[str] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -595,14 +608,13 @@ def _run_scorer(
             value_column=value_column,
             axes=axes,
             bucket_column=bucket_column if bucket_column in df.columns else None,
-            limit=limit,
+            limit=None,
         )
         _attach_axis_semantic_ids(rows, semantic_id_by_column)
         driver_params: dict[str, Any] = {
             "value": value,
             "search_space": search_space,
             "search_space_columns": axes,
-            "limit": limit,
         }
         return rows, driver_params
 
@@ -636,7 +648,7 @@ def _run_scorer(
             value_column=value_column,
             axes=axes,
             threshold=threshold_value,
-            limit=limit,
+            limit=None,
         )
         _attach_selector_semantic_ids(rows, semantic_id_by_column)
         slice_params: dict[str, Any] = {
@@ -644,7 +656,6 @@ def _run_scorer(
             "threshold": threshold_value,
             "search_space": search_space or [],
             "search_space_columns": axes,
-            "limit": limit,
         }
         if skipped_subsets:
             slice_params["skipped_subsets"] = skipped_subsets
@@ -736,6 +747,40 @@ def _validate_threshold(threshold: float) -> float:
             message="discover threshold must be a positive finite number"
         )
     return threshold_value
+
+
+def _validate_limit(limit: int | None) -> int | None:
+    if limit is None:
+        return None
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise SemanticKindMismatchError(
+            message="discover limit must be a positive integer or None"
+        )
+    if limit < 1:
+        raise SemanticKindMismatchError(
+            message="discover limit must be a positive integer or None"
+        )
+    return limit
+
+
+def _apply_limit(
+    rows: list[dict[str, Any]], limit: int | None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Truncate candidates to the top ``limit`` by |score|, recording the fact.
+
+    Truncation is never silent: when rows are dropped the returned params carry
+    ``truncated=True`` plus before/after counts so agents can see that the
+    CandidateSet was bounded. ``limit`` is always recorded (None = unbounded).
+    """
+    limit = _validate_limit(limit)
+    info: dict[str, Any] = {"limit": limit}
+    if limit is None or len(rows) <= limit:
+        return rows, info
+    kept = sorted(rows, key=lambda r: abs(float(r["score"])), reverse=True)[:limit]
+    info["truncated"] = True
+    info["candidate_count_before_limit"] = len(rows)
+    info["candidate_count"] = len(kept)
+    return kept, info
 
 
 def _validate_period_shift_min_buckets(
