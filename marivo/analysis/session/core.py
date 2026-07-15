@@ -1321,13 +1321,17 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        # keep in sync with _DEFAULT_DISCOVER_LIMIT in marivo.analysis.intents.discover
+        limit: int | None = 50,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find time-series points with unusual values.
 
         Source must be a MetricFrame with time_series or panel shape.
         ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 3.0.
-        Lower values flag more candidates.
+        Lower values flag more candidates. ``limit`` bounds the candidate count
+        (top by |z|, default 50; ``None`` for unbounded); truncation is
+        recorded in ``params``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1343,6 +1347,7 @@ class SessionDiscoverNamespace:
                 source,
                 value=value,
                 threshold=threshold,
+                limit=limit,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )
@@ -1353,6 +1358,7 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        limit: int | None = 50,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find period-shift candidates from a DeltaFrame.
@@ -1360,7 +1366,9 @@ class SessionDiscoverNamespace:
         Requires at least four time buckets in a time-series delta, or at least
         one panel series with four time buckets.
         ``threshold`` is an absolute z-score cutoff on rolling window means
-        (|z| >= threshold); default 2.0.
+        (|z| >= threshold); default 2.0. ``limit`` bounds the candidate count
+        (top by |z|, default 50; ``None`` for unbounded); truncation is
+        recorded in ``params``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1376,6 +1384,7 @@ class SessionDiscoverNamespace:
                 source,
                 value=value,
                 threshold=threshold,
+                limit=limit,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )
@@ -1386,13 +1395,15 @@ class SessionDiscoverNamespace:
         *,
         search_space: list[DimensionInput],
         value: str | None = None,
-        limit: int | None = None,
+        limit: int | None = 50,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find dimensions that explain a delta.
 
         Source must be a DeltaFrame. ``search_space`` is required and lists
-        the candidate dimensions to evaluate for explanatory power.
+        the candidate dimensions to evaluate for explanatory power. ``limit``
+        bounds the candidate count (top by |score|, default 50; ``None`` for
+        unbounded); truncation is recorded in ``params``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1423,7 +1434,7 @@ class SessionDiscoverNamespace:
         search_space: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
-        limit: int | None = None,
+        limit: int | None = 50,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find dimension slices with notable values.
@@ -1431,7 +1442,9 @@ class SessionDiscoverNamespace:
         Accepts a MetricFrame or DeltaFrame. Optionally narrow the search
         with ``search_space``; otherwise all available dimensions are probed.
         ``threshold`` is an absolute z-score for MetricFrame (|z| >= threshold)
-        or absolute delta value for DeltaFrame; default 2.0.
+        or absolute delta value for DeltaFrame; default 2.0. ``limit`` bounds
+        the candidate count (top by |score|, default 50; ``None`` for
+        unbounded); truncation is recorded in ``params``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1460,6 +1473,7 @@ class SessionDiscoverNamespace:
         *,
         value: str | None = None,
         threshold: float | None = None,
+        limit: int | None = 50,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find time windows with notable behavior.
@@ -1467,6 +1481,8 @@ class SessionDiscoverNamespace:
         Source must have time_series or panel shape. Returns windows where
         the metric exhibits significant trends, level shifts, or volatility.
         ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 2.0.
+        ``limit`` bounds the candidate count (top by |score|, default 50;
+        ``None`` for unbounded); truncation is recorded in ``params``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1482,6 +1498,7 @@ class SessionDiscoverNamespace:
                 source,
                 value=value,
                 threshold=threshold,
+                limit=limit,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )
@@ -1493,6 +1510,7 @@ class SessionDiscoverNamespace:
         peer_scope: list[DimensionInput] | None = None,
         value: str | None = None,
         threshold: float | None = None,
+        limit: int | None = 50,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find segments that are outliers compared to their peers.
@@ -1501,7 +1519,9 @@ class SessionDiscoverNamespace:
         ``peer_scope`` defines the grouping for peer comparison; defaults to
         all non-time axes.
         ``threshold`` is a robust z-score cutoff using MAD
-        (|robust_z| >= threshold); default 3.0.
+        (|robust_z| >= threshold); default 3.0. ``limit`` bounds the candidate
+        count (top by |robust_z|, default 50; ``None`` for unbounded);
+        truncation is recorded in ``params``.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1519,6 +1539,7 @@ class SessionDiscoverNamespace:
                 peer_scope=peer_scope,
                 value=value,
                 threshold=threshold,
+                limit=limit,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )
