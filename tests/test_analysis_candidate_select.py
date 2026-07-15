@@ -380,8 +380,8 @@ def test_select_selector_feeds_transform_slice(tmp_path):
     session = session_attach.get_or_create(name="demo")
     delta_df = pd.DataFrame(
         {
-            "region": ["US", "US", "JP", "JP"],
-            "delta": [50.0, 1.0, -0.5, 0.2],
+            "region": ["US", "US", "JP", "JP", "DE", "DE"],
+            "delta": [50.0, 50.0, 1.0, 1.0, 1.0, 1.0],
         }
     )
     src = _delta(session, delta_df, semantic_kind="segmented")
@@ -406,8 +406,8 @@ def test_select_selector_without_search_space_returns_catalog_ref(tmp_path):
     session = session_attach.get_or_create(name="demo")
     delta_df = pd.DataFrame(
         {
-            "region": ["US", "US", "JP", "JP"],
-            "delta": [50.0, 1.0, -0.5, 0.2],
+            "region": ["US", "US", "JP", "JP", "DE", "DE"],
+            "delta": [50.0, 50.0, 1.0, 1.0, 1.0, 1.0],
         }
     )
     src = _delta(session, delta_df, semantic_kind="segmented")
