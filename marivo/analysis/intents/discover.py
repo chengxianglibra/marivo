@@ -49,7 +49,6 @@ from marivo.analysis.intents._discover_scorers import (
     score_period_shifts,
     score_point_anomalies,
 )
-from marivo.analysis.intents._types import DiscoverSensitivity
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.semantic_inputs import (
@@ -155,7 +154,6 @@ def _discover_dispatch(
     strategy: CandidateStrategy | None = None,
     value: str | None = None,
     threshold: float | None = None,
-    sensitivity: DiscoverSensitivity = "balanced",
     limit: int | None = None,
     search_space: list[DimensionInput] | None = None,
     peer_scope: list[DimensionInput] | None = None,
@@ -185,7 +183,6 @@ def _discover_dispatch(
         ``interesting_windows``: absolute z-score per value, default 2.0.
         ``cross_sectional_outliers``: robust z-score via MAD, default 3.0.
         ``driver_axes`` does not accept threshold.
-        sensitivity: ``"conservative" | "balanced" | "aggressive"``.
         limit: Maximum number of candidates to return.
         search_space: Required for ``driver_axes`` — dimensions to consider as drivers.
         peer_scope: Optional peer grouping for ``cross_sectional_outliers``.
@@ -201,7 +198,7 @@ def _discover_dispatch(
         >>> candidates = session.discover.point_anomalies(
         ...     series,
         ...     threshold=1.0,
-        ...     analysis_purpose="识别收入时间序列异常点",
+        ...     analysis_purpose="flag revenue time-series anomalies",
         ... )
         >>> candidates.show()
     """
@@ -248,7 +245,6 @@ def _discover_dispatch(
         source_kind=source_kind,
         value=value,
         threshold=threshold,
-        sensitivity=sensitivity,
         limit=limit,
         search_space=search_space_ids,
         peer_scope=peer_scope_ids,
@@ -528,7 +524,6 @@ def _run_scorer(
     source_kind: CandidateSourceKind,
     value: str | None,
     threshold: float | None,
-    sensitivity: str,
     limit: int | None,
     search_space: list[str] | None,
     peer_scope: list[str] | None,
