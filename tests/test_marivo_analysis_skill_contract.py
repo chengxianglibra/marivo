@@ -7,10 +7,40 @@ the example runner handles the analysis skill correctly.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-analysis"
+
+
+def _active_references_to_deleted_semantic_paths(forbidden: str) -> list[str]:
+    """Return repo-relative paths of active, non-spec files that reference the
+    deleted marivo-semantic/references path.
+
+    Historical specs under ``docs/superpowers/specs/`` are intentionally
+    unchanged and excluded. This contract test file references the string in
+    its assertions and is also excluded.
+    """
+    result = subprocess.run(
+        ["git", "grep", "--name-only", forbidden],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    exempt_prefix = "docs/superpowers/specs/"
+    exempt_basename = "test_marivo_analysis_skill_contract.py"
+    offenders: list[str] = []
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        if line.startswith(exempt_prefix):
+            continue
+        if Path(line).name == exempt_basename:
+            continue
+        offenders.append(line)
+    return offenders
 
 
 def test_skill_directory_contains_exactly_skill_md() -> None:
@@ -57,12 +87,59 @@ def test_no_active_test_references_deleted_analysis_paths() -> None:
     assert not offenders, f"Active test files reference deleted analysis references: {offenders}"
 
 
-def test_semantic_examples_remain_required() -> None:
-    """The example runner must still require semantic examples."""
+def test_semantic_examples_may_be_absent() -> None:
+    """The example runner must treat absence of semantic examples as valid.
+
+    The marivo-semantic skill is now a single-file boundary kernel with no
+    packaged examples, mirroring marivo-analysis. The runner must still know
+    about the skill directory (for SKILL.md checks) but must not require
+    examples or enforce a semantic example contract.
+    """
     runner = (REPO_ROOT / "scripts" / "run_skill_examples.py").read_text()
-    assert "marivo-semantic" in runner, "run_skill_examples.py must still reference marivo-semantic"
-    assert "_SEMANTIC_EXAMPLE_NAMES" in runner, (
-        "run_skill_examples.py must still enforce semantic example contract"
+    assert "marivo-semantic" in runner, (
+        "run_skill_examples.py must still reference marivo-semantic skill dir"
+    )
+    # The semantic example contract enforcement must be removed.
+    assert "_SEMANTIC_EXAMPLE_NAMES" not in runner, (
+        "run_skill_examples.py must not enforce semantic example contract"
+    )
+    assert "_check_semantic_example_contract" not in runner, (
+        "run_skill_examples.py must not enforce semantic example contract"
+    )
+
+
+def test_marivo_semantic_skill_is_one_file_boundary_kernel() -> None:
+    """The packaged semantic skill shape is exactly one file, with no embedded
+    code/repair symbols and all required boundary sections present."""
+    semantic_dir = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
+    entries = sorted(p.name for p in semantic_dir.iterdir())
+    assert entries == ["SKILL.md"], f"Expected exactly SKILL.md in {semantic_dir}; found {entries}"
+    text = (semantic_dir / "SKILL.md").read_text(encoding="utf-8")
+    for forbidden in ("def ", "class ", "canonical_id=", "RepairKind", "AuthoringRepair"):
+        assert forbidden not in text, f"Forbidden token {forbidden!r} present in semantic SKILL.md"
+    for required in ("Ownership", "Hard boundaries", "Handoff", "Closeout"):
+        assert required in text, f"Required section {required!r} missing from semantic SKILL.md"
+
+
+def test_no_active_source_references_deleted_semantic_paths() -> None:
+    """No active non-spec source file should reference
+    marivo-semantic/references (deleted path). Historical specs under
+    docs/superpowers/specs/ are intentionally unchanged and excluded."""
+    forbidden = "marivo/skills/marivo-semantic/references"
+    offenders = _active_references_to_deleted_semantic_paths(forbidden)
+    assert not offenders, (
+        f"Active non-spec files reference deleted semantic references: {offenders}"
+    )
+
+
+def test_no_active_test_references_deleted_semantic_paths() -> None:
+    """No active test file (other than this contract test) should reference
+    marivo-semantic/references as a real path. This test file references the
+    string in its assertion and is exempt."""
+    forbidden = "marivo/skills/marivo-semantic/references"
+    offenders = _active_references_to_deleted_semantic_paths(forbidden)
+    assert not offenders, (
+        f"Active non-spec files reference deleted semantic references: {offenders}"
     )
 
 

@@ -37,6 +37,20 @@ Aggregation & measure helpers
    snapshot
    validity
    join_on
+   cumulative
+   grain_to_date
+   trailing
+
+Column helpers
+--------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   dimension_column
+   measure_column
+   time_dimension_column
 
 Time parsing
 ------------
@@ -66,9 +80,7 @@ Readiness & verification
    :toctree: api/
    :nosignatures:
 
-   readiness
    richness
-   verify_object
    parity_check
 
 Refs & loading

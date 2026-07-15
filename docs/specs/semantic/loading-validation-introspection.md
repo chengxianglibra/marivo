@@ -278,7 +278,8 @@ Two checks sit at the end of the write loop:
   never writes stdout, and never queries. Analysis APIs do not invoke it
   automatically.
   `catalog.preview(..., using=...)` persists the fresh scoped runtime metadata
-  that readiness consumes.
+  that readiness consumes; readiness enforces fresh preview evidence for
+  executable families (`static_only`, `single_snapshot`, `snapshot_mapping`).
   A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a
   blocker (`undeclared_naive_time_axis`): runtime would otherwise fall back to
   the datasource read timezone while report windows use the analysis-session
@@ -289,10 +290,44 @@ Two checks sit at the end of the write loop:
   ranking from example questions, analysis intents, run-history refs, and the
   build purpose.
 
-`catalog.verify_object(obj)` completes the static per-object surface.
+`catalog.verify_object(obj)` completes the static per-object surface. A current
+`VerifyResult` proves that one explicit check passed, but verification is
+**result-local**: it is not persisted as a workflow checkpoint and is not a
+runtime prerequisite for preview. The `marivo-semantic` skill enforces
+verify-before-preview as a policy edge; the runtime does not consume a
+`VerifyResult` in `catalog.preview(...)` or `catalog.readiness(...)`.
 `ms.parity_check(name)` is an optional potentially unbounded diagnostic and never
-a readiness requirement. Both return silent result objects with `.show()` /
+a readiness requirement. All three return silent result objects with `.show()` /
 `.render()`.
+
+### Typed analysis handoff
+
+`ReadinessReport` exposes
+`analysis_handoff: SemanticToAnalysisHandoff | None`. It is `None` when no
+requested ref is analysis-ready or when a blocker applies to the requested
+handoff set. The field type is a module-internal handoff value, not a top-level
+constructor or public `__all__` entry; agents consume it from the result field,
+they do not construct or import it as an authoring API.
+
+When present, the handoff carries the exact analysis-boundary help target, ready
+refs, readiness status, project/catalog/environment fingerprints, warning ids,
+preview-evidence ids, and caveats. It records identifiers and row-free evidence
+metadata only — it never embeds preview rows, credentials, or plaintext sampled
+values. The in-memory environment fingerprint retains exact paths for validation;
+`ReadinessReport.show()` and `.to_dict()` mask them under the shared privacy rule
+(only root help and explicit environment-mismatch diagnostics render raw paths).
+
+The agent routes the handoff to the registered analysis
+`boundary.semantic_handoff` target. Its sole public receiver,
+`Session.validate_semantic_handoff(handoff)`, validates the payload against a
+newly created, current, or recovered analysis session — checking environment
+identity, project/catalog fingerprints, ref existence and kind, current
+readiness, warning-id consistency, and preview-evidence freshness — without
+querying a datasource, opening a connection, or mutating state. Success returns
+a `SemanticHandoffReceipt`; a stale environment, project, catalog, ref,
+readiness, or preview-evidence fact emits typed semantic repair instead. The
+receipt is in-memory only and is not persisted. Analysis consumes the handed-off
+refs only from a successful receipt, whether this is first entry or re-entry.
 
 ## Relationship to analysis
 
@@ -303,3 +338,11 @@ through semantic refs and never re-defines a caliber, guesses an entity or time
 dimension, or bypasses the registry to read a table directly. When an analysis
 needs a new business object, extend `semantic` first, then let `analysis` consume
 it — business definitions do not hide inside one-off analysis scripts.
+
+The crossing is a typed handoff, not a bare ready-ref or a conceptual hand-wave.
+Semantic readiness produces a `SemanticToAnalysisHandoff` (see
+[Readiness and richness](#typed-analysis-handoff)); analysis consumes the
+handed-off refs only after `Session.validate_semantic_handoff(...)` returns a
+`SemanticHandoffReceipt`. A missing required semantic object activates
+`marivo-semantic` and returns to the same semantic entry, requiring fresh scoped
+readiness before resuming.

@@ -44,7 +44,7 @@ class ConstraintId(StrEnum):
     CUMULATIVE_ATTRIBUTION_UNSUPPORTED = "cumulative_attribution_unsupported"
 
 
-_DATASOURCE_DOC = "marivo/skills/marivo-semantic/references/datasource.md"
+_DATASOURCE_DOC = "site/src/content/docs/en/latest/concepts/semantic-layer.mdx"
 
 
 def _constraint(

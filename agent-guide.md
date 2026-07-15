@@ -49,7 +49,10 @@ Rules for this surface:
   such as `provenance=ms.from_sql(sql=..., dialect=...)`; SQL text is metadata
   only, never an executable expression body.
 - New exceptions subclass `SemanticError` or `AnalysisError`, carry structured
-  fields, and render through the shared template style.
+  fields, and render through the shared template style. New datasource
+  exceptions subclass `DatasourceError`, parallel to the `SemanticError` and
+  `AnalysisError` hierarchy rules, and follow the same structured-fields and
+  shared-template-rendering contract.
 - Top-level Frame APIs remain immutable. Only `frame.to_pandas()` returns an
   isolated copy.
 - Datasource credentials are authored as `*_env` references and must not be
@@ -61,7 +64,12 @@ Rules for this surface:
 - Cross-session frame ownership is mandatory for helpers that consume frames.
 - Public API functions must have a docstring that covers: function purpose,
   parameter descriptions, return value, a usage example, and brief constraints.
-  The `describe` function must support each public API symbol.
+  Each public API symbol resolves through its owning help adapter:
+  `md.help(...)` for datasource symbols and `ms.help(...)` for semantic
+  symbols. `md.describe(name)` remains a datasource-domain read for one
+  registered datasource; it is not a generic symbol-introspection API and
+  this cutover adds no `ms.describe(...)` or cross-surface
+  `describe(symbol)` alias.
 - Public API functions must not accept or return `Any` or other ambiguous types;
   every parameter and return annotation must be a concrete, specific type.
 
@@ -81,13 +89,17 @@ These rules govern every public surface change:
 - Terminal results (objects an agent stops to read) implement the shared
   result protocol: bounded `.show()` output, `.contract()` for mechanically
   valid next actions, deterministic ordering, and closing affordance hints
-  generated from real state.
+  generated from real state. State-bearing datasource and semantic
+  objects/results expose `.contract()` matching the analysis artifact
+  convention, so every agent-facing surface agrees on mechanically valid
+  next actions.
 - Surface growth is gated: public `__all__` sets are pinned by a snapshot
   test. A new public result type must join an existing family (naming and
   protocol) or justify a new one. Type aliases and module-internal handoff
   types stay out of the top-level help index.
 - Discovery is progressive and bounded: `help()` is a short index grouped
-  by family; `describe(symbol)` includes a minimal runnable example.
+  by family; the owning `md.help(...)` / `ms.help(...)` adapter includes a
+  minimal runnable example for each symbol.
 - Prefer one entry shape with closed, kind-dispatched variants over
   optional-field mega-classes: precise types fail loudly, optional-field
   unions fail silently.
@@ -96,11 +108,12 @@ These rules govern every public surface change:
 
 `ms.help` owns the static authoring contract — constructor, required/optional
 parameters, types, defaults, omit rules, and cross-parameter constraints — as
-the single source agents consult before authoring. `md.help` owns datasource
-contracts; `md.inspect(...)`, an explicitly scoped `inspection.sample(...)`, and
-query-free snapshot projections own runtime datasource evidence. They never own
-semantic-selection judgments. The `marivo-semantic` skill owns workflow and
-routing only:
+the single source agents consult before authoring; the CLI route
+`marivo help semantic` is the matching terminal entry point. `md.help` owns
+datasource contracts; `md.inspect(...)`, an explicitly scoped
+`inspection.sample(...)`, and query-free snapshot projections own runtime
+datasource evidence. They never own semantic-selection judgments. The
+`marivo-semantic` skill owns workflow and routing only:
 
 ```text
 help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
@@ -111,6 +124,12 @@ public prepare stage or automatic authoring planner. The agent owns evidence-bas
 drafting and technical handling, including uncommon physical formats. The user or
 business owner owns unresolved business-semantic decisions and approves metric
 meaning before analysis handoff.
+
+Ownership split: the live `ms.help(...)` / `md.help(...)` surfaces own the
+static contracts; the registry behind them owns mechanical continuation facts
+but is not itself a public API; the `marivo-semantic` skill owns workflow and
+routing only; the runtime has no canonical link to packaged skill files, so
+skill content is never read or executed by the library.
 
 ## Analysis Guidance Layering
 
@@ -155,11 +174,12 @@ When working on a task, read the right docs first:
 
 | Task Type | Read First |
 |-----------|------------|
-| Datasource + semantic design (start here) | `docs/specs/semantic/overview.md` |
+| Datasource + semantic design (start here) | `docs/specs/semantic/overview.md` + live `ms.help(...)` / `md.help(...)` surface |
 | Datasource declarations, discovery | `docs/specs/semantic/datasource-layer.md` |
 | Python semantic object model | `docs/specs/semantic/semantic-object-model.md` |
 | Semantic authoring workflow | `docs/specs/semantic/authoring-workflow.md` |
 | Semantic loading, validation, runtime | `docs/specs/semantic/loading-validation-introspection.md` |
+| Semantic-to-analysis handoff contract | `docs/specs/semantic/loading-validation-introspection.md` |
 | Python analysis design | `docs/specs/analysis/python-analysis-design.md` |
 | Agent usage examples | `marivo/skills/marivo-semantic/` |
 

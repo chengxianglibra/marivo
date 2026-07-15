@@ -223,6 +223,33 @@ class SemanticHandoffReceipt(BaseModel):
     preview_evidence_ids: tuple[str, ...] = ()
     caveats: tuple[str, ...] = ()
 
+    def to_dict(self) -> dict[str, object]:
+        """Return a masked dict render of the receipt.
+
+        The environment fingerprint is masked via ``mask_fingerprint`` so the
+        receipt's ordinary render never leaks interpreter or package paths;
+        the in-memory value keeps exact paths. Use ``model_dump`` only when
+        the full fingerprint is intentionally required.
+        """
+        from marivo.introspection.live.render import mask_fingerprint
+
+        return {
+            "ready_refs": [str(ref) for ref in self.ready_refs],
+            "project_fingerprint": self.project_fingerprint,
+            "catalog_fingerprint": self.catalog_fingerprint,
+            "environment_fingerprint": mask_fingerprint(self.environment_fingerprint),
+            "readiness_status": self.readiness_status,
+            "warning_ids": list(self.warning_ids),
+            "preview_evidence_ids": list(self.preview_evidence_ids),
+            "caveats": list(self.caveats),
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"SemanticHandoffReceipt ready_refs={len(self.ready_refs)} "
+            f"status={self.readiness_status}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Authoring state families

@@ -17,6 +17,11 @@ python3 -m venv .venv
 .venv/bin/python -c "import marivo; print(marivo.__name__)"
 ```
 
+安装后，native CLI 是发现实时 authoring 与 analysis 契约的规范途径。运行
+`marivo help semantic`、`marivo help datasource` 或 `marivo help analysis` 可为每个接面打印带
+指纹的能力索引 —— 它们与 Python 内的 `ms.help(...)` / `md.help(...)` / `mv.help(...)` adapter
+一致，是智能体在 author 前查阅的入口。
+
 对于使用已发布版本的项目，请按[安装](/zh-cn/latest/installation/)说明安装所需的后端扩展，
 然后在项目目录中运行 `marivo init`。将已提交的语义层保留在代理可访问的位置，以便每次运行
 都解析同一组声明。

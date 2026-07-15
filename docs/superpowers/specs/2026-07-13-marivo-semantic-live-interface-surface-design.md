@@ -1094,9 +1094,13 @@ repairable from current state.
 because the result proves explicit verification; this does not make
 verification a persisted runtime prerequisite for preview.
 `PreviewResult.contract()` exposes readiness when the persisted preview
-evidence is fresh and complete. `ReadinessReport.contract()` exposes an
-analysis handoff only for its exact `analysis_ready_refs`; blocked refs expose
-repairs instead.
+evidence is fresh and complete. *Deferred:* `PreviewResult` lives in the
+shared `marivo.preview` module and is not part of `ms.__all__`, so
+`PreviewResult.contract()` is not yet implemented; it is added when the type
+is promoted into the semantic public surface (see the deferral note in
+`marivo.semantic._capabilities.contracts.contract_for_verify_result`).
+`ReadinessReport.contract()` exposes an analysis handoff only for its exact
+`analysis_ready_refs`; blocked refs expose repairs instead.
 
 ### Advisory richness is not a transition
 

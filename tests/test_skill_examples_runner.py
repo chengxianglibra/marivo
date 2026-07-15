@@ -1,7 +1,7 @@
 """Tests for the skill examples runner script.
 
 Validates that the runner:
-- Requires semantic examples to exist and pass contract checks.
+- Treats absent semantic examples as valid (single-file skill).
 - Treats absent analysis examples as valid (single-file skill).
 - Still validates SKILL.md presence for each skill directory.
 - Only iterates existing example directories.
@@ -53,13 +53,19 @@ def test_runner_does_not_require_analysis_examples(runner_module: object) -> Non
     assert rc == 0, "run_skill_examples.py should exit 0 with absent analysis examples"
 
 
-def test_runner_requires_semantic_examples(runner_module: object) -> None:
-    """The runner must still enforce the semantic example contract."""
-    # Verify the semantic example contract constants exist.
-    assert hasattr(runner_module, "_SEMANTIC_EXAMPLE_NAMES")
-    assert hasattr(runner_module, "_check_semantic_example_contract")
-    names = runner_module._SEMANTIC_EXAMPLE_NAMES  # type: ignore[attr-defined]
-    assert len(names) >= 2, "Semantic example contract must require multiple files"
+def test_runner_does_not_require_semantic_examples(runner_module: object) -> None:
+    """The runner must not fail when semantic examples are absent.
+
+    The marivo-semantic skill is now a single-file boundary kernel with no
+    packaged examples, mirroring marivo-analysis. The runner must not enforce
+    any semantic example contract.
+    """
+    main = runner_module.main  # type: ignore[attr-defined]
+    rc = main(["--root", str(REPO_ROOT), "--in-process"])
+    assert rc == 0, "run_skill_examples.py should exit 0 with absent semantic examples"
+    # The semantic example contract enforcement must be removed entirely.
+    assert not hasattr(runner_module, "_SEMANTIC_EXAMPLE_NAMES")
+    assert not hasattr(runner_module, "_check_semantic_example_contract")
 
 
 def test_runner_skill_md_check_for_analysis(runner_module: object) -> None:
