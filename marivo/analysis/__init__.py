@@ -35,7 +35,6 @@ from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport
 from marivo.analysis.help import help, help_text
 from marivo.analysis.intents._types import (
-    DiscoverSensitivity,
     SlicePredicate,
     SlicePredicateOp,
     SliceScalar,

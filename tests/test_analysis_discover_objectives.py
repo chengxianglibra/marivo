@@ -734,3 +734,14 @@ def test_persistence_round_trip(objective, source_kind, builder):
     assert loaded.meta.strategy == out.meta.strategy
     assert [aff.capability_id for aff in loaded.meta.affordances] == ["assess_quality"]
     assert list(loaded.to_pandas().columns) == list(out.to_pandas().columns)
+
+
+def test_discover_dispatch_drops_dead_sensitivity_parameter():
+    """sensitivity was a documented but unimplemented dead parameter; it must
+    stay removed and the DiscoverSensitivity alias must not be exported
+    (issue #13)."""
+    import marivo.analysis as mv
+    from marivo.analysis.intents.discover import _discover_dispatch
+
+    assert "sensitivity" not in inspect.signature(_discover_dispatch).parameters
+    assert not hasattr(mv, "DiscoverSensitivity")
