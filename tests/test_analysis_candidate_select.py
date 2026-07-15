@@ -88,9 +88,9 @@ def _hand_built_candidate_set(session, *, shape: str, rows: list[dict[str, Any]]
     strategy_for_shape = {
         "point_anomaly": "zscore",
         "period_shift": "delta_window_zscore",
-        "driver_axis": "variance_explained",
+        "driver_axis": "concentration",
         "slice": "delta_magnitude",
-        "window": "rolling_zscore",
+        "window": "global_zscore_runs",
         "cross_sectional_outlier": "mad",
     }
     meta = CandidateSetMeta(
