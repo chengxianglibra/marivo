@@ -533,10 +533,58 @@ def score_cross_sectional_outliers(
                 bucket_value=None,
             )
         )
+    # item_id must be unique across the CandidateSet; the per-slice
+    # outlier_{len(rows)} resets each bucket/peer group, so reassign a global
+    # ordinal.
+    for index, row in enumerate(rows):
+        row["item_id"] = f"outlier_{index}"
     return rows
 
 
 def _outliers_in_slice(
+    df: pd.DataFrame,
+    *,
+    source_ref: str,
+    value_column: str,
+    segment_columns: list[str],
+    threshold: float,
+    peer_scope: list[str],
+    bucket_value: Any,
+) -> list[dict[str, Any]]:
+    if df.empty:
+        return []
+    if peer_scope:
+        # Compare segments against their peers: compute median/MAD within each
+        # peer_scope group (overlaid on the time bucket) instead of across all
+        # segments, so cross-peer magnitude differences do not dominate. The
+        # dispatch layer validates that peer_scope axes are materialized, so a
+        # missing column here is a loud KeyError rather than a silent fallback.
+        rows: list[dict[str, Any]] = []
+        for _, peer_df in df.groupby(peer_scope, dropna=False):
+            rows.extend(
+                _outliers_in_peer_group(
+                    peer_df.reset_index(drop=True),
+                    source_ref=source_ref,
+                    value_column=value_column,
+                    segment_columns=segment_columns,
+                    threshold=threshold,
+                    peer_scope=peer_scope,
+                    bucket_value=bucket_value,
+                )
+            )
+        return rows
+    return _outliers_in_peer_group(
+        df,
+        source_ref=source_ref,
+        value_column=value_column,
+        segment_columns=segment_columns,
+        threshold=threshold,
+        peer_scope=peer_scope,
+        bucket_value=bucket_value,
+    )
+
+
+def _outliers_in_peer_group(
     df: pd.DataFrame,
     *,
     source_ref: str,
@@ -580,7 +628,7 @@ def _outliers_in_slice(
         z = float(robust_z.iloc[index])
         rows.append(
             {
-                "item_id": f"outlier_{len(rows)}",
+                "item_id": "",  # assigned globally by score_cross_sectional_outliers
                 "score": z,
                 "direction": "high" if z > 0 else "low",
                 "reason_codes": [f"robust_z={z:.2f}", f"{scale_label}={scale:.2f}"],
