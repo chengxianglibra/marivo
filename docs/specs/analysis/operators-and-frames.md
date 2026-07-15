@@ -429,7 +429,8 @@ time. Projection/read methods are not analysis steps. Summary of the adjacency
 | `MetricFrame[segmented]` | `transform.<op>`, `compare`, `correlate`, `discover.interesting_slices`, `discover.cross_sectional_outliers`, `hypothesis_test`, `assess_quality` |
 | `MetricFrame[panel]` | union of the time_series and segmented rows above |
 | `DeltaFrame[time_series_delta \| panel_delta]` | `transform.<op>`, `attribute`, `discover.period_shifts`, `discover.driver_axes`, `discover.interesting_windows`, `discover.interesting_slices`, `assess_quality` |
-| `DeltaFrame[scalar_delta \| segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, `assess_quality` |
+| `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `assess_quality` |
+| `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, `assess_quality` |
 | `AttributionFrame` | `transform`, `select`, `assess_quality` |
 | `CandidateSet[*]` | `assess_quality`, `select`, typed follow-up |
 | `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `QualityReport` | `assess_quality` and/or typed follow-up |
