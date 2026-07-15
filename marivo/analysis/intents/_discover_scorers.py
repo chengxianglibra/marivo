@@ -283,6 +283,9 @@ def score_driver_axes(
     return rows
 
 
+_SLICE_MAX_GROUPS = 50_000
+
+
 def score_interesting_slices(
     source_df: pd.DataFrame,
     *,
@@ -290,12 +293,29 @@ def score_interesting_slices(
     value_column: str,
     axes: list[str],
     threshold: float,
-    measure_kind: str,  # "metric" or "delta"
     limit: int | None,
-) -> list[dict[str, Any]]:
+    max_groups: int = _SLICE_MAX_GROUPS,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Score dimension slices by how far their value totals deviate from the mean.
+
+    Slice totals are z-scored against the row-level value distribution, so the
+    threshold is dimensionless and has one meaning (|z| >= threshold) for both
+    MetricFrame and DeltaFrame inputs. Axis-pair subsets whose cardinality
+    product exceeds ``max_groups`` are skipped and recorded in the returned
+    skip log rather than materializing an explosive groupby.
+
+    Returns ``(rows, skipped)`` where ``skipped`` lists the subsets that hit
+    the guard with their estimated cardinality and reason.
+    """
     available_axes = [axis for axis in axes if axis in source_df.columns]
     if not available_axes:
-        return []
+        return [], []
+
+    series = source_df[value_column].astype(float)
+    std = float(series.std(ddof=0))
+    if std == 0 or not np.isfinite(std):
+        return [], []
+    mean = float(series.mean())
 
     candidates: list[tuple[float, dict[str, Any]]] = []
     axis_subsets: list[list[str]] = [[axis] for axis in available_axes]
@@ -304,25 +324,29 @@ def score_interesting_slices(
             for b in available_axes[i + 1 :]:
                 axis_subsets.append([a, b])
 
-    series = source_df[value_column].astype(float)
-    if measure_kind == "metric":
-        std = float(series.std(ddof=0))
-        if std == 0 or not np.isfinite(std):
-            return []
-        mean = float(series.mean())
-    else:
-        std = 1.0
-        mean = 0.0
-
+    skipped: list[dict[str, Any]] = []
     for subset in axis_subsets:
+        cardinality = 1
+        for axis in subset:
+            cardinality *= int(source_df[axis].nunique(dropna=False))
+        if cardinality > max_groups:
+            skipped.append(
+                {
+                    "axes": list(subset),
+                    "cardinality": cardinality,
+                    "reason": f"cardinality {cardinality} exceeds max_groups {max_groups}",
+                }
+            )
+            continue
         grouped = source_df.groupby(subset, dropna=False)[value_column].sum().reset_index()
-        for _, row in grouped.iterrows():
-            value = float(row[value_column])
-            score = abs(value - mean) / std if measure_kind == "metric" else abs(value)
-            if score < threshold:
-                continue
-            selector = {axis: _scalar(row[axis]) for axis in subset if pd.notna(row[axis])}
-            candidates.append((score, selector))
+        values = grouped[value_column].to_numpy(dtype=float)
+        scores = np.abs((values - mean) / std)
+        for pos in np.nonzero(scores >= threshold)[0]:
+            row = grouped.iloc[pos]
+            selector = {
+                axis: _scalar(row[axis]) for axis in subset if pd.notna(row[axis])
+            }
+            candidates.append((float(scores[pos]), selector))
 
     candidates.sort(key=lambda entry: entry[0], reverse=True)
     if limit is not None:
@@ -337,13 +361,13 @@ def score_interesting_slices(
                 "selector": selector,
                 "keys": dict(selector),
                 "reason_codes": [
-                    f"abs_score={score:.2f}",
+                    f"abs_z={score:.2f}",
                     f"axes={','.join(selector.keys())}",
                 ],
                 "source_refs": [source_ref],
             }
         )
-    return rows
+    return rows, skipped
 
 
 def score_interesting_windows(

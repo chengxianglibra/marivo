@@ -140,7 +140,7 @@ def test_discover_api_methods_set_objective_shape_and_strategy():
             session.discover.interesting_slices(delta_segmented, threshold=1.0),
             "interesting_slices",
             "slice",
-            "delta_magnitude",
+            "slice_zscore",
         ),
         (
             session.discover.interesting_windows(delta_series, threshold=2.0),
@@ -450,7 +450,7 @@ def test_interesting_slices_returns_selector_dict_round_trip():
             make_ref("country", SemanticKind.DIMENSION),
             make_ref("platform", SemanticKind.DIMENSION),
         ],
-        threshold=2.0,
+        threshold=1.0,
     )
     rows = out.to_pandas()
     selectors = [json.loads(s) for s in rows["selector_json"]]
@@ -478,6 +478,112 @@ def test_interesting_slices_metric_input_uses_zscore():
     )
     rows = out.to_pandas()
     assert len(rows) >= 1
+
+
+def test_interesting_slices_delta_score_is_unit_invariant():
+    """Slice scores are z-scores: rescaling the value unit must not change
+    which slices surface or their scores (issue #16)."""
+    from marivo.analysis.intents._discover_scorers import score_interesting_slices
+
+    countries = ["US", "JP", "DE", "FR"]
+    base = pd.DataFrame({"country": countries, "value": [10.0, -2.0, 0.5, -0.5]})
+    scaled = pd.DataFrame(
+        {"country": countries, "value": [10.0e6, -2.0e6, 0.5e6, -0.5e6]}
+    )
+    rows_base, _ = score_interesting_slices(
+        base, source_ref="s", value_column="value", axes=["country"],
+        threshold=0.5, limit=None,
+    )
+    rows_scaled, _ = score_interesting_slices(
+        scaled, source_ref="s", value_column="value", axes=["country"],
+        threshold=0.5, limit=None,
+    )
+    assert [r["selector"] for r in rows_base] == [r["selector"] for r in rows_scaled]
+    assert [r["score"] for r in rows_base] == pytest.approx(
+        [r["score"] for r in rows_scaled]
+    )
+
+
+def test_interesting_slices_delta_uses_zscore_not_raw_magnitude():
+    """A delta slice whose total is well above 2 population std clears
+    threshold 2.0; a near-zero slice does not. Score is a z-score, not the
+    raw delta magnitude (issue #16)."""
+    session = session_attach.get_or_create(name="zscore_delta")
+    df = pd.DataFrame(
+        {"country": ["US", "US", "US", "JP", "DE"], "delta": [4.0, 4.0, 4.0, 0.0, 0.0]}
+    )
+    src = _delta(session, df, semantic_kind="segmented")
+    out = session.discover.interesting_slices(
+        src,
+        search_space=[make_ref("country", SemanticKind.DIMENSION)],
+        threshold=2.0,
+    ).to_pandas()
+    selectors = [json.loads(s) for s in out["selector_json"]]
+    assert any(sel.get("country") == "US" for sel in selectors)
+    assert all(sel.get("country") != "JP" for sel in selectors)
+
+
+def test_interesting_slices_skips_high_cardinality_axis_pair():
+    """Axis pairs whose cardinality product exceeds the guard are skipped and
+    recorded in params rather than materializing an explosive groupby."""
+    from marivo.analysis.intents._discover_scorers import _SLICE_MAX_GROUPS
+
+    session = session_attach.get_or_create(name="guard")
+    n = 1000
+    df = pd.DataFrame(
+        {
+            "a": [f"a{i % 300}" for i in range(n)],
+            "b": [f"b{i % 200}" for i in range(n)],
+            "value": [float(i) for i in range(n)],
+        }
+    )
+    metric = _metric(session, df, semantic_kind="segmented")
+    out = session.discover.interesting_slices(
+        metric,
+        search_space=[
+            make_ref("a", SemanticKind.DIMENSION),
+            make_ref("b", SemanticKind.DIMENSION),
+        ],
+    )
+    skipped = out.meta.params.get("skipped_subsets")
+    assert skipped is not None
+    assert any(set(entry["axes"]) == {"a", "b"} for entry in skipped)
+    # 300 * 200 = 60000 > default guard
+    pair_entry = next(entry for entry in skipped if set(entry["axes"]) == {"a", "b"})
+    assert pair_entry["cardinality"] == 300 * 200
+    assert pair_entry["cardinality"] > _SLICE_MAX_GROUPS
+    # single-axis subsets stay under the guard and are not skipped
+    assert all(set(entry["axes"]) != {"a"} for entry in skipped)
+    assert all(set(entry["axes"]) != {"b"} for entry in skipped)
+
+
+def test_score_interesting_slices_zscores_and_returns_skip_log():
+    """Direct scorer contract: rows are z-scores above threshold, skip log
+    records high-cardinality pairs."""
+    from marivo.analysis.intents._discover_scorers import score_interesting_slices
+
+    n = 1000
+    df = pd.DataFrame(
+        {
+            "a": [f"a{i % 300}" for i in range(n)],
+            "b": [f"b{i % 200}" for i in range(n)],
+            "value": [float(i) for i in range(n)],
+        }
+    )
+    rows, skipped = score_interesting_slices(
+        df,
+        source_ref="src",
+        value_column="value",
+        axes=["a", "b"],
+        threshold=2.0,
+        limit=None,
+        max_groups=50_000,
+    )
+    assert any(set(entry["axes"]) == {"a", "b"} for entry in skipped)
+    assert all(entry["score"] >= 2.0 for entry in rows)
+    # reason_codes now report a z-score, not a raw magnitude
+    flat_codes = [code for row in rows for code in row["reason_codes"]]
+    assert any(code.startswith("abs_z=") for code in flat_codes)
 
 
 def test_interesting_windows_metric_input_finds_segment():

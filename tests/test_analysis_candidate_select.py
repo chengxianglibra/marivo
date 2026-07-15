@@ -89,7 +89,7 @@ def _hand_built_candidate_set(session, *, shape: str, rows: list[dict[str, Any]]
         "point_anomaly": "zscore",
         "period_shift": "delta_window_zscore",
         "driver_axis": "concentration",
-        "slice": "delta_magnitude",
+        "slice": "slice_zscore",
         "window": "global_zscore_runs",
         "cross_sectional_outlier": "mad",
     }
@@ -391,7 +391,7 @@ def test_select_selector_feeds_transform_slice(tmp_path):
     slice_cands = session.discover.interesting_slices(
         src,
         search_space=[session.catalog.get("dimension.sales.orders.region").ref],
-        threshold=2.0,
+        threshold=1.0,
     )
     selector = slice_cands.select(rank=1, attribute="selector")
     assert selector == {
@@ -416,7 +416,7 @@ def test_select_selector_without_search_space_returns_catalog_ref(tmp_path):
     }
     slice_cands = session.discover.interesting_slices(
         src,
-        threshold=2.0,
+        threshold=1.0,
     )
     selector = slice_cands.select(rank=1, attribute="selector")
     assert selector == {
