@@ -134,7 +134,7 @@ def test_discover_api_methods_set_objective_shape_and_strategy():
             ),
             "driver_axes",
             "driver_axis",
-            "variance_explained",
+            "concentration",
         ),
         (
             session.discover.interesting_slices(delta_segmented, threshold=1.0),
@@ -146,7 +146,7 @@ def test_discover_api_methods_set_objective_shape_and_strategy():
             session.discover.interesting_windows(delta_series, threshold=2.0),
             "interesting_windows",
             "window",
-            "rolling_zscore",
+            "global_zscore_runs",
         ),
         (
             session.discover.cross_sectional_outliers(
