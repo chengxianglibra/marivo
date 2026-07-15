@@ -9,7 +9,11 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
 from marivo.datasource.authoring import DatasourceRef
-from marivo.introspection.live.model import AuthoringRepair
+from marivo.introspection.live.model import (
+    AuthoringRepair,
+    SemanticToAnalysisHandoff,
+)
+from marivo.introspection.live.render import mask_fingerprint
 from marivo.render import Card, RenderableResult
 from marivo.semantic.errors import repair
 
@@ -70,6 +74,32 @@ class ReadinessInputSummary:
         }
 
 
+def _handoff_to_dict(
+    handoff: SemanticToAnalysisHandoff | None,
+) -> dict[str, object] | None:
+    """Render a handoff for result dicts with masked environment paths.
+
+    The structured value keeps exact paths in memory; ordinary report
+    renders show only the version and opaque fingerprint id.
+    """
+    if handoff is None:
+        return None
+    return {
+        "help_target": {
+            "surface": handoff.help_target.surface,
+            "canonical_id": handoff.help_target.canonical_id,
+        },
+        "ready_refs": [str(ref) for ref in handoff.ready_refs],
+        "project_fingerprint": handoff.project_fingerprint,
+        "catalog_fingerprint": handoff.catalog_fingerprint,
+        "environment_fingerprint": mask_fingerprint(handoff.environment_fingerprint),
+        "readiness_status": handoff.readiness_status,
+        "warning_ids": list(handoff.warning_ids),
+        "preview_evidence_ids": list(handoff.preview_evidence_ids),
+        "caveats": list(handoff.caveats),
+    }
+
+
 @dataclass(frozen=True, repr=False)
 class ReadinessReport(RenderableResult):
     status: ReadinessStatus
@@ -78,6 +108,7 @@ class ReadinessReport(RenderableResult):
     warnings: tuple[ReadinessIssue, ...]
     input_summary: ReadinessInputSummary
     checked_at: str
+    analysis_handoff: SemanticToAnalysisHandoff | None = None
 
     def _repr_identity(self) -> str:
         return (
@@ -104,7 +135,16 @@ class ReadinessReport(RenderableResult):
             )
         if self.analysis_ready_refs:
             card = card.field(label="analysis_ready", value=", ".join(self.analysis_ready_refs))
-        if self.status == "ready_with_warnings":
+        if self.analysis_handoff is not None:
+            h = self.analysis_handoff
+            card = card.field(
+                label="handoff",
+                value=(
+                    f"-> {h.help_target.display} "
+                    f"({h.readiness_status}, {len(h.ready_refs)} ready refs)"
+                ),
+            )
+        elif self.status == "ready_with_warnings":
             card = card.field(
                 label="handoff",
                 value="ready_with_warnings: warnings are non-blocking; proceed to marivo.analysis only if accepted",
@@ -119,6 +159,7 @@ class ReadinessReport(RenderableResult):
             "warnings": [issue.to_dict() for issue in self.warnings],
             "input_summary": self.input_summary.to_dict(),
             "checked_at": self.checked_at,
+            "analysis_handoff": _handoff_to_dict(self.analysis_handoff),
         }
 
     def contract(self) -> AuthoringContract:

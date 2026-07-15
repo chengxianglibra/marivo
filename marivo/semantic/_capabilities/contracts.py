@@ -86,11 +86,15 @@ def _transition(
     available: bool,
     input_requirements: tuple[AuthoringInputRequirement, ...] = (),
     blocked_by: tuple[str, ...] = (),
+    help_target: LiveHelpTarget | None = None,
 ) -> AuthoringTransition:
     descriptor = REGISTRY.by_canonical_id(canonical_id)
+    resolved_target = help_target or LiveHelpTarget(
+        surface="semantic", canonical_id=descriptor.canonical_id
+    )
     return AuthoringTransition(
         kind=kind,
-        help_target=LiveHelpTarget(surface="semantic", canonical_id=descriptor.canonical_id),
+        help_target=resolved_target,
         subject_refs=subject_refs,
         required_states=required_states,
         produced_state=produced_state,
@@ -283,6 +287,7 @@ def contract_for_readiness_report(
         available transition per ready ref, and one blocked transition per
         ref on each blocker.
     """
+    analysis_target = LiveHelpTarget(surface="analysis", canonical_id="boundary.semantic_handoff")
     transitions: list[AuthoringTransition] = []
     for ref in analysis_ready_refs:
         transitions.append(
@@ -299,6 +304,7 @@ def contract_for_readiness_report(
                         subject_refs=(ref,),
                     ),
                 ),
+                help_target=analysis_target,
             )
         )
     for blocker in blockers:
@@ -310,6 +316,7 @@ def contract_for_readiness_report(
                     subject_refs=(ref,),
                     available=False,
                     blocked_by=(blocker.kind,),
+                    help_target=analysis_target,
                 )
             )
     return normalize_contract(

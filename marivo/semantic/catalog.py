@@ -1642,6 +1642,74 @@ class _CatalogIndex:
 # ---------------------------------------------------------------------------
 
 
+def _attach_analysis_handoff(
+    report: ReadinessReport,
+    catalog: SemanticCatalog,
+    requested_refs: tuple[str, ...] | None = None,
+) -> ReadinessReport:
+    """Attach a typed SemanticToAnalysisHandoff to a readiness report.
+
+    Returns the report unchanged (handoff=None) when blocked or no ref is
+    ready. The handoff is built from the catalog index and workspace dir so
+    its fingerprints match Session.validate_semantic_handoff exactly.
+
+    ``requested_refs`` are the seeds the caller passed to ``readiness(refs=...)``.
+    The handoff carries only these scoped refs (not the full dependency
+    closure in ``report.analysis_ready_refs``), so the validator's re-run of
+    ``readiness(refs=list(handoff.ready_refs))`` re-expands to the same
+    closure and requires preview evidence only for the requested executable
+    refs. When ``requested_refs is None`` (the no-args ``readiness()`` case),
+    every ready ref is handed off.
+    """
+    from dataclasses import replace
+
+    from marivo.introspection.live.fingerprints import (
+        catalog_fingerprint,
+        project_fingerprint,
+    )
+    from marivo.introspection.live.model import (
+        EnvironmentFingerprint,
+        LiveHelpTarget,
+        SemanticToAnalysisHandoff,
+    )
+
+    if report.status == "blocked" or not report.analysis_ready_refs:
+        return replace(report, analysis_handoff=None)
+
+    requested_set = set(requested_refs) if requested_refs is not None else None
+    scoped_ready = tuple(
+        ref for ref in report.analysis_ready_refs if requested_set is None or ref in requested_set
+    )
+    index = catalog._require_index()
+    ready_refs = tuple(
+        make_ref(ref, kind) for ref in scoped_ready if (kind := index.kind_of(ref)) is not None
+    )
+    if not ready_refs:
+        return replace(report, analysis_handoff=None)
+
+    if report.status == "ready_with_warnings":
+        readiness_status: Literal["ready", "ready_with_warnings"] = "ready_with_warnings"
+        caveats: tuple[str, ...] = (
+            "readiness includes non-blocking warnings; acceptance is a skill/user decision",
+        )
+    else:
+        readiness_status = "ready"
+        caveats = ()
+
+    handoff = SemanticToAnalysisHandoff(
+        help_target=LiveHelpTarget(surface="analysis", canonical_id="boundary.semantic_handoff"),
+        ready_refs=ready_refs,
+        project_fingerprint=project_fingerprint(catalog.workspace_dir),
+        catalog_fingerprint=catalog_fingerprint(obj.id for obj in index._by_id.values()),
+        environment_fingerprint=EnvironmentFingerprint.current(),
+        readiness_status=readiness_status,
+        warning_ids=tuple(sorted(w.kind for w in report.warnings)),
+        preview_evidence_ids=(),
+        caveats=caveats,
+    )
+    return replace(report, analysis_handoff=handoff)
+
+
 class SemanticCatalog:
     """Read-only object graph over a loaded semantic project.
 
@@ -2054,6 +2122,13 @@ class SemanticCatalog:
         acquiring, refreshing, or querying. Missing evidence produces exact
         next calls for the caller to execute explicitly.
 
+        When readiness is not blocked and at least one requested ref is
+        analysis-ready, the report carries a typed
+        ``SemanticToAnalysisHandoff`` whose fingerprints are computed from
+        the same catalog index and project root the analysis-side
+        ``Session.validate_semantic_handoff`` validator checks. The handoff
+        is ``None`` when readiness is blocked or no ref is ready.
+
         Args:
             refs: Semantic refs to check. Resolves the full dependency closure
                 for each ref. None checks all loaded objects.
@@ -2079,7 +2154,10 @@ class SemanticCatalog:
             if refs is not None
             else None
         )
-        return self._project.readiness(refs=str_refs)
+        report = self._project.readiness(refs=str_refs)
+        return _attach_analysis_handoff(
+            report, self, tuple(str_refs) if str_refs is not None else None
+        )
 
     def verify_object(
         self,

@@ -510,35 +510,9 @@ def _session_with_catalog(semantic_project_factory, tmp_path):
     from marivo.semantic.catalog import SemanticCatalog
 
     catalog = SemanticCatalog(project)
-    layout = PersistenceLayout(project_root=tmp_path, session_id="sess_h01")
-    store = SessionStore(project_root=tmp_path)
-    with store._connect() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO sessions (id, name, question, cwd, default_calendar, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                "sess_h01",
-                "handoff",
-                "q",
-                str(tmp_path),
-                None,
-                "2026-05-24T10:00:00+00:00",
-                "2026-05-24T10:00:00+00:00",
-            ),
-        )
-    return Session(
-        id="sess_h01",
-        name="handoff",
-        question="q",
-        cwd=tmp_path,
-        project_root=tmp_path,
-        created_at=_now(),
-        updated_at=_now(),
-        connection_runtime=_build_connection_runtime(tmp_path, None, None, use_datasources=False),
-        layout=layout,
-        semantic_catalog=catalog,
-        store=store,
-    )
+    from tests.shared_fixtures import build_session_over_catalog
+
+    return build_session_over_catalog(catalog, tmp_path)
 
 
 def _make_handoff(session, **overrides):
@@ -834,3 +808,38 @@ def test_validate_semantic_handoff_does_not_mutate_session_state(
 
     assert session.updated_at == original_updated_at
     assert session.name == original_name
+
+
+def test_validate_semantic_handoff_real_producer_round_trip(
+    semantic_project_factory, tmp_path, monkeypatch
+):
+    """Real producer -> validator round trip with no monkeypatched readiness.
+
+    Builds the ready revenue catalog, persists a fresh preview check, and runs
+    the real ``catalog.readiness`` to attach the producer handoff. The handoff
+    is then validated through the analysis Session over the same catalog and
+    must yield a ``SemanticHandoffReceipt`` mirroring the handed-off facts.
+    """
+    from marivo.analysis._capabilities.model import SemanticHandoffReceipt
+    from tests.test_semantic_analysis_handoff import (
+        _ready_revenue_catalog_and_snapshot,
+        _session_for_catalog,
+    )
+
+    catalog, snapshot = _ready_revenue_catalog_and_snapshot(
+        semantic_project_factory, tmp_path, monkeypatch
+    )
+    revenue = catalog.get("metric.sales.revenue")
+    catalog.preview(revenue.ref, using=snapshot, limit=2)
+    handoff = catalog.readiness(refs=[revenue.ref]).analysis_handoff
+    assert handoff is not None
+
+    session = _session_for_catalog(catalog, tmp_path)
+    receipt = session.validate_semantic_handoff(handoff)
+
+    assert isinstance(receipt, SemanticHandoffReceipt)
+    ready_ids = [str(r) for r in receipt.ready_refs]
+    assert "sales.revenue" in ready_ids
+    assert receipt.readiness_status == handoff.readiness_status
+    assert receipt.warning_ids == handoff.warning_ids
+    assert receipt.preview_evidence_ids == ()
