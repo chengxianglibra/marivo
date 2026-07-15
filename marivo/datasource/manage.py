@@ -28,9 +28,12 @@ from marivo.datasource.engines.base import decode_cursor_frame
 from marivo.datasource.errors import (
     DatasourceError,
     DatasourceMissingError,
+    DatasourceObservedEffects,
     DatasourceRawSqlError,
+    repair,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.introspection.live.model import AuthoringContract, AuthoringRepair
 from marivo.render import Card, RenderableResult, result_repr
 
 
@@ -49,8 +52,16 @@ class DatasourceSummary(RenderableResult):
     def _repr_identity(self) -> str:
         return f"DatasourceSummary name={self.name} backend={self.backend_type}"
 
+    def contract(self) -> AuthoringContract:
+        """Return the validation and inspection contract for this datasource."""
+        from marivo.datasource._capabilities.contracts import contract_for_registered
+
+        return contract_for_registered(self.name)
+
     def _card(self) -> Card:
-        return Card(identity=self._repr_identity(), available=(".render()", ".show()"))
+        return Card(
+            identity=self._repr_identity(), available=(".contract()", ".render()", ".show()")
+        )
 
 
 @dataclass(frozen=True, repr=False)
@@ -103,10 +114,18 @@ class DatasourceDescription(RenderableResult):
             f"fields={len(self.literal_fields)} env_refs={len(self.env_refs)}"
         )
 
+    def contract(self) -> AuthoringContract:
+        """Return the validation and inspection contract for this datasource."""
+        from marivo.datasource._capabilities.contracts import contract_for_registered
+
+        return contract_for_registered(self.name)
+
     def _card(self) -> Card:
         field_names = sorted(self.literal_fields)
         env_ref_names = sorted(self.env_refs)
-        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).field(
+        return Card(
+            identity=self._repr_identity(), available=(".contract()", ".render()", ".show()")
+        ).field(
             label="columns",
             value=" | ".join(field_names + [f"{name}_env" for name in env_ref_names]),
         )
@@ -118,17 +137,25 @@ class DatasourceTestResult(RenderableResult):
 
     name: str
     ok: bool
-    error: str | None
     latency_ms: int | None
+    repair: AuthoringRepair | None
 
     def _repr_identity(self) -> str:
         latency = "n/a" if self.latency_ms is None else f"{self.latency_ms}ms"
         return f"DatasourceTestResult name={self.name} ok={self.ok} latency={latency}"
 
+    def contract(self) -> AuthoringContract:
+        """Return the observed connection-validation state for this result."""
+        from marivo.datasource._capabilities.contracts import contract_for_connection_test
+
+        return contract_for_connection_test(self.name, ok=self.ok)
+
     def _card(self) -> Card:
-        card = Card(identity=self._repr_identity(), available=(".render()", ".show()"))
-        if self.error is not None:
-            card.status(self.error)
+        card = Card(
+            identity=self._repr_identity(), available=(".contract()", ".render()", ".show()")
+        )
+        if self.repair is not None:
+            card.status(self.repair.action)
         return card
 
 
@@ -359,7 +386,16 @@ def describe(name: str) -> DatasourceDescription:
     if datasource is None:
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
-            details={"datasource": name, "available": _store.list_names()},
+            expected="a registered project datasource",
+            received=name,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before retrying.",
+                snippet=f'md.register(md.duckdb(name={name!r}, path=":memory:"))',
+                candidates=tuple(_store.list_names()),
+            ),
         )
     return DatasourceDescription(
         name=datasource.name,
@@ -413,7 +449,16 @@ def _connect_internal(
         )
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
-            details={"datasource": name, "available": available},
+            expected="a registered project datasource",
+            received=name,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before retrying.",
+                snippet=f'md.register(md.duckdb(name={name!r}, path=":memory:"))',
+                candidates=tuple(available),
+            ),
         )
     built = _backends.build_backend_with_secrets(datasource)
     connection = DatasourceConnection(built.backend)
@@ -426,6 +471,17 @@ def _datasource_name(value: str | DatasourceRef) -> str:
     return _storage_name(value)
 
 
+def _connection_repair(exc: Exception) -> AuthoringRepair:
+    existing = getattr(exc, "repair", None)
+    if isinstance(existing, AuthoringRepair):
+        return existing
+    return repair(
+        kind="reconnect",
+        canonical_id="test",
+        action="Reconnect the datasource after fixing its connection settings.",
+    )
+
+
 def test(name: str | DatasourceRef) -> DatasourceTestResult:
     """Round-trip the backend and persist validated env secrets.
 
@@ -433,7 +489,7 @@ def test(name: str | DatasourceRef) -> DatasourceTestResult:
         name: The datasource name or ``DatasourceRef`` to test.
 
     Returns:
-        A ``DatasourceTestResult`` with ok/error status and latency.
+        A ``DatasourceTestResult`` with ok status, latency, and typed repair.
 
     Example:
         >>> import marivo.datasource as md
@@ -455,16 +511,16 @@ def test(name: str | DatasourceRef) -> DatasourceTestResult:
         return DatasourceTestResult(
             name=datasource_name,
             ok=True,
-            error=None,
             latency_ms=latency_ms,
+            repair=None,
         )
     except Exception as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
             ok=False,
-            error=f"{type(exc).__name__}: {exc}",
             latency_ms=latency_ms,
+            repair=_connection_repair(exc),
         )
     finally:
         if backend is not None:
@@ -486,7 +542,7 @@ def test_no_persist(
         name: The datasource name or ``DatasourceRef`` to test.
 
     Returns:
-        A ``DatasourceTestResult`` with ok/error status and latency.
+        A ``DatasourceTestResult`` with ok status, latency, and typed repair.
 
     Constraints:
         Intended for read-only diagnostics such as ``marivo doctor --connect``.
@@ -507,16 +563,16 @@ def test_no_persist(
         return DatasourceTestResult(
             name=datasource_name,
             ok=True,
-            error=None,
             latency_ms=latency_ms,
+            repair=None,
         )
     except Exception as exc:
         latency_ms = int((time.perf_counter() - start) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
             ok=False,
-            error=f"{type(exc).__name__}: {exc}",
             latency_ms=latency_ms,
+            repair=_connection_repair(exc),
         )
     finally:
         if backend is not None:
@@ -634,10 +690,16 @@ def raw_sql(
     if datasource_ir is None:
         raise DatasourceMissingError(
             message=f"datasource {datasource_id!r} is not configured",
-            details={
-                "datasource": datasource_id,
-                "available": _store.list_names(project_root),
-            },
+            expected="a registered project datasource",
+            received=datasource_id,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before retrying.",
+                snippet=f'md.register(md.duckdb(name={datasource_id!r}, path=":memory:"))',
+                candidates=tuple(_store.list_names(project_root)),
+            ),
         )
     backend_type = datasource_ir.backend_type
     profile = require_profile_for_backend_type(backend_type)
@@ -645,14 +707,15 @@ def raw_sql(
     if timeout is None:
         raise DatasourceRawSqlError(
             message="raw_sql failed: backend profile has no enforceable timeout.",
-            details={
-                "datasource": datasource_id,
-                "backend_type": backend_type,
-                "reason": reason_text,
-                "timeout_seconds": timeout_seconds,
-                "stage": "timeout_setup",
-                "backend_cause": "authoring_timeout is not configured for this backend",
-            },
+            expected="a backend profile with authoring_timeout configured",
+            received=f"backend_type={backend_type!r} has no authoring_timeout",
+            location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
+            effect_observed=DatasourceObservedEffects(query_executed=False),
+            repair=repair(
+                kind="configure",
+                canonical_id="raw_sql",
+                action="Configure authoring_timeout for this backend profile before retrying.",
+            ),
         )
     service = DatasourceConnectionService(project_root)
     with service.use_backend(datasource_id, read_only=True) as backend:
@@ -672,14 +735,15 @@ def raw_sql(
         except Exception as exc:
             raise DatasourceRawSqlError(
                 message="raw_sql execution failed; no side effects were applied.",
-                details={
-                    "datasource": datasource_id,
-                    "backend_type": backend_type,
-                    "reason": reason_text,
-                    "timeout_seconds": timeout_seconds,
-                    "stage": "execution",
-                    "backend_cause": str(exc),
-                },
+                expected="a read-only diagnostic the datasource backend can execute",
+                received=str(exc),
+                location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
+                effect_observed=DatasourceObservedEffects(query_executed=True),
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="raw_sql",
+                    action="Verify the datasource connection and retry the diagnostic.",
+                ),
             ) from exc
         try:
             columns, extracted_rows, types = _extract_raw_sql_frame(
@@ -692,14 +756,15 @@ def raw_sql(
         except Exception as exc:
             raise DatasourceRawSqlError(
                 message="raw_sql result decoding failed.",
-                details={
-                    "datasource": datasource_id,
-                    "backend_type": backend_type,
-                    "reason": reason_text,
-                    "timeout_seconds": timeout_seconds,
-                    "stage": "result_decode",
-                    "backend_cause": str(exc),
-                },
+                expected="a cursor frame decodable into columns, rows, and types",
+                received=str(exc),
+                location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
+                effect_observed=DatasourceObservedEffects(query_executed=True),
+                repair=repair(
+                    kind="retry",
+                    canonical_id="raw_sql",
+                    action="Simplify the statement or narrow columns and retry the diagnostic.",
+                ),
             ) from exc
         duration_ms = int((time.monotonic() - start) * 1000)
         rows = extracted_rows[:limit]

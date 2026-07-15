@@ -51,7 +51,6 @@ def test_verify_object_static_domain_passes(semantic_project_factory) -> None:
 
 
 def test_verify_object_signatures_have_no_scope() -> None:
-    assert "scope" not in inspect.signature(ms.verify_object).parameters
     assert "scope" not in inspect.signature(SemanticCatalog.verify_object).parameters
     assert "scope" not in inspect.signature(SemanticProject.verify_object).parameters
 

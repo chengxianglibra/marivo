@@ -34,6 +34,7 @@ from marivo.datasource.snapshot import (
     SnapshotCoverage,
     _profile_column,
 )
+from marivo.introspection.live.model import AuthoringStateRef
 from marivo.render import AgentResult
 
 
@@ -304,6 +305,64 @@ def test_values_never_represents_unavailable_evidence_as_empty(
     assert "unavailable" in measures.render().lower()
 
 
+def test_missing_retained_values_expose_typed_reacquisition_repair(
+    snapshot: DiscoverySnapshot,
+) -> None:
+    unavailable = replace(
+        snapshot,
+        value_evidence_state="value_evidence_unavailable",
+        profiles=tuple(
+            replace(profile, top_values=None, display_samples=None) for profile in snapshot.profiles
+        ),
+    )
+
+    results = (
+        unavailable.dimensions(columns=("region",)),
+        unavailable.values("region", limit=10),
+        unavailable.measures(columns=("amount",)),
+    )
+
+    for result in results:
+        assert result.repair is not None
+        assert result.repair.kind == "reacquire"
+        assert result.repair.help_target.canonical_id == "SourceInspection.sample"
+        assert result.repair.preserves_evidence is False
+        assert result.repair.snippet is not None
+        assert "persist_values=True" in result.repair.snippet
+        assert "refresh=True" in result.repair.snippet
+        assert not hasattr(result, "next_calls")
+
+    multi_column = unavailable.dimensions(columns=("region", "query_id"))
+    assert multi_column.repair is not None
+    assert 'columns=("region", "query_id")' in multi_column.repair.snippet
+
+
+def test_complete_evidence_contract_is_terminal_and_binds_snapshot_identity(
+    snapshot: DiscoverySnapshot,
+) -> None:
+    results = (
+        snapshot.entity(columns=("query_id",)),
+        snapshot.time_dimensions(columns=("log_date",)),
+    )
+
+    for result in results:
+        assert result.snapshot_id == snapshot.id
+        assert result.repair is None
+        assert result.contract().states == (
+            AuthoringStateRef(
+                id="evidence.projected",
+                subject_refs=result.columns,
+                evidence_ids=(snapshot.id,),
+            ),
+        )
+        assert result.contract().transitions == ()
+        assert not hasattr(result, "next_calls")
+        rendered = result.render().lower()
+        assert ".contract()" in rendered
+        assert ".repair" in rendered
+        assert "next calls" not in rendered
+
+
 def test_relationship_projection_is_explicit_one_column_and_cross_scope_unresolved(
     snapshot: DiscoverySnapshot,
 ) -> None:
@@ -392,8 +451,15 @@ def test_relationship_multi_column_is_unavailable_without_projection_query(
     assert result.evidence_state == "unavailable"
     assert result.type_compatible is None
     assert "multi_column" in result.issues
-    assert result.next_calls == ("ms.help('relationship')",)
-    assert "query_id" not in result.next_calls[0]
+    assert result.repair is not None
+    assert result.repair.kind == "retry"
+    assert result.repair.help_target.canonical_id == "DiscoverySnapshot.relationships"
+    assert result.repair.preserves_evidence is True
+    assert (
+        result.repair.snippet
+        == 'snapshot.relationships(other, left=("query_id",), right=("query_id",))'
+    )
+    assert not hasattr(result, "next_calls")
 
 
 def test_every_projection_is_local_and_validates_requested_columns(
@@ -426,6 +492,37 @@ def test_every_projection_is_local_and_validates_requested_columns(
         snapshot.entity(columns=("missing",))
     with pytest.raises(ValueError, match="positive integer"):
         snapshot.values("region", limit=0)
+
+
+def test_projection_cards_contracts_and_help_are_query_free(
+    snapshot: DiscoverySnapshot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("projection evidence must not access the datasource")
+
+    monkeypatch.setattr("marivo.datasource.snapshot._backends.build_backend", fail)
+    monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
+    monkeypatch.setattr("marivo.datasource.backends.build_backend_with_secrets", fail)
+    other = _snapshot(
+        (_profile("query_id", [1, 2], data_type="int64", scope_exhaustion="exhaustive"),),
+        snapshot_id="snapshot_right",
+        scope_exhaustion="exhaustive",
+    )
+
+    results = (
+        snapshot.entity(columns=("query_id",)),
+        snapshot.dimensions(columns=("region",)),
+        snapshot.values("region", limit=3),
+        snapshot.time_dimensions(columns=("log_date",)),
+        snapshot.measures(columns=("amount",)),
+        snapshot.relationships(other, left=("query_id",), right=("query_id",)),
+    )
+
+    for result in results:
+        assert result.contract().transitions == ()
+        assert result.show() is None
+        assert md.help_text(result)
 
 
 def test_rendering_is_bounded_without_truncating_structured_mapping() -> None:

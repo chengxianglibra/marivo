@@ -131,8 +131,8 @@ def test_root_help_preserves_semantic_authoring(capsys: pytest.CaptureFixture[st
         main(["--help"])
     captured = capsys.readouterr()
     assert "Semantic authoring workflow:" in captured.out
-    assert "python -c \"import marivo.datasource as md; md.help('authoring')\"" in captured.out
-    assert "python -c \"import marivo.semantic as ms; ms.help('authoring')\"" in captured.out
+    assert "marivo help semantic" in captured.out
+    assert "marivo help semantic <target>" in captured.out
 
 
 def test_root_help_preserves_doctor_commands(capsys: pytest.CaptureFixture[str]) -> None:
@@ -207,7 +207,7 @@ def test_unknown_target_renders_same_error_as_sdk(
 def test_unknown_track_exits_nonzero(capsys: pytest.CaptureFixture[str]) -> None:
     """``marivo help <unknown-track>`` must exit non-zero."""
     with pytest.raises(SystemExit) as exc_info:
-        main(["help", "datasource"])
+        main(["help", "nonexistent_track_xyz"])
     assert exc_info.value.code != 0
 
 

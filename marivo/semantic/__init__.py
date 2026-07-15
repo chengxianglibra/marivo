@@ -23,7 +23,6 @@ Public surface::
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from marivo.refs import SemanticRef
@@ -86,7 +85,7 @@ from marivo.semantic.catalog import (
     TimeDimensionDetails,
     load,
 )
-from marivo.semantic.dtos import AuthoringQuestion, VerifyResult
+from marivo.semantic.dtos import VerifyResult
 from marivo.semantic.help import help, help_text
 from marivo.semantic.ir import (
     JoinKey,
@@ -111,77 +110,6 @@ from marivo.semantic.typing import AiContextValue
 
 if TYPE_CHECKING:
     from marivo.semantic.richness import DemandSignal
-
-
-def verify_object(
-    ref: CatalogObject | SemanticRef,
-) -> VerifyResult:
-    """Statically verify a single authored semantic object.
-
-    Applies project load, assembly, dependency, type, cycle, and
-    expression-contract checks without opening a datasource. Use
-    ``catalog.preview(...)`` for runtime execution checks.
-
-    Args:
-        ref: CatalogObject or SemanticRef from an authoring call,
-            ``ms.ref(...)``, or ``catalog.get(...).ref``.
-
-    Returns:
-        VerifyResult with static validation status, issues, and warnings.
-
-    Example:
-        >>> import marivo.semantic as ms
-        >>> result = ms.verify_object(ms.ref("entity.sales.orders"))
-        >>> result.status
-
-    Constraints:
-        Run after authoring each semantic object. Fix failed verification
-        before advancing to dependent objects.
-    """
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    return project.verify_object(ref)
-
-
-def readiness(
-    *,
-    refs: Sequence[CatalogObject | SemanticRef] | None = None,
-) -> ReadinessReport:
-    """Return explicit certification and diagnostics for the given semantic refs.
-
-    Reads loaded state plus persisted row-free preview evidence without
-    acquiring, refreshing, or querying. Missing evidence produces exact next
-    calls for the caller to execute explicitly.
-
-    Args:
-        refs: Semantic refs to check. Resolves the full dependency closure
-            for each ref. None checks all loaded objects.
-
-    Returns:
-        ReadinessReport indicating whether the selected refs satisfy the
-        current certification contract.
-
-    Example:
-        >>> import marivo.semantic as ms
-        >>> report = ms.readiness()
-        >>> if report.status == "blocked":
-        ...     report.show()
-
-    Constraints:
-        Use after authoring or changing semantic objects, or when a workflow
-        requests fresh technical certification. Analysis APIs do not invoke
-        readiness automatically.
-    """
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    if refs is not None:
-        str_refs = [r.ref.id if isinstance(r, CatalogObject) else r.id for r in refs]
-    else:
-        str_refs = None
-    return project.readiness(refs=str_refs)
 
 
 def richness(
@@ -253,7 +181,6 @@ def parity_check(
 
 __all__ = [
     "AiContextValue",
-    "AuthoringQuestion",
     "CatalogCollection",
     "CatalogObject",
     "Datasource",
@@ -315,7 +242,6 @@ __all__ = [
     "metric",
     "parity_check",
     "ratio",
-    "readiness",
     "ref",
     "relationship",
     "richness",
@@ -328,6 +254,5 @@ __all__ = [
     "trailing",
     "typing",
     "validity",
-    "verify_object",
     "weighted_average",
 ]

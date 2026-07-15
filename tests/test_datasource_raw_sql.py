@@ -401,7 +401,10 @@ def test_raw_sql_fails_closed_when_timeout_unavailable(
             reason="check fail-closed",
             project_root=tmp_path,
         )
-    assert exc_info.value.details["stage"] == "timeout_setup"
+    err = exc_info.value
+    assert err.effect_observed is not None
+    assert err.effect_observed.query_executed is False
+    assert "no enforceable timeout" in err.message
 
 
 def test_raw_sql_exact_limit_reports_not_truncated(tmp_path: Path) -> None:
@@ -514,7 +517,7 @@ def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
     assert result.rows[0]["data"] == [1, 2, 3]
 
 
-def test_raw_sql_error_includes_stage_and_timeout(tmp_path: Path) -> None:
+def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     with pytest.raises(DatasourceRawSqlError) as exc_info:
         md.raw_sql(
@@ -524,17 +527,17 @@ def test_raw_sql_error_includes_stage_and_timeout(tmp_path: Path) -> None:
             timeout_seconds=10,
             project_root=tmp_path,
         )
-    details = exc_info.value.details
-    assert details["stage"] == "execution"
-    assert details["timeout_seconds"] == 10
-    assert details["reason"] == "write attempt"
-    rendered = str(exc_info.value)
-    assert "terminal" in rendered.lower()
-    assert "no analysis artifact" in rendered.lower()
+    err = exc_info.value
+    assert err.effect_observed is not None
+    assert err.effect_observed.query_executed is True
+    assert "warehouse" in err.location
+    rendered = str(err)
+    assert "raw_sql execution failed" in rendered
+    assert "Repair:" in rendered
     assert "md.help" in rendered.lower() or "raw_sql" in rendered.lower()
 
 
-def test_raw_sql_error_timeout_setup_stage_mentions_no_execution(
+def test_raw_sql_error_timeout_setup_reports_no_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import dataclasses
@@ -563,6 +566,7 @@ def test_raw_sql_error_timeout_setup_stage_mentions_no_execution(
             reason="no timeout",
             project_root=tmp_path,
         )
-    assert exc_info.value.details["stage"] == "timeout_setup"
-    rendered = str(exc_info.value)
-    assert "did not begin execution" in rendered.lower()
+    err = exc_info.value
+    assert err.effect_observed is not None
+    assert err.effect_observed.query_executed is False
+    assert "no enforceable timeout" in err.message

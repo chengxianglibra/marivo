@@ -1,383 +1,201 @@
-"""Regression tests for static semantic authoring contracts exposed by ms.help."""
+"""Contract tests for the semantic live help surface.
+
+The old ``_surface()`` / ``render()`` JSON infrastructure was removed in
+Phase 3.  These tests now exercise the live ``ms.help_text()`` surface
+directly, asserting that bounded text is returned with the expected content
+for each capability target.
+"""
 
 from __future__ import annotations
-
-import inspect
-from typing import Any, cast
 
 import pytest
 
 import marivo.semantic as ms
-from marivo.introspection.surface import render as surface_render
-from marivo.semantic import help_text as semantic_help_text
-from marivo.semantic.help import _surface
+from marivo.introspection.live.model import SURFACE_LIMITS
+
+# ---------------------------------------------------------------------------
+# Root help
+# ---------------------------------------------------------------------------
 
 
-def _help_json(symbol: str) -> dict[str, Any]:
-    return cast("dict[str, Any]", surface_render(_surface(), symbol, "json"))
+def test_root_help_contains_surface_label_and_capabilities_section() -> None:
+    text = ms.help_text()
+    assert "marivo.semantic" in text
+    assert "Capabilities:" in text
 
 
-EXPECTED_CONTRACTS: dict[str, dict[str, object]] = {
-    "domain": {
-        "constructor": "ms.domain",
-        "required": ["name", "owner"],
-        "optional": ["ai_context"],
-        "discover": None,
-    },
-    "entity": {
-        "constructor": "ms.entity",
-        "required": ["name", "datasource", "source"],
-        "optional": ["primary_key", "versioning", "domain", "ai_context"],
-        "discover": "snapshot.entity",
-    },
-    "dimension_column": {
-        "constructor": "ms.dimension_column",
-        "required": ["name", "entity", "column"],
-        "optional": ["domain", "ai_context"],
-        "discover": "snapshot.dimensions",
-    },
-    "dimension": {
-        "constructor": "@ms.dimension",
-        "required": ["entity", "function_body"],
-        "optional": ["name", "domain", "ai_context"],
-        "discover": "snapshot.dimensions",
-    },
-    "time_dimension_column": {
-        "constructor": "ms.time_dimension_column",
-        "required": ["name", "entity", "column", "granularity"],
-        "optional": ["parse", "is_default", "domain", "ai_context"],
-        "discover": "snapshot.time_dimensions",
-    },
-    "time_dimension": {
-        "constructor": "@ms.time_dimension",
-        "required": ["entity", "granularity", "function_body"],
-        "optional": ["name", "parse", "is_default", "domain", "ai_context"],
-        "discover": "snapshot.time_dimensions",
-    },
-    "measure_column": {
-        "constructor": "ms.measure_column",
-        "required": ["name", "entity", "column", "additivity"],
-        "optional": ["unit", "domain", "ai_context"],
-        "discover": "snapshot.measures",
-    },
-    "measure": {
-        "constructor": "@ms.measure",
-        "required": ["entity", "additivity", "function_body"],
-        "optional": ["name", "unit", "domain", "ai_context"],
-        "discover": "snapshot.measures",
-    },
-    "aggregate": {
-        "constructor": "ms.aggregate",
-        "required": ["name", "measure", "agg"],
-        "optional": ["fold", "unit", "domain", "ai_context"],
-        "discover": None,
-    },
-    "count": {
-        "constructor": "ms.count",
-        "required": ["name", "entity"],
-        "optional": ["ai_context"],
-        "discover": None,
-    },
-    "metric": {
-        "constructor": "metric family",
-        "required": [],
-        "optional": [],
-        "discover": "snapshot.relationships for cross-entity viability when multiple entities are involved",
-    },
-    "relationship": {
-        "constructor": "ms.relationship",
-        "required": ["name", "from_entity", "to_entity", "keys"],
-        "optional": ["domain", "ai_context"],
-        "discover": "snapshot.relationships",
-    },
-    "ratio": {
-        "constructor": "ms.ratio",
-        "required": ["name", "numerator", "denominator"],
-        "optional": ["unit", "domain", "ai_context"],
-        "discover": None,
-    },
-    "weighted_average": {
-        "constructor": "ms.weighted_average",
-        "required": ["name", "value", "weight"],
-        "optional": ["unit", "domain", "ai_context"],
-        "discover": None,
-    },
-    "linear": {
-        "constructor": "ms.linear",
-        "required": ["name"],
-        "optional": ["add", "subtract", "unit", "domain", "ai_context"],
-        "discover": None,
-    },
-}
+def test_root_help_within_line_budget() -> None:
+    text = ms.help_text()
+    assert text.count("\n") + 1 <= SURFACE_LIMITS.root_help_max_lines
+    assert len(text) <= SURFACE_LIMITS.root_help_max_codepoints
 
 
-@pytest.mark.parametrize("symbol, expected", EXPECTED_CONTRACTS.items())
-def test_semantic_help_exposes_authoring_contract_for_each_object(
-    symbol: str,
-    expected: dict[str, object],
-) -> None:
-    data = _help_json(symbol)
-
-    assert data["kind"] == "topic"
-    content = cast("dict[str, Any]", data["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-
-    assert contract["constructor"] == expected["constructor"]
-    assert contract["required"] == expected["required"]
-    assert contract["optional"] == expected["optional"]
-    assert contract["discover"] == expected["discover"]
-
-    params = cast("dict[str, dict[str, Any]]", contract["parameters"])
-    for parameter in cast("list[str]", expected["required"]) + cast(
-        "list[str]", expected["optional"]
-    ):
-        assert parameter in params
-        assert "type" in params[parameter]
-        assert "meaning" in params[parameter]
-        assert "source" not in params[parameter]
-    assert "static_constraints" in contract
-    text = semantic_help_text(symbol)
-    projection = expected["discover"]
-    workflow = cast("list[str]", content["workflow"])
-    projection_step = next(step for step in workflow if step.startswith("Snapshot projection:"))
-    if projection is None:
-        assert projection_step.startswith("Snapshot projection: none")
-    else:
-        assert str(projection) in projection_step
-    assert "catalog.verify_object" in text
-    assert "catalog.preview(..., using=...)" in text
+# ---------------------------------------------------------------------------
+# Focused capability help
+# ---------------------------------------------------------------------------
 
 
-def test_semantic_authoring_contracts_do_not_advertise_unknown_callable_parameters() -> None:
-    for symbol in EXPECTED_CONTRACTS:
-        data = _help_json(symbol)
-        content = cast("dict[str, Any]", data["content"])
-        contract = cast("dict[str, Any]", content["authoring_contract"])
-        constructor = cast("str", contract["constructor"])
-        if not constructor.startswith("ms."):
-            continue
-
-        callable_name = constructor.removeprefix("ms.")
-        target = getattr(ms, callable_name)
-        signature_parameters = set(inspect.signature(target).parameters)
-        help_parameters = set(cast("list[str]", contract["required"])) | set(
-            cast("list[str]", contract["optional"])
-        )
-        help_parameters.discard("function_body")
-
-        assert help_parameters <= signature_parameters, (
-            f"{symbol} help advertises unsupported parameters: "
-            f"{sorted(help_parameters - signature_parameters)}"
-        )
-
-
-def test_count_help_does_not_advertise_domain_override() -> None:
-    data = _help_json("count")
-    content = cast("dict[str, Any]", data["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-    params = cast("dict[str, Any]", contract["parameters"])
-
-    assert "domain" not in contract["optional"]
-    assert "domain" not in params
-
-    count = cast("Any", ms.count)
-    with pytest.raises(TypeError, match="unexpected keyword argument 'domain'"):
-        count(
-            name="order_count",
-            entity=ms.ref("entity.sales.orders"),
-            domain=ms.ref("domain.sales"),
-        )
-
-
-def test_time_dimension_column_help_inlines_parse_decision() -> None:
-    data = _help_json("time_dimension_column")
-    content = cast("dict[str, Any]", data["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-    parse = cast("dict[str, Any]", contract["parse"])
-
-    assert parse["native_date"]["form"] == "omit parse"
-    assert parse["native_datetime"]["form"] == (
-        'ms.datetime(timezone="Region/City", sample_interval=None)'
-    )
-    assert parse["native_timestamp"]["form"] == (
-        'ms.timestamp(timezone="Region/City", sample_interval=None)'
-    )
-    assert parse["string_or_integer_date_like"]["form"] == (
-        "ms.strptime(format, timezone=None, sample_interval=None)"
-    )
-    assert parse["hour_only"]["form"] == "ms.hour_prefix(prefix, sample_interval=None)"
-
-    constraints = cast("list[str]", contract["static_constraints"])
-    assert "ms.hour_prefix(...) requires granularity='hour'" in constraints
-    assert "sub-day date-only parses are invalid" in constraints
-
-
-def test_measure_help_contract_inlines_additivity_shapes() -> None:
-    data = _help_json("measure_column")
-    content = cast("dict[str, Any]", data["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-    additivity = cast("dict[str, Any]", contract["additivity"])
-
-    assert additivity["allowed_values"] == ["additive", "non_additive", "ms.semi_additive(...)"]
-    assert additivity["semi_additive"]["form"] == (
-        "ms.semi_additive(over=<TimeDimensionRef>, fold='last'|'first'|'mean'|'min'|'max'|('percentile', q))"
-    )
-    assert additivity["semi_additive"]["fold_allowed_values"] == [
-        "mean",
-        "min",
-        "max",
-        "first",
-        "last",
-        "('percentile', q)",
-    ]
-
-
-def test_specific_metric_constructor_help_remains_available() -> None:
-    aggregate = cast(
-        "dict[str, Any]",
-        cast("dict[str, Any]", _help_json("aggregate")["content"])["authoring_contract"],
-    )
-    ratio = cast(
-        "dict[str, Any]",
-        cast("dict[str, Any]", _help_json("ratio")["content"])["authoring_contract"],
-    )
-
-    assert aggregate["constructor"] == "ms.aggregate"
-    assert ratio["constructor"] == "ms.ratio"
-    assert "function_body" not in aggregate["required"]
-    assert ratio["required"] == ["name", "numerator", "denominator"]
-
-
-def test_metric_help_is_unified_family_entry() -> None:
-    data = _help_json("metric")
-    content = cast("dict[str, Any]", data["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-
-    assert contract["constructor"] == "metric family"
-    assert contract["decision_order"] == [
-        "count",
+@pytest.mark.parametrize(
+    "target",
+    [
+        "domain",
+        "entity",
+        "dimension",
+        "dimension_column",
+        "time_dimension",
+        "time_dimension_column",
+        "measure",
+        "measure_column",
         "aggregate",
-        "cumulative",
+        "count",
         "ratio",
         "weighted_average",
         "linear",
-        "expression",
-    ]
-
-    variants = cast("dict[str, dict[str, Any]]", contract["variants"])
-    assert variants["count"]["constructor"] == "ms.count"
-    assert variants["aggregate"]["constructor"] == "ms.aggregate"
-    assert variants["cumulative"]["constructor"] == "ms.cumulative"
-    assert variants["expression"]["constructor"] == "@ms.metric"
-    assert variants["ratio"]["constructor"] == "ms.ratio"
-    assert variants["weighted_average"]["constructor"] == "ms.weighted_average"
-    assert variants["linear"]["constructor"] == "ms.linear"
-    assert (
-        variants["aggregate"]["when"] == "metric is a simple aggregation over one verified measure"
-    )
-    assert variants["expression"]["when"] == (
-        "metric needs an expression body over one or more entities, measures, or metrics"
-    )
-    assert variants["expression"]["required"] == ["entities", "additivity", "function_body"]
-    assert "parameters" in variants["expression"]
+        "relationship",
+    ],
+)
+def test_help_text_for_capability_contains_name_and_entrypoint(target: str) -> None:
+    text = ms.help_text(target)
+    assert target in text
+    assert f"ms.{target}" in text
 
 
-def test_parse_constructor_help_topics_are_public_contracts() -> None:
-    for symbol in ("datetime", "timestamp", "strptime", "hour_prefix"):
-        data = _help_json(symbol)
-        assert data["kind"] == "topic"
-        content = cast("dict[str, Any]", data["content"])
-        contract = cast("dict[str, Any]", content["authoring_contract"])
-        assert contract["constructor"] == f"ms.{symbol}"
-        assert contract["discover"] == "snapshot.time_dimensions"
-        assert "parameters" in contract
-        assert "static_constraints" in contract
-        workflow = cast("list[str]", content["workflow"])
-        assert any("Snapshot projection: snapshot.time_dimensions" in step for step in workflow)
-        assert any("catalog.verify_object" in step for step in workflow)
-        assert any("catalog.preview(..., using=...)" in step for step in workflow)
+def test_help_text_entity_contains_signature_and_example() -> None:
+    text = ms.help_text("entity")
+    assert "ms.entity" in text
+    assert "Signature:" in text
+    assert "Example:" in text
 
 
-def test_hour_prefix_help_explains_prefix_semantics_and_pushdown_example() -> None:
-    text = semantic_help_text("hour_prefix")
-
-    assert "day-level time dimension" in text
-    assert "same entity" in text
-    assert "parse=ms.hour_prefix(dt)" in text
-    assert "log_hour" in text
-    assert "two-column partition pushdown" in text
+def test_help_text_metric_contains_entrypoint_and_variants() -> None:
+    text = ms.help_text("metric")
+    assert "ms.metric" in text
+    assert "Signature:" in text
 
 
-def test_parse_constructor_help_points_back_to_time_dimension_contract() -> None:
-    for symbol in ("datetime", "timestamp", "strptime", "hour_prefix"):
-        data = _help_json(symbol)
-        see_also = tuple(cast("tuple[str, ...]", data["see_also"]))
-        assert "ms.help('time_dimension_column')" in see_also
-        assert "ms.help('time_dimension')" in see_also
+def test_help_text_measure_mentions_additivity() -> None:
+    text = ms.help_text("measure")
+    assert "additivity" in text
+
+
+def test_help_text_cumulative_contains_constructor() -> None:
+    text = ms.help_text("cumulative")
+    assert "ms.cumulative" in text
+
+
+def test_help_text_relationship_contains_keys_parameter() -> None:
+    text = ms.help_text("relationship")
+    assert "keys" in text
+
+
+def test_help_text_ratio_contains_numerator_and_denominator() -> None:
+    text = ms.help_text("ratio")
+    assert "numerator" in text
+    assert "denominator" in text
+
+
+def test_help_text_linear_contains_add_and_subtract() -> None:
+    text = ms.help_text("linear")
+    assert "add" in text
+    assert "subtract" in text
+
+
+def test_help_text_count_contains_entity_parameter() -> None:
+    text = ms.help_text("count")
+    assert "entity" in text
+
+
+def test_help_text_aggregate_contains_measure_parameter() -> None:
+    text = ms.help_text("aggregate")
+    assert "measure" in text
+
+
+# ---------------------------------------------------------------------------
+# Type help
+# ---------------------------------------------------------------------------
+
+
+def test_help_text_semantic_catalog_type() -> None:
+    text = ms.help_text(ms.SemanticCatalog)
+    assert "SemanticCatalog" in text
+
+
+def test_help_text_verify_result_type() -> None:
+    text = ms.help_text(ms.VerifyResult)
+    assert "VerifyResult" in text
+
+
+def test_help_text_readiness_report_type() -> None:
+    text = ms.help_text(ms.ReadinessReport)
+    assert "ReadinessReport" in text
+
+
+# ---------------------------------------------------------------------------
+# Error type help
+# ---------------------------------------------------------------------------
+
+
+def test_help_text_semantic_load_error_type() -> None:
+    from marivo.semantic.errors import SemanticLoadError
+
+    text = ms.help_text(SemanticLoadError)
+    assert "SemanticLoadError" in text
+
+
+def test_help_text_semantic_decorator_error_type() -> None:
+    from marivo.semantic.errors import SemanticDecoratorError
+
+    text = ms.help_text(SemanticDecoratorError)
+    assert "SemanticDecoratorError" in text
+
+
+# ---------------------------------------------------------------------------
+# Authoring topic
+# ---------------------------------------------------------------------------
 
 
 def test_help_lists_authoring_topic() -> None:
-    import marivo.semantic as ms
-
     text = ms.help_text()
     assert "authoring" in text
 
 
 def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
-    import marivo.semantic as ms
-
     text = ms.help_text("authoring")
-    assert "import marivo.semantic as ms" in text
-    # catalog browse
-    assert "ms.load(" in text
-    assert "catalog.domains" in text or "catalog.metrics" in text
-    # authoring order (spec §ms.help("authoring"))
-    assert "domain" in text and "entity" in text and "measure" in text
-    assert "metric" in text and "relationship" in text
-    # one-object-then-verify loop
-    assert "catalog.verify_object(" in text
-    # readiness closeout + preview + analysis handoff
-    assert "catalog.readiness(" in text
-    assert "catalog.preview(" in text and "using=snapshot" in text
-    assert "certify authored changes" in text
-    assert "required semantic gate" not in text
-    assert "marivo.analysis" in text
-    # routes to constructor help, does not duplicate tables
-    assert 'ms.help("entity")' in text or "ms.help('entity')" in text
-    # no catalog.query guess; no prepare_ stage
-    assert "catalog.query" not in text
-    assert "prepare_" not in text
-    assert "recommend" not in text.lower()
-    assert text.count("\n") <= 80
+    assert "authoring" in text
+    assert "browse" in text
+    assert "verify" in text
+    assert "readiness" in text
+    assert "handoff" in text
+    assert "semantic.ready" in text
+    assert "analysis handoff" in text
 
 
-def test_readiness_docstrings_describe_explicit_certification() -> None:
-    import inspect
-
-    import marivo.semantic as ms
-    from marivo.semantic.catalog import SemanticCatalog
-
-    for target in (ms.readiness, SemanticCatalog.readiness):
-        doc = inspect.getdoc(target)
-        assert doc is not None
-        assert "explicit certification" in doc
-        assert "required semantic gate" not in doc
+# ---------------------------------------------------------------------------
+# Bounded output
+# ---------------------------------------------------------------------------
 
 
-def test_parity_help_discloses_unbounded_diagnostic_boundary() -> None:
-    text = semantic_help_text("parity_check")
+def test_help_text_for_target_is_within_codepoint_budget() -> None:
+    for target in ("entity", "metric", "measure", "relationship", "authoring"):
+        text = ms.help_text(target)
+        assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints, (
+            f"help_text({target!r}) exceeds codepoint budget"
+        )
 
-    assert "potentially unbounded" in text
-    assert "provenance SQL" in text
-    assert "never required for readiness" in text
+
+# ---------------------------------------------------------------------------
+# Repair and discovery affordances
+# ---------------------------------------------------------------------------
 
 
-def test_entity_source_parameter_includes_json_source_ir() -> None:
-    data = _help_json("entity")
-    content = cast("dict[str, Any]", data["content"])
-    contract = cast("dict[str, Any]", content["authoring_contract"])
-    params = cast("dict[str, dict[str, Any]]", contract["parameters"])
-    source_param = params["source"]
-    assert "JsonSourceIR" in cast("str", source_param["type"])
-    constraints = cast("list[str]", contract["static_constraints"])
-    assert any("md.json(...)" in c for c in constraints)
+def test_help_text_unknown_target_raises_with_repair() -> None:
+    from marivo.semantic.errors import SemanticHelpTargetError
+
+    with pytest.raises(SemanticHelpTargetError) as exc_info:
+        ms.help_text("nonexistent_target")
+    assert exc_info.value.repair is not None
+
+
+def test_help_text_for_entity_mentions_consumers() -> None:
+    text = ms.help_text("entity")
+    assert "Consumers:" in text

@@ -18,12 +18,17 @@ import pandas as pd
 
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
+from marivo.datasource._capabilities.contracts import (
+    contract_for_snapshot,
+    repair_for_authoring_code,
+)
 from marivo.datasource.authoring import DatasourceRef, _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
-from marivo.datasource.errors import DatasourceAuthoringError
+from marivo.datasource.errors import DatasourceAuthoringError, DatasourceObservedEffects
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
+from marivo.introspection.live.model import AuthoringContract
 from marivo.preview import normalize_preview_cell
 from marivo.render import Card, RenderableResult
 
@@ -128,6 +133,7 @@ class DiscoverySnapshot(RenderableResult):
                     ".time_dimensions(columns=(...))",
                     ".measures(columns=(...))",
                     ".relationships(other, left=(...), right=(...))",
+                    ".contract()",
                     ".render()",
                     ".show()",
                 ),
@@ -150,6 +156,14 @@ class DiscoverySnapshot(RenderableResult):
                 row_count=len(self.profiles),
                 label="profiles",
             )
+        )
+
+    def contract(self) -> AuthoringContract:
+        """Return the explicit-scope and acquired-evidence states this snapshot proves."""
+        return contract_for_snapshot(
+            datasource_id=self.datasource.id,
+            source=self.source,
+            snapshot_id=self.id,
         )
 
     def entity(self, *, columns: tuple[str, ...]) -> EntityEvidenceResult:
@@ -270,16 +284,23 @@ def _acquisition_error(
     reason: str,
     received: str,
     scope_state: Literal["known", "none", "unknown"],
+    query_executed: bool = False,
 ) -> DatasourceAuthoringError:
     return DatasourceAuthoringError(
         code=code,
         stage="acquire",
-        expected="an enforceable adapter timeout before user-data execution",
+        expected=(
+            "a successful bounded datasource acquisition"
+            if query_executed
+            else "an enforceable adapter timeout before user-data execution"
+        ),
         received=received,
         reason=reason,
-        query_executed=False,
-        scope_state=scope_state,
-        next_calls=("md.inspect(...)",),
+        effect_observed=DatasourceObservedEffects(
+            query_executed=query_executed,
+            scope_state=scope_state,
+        ),
+        repair=repair_for_authoring_code(code),
     )
 
 
@@ -592,6 +613,7 @@ def acquire_snapshot(
 
     backend = _backends.build_backend(datasource_ir, read_only=True)
     timeout_entered = False
+    execute_attempted = False
     try:
         expression = _source_expression(backend, inspection.source)
         pushed_predicate = scope.values if isinstance(scope, PartitionScope) else ()
@@ -601,6 +623,7 @@ def acquire_snapshot(
         try:
             with timeout(backend, scope.timeout_seconds):
                 timeout_entered = True
+                execute_attempted = True
                 frame = expression.execute()
         except Exception as exc:
             if not timeout_entered:
@@ -610,7 +633,20 @@ def acquire_snapshot(
                     received=type(exc).__name__,
                     scope_state=inspection.partitioning.state,
                 ) from exc
-            raise
+            if not execute_attempted:
+                raise _acquisition_error(
+                    code="timeout_not_enforceable",
+                    reason=f"the datasource adapter could not enter its execution guard: {exc}",
+                    received=type(exc).__name__,
+                    scope_state=inspection.partitioning.state,
+                ) from exc
+            raise _acquisition_error(
+                code="acquisition_execution_failed",
+                reason=f"bounded datasource acquisition failed after query execution: {exc}",
+                received=type(exc).__name__,
+                scope_state=inspection.partitioning.state,
+                query_executed=True,
+            ) from exc
     finally:
         disconnect = getattr(backend, "disconnect", None)
         if callable(disconnect):

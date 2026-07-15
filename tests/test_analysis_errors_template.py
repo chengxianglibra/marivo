@@ -62,20 +62,36 @@ def test_base_template_omits_missing_optional_sections() -> None:
 def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:
     err = DatasourceEnvVarMissingError(
         message="secret missing",
-        details={"datasource": "wh", "field": "password", "env_var": "TRINO_PASSWORD"},
+        expected="an exported secret environment variable",
+        received="TRINO_PASSWORD",
+        location="datasource 'wh' field 'password'",
+        repair=__import__("marivo.datasource.errors", fromlist=["repair"]).repair(
+            kind="environment",
+            canonical_id="test",
+            action="Export the variable and validate the datasource.",
+            snippet='md.test("wh")',
+        ),
     )
 
     rendered = str(err)
 
     assert "TRINO_PASSWORD" in rendered
-    assert "not set in os.environ and is not present in ~/.marivo/secrets.toml" in rendered
+    assert "Expected: an exported secret environment variable" in rendered
     assert 'md.test("wh")' in rendered
 
 
 def test_secret_store_permissions_error_has_chmod_fix() -> None:
     err = DatasourceSecretStorePermissionsError(
         message="secret store is too open",
-        details={"path": "/Users/alice/.marivo/secrets.toml", "mode": 0o644},
+        expected="owner-only secret-store permissions",
+        received="0o644",
+        location="/Users/alice/.marivo/secrets.toml",
+        repair=__import__("marivo.datasource.errors", fromlist=["repair"]).repair(
+            kind="environment",
+            canonical_id="test",
+            action="Restrict the secret store.",
+            snippet="chmod 600 ~/.marivo/secrets.toml",
+        ),
     )
 
     rendered = str(err)

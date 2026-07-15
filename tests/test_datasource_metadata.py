@@ -340,7 +340,7 @@ def test_inspect_table_missing_datasource_raises(project_root: Path) -> None:
     with pytest.raises(DatasourceMetadataError) as exc_info:
         _inspect_table("missing", table="orders")
 
-    assert exc_info.value.details["datasource"] == "missing"
+    assert exc_info.value.received == "missing"
 
 
 class _FakeSchema(dict):

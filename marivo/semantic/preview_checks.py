@@ -22,10 +22,11 @@ from marivo.datasource.authoring_store import (
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
+from marivo.introspection.live.model import AuthoringRepair
 from marivo.preview import PreviewCoverage, PreviewResult
 from marivo.refs import SemanticRef, SymbolKind
 from marivo.semantic._authoring_validation import _compute_body_ast_hash
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.semantic.ir import (
     CumulativeComposition,
     EntityIR,
@@ -80,7 +81,7 @@ class PreviewEvidenceRequirement:
     """Query-free readiness state for one directly requested executable ref."""
 
     status: Literal["matched", "snapshot_missing", "runtime_preview_missing"]
-    suggested_action: str
+    repair: AuthoringRepair
 
 
 def _blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoReturn:
@@ -554,11 +555,27 @@ def preview_evidence_requirement(
                 and created_at >= max(snapshot.created_at for snapshot in bound_snapshots)
                 and expires_at == min(snapshot.expires_at for snapshot in bound_snapshots)
             ):
-                return PreviewEvidenceRequirement("matched", "")
+                return PreviewEvidenceRequirement(
+                    status="matched",
+                    repair=repair(
+                        kind="retry",
+                        canonical_id="readiness",
+                        action="Fresh preview evidence is available; readiness may proceed.",
+                    ),
+                )
     missing_entities = tuple(entity_id for entity_id in entity_ids if entity_id not in snapshots)
     if missing_entities:
         calls = tuple(_inspect_call(registry.entities[entity_id]) for entity_id in missing_entities)
-        return PreviewEvidenceRequirement("snapshot_missing", "\n".join(calls))
+        return PreviewEvidenceRequirement(
+            status="snapshot_missing",
+            repair=repair(
+                kind="reacquire",
+                canonical_id="SourceInspection.sample",
+                action="Acquire matching datasource snapshots before readiness.",
+                snippet="\n".join(calls),
+                preserves_evidence=False,
+            ),
+        )
 
     sample_calls = {
         entity_id: _snapshot_sample_call(registry.entities[entity_id], snapshots[entity_id])
@@ -574,8 +591,14 @@ def preview_evidence_requirement(
         )
         using = "{\n" + mapping_items + "\n    }"
     return PreviewEvidenceRequirement(
-        "runtime_preview_missing",
-        f"catalog.preview(\n    {typed_ref},\n    using={using},\n)",
+        status="runtime_preview_missing",
+        repair=repair(
+            kind="repreview",
+            canonical_id="preview",
+            action="Run a scoped preview with matching snapshot bindings.",
+            snippet=f"catalog.preview(\n    {typed_ref},\n    using={using},\n)",
+            preserves_evidence=False,
+        ),
     )
 
 

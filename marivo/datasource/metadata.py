@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
-from marivo.datasource.errors import DatasourceMetadataError
+from marivo.datasource.errors import DatasourceMetadataError, repair
 from marivo.datasource.ir import (
     CsvSourceIR,
     EntitySourceIR,
@@ -502,7 +502,15 @@ def inspect_table(
     if datasource_ir is None:
         raise DatasourceMetadataError(
             message=f"datasource {datasource!r} is not configured",
-            details={"datasource": datasource, "table": table, "available": _store.list_names()},
+            expected="a registered project datasource",
+            received=datasource,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before inspecting it.",
+                candidates=tuple(_store.list_names()),
+            ),
         )
 
     backend: Any = None
@@ -517,12 +525,14 @@ def inspect_table(
         except Exception as exc:
             raise DatasourceMetadataError(
                 message=f"failed to inspect datasource table {datasource!r}.{table!r}: {exc}",
-                details={
-                    "datasource": datasource,
-                    "table": table,
-                    "database": _database_label(database),
-                    "cause": str(exc),
-                },
+                expected="an inspectable datasource table",
+                received=str(exc),
+                location=f"md.inspect({datasource!r}, {table!r})",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="inspect",
+                    action="Verify the datasource connection and table name before retrying.",
+                ),
             ) from exc
 
         try:
@@ -587,14 +597,29 @@ def _inspect_source(
     if not isinstance(source, (ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         raise DatasourceMetadataError(
             message=f"unsupported datasource source kind {getattr(source, 'kind', None)!r}",
-            details={"datasource": datasource, "source_kind": getattr(source, "kind", None)},
+            expected="a table, parquet, CSV, or JSON datasource source",
+            received=str(getattr(source, "kind", None)),
+            location=f"datasource {datasource!r}",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="inspect",
+                action="Use a supported datasource source kind.",
+            ),
         )
 
     datasource_ir = _store.load_one(datasource, project_root=project_root)
     if datasource_ir is None:
         raise DatasourceMetadataError(
             message=f"datasource {datasource!r} is not configured",
-            details={"datasource": datasource, "available": _store.list_names()},
+            expected="a registered project datasource",
+            received=datasource,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before inspecting it.",
+                candidates=tuple(_store.list_names()),
+            ),
         )
     try:
         backend = _backends.build_backend(datasource_ir)
@@ -628,12 +653,14 @@ def _inspect_source(
     except Exception as exc:
         raise DatasourceMetadataError(
             message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
-            details={
-                "datasource": datasource,
-                "path": source.path,
-                "source_kind": source.kind,
-                "cause": str(exc),
-            },
+            expected="an inspectable file datasource source",
+            received=str(exc),
+            location=f"md.inspect({datasource!r}, {source.path!r})",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="inspect",
+                action="Verify the datasource connection and file source before retrying.",
+            ),
         ) from exc
 
     return _with_primary_key_capability_warning(

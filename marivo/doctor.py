@@ -1105,7 +1105,11 @@ def _connect_section(datasources: Sequence[DatasourceIR], *, project_root: Path)
                     id=f"connect.{datasource.name}",
                     label=f"{datasource.name} live connection",
                     status="fail",
-                    summary=result.error or "live connection failed",
+                    summary=(
+                        result.repair.action
+                        if result.repair is not None
+                        else "live connection failed"
+                    ),
                     details={"datasource": datasource.name, "latency_ms": result.latency_ms},
                     fix=(
                         f"marivo doctor --project-root {project_root} --datasource {datasource.name} --connect",

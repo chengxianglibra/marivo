@@ -492,7 +492,7 @@ def test_semantic_object_details_render_points_to_verify_and_readiness(
     catalog = _make_catalog(semantic_project_factory)
     details = catalog.get("metric.sales.revenue").details()
     rendered = details.render()
-    assert "ms.verify_object(" in rendered or "ms.readiness(" in rendered
+    assert "catalog.verify_object(" in rendered or "catalog.readiness(" in rendered
     assert "certify authored changes" in rendered
 
 
