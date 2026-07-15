@@ -789,7 +789,10 @@ def _validate_period_shift_min_buckets(
     bucket_column: str,
     group_columns: list[str],
 ) -> None:
-    minimum = 4
+    # Matches the scorer's rolling-window floor: window_size = max(7, n // 10)
+    # with min_periods=window_size, so fewer than 7 buckets yield all-NaN
+    # means and a silently empty result. Fail closed at the same floor.
+    minimum = 7
     if bucket_column not in df.columns:
         raise DiscoverInsufficientDataError(
             message="discover(period_shifts) requires a time bucket column",
@@ -807,7 +810,8 @@ def _validate_period_shift_min_buckets(
             return
         raise DiscoverInsufficientDataError(
             message=(
-                f"discover(period_shifts) requires at least 4 time buckets; got {bucket_count}"
+                f"discover(period_shifts) requires at least {minimum} time buckets; "
+                f"got {bucket_count}"
             ),
             context={
                 "objective": "period_shifts",
@@ -829,7 +833,7 @@ def _validate_period_shift_min_buckets(
     raise DiscoverInsufficientDataError(
         message=(
             "discover(period_shifts) requires at least one panel series with "
-            f"4 time buckets; got max {max_count}"
+            f"{minimum} time buckets; got max {max_count}"
         ),
         context={
             "objective": "period_shifts",
