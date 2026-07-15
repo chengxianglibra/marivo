@@ -104,17 +104,18 @@ One-off analysis code must not absorb another layer's responsibility.
 | Condition | Handoff |
 | --- | --- |
 | A required business object is missing or must change | `marivo-semantic` |
-| Semantic authoring returns ready refs | The registered analysis semantic-handoff boundary |
+| Semantic authoring returns ready refs | Route `ReadinessReport.analysis_handoff` (`SemanticToAnalysisHandoff`) to the registered `boundary.semantic_handoff` receiver (`Session.validate_semantic_handoff`); analysis consumes the handed-off refs only after a `SemanticHandoffReceipt` is returned |
 | The task needs terminal custom analysis | `md.raw_sql(...)` or `frame.to_pandas()` (terminal; cannot re-enter typed analysis) |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
 
-The skill preserves and transfers the typed handoff payload carried by the
-current error or semantic readiness result. It does not reconstruct those
-fields from conversation memory or add a broader catalog-cleanup request. The
-returning handoff is mechanically validated by the analysis boundary before
-the skill resumes analysis routing; the receipt does not select an operator
-or record warning acceptance.
+A missing or changed semantic object produces an `AnalysisRepair(kind="semantic_handoff")`
+carrying an `AnalysisToSemanticHandoff`. The skill transfers that typed payload
+to `marivo-semantic` and does not reconstruct it from conversation memory or
+add a broader catalog-cleanup request. The returning handoff is mechanically
+validated by the analysis boundary before routing resumes; the
+`SemanticHandoffReceipt` does not select an operator or record warning
+acceptance.
 
 ## Boundary-violation behavior
 

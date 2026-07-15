@@ -97,6 +97,53 @@ def make_metric_frame(
     return frame
 
 
+def build_session_over_catalog(catalog: Any, tmp_path: Path) -> Any:
+    """Build an analysis :class:`Session` backed by an existing semantic catalog.
+
+    Constructs the persistence layout, inserts a known session row, and returns
+    a Session whose ``project_root`` is ``tmp_path`` and whose
+    ``semantic_catalog`` is the supplied catalog. Shared by the semantic-to-
+    analysis handoff round-trip tests so the producer and validator build the
+    same session shape. The caller is responsible for the invariant that
+    ``catalog.workspace_dir`` resolves to ``tmp_path``.
+    """
+    from marivo.analysis.session._layout import PersistenceLayout
+    from marivo.analysis.session._runtime import _build_connection_runtime
+    from marivo.analysis.session._store import SessionStore
+    from marivo.analysis.session.core import Session
+
+    now = datetime(2026, 5, 24, 10, 0, 0, tzinfo=UTC)
+    layout = PersistenceLayout(project_root=tmp_path, session_id="sess_h01")
+    store = SessionStore(project_root=tmp_path)
+    with store._connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO sessions (id, name, question, cwd, default_calendar, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "sess_h01",
+                "handoff",
+                "q",
+                str(tmp_path),
+                None,
+                "2026-05-24T10:00:00+00:00",
+                "2026-05-24T10:00:00+00:00",
+            ),
+        )
+    return Session(
+        id="sess_h01",
+        name="handoff",
+        question="q",
+        cwd=tmp_path,
+        project_root=tmp_path,
+        created_at=now,
+        updated_at=now,
+        connection_runtime=_build_connection_runtime(tmp_path, None, None, use_datasources=False),
+        layout=layout,
+        semantic_catalog=catalog,
+        store=store,
+    )
+
+
 def _template_cache_dir() -> Path:
     d = Path(tempfile.gettempdir()) / "marivo_test_templates"
     d.mkdir(exist_ok=True)

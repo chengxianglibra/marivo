@@ -66,11 +66,13 @@ evidence；它不证明每一种未来 analysis query 或 full-source truth。Pa
 | `analysis_ready_refs` | `tuple[str, ...]` | 通过当前认证契约的 refs。 |
 | `input_summary` | `ReadinessInputSummary` | 检查了什么：datasources、refs、tables。 |
 | `checked_at` | `str` | 检查的 ISO-8601 时间戳。 |
+| `analysis_handoff` | `SemanticToAnalysisHandoff \| None` | 指向 analysis 接面的类型化 handoff；blocked 或没有 ready ref 时为 `None`。 |
 
 `status` 由严重程度推导：只要有 blocker ⇒ `blocked`；只有 warnings ⇒ `ready_with_warnings`；
 其余 ⇒ `ready`。
 
-每个 `ReadinessIssue` 都采用相同的教学式结构：
+每个 `ReadinessIssue` 都携带一个类型化的 `repair`，而不是自由文本的下一步描述，因此下一步
+动作是机器可读的，并指向所属的 live help target：
 
 | 属性 | 含义 |
 | --- | --- |
@@ -78,9 +80,10 @@ evidence；它不证明每一种未来 analysis query 或 full-source truth。Pa
 | `severity` | `"blocker"` 或 `"warning"`。 |
 | `refs` | 问题涉及的 semantic refs。 |
 | `message` | 期望是什么、实际是什么。 |
-| `suggested_action` | 具体的下一步。 |
+| `repair` | 类型化的 `AuthoringRepair \| None`，包含 `action`、`help_target`、可选的 `snippet` 与 `candidates` —— 即具体的下一步及其契约的查阅位置。 |
 
-`report.show()` 打印一张有界卡片；`report.to_dict()` 返回完整的机器可读列表，便于程序化处理。
+`report.show()` 打印一张有界卡片；`report.to_dict()` 返回完整的机器可读列表，便于程序化处理；
+`report.contract()` 返回机械式续行契约，包括 refs 通过认证时的 `analysis_handoff` 转移。
 
 ## 问题种类
 
@@ -105,8 +108,34 @@ datasources）：
 revenue = catalog.get("metric.sales.revenue")
 report = catalog.readiness(refs=[revenue])
 for issue in report.blockers:
-    print(issue.kind, issue.refs, "→", issue.suggested_action)
+    print(issue.kind, issue.refs, "→", issue.repair.action if issue.repair else "")
 ```
 
 使用该 report 完成 semantic changes 的 closeout，或满足更严格 workflow 的认证要求。日常分析
 不会自动调用它。关于分析如何记录结论，参见 [证据链](/zh-cn/latest/concepts/evidence/)。
+
+## 到 analysis 的类型化 handoff
+
+当 readiness 未被 block 且至少有一个请求的 ref 是 analysis-ready 时，report 会在
+`analysis_handoff` 上携带一个类型化的 `SemanticToAnalysisHandoff`。其 project、catalog 与
+environment fingerprints 由 analysis 端 validator 所检查的同一个 index 和 workspace 计算
+而来，因此 handoff 证明这些机械事实在 readiness 时刻是当前的，而不携带任何查询结果。
+
+analysis 接面对该 handoff 只有唯一的接收方：`Session.validate_semantic_handoff(handoff)`。
+它不执行 datasource 查询、不打开连接、不改变状态 —— 只重新校验 environment identity、
+fingerprints、ref 的存在与 kind、当前 readiness、warning 一致性以及 preview-evidence 新鲜度，
+然后返回一个仅在内存中的 `SemanticHandoffReceipt`。某个事实过期时会抛出带 semantic repair 的
+类型化 `AnalysisError`，指回 semantic 接面；绝不静默回退。
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+revenue = catalog.get("metric.sales.revenue")
+report = catalog.readiness(refs=[revenue.ref])
+handoff = report.analysis_handoff  # SemanticToAnalysisHandoff | None
+# route to analysis: session.validate_semantic_handoff(handoff) -> SemanticHandoffReceipt
+```
+
+`report.contract()` 在 refs 通过认证时把 `analysis_handoff` 转移暴露为一个机械有效的下一步
+动作，因此智能体可以从 readiness 路由到 analysis，而无需自由文本建议。

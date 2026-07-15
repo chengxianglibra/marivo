@@ -75,6 +75,65 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 这是一次原子性切换。不提供别名、重定向、弃用字段、双读路径、兼容性标志或自动迁移。引用了
 已移除符号、主题或字段的代码必须更新到新接面。
 
+## 语义与 datasource 实时接口
+
+0.3.2 还将 datasource/语义实时接口切换并入同一次原子发布。已安装的包现在是 datasource 与语义
+authoring 事实、可观测状态、机械可调用动作、effects 和类型化 repair 的唯一权威。打包的
+`marivo-semantic` skill 精简为单文件边界内核，仅拥有路由纪律、硬边界、交接和收尾义务；它不再
+重复 API 签名、算子清单、调用示例或 repair 目录。
+
+### 新增
+
+- **类型化语义到分析交接。**
+  `ReadinessReport.analysis_handoff: SemanticToAnalysisHandoff | None`
+  携带 ready refs、readiness 状态、project/catalog/environment 指纹、warning ids、
+  preview-evidence ids 和 caveats。当没有请求的 ref 达到 analysis-ready 或存在 blocker 时，
+  该字段为 `None`。agent 将此 payload 路由到注册的 `boundary.semantic_handoff` 目标，其唯一的
+  public receiver
+  `Session.validate_semantic_handoff(...) -> SemanticHandoffReceipt` 在分析消费交接的 refs 之前，
+  针对新建、当前或恢复的 analysis session 进行验证。不需要预先存在 analysis 分支；语义优先的工作
+  会先创建或恢复 session。
+- **原生 datasource 与语义 CLI help。**
+  `marivo help semantic`（以及 `python -m marivo help semantic`）是默认的集成 authoring 入口；
+  `marivo help datasource` 拥有物理阶段。两者都由与 `md.help(...)` / `ms.help(...)` 相同的
+  resolver 和 renderer 支撑。`marivo --help` 指向这些入口和 `marivo help analysis`；不再教授
+  `python -c` 片段。
+- **各 track help 上的环境指纹。** track 根 help（`marivo help datasource`、
+  `marivo help semantic`、`marivo help analysis`）打印 Marivo 版本、解析的 Python 可执行路径和
+  包路径，使 agent 在信任任何 authoring 指引之前能验证 help 与执行共享同一解释器。裸
+  `marivo --help` 指向这些 track，但自身不打印解释器指纹。
+- **类型化 repair。** 机械可操作的 readiness/preview 结果以及 datasource/语义错误上的自由格式
+  恢复字符串被类型化的 `AuthoringRepair` 对象（`kind`、`help_target`、`action`、可选 `snippet`、
+  可选 `candidates`、`preserves_evidence`）替代。richness gaps 上的建议性 `suggested_action`
+  在其自身的 advisory 规则下保留，不被作为 repair 或 transition 消费。
+- **状态承载结果上的对象邻近 `.contract()`。** `.contract()` 约定适用于状态承载结果，如
+  `CatalogObject`、`VerifyResult` 和 `ReadinessReport`，暴露机械可用的后续动作（例如
+  `VerifyResult.contract()` 可暴露 preview；`ReadinessReport.contract()` 对 ready refs 暴露
+  analysis handoff）。contract 携带命名空间的 live help target 和完整的正交 effect 元数据（数据
+  访问、连接、变更、guards）。
+
+### 移除
+
+- **重复的顶层 verification/readiness wrapper。**
+  `ms.verify_object(...)` 和 `ms.readiness(...)` 从顶层 `ms` 接面移除；
+  `SemanticCatalog.verify_object(...)`、`SemanticCatalog.preview(...)` 和
+  `SemanticCatalog.readiness(...)` 是唯一的 public receiver。
+- **prepare 时代的 `AuthoringQuestion`。** public `AuthoringQuestion` 导出、其
+  `options` / `default_option` 契约和未使用的 question 承载 assessment 路径已移除。不添加替代的
+  question DTO；未解决的业务决策是 skill 拥有的单问题停止，不是运行时 `user_decision` repair。
+- **自由格式的机械恢复字符串。** datasource evidence/inspection 结果上的 `next_calls` 和作为
+  机械可操作 readiness/preview 字段的 `suggested_action` 已移除。它们被类型化 contract 和
+  `AuthoringRepair` 替代。（Advisory richness 保留其自身的 `suggested_action`。）
+- **打包 skill 附件/示例作为运行时文档依赖。** `references/` 附件树和 example runner 已删除。
+  没有活跃代码、约束、错误或最新文档链接到已删除的 skill 附件。已安装的运行时从其 public Python
+  和 CLI 接面自解释。
+
+### 无兼容性或迁移行为（语义切换）
+
+语义/datasource 切换是 target-only 的。不提供兼容性别名、双 help 路径、转换字符串桥接、
+skill 文档回退或迁移工作流。历史版本化文档和发布说明保持不变。引用了已移除符号、wrapper 或
+字段的代码必须更新到新的实时接口。
+
 ## 文档
 
 - 更新了中英文 analysis-workflow、first-analysis 和 evidence 文档，通过项目解释器和指纹

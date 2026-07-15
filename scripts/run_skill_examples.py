@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import contextlib
 import importlib.util
 import io
@@ -44,57 +43,6 @@ _TEMPLATE_FORBIDDEN_SNIPPETS = (
     "ensure_loaded(",
     "mv.session.active(",
 )
-_SEMANTIC_EXAMPLE_NAMES = ("01_discover_and_grill.py", "02_author_one_object.py")
-_SEMANTIC_DISCOVER_REQUIRED_CALLS = (
-    "md.help",
-    "md.test",
-    "md.inspect",
-    "inspection.sample",
-    "snapshot.entity",
-    "snapshot.dimensions",
-    "snapshot.time_dimensions",
-    "snapshot.measures",
-    "snapshot.values",
-    "ms.load",
-)
-_SEMANTIC_AUTHOR_REQUIRED_CALLS = (
-    "ms.help",
-    "md.inspect",
-    "inspection.sample",
-    "catalog.verify_object",
-    "catalog.preview",
-    "catalog.readiness",
-)
-_SEMANTIC_AUTHORING_REQUIRED_CALLS = ("ms.dimension_column",)
-_SEMANTIC_AUTHORING_CALLS = (
-    "ms.dimension_column",
-    "ms.time_dimension_column",
-    "ms.measure_column",
-    "ms.aggregate",
-    "ms.relationship",
-    "ms.metric",
-    "ms.ratio",
-    "ms.weighted_average",
-    "ms.linear",
-    "ms.domain",
-    "ms.entity",
-)
-_SEMANTIC_DISCOVER_FORBIDDEN_CALLS = (
-    "catalog.verify_object",
-    "catalog.preview",
-    "catalog.readiness",
-    "ms.domain",
-    "ms.entity",
-    "ms.dimension_column",
-    "ms.time_dimension_column",
-    "ms.measure_column",
-    "ms.aggregate",
-    "ms.relationship",
-    "ms.metric",
-    "ms.ratio",
-    "ms.weighted_average",
-    "ms.linear",
-)
 _PUBLIC_EXAMPLE_FORBIDDEN_SNIPPETS = (
     "tempfile",
     "os.chdir",
@@ -107,20 +55,6 @@ _PUBLIC_EXAMPLE_FORBIDDEN_SNIPPETS = (
     "md.duckdb(",
     "models/datasources",
 )
-_SEMANTIC_EXAMPLE_FORBIDDEN_REFERENCES = (
-    "md.inspect_columns",
-    "md.inspect_table",
-    "md.probe_join_keys",
-    "md.discover_entity",
-    "md.discover_dimensions",
-    "md.discover_time_dimensions",
-    "md.discover_measures",
-    "md.discover_relationship",
-    "md.discover_dimension_values",
-    "project.assess_authoring(",
-    "ms.AuthoringSourceInput(",
-)
-_SEMANTIC_EXAMPLE_FORBIDDEN_NAMES = ("judgment_targets",)
 
 
 @dataclass
@@ -163,7 +97,6 @@ def _skill_name_for_example(example: Path) -> str | None:
 def _support_file_for_examples(examples_dir: Path) -> Path | None:
     skill_name = examples_dir.parent.parent.name
     support_name_by_skill = {
-        "marivo-semantic": "semantic_project.py",
         "marivo-analysis": "analysis_project.py",
     }
     expected_name = support_name_by_skill.get(skill_name)
@@ -206,7 +139,6 @@ def _execution_context_for_example(example: Path) -> Iterator[_ExampleExecutionC
         return
 
     factory_name_by_skill = {
-        "marivo-semantic": "semantic_examples_project",
         "marivo-analysis": "analysis_examples_project",
     }
     factory_name = factory_name_by_skill.get(skill_name)
@@ -392,171 +324,6 @@ def _check_public_example_text(example: Path) -> Failure | None:
     return None
 
 
-def _attribute_name(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        owner = _attribute_name(node.value)
-        if owner is None:
-            return None
-        return f"{owner}.{node.attr}"
-    return None
-
-
-@dataclass(frozen=True)
-class _SemanticExampleSource:
-    calls: frozenset[str]
-    call_occurrences: tuple[str, ...]
-    attributes: frozenset[str]
-    names: frozenset[str]
-    file_write_references: frozenset[str]
-    metric_decorator_has_root_entity_orders: bool
-
-
-def _embedded_source_trees(tree: ast.Module, *, filename: str) -> list[ast.Module]:
-    trees: list[ast.Module] = []
-    for node in ast.walk(tree):
-        value: ast.AST | None = None
-        if isinstance(node, ast.Assign | ast.AnnAssign):
-            value = node.value
-        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
-            continue
-        try:
-            trees.append(ast.parse(value.value, filename=filename))
-        except SyntaxError:
-            continue
-    return trees
-
-
-def _semantic_example_source(example: Path) -> _SemanticExampleSource | Failure:
-    try:
-        tree = ast.parse(example.read_text(), filename=str(example))
-    except SyntaxError as exc:
-        return Failure(example, "semantic example content", f"syntax error: {exc.msg}")
-
-    trees = [tree, *_embedded_source_trees(tree, filename=str(example))]
-    calls: set[str] = set()
-    call_occurrences: list[str] = []
-    attributes: set[str] = set()
-    names: set[str] = set()
-    file_write_references: set[str] = set()
-    metric_decorator_has_root_entity_orders = False
-
-    for source_tree in trees:
-        for node in ast.walk(source_tree):
-            if isinstance(node, ast.Name):
-                names.add(node.id)
-            if isinstance(node, ast.Attribute):
-                attr_name = _attribute_name(node)
-                if attr_name is not None:
-                    attributes.add(attr_name)
-                if node.attr in {"write_text", "write_bytes"}:
-                    file_write_references.add(attr_name or node.attr)
-            if isinstance(node, ast.Call):
-                call_name = _attribute_name(node.func)
-                if call_name is not None:
-                    calls.add(call_name)
-                    call_occurrences.append(call_name)
-                    if call_name == "open":
-                        file_write_references.add("open")
-                    if call_name.endswith((".write_text", ".write_bytes")):
-                        file_write_references.add(call_name)
-                if isinstance(node.func, ast.Attribute) and node.func.attr == "write":
-                    file_write_references.add(call_name or "write")
-
-        for node in ast.walk(source_tree):
-            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                continue
-            for decorator in node.decorator_list:
-                if not isinstance(decorator, ast.Call):
-                    continue
-                if _attribute_name(decorator.func) != "ms.metric":
-                    continue
-                for keyword in decorator.keywords:
-                    if (
-                        keyword.arg == "root_entity"
-                        and isinstance(keyword.value, ast.Name)
-                        and keyword.value.id == "orders"
-                    ):
-                        metric_decorator_has_root_entity_orders = True
-
-    return _SemanticExampleSource(
-        calls=frozenset(calls),
-        call_occurrences=tuple(call_occurrences),
-        attributes=frozenset(attributes),
-        names=frozenset(names),
-        file_write_references=frozenset(file_write_references),
-        metric_decorator_has_root_entity_orders=metric_decorator_has_root_entity_orders,
-    )
-
-
-def _check_semantic_example_contract(examples_dir: Path, examples: list[Path]) -> list[Failure]:
-    failures: list[Failure] = []
-    expected = set(_SEMANTIC_EXAMPLE_NAMES)
-    actual = {example.name for example in examples}
-    if actual != expected:
-        failures.append(
-            Failure(
-                examples_dir,
-                "semantic example contract",
-                "expected exactly "
-                + ", ".join(_SEMANTIC_EXAMPLE_NAMES)
-                + "; found "
-                + ", ".join(sorted(actual)),
-            )
-        )
-
-    required_by_name = {
-        "01_discover_and_grill.py": _SEMANTIC_DISCOVER_REQUIRED_CALLS,
-        "02_author_one_object.py": (
-            *_SEMANTIC_AUTHOR_REQUIRED_CALLS,
-            *_SEMANTIC_AUTHORING_REQUIRED_CALLS,
-        ),
-    }
-    for example in examples:
-        text = example.read_text()
-        source = _semantic_example_source(example)
-        if isinstance(source, Failure):
-            failures.append(source)
-            continue
-        missing = [
-            call for call in required_by_name.get(example.name, ()) if call not in source.calls
-        ]
-        forbidden = [
-            reference
-            for reference in _SEMANTIC_EXAMPLE_FORBIDDEN_REFERENCES
-            if reference.removesuffix("(") in source.attributes
-        ]
-        forbidden.extend(name for name in _SEMANTIC_EXAMPLE_FORBIDDEN_NAMES if name in source.names)
-        if example.name == "01_discover_and_grill.py":
-            if "GRILL:" not in text:
-                missing.append("GRILL:")
-            forbidden.extend(
-                call for call in _SEMANTIC_DISCOVER_FORBIDDEN_CALLS if call in source.calls
-            )
-            forbidden.extend(sorted(source.file_write_references))
-        if example.name == "02_author_one_object.py":
-            authoring_calls = [
-                call for call in source.call_occurrences if call in _SEMANTIC_AUTHORING_CALLS
-            ]
-            if len(authoring_calls) != 1:
-                missing.append("exactly one semantic authoring call")
-                forbidden.extend(authoring_calls)
-        if missing or forbidden:
-            detail_parts: list[str] = []
-            if missing:
-                detail_parts.append(
-                    "missing required calls: " + ", ".join(repr(s) for s in missing)
-                )
-            if forbidden:
-                detail_parts.append(
-                    "forbidden executable references present: "
-                    + ", ".join(repr(s) for s in forbidden)
-                )
-            failures.append(Failure(example, "semantic example content", "; ".join(detail_parts)))
-    return failures
-
-
 def _check_example(
     example: Path,
     *,
@@ -684,15 +451,11 @@ def main(argv: list[str] | None = None) -> int:
             failures.append(md_failure)
         examples_dir = skill_dir / "references" / "examples"
         if not examples_dir.is_dir():
-            # The marivo-analysis skill is a single-file boundary kernel with
-            # no packaged examples.  Only the marivo-semantic skill is
-            # required to ship examples.
-            if skill_dir.name != "marivo-analysis":
-                failures.append(Failure(examples_dir, "missing examples dir", ""))
+            # marivo-semantic and marivo-analysis are single-file boundary
+            # kernels with no packaged examples.  Only SKILL.md presence is
+            # required; absent examples directories are valid.
             continue
         examples = _iter_example_files(examples_dir)
-        if skill_dir.name == "marivo-semantic":
-            failures.extend(_check_semantic_example_contract(examples_dir, examples))
         for example in examples:
             failure = _check_example(example, in_process=args.in_process, repo_root=root)
             if failure is not None:
