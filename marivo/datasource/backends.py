@@ -14,7 +14,7 @@ from marivo.datasource.engines import (
 from marivo.datasource.engines import (
     require_profile_for_backend_type,
 )
-from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMetadataError
+from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMetadataError, repair
 from marivo.datasource.ir import DatasourceIR, JsonSourceIR
 
 
@@ -34,11 +34,14 @@ def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
                     f"datasource {datasource.name!r} field {stem}_env must be a non-empty "
                     "env var name"
                 ),
-                details={
-                    "datasource": datasource.name,
-                    "field": f"{stem}_env",
-                    "reason": "env_ref value must be a non-empty string",
-                },
+                expected="a non-empty environment variable name",
+                received=repr(env_var),
+                location=f"models/datasources/ entry {datasource.name!r} field {stem}_env",
+                repair=repair(
+                    kind="environment",
+                    canonical_id="test",
+                    action="Set a non-empty environment variable reference.",
+                ),
             )
         resolved_secret = secrets.resolve(env_var, datasource=datasource.name, field=stem)
         resolved[stem] = resolved_secret.value
@@ -85,17 +88,15 @@ def apply_json_http_settings(backend: object, source: object) -> None:
                 "file-source (local path, glob, or httpfs URL), not a generic "
                 "HTTP API reader."
             ),
-            details={
-                "path": source.path,
-                "reason": "backend_lacks_httpfs",
-                "location": f"md.json({source.path!r})",
-                "cause": "backend lacks callable raw_sql (DuckDB httpfs not available)",
-                "fix_snippet": (
-                    "# Use a local path or glob pattern instead of an http(s):// URL:\n"
-                    "import marivo.datasource as md\n"
-                    'source = md.json("data/events/*.json", format="newline_delimited")'
-                ),
-            },
+            expected="a DuckDB backend with httpfs support",
+            received="backend without raw_sql",
+            location=f"md.json({source.path!r})",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="json",
+                action="Use a local JSON path or configure DuckDB httpfs.",
+                snippet='source = md.json("data/events/*.json", format="newline_delimited")',
+            ),
         )
     raw_sql("SET force_download=true")
 

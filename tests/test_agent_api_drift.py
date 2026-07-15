@@ -26,6 +26,7 @@ import marivo.semantic as ms
 from marivo.analysis._capabilities.model import SURFACE_LIMITS
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
+from marivo.cli import main
 from marivo.datasource.authoring import DuckDBSpec
 
 # ---------------------------------------------------------------------------
@@ -133,6 +134,18 @@ def test_mv_help_no_format_parameter() -> None:
 def test_ms_help_no_format_parameter() -> None:
     sig = inspect.signature(ms.help)
     assert "format" not in sig.parameters
+
+
+def test_cli_exposes_datasource_and_semantic_help_tracks(capsys) -> None:
+    """Both datasource and semantic CLI help tracks are live in Phase 3."""
+    main(["help", "datasource", "inspect"])
+    assert capsys.readouterr().out.strip() == md.help_text("inspect")
+    assert ms.help.__module__ == "marivo.semantic.help"
+
+    main(["help", "semantic"])
+    semantic_output = capsys.readouterr().out
+    assert "marivo.semantic" in semantic_output
+    assert "Capabilities:" in semantic_output
 
 
 def test_md_help_no_format_or_print_parameter() -> None:

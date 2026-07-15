@@ -33,3 +33,13 @@ forbidden_modules =
     marivo.analysis.datasources
     marivo.analysis.profiles
     marivo.analysis.policies
+
+[importlinter:contract:live-is-neutral-leaf]
+name = introspection.live must not depend on datasource, semantic, or analysis
+type = forbidden
+source_modules =
+    marivo.introspection.live
+forbidden_modules =
+    marivo.datasource
+    marivo.semantic
+    marivo.analysis

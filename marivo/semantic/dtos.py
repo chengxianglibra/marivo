@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from marivo.introspection.live.model import AuthoringContract
 from marivo.render import Card, RenderableResult
 from marivo.semantic.ir import (
     CsvSourceIR,
@@ -49,7 +50,6 @@ AuthoringObjectKind = Literal[
 
 AuthoringSourceRole = Literal["primary", "from", "to", "component"]
 
-ReadinessEffect = Literal["blocks", "warns", "advisory"]
 FileFormat = Literal["parquet", "csv", "json"]
 
 
@@ -83,29 +83,13 @@ class AssessmentIssue:
     rule_id: str
 
 
-@dataclass(frozen=True)
-class AuthoringQuestion:
-    id: str
-    decision_kind: str
-    subject_refs: tuple[str, ...]
-    prompt: str
-    reason: str
-    options: tuple[str, ...] = ()
-    default_option: str | None = None
-    readiness_effect: ReadinessEffect = "blocks"
-
-
 @dataclass(frozen=True, repr=False)
 class AuthoringAssessment(RenderableResult):
     status: ReviewStatus
     issues: tuple[AssessmentIssue, ...]
-    questions: tuple[AuthoringQuestion, ...]
 
     def _repr_identity(self) -> str:
-        return (
-            f"AuthoringAssessment status={self.status} "
-            f"issues={len(self.issues)} questions={len(self.questions)}"
-        )
+        return f"AuthoringAssessment status={self.status} issues={len(self.issues)}"
 
     def _card(self) -> Card:
         issue_rows = [[str(issue.kind), str(issue.severity)] for issue in self.issues]
@@ -116,18 +100,13 @@ class AuthoringAssessment(RenderableResult):
 
 def derive_status(
     issues: tuple[AssessmentIssue, ...],
-    questions: tuple[AuthoringQuestion, ...],
 ) -> ReviewStatus:
     if any(issue.severity == "blocker" for issue in issues):
-        return "blocked"
-    if any(question.readiness_effect == "blocks" for question in questions):
         return "blocked"
     if any(
         issue.kind in {"missing_evidence", "missing_source"} and issue.severity != "info"
         for issue in issues
     ):
-        return "needs_input"
-    if any(question.readiness_effect == "warns" for question in questions):
         return "needs_input"
     return "supported"
 
@@ -173,11 +152,27 @@ class VerifyResult(RenderableResult):
         if self.status == "passed":
             card = card.listing(
                 label="Next step",
-                items=("continue the batch or run ms.readiness(refs=...)",),
+                items=("continue the batch or run catalog.readiness(refs=...)",),
             )
         else:
             card = card.listing(
                 label="Next step",
-                items=("repair this object, then re-run ms.verify_object(ref)",),
+                items=("repair this object, then re-run catalog.verify_object(ref)",),
             )
         return card
+
+    def contract(self) -> AuthoringContract:
+        """Return the mechanical continuation contract for this verification result.
+
+        The contract exposes ``preview`` as a result-local continuation after
+        explicit verification, with the ``semantic.verified`` current state and
+        the ``semantic.previewed`` produced state.
+
+        Returns
+        -------
+        AuthoringContract
+            Normalized contract scoped to ``self.ref``.
+        """
+        from marivo.semantic._capabilities.contracts import contract_for_verify_result
+
+        return contract_for_verify_result(self.ref)

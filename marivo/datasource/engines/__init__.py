@@ -54,13 +54,21 @@ def profile_for_backend_type(backend_type: str) -> EngineProfile | None:
 
 
 def require_profile_for_backend_type(backend_type: str) -> EngineProfile:
-    from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError
+    from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError, repair
 
     profile = profile_for_backend_type(backend_type)
     if profile is None:
         raise DatasourceBackendTypeUnsupportedError(
             message=f"backend_type={backend_type!r} is not supported by md",
-            details={"backend_type": backend_type, "supported": list(SUPPORTED_BACKEND_TYPES)},
+            expected="a registered datasource backend type",
+            received=backend_type,
+            location="md backend dispatch",
+            repair=repair(
+                kind="configure",
+                canonical_id="register",
+                action="Use a supported datasource backend type.",
+                candidates=tuple(sorted(SUPPORTED_BACKEND_TYPES)),
+            ),
         )
     return profile
 

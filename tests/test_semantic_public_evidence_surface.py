@@ -21,9 +21,6 @@ def test_new_evidence_dtos_are_importable():
     ):
         assert cls is not None, name
 
-    # AuthoringQuestion is the one evidence DTO that remains public.
-    assert "AuthoringQuestion" in ms.__all__
-
 
 def test_candidate_workflow_types_are_not_exported():
     for name in ("Candidate", "ProposalResult", "ResidualColumn", "Enrichment"):
@@ -31,8 +28,6 @@ def test_candidate_workflow_types_are_not_exported():
 
 
 def test_help_lists_remaining_dtos(capsys):
-    from marivo.introspection.surface import render as surface_render
-    from marivo.semantic.help import _surface
-
-    data = surface_render(_surface(), "AuthoringQuestion", "json")
-    assert data["kind"] in ("class", "callable")
+    text = ms.help_text("VerifyResult")
+    assert "VerifyResult" in text
+    assert "show" in text or "contract" in text

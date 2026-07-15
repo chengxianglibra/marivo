@@ -13,6 +13,7 @@ from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceLoadError,
     DatasourceMissingError,
+    repair,
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR
 from marivo.datasource.loader import load_datasources
@@ -118,7 +119,14 @@ def _layered_models_roots(project_root: Path | None = None) -> tuple[Path, ...]:
     except ValueError as exc:
         raise DatasourceLoadError(
             message=str(exc),
-            details={"path": str(root / "marivo.toml"), "reason": str(exc)},
+            expected="a valid semantic layer configuration",
+            received=str(exc),
+            location=str(root / "marivo.toml"),
+            repair=repair(
+                kind="configure",
+                canonical_id="load",
+                action="Fix the semantic layer configuration and reload datasources.",
+            ),
         ) from exc
     errors: list[str] = []
     seen_external: set[Path] = set()
@@ -157,7 +165,14 @@ def _layered_models_roots(project_root: Path | None = None) -> tuple[Path, ...]:
         reason = "; ".join(errors)
         raise DatasourceLoadError(
             message=reason,
-            details={"path": str(root / "marivo.toml"), "reason": reason},
+            expected="valid distinct semantic layer model roots",
+            received=reason,
+            location=str(root / "marivo.toml"),
+            repair=repair(
+                kind="configure",
+                canonical_id="load",
+                action="Fix the configured semantic layer roots and reload datasources.",
+            ),
         )
     return (local_models, *external_roots)
 
@@ -178,11 +193,14 @@ def load_all_layered(project_root: Path | None = None) -> dict[str, DatasourceIR
                         f"Duplicate datasource name: {datasource.name!r}. "
                         f"First declaration: {first}. Conflicting declaration: {second}."
                     ),
-                    details={
-                        "datasource": datasource.name,
-                        "first": first,
-                        "second": second,
-                    },
+                    expected="a unique datasource name across semantic layers",
+                    received=datasource.name,
+                    location=second,
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="load",
+                        action="Rename or remove one conflicting datasource declaration.",
+                    ),
                 )
             datasources[datasource.name] = datasource
     return datasources
@@ -201,7 +219,15 @@ def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> Datasour
     if datasource is None:
         raise DatasourceMissingError(
             message=f"datasource {spec.name!r} was not written",
-            details={"datasource": spec.name, "available": list_names(project_root)},
+            expected="a persisted datasource declaration",
+            received=spec.name,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource again.",
+                candidates=tuple(list_names(project_root)),
+            ),
         )
     return datasource
 

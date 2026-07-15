@@ -91,7 +91,7 @@ def test_model_qualified_datasource_name_is_rejected(tmp_path: Path, fake_home: 
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
 
-    assert exc_info.value.details["field"] == "<name>"
+    assert exc_info.value.expected == "a storage name without a kind prefix"
 
 
 def test_explicit_backend_factory_overrides_datasource(tmp_path: Path, fake_home: Path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import textwrap
 
+from marivo.introspection.live.model import AuthoringRepair, LiveHelpTarget
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
@@ -78,7 +79,11 @@ def test_readiness_report_to_dict_is_json_safe() -> None:
                 severity="warning",
                 refs=("sales.orders",),
                 message="string ref used",
-                suggested_action="Use stable object refs.",
+                repair=AuthoringRepair(
+                    kind="reauthor",
+                    help_target=LiveHelpTarget(surface="semantic", canonical_id="ref"),
+                    action="Use stable object refs.",
+                ),
             ),
         ),
         input_summary=ReadinessInputSummary(
@@ -111,7 +116,11 @@ def test_readiness_report_target_fields_are_json_safe() -> None:
                 severity="warning",
                 refs=("sales.orders",),
                 message="string ref used",
-                suggested_action="Use stable object refs.",
+                repair=AuthoringRepair(
+                    kind="reauthor",
+                    help_target=LiveHelpTarget(surface="semantic", canonical_id="ref"),
+                    action="Use stable object refs.",
+                ),
             ),
         ),
         input_summary=ReadinessInputSummary(
@@ -439,7 +448,10 @@ def test_readiness_cross_datasource_unfederated(semantic_project_factory) -> Non
     assert "cross_datasource_unfederated" in _issue_kinds(report.blockers)
     assert "runtime_preview_missing" not in _issue_kinds(report.blockers)
     assert "snapshot_missing" not in _issue_kinds(report.blockers)
-    assert all("catalog.preview(" not in issue.suggested_action for issue in report.blockers)
+    assert all(
+        not issue.repair or "catalog.preview(" not in issue.repair.action
+        for issue in report.blockers
+    )
 
 
 def test_readiness_cross_datasource_relationship_has_only_structural_guidance(
@@ -483,7 +495,10 @@ def test_readiness_cross_datasource_relationship_has_only_structural_guidance(
     assert "cross_datasource_unfederated" in _issue_kinds(report.blockers)
     assert "runtime_preview_missing" not in _issue_kinds(report.blockers)
     assert "snapshot_missing" not in _issue_kinds(report.blockers)
-    assert all("catalog.preview(" not in issue.suggested_action for issue in report.blockers)
+    assert all(
+        not issue.repair or "catalog.preview(" not in issue.repair.action
+        for issue in report.blockers
+    )
 
 
 def test_readiness_no_backend_access_required(semantic_project_factory) -> None:
@@ -708,7 +723,8 @@ def test_missing_datetime_timezone_blocks_with_structured_risk(semantic_project_
         "window_alignment_risk": "Report-local windows may shift at day or hour boundaries.",
     }
     assert issue.to_dict()["details"] == issue.details
-    assert "parse=ms.datetime(timezone=" in issue.suggested_action
+    assert issue.repair is not None
+    assert "parse=ms.datetime(timezone=" in issue.repair.action
 
 
 def test_missing_timestamp_timezone_blocks_with_structured_risk(semantic_project_factory) -> None:
@@ -721,7 +737,8 @@ def test_missing_timestamp_timezone_blocks_with_structured_risk(semantic_project
 
     assert issue.severity == "blocker"
     assert issue.details["data_type"] == "timestamp"
-    assert "parse=ms.timestamp(timezone=" in issue.suggested_action
+    assert issue.repair is not None
+    assert "parse=ms.timestamp(timezone=" in issue.repair.action
 
 
 def test_declared_timezone_clears_undeclared_naive_time_axis(semantic_project_factory) -> None:
@@ -865,17 +882,19 @@ def test_column_helper_objects_participate_in_readiness(semantic_project_factory
 # -- fix hints and ready_with_warnings handoff -------------------------------
 
 
-def test_readiness_render_surfaces_suggested_action_fix_hints(
+def test_readiness_render_surfaces_repair_fix_hints(
     semantic_project_factory,
 ) -> None:
-    """render() must surface suggested_action as a per-issue fix hint."""
+    """render() must surface repair action as a per-issue fix hint."""
     report = _project(semantic_project_factory, _COMMENTLESS_DOMAIN_PY).readiness()
     assert report.blockers  # missing_business_definition blockers present
 
     text = report.render()
-    # the listing format appends "-> fix: <suggested_action>" per issue
+    # the listing format appends "-> fix: <repair.action>" per issue
     assert "-> fix:" in text
-    assert any(issue.suggested_action in text for issue in report.blockers + report.warnings)
+    assert any(
+        issue.repair and issue.repair.action in text for issue in report.blockers + report.warnings
+    )
 
 
 def test_readiness_ready_with_warnings_renders_handoff_decision() -> None:
@@ -890,7 +909,11 @@ def test_readiness_ready_with_warnings_renders_handoff_decision() -> None:
                 severity="warning",
                 refs=("sales.total_amount",),
                 message="SQL parity is advisory.",
-                suggested_action="Run ms.parity_check(...) when parity matters.",
+                repair=AuthoringRepair(
+                    kind="reverify",
+                    help_target=LiveHelpTarget(surface="semantic", canonical_id="parity_check"),
+                    action="Run ms.parity_check(...) when parity matters.",
+                ),
             ),
         ),
         input_summary=ReadinessInputSummary(
@@ -906,7 +929,7 @@ def test_readiness_ready_with_warnings_renders_handoff_decision() -> None:
     assert "ready_with_warnings" in text
 
 
-def test_missing_business_definition_suggested_action_mentions_ai_context(
+def test_missing_business_definition_repair_mentions_ai_context(
     semantic_project_factory,
 ) -> None:
     report = _project(semantic_project_factory, _COMMENTLESS_DOMAIN_PY).readiness()
@@ -914,10 +937,11 @@ def test_missing_business_definition_suggested_action_mentions_ai_context(
     assert issues
 
     for issue in issues:
-        assert "ai_context=ms.ai_context(business_definition=...)" in issue.suggested_action
+        assert issue.repair is not None
+        assert "ai_context=ms.ai_context(business_definition=...)" in issue.repair.action
 
 
-def test_unknown_ref_suggested_action_mentions_catalog_browse(
+def test_unknown_ref_repair_mentions_catalog_browse(
     semantic_project_factory,
 ) -> None:
     project = _project(semantic_project_factory, _READY_DOMAIN_PY)
@@ -927,13 +951,14 @@ def test_unknown_ref_suggested_action_mentions_catalog_browse(
     assert issues
 
     for issue in issues:
+        assert issue.repair is not None
         assert (
-            "catalog.domains" in issue.suggested_action
-            or "catalog.get(...).details().show()" in issue.suggested_action
+            "catalog.domains" in issue.repair.action
+            or "catalog.get(...).details().show()" in issue.repair.action
         )
 
 
-def test_sql_parity_unverified_suggested_action_mentions_parity_check_and_non_blocking(
+def test_sql_parity_unverified_repair_mentions_parity_check_and_non_blocking(
     semantic_project_factory,
 ) -> None:
     domain_py = textwrap.dedent("""\
@@ -963,5 +988,6 @@ def test_sql_parity_unverified_suggested_action_mentions_parity_check_and_non_bl
     assert issues
 
     for issue in issues:
-        assert "ms.parity_check(" in issue.suggested_action
-        assert "non-blocking" in issue.suggested_action
+        assert issue.repair is not None
+        assert "ms.parity_check(" in issue.repair.action
+        assert "non-blocking" in issue.repair.action

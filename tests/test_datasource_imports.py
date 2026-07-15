@@ -18,7 +18,8 @@ import json, sys
 for name in list(sys.modules):
     if (name == "marivo.datasource" or name.startswith("marivo.datasource.")
             or name == "marivo.semantic" or name.startswith("marivo.semantic.")
-            or name == "marivo.analysis" or name.startswith("marivo.analysis.")):
+            or name == "marivo.analysis" or name.startswith("marivo.analysis.")
+            or name == "marivo.skills" or name.startswith("marivo.skills.")):
         del sys.modules[name]
 
 import marivo.datasource as md
@@ -27,12 +28,14 @@ after_import = {
     "duckdb_present": md.duckdb is not None,
     "semantic_loaded": "marivo.semantic" in sys.modules,
     "analysis_loaded": "marivo.analysis" in sys.modules,
+    "packaged_skills_loaded": "marivo.skills" in sys.modules,
 }
 help_text = md.help_text()
 after_help = {
     "help_mentions_datasource": "marivo.datasource" in help_text,
     "semantic_loaded": "marivo.semantic" in sys.modules,
     "analysis_loaded": "marivo.analysis" in sys.modules,
+    "packaged_skills_loaded": "marivo.skills" in sys.modules,
 }
 print(json.dumps({"after_import": after_import, "after_help": after_help}))
 """
@@ -50,22 +53,24 @@ def _datasource_isolation_probe() -> dict:
     return json.loads(proc.stdout)
 
 
-def test_datasource_import_does_not_load_semantic_or_analysis(
+def test_datasource_import_does_not_load_semantic_analysis_or_packaged_skills(
     _datasource_isolation_probe: dict,
 ) -> None:
     probe = _datasource_isolation_probe["after_import"]
     assert probe["duckdb_present"]
     assert not probe["semantic_loaded"]
     assert not probe["analysis_loaded"]
+    assert not probe["packaged_skills_loaded"]
 
 
-def test_datasource_help_import_does_not_load_semantic_or_analysis(
+def test_datasource_help_does_not_load_semantic_analysis_or_packaged_skills(
     _datasource_isolation_probe: dict,
 ) -> None:
     probe = _datasource_isolation_probe["after_help"]
     assert probe["help_mentions_datasource"]
     assert not probe["semantic_loaded"]
     assert not probe["analysis_loaded"]
+    assert not probe["packaged_skills_loaded"]
 
 
 def test_load_datasources_returns_datasource_ir(tmp_path: Path) -> None:

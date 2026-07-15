@@ -14,10 +14,30 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
-
-from marivo.refs import SemanticRef
-from marivo.semantic.catalog import SemanticKind
+from marivo.introspection.live.model import (
+    SURFACE_LIMITS as SURFACE_LIMITS,
+)
+from marivo.introspection.live.model import (
+    AnalysisToSemanticHandoff as AnalysisToSemanticHandoff,
+)
+from marivo.introspection.live.model import (
+    EnvironmentFingerprint as EnvironmentFingerprint,
+)
+from marivo.introspection.live.model import (
+    HelpSurface as HelpSurface,
+)
+from marivo.introspection.live.model import (
+    LiveHelpTarget as LiveHelpTarget,
+)
+from marivo.introspection.live.model import (
+    SemanticHandoffReceipt as SemanticHandoffReceipt,
+)
+from marivo.introspection.live.model import (
+    SemanticToAnalysisHandoff as SemanticToAnalysisHandoff,
+)
+from marivo.introspection.live.model import (
+    SurfaceLimits as SurfaceLimits,
+)
 
 # ---------------------------------------------------------------------------
 # Closed vocabulary: capability kinds, visibility, groups, families
@@ -285,205 +305,11 @@ ARTIFACT_FAMILIES: tuple[ArtifactFamily, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Surface limits — single private immutable value
+# Shared live-authoring primitives (EnvironmentFingerprint, LiveHelpTarget,
+# HelpSurface, SurfaceLimits, SURFACE_LIMITS) and the directional handoff
+# schemas (AnalysisToSemanticHandoff, SemanticToAnalysisHandoff,
+# SemanticHandoffReceipt) were relocated to the neutral
+# ``marivo.introspection.live`` package and are re-imported at the top of this
+# module so the datasource and semantic layers can consume them without
+# importing ``marivo.analysis``.
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SurfaceLimits:
-    """Numeric interface and evaluation limits for the help surface.
-
-    Renderers, validators, repository tests, and the cold-agent scorer
-    import :data:`SURFACE_LIMITS` instead of repeating literals.
-    """
-
-    root_help_max_lines: int = 80
-    root_help_max_codepoints: int = 8_000
-    focused_help_max_lines: int = 120
-    focused_help_max_codepoints: int = 12_000
-    object_contract_max_subjects: int = 8
-    object_contract_render_max_lines: int = 120
-    object_contract_render_max_codepoints: int = 12_000
-    help_suggestion_limit: int = 5
-    cold_agent_trials_per_case: int = 3
-    cold_agent_min_qualifying_trials: int = 2
-    cold_agent_max_help_calls_before_observe: int = 2
-    cold_agent_max_invalid_api_errors_before_observe: int = 1
-
-
-SURFACE_LIMITS = SurfaceLimits()
-
-
-# ---------------------------------------------------------------------------
-# Handoff and environment models
-# ---------------------------------------------------------------------------
-
-HelpSurface = Literal["analysis", "datasource", "semantic"]
-
-
-class EnvironmentFingerprint(BaseModel):
-    """Snapshot of the runtime environment for cross-layer handoffs.
-
-    Parameters
-    ----------
-    marivo_version:
-        Installed Marivo package version string.
-    python_executable:
-        Path to the Python interpreter running the session.
-    package_path:
-        Filesystem path to the installed ``marivo`` package root.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    marivo_version: str
-    python_executable: str
-    package_path: str
-
-    @classmethod
-    def current(cls) -> EnvironmentFingerprint:
-        """Construct from the current runtime environment."""
-        import sys
-        from pathlib import Path
-
-        import marivo
-
-        return cls(
-            marivo_version=marivo.__version__,
-            python_executable=str(Path(sys.executable).resolve()),
-            package_path=str(Path(marivo.__file__).resolve()),
-        )
-
-
-class LiveHelpTarget(BaseModel):
-    """Typed target for a live help lookup across surfaces.
-
-    Parameters
-    ----------
-    surface:
-        Which help surface to consult (``analysis``, ``datasource``,
-        ``semantic``).
-    canonical_id:
-        Canonical symbol or capability id to look up, when applicable.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    surface: HelpSurface
-    canonical_id: str | None = None
-
-    @property
-    def display(self) -> str:
-        """Return the display string for rendering in help and repair text."""
-        if self.canonical_id is not None:
-            return self.canonical_id
-        return self.surface
-
-
-class AnalysisToSemanticHandoff(BaseModel):
-    """Typed request from analysis to the semantic layer.
-
-    Parameters
-    ----------
-    required_kind:
-        Semantic kind the analysis layer needs, or ``None`` when the
-        requirement is open-ended.
-    requirement:
-        Human-readable description of what the semantic layer must provide.
-    affected_capability_id:
-        Capability descriptor id whose preconditions triggered the handoff.
-    environment_fingerprint:
-        Snapshot of the calling environment for continuity.
-    semantic_context_refs:
-        Semantic refs relevant to the handoff.
-    artifact_refs:
-        Analysis artifact refs relevant to the handoff.
-    evidence_refs:
-        Evidence ids relevant to the handoff.
-    project_fingerprint:
-        Fingerprint of the project root, when available.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    required_kind: SemanticKind | None
-    requirement: str
-    affected_capability_id: str
-    environment_fingerprint: EnvironmentFingerprint
-    semantic_context_refs: tuple[str, ...] = ()
-    artifact_refs: tuple[str, ...] = ()
-    evidence_refs: tuple[str, ...] = ()
-    project_fingerprint: str | None = None
-
-
-class SemanticToAnalysisHandoff(BaseModel):
-    """Typed response from the semantic layer back to analysis.
-
-    Parameters
-    ----------
-    help_target:
-        Live help target the analysis agent should consult for details.
-    ready_refs:
-        Semantic refs that are now ready for analysis consumption.
-    project_fingerprint:
-        Fingerprint of the project root.
-    catalog_fingerprint:
-        Fingerprint of the semantic catalog state.
-    environment_fingerprint:
-        Snapshot of the semantic-side environment for continuity.
-    readiness_status:
-        ``"ready"`` or ``"ready_with_warnings"``.
-    warning_ids:
-        Identifiers for any warnings raised during semantic preparation.
-    preview_evidence_ids:
-        Evidence ids from preview runs during semantic preparation.
-    caveats:
-        Human-readable caveats about the handed-off semantic state.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    help_target: LiveHelpTarget
-    ready_refs: tuple[SemanticRef, ...]
-    project_fingerprint: str
-    catalog_fingerprint: str
-    environment_fingerprint: EnvironmentFingerprint
-    readiness_status: Literal["ready", "ready_with_warnings"]
-    warning_ids: tuple[str, ...] = ()
-    preview_evidence_ids: tuple[str, ...] = ()
-    caveats: tuple[str, ...] = ()
-
-
-class SemanticHandoffReceipt(BaseModel):
-    """Receipt confirming a semantic handoff was validated and accepted.
-
-    Parameters
-    ----------
-    ready_refs:
-        Semantic refs that were validated and are ready for consumption.
-    project_fingerprint:
-        Fingerprint of the project root.
-    catalog_fingerprint:
-        Fingerprint of the semantic catalog state.
-    environment_fingerprint:
-        Snapshot of the environment at validation time.
-    readiness_status:
-        ``"ready"`` or ``"ready_with_warnings"``.
-    warning_ids:
-        Identifiers for any warnings raised during validation.
-    preview_evidence_ids:
-        Evidence ids from preview runs associated with the handoff.
-    caveats:
-        Human-readable caveats about the validated semantic state.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    ready_refs: tuple[SemanticRef, ...]
-    project_fingerprint: str
-    catalog_fingerprint: str
-    environment_fingerprint: EnvironmentFingerprint
-    readiness_status: Literal["ready", "ready_with_warnings"]
-    warning_ids: tuple[str, ...] = ()
-    preview_evidence_ids: tuple[str, ...] = ()
-    caveats: tuple[str, ...] = ()

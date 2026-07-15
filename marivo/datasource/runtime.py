@@ -9,7 +9,7 @@ from typing import Any
 
 from marivo.datasource import backends, store
 from marivo.datasource.authoring import _storage_name
-from marivo.datasource.errors import DatasourceMissingError
+from marivo.datasource.errors import DatasourceMissingError, repair
 from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_timezone
 
 
@@ -42,7 +42,16 @@ def _build_backend_from_store(
         )
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
-            details={"datasource": name, "available": available},
+            expected="a registered project datasource",
+            received=name,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before retrying.",
+                snippet=f'md.register(md.duckdb(name={name!r}, path=":memory:"))',
+                candidates=tuple(available),
+            ),
         )
     return backends.build_backend(datasource_ir, read_only=read_only)
 
@@ -123,7 +132,16 @@ class DatasourceConnectionService:
             return _build_backend_from_store(datasource_name, self._project_root)
         raise DatasourceMissingError(
             message=f"datasource {datasource_name!r} is not configured for this session",
-            details={"datasource": datasource_name, "available": sorted(self._backend_overrides)},
+            expected="a configured session datasource",
+            received=datasource_name,
+            location="datasource session",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource or configure a session backend override.",
+                snippet=f'md.register(md.duckdb(name={datasource_name!r}, path=":memory:"))',
+                candidates=tuple(sorted(self._backend_overrides)),
+            ),
         )
 
     def session_backend(self, name: str) -> Any:
