@@ -1,6 +1,6 @@
 # Marivo Datasource And Semantic Live Interface Surface Design
 
-Status: follow-up review revisions integrated; pending written-spec re-review
+Status: Phase 1--3 complete; Phase 4--5 planned; not release-ready
 
 Date: 2026-07-13
 
@@ -156,6 +156,54 @@ keeps the business-model cutover from targeting an interface that is being
 replaced simultaneously. Step 2 directly replaces the prior conceptual
 cross-track handoff; it exposes no consumer-before-producer state, legacy
 ready-ref branch, compatibility alias, or migration interval.
+
+### Implementation Phases
+
+The normative delivery order above defines public cutovers. The following
+phases are execution tracking for delivery step 2; they do not authorize an
+intermediate public release. Phase 3, Phase 4, and Phase 5 must converge into
+one target-only candidate package before the datasource/semantic live-surface
+cutover is released.
+
+1. **Phase 1 -- shared neutral live foundation (complete).** Establish
+   `marivo.introspection.live` as the private, neutral foundation for live
+   capability models, target resolution, rendering, typed help/contract errors,
+   environment fingerprints, and surface limits. It is shared by the public
+   surfaces; it does not create a third public authoring module.
+2. **Phase 2 -- datasource live surface (complete).** Hard-cut
+   `marivo.datasource` to its capability registry, live help, stable typed
+   errors and repairs, object-near contracts, explicit effect facts, and native
+   datasource CLI help. This phase deliberately does not change the semantic
+   public surface, analysis handoff, packaged skills, active documentation, or
+   cold-agent release gate, and is therefore not independently release-ready.
+3. **Phase 3 -- semantic live surface (planned).** Hard-cut
+   `marivo.semantic` to an equivalent registry-backed surface: semantic help
+   and CLI routing, consumed-type/runtime-object help, generated lifecycle,
+   live invocation signatures, typed contracts and repairs, and the single
+   `SemanticCatalog` receivers for verification, preview, and readiness.
+   Remove duplicate top-level verification/readiness wrappers, prepare-era
+   `AuthoringQuestion`, free-form mechanically actionable repair strings, and
+   skill/example-file runtime dependencies.
+4. **Phase 4 -- directional semantic/analysis handoff (planned).** Add the
+   paired `AnalysisToSemanticHandoff` and `SemanticToAnalysisHandoff` schemas,
+   `boundary.semantic_handoff`,
+   `Session.validate_semantic_handoff(...)`, and
+   `SemanticHandoffReceipt`. Semantic produces handoff only from scoped
+   readiness; analysis consumes refs only after query-free receipt validation.
+   No conceptual crossing, bare ready ref, compatibility branch, or migration
+   adapter remains.
+5. **Phase 5 -- policy, documentation, and candidate release gate (planned).**
+   Replace the packaged semantic skill and the analysis skill handoff clause;
+   update `agent-guide.md`, active specs, latest English and Chinese site
+   documentation, help/error examples, and target-release notes. Then build a
+   target-only candidate wheel and pass mechanical, repository, site, and
+   cold-agent gates. The cold-agent evaluation covers explicit scope and
+   environment safety, unresolved business meaning, dependency order,
+   verify-before-preview policy, and preview-before-readiness mechanics.
+
+Phase 5 is the release boundary for delivery step 2. The later business
+semantic object-model cutover remains delivery step 3: it extends the completed
+registries and authoring families rather than reopening Phases 1--5.
 
 ## Problem
 
