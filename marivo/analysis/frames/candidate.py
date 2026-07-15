@@ -29,9 +29,9 @@ CandidateObjective = Literal[
 CandidateStrategy = Literal[
     "zscore",
     "delta_window_zscore",
-    "variance_explained",
+    "concentration",
     "delta_magnitude",
-    "rolling_zscore",
+    "global_zscore_runs",
     "mad",
 ]
 CandidateSourceKind = Literal["metric_frame", "delta_frame"]

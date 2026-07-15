@@ -260,9 +260,9 @@ def test_candidate_set_meta_accepts_all_six_shapes() -> None:
     pairings = [
         ("point_anomaly", "point_anomalies", "zscore"),
         ("period_shift", "period_shifts", "delta_window_zscore"),
-        ("driver_axis", "driver_axes", "variance_explained"),
+        ("driver_axis", "driver_axes", "concentration"),
         ("slice", "interesting_slices", "delta_magnitude"),
-        ("window", "interesting_windows", "rolling_zscore"),
+        ("window", "interesting_windows", "global_zscore_runs"),
         ("cross_sectional_outlier", "cross_sectional_outliers", "mad"),
     ]
     for shape, objective, strategy in pairings:

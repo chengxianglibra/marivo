@@ -64,9 +64,9 @@ from marivo.analysis.session.core import Session, ensure_session_writable
 _DEFAULT_STRATEGY: dict[CandidateObjective, CandidateStrategy] = {
     "point_anomalies": "zscore",
     "period_shifts": "delta_window_zscore",
-    "driver_axes": "variance_explained",
+    "driver_axes": "concentration",
     "interesting_slices": "delta_magnitude",
-    "interesting_windows": "rolling_zscore",
+    "interesting_windows": "global_zscore_runs",
     "cross_sectional_outliers": "mad",
 }
 
@@ -119,9 +119,9 @@ _OBJECTIVE_THRESHOLD: dict[CandidateObjective, dict[str, Any] | None] = {
         ),
     },
     "interesting_windows": {
-        "method": "rolling_zscore",
+        "method": "global_zscore_runs",
         "default": 2.0,
-        "description": "absolute z-score per value (|z| >= threshold)",
+        "description": "absolute global z-score per value (|z| >= threshold)",
     },
     "cross_sectional_outliers": {
         "method": "mad",
