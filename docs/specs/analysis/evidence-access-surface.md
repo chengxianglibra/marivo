@@ -260,7 +260,7 @@ un-pruned enumeration. The whitelist:
 | `MetricFrame[time_series]` | `discover.point_anomalies`, `discover.interesting_windows`, `forecast(horizon=default)`, `assess_quality` |
 | `MetricFrame[segmented]` | `discover.interesting_slices`, `discover.cross_sectional_outliers`, `assess_quality` |
 | `MetricFrame[panel]` | union of the two rows above |
-| `MetricFrame[scalar]` / `DeltaFrame[*]` / `AttributionFrame` / `CandidateSet[*]` / `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `EventFrame[*]` / `LifecycleFrame[*]` | `assess_quality` (plus, for a delta: `discover.driver_axes`, `discover.period_shifts` for time_series/panel deltas, `discover.interesting_slices`) |
+| `MetricFrame[scalar]` / `DeltaFrame[*]` / `AttributionFrame` / `CandidateSet[*]` / `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `EventFrame[*]` / `LifecycleFrame[*]` | `assess_quality` (plus, for a delta: `discover.driver_axes`, `discover.period_shifts` for time_series/panel deltas, `discover.interesting_slices` for time_series/segmented/panel deltas) |
 | `QualityReport` | none (terminal) |
 
 Operators that need a judgment input are **not** auto-emitted: `attribute`/

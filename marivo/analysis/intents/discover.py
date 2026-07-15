@@ -84,7 +84,7 @@ _OBJECTIVE_SEMANTIC_KINDS: dict[CandidateObjective, set[str]] = {
     "point_anomalies": {"time_series", "panel"},
     "period_shifts": {"time_series", "panel"},
     "driver_axes": {"scalar", "time_series", "segmented", "panel"},
-    "interesting_slices": {"scalar", "time_series", "segmented", "panel"},
+    "interesting_slices": {"time_series", "segmented", "panel"},
     "interesting_windows": {"time_series", "panel"},
     "cross_sectional_outliers": {"segmented", "panel"},
 }
@@ -112,7 +112,7 @@ _OBJECTIVE_THRESHOLD: dict[CandidateObjective, dict[str, Any] | None] = {
     "interesting_slices": {
         "method": "slice_zscore",
         "default": 2.0,
-        "description": "absolute z-score of slice totals (|z| >= threshold)",
+        "description": "absolute z-score of slice means (|z| >= threshold)",
     },
     "interesting_windows": {
         "method": "global_zscore_runs",
@@ -182,7 +182,7 @@ def _discover_dispatch(
         threshold: Score cutoff whose meaning depends on the objective.
         ``point_anomalies``: absolute z-score cutoff, default 3.0.
         ``period_shifts``: absolute z-score of rolling window mean, default 2.0.
-        ``interesting_slices``: absolute z-score of slice totals, default 2.0.
+        ``interesting_slices``: absolute z-score of slice means, default 2.0.
         ``interesting_windows``: absolute z-score per value, default 2.0.
         ``cross_sectional_outliers``: robust z-score via MAD, default 3.0.
         ``driver_axes`` does not accept threshold.

@@ -296,13 +296,16 @@ def score_interesting_slices(
     limit: int | None,
     max_groups: int = _SLICE_MAX_GROUPS,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Score dimension slices by how far their value totals deviate from the mean.
+    """Score dimension slices by how far their value means deviate from the mean.
 
-    Slice totals are z-scored against the row-level value distribution, so the
-    threshold is dimensionless and has one meaning (|z| >= threshold) for both
-    MetricFrame and DeltaFrame inputs. Axis-pair subsets whose cardinality
-    product exceeds ``max_groups`` are skipped and recorded in the returned
-    skip log rather than materializing an explosive groupby.
+    Slice means (per subset) are z-scored against the row-level value
+    distribution, so group statistics and baseline share one caliber and one
+    threshold meaning (|z| >= threshold) for both MetricFrame and DeltaFrame
+    inputs. Using the group mean (not the group sum) keeps the score
+    size-invariant, so a small shifted slice is not buried by large average
+    ones. Axis-pair subsets whose cardinality product exceeds ``max_groups``
+    are skipped and recorded in the returned skip log rather than materializing
+    an explosive groupby.
 
     Returns ``(rows, skipped)`` where ``skipped`` lists the subsets that hit
     the guard with their estimated cardinality and reason.
@@ -338,7 +341,7 @@ def score_interesting_slices(
                 }
             )
             continue
-        grouped = source_df.groupby(subset, dropna=False)[value_column].sum().reset_index()
+        grouped = source_df.groupby(subset, dropna=False)[value_column].mean().reset_index()
         values = grouped[value_column].to_numpy(dtype=float)
         scores = np.abs((values - mean) / std)
         for pos in np.nonzero(scores >= threshold)[0]:
