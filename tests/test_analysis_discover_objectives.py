@@ -180,7 +180,7 @@ def test_period_shifts_rejects_metric_frame():
     assert exc.value.location == "discover.period_shifts.source"
 
 
-@pytest.mark.parametrize("row_count", [1, 3])
+@pytest.mark.parametrize("row_count", [1, 3, 4, 5, 6])
 def test_period_shifts_rejects_time_series_with_too_few_buckets(row_count: int):
     session = session_attach.get_or_create(name="demo")
     delta = _delta(
@@ -197,7 +197,8 @@ def test_period_shifts_rejects_time_series_with_too_few_buckets(row_count: int):
     with pytest.raises(DiscoverInsufficientDataError) as exc:
         session.discover.period_shifts(delta)
 
-    assert exc.value._context["minimum"] == 4
+    # minimum matches the scorer's rolling-window floor max(7, n // 10) (issue #11)
+    assert exc.value._context["minimum"] == 7
     assert exc.value._context["row_count"] == row_count
 
 
@@ -218,7 +219,7 @@ def test_period_shifts_rejects_panel_when_all_series_have_too_few_buckets():
     with pytest.raises(DiscoverInsufficientDataError) as exc:
         session.discover.period_shifts(delta)
 
-    assert exc.value._context["minimum"] == 4
+    assert exc.value._context["minimum"] == 7
     assert exc.value._context["row_count"] == 3
     assert exc.value._context["group_columns"] == ["region"]
 
@@ -230,11 +231,11 @@ def test_period_shifts_allows_panel_when_one_series_has_enough_buckets():
         pd.DataFrame(
             {
                 "bucket": [
-                    *pd.date_range("2026-01-01", periods=4, freq="D", tz="UTC"),
+                    *pd.date_range("2026-01-01", periods=8, freq="D", tz="UTC"),
                     *pd.date_range("2026-01-01", periods=2, freq="D", tz="UTC"),
                 ],
-                "region": ["north"] * 4 + ["south"] * 2,
-                "delta": [0.0, 1.0, 2.0, 3.0, 0.0, 1.0],
+                "region": ["north"] * 8 + ["south"] * 2,
+                "delta": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 0.0, 1.0],
             }
         ),
         semantic_kind="panel",
@@ -869,3 +870,20 @@ def test_limit_rejects_invalid(bad_limit):
     )
     with pytest.raises(SemanticKindMismatchError):
         session.discover.point_anomalies(series, threshold=1.0, limit=bad_limit)  # type: ignore[arg-type]
+
+
+def test_period_shifts_accepts_time_series_at_min_buckets():
+    """7 buckets is the rolling-window floor; validation passes (issue #11)."""
+    session = session_attach.get_or_create(name="demo")
+    delta = _delta(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": pd.date_range("2026-01-01", periods=7, freq="D", tz="UTC"),
+                "delta": [0.0, 0.0, 0.0, 0.0, 5.0, 5.0, 5.0],
+            }
+        ),
+        semantic_kind="time_series",
+    )
+    out = session.discover.period_shifts(delta)  # must not raise
+    assert out.meta.objective == "period_shifts"
