@@ -506,22 +506,27 @@ def test_interesting_slices_delta_score_is_unit_invariant():
 
 
 def test_interesting_slices_delta_uses_zscore_not_raw_magnitude():
-    """A delta slice whose total is well above 2 population std clears
-    threshold 2.0; a near-zero slice does not. Score is a z-score, not the
-    raw delta magnitude (issue #16)."""
+    """A delta slice whose mean is well above the population baseline clears
+    threshold; a near-baseline slice does not. Score is a z-score of the slice
+    mean, not the raw delta magnitude or sum (issues #9, #16)."""
     session = session_attach.get_or_create(name="zscore_delta")
     df = pd.DataFrame(
-        {"country": ["US", "US", "US", "JP", "DE"], "delta": [4.0, 4.0, 4.0, 0.0, 0.0]}
+        {
+            "country": ["US"] * 4 + ["JP"] * 4 + ["DE"] * 4,
+            "delta": [10.0] * 4 + [0.0] * 4 + [0.0] * 4,
+        }
     )
     src = _delta(session, df, semantic_kind="segmented")
     out = session.discover.interesting_slices(
         src,
         search_space=[make_ref("country", SemanticKind.DIMENSION)],
-        threshold=2.0,
+        threshold=1.0,
     ).to_pandas()
     selectors = [json.loads(s) for s in out["selector_json"]]
     assert any(sel.get("country") == "US" for sel in selectors)
     assert all(sel.get("country") != "JP" for sel in selectors)
+    # score is a z-score of the slice mean (~1.414), not the raw mean (10) or sum (40)
+    assert abs(float(out.loc[0, "score"]) - 1.4142) < 0.01
 
 
 def test_interesting_slices_skips_high_cardinality_axis_pair():
@@ -568,7 +573,8 @@ def test_score_interesting_slices_zscores_and_returns_skip_log():
         {
             "a": [f"a{i % 300}" for i in range(n)],
             "b": [f"b{i % 200}" for i in range(n)],
-            "value": [float(i) for i in range(n)],
+            # one a-group ("a0") has an extreme mean so a slice clears threshold
+            "value": [100.0 if (i % 300) == 0 else 1.0 for i in range(n)],
         }
     )
     rows, skipped = score_interesting_slices(
@@ -582,7 +588,7 @@ def test_score_interesting_slices_zscores_and_returns_skip_log():
     )
     assert any(set(entry["axes"]) == {"a", "b"} for entry in skipped)
     assert all(entry["score"] >= 2.0 for entry in rows)
-    # reason_codes now report a z-score, not a raw magnitude
+    # reason_codes report a z-score, not a raw magnitude
     flat_codes = [code for row in rows for code in row["reason_codes"]]
     assert any(code.startswith("abs_z=") for code in flat_codes)
 
@@ -887,3 +893,37 @@ def test_period_shifts_accepts_time_series_at_min_buckets():
     )
     out = session.discover.period_shifts(delta)  # must not raise
     assert out.meta.objective == "period_shifts"
+
+
+def test_interesting_slices_panel_ranks_small_mutated_segment_first():
+    """On a ragged panel a small mutated segment must outrank large average
+    ones. Sum-based scoring buries it (score proportional to group size);
+    mean-based scoring surfaces it (issue #9)."""
+    session = session_attach.get_or_create(name="panel")
+    days = pd.date_range("2026-01-01", periods=30, freq="D", tz="UTC")
+    records: list[dict[str, object]] = []
+    # four large, average segments
+    for region in ["north", "south", "east", "west"]:
+        records += [{"bucket": d, "region": region, "value": 10.0} for d in days]
+    # one small segment with a mutation (few buckets, high value)
+    records += [{"bucket": d, "region": "spike", "value": 50.0} for d in days[:3]]
+    metric = _metric(session, pd.DataFrame(records), semantic_kind="panel")
+    out = session.discover.interesting_slices(
+        metric,
+        search_space=[make_ref("region", SemanticKind.DIMENSION)],
+        threshold=2.0,
+    ).to_pandas()
+    selectors = [json.loads(s) for s in out["selector_json"]]
+    assert selectors, "expected at least one slice candidate"
+    assert selectors[0].get("region") == "spike"
+    # the large average segments must not clear the threshold
+    assert all(sel.get("region") != "north" for sel in selectors)
+
+
+def test_interesting_slices_rejects_scalar_frame():
+    """scalar has no dimensions to slice; fail closed instead of returning a
+    silent empty CandidateSet (issue #9)."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(session, pd.DataFrame({"value": [1.0]}), semantic_kind="scalar")
+    with pytest.raises(SemanticKindMismatchError):
+        session.discover.interesting_slices(frame, threshold=1.0)
