@@ -117,6 +117,40 @@ help/browse -> inspect -> explicit scope -> sample once -> project evidence -> s
 It does not duplicate parameter tables from `ms.help` or `md.help`. Uncommon
 formats and semantic judgments remain agent-owned.
 
+## Ownership
+
+The live `ms.help(...)` / `md.help(...)` surfaces own the static contracts;
+the registry behind them owns mechanical continuation facts but is not itself a
+public API; the `marivo-semantic` skill owns workflow and routing only; the
+runtime has no canonical link to packaged skill files, so skill content is never
+read or executed by the library. This mirrors the ownership split stated in
+`agent-guide.md`.
+
+| Concern | Canonical owner |
+|---|---|
+| Datasource constructors, connections, scope, effects, snapshots, evidence | `marivo.datasource` (`md`) |
+| Semantic constructors, typed refs, dependencies, verification, preview | `marivo.semantic` (`ms`) |
+| Readiness and analysis-ready refs | `ReadinessReport` |
+| Mechanically available calls, effects, and transition facts | private authoring-state registry (not a public API) |
+| Current failed-operation repair | typed error/result repair object |
+| Ordered routing discipline and handoff policy | `marivo-semantic` skill |
+| Evidence interpretation and technical drafting | agent |
+| Unresolved business meaning and caliber acceptance | user or business owner |
+
+The private authoring-state registry is descriptive, not executable orchestration:
+it states which calls are mechanically available from current typed state and what
+they require, but it cannot choose which object to author, acquire data on the
+agent's behalf, or advance to readiness automatically. It is not a third public
+`marivo.authoring` module and is not exposed for user mutation.
+
+The typed semantic-to-analysis handoff is a module-internal result field —
+`ReadinessReport.analysis_handoff: SemanticToAnalysisHandoff | None` — not a
+top-level constructor or a public `__all__` entry. Analysis consumes the
+handed-off refs only after `Session.validate_semantic_handoff(...)` returns a
+`SemanticHandoffReceipt`. The handoff and receipt values are module-internal
+handoff types consumed from result/error fields; agents never construct or
+import them as an authoring API.
+
 ## Relationship to prior schema designs
 
 Earlier (removed) schema designs are a semantic reference for object boundaries —

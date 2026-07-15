@@ -17,16 +17,29 @@ See also:
 
 ## Current public flow
 
-The public semantic-authoring flow is:
+The semantic-authoring lifecycle is a registered state model, not a hardcoded
+method-by-method runbook. `ms.help("authoring")` renders the lifecycle view
+generated from registered authoring states; `md.help("authoring")` renders the
+matching datasource lifecycle ending at acquired/projected evidence and linking
+to the semantic root. The conceptual policy order is:
 
 ```text
 help/browse -> inspect -> explicit scope -> sample once -> project evidence -> settle/grill -> author one Python object -> load typed object -> static verify -> scoped preview -> readiness -> analysis
 ```
 
-`marivo-semantic` is the packaged skill that applies this flow. The library
-supplies facts and validation; the agent settles business intent and writes
-ordinary Python definitions. There is no separate "prepare" or handoff-brief
-stage — an agent settles constructor values before authoring one object.
+Invocation details — exact signatures, required inputs, effects, and
+preconditions — live in focused `ms.help(<target>)` and the current object's
+`.contract()`, not in this document. Each state-bearing result exposes
+`.contract()` for its mechanically available continuations, and each structured
+error exposes typed repair pointing back to live help. This document states the
+policy order and judgment boundaries; it does not duplicate parameter tables or
+reconstruct mechanical requirements from prose.
+
+`marivo-semantic` is the one-file packaged skill that applies this flow's
+ordered routing discipline. The library supplies facts and validation; the
+agent settles business intent and writes ordinary Python definitions. There is
+no separate "prepare" or handoff-brief stage — an agent settles constructor
+values before authoring one object.
 
 ## Layer ownership
 
@@ -94,25 +107,30 @@ when the kind requires it.
 
 ## Per-object cycle
 
-Every object uses the same bounded loop:
+The per-object cycle is the registered lifecycle applied to one object. Its
+mechanical transitions — load, verify, preview, readiness, analysis handoff —
+and their exact inputs, effects, and preconditions are disclosed by focused
+`ms.help(<target>)` and the current object/result's `.contract()`, not restated
+here as a second runbook. `CatalogObject.contract()` exposes the exact
+object-bound verify, preview, and readiness continuations; this is the canonical
+read point after `ms.load()`. The judgment-shaped steps, which no registry can
+perform, are:
 
-1. Read `ms.help("<constructor-or-object>")` for the static contract.
-2. Reuse the matching query-free projection from the one explicitly scoped
-   snapshot acquired for the active batch.
-3. Inspect current catalog state with `ms.load()` when reuse or dependencies
-   matter.
-4. Settle one candidate from evidence, registry facts, project docs, source
-   SQL/provenance, prior decisions, and user answers.
-5. Ask the user only when semantic intent or business policy is still unresolved
-   after the evidence pass.
-6. Author exactly one semantic object in Python, reload, and navigate to its
-   typed catalog object.
-7. Run `catalog.verify_object(obj)` and fix static failures.
-8. Run `catalog.preview(obj, using=snapshot)` (or the exact entity-keyed mapping)
-   for executable objects, then `catalog.readiness(refs=[obj])` before handoff.
+- Settle one candidate from evidence, registry facts, project docs, source
+  SQL/provenance, prior decisions, and user answers. Reuse the matching
+  query-free projection from the one explicitly scoped snapshot acquired for the
+  active batch; inspect current catalog state with `ms.load()` when reuse or
+  dependencies matter.
+- Ask the user only when semantic intent or business policy is still unresolved
+  after the evidence pass.
+- Author exactly one semantic object in Python, reload, and navigate to its
+  typed catalog object.
 
 Authoring several objects and validating later is forbidden — each object is
-verified before the next.
+verified before the next. Verification is result-local (a current `VerifyResult`
+proves one check passed) and not a persisted gate; the skill enforces
+verify-before-preview as policy, while the runtime leaves preview mechanically
+callable from a loaded object.
 
 ## Datasource evidence handoff
 
@@ -237,18 +255,28 @@ treats any `unverified` metric (including via derived propagation) as a failure.
 
 ## Verification and readiness
 
-- **`catalog.verify_object(obj)`** is a static, zero-query per-object gate.
+- **`catalog.verify_object(obj)`** is a static, zero-query per-object gate. Its
+  result is result-local: it proves one check passed but is not persisted as a
+  workflow checkpoint and is not a runtime prerequisite for preview. The skill
+  enforces verify-before-preview as policy.
 - **`catalog.preview(obj, using=snapshot)`** is the explicit scoped runtime gate;
   multi-entity objects use an exact entity-keyed snapshot mapping.
 - **`catalog.readiness(refs=[obj])`** is the final zero-query closeout gate. It
-  reads fresh static and runtime-check evidence and never refreshes automatically.
+  reads fresh static and runtime-check evidence, enforces fresh preview evidence
+  for executable families, and never refreshes automatically. On success it
+  populates `ReadinessReport.analysis_handoff: SemanticToAnalysisHandoff | None`.
 
 `ms.parity_check(...)` is an optional, potentially unbounded provenance SQL
 diagnostic and is never readiness-required. `ms.richness(...)` remains advisory.
 
 ## Handoff stop conditions
 
-Do not hand refs to `marivo-analysis` while any blocker remains:
+The crossing to `marivo-analysis` is a typed handoff, not a bare ready-ref.
+`ReadinessReport.analysis_handoff` is `None` while any blocker remains; the
+agent routes a non-`None` handoff to the analysis
+`boundary.semantic_handoff` target, whose sole public receiver
+`Session.validate_semantic_handoff(...)` returns a `SemanticHandoffReceipt` only
+after query-free validation. Do not hand off while any blocker remains:
 
 - project load or check failed;
 - a datasource required for live validation is unreachable;

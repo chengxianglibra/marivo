@@ -31,6 +31,7 @@ from marivo.analysis._capabilities.registry import (
 from marivo.analysis._capabilities.resolve import ResolvedHelpTarget
 from marivo.analysis.constraints import CONSTRAINTS, get_constraint
 from marivo.introspection.constraints import Constraint
+from marivo.introspection.live.render import render_fingerprint
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -145,15 +146,9 @@ def render_root_help() -> str:
     """
     lines: list[str] = []
 
-    # Fingerprint
+    # Fingerprint (exact paths shown: root help uses reveal=True).
     fp = environment_fingerprint()
-    lines.extend(
-        [
-            f"Marivo: {fp.marivo_version}",
-            f"Python: {fp.python_executable}",
-            f"Package: {fp.package_path}",
-        ]
-    )
+    lines.extend(render_fingerprint(fp, reveal=True).split("\n"))
     lines.append("")
 
     # Capability groups

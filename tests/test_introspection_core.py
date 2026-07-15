@@ -66,8 +66,8 @@ def test_constraint_to_dict_accepts_plain_string_id() -> None:
         title="Example rule.",
         why="Agents need stable rule metadata.",
         hint="Call help('example_rule') for details.",
-        example="marivo/skills/marivo-semantic/references/examples/01_discover_and_grill.py",
-        docs_ref="marivo/skills/marivo-semantic/references/pitfalls.md",
+        example="site/src/content/docs/en/latest/guides/authoring.py",
+        docs_ref="site/src/content/docs/en/latest/concepts/semantic-layer.mdx",
         help_target="observe",
         ast_spec=ASTSpec(
             name="single_return",
@@ -85,8 +85,8 @@ def test_constraint_to_dict_accepts_plain_string_id() -> None:
         "title": "Example rule.",
         "why": "Agents need stable rule metadata.",
         "hint": "Call help('example_rule') for details.",
-        "example": "marivo/skills/marivo-semantic/references/examples/01_discover_and_grill.py",
-        "docs_ref": "marivo/skills/marivo-semantic/references/pitfalls.md",
+        "example": "site/src/content/docs/en/latest/guides/authoring.py",
+        "docs_ref": "site/src/content/docs/en/latest/concepts/semantic-layer.mdx",
         "help_target": "observe",
         "ast_spec": {
             "name": "single_return",
@@ -112,7 +112,7 @@ def test_constraint_summary_is_l1_bounded() -> None:
         title="Summary rule.",
         why="This rationale is intentionally excluded from L1.",
         hint="Use the supported frame method.",
-        example="marivo/skills/marivo-semantic/references/examples/02_author_one_object.py",
+        example="site/src/content/docs/en/latest/guides/authoring.py",
         help_target="observe",
     )
 
@@ -120,7 +120,7 @@ def test_constraint_summary_is_l1_bounded() -> None:
         "id": "summary_rule",
         "title": "Summary rule.",
         "hint": "Use the supported frame method.",
-        "example": "marivo/skills/marivo-semantic/references/examples/02_author_one_object.py",
+        "example": "site/src/content/docs/en/latest/guides/authoring.py",
         "help_target": "observe",
     }
 

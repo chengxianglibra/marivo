@@ -95,6 +95,86 @@ dual-read paths, compatibility flags, or automatic migration. Code that
 references removed symbols, topics, or fields must be updated to the new
 surface.
 
+## Semantic and datasource live surface
+
+0.3.2 also folds the datasource/semantic live-surface cutover into this same
+atomic release. The installed package is now the single authority for
+datasource and semantic authoring facts, observable state, mechanically
+available calls, effects, and typed repair. The packaged `marivo-semantic`
+skill is reduced to a one-file boundary kernel that owns routing discipline,
+hard boundaries, handoffs, and closeout obligations; it no longer duplicates
+API signatures, operator inventory, call examples, or repair catalogs.
+
+### Added
+
+- **Typed semantic-to-analysis handoff.**
+  `ReadinessReport.analysis_handoff: SemanticToAnalysisHandoff | None`
+  carries the ready refs, readiness status, project/catalog/environment
+  fingerprints, warning ids, preview-evidence ids, and caveats. It is `None`
+  when no requested ref is analysis-ready or when a blocker applies. The agent
+  routes this payload to the registered `boundary.semantic_handoff` target,
+  whose sole public receiver
+  `Session.validate_semantic_handoff(...) -> SemanticHandoffReceipt` validates
+  it against a newly created, current, or recovered analysis session before
+  analysis consumes the handed-off refs. No prior analysis branch is required;
+  semantic-first work creates or recovers a session first.
+- **Native datasource and semantic CLI help.**
+  `marivo help semantic` (and `python -m marivo help semantic`) is the default
+  integrated authoring entry; `marivo help datasource` owns the physical
+  stage. Both are backed by the same resolver and renderer as `md.help(...)` /
+  `ms.help(...)`. `marivo --help` points to these entries and to
+  `marivo help analysis`; it no longer teaches `python -c` snippets.
+- **Environment fingerprint on track help.** Track root help
+  (`marivo help datasource`, `marivo help semantic`, `marivo help analysis`)
+  prints the Marivo version, resolved Python executable, and package path, so
+  an agent can verify that help and execution share one interpreter before
+  trusting any authoring guidance. The bare `marivo --help` points to these
+  tracks but does not itself print the interpreter fingerprint.
+- **Typed repair.** Free-form recovery strings on mechanically actionable
+  readiness/preview results and datasource/semantic errors are replaced by
+  typed `AuthoringRepair` objects (`kind`, `help_target`, `action`, optional
+  `snippet`, optional `candidates`, `preserves_evidence`). The advisory
+  `suggested_action` on richness gaps is retained under its own advisory rule
+  and is not consumed as a repair or transition.
+- **Object-near `.contract()` on state-bearing results.** The `.contract()`
+  convention applies to state-bearing results like `CatalogObject`,
+  `VerifyResult`, and `ReadinessReport`, exposing mechanically valid next
+  actions (e.g. `VerifyResult.contract()` may expose preview;
+  `ReadinessReport.contract()` exposes the analysis handoff for ready refs).
+  Contracts carry namespaced live help targets and complete orthogonal effect
+  metadata (data access, connection, mutation, guards).
+
+### Removed
+
+- **Duplicate top-level verification/readiness wrappers.**
+  `ms.verify_object(...)` and `ms.readiness(...)` are removed from the
+  top-level `ms` surface; `SemanticCatalog.verify_object(...)`,
+  `SemanticCatalog.preview(...)`, and `SemanticCatalog.readiness(...)` are the
+  sole public receivers.
+- **Prepare-era `AuthoringQuestion`.** The public `AuthoringQuestion` export,
+  its `options` / `default_option` contract, and the unused question-bearing
+  assessment path are removed. No replacement question DTO is added; an
+  unresolved business decision is a skill-owned one-question stop, not a
+  runtime `user_decision` repair.
+- **Free-form mechanical recovery strings.** `next_calls` on datasource
+  evidence/inspection results and `suggested_action` as a mechanically
+  actionable readiness/preview field are removed. They are replaced by typed
+  contracts and `AuthoringRepair`. (Advisory richness retains its own
+  `suggested_action`.)
+- **Packaged skill attachments/examples as runtime documentation
+  dependencies.** The `references/` attachment tree and example runners are
+  deleted. No active code, constraint, error, or latest doc links to deleted
+  skill attachments. The installed runtime is self-explanatory from its public
+  Python and CLI surfaces.
+
+### No compatibility or migration behavior (semantic cutover)
+
+The semantic/datasource cutover is target-only. There are no compatibility
+aliases, no dual help path, no transition-string bridge, no skill-document
+fallback, and no migration workflow. Historical versioned documentation and
+release notes are unchanged. Code that references removed symbols, wrappers,
+or fields must be updated to the new live surface.
+
 ## Documentation
 
 - Updated the analysis-workflow, first-analysis, and evidence docs in English

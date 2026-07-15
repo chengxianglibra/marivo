@@ -990,6 +990,15 @@ class Session:
         - consistency of readiness status, warning ids, and caveats;
         - freshness and ownership of every required preview-evidence id.
 
+        Note:
+            The semantic readiness producer currently emits an empty
+            ``preview_evidence_ids`` tuple: preview evidence is persisted to
+            the project check store during semantic preparation but is not yet
+            surfaced as handoff evidence ids. The preview-evidence freshness
+            check is therefore vacuous until that population is wired; the
+            environment, project, catalog, ref, and readiness checks are
+            fully active.
+
         An environment mismatch emits environment repair. A stale project,
         catalog, ref, readiness, or preview-evidence fact emits a new
         :class:`AnalysisToSemanticHandoff` through typed semantic repair.
@@ -1251,27 +1260,16 @@ class Session:
 
     def _project_fingerprint(self) -> str:
         """Return a deterministic fingerprint of the project root state."""
-        import hashlib
+        from marivo.introspection.live.fingerprints import project_fingerprint
 
-        parts: list[str] = []
-        marivo_toml = self._project_root / "marivo.toml"
-        if marivo_toml.is_file():
-            parts.append(f"marivo.toml:{marivo_toml.read_text()}")
-        models_dir = self._project_root / "models"
-        if models_dir.is_dir():
-            for py_file in sorted(models_dir.rglob("*.py")):
-                rel = py_file.relative_to(self._project_root)
-                parts.append(f"{rel}:{py_file.read_text()}")
-        digest = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
-        return digest
+        return project_fingerprint(self._project_root)
 
     def _catalog_fingerprint(self) -> str:
         """Return a deterministic fingerprint of the loaded catalog state."""
-        import hashlib
+        from marivo.introspection.live.fingerprints import catalog_fingerprint
 
         index = self._catalog._require_index()
-        typed_ids = sorted(obj.id for obj in index._by_id.values())
-        return hashlib.sha256("|".join(typed_ids).encode("utf-8")).hexdigest()
+        return catalog_fingerprint(obj.id for obj in index._by_id.values())
 
     def _preview_evidence_exists(self, evidence_id: str) -> bool:
         """Check whether a preview-evidence id exists in the session evidence store."""
