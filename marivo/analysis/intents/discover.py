@@ -711,6 +711,24 @@ def _run_scorer(
             purpose="discover",
         )
         peer_axes = _dimension_columns_for_ids(source, peer_scope or [])
+        if peer_scope:
+            # Fail closed on a peer_scope axis not materialized in the frame,
+            # mirroring the search_space check: never silently fall back to a
+            # global comparison while still recording the axis as grouped.
+            missing_peer_axes = [axis for axis in peer_axes if axis not in df.columns]
+            if missing_peer_axes:
+                raise SemanticKindMismatchError(
+                    message=(
+                        "discover(cross_sectional_outliers) peer_scope references axes "
+                        f"not materialized in the source frame: {', '.join(missing_peer_axes)}"
+                    ),
+                    context={
+                        "objective": objective,
+                        "missing_axes": missing_peer_axes,
+                        "peer_scope": peer_axes,
+                        "available_dimension_columns": segment_columns,
+                    },
+                )
         rows = score_cross_sectional_outliers(
             df,
             source_ref=source.ref,
