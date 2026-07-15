@@ -462,16 +462,51 @@ path to state-bearing objects instead of inventing a second protocol. The
 coordinated `agent-guide.md` update states this as a cross-surface rule.
 
 The separately specified
-[`business semantic object model`](2026-07-13-business-semantic-object-model-design.md)
-will extend this capability kernel when its atomic cutover adds event and
-lifecycle analysis. Those capabilities use canonical ids such as
-`events.sequence`, `events.funnel`, `events.time_to_event`, and
-`lifecycle.dwell`, hosted by the symmetric `session.events.*` and
-`session.lifecycle.*` namespaces. It does not add a flat
-`session.time_to_event` alias. This future registry extension belongs to the
-business-model cutover and therefore does not change this interface-only
-release's non-goal of adding operators; that cutover must update registry,
-help, affordances, and coverage tests together.
+[`executable semantic and ontology extension`](2026-07-13-business-semantic-object-model-design.md)
+adds two independent capability extensions. The semantic execution extension
+adds Event and StateModel inputs plus seven event/lifecycle operators. The
+optional ontology discovery extension adds one bounded discovery operator.
+Neither extension replaces the existing Metric lane, and the ontology
+extension is never a prerequisite for event or lifecycle analysis.
+
+The semantic execution operator ids are `events.sequence`, `events.funnel`,
+`events.time_to_event`, `lifecycle.distribution`, `lifecycle.transitions`,
+`lifecycle.dwell`, and `lifecycle.violations`. Event and lifecycle capabilities
+are hosted by the symmetric
+`session.events.*` and `session.lifecycle.*` namespaces; the cutover adds no
+flat `session.time_to_event` or lifecycle aliases.
+
+That extension registers two and only two new artifact families:
+`EventFrame` and `LifecycleFrame`. Event operators return the former,
+lifecycle operators return the latter, and both accept only
+`assess_quality`, bounded reads, recovery, evidence access, and the terminal
+`boundary.to_pandas` exit in v1.
+
+Separately, the ontology discovery extension registers
+`discover.semantic_hypotheses`. It reuses `CandidateSet` with the closed
+`semantic_hypothesis` shape and adds the consumed-not-constructed
+`SemanticMetricCandidate` value. It adds no third artifact family, graph-query
+surface, or Event/Lifecycle dependency.
+
+The registry mapping is closed and one-to-one at the operator/shape level:
+
+| Capability id | Output family | Closed shape |
+| --- | --- | --- |
+| `events.sequence` | `EventFrame` | `sequence` |
+| `events.funnel` | `EventFrame` | `funnel` |
+| `events.time_to_event` | `EventFrame` | `time_to_event` |
+| `lifecycle.distribution` | `LifecycleFrame` | `distribution` |
+| `lifecycle.transitions` | `LifecycleFrame` | `transitions` |
+| `lifecycle.dwell` | `LifecycleFrame` | `dwell` |
+| `lifecycle.violations` | `LifecycleFrame` | `violations` |
+
+These future registry extensions do not change this interface-only release's
+non-goal of adding operators. Each extension has its own atomic boundary. The
+semantic execution extension must update its operators, semantic inputs,
+artifact families, help, runtime gates, recovery, evidence integration, and
+coverage tests together. The ontology discovery extension must update ontology
+preconditions, CandidateSet shape, item affordances, observe lineage bridge,
+non-seeding evidence behavior, and coverage tests together.
 
 The CLI change in this design is additive at the product root:
 `marivo --help` must retain discoverable semantic-authoring entry instructions
@@ -552,15 +587,36 @@ Examples include:
 - `attribute`
 - `discover.point_anomalies`
 - `discover.driver_axes`
+- `discover.semantic_hypotheses`
 - `transform.topk`
 - `correlate`
 - `hypothesis_test`
 - `forecast`
 - `assess_quality`
+- `events.sequence`
+- `events.funnel`
+- `events.time_to_event`
+- `lifecycle.distribution`
+- `lifecycle.transitions`
+- `lifecycle.dwell`
+- `lifecycle.violations`
 
 Each concrete discover objective and transform operation has its own
 capability id. `discover` and `transform` remain grouping topics, not generic
 runtime operators.
+
+The semantic execution extension adds `EventFrame` and `LifecycleFrame` to the
+closed `ArtifactFamily` set. Its semantic inputs are `EntitySemantic`,
+`EventSemantic`, `ParticipantRoleSemantic`, and `StateModelSemantic`; Event and
+StateModel are additive executable objects in the existing semantic catalog.
+
+The ontology discovery extension independently adds the
+`semantic_hypothesis` CandidateSet shape and the consumed-not-constructed
+`SemanticMetricCandidate` value returned only by selecting a ready candidate
+row. `observe.metric` accepts either the ordinary `MetricSemantic` family or
+this provenance-carrying value. The registry records shape constraints and the
+ontology-configured precondition in capability-specific validation rather than
+encoding them as new family names.
 
 ### Constructor capability
 
@@ -608,6 +664,12 @@ query_behavior      none or explicit
 
 Examples include `session.frame_summaries`, `session.recent_jobs`,
 `session.job`, and `session.get_frame`.
+
+When the semantic execution extension registers `EventFrame` and
+`LifecycleFrame`, the same artifact manifest, summary, job, and `get_frame`
+recovery routes must round-trip their exact family, closed shape, shape metadata,
+row-contract version, evidence status, and lineage. Recovery may not coerce
+either family to `MetricFrame` or a generic table result.
 
 ### Boundary capability
 
@@ -732,9 +794,11 @@ The root groups capabilities by role, not by Python suffix or presumed level:
 2. **Semantic inputs** — catalog collections, object details, scoped readiness.
 3. **Policies and builders** — alignment values, windows, and governed-entry
    builders required by operator contracts.
-4. **Artifact production** — `observe`.
+4. **Artifact production** — `observe`; after the semantic execution extension,
+   event and lifecycle intents.
 5. **Typed analysis** — compare, attribute, discover objectives, correlate,
-   hypothesis test, forecast, quality assessment.
+   hypothesis test, forecast, and quality assessment. Ontology-guided discovery
+   is labeled as an optional extension with an explicit runtime precondition.
 6. **Family-preserving operations** — frame transforms and candidate selection.
 7. **Artifact inspection** — `show`, `contract`, metadata, bounded properties.
 8. **Recovery** — jobs, summaries, and frame restoration.
@@ -791,6 +855,11 @@ observe / boundary.derive_metric_frame -> MetricFrame -> compare, correlate,
   hypothesis_test, forecast, assess_quality, discover (group), transform (group)
 compare -> DeltaFrame -> attribute, transform (group)
 discover (group) -> CandidateSet -> CandidateSet.select
+CandidateSet.select(analysis_target) -> SemanticMetricCandidate -> observe
+events.sequence / events.funnel / events.time_to_event -> EventFrame ->
+  assess_quality
+lifecycle.distribution / lifecycle.transitions / lifecycle.dwell /
+  lifecycle.violations -> LifecycleFrame -> assess_quality
 window_bucket / dow_aligned / holiday_aligned /
   holiday_and_dow_aligned -> AlignmentPolicy -> compare, hypothesis_test,
   attribute
@@ -800,6 +869,20 @@ semantic readiness -> SemanticToAnalysisHandoff ->
   boundary.semantic_handoff -> SemanticHandoffReceipt
   (registered atomically by the semantic-authoring cutover)
 ```
+
+The generated `discover` grouping includes
+`discover.semantic_hypotheses`; its descriptor accepts `MetricFrame` and
+`DeltaFrame` and returns `CandidateSet`. Focused help and candidate type help
+identify its exact `semantic_hypothesis` shape, optional ontology ownership,
+and `ontology_not_configured` runtime precondition. A configured ontology with
+no eligible edge is represented by an empty CandidateSet, not by that error. The
+`SemanticMetricCandidate` row is registered as a consumed value, not an
+artifact family, constructor, or executable affordance. `EventFrame` and
+`LifecycleFrame` do not acquire a transform, compare, attribute, correlate,
+hypothesis-test, forecast, or discover consumer merely because they implement
+the shared artifact protocol. Their bounded reads, recovery, evidence access,
+and aggregate terminal boundary are registered outside the operator-consumer
+rows above. Their producers have no ontology precondition.
 
 `discover` and `transform` in this block are canonical grouping-topic targets,
 not wildcard capability ids or invokable producers. The `(group)` marker means
@@ -845,6 +928,28 @@ other capability-specific preconditions may still reject the invocation after
 the shared gate. Those later checks remain in their owning runtime modules and
 link to registered constraints; they must not recreate a family-acceptance
 matrix.
+
+For the two extensions, the shared gate enforces these family edges before
+shape-specific validation:
+
+- `discover.semantic_hypotheses.source` accepts `MetricFrame` or `DeltaFrame`;
+- `observe.metric` accepts `MetricSemantic` or `SemanticMetricCandidate`; the
+  latter must carry a ready row fingerprint and matching candidate origin;
+- event intents accept the declared `EventSemantic`, `EntitySemantic`, and
+  `ParticipantRoleSemantic` parameters and return `EventFrame`;
+- lifecycle intents accept `StateModelSemantic` and return `LifecycleFrame`;
+- `assess_quality` accepts both new artifact families;
+- every metric-only operator and every generic transform rejects both new
+  families with its canonical expected/received repair error.
+
+Capability-specific validation checks that Event and StateModel inputs are
+ready without consulting ontology. Separately, semantic-hypothesis validation
+requires a configured `OntologyCatalog` and exactly one recoverable source
+Metric lineage, failing with `ontology_not_configured`,
+`missing_metric_lineage` or `ambiguous_metric_lineage` rather than selecting a
+metric. It also checks exact event/lifecycle semantic handles and the closed
+artifact shape required by the producer. A blocked semantic candidate is a
+valid `CandidateSet` row, not a family-gate failure.
 
 The public callable and focused help therefore consume the same descriptor in
 the same release:
@@ -1233,6 +1338,20 @@ family gate.
 An affordance exists only when its capability is registered and the current
 artifact family has a mechanically defined input relationship to it.
 
+Both extensions follow the same affordance rule:
+
+- `EventFrame.contract()` and `LifecycleFrame.contract()` expose
+  `assess_quality` when its preconditions pass, plus the shared terminal
+  boundary port. They do not copy metric-only affordances.
+- A `CandidateSet[semantic_hypothesis]` keeps target-specific continuations in
+  each row's existing item-level affordance field. A ready resolved metric may
+  expose `observe` over its selected `SemanticMetricCandidate`; a blocked row
+  exposes no `analysis_target` or executable analysis affordance and retains
+  its typed semantic or readiness repair evidence.
+- Candidate item affordances never become artifact-level
+  `recommended_followups`. They are alternatives for agent judgment, not a
+  runtime-ranked next step.
+
 `ArtifactPrecondition` adds `repair: AnalysisRepair | None`. Visibility is
 mechanical:
 
@@ -1478,6 +1597,57 @@ semantic code, both packaged skills, active docs, and tests to:
   legacy ready-ref branch, fallback construction, alias, deprecation period, or
   migration adapter.
 
+### Semantic execution extension workstream
+
+This additive workstream updates the existing semantic catalog, analysis
+compiler, one Evidence Engine, interface registry, active docs, skills, and
+tests in one candidate to:
+
+- register all seven event/lifecycle operators with `EntitySemantic`,
+  `EventSemantic`, `ParticipantRoleSemantic`, and `StateModelSemantic` inputs;
+- register `EventFrame` and `LifecycleFrame`, their closed shape variants,
+  shared read/recovery/evidence protocols, `assess_quality` consumer, and
+  aggregate terminal boundary membership;
+- derive every help row, runtime gate, artifact affordance, recovery classifier,
+  and family test from the updated capability registry;
+- extend the one Evidence Engine with event/lifecycle observation subjects and
+  digests, using the exact closed variants `MetricEvidenceSubject`,
+  `EventEvidenceSubject`, and `LifecycleEvidenceSubject`;
+- reject metric-only consumers for both new artifact families and remove no
+  existing Metric lane capability;
+- prove that Metric, Event, and Lifecycle paths remain legal when ontology is
+  not configured.
+
+No Event or Lifecycle operator may ship before its semantic inputs, artifact
+family, recovery, evidence extractor, family gates, and help contract. This
+workstream has no ontology dependency.
+
+### Ontology discovery extension workstream
+
+This later optional workstream updates `marivo.ontology`, the analysis
+capability registry, one Evidence Engine, active docs, skills, and tests in one
+candidate to:
+
+- register `discover.semantic_hypotheses` over `MetricFrame | DeltaFrame` with
+  a visible `ontology_not_configured` precondition;
+- add `CandidateSet[semantic_hypothesis]` without adding a public graph-query
+  artifact or a second candidate family;
+- add the consumed-not-constructed `SemanticMetricCandidate` selection value
+  as the sole lineage-preserving `observe` bridge;
+- distinguish missing ontology from a configured ontology that validly returns
+  zero candidates;
+- keep ready and blocked candidates unscored, deterministic, and limited to
+  item-level affordances;
+- retain `SemanticEdgeRef`, candidate-set, and candidate-item provenance in
+  downstream MetricFrame, association, and hypothesis-test lineage;
+- keep ontology candidates finding-free, proposition-free, fact-free, and out
+  of system-level recommended follow-ups.
+
+No ontology discovery capability may ship before ontology loading and typed-ref
+validation, its CandidateSet shape, selection value, observe bridge, lineage,
+non-seeding evidence behavior, and help contract. It may ship after the
+semantic execution extension and remains optional for all other analysis.
+
 ### Skill and guidance workstream
 
 - Replace the packaged analysis skill with the one-file boundary kernel.
@@ -1691,6 +1861,20 @@ question, oracle, model profile, or thresholds to make the candidate pass.
   render.
 - `boundary.to_pandas` renders exactly once as the aggregate terminal edge over
   every registered artifact family.
+- The semantic execution candidate registers every event operator with
+  `output_family="EventFrame"`, every lifecycle operator with
+  `output_family="LifecycleFrame"` and no ontology precondition.
+- The ontology discovery candidate independently registers
+  `discover.semantic_hypotheses` with `output_family="CandidateSet"`, exact
+  accepted source families, and the `ontology_not_configured` precondition.
+- `EventFrame` and `LifecycleFrame` round-trip through summary/job/frame
+  recovery with family and shape intact, accept `assess_quality`, and are
+  rejected by every metric-only operator and generic transform.
+- `CandidateSet[semantic_hypothesis]` is unscored, deterministically ordered,
+  rejects `select(attribute="score")`, keeps ready or blocked item-level
+  affordances, returns
+  `SemanticMetricCandidate` only for a ready `analysis_target`, and contributes
+  no artifact-level recommendation.
 - For every capability/input-family pair, the shared runtime family gate accepts
   exactly the registered families, rejects all other public families with the
   canonical repair target, and is invoked by the public entrypoint.
@@ -1719,6 +1903,8 @@ Test equivalent resolution for:
 - semantic objects and refs;
 - error types and error instances;
 - nested discover, transform, evidence, and recovery paths;
+- after the semantic execution extension, every nested events and lifecycle
+  operator plus `EventFrame` and `LifecycleFrame` type/object targets;
 - invalid targets with bounded canonical suggestions;
 - summary-keyword searches such as `anomaly` and `seasonality` that do not rely
   on canonical-id edit distance.
@@ -1799,6 +1985,21 @@ Review at least these independent legal paths:
 9. Use governed Ibis entry to produce a typed `MetricFrame`.
 10. Invoke help through the wrong executable and detect the environment
     mismatch before analysis.
+11. With ontology not configured, observe a Metric and produce and recover
+    every `EventFrame` and `LifecycleFrame` shape. Inspect each contract, assess
+    quality, and confirm that Metric-only consumers fail the shared family gate.
+12. Call semantic-hypothesis discovery with ontology not configured and receive
+    `ontology_not_configured`; repeat with a configured ontology containing no
+    eligible edge and receive a valid empty CandidateSet.
+13. Discover semantic hypotheses from a persisted MetricFrame, inspect one
+    ready and one blocked candidate, explicitly observe the ready Metric, and
+    verify that `SemanticMetricCandidate` preserves the source candidate and
+    SemanticEdgeRef without implicit graph traversal or candidate execution.
+14. Produce a lifecycle violation and confirm that it remains an observation
+    rather than a Rule, Policy, quality blocker, or causal fact.
+15. Follow a semantic-hypothesis candidate into correlation or hypothesis test
+    and confirm that the existing association/test result retains candidate and
+    edge provenance without rendering causality.
 
 The scenario review succeeds when each path is discoverable without consulting
 deleted skill attachments and no path is treated as the universal default.
@@ -1872,6 +2073,33 @@ and verify that historical versioned docs have no diff.
 - Affordances and boundary ports remain unranked and non-recommending.
 - Failed affordances remain visible exactly when their typed repair action is
   non-empty.
+
+### Semantic and ontology extension continuity
+
+- Every event and lifecycle operator has one canonical id, nested public
+  receiver, exact semantic input families, one output family, and no flat
+  alias.
+- `EventFrame` and `LifecycleFrame` appear in root type algebra, focused help,
+  runtime family validation, contracts, recovery, evidence access, quality
+  assessment, and the aggregate terminal boundary in the same cutover.
+- Neither new family is accepted by a metric-only operator or generic
+  transform, and neither is reconstructed as `MetricFrame` after recovery.
+- Metric, Event, and Lifecycle operators remain usable when ontology is not
+  configured.
+- `discover.semantic_hypotheses` is a separately registered objective over
+  MetricFrame or DeltaFrame and returns the existing `CandidateSet` family with
+  the closed `semantic_hypothesis` shape.
+- Calling that operator without configured ontology raises the typed
+  `ontology_not_configured` precondition error; a configured ontology with no
+  eligible edges returns a valid empty CandidateSet.
+- Semantic candidates expose unranked item-level affordances only; blocked rows
+  remain visible without an `analysis_target`, executable affordance, or system
+  recommendation. Ready rows yield `SemanticMetricCandidate`, and `observe`
+  preserves its origin without changing ordinary MetricSemantic behavior.
+- Event/lifecycle observation extraction and semantic-candidate non-seeding are
+  active before any of these public capabilities can ship. Complete evidence
+  has exactly one shape-specific observation per new artifact; extractor/write
+  failure returns a usable partial artifact without fabricating a digest.
 
 ### Error recovery
 
