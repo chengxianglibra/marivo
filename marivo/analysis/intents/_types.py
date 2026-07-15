@@ -17,10 +17,7 @@ SliceValue = (
     SliceScalar | list[SliceScalar] | tuple[SliceScalar, ...] | set[SliceScalar] | SlicePredicate
 )
 
-DiscoverSensitivity = Literal["conservative", "balanced", "aggressive"]
-
 __all__ = [
-    "DiscoverSensitivity",
     "SlicePredicate",
     "SlicePredicateOp",
     "SliceScalar",

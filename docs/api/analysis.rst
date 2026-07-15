@@ -129,7 +129,6 @@ Session & jobs
    JobSummary
    BlockingIssue
    CandidateObjective
-   DiscoverSensitivity
 
 Slices
 ------
