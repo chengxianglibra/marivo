@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo.introspection.live.model import AuthoringContract
+from marivo._authoring.model import AuthoringContract
 from marivo.render import Card, RenderableResult
 from marivo.semantic.ir import (
     CsvSourceIR,

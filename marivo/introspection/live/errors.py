@@ -1,4 +1,4 @@
-"""Shared structured error payloads for live-authoring help and contract scope.
+"""Structured neutral payloads for live help target errors.
 
 The neutral package cannot raise surface-owned errors (it must not import
 ``marivo.semantic``/``marivo.datasource``/``marivo.analysis``), so it produces
@@ -11,11 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from marivo.introspection.live.model import (
-    SURFACE_LIMITS,
-    HelpSurface,
-    LiveHelpTarget,
-)
+from marivo.introspection.live.model import SURFACE_LIMITS, HelpSurface
 
 _ACCEPTED_KINDS: tuple[str, ...] = (
     "None (root index)",
@@ -69,42 +65,4 @@ def build_help_target_error_payload(
         surface=surface,
         candidates=bounded,
         message=message,
-    )
-
-
-@dataclass(frozen=True)
-class ContractScopeErrorPayload:
-    """Structured payload for an over-broad contract scope request."""
-
-    requested_subjects: tuple[str, ...]
-    allowed_maximum: int
-    owned_subjects: tuple[str, ...]
-    message: str
-    repair_target: LiveHelpTarget
-
-
-def build_contract_scope_error_payload(
-    *,
-    requested_subjects: tuple[str, ...],
-    allowed_maximum: int,
-    owned_subjects: tuple[str, ...],
-    repair_target: LiveHelpTarget,
-) -> ContractScopeErrorPayload:
-    """Build the structured contract-scope error payload.
-
-    The owned-subject candidate list is bounded to ``allowed_maximum`` so the
-    repair hint never exceeds the contract render budget.
-    """
-    bounded_owned = tuple(owned_subjects[:allowed_maximum])
-    message = (
-        f"contract scope exceeds {allowed_maximum} subjects: "
-        f"requested {len(requested_subjects)}. "
-        f"Narrow subject_refs to one of: {', '.join(bounded_owned) or '(none)'}"
-    )
-    return ContractScopeErrorPayload(
-        requested_subjects=requested_subjects,
-        allowed_maximum=allowed_maximum,
-        owned_subjects=bounded_owned,
-        message=message,
-        repair_target=repair_target,
     )

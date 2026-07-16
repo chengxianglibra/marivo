@@ -6,7 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from marivo.introspection.live.model import LiveCapability, LiveHelpTarget, LiveSurfaceRegistry
+from marivo._authoring.model import AuthoringCapability
+from marivo.introspection.live.model import LiveHelpTarget
+from marivo.introspection.live.reflect import callable_identity
 
 SemanticRootGroup = Literal[
     "browse_load",
@@ -30,14 +32,14 @@ class SemanticTypeContract:
 
 
 @dataclass(frozen=True)
-class SemanticCapabilityRegistry(LiveSurfaceRegistry):
+class SemanticCapabilityRegistry:
     """Immutable lookup table for semantic live capability descriptors."""
 
     surface: Literal["semantic"]
-    _descriptors: tuple[LiveCapability, ...]
+    _descriptors: tuple[AuthoringCapability, ...]
     _groups: Mapping[SemanticRootGroup, tuple[str, ...]]
-    _by_id: Mapping[str, LiveCapability]
-    _by_callable_path: Mapping[str, LiveCapability]
+    _by_id: Mapping[str, AuthoringCapability]
+    _by_callable_path: Mapping[str, AuthoringCapability]
 
     def canonical_ids(self) -> tuple[str, ...]:
         return tuple(descriptor.canonical_id for descriptor in self._descriptors)
@@ -49,17 +51,11 @@ class SemanticCapabilityRegistry(LiveSurfaceRegistry):
             if descriptor.callable_path is not None
         )
 
-    def by_canonical_id(self, canonical_id: str) -> LiveCapability:
+    def by_canonical_id(self, canonical_id: str) -> AuthoringCapability:
         return self._by_id[canonical_id]
 
-    def by_callable(self, obj: object) -> LiveCapability:
-        function = getattr(obj, "__func__", obj)
-        module = getattr(function, "__module__", None)
-        qualname = getattr(function, "__qualname__", None)
-        if not isinstance(module, str) or not isinstance(qualname, str):
-            raise KeyError(obj)
-        path = f"{module}.{qualname}"
-        return self._by_callable_path[path]
+    def by_callable(self, obj: object) -> AuthoringCapability:
+        return self._by_callable_path[callable_identity(obj)]
 
-    def group(self, group: SemanticRootGroup) -> tuple[LiveCapability, ...]:
+    def group(self, group: SemanticRootGroup) -> tuple[AuthoringCapability, ...]:
         return tuple(self._by_id[canonical_id] for canonical_id in self._groups[group])

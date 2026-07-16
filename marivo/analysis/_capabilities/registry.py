@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Literal
 
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
@@ -26,6 +27,7 @@ from marivo.analysis._capabilities.model import (
     RootGroup,
     SameAsInputFamily,
 )
+from marivo.introspection.live.reflect import callable_identity
 
 # ---------------------------------------------------------------------------
 # Public type/member allowlists
@@ -164,6 +166,11 @@ class CapabilityRegistry:
     _constructor_consumers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     _algebra_rows: tuple[TypeAlgebraRow, ...] = field(default_factory=tuple)
 
+    @property
+    def surface(self) -> Literal["analysis"]:
+        """Return the owning help surface for the neutral registry protocol."""
+        return "analysis"
+
     # -- Properties --------------------------------------------------------
 
     @property
@@ -188,6 +195,17 @@ class CapabilityRegistry:
         """Return the descriptor with the given canonical id."""
         return self._by_id[capability_id]
 
+    def canonical_ids(self) -> tuple[str, ...]:
+        """Return canonical help targets in native registry order."""
+        return self.help_targets
+
+    def by_canonical_id(self, canonical_id: str) -> CapabilityDescriptor:
+        """Resolve canonical help grammar, then the native capability id."""
+        try:
+            return self.by_help_target(canonical_id)
+        except KeyError:
+            return self.by_id(canonical_id)
+
     def by_help_target(self, help_target: str) -> CapabilityDescriptor:
         """Return the descriptor with the given help target."""
         return self._by_help_target[help_target]
@@ -211,10 +229,7 @@ class CapabilityRegistry:
         :func:`_module_path_for` to produce the dotted import path that
         matches the ``callable_path`` stored on descriptors.
         """
-        func = getattr(callable_obj, "__func__", None)
-        if func is not None:
-            return _module_path_for(func)
-        return _module_path_for(callable_obj)
+        return callable_identity(callable_obj)
 
     # -- Type algebra -----------------------------------------------------
 

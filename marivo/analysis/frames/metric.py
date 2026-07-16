@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ConfigDict
 
-from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis._cumulative import (
     cumulative_compare_anchor,
     cumulative_compare_blocker,
@@ -22,6 +21,7 @@ from marivo.analysis.frames.base import (
     BaseFrameMeta,
     assert_semantic_shape,
 )
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.render import Card
 
 if TYPE_CHECKING:

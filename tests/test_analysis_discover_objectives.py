@@ -489,21 +489,25 @@ def test_interesting_slices_delta_score_is_unit_invariant():
 
     countries = ["US", "JP", "DE", "FR"]
     base = pd.DataFrame({"country": countries, "value": [10.0, -2.0, 0.5, -0.5]})
-    scaled = pd.DataFrame(
-        {"country": countries, "value": [10.0e6, -2.0e6, 0.5e6, -0.5e6]}
-    )
+    scaled = pd.DataFrame({"country": countries, "value": [10.0e6, -2.0e6, 0.5e6, -0.5e6]})
     rows_base, _ = score_interesting_slices(
-        base, source_ref="s", value_column="value", axes=["country"],
-        threshold=0.5, limit=None,
+        base,
+        source_ref="s",
+        value_column="value",
+        axes=["country"],
+        threshold=0.5,
+        limit=None,
     )
     rows_scaled, _ = score_interesting_slices(
-        scaled, source_ref="s", value_column="value", axes=["country"],
-        threshold=0.5, limit=None,
+        scaled,
+        source_ref="s",
+        value_column="value",
+        axes=["country"],
+        threshold=0.5,
+        limit=None,
     )
     assert [r["selector"] for r in rows_base] == [r["selector"] for r in rows_scaled]
-    assert [r["score"] for r in rows_base] == pytest.approx(
-        [r["score"] for r in rows_scaled]
-    )
+    assert [r["score"] for r in rows_base] == pytest.approx([r["score"] for r in rows_scaled])
 
 
 def test_interesting_slices_delta_uses_zscore_not_raw_magnitude():
@@ -972,8 +976,7 @@ def test_point_anomalies_seasonal_robust_resists_masking():
     days = pd.date_range("2026-01-05", periods=56, freq="D", tz="UTC")
     weekly = [10.0, 10.0, 10.0, 10.0, 10.0, 2.0, 2.0]
     values = [
-        weekly[i % 7] + (100.0 if i == 20 else 0.0) + (30.0 if i == 40 else 0.0)
-        for i in range(56)
+        weekly[i % 7] + (100.0 if i == 20 else 0.0) + (30.0 if i == 40 else 0.0) for i in range(56)
     ]
     series = _metric(
         session,

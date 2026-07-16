@@ -52,7 +52,7 @@ def test_semantic_help_target_error_carries_payload() -> None:
 
 
 def test_semantic_contract_scope_error_carries_repair() -> None:
-    from marivo.introspection.live.errors import ContractScopeErrorPayload
+    from marivo._authoring.errors import ContractScopeErrorPayload
 
     payload = ContractScopeErrorPayload(
         requested_subjects=("a", "b", "c"),

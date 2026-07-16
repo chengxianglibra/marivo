@@ -1254,9 +1254,8 @@ def assembly_validate(
                 # Shift-left: a non-cumulative derived component makes the
                 # metric unanalyzable (observe rejects nested derived).
                 # Cumulative derived components stay allowed (tier-1 base).
-                if (
-                    comp_ir.metric_type == "derived"
-                    and not isinstance(comp_ir.composition, CumulativeComposition)
+                if comp_ir.metric_type == "derived" and not isinstance(
+                    comp_ir.composition, CumulativeComposition
                 ):
                     warnings.append(
                         StructuredWarning(

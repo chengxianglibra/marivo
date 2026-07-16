@@ -6,10 +6,11 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.render import render_help_target, render_root_help
-from marivo.analysis._capabilities.resolve import resolve_help_target
+from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.session.core import Session
+from marivo.introspection.live.resolve import resolve_live_target
 from marivo.refs import SemanticRef
 from marivo.semantic.catalog import CatalogObject
 
@@ -66,7 +67,7 @@ def help_text(
     if target is None:
         return render_root_help()
 
-    resolved = resolve_help_target(target)
+    resolved = resolve_live_target(target, ANALYSIS_LIVE_SURFACE)
     return render_help_target(resolved, project=project, original_target=target)
 
 

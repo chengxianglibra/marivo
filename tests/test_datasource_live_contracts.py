@@ -8,17 +8,18 @@ import pandas as pd
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource._capabilities.contracts import normalize_contract, repair_for_authoring_code
-from marivo.datasource._capabilities.registry import REGISTRY
-from marivo.datasource.errors import repair
-from marivo.datasource.manage import DatasourceTestResult
-from marivo.introspection.live.model import (
+from marivo._authoring.model import (
     AuthoringContract,
     AuthoringEffects,
     AuthoringStateRef,
     AuthoringTransition,
-    LiveHelpTarget,
 )
+from marivo._authoring.normalize import normalize_contract
+from marivo.datasource._capabilities.contracts import repair_for_authoring_code
+from marivo.datasource._capabilities.registry import REGISTRY
+from marivo.datasource.errors import repair
+from marivo.datasource.manage import DatasourceTestResult
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 @pytest.fixture

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from importlib import import_module
 from typing import Literal
 
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.semantic._capabilities.registry import (
     ERROR_TYPES,
     INPUT_FAMILIES,
@@ -22,30 +22,6 @@ _ROOT_GROUP_LABELS = {
     "readiness_handoff": "Readiness and analysis handoff",
     "diagnostics_boundaries": "Diagnostics and boundaries",
 }
-
-
-def import_callable(path: str) -> object:
-    """Import a callable from a descriptor path containing optional class segments."""
-    from types import ModuleType
-
-    parts = path.split(".")
-    for index in range(len(parts), 0, -1):
-        module_name = ".".join(parts[:index])
-        try:
-            value: object = import_module(module_name)
-        except ModuleNotFoundError:
-            continue
-        # When the full path matches a module and no attributes remain,
-        # the callable may be defined in the parent package (e.g. a function
-        # in __init__.py whose name shadows a submodule). Skip and try a
-        # shorter module prefix so the remaining attributes resolve to the
-        # callable rather than the submodule.
-        if isinstance(value, ModuleType) and index == len(parts):
-            continue
-        for attribute in parts[index:]:
-            value = getattr(value, attribute)
-        return value
-    raise ImportError(f"cannot import registered semantic callable {path!r}")
 
 
 def _target_text(target: LiveHelpTarget) -> str:

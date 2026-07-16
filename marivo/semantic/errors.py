@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal, NoReturn
 
-from marivo.introspection.live.errors import ContractScopeErrorPayload, HelpTargetErrorPayload
-from marivo.introspection.live.model import AuthoringRepair, LiveHelpTarget
+from marivo._authoring.errors import ContractScopeErrorPayload
+from marivo._authoring.model import AuthoringRepair
+from marivo.introspection.live.errors import HelpTargetErrorPayload
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.constraints import (
     ConstraintId,
     default_constraint_for_error_kind,

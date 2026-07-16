@@ -18,7 +18,6 @@ import pytest
 from marivo.analysis._capabilities import (
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
-    SURFACE_LIMITS,
     BoundaryCapability,
     CapabilityBase,
     CapabilityDescriptor,
@@ -27,9 +26,9 @@ from marivo.analysis._capabilities import (
     ReadCapability,
     RecoveryCapability,
     SameAsInputFamily,
-    SurfaceLimits,
 )
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.introspection.live.model import SURFACE_LIMITS, SurfaceLimits
 
 # ---------------------------------------------------------------------------
 # Root groups

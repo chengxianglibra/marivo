@@ -439,9 +439,7 @@ def score_interesting_slices(
         scores = np.abs((values - mean) / std)
         for pos in np.nonzero(scores >= threshold)[0]:
             row = grouped.iloc[pos]
-            selector = {
-                axis: _scalar(row[axis]) for axis in subset if pd.notna(row[axis])
-            }
+            selector = {axis: _scalar(row[axis]) for axis in subset if pd.notna(row[axis])}
             candidates.append((float(scores[pos]), selector))
 
     candidates.sort(key=lambda entry: entry[0], reverse=True)

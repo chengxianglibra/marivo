@@ -5,12 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from marivo.datasource._capabilities.model import (
-    DatasourceCapabilityRegistry,
-    DatasourceRootGroup,
-    DatasourceTypeContract,
-)
-from marivo.introspection.live.model import (
+from marivo._authoring.model import (
+    AuthoringCapability,
+    AuthoringCapabilityKind,
     AuthoringEffects,
     AuthoringInputRequirement,
     AuthoringStateId,
@@ -18,13 +15,16 @@ from marivo.introspection.live.model import (
     ConnectionEffect,
     DataAccessEffect,
     EffectFlag,
-    LiveCapability,
-    LiveCapabilityKind,
-    LiveHelpTarget,
     MutationEffect,
     RepairKind,
     TransitionInputRole,
 )
+from marivo.datasource._capabilities.model import (
+    DatasourceCapabilityRegistry,
+    DatasourceRootGroup,
+    DatasourceTypeContract,
+)
+from marivo.introspection.live.model import LiveHelpTarget
 
 INPUT_FAMILIES = frozenset(
     {
@@ -133,7 +133,7 @@ def _capability(
     callable_path: str | None,
     summary: str,
     *,
-    kind: LiveCapabilityKind = "callable",
+    kind: AuthoringCapabilityKind = "callable",
     output: str | None = None,
     inputs: tuple[AuthoringInputRequirement, ...] = (),
     effects: AuthoringEffects = _NONE,
@@ -145,8 +145,8 @@ def _capability(
     repair_kinds: tuple[RepairKind, ...] = (),
     see_also: tuple[LiveHelpTarget, ...] = (),
     public_entrypoint: str | None = None,
-) -> LiveCapability:
-    return LiveCapability(
+) -> AuthoringCapability:
+    return AuthoringCapability(
         canonical_id=canonical_id,
         kind=kind,
         surface="datasource",

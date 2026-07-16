@@ -1,21 +1,21 @@
-"""LiveCapability descriptor and LiveSurfaceRegistry protocol contracts."""
+"""AuthoringCapability descriptor and LiveSurfaceRegistry protocol contracts."""
 
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from marivo.introspection.live.model import (
+from marivo._authoring.model import (
+    AuthoringCapability,
     AuthoringEffects,
     AuthoringInputRequirement,
     AuthoringStateRef,
-    LiveCapability,
-    LiveSurfaceRegistry,
 )
+from marivo.introspection.live.model import LiveSurfaceRegistry
 
 
-def _preview_capability() -> LiveCapability:
-    return LiveCapability(
+def _preview_capability() -> AuthoringCapability:
+    return AuthoringCapability(
         canonical_id="preview",
         kind="method",
         surface="semantic",
@@ -58,7 +58,7 @@ def test_live_capability_live_target_property():
 
 def test_live_capability_rejects_unknown_surface():
     with pytest.raises(ValidationError):
-        LiveCapability(
+        AuthoringCapability(
             canonical_id="x",
             kind="callable",
             surface="not_a_surface",

@@ -5,11 +5,12 @@ from __future__ import annotations
 import pytest
 
 import marivo.datasource as md
+from marivo._authoring.model import AuthoringEffects, AuthoringStateRef
 from marivo.datasource._capabilities.registry import REGISTRY, TYPE_CONTRACTS
+from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.datasource._capabilities.validation import validate_datasource_live_surface
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.snapshot import DiscoverySnapshot
-from marivo.introspection.live.model import AuthoringEffects, AuthoringStateRef
 
 PUBLIC_CALLABLE_TARGETS = {
     "duckdb",
@@ -50,6 +51,13 @@ PUBLIC_CALLABLE_TARGETS = {
     "DiscoverySnapshot.measures",
     "DiscoverySnapshot.relationships",
 }
+
+
+def test_datasource_surface_uses_the_native_registry_without_copying() -> None:
+    assert DATASOURCE_LIVE_SURFACE.registry is REGISTRY
+    for canonical_id in REGISTRY.canonical_ids():
+        native = REGISTRY.by_canonical_id(canonical_id)
+        assert DATASOURCE_LIVE_SURFACE.registry.by_canonical_id(canonical_id) is native
 
 
 EXPECTED_EFFECTS = {

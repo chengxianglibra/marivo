@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from marivo.analysis._capabilities.model import (
     BoundaryCapability,
-    LiveHelpTarget,
     OperatorCapability,
 )
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
+from marivo.introspection.live.model import LiveHelpTarget
 
 # ---------------------------------------------------------------------------
 # Type classification

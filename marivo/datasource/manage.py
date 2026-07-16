@@ -15,6 +15,7 @@ from typing import Any, Literal
 import pandas as pd
 from pandas.api.types import is_object_dtype
 
+from marivo._authoring.model import AuthoringContract, AuthoringRepair
 from marivo.datasource import backends as _backends
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
@@ -33,7 +34,6 @@ from marivo.datasource.errors import (
     repair,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.introspection.live.model import AuthoringContract, AuthoringRepair
 from marivo.render import Card, RenderableResult, result_repr
 
 

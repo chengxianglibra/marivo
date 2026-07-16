@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from importlib import import_module
 from typing import Literal
 
 from marivo.datasource._capabilities.registry import (
@@ -14,6 +13,7 @@ from marivo.datasource._capabilities.registry import (
 )
 from marivo.datasource.constraints import CONSTRAINTS
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo.introspection.live.reflect import import_registered_callable as import_callable
 
 _ROOT_GROUP_LABELS = {
     "declare_manage": "Declare and manage",
@@ -22,21 +22,6 @@ _ROOT_GROUP_LABELS = {
     "acquire_project": "Acquire and project evidence",
     "diagnostics_boundaries": "Diagnostics and boundaries",
 }
-
-
-def import_callable(path: str) -> object:
-    """Import a callable from a descriptor path containing optional class segments."""
-    parts = path.split(".")
-    for index in range(len(parts), 0, -1):
-        module_name = ".".join(parts[:index])
-        try:
-            value: object = import_module(module_name)
-        except ModuleNotFoundError:
-            continue
-        for attribute in parts[index:]:
-            value = getattr(value, attribute)
-        return value
-    raise ImportError(f"cannot import registered datasource callable {path!r}")
 
 
 def _target_text(target: LiveHelpTarget) -> str:

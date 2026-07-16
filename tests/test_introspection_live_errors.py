@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from marivo._authoring.errors import build_contract_scope_error_payload
 from marivo.introspection.live.errors import (
-    build_contract_scope_error_payload,
     build_help_target_error_payload,
 )
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget

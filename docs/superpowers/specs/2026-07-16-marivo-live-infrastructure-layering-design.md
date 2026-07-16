@@ -1,6 +1,6 @@
 # Marivo Live Infrastructure Layering Design
 
-Status: proposed for written review; implementation not started
+Status: implemented; repository verification complete
 
 Date: 2026-07-16
 
@@ -14,14 +14,15 @@ Refactor Marivo's private live-help infrastructure into four explicit layers:
 3. surface-owned datasource, semantic, and analysis capability kernels;
 4. a private semantic-analysis boundary protocol.
 
-The current implementation has the right public behavior but an imprecise
-internal ownership boundary. `marivo.introspection.live` calls itself neutral
-while also owning datasource/semantic authoring states, effects, transitions,
-repairs, and semantic-analysis handoff schemas. Analysis, meanwhile, retains a
-parallel resolver because its richer capability descriptors cannot be represented
-losslessly by the authoring-shaped `LiveCapability` model.
+Before this cutover, the implementation had the right public behavior but an
+imprecise internal ownership boundary. `marivo.introspection.live` called
+itself neutral while also owning datasource/semantic authoring states, effects,
+transitions, repairs, and semantic-analysis handoff schemas. Analysis,
+meanwhile, retained a parallel resolver because its richer capability
+descriptors could not be represented losslessly by the authoring-shaped
+`LiveCapability` model.
 
-The target design shares mechanisms without flattening domain contracts:
+The implemented design shares mechanisms without flattening domain contracts:
 
 - `marivo.introspection.live` owns how a registered target is identified,
   resolved, reflected, bounded, and handed to a surface renderer;
@@ -64,7 +65,8 @@ The boundary-kernel skills remain unchanged in responsibility:
 
 ### The neutral package owns domain vocabulary
 
-`marivo.introspection.live.model` currently contains all of the following:
+Before this cutover, `marivo.introspection.live.model` contained all of the
+following:
 
 - generic surface identity and environment types;
 - datasource/semantic authoring state ids;
@@ -92,8 +94,8 @@ and boundaries. Its descriptors drive:
 - governed-entry and terminal-boundary guarantees;
 - the runtime family gate.
 
-The current `LiveCapability` exposes one string output family and authoring
-input/state/effect fields. Converting analysis descriptors into it would lose
+The former `LiveCapability` exposed one string output family and authoring
+input/state/effect fields. Converting analysis descriptors into it would have lost
 runtime contract information. Keeping both models and generating one from the
 other would create two registries whose help and execution contracts could
 drift.
@@ -346,8 +348,8 @@ class ResolvedLiveTarget(Generic[DescriptorT]):
 ```
 
 The neutral resolve vocabulary is `descriptor`, `type_contract`,
-`reference_briefing`, `error_contract`, and `error_briefing`. The current
-`semantic_briefing` kind and `semantic_id` field are renamed to
+`reference_briefing`, `error_contract`, and `error_briefing`. The former
+`semantic_briefing` kind and `semantic_id` field were renamed to
 `reference_briefing` and `reference_id`. The resolver treats the reference id
 as opaque; only the surface-owned enrichment hook and renderer know whether it
 identifies a semantic ref, catalog object, or another registered reference
@@ -686,6 +688,7 @@ marivo/
     _authoring/
         __init__.py
         model.py              # authoring state/effect/transition/contract/repair
+        normalize.py          # shared deterministic contract normalization
         render.py             # bounded authoring-contract rendering
         errors.py             # contract-scope payloads
 
@@ -925,6 +928,12 @@ make typecheck
 make lint
 make examples-check
 ```
+
+Implementation verification completed on 2026-07-16: all 3,635 repository
+tests passed, type checking passed for 228 source files, lint and all six import
+contracts passed, and the example suite passed. Focused public-help parity
+checks also preserved the existing normalized output for analysis, datasource,
+and semantic targets.
 
 ## Risks And Mitigations
 

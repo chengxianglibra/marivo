@@ -57,7 +57,10 @@ def help_text(target: PublicSemanticHelpTarget = None) -> str:
     """
     if target is None or target == "":
         return render_root_help()
-    return render_help_target(resolve_live_target(target, SEMANTIC_LIVE_SURFACE))
+    return render_help_target(
+        resolve_live_target(target, SEMANTIC_LIVE_SURFACE),
+        original_target=target,
+    )
 
 
 def help(target: PublicSemanticHelpTarget = None) -> None:

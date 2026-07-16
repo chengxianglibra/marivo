@@ -23,11 +23,11 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis._capabilities.model import SURFACE_LIMITS
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.cli import main
 from marivo.datasource.authoring import DuckDBSpec
+from marivo.introspection.live.model import SURFACE_LIMITS
 
 # ---------------------------------------------------------------------------
 # Minimal project files for tests that need a loaded SemanticProject

@@ -11,6 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
+from marivo._authoring.model import AuthoringRepair
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.authoring_store import (
     CHECK_FORMAT_VERSION,
@@ -22,7 +23,6 @@ from marivo.datasource.authoring_store import (
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
-from marivo.introspection.live.model import AuthoringRepair
 from marivo.preview import PreviewCoverage, PreviewResult
 from marivo.refs import SemanticRef, SymbolKind
 from marivo.semantic._authoring_validation import _compute_body_ast_hash

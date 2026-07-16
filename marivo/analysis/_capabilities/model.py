@@ -14,31 +14,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-from marivo.introspection.live.model import (
-    SURFACE_LIMITS as SURFACE_LIMITS,
-)
-from marivo.introspection.live.model import (
-    AnalysisToSemanticHandoff as AnalysisToSemanticHandoff,
-)
-from marivo.introspection.live.model import (
-    EnvironmentFingerprint as EnvironmentFingerprint,
-)
-from marivo.introspection.live.model import (
-    HelpSurface as HelpSurface,
-)
-from marivo.introspection.live.model import (
-    LiveHelpTarget as LiveHelpTarget,
-)
-from marivo.introspection.live.model import (
-    SemanticHandoffReceipt as SemanticHandoffReceipt,
-)
-from marivo.introspection.live.model import (
-    SemanticToAnalysisHandoff as SemanticToAnalysisHandoff,
-)
-from marivo.introspection.live.model import (
-    SurfaceLimits as SurfaceLimits,
-)
-
 # ---------------------------------------------------------------------------
 # Closed vocabulary: capability kinds, visibility, groups, families
 # ---------------------------------------------------------------------------
@@ -147,6 +122,11 @@ class CapabilityBase:
     root_visibility: RootVisibility
     constraint_ids: tuple[str, ...] = ()
     callable_path: str | None = None
+
+    @property
+    def canonical_id(self) -> str:
+        """Return the stable native capability identifier."""
+        return self.id
 
 
 @dataclass(frozen=True)
@@ -305,11 +285,6 @@ ARTIFACT_FAMILIES: tuple[ArtifactFamily, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Shared live-authoring primitives (EnvironmentFingerprint, LiveHelpTarget,
-# HelpSurface, SurfaceLimits, SURFACE_LIMITS) and the directional handoff
-# schemas (AnalysisToSemanticHandoff, SemanticToAnalysisHandoff,
-# SemanticHandoffReceipt) were relocated to the neutral
-# ``marivo.introspection.live`` package and are re-imported at the top of this
-# module so the datasource and semantic layers can consume them without
-# importing ``marivo.analysis``.
+# Neutral help identities and boundary schemas are imported from their private
+# owners for analysis-internal annotations only.
 # ---------------------------------------------------------------------------

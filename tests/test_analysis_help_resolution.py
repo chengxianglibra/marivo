@@ -7,13 +7,8 @@ import datetime as _dt
 import pandas as pd
 import pytest
 
-from marivo.analysis._capabilities.model import SURFACE_LIMITS
 from marivo.analysis._capabilities.registry import REGISTRY
-from marivo.analysis._capabilities.resolve import (
-    ResolvedHelpTarget,
-    resolve_help_target,
-    suggestions_for,
-)
+from marivo.analysis._capabilities.surface import ANALYSIS_LIVE_SURFACE
 from marivo.analysis.errors import (
     AnalysisError,
     HelpTargetError,
@@ -24,8 +19,29 @@ from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session.core import Session
+from marivo.introspection.live.model import SURFACE_LIMITS
+from marivo.introspection.live.resolve import (
+    ResolvedLiveTarget,
+    resolve_live_target,
+)
+from marivo.introspection.live.resolve import (
+    suggestions_for as shared_suggestions_for,
+)
 from marivo.refs import SemanticRef, SymbolKind
 from marivo.semantic.refs import DimensionRef, MetricRef
+
+
+def resolve_help_target(target: object) -> ResolvedLiveTarget:
+    """Resolve through the shared kernel configured by analysis."""
+    return resolve_live_target(target, ANALYSIS_LIVE_SURFACE)
+
+
+def suggestions_for(query: str) -> tuple[str, ...]:
+    """Rank suggestions through the shared kernel's analysis index."""
+    index = ANALYSIS_LIVE_SURFACE.suggestion_index
+    assert index is not None
+    return shared_suggestions_for(query, index)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -61,7 +77,7 @@ def _make_base_frame() -> BaseFrame:
 
 def test_capability_id_resolves() -> None:
     result = resolve_help_target("observe")
-    assert isinstance(result, ResolvedHelpTarget)
+    assert isinstance(result, ResolvedLiveTarget)
     assert result.kind == "descriptor"
     assert result.descriptor.id == "observe"
 
@@ -255,19 +271,19 @@ def test_frame_instance_resolves() -> None:
 def test_metric_ref_resolves() -> None:
     ref = MetricRef("sales.revenue")
     result = resolve_help_target(ref)
-    assert result.kind == "semantic_briefing"
+    assert result.kind == "reference_briefing"
 
 
 def test_dimension_ref_resolves() -> None:
     ref = DimensionRef("sales.orders.region")
     result = resolve_help_target(ref)
-    assert result.kind == "semantic_briefing"
+    assert result.kind == "reference_briefing"
 
 
 def test_base_semantic_ref_resolves() -> None:
     ref = SemanticRef("sales.revenue", SymbolKind.METRIC)
     result = resolve_help_target(ref)
-    assert result.kind == "semantic_briefing"
+    assert result.kind == "reference_briefing"
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +448,7 @@ def test_tie_break_by_canonical_id() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ResolvedHelpTarget protocol
+# ResolvedLiveTarget protocol
 # ---------------------------------------------------------------------------
 
 
@@ -449,16 +465,23 @@ def test_descriptor_result_has_descriptor() -> None:
     assert result.descriptor.id == "observe"
 
 
+def test_analysis_live_surface_preserves_native_registry_and_descriptor_identity() -> None:
+    assert ANALYSIS_LIVE_SURFACE.registry is REGISTRY
+    for target in REGISTRY.help_targets:
+        resolved = resolve_live_target(target, ANALYSIS_LIVE_SURFACE)
+        assert resolved.descriptor is REGISTRY.by_help_target(target)
+
+
 def test_type_contract_result_has_type_name() -> None:
     result = resolve_help_target(Session)
     assert result.type_name is not None
     assert "Session" in result.type_name
 
 
-def test_semantic_briefing_has_ref_id() -> None:
+def test_reference_briefing_has_ref_id() -> None:
     ref = MetricRef("sales.revenue")
     result = resolve_help_target(ref)
-    assert result.semantic_id is not None
+    assert result.reference_id is not None
 
 
 def test_error_contract_has_error_name() -> None:

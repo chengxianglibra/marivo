@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import textwrap
 
-from marivo.introspection.live.model import AuthoringRepair, LiveHelpTarget
+from marivo._authoring.model import AuthoringRepair
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,

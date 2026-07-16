@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
-from marivo.analysis._capabilities.resolve import _TYPE_REGISTRY
+from marivo.analysis._capabilities.surface import TYPE_REGISTRY
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.session._store import SessionSummary
@@ -425,7 +425,7 @@ def _walk_concrete_analysis_frame_classes() -> list[type[BaseFrame]]:
 def test_concrete_analysis_frames_are_public_and_descriptive() -> None:
     assert analysis_frames.__all__
     # Build the set of registered frame type names from the capability kernel.
-    analysis_frame_symbols = set(_TYPE_REGISTRY.values())
+    analysis_frame_symbols = set(TYPE_REGISTRY.values())
     # ComponentFrame and CoverageFrame are advanced frame types that remain
     # resolvable via explicit help (kept in the type registry) but are pruned
     # from the default __all__ surface.
