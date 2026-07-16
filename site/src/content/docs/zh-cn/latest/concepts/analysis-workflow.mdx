@@ -96,7 +96,7 @@ metric、dimension 和 time dimension 调用 `.details().show()`。`details` 输
 authoring 处理。
 
 :::note[什么时候运行 readiness]
-新建或修改 semantic objects 后，或者某个 workflow 要求 fresh technical certification 时，
+新建或修改 semantic objects 后，或者某个 workflow 要求 technical certification 时，
 运行 `catalog.readiness(refs=[...])`。Analysis APIs 不会自动调用它；日常分析也不需要在每次
 `observe` 前刷新 authoring snapshots。Blocked report 表示所选 objects 尚未完成这次认证；
 先修复它们，再声明 semantic change 已完成。

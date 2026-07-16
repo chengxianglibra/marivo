@@ -6,7 +6,7 @@ description: 对新建或修改的语义对象进行显式技术认证。
 ## 智能体什么时候运行 readiness
 
 就绪检查是针对所选 semantic objects 的显式技术认证和诊断。新建或修改 object 后，或者
-workflow 要求 fresh technical certification 时运行它。它会识别不完整对象、未知引用，以及
+workflow 要求 technical certification 时运行它。它会识别不完整对象、未知引用，以及
 缺少当前 validation 或 preview evidence 的情况。
 
 Blocked report 不代表业务问题不能分析，而是说明所选 objects 尚未完成这次认证。先修复明确的
@@ -18,7 +18,7 @@ authoring snapshots。
 
 ## 用户怎么处理
 
-大部分就绪问题都由智能体通过 `marivo-semantic` 处理，例如修复声明、更新相关证据并重新
+大部分就绪问题都由智能体通过 `marivo-semantic` 处理，例如修复声明、取得相关证据并重新
 检查。只有修复过程涉及业务判断时，才需要用户参与，例如确认指标含义、纳入规则或正确的
 时间轴。
 
@@ -45,13 +45,14 @@ SQL parity 状态。它不检查 GitHub/GitLab 审批状态，也不做审计审
 | --- | --- | --- |
 | `catalog.verify_object(obj)` | 静态 object validation | 否 |
 | `catalog.preview(obj, using=snapshot)` | 执行 scoped runtime smoke check，只记录 metadata，不持久化 rows | 是 |
-| `catalog.readiness(refs=[revenue])` | 读取 fresh verification/preview evidence | 否 |
+| `catalog.readiness(refs=[revenue])` | 读取 matching verification/preview evidence | 否 |
 | `ms.parity_check(ref)` | 可选且 potentially unbounded 的 metric/provenance SQL diagnostic | 是 |
 | `ms.richness()` | 关于覆盖度/深度的建议性报告；从不 block | 否 |
 
 :::caution[就绪检查不证明查询能跑通]
-`ready` 表示 object 已通过 static validation，并且有 fresh matching scoped preview
-evidence；它不证明每一种未来 analysis query 或 full-source truth。Parity 从不作为 readiness 要求。
+`ready` 表示 object 已通过 static validation，并且有 matching scoped preview evidence。
+Snapshot 和 preview 时间戳只作为参考信息；仅仅时间较旧不会 block readiness，也不会触发
+重新采样。它不证明每一种未来 analysis query 或 full-source truth。Parity 从不作为 readiness 要求。
 :::
 
 ## 报告
@@ -97,6 +98,8 @@ evidence；它不证明每一种未来 analysis query 或 full-source truth。Pa
 | `sql_parity_unverified` | warning | 某个 metric 有 `provenance` SQL 但 parity 未确认。 | 运行 `ms.parity_check(ref)`。 |
 | `fragile_string_ref` | warning | 某个对象使用了脆弱的 string reference。 | 用稳定的 object ref 替换它。 |
 | `time_dimension_pushdown_advisory` | warning | 某个 time dimension 可能无法下推到 partition。 | 当业务时间轴与 partition 一致时，保留原始 partition 列并声明其 parse。 |
+| `snapshot_missing` | blocker | executable ref 没有结构上匹配的 datasource snapshot metadata；仅仅过期不会触发。 | 获取 matching scoped snapshot。 |
+| `runtime_preview_missing` | blocker | 没有 preview check 匹配当前 semantic definition、dependencies、snapshot ids、backend 与 scopes；仅仅过期不会触发。 | 使用 matching snapshot bindings 运行 scoped preview。 |
 
 ## 限定检查范围
 
@@ -123,7 +126,7 @@ environment fingerprints 由 analysis 端 validator 所检查的同一个 index 
 
 analysis 接面对该 handoff 只有唯一的接收方：`Session.validate_semantic_handoff(handoff)`。
 它不执行 datasource 查询、不打开连接、不改变状态 —— 只重新校验 environment identity、
-fingerprints、ref 的存在与 kind、当前 readiness、warning 一致性以及 preview-evidence 新鲜度，
+fingerprints、ref 的存在与 kind、当前 readiness、warning 一致性以及 preview-evidence 的存在与归属，
 然后返回一个仅在内存中的 `SemanticHandoffReceipt`。某个事实过期时会抛出带 semantic repair 的
 类型化 `AnalysisError`，指回 semantic 接面；绝不静默回退。
 

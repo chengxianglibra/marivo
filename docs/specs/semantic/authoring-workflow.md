@@ -54,7 +54,8 @@ Each layer of guidance has exactly one job:
   local projections. Evidence never authors objects or infers meaning.
 - **Catalog verify, preview, readiness — validation.** Static verification is
   query-free; runtime preview requires `using=`; readiness is query-free and
-  consumes fresh checks after authoring.
+  consumes matching checks after authoring. Snapshot and preview timestamps are
+  reference metadata, not readiness gates.
 
 The agent settles constructor values from help, discovery evidence, catalog
 state, project docs, source SQL/provenance, prior decisions, and user answers. If
@@ -262,8 +263,10 @@ treats any `unverified` metric (including via derived propagation) as a failure.
 - **`catalog.preview(obj, using=snapshot)`** is the explicit scoped runtime gate;
   multi-entity objects use an exact entity-keyed snapshot mapping.
 - **`catalog.readiness(refs=[obj])`** is the final zero-query closeout gate. It
-  reads fresh static and runtime-check evidence, enforces fresh preview evidence
-  for executable families, and never refreshes automatically. On success it
+  reads matching static and runtime-check evidence, enforces preview evidence
+  for executable families, and never refreshes automatically. Evidence age is
+  reported through snapshot metadata but does not block readiness or force a
+  new datasource query. On success it
   populates `ReadinessReport.analysis_handoff: SemanticToAnalysisHandoff | None`.
 
 `ms.parity_check(...)` is an optional, potentially unbounded provenance SQL

@@ -7,7 +7,7 @@ description: Explicit technical certification for new or changed semantic object
 
 Readiness is Marivo's explicit certification and diagnostic check for selected
 semantic objects. Run it after authoring or changing an object, or when a
-workflow asks for fresh technical certification. It identifies incomplete
+workflow asks for technical certification. It identifies incomplete
 objects, unknown references, and missing current validation or preview evidence.
 
 A blocked report does not mean the analysis question is invalid. It means the
@@ -21,7 +21,7 @@ before every call.
 
 ## How to respond
 
-Most readiness issues belong to the agent: it can repair declarations, refresh
+Most readiness issues belong to the agent: it can repair declarations, acquire
 the relevant evidence, and rerun the scoped check through `marivo-semantic`.
 You only need to step in when the fix requires a business decision, such as the
 meaning of a metric, an inclusion rule, or the correct time axis.
@@ -54,13 +54,15 @@ Backend-touching validation is separate and runs on demand:
 | --- | --- | --- |
 | `catalog.verify_object(obj)` | Static object validation | No |
 | `catalog.preview(obj, using=snapshot)` | Executes the scoped runtime smoke check and records metadata, never rows | Yes |
-| `catalog.readiness(refs=[revenue])` | Consumes fresh verification/preview evidence | No |
+| `catalog.readiness(refs=[revenue])` | Consumes matching verification/preview evidence | No |
 | `ms.parity_check(ref)` | Optional, potentially unbounded metric/provenance SQL diagnostic | Yes |
 | `ms.richness()` | Advisory coverage/depth report; never blocks | No |
 
 :::caution[Readiness does not prove the query runs]
-A `ready` report means the object passed static validation and has fresh matching
-scoped preview evidence. It does not prove every future analysis query or full-source
+A `ready` report means the object passed static validation and has matching
+scoped preview evidence. Snapshot and preview timestamps remain reference
+metadata; age alone does not block readiness or trigger reacquisition. It does
+not prove every future analysis query or full-source
 truth. Parity is never required for readiness.
 :::
 
@@ -113,6 +115,8 @@ not block certification.
 | `sql_parity_unverified` | warning | A metric has `provenance` SQL but parity is unconfirmed. | Run `ms.parity_check(ref)`. |
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
 | `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
+| `snapshot_missing` | blocker | No structurally matching datasource snapshot metadata exists for an executable ref. Expiration alone never triggers this issue. | Acquire a matching scoped snapshot. |
+| `runtime_preview_missing` | blocker | No preview check matches the current semantic definition, dependencies, snapshot ids, backend, and scopes. Expiration alone never triggers this issue. | Run the scoped preview with the matching snapshot bindings. |
 
 ## Scope the check
 
@@ -144,7 +148,7 @@ The analysis surface has exactly one receiver for this handoff:
 `Session.validate_semantic_handoff(handoff)`. It performs no datasource query,
 opens no connection, and mutates no state — it re-verifies environment identity,
 fingerprints, ref existence and kind, current readiness, warning consistency,
-and preview-evidence freshness, then returns an in-memory
+and preview-evidence existence and ownership, then returns an in-memory
 `SemanticHandoffReceipt`. A stale fact raises a typed `AnalysisError` with
 semantic repair pointing back at the semantic surface; it never silently
 falls back.

@@ -614,8 +614,6 @@ class AuthoringStore:
         datasource: DatasourceRef,
         datasource_fingerprint: str,
         source: TableSource,
-        now: datetime,
-        allow_expired: bool = False,
     ) -> DiscoverySnapshot | None:
         payload = self._read_payload(path)
         if payload is None:
@@ -665,11 +663,7 @@ class AuthoringStore:
                 return None
             created_at = _timestamp(payload.get("created_at"), field="created_at")
             expires_at = _timestamp(payload.get("expires_at"), field="expires_at")
-            if (
-                created_at > now
-                or expires_at != created_at + SNAPSHOT_TTL
-                or (expires_at <= now and not allow_expired)
-            ):
+            if expires_at != created_at + SNAPSHOT_TTL:
                 return None
             profiles = tuple(
                 _column_profile(item)
@@ -722,24 +716,29 @@ class AuthoringStore:
         source: TableSource,
         now: datetime | None = None,
     ) -> tuple[DiscoverySnapshot, ...]:
-        """Read strictly validated persisted snapshot metadata without using memory."""
+        """Read structurally valid persisted snapshot metadata without using memory.
+
+        Snapshot age is reported through ``cache_status`` and ``expires_at``;
+        it does not exclude otherwise matching evidence from this result.
+        """
         if not self.snapshot_dir.is_dir():
             return ()
         checked_at = now or _utc_now()
-        snapshots = (
-            snapshot
-            for path in self.snapshot_dir.glob("*.json")
-            if (
-                snapshot := self._read_valid_snapshot(
-                    path,
-                    datasource=datasource,
-                    datasource_fingerprint=datasource_fingerprint,
-                    source=source,
-                    now=checked_at,
-                )
+        snapshots: list[DiscoverySnapshot] = []
+        for path in self.snapshot_dir.glob("*.json"):
+            snapshot = self._read_valid_snapshot(
+                path,
+                datasource=datasource,
+                datasource_fingerprint=datasource_fingerprint,
+                source=source,
             )
-            is not None
-        )
+            if snapshot is None:
+                continue
+            snapshots.append(
+                replace(snapshot, cache_status="stale")
+                if snapshot.expires_at <= checked_at
+                else snapshot
+            )
         return tuple(sorted(snapshots, key=lambda snapshot: snapshot.created_at, reverse=True))
 
     def lookup_snapshot(
@@ -755,7 +754,11 @@ class AuthoringStore:
         persist_values: bool,
         refresh: bool,
     ) -> SnapshotCacheLookup:
-        """Return a valid cache hit or why one acquisition is required."""
+        """Return a matching cache hit or why one acquisition is required.
+
+        Expiration is informational: an expired matching snapshot is returned
+        with ``cache_status="stale"`` instead of forcing another data query.
+        """
         now = _utc_now()
         if refresh:
             return SnapshotCacheLookup(snapshot=None, status="fresh", now=now)
@@ -765,8 +768,6 @@ class AuthoringStore:
             datasource=datasource,
             datasource_fingerprint=datasource_fingerprint,
             source=source,
-            now=now,
-            allow_expired=True,
         )
         if persisted is None:
             status: CacheMissStatus = (
@@ -782,19 +783,30 @@ class AuthoringStore:
             or persisted.persist_values != persist_values
         ):
             return SnapshotCacheLookup(snapshot=None, status="mismatched", now=now)
-        if persisted.expires_at <= now:
-            return SnapshotCacheLookup(snapshot=None, status="stale", now=now)
         memory_key = self._memory_key(snapshot_id)
         remembered = _SNAPSHOT_MEMORY.get(memory_key)
-        if remembered is not None:
-            if remembered.expires_at > now:
-                cached = replace(remembered, cache_status="cached")
-                _SNAPSHOT_MEMORY[memory_key] = cached
-                return SnapshotCacheLookup(snapshot=cached, status="fresh", now=now)
-            del _SNAPSHOT_MEMORY[memory_key]
+        if (
+            remembered is not None
+            and remembered.created_at == persisted.created_at
+            and remembered.expires_at == persisted.expires_at
+        ):
+            is_stale = remembered.expires_at <= now
+            cached = replace(remembered, cache_status="stale" if is_stale else "cached")
+            _SNAPSHOT_MEMORY[memory_key] = cached
+            return SnapshotCacheLookup(
+                snapshot=cached,
+                status="stale" if is_stale else "fresh",
+                now=now,
+            )
 
-        _SNAPSHOT_MEMORY[memory_key] = persisted
-        return SnapshotCacheLookup(snapshot=persisted, status="fresh", now=now)
+        is_stale = persisted.expires_at <= now
+        cached = replace(persisted, cache_status="stale" if is_stale else "cached")
+        _SNAPSHOT_MEMORY[memory_key] = cached
+        return SnapshotCacheLookup(
+            snapshot=cached,
+            status="stale" if is_stale else "fresh",
+            now=now,
+        )
 
     def _write_json(self, path: Path, payload: object) -> None:
         self._ensure_directories()
