@@ -325,7 +325,10 @@ def _preflight_sample(
                 reason="the adapter cannot push down the requested partition predicate",
                 scope_state=state,
             )
-    elif state == "known":
+    elif state == "known" and inspection.partitioning.value_source is not None:
+        # Partition values were captured from metadata (possibly incomplete or
+        # truncated), so a bounded unpruned scope is not the intended path: the
+        # author should rescope with the captured partition evidence.
         raise _authoring_error(
             code="incomplete_partition_fields",
             stage="preflight",
