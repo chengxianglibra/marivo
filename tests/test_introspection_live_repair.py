@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from marivo.introspection.live.model import AuthoringRepair, LiveHelpTarget
+from marivo._authoring.model import AuthoringRepair
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 def test_authoring_repair_minimal():

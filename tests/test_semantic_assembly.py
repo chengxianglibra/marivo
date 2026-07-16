@@ -984,9 +984,7 @@ def test_semi_additive_over_missing_field_fails() -> None:
     assert [err.kind for err in errors] == [ErrorKind.INVALID_STATUS_TIME_DIMENSION]
 
 
-def _derived_metric(
-    semantic_id: str, name: str, composition: object
-) -> MetricIR:
+def _derived_metric(semantic_id: str, name: str, composition: object) -> MetricIR:
     return MetricIR(
         semantic_id=semantic_id,
         domain="sales",
@@ -1051,9 +1049,7 @@ def test_non_nested_derived_metric_emits_no_nested_warning() -> None:
     )
     errors, warnings = assembly_validate(registry)
     assert not errors
-    assert not [
-        w for w in warnings if w.kind == WarningKind.NESTED_DERIVED_UNSUPPORTED
-    ]
+    assert not [w for w in warnings if w.kind == WarningKind.NESTED_DERIVED_UNSUPPORTED]
 
 
 _BASE_NESTED_PROJECT = """\
@@ -1080,9 +1076,7 @@ def test_nested_derived_metric_load_emits_warning() -> None:
     )
     with load_inline_semantic(source) as result:
         assert result.status == "ready"
-        nested = [
-            w for w in result.warnings if w.kind == WarningKind.NESTED_DERIVED_UNSUPPORTED
-        ]
+        nested = [w for w in result.warnings if w.kind == WarningKind.NESTED_DERIVED_UNSUPPORTED]
         assert len(nested) == 1
         assert "test.outer" in nested[0].refs
         assert "test.inner" in nested[0].refs

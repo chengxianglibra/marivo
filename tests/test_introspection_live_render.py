@@ -4,19 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from marivo.introspection.live.model import (
-    SURFACE_LIMITS,
+from marivo._authoring.model import (
     AuthoringContract,
     AuthoringEffects,
     AuthoringStateRef,
     AuthoringTransition,
-    EnvironmentFingerprint,
-    LiveHelpTarget,
 )
+from marivo._authoring.render import render_contract
+from marivo.introspection.live.model import SURFACE_LIMITS, EnvironmentFingerprint, LiveHelpTarget
 from marivo.introspection.live.render import (
     enforce_budget,
     mask_fingerprint,
-    render_contract,
     render_fingerprint,
 )
 

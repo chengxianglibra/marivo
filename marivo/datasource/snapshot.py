@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import ibis.expr.types as ir
 import pandas as pd
 
+from marivo._authoring.model import AuthoringContract
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import (
@@ -28,7 +29,6 @@ from marivo.datasource.errors import DatasourceAuthoringError, DatasourceObserve
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.source import AuthoringScope, PartitionScope, TableSource
-from marivo.introspection.live.model import AuthoringContract
 from marivo.preview import normalize_preview_cell
 from marivo.render import Card, RenderableResult
 

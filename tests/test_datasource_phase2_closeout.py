@@ -34,7 +34,7 @@ def test_phase2_does_not_publish_private_contract_types() -> None:
         "AuthoringEffects",
         "AuthoringContract",
         "AuthoringRepair",
-        "LiveCapability",
+        "AuthoringCapability",
     }
 
     assert forbidden.isdisjoint(md.__all__)

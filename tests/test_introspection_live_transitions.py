@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from marivo.introspection.live.model import (
+from marivo._authoring.model import (
     AuthoringContract,
     AuthoringEffects,
     AuthoringInputRequirement,
     AuthoringStateRef,
     AuthoringTransition,
-    LiveHelpTarget,
 )
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 def _preview_transition(available: bool) -> AuthoringTransition:

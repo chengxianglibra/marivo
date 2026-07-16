@@ -8,17 +8,15 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
+from marivo._authoring.model import AuthoringRepair
+from marivo._boundaries.semantic_analysis import SemanticToAnalysisHandoff
 from marivo.datasource.authoring import DatasourceRef
-from marivo.introspection.live.model import (
-    AuthoringRepair,
-    SemanticToAnalysisHandoff,
-)
 from marivo.introspection.live.render import mask_fingerprint
 from marivo.render import Card, RenderableResult
 from marivo.semantic.errors import repair
 
 if TYPE_CHECKING:
-    from marivo.introspection.live.model import AuthoringContract
+    from marivo._authoring.model import AuthoringContract
     from marivo.semantic.reader import SemanticProject
 
 ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]

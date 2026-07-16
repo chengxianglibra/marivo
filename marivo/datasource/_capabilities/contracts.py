@@ -5,10 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from marivo.datasource._capabilities.registry import REGISTRY
-from marivo.datasource.errors import repair
-from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
-from marivo.introspection.live.model import (
+from marivo._authoring.model import (
     AuthoringContract,
     AuthoringEffects,
     AuthoringInputRequirement,
@@ -16,46 +13,15 @@ from marivo.introspection.live.model import (
     AuthoringStateId,
     AuthoringStateRef,
     AuthoringTransition,
-    LiveHelpTarget,
     TransitionKind,
 )
+from marivo._authoring.normalize import normalize_contract as _normalize_contract
+from marivo.datasource._capabilities.registry import REGISTRY
+from marivo.datasource.errors import repair
+from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
+from marivo.introspection.live.model import LiveHelpTarget
 
 type ContractSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
-
-
-def transition_sort_key(transition: AuthoringTransition) -> tuple[object, ...]:
-    """Return the canonical ordering key for one authoring transition."""
-    canonical_id = transition.help_target.canonical_id
-    requirements = tuple(
-        (
-            requirement.role,
-            requirement.family,
-            requirement.subject_refs,
-            requirement.exact_keys,
-        )
-        for requirement in transition.input_requirements
-    )
-    return (
-        transition.help_target.surface,
-        (0, "") if canonical_id is None else (1, canonical_id),
-        transition.kind,
-        transition.subject_refs,
-        requirements,
-    )
-
-
-def normalize_contract(contract: AuthoringContract) -> AuthoringContract:
-    """Return a deduplicated contract with canonical state and transition order."""
-    return AuthoringContract(
-        subject_refs=tuple(sorted(set(contract.subject_refs))),
-        states=tuple(
-            sorted(
-                set(contract.states),
-                key=lambda state: (state.id, state.subject_refs, state.evidence_ids),
-            )
-        ),
-        transitions=tuple(sorted(contract.transitions, key=transition_sort_key)),
-    )
 
 
 def _subject(name: str) -> tuple[str, ...]:
@@ -112,7 +78,7 @@ def contract_for_spec(name: str) -> AuthoringContract:
     """Describe the register transition for one declared datasource spec."""
     subject_refs = _subject(name)
     declared = _state("datasource.declared", subject_refs)
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=subject_refs,
             states=(declared,),
@@ -134,7 +100,7 @@ def contract_for_registered(name: str) -> AuthoringContract:
     """Describe validation and inspection transitions for a registered datasource."""
     subject_refs = _subject(name)
     registered = _state("datasource.registered", subject_refs)
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=subject_refs,
             states=(registered,),
@@ -177,7 +143,7 @@ def contract_for_connection_test(name: str, *, ok: bool) -> AuthoringContract:
     """Describe the observed outcome of one datasource connection test."""
     subject_refs = _subject(name)
     states = (_state("datasource.connection_validated", subject_refs),) if ok else ()
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(subject_refs=subject_refs, states=states, transitions=())
     )
 
@@ -186,7 +152,7 @@ def contract_for_scope(scope_kind: str) -> AuthoringContract:
     """Describe the blocked evidence-acquisition transition for an explicit scope."""
     subject_refs = (f"scope.{scope_kind}",)
     explicit = _state("scope.explicit", subject_refs)
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=subject_refs,
             states=(explicit,),
@@ -274,7 +240,7 @@ def _inspection_contract(
         )
     else:
         transitions.append(_scope_transition("unpruned", subject_refs=subject_refs))
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=subject_refs,
             states=(registered, inspected),
@@ -340,7 +306,7 @@ def contract_for_snapshot(
         "DiscoverySnapshot.time_dimensions",
         "DiscoverySnapshot.values",
     )
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=subject_refs,
             states=(

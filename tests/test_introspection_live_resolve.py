@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from marivo.introspection.live.model import (
-    SURFACE_LIMITS,
+from marivo._authoring.model import (
+    AuthoringCapability,
     AuthoringEffects,
-    LiveCapability,
 )
+from marivo.introspection.live.model import SURFACE_LIMITS
 from marivo.introspection.live.resolve import (
     LiveSurface,
+    ResolvedLiveTarget,
     build_suggestion_index,
     resolve_live_target,
     suggestions_for,
@@ -34,22 +35,22 @@ def _raise_fake(target: object, suggestions: tuple[str, ...]) -> None:
 class _FakeRegistry:
     surface = "semantic"
 
-    def __init__(self, caps: tuple[LiveCapability, ...]) -> None:
+    def __init__(self, caps: tuple[AuthoringCapability, ...]) -> None:
         self._caps = caps
         self._by_id = {c.canonical_id: c for c in caps}
 
     def canonical_ids(self) -> tuple[str, ...]:
         return tuple(c.canonical_id for c in self._caps)
 
-    def by_canonical_id(self, canonical_id: str) -> LiveCapability:
+    def by_canonical_id(self, canonical_id: str) -> AuthoringCapability:
         return self._by_id[canonical_id]
 
-    def by_callable(self, obj: object) -> LiveCapability:
+    def by_callable(self, obj: object) -> AuthoringCapability:
         raise KeyError(obj)
 
 
-def _cap(canonical_id: str, summary: str) -> LiveCapability:
-    return LiveCapability(
+def _cap(canonical_id: str, summary: str) -> AuthoringCapability:
+    return AuthoringCapability(
         canonical_id=canonical_id,
         kind="callable",
         surface="semantic",
@@ -92,7 +93,7 @@ def test_resolve_callable_to_descriptor():
     def preview():  # registered callable stand-in
         ...
 
-    cap = LiveCapability(
+    cap = AuthoringCapability(
         canonical_id="preview",
         kind="callable",
         surface="semantic",
@@ -170,3 +171,76 @@ def test_suggestions_rank_exact_token_first_and_are_bounded():
 def test_suggestions_empty_for_blank_query():
     surface = _surface((PREVIEW,))
     assert suggestions_for("   ", surface.suggestion_index) == ()
+
+
+_VALID_RESOLVED_CASES: tuple[dict[str, object], ...] = (
+    {
+        "kind": "descriptor",
+        "surface": "semantic",
+        "canonical_id": "preview",
+        "descriptor": PREVIEW,
+    },
+    {"kind": "type_contract", "surface": "semantic", "type_name": "PreviewResult"},
+    {
+        "kind": "reference_briefing",
+        "surface": "analysis",
+        "reference_id": "sales.revenue",
+        "original": object(),
+    },
+    {"kind": "error_contract", "surface": "semantic", "error_name": "FakeError"},
+    {
+        "kind": "error_briefing",
+        "surface": "semantic",
+        "error_name": "FakeError",
+        "error_kind": "fake",
+        "original": object(),
+    },
+)
+
+
+@pytest.mark.parametrize("payload", _VALID_RESOLVED_CASES)
+def test_resolved_target_accepts_only_documented_valid_shapes(payload: dict[str, object]):
+    assert ResolvedLiveTarget(**payload).kind == payload["kind"]
+
+
+@pytest.mark.parametrize("payload", _VALID_RESOLVED_CASES)
+def test_resolved_target_rejects_missing_required_payload(payload: dict[str, object]):
+    required = {
+        "descriptor": ("canonical_id", "descriptor"),
+        "type_contract": ("type_name",),
+        "reference_briefing": ("reference_id", "original"),
+        "error_contract": ("error_name",),
+        "error_briefing": ("error_name", "original"),
+    }[payload["kind"]]
+    for field in required:
+        invalid = dict(payload)
+        del invalid[field]
+        with pytest.raises(ValueError, match="invalid"):
+            ResolvedLiveTarget(**invalid)
+
+
+@pytest.mark.parametrize("payload", _VALID_RESOLVED_CASES)
+def test_resolved_target_rejects_every_undocumented_payload(payload: dict[str, object]):
+    allowed = {
+        "descriptor": {"canonical_id", "descriptor"},
+        "type_contract": {"type_name"},
+        "reference_briefing": {"reference_id", "original"},
+        "error_contract": {"error_name"},
+        "error_briefing": {"error_name", "error_kind", "original"},
+    }[payload["kind"]]
+    sentinels: dict[str, object] = {
+        "canonical_id": "unexpected",
+        "descriptor": PREVIEW,
+        "type_name": "Unexpected",
+        "reference_id": "unexpected.ref",
+        "error_name": "UnexpectedError",
+        "error_kind": "unexpected",
+        "original": object(),
+    }
+    for field, sentinel in sentinels.items():
+        if field in allowed:
+            continue
+        invalid = dict(payload)
+        invalid[field] = sentinel
+        with pytest.raises(ValueError, match="invalid"):
+            ResolvedLiveTarget(**invalid)

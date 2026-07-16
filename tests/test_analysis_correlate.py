@@ -5,7 +5,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AnalysisError,
@@ -14,6 +13,7 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.frames.association import AssociationResult
 from marivo.analysis.policies import AlignmentPolicy
+from marivo.introspection.live.model import LiveHelpTarget
 from tests.shared_fixtures import make_metric_frame
 
 

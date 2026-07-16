@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ConfigDict, Field
 
-from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactParamTemplate,
@@ -16,6 +15,7 @@ from marivo.analysis.frames.base import (
     BaseFrameMeta,
     assert_semantic_shape,
 )
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.render import Card
 
 if TYPE_CHECKING:

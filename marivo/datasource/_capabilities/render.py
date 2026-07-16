@@ -5,10 +5,11 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING
 
+from marivo._authoring.model import AuthoringCapability
 from marivo.datasource._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
-from marivo.datasource._capabilities.validation import import_callable
 from marivo.datasource.constraints import iter_constraints
-from marivo.introspection.live.model import SURFACE_LIMITS, LiveCapability, LiveHelpTarget
+from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo.introspection.live.reflect import import_registered_callable as import_callable
 from marivo.introspection.live.render import enforce_budget, render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 
@@ -44,7 +45,7 @@ def _target_text(target: LiveHelpTarget) -> str:
     return target.canonical_id or target.surface
 
 
-def _constraints(descriptor: LiveCapability) -> tuple[str, ...]:
+def _constraints(descriptor: AuthoringCapability) -> tuple[str, ...]:
     catalog = {constraint.id: constraint for constraint in iter_constraints()}
     return tuple(
         f"{constraint_id}: {catalog[constraint_id].title}"
@@ -96,7 +97,7 @@ def render_root_help() -> str:
     return _bounded("\n".join(lines), root=True)
 
 
-def _render_authoring(descriptor: LiveCapability) -> str:
+def _render_authoring(descriptor: AuthoringCapability) -> str:
     state_rows = [
         candidate
         for candidate in (REGISTRY.by_canonical_id(value) for value in REGISTRY.canonical_ids())
@@ -119,7 +120,7 @@ def _render_authoring(descriptor: LiveCapability) -> str:
     return _bounded("\n".join(lines))
 
 
-def _render_descriptor(descriptor: LiveCapability) -> str:
+def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.canonical_id == "authoring":
         return _render_authoring(descriptor)
 
@@ -243,12 +244,16 @@ def _render_error(error_name: str, original: object | None) -> str:
     return _bounded("\n".join(lines))
 
 
-def render_help_target(resolved: ResolvedLiveTarget) -> str:
+def render_help_target(
+    resolved: ResolvedLiveTarget[AuthoringCapability],
+    *,
+    original_target: object | None = None,
+) -> str:
     """Render a resolved datasource target without invoking runtime operations."""
     if resolved.kind == "descriptor" and resolved.descriptor is not None:
         return _render_descriptor(resolved.descriptor)
     if resolved.kind == "type_contract" and resolved.type_name is not None:
-        return _render_type(resolved.type_name, resolved.original)
+        return _render_type(resolved.type_name, original_target)
     if resolved.kind in {"error_contract", "error_briefing"} and resolved.error_name is not None:
         return _render_error(resolved.error_name, resolved.original)
     raise RuntimeError(f"unsupported datasource help resolution: {resolved.kind}")

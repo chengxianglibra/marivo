@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from marivo._authoring.model import AuthoringContract
 from marivo.config import find_project_root
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
@@ -41,7 +42,6 @@ from marivo.datasource.source import (
     TableSource,
     UnprunedScope,
 )
-from marivo.introspection.live.model import AuthoringContract
 from marivo.render import Card, RenderableResult
 
 _PARTITION_VALUE_LIMIT = 100

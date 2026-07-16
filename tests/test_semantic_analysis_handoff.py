@@ -7,7 +7,7 @@ import textwrap
 import ibis
 import pytest
 
-from marivo.introspection.live.fingerprints import (
+from marivo._boundaries.fingerprints import (
     catalog_fingerprint,
     project_fingerprint,
 )
@@ -166,10 +166,10 @@ def test_readiness_report_analysis_handoff_defaults_to_none():
 
 
 def test_readiness_report_to_dict_masks_handoff_environment_paths():
+    from marivo._boundaries.semantic_analysis import SemanticToAnalysisHandoff
     from marivo.introspection.live.model import (
         EnvironmentFingerprint,
         LiveHelpTarget,
-        SemanticToAnalysisHandoff,
     )
     from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 
@@ -440,7 +440,7 @@ def test_handoff_round_trip_through_analysis_validator(
     hands it to ``Session.validate_semantic_handoff``. The returned receipt must
     mirror the handed-off facts.
     """
-    from marivo.analysis._capabilities.model import SemanticHandoffReceipt
+    from marivo._boundaries.semantic_analysis import SemanticHandoffReceipt
 
     catalog, snapshot = _ready_revenue_catalog_and_snapshot(
         semantic_project_factory, tmp_path, monkeypatch
@@ -459,6 +459,56 @@ def test_handoff_round_trip_through_analysis_validator(
     assert receipt.readiness_status == report.status
     assert receipt.warning_ids == report.analysis_handoff.warning_ids
     assert receipt.preview_evidence_ids == ()
+
+
+def test_handoff_and_receipt_are_not_persisted_with_owning_session(
+    semantic_project_factory,
+    tmp_path,
+    monkeypatch,
+):
+    """Session recovery must not serialize in-memory boundary values."""
+    from marivo.analysis.session._store import _SCHEMA, SessionStore
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    catalog, snapshot = _ready_revenue_catalog_and_snapshot(
+        semantic_project_factory,
+        tmp_path,
+        monkeypatch,
+    )
+    revenue = catalog.get("metric.sales.revenue")
+    catalog.preview(revenue.ref, using=snapshot, limit=2)
+    handoff = catalog.readiness(refs=[revenue.ref]).analysis_handoff
+    assert handoff is not None
+
+    session = _session_for_catalog(catalog, tmp_path)
+    receipt = session.validate_semantic_handoff(handoff)
+    session.close()
+
+    recovered = SessionStore(project_root=tmp_path).get_session_by_id(session.id)
+    assert recovered is not None
+    assert recovered["id"] == session.id
+
+    schema = _SCHEMA.lower()
+    assert "handoff" not in schema
+    assert "receipt" not in schema
+    forbidden_tokens = (
+        b"SemanticToAnalysisHandoff",
+        b"SemanticHandoffReceipt",
+        b'"ready_refs"',
+        b'"catalog_fingerprint"',
+        b'"readiness_status"',
+    )
+    persisted_files = tuple((tmp_path / ".marivo").rglob("*")) + tuple(home.rglob("*"))
+    for path in persisted_files:
+        if not path.is_file():
+            continue
+        payload = path.read_bytes()
+        for token in forbidden_tokens:
+            assert token not in payload, f"{token!r} persisted in {path}"
+
+    assert receipt.ready_refs == handoff.ready_refs
 
 
 def test_handoff_rejected_when_readiness_blocked(semantic_project_factory, tmp_path, monkeypatch):
@@ -507,10 +557,8 @@ def test_semantic_handoff_receipt_masks_environment_fingerprint():
     masks interpreter/package paths behind an opaque fingerprint id, and
     ``__repr__`` is a single bounded line (no full fingerprint dump).
     """
-    from marivo.analysis._capabilities.model import (
-        EnvironmentFingerprint,
-        SemanticHandoffReceipt,
-    )
+    from marivo._boundaries.semantic_analysis import SemanticHandoffReceipt
+    from marivo.introspection.live.model import EnvironmentFingerprint
     from marivo.refs import SemanticRef
     from marivo.semantic import SemanticKind
 

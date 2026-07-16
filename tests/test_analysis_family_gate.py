@@ -21,7 +21,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis._capabilities.validation import (
     classify_input_family,
     validate_capability_inputs,
@@ -30,6 +29,7 @@ from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
 from tests.shared_fixtures import make_metric_frame

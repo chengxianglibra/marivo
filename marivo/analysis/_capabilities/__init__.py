@@ -10,7 +10,6 @@ from __future__ import annotations
 from marivo.analysis._capabilities.model import (
     ARTIFACT_FAMILIES,
     ROOT_GROUP_ORDER,
-    SURFACE_LIMITS,
     ArtifactFamily,
     BoundaryCapability,
     CapabilityBase,
@@ -25,13 +24,11 @@ from marivo.analysis._capabilities.model import (
     RootGroup,
     RootVisibility,
     SameAsInputFamily,
-    SurfaceLimits,
 )
 
 __all__ = [
     "ARTIFACT_FAMILIES",
     "ROOT_GROUP_ORDER",
-    "SURFACE_LIMITS",
     "ArtifactFamily",
     "BoundaryCapability",
     "CapabilityBase",
@@ -46,5 +43,4 @@ __all__ = [
     "RootGroup",
     "RootVisibility",
     "SameAsInputFamily",
-    "SurfaceLimits",
 ]

@@ -8,6 +8,14 @@ from marivo.semantic._capabilities.model import (
     SemanticTypeContract,
 )
 from marivo.semantic._capabilities.registry import REGISTRY, TYPE_CONTRACTS
+from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
+
+
+def test_semantic_surface_uses_the_native_registry_without_copying() -> None:
+    assert SEMANTIC_LIVE_SURFACE.registry is REGISTRY
+    for canonical_id in REGISTRY.canonical_ids():
+        native = REGISTRY.by_canonical_id(canonical_id)
+        assert SEMANTIC_LIVE_SURFACE.registry.by_canonical_id(canonical_id) is native
 
 
 def test_registry_surface_is_semantic() -> None:

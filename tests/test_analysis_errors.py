@@ -3,7 +3,6 @@
 import pytest
 from pydantic import ValidationError
 
-from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AnalysisError,
@@ -26,6 +25,7 @@ from marivo.analysis.errors import (
     WindowAmbiguousError,
     WindowInvalidError,
 )
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
 
 

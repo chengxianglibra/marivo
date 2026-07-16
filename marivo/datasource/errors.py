@@ -6,8 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from marivo.introspection.live.errors import ContractScopeErrorPayload, HelpTargetErrorPayload
-from marivo.introspection.live.model import AuthoringRepair, LiveHelpTarget
+from marivo._authoring.errors import ContractScopeErrorPayload
+from marivo._authoring.model import AuthoringRepair
+from marivo.introspection.live.errors import HelpTargetErrorPayload
+from marivo.introspection.live.model import LiveHelpTarget
 
 ScopeState = Literal["known", "none", "unknown"]
 

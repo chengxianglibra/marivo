@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 import marivo.datasource as md
+from marivo._authoring.model import AuthoringStateRef
 from marivo.datasource.evidence import (
     TIME_RULE_IDS,
     DimensionColumnEvidence,
@@ -34,7 +35,6 @@ from marivo.datasource.snapshot import (
     SnapshotCoverage,
     _profile_column,
 )
-from marivo.introspection.live.model import AuthoringStateRef
 from marivo.render import AgentResult
 
 

@@ -85,7 +85,10 @@ def help_text(target: PublicDatasourceHelpTarget = None) -> str:
     """
     if target is None:
         return render_root_help()
-    return render_help_target(resolve_live_target(target, DATASOURCE_LIVE_SURFACE))
+    return render_help_target(
+        resolve_live_target(target, DATASOURCE_LIVE_SURFACE),
+        original_target=target,
+    )
 
 
 def help(target: PublicDatasourceHelpTarget = None) -> None:

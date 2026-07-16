@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from marivo.introspection.live.model import (
+from marivo._authoring.model import (
     AuthoringEffects,
     AuthoringStateRef,
 )

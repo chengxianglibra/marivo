@@ -63,7 +63,7 @@ from marivo.semantic.preview_checks import (
 from marivo.semantic.refs import make_ref
 
 if TYPE_CHECKING:
-    from marivo.introspection.live.model import AuthoringContract
+    from marivo._authoring.model import AuthoringContract
     from marivo.semantic.dtos import VerifyResult
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.readiness import ReadinessReport
@@ -1663,14 +1663,14 @@ def _attach_analysis_handoff(
     """
     from dataclasses import replace
 
-    from marivo.introspection.live.fingerprints import (
+    from marivo._boundaries.fingerprints import (
         catalog_fingerprint,
         project_fingerprint,
     )
+    from marivo._boundaries.semantic_analysis import SemanticToAnalysisHandoff
     from marivo.introspection.live.model import (
         EnvironmentFingerprint,
         LiveHelpTarget,
-        SemanticToAnalysisHandoff,
     )
 
     if report.status == "blocked" or not report.analysis_ready_refs:

@@ -14,7 +14,7 @@ from marivo.analysis.timezone import resolve_system_timezone
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
-    from marivo.analysis._capabilities.model import (
+    from marivo._boundaries.semantic_analysis import (
         SemanticHandoffReceipt,
         SemanticToAnalysisHandoff,
     )
@@ -1039,13 +1039,12 @@ class Session:
             No datasource query, no connection opened, no state mutation, no
             operator selection. The receipt is in-memory only.
         """
-        from marivo.analysis._capabilities.model import (
+        from marivo._boundaries.semantic_analysis import (
             AnalysisToSemanticHandoff,
-            EnvironmentFingerprint,
-            LiveHelpTarget,
             SemanticHandoffReceipt,
         )
         from marivo.analysis.errors import AnalysisError, AnalysisRepair
+        from marivo.introspection.live.model import EnvironmentFingerprint, LiveHelpTarget
 
         current_env = EnvironmentFingerprint.current()
         if handoff.environment_fingerprint != current_env:
@@ -1260,13 +1259,13 @@ class Session:
 
     def _project_fingerprint(self) -> str:
         """Return a deterministic fingerprint of the project root state."""
-        from marivo.introspection.live.fingerprints import project_fingerprint
+        from marivo._boundaries.fingerprints import project_fingerprint
 
         return project_fingerprint(self._project_root)
 
     def _catalog_fingerprint(self) -> str:
         """Return a deterministic fingerprint of the loaded catalog state."""
-        from marivo.introspection.live.fingerprints import catalog_fingerprint
+        from marivo._boundaries.fingerprints import catalog_fingerprint
 
         index = self._catalog._require_index()
         return catalog_fingerprint(obj.id for obj in index._by_id.values())

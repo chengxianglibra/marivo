@@ -9,7 +9,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -41,6 +40,7 @@ from marivo.analysis.intents._validate import (
 from marivo.analysis.semantic_inputs import DimensionInput, normalize_dimension_boundary
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 def _bucket_column_for_panel(frame: DeltaFrame) -> str:

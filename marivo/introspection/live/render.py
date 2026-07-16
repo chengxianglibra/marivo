@@ -1,20 +1,10 @@
-"""Shared render helpers for the live authoring surfaces.
-
-Fingerprint rendering/masking, render-budget enforcement, and bounded contract
-rendering. These are the neutral primitives the datasource and semantic render
-paths (Phases 2-3) build on; the analysis render path adopts them in a later
-unification phase.
-"""
+"""Neutral fingerprint formatting and hard render-budget enforcement."""
 
 from __future__ import annotations
 
 import hashlib
 
-from marivo.introspection.live.model import (
-    AuthoringContract,
-    AuthoringTransition,
-    EnvironmentFingerprint,
-)
+from marivo.introspection.live.model import EnvironmentFingerprint
 
 
 def render_fingerprint(fp: EnvironmentFingerprint, *, reveal: bool) -> str:
@@ -41,8 +31,8 @@ def _opaque_id(fp: EnvironmentFingerprint) -> str:
 def mask_fingerprint(fp: EnvironmentFingerprint) -> str:
     """Render the fingerprint with exact paths hidden behind an opaque id.
 
-    Used for ordinary object/result, contract, handoff, receipt, and report
-    renders. Only the version and a stable opaque fingerprint id are shown.
+    Used for ordinary bounded displays. Only the version and a stable opaque
+    fingerprint id are shown.
     """
     return f"Marivo {fp.marivo_version} (fingerprint {_opaque_id(fp)})"
 
@@ -62,32 +52,3 @@ def enforce_budget(text: str, *, max_lines: int, max_codepoints: int) -> str:
             f"render budget exceeded: {len(normalized)} codepoints > {max_codepoints}"
         )
     return normalized
-
-
-def _render_transition(t: AuthoringTransition) -> str:
-    flag = "available" if t.available else "blocked"
-    line = f"- {t.kind} [{flag}] -> {t.help_target.display}"
-    if not t.available and t.blocked_by:
-        line += f"  blocked_by={', '.join(t.blocked_by)}"
-    return line
-
-
-def render_contract(contract: AuthoringContract, *, max_lines: int, max_codepoints: int) -> str:
-    """Render a bounded mechanical-continuation contract.
-
-    Lists every transition in deterministic order with availability, target,
-    and blocker ids. An empty transition tuple is explicitly disclosed rather
-    than rendered as a blank. Overflow raises :class:`RuntimeError`.
-    """
-    lines: list[str] = []
-    subjects = ", ".join(contract.subject_refs) if contract.subject_refs else "(none)"
-    lines.append(f"Subject: {subjects}")
-    lines.append(f"States: {', '.join(s.id for s in contract.states) or '(none)'}")
-    lines.append("Transitions:")
-    if contract.transitions:
-        for t in contract.transitions:
-            lines.append(_render_transition(t))
-    else:
-        lines.append("- no mechanically invokable continuation disclosed")
-    text = "\n".join(lines)
-    return enforce_budget(text, max_lines=max_lines, max_codepoints=max_codepoints)

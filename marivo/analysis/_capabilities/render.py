@@ -13,11 +13,9 @@ from typing import TYPE_CHECKING
 
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
-    SURFACE_LIMITS,
     BoundaryCapability,
     CapabilityDescriptor,
     ConstructorCapability,
-    EnvironmentFingerprint,
     OperatorCapability,
     ReadCapability,
     RecoveryCapability,
@@ -28,10 +26,13 @@ from marivo.analysis._capabilities.registry import (
     PUBLIC_FRAME_PROPERTIES,
     REGISTRY,
 )
-from marivo.analysis._capabilities.resolve import ResolvedHelpTarget
+from marivo.analysis._capabilities.surface import TYPE_REGISTRY
 from marivo.analysis.constraints import CONSTRAINTS, get_constraint
 from marivo.introspection.constraints import Constraint
+from marivo.introspection.live.model import SURFACE_LIMITS, EnvironmentFingerprint
+from marivo.introspection.live.reflect import import_registered_callable
 from marivo.introspection.live.render import render_fingerprint
+from marivo.introspection.live.resolve import ResolvedLiveTarget
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -274,27 +275,10 @@ def _resolve_callable(desc: CapabilityDescriptor) -> object | None:
     """Resolve the callable_path to a live callable object."""
     if desc.callable_path is None:
         return None
-    parts = desc.callable_path.split(".")
-    if len(parts) < 2:
-        return None
     try:
-        obj: object = None
-        # Try progressively longer module paths.
-        for i in range(len(parts) - 1, 0, -1):
-            module_path = ".".join(parts[:i])
-            try:
-                obj = __import__(module_path, fromlist=[parts[i]])
-                # Now getattr the remaining parts.
-                for part in parts[i:]:
-                    obj = getattr(obj, part)
-                return obj
-            except ImportError:
-                continue
-            except AttributeError:
-                continue
-    except Exception:
+        return import_registered_callable(desc.callable_path)
+    except (ImportError, AttributeError):
         return None
-    return None
 
 
 def _related_targets(desc: CapabilityDescriptor) -> list[str]:
@@ -513,11 +497,9 @@ def _render_type_help(type_name: str) -> str:
     ``_NEXT_INTENTS``, ``_GATED_INTENTS``, private fields, or inherited
     Pydantic mechanics.
     """
-    from marivo.analysis._capabilities.resolve import _TYPE_REGISTRY
-
     # Find the type object.
     type_obj: type | None = None
-    for t, name in _TYPE_REGISTRY.items():
+    for t, name in TYPE_REGISTRY.items():
         if name == type_name:
             type_obj = t
             break
@@ -707,12 +689,12 @@ def _render_error_briefing(error_name: str, error_kind: str | None, error_instan
 
 
 # ---------------------------------------------------------------------------
-# Semantic briefing renderer
+# Reference briefing renderer
 # ---------------------------------------------------------------------------
 
 
-def _render_semantic_briefing(
-    semantic_id: str,
+def _render_reference_briefing(
+    reference_id: str,
     ref: object,
     project: SemanticProject | None,
 ) -> str:
@@ -869,7 +851,7 @@ def _cumulative_composition_briefing(composition: object) -> list[str]:
 
 
 def render_help_target(
-    resolved: ResolvedHelpTarget,
+    resolved: ResolvedLiveTarget[CapabilityDescriptor],
     *,
     project: SemanticProject | None = None,
     original_target: object = None,
@@ -899,12 +881,12 @@ def render_help_target(
         return _render_error_briefing(
             resolved.error_name,
             resolved.error_kind,
-            original_target,
+            resolved.original,
         )
 
-    if resolved.kind == "semantic_briefing" and resolved.semantic_id is not None:
-        if original_target is None:
-            raise RuntimeError("semantic_briefing requires original_target")
-        return _render_semantic_briefing(resolved.semantic_id, original_target, project)
+    if resolved.kind == "reference_briefing" and resolved.reference_id is not None:
+        if resolved.original is None:
+            raise RuntimeError("reference_briefing requires original target")
+        return _render_reference_briefing(resolved.reference_id, resolved.original, project)
 
     raise RuntimeError(f"cannot render resolved target: {resolved}")

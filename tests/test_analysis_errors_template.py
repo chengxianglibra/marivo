@@ -1,6 +1,5 @@
 """Structured string template for analysis errors."""
 
-from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -11,6 +10,7 @@ from marivo.analysis.errors import (
     SemanticKindMismatchError,
     WindowInvalidError,
 )
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 def test_analysis_error_renders_stable_fields_and_repair() -> None:

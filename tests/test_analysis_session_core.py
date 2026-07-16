@@ -517,11 +517,8 @@ def _session_with_catalog(semantic_project_factory, tmp_path):
 
 def _make_handoff(session, **overrides):
     """Build a valid SemanticToAnalysisHandoff for the given session."""
-    from marivo.analysis._capabilities.model import (
-        EnvironmentFingerprint,
-        LiveHelpTarget,
-        SemanticToAnalysisHandoff,
-    )
+    from marivo._boundaries.semantic_analysis import SemanticToAnalysisHandoff
+    from marivo.introspection.live.model import EnvironmentFingerprint, LiveHelpTarget
     from marivo.semantic.catalog import SemanticKind
     from marivo.semantic.refs import make_ref
 
@@ -544,7 +541,7 @@ def _make_handoff(session, **overrides):
 def test_validate_semantic_handoff_success_returns_receipt(
     semantic_project_factory, tmp_path, monkeypatch
 ):
-    from marivo.analysis._capabilities.model import SemanticHandoffReceipt
+    from marivo._boundaries.semantic_analysis import SemanticHandoffReceipt
     from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 
     session = _session_with_catalog(semantic_project_factory, tmp_path)
@@ -578,8 +575,8 @@ def test_validate_semantic_handoff_success_returns_receipt(
 
 
 def test_validate_semantic_handoff_environment_mismatch_raises(semantic_project_factory, tmp_path):
-    from marivo.analysis._capabilities.model import EnvironmentFingerprint
     from marivo.analysis.errors import AnalysisError
+    from marivo.introspection.live.model import EnvironmentFingerprint
 
     session = _session_with_catalog(semantic_project_factory, tmp_path)
     stale_env = EnvironmentFingerprint(
@@ -820,7 +817,7 @@ def test_validate_semantic_handoff_real_producer_round_trip(
     is then validated through the analysis Session over the same catalog and
     must yield a ``SemanticHandoffReceipt`` mirroring the handed-off facts.
     """
-    from marivo.analysis._capabilities.model import SemanticHandoffReceipt
+    from marivo._boundaries.semantic_analysis import SemanticHandoffReceipt
     from tests.test_semantic_analysis_handoff import (
         _ready_revenue_catalog_and_snapshot,
         _session_for_catalog,

@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from marivo.introspection.live.model import (
+from marivo._authoring.model import (
     AuthoringContract,
     AuthoringEffects,
     AuthoringInputRequirement,
     AuthoringStateId,
     AuthoringStateRef,
     AuthoringTransition,
-    LiveHelpTarget,
     TransitionKind,
 )
+from marivo._authoring.normalize import normalize_contract as _normalize_contract
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic._capabilities.registry import REGISTRY
 
 
@@ -29,41 +30,6 @@ class ReadinessBlocker(Protocol):
 
     @property
     def kind(self) -> str: ...
-
-
-def transition_sort_key(transition: AuthoringTransition) -> tuple[object, ...]:
-    """Return the canonical ordering key for one authoring transition."""
-    canonical_id = transition.help_target.canonical_id
-    requirements = tuple(
-        (
-            requirement.role,
-            requirement.family,
-            requirement.subject_refs,
-            requirement.exact_keys,
-        )
-        for requirement in transition.input_requirements
-    )
-    return (
-        transition.help_target.surface,
-        (0, "") if canonical_id is None else (1, canonical_id),
-        transition.kind,
-        transition.subject_refs,
-        requirements,
-    )
-
-
-def normalize_contract(contract: AuthoringContract) -> AuthoringContract:
-    """Return a deduplicated contract with canonical state and transition order."""
-    return AuthoringContract(
-        subject_refs=tuple(sorted(set(contract.subject_refs))),
-        states=tuple(
-            sorted(
-                set(contract.states),
-                key=lambda state: (state.id, state.subject_refs, state.evidence_ids),
-            )
-        ),
-        transitions=tuple(sorted(contract.transitions, key=transition_sort_key)),
-    )
 
 
 def _state(state_id: AuthoringStateId, subject_refs: tuple[str, ...]) -> AuthoringStateRef:
@@ -128,7 +94,7 @@ def contract_for_verify_result(ref: str) -> AuthoringContract:
     """
     subject_refs = (ref,)
     verified = _state("semantic.verified", subject_refs)
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=subject_refs,
             states=(verified,),
@@ -228,7 +194,7 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
             ),
         )
     )
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=subject_refs,
             states=(loaded,),
@@ -246,7 +212,7 @@ def contract_for_semantic_catalog() -> AuthoringContract:
         A normalized contract with a single ``load`` transition and no
         per-object state.
     """
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=("semantic.catalog",),
             states=(),
@@ -319,7 +285,7 @@ def contract_for_readiness_report(
                     help_target=analysis_target,
                 )
             )
-    return normalize_contract(
+    return _normalize_contract(
         AuthoringContract(
             subject_refs=tuple(analysis_ready_refs),
             states=tuple(_state("semantic.ready", (ref,)) for ref in analysis_ready_refs),

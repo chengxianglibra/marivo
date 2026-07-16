@@ -8,7 +8,6 @@ from typing import Any, Literal
 import pandas as pd
 import pytest
 
-from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
@@ -28,6 +27,7 @@ from marivo.analysis.frames.hypothesis import HypothesisTestResult, HypothesisTe
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.lineage import Lineage
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 def _base_meta(kind: str, ref: str, row_count: int = 1) -> dict[str, Any]:

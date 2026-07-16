@@ -8,6 +8,7 @@ from contextvars import ContextVar
 from dataclasses import MISSING, Field, dataclass, field, fields
 from typing import Any, ClassVar, TypeAlias, cast, get_args, get_origin
 
+from marivo._authoring.model import AuthoringContract
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceSecretInPlaintextError,
@@ -15,7 +16,6 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.typing import AiContextValue
-from marivo.introspection.live.model import AuthoringContract
 from marivo.refs import SemanticRef, SymbolKind
 
 

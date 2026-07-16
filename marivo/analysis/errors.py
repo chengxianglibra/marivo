@@ -7,13 +7,10 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
-from marivo.analysis._capabilities.model import (
-    AnalysisToSemanticHandoff,
-    EnvironmentFingerprint,
-    LiveHelpTarget,
-)
+from marivo._boundaries.semantic_analysis import AnalysisToSemanticHandoff
 from marivo.analysis._cumulative import cumulative_compare_blocker
 from marivo.datasource import errors as _datasource_errors
+from marivo.introspection.live.model import EnvironmentFingerprint, LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
 
 DatasourceFieldInvalidError = _datasource_errors.DatasourceFieldInvalidError

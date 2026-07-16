@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
+from marivo._authoring.model import AuthoringContract, AuthoringRepair, AuthoringStateRef
 from marivo.datasource.errors import repair
 from marivo.datasource.source import AuthoringScope
-from marivo.introspection.live.model import AuthoringContract, AuthoringRepair, AuthoringStateRef
 from marivo.render import Card, RenderableResult
 
 type EvidenceValue = str | int | float | bool | None

@@ -811,13 +811,9 @@ def _validate_limit(limit: int | None) -> int | None:
     if limit is None:
         return None
     if isinstance(limit, bool) or not isinstance(limit, int):
-        raise SemanticKindMismatchError(
-            message="discover limit must be a positive integer or None"
-        )
+        raise SemanticKindMismatchError(message="discover limit must be a positive integer or None")
     if limit < 1:
-        raise SemanticKindMismatchError(
-            message="discover limit must be a positive integer or None"
-        )
+        raise SemanticKindMismatchError(message="discover limit must be a positive integer or None")
     return limit
 
 

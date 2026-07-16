@@ -2,13 +2,14 @@
 
 import inspect
 
+from marivo._authoring.model import AuthoringRepair
 from marivo.datasource.errors import (
     DatasourceAuthoringError,
     DatasourceMissingError,
     DatasourceObservedEffects,
 )
 from marivo.datasource.inspection import _authoring_error
-from marivo.introspection.live.model import AuthoringRepair, LiveHelpTarget
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 def test_datasource_error_exposes_only_stable_recovery_fields() -> None:

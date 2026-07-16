@@ -16,7 +16,6 @@ import marivo
 import marivo.analysis as mv
 from marivo.analysis._capabilities.model import (
     ROOT_GROUP_ORDER,
-    SURFACE_LIMITS,
     OperatorCapability,
 )
 from marivo.analysis._capabilities.registry import REGISTRY
@@ -28,6 +27,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.session.core import Session
+from marivo.introspection.live.model import SURFACE_LIMITS
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
 

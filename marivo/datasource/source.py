@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+from marivo._authoring.model import AuthoringContract
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
-from marivo.introspection.live.model import AuthoringContract
 
 type TableSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 

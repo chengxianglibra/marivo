@@ -522,9 +522,7 @@ def _seed_partial_coverage(con):
             sid += 1
             # shanghai only seeded for the first 6 slots of each day
             if i < 6:
-                rows.append(
-                    f"({sid}, DATE '{day}', {ts}, '{ts_text}', 90.0, 0.0, 0.0, 'shanghai')"
-                )
+                rows.append(f"({sid}, DATE '{day}', {ts}, '{ts_text}', 90.0, 0.0, 0.0, 'shanghai')")
                 sid += 1
     con.raw_sql("INSERT INTO bandwidth_samples VALUES " + ",".join(rows))
 
@@ -565,9 +563,7 @@ def test_decompose_mean_fold_warns_on_uneven_coverage(
     delta = session.compare(cur, base)
     assert delta.meta.fold["fold_kind"] == "mean"
 
-    result = session.attribute(
-        delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
-    )
+    result = session.attribute(delta, axes=[make_ref("province", SemanticKind.DIMENSION)])
 
     issues = _comparability_issues(result)
     assert len(issues) == 1
@@ -596,9 +592,7 @@ def test_decompose_mean_fold_no_warning_on_even_coverage(
     )
     delta = session.compare(cur, base)
 
-    result = session.attribute(
-        delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
-    )
+    result = session.attribute(delta, axes=[make_ref("province", SemanticKind.DIMENSION)])
 
     assert _comparability_issues(result) == []
 
