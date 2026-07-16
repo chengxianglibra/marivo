@@ -1,6 +1,6 @@
 # Marivo Semantic Boundary State-Router Design
 
-Status: follow-up review revisions integrated; pending written-spec re-review
+Status: implemented; retained as a historical design record
 
 Date: 2026-07-13
 
@@ -106,11 +106,11 @@ Other lines are version-sensitive product facts:
 The former belong in the skill. The latter belong in live help, effect
 metadata, results, and structured errors.
 
-### References remain API attachments
+### Pre-cutover references were API attachments
 
-The packaged skill currently links to datasource setup, closeout, pitfalls,
-cumulative metrics, cumulative anchors, and runnable examples. Runtime
-constraints and errors point back into some of those files.
+Before this redesign was implemented, the packaged skill linked to datasource
+setup, closeout, pitfalls, cumulative metrics, cumulative anchors, and runnable
+examples. Runtime constraints and errors pointed back into some of those files.
 
 Attachments make the skill package a documentation tree that can drift from
 the installed code. They also force a cold agent to decide whether a fact lives

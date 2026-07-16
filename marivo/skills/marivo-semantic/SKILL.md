@@ -49,6 +49,14 @@ Use the same project interpreter for discovery and execution. Start with
 resolved Python executable, and package path, then follow focused live help
 topics for every API contract.
 
+Use the standard public module aliases shown by live help before calling the
+Python surfaces:
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+```
+
 A bare `marivo` resolved from `PATH` is not authoritative unless its rendered
 fingerprint matches the interpreter and package used for execution. If
 authoritative discovery and execution fingerprints differ, repair or stop

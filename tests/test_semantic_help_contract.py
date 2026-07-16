@@ -13,6 +13,9 @@ import pytest
 import marivo.semantic as ms
 from marivo.introspection.live.model import SURFACE_LIMITS
 
+_DATASOURCE_IMPORT = "import marivo.datasource as md"
+_SEMANTIC_IMPORT = "import marivo.semantic as ms"
+
 # ---------------------------------------------------------------------------
 # Root help
 # ---------------------------------------------------------------------------
@@ -22,6 +25,8 @@ def test_root_help_contains_surface_label_and_capabilities_section() -> None:
     text = ms.help_text()
     assert "marivo.semantic" in text
     assert "Capabilities:" in text
+    assert _SEMANTIC_IMPORT in text
+    assert _DATASOURCE_IMPORT not in text
 
 
 def test_root_help_within_line_budget() -> None:
@@ -58,6 +63,8 @@ def test_help_text_for_capability_contains_name_and_entrypoint(target: str) -> N
     text = ms.help_text(target)
     assert target in text
     assert f"ms.{target}" in text
+    assert _SEMANTIC_IMPORT in text
+    assert (_DATASOURCE_IMPORT in text) == ("md." in text)
 
 
 def test_help_text_entity_contains_signature_and_example() -> None:
@@ -142,6 +149,8 @@ def test_time_dimension_column_help_inlines_parse_selection() -> None:
 def test_help_text_semantic_catalog_type() -> None:
     text = ms.help_text(ms.SemanticCatalog)
     assert "SemanticCatalog" in text
+    assert _SEMANTIC_IMPORT in text
+    assert _DATASOURCE_IMPORT not in text
 
 
 def test_help_text_verify_result_type() -> None:
@@ -164,6 +173,8 @@ def test_help_text_semantic_load_error_type() -> None:
 
     text = ms.help_text(SemanticLoadError)
     assert "SemanticLoadError" in text
+    assert _SEMANTIC_IMPORT in text
+    assert _DATASOURCE_IMPORT not in text
 
 
 def test_help_text_semantic_decorator_error_type() -> None:
@@ -192,6 +203,8 @@ def test_authoring_topic_renders_semantic_stages_and_handoff() -> None:
     assert "handoff" in text
     assert "semantic.ready" in text
     assert "analysis handoff" in text
+    assert _DATASOURCE_IMPORT in text
+    assert _SEMANTIC_IMPORT in text
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +218,15 @@ def test_help_text_for_target_is_within_codepoint_budget() -> None:
         assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints, (
             f"help_text({target!r}) exceeds codepoint budget"
         )
+
+
+def test_all_focused_help_defines_every_alias_it_uses() -> None:
+    from marivo.semantic._capabilities.registry import REGISTRY
+
+    for target in REGISTRY.canonical_ids():
+        text = ms.help_text(target)
+        assert _SEMANTIC_IMPORT in text
+        assert (_DATASOURCE_IMPORT in text) == ("md." in text), target
 
 
 # ---------------------------------------------------------------------------

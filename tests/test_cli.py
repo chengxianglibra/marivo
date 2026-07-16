@@ -214,7 +214,10 @@ def test_cli_datasource_help_matches_python_adapter(
     """Datasource CLI help must dispatch to the live Python adapter unchanged."""
     main(["help", "datasource", "inspect"])
 
-    assert capsys.readouterr().out.strip() == md.help_text("inspect")
+    output = capsys.readouterr().out.strip()
+    assert output == md.help_text("inspect")
+    assert "import marivo.datasource as md" in output
+    assert "import marivo.semantic as ms" not in output
 
 
 def test_cli_datasource_unknown_target_exits_two(
@@ -463,6 +466,8 @@ def test_cli_help_semantic_root_prints_environment(
     output = capsys.readouterr().out
     assert "marivo.semantic" in output
     assert "Capabilities:" in output
+    assert "import marivo.semantic as ms" in output
+    assert "import marivo.datasource as md" not in output
 
 
 def test_cli_help_semantic_target_prints_focused_help(
@@ -472,6 +477,8 @@ def test_cli_help_semantic_target_prints_focused_help(
 
     output = capsys.readouterr().out
     assert "authoring" in output
+    assert "import marivo.datasource as md" in output
+    assert "import marivo.semantic as ms" in output
 
 
 def test_cli_help_semantic_unknown_target_exits_2(
