@@ -96,10 +96,6 @@ def _detect_depth(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
             gaps.append(("missing_business_definition", ref))
         if not ai.guardrails:
             gaps.append(("missing_guardrails", ref))
-        if not ai.synonyms:
-            gaps.append(("missing_synonyms", ref))
-        if not ai.examples:
-            gaps.append(("missing_examples", ref))
     for metric in reg.metrics.values():
         if metric.unit is None:
             agg = metric.aggregation
@@ -171,17 +167,8 @@ def _gap_terms(
             name = getattr(obj, "name", None)
             if name:
                 terms.add(str(name).lower())
-            ai = getattr(obj, "ai_context", None)
-            for synonym in getattr(ai, "synonyms", ()) or ():
-                terms.add(str(synonym).lower())
-            for example in getattr(ai, "examples", ()) or ():
-                terms.add(str(example).lower())
         for field_obj in fields_by_dataset.get(ref, ()):
             terms.add(field_obj.name.lower())
-            for synonym in field_obj.ai_context.synonyms:
-                terms.add(str(synonym).lower())
-            for example in field_obj.ai_context.examples:
-                terms.add(str(example).lower())
     terms.discard("")
     return terms
 
@@ -224,8 +211,6 @@ _SUGGESTED_ACTION = {
     "dataset_shares_keys_no_relationship": "Declare a relationship between these datasets or confirm they are independent.",
     "missing_business_definition": "Add ai_context.business_definition for reuse and intent matching.",
     "missing_guardrails": "Add ai_context.guardrails to record usage constraints.",
-    "missing_synonyms": "Add ai_context.synonyms for natural-language matching.",
-    "missing_examples": "Add ai_context.examples (sample questions) to seed demand.",
     "missing_unit": (
         "Add unit (UCUM case-sensitive code, e.g. 'CNY', '%', '{order}') so analysis "
         "payloads and displays carry it. For a tier-1 metric, declare unit= on its "

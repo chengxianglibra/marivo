@@ -40,12 +40,10 @@ _DEPTH_ENRICHED = (
     "import marivo.datasource as md\nimport marivo.semantic as ms\n"
     "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'),\n"
     "    ai_context=ms.ai_context(business_definition='One row per order.',\n"
-    "               guardrails=['Exclude test orders.'],\n"
-    "               synonyms=['sales'], examples=['how many orders?']))\n"
+    "               guardrails=['Exclude test orders.']))\n"
     "@ms.dimension(entity=orders, name='amount',\n"
     "    ai_context=ms.ai_context(business_definition='Gross amount.',\n"
-    "               guardrails=['USD only.'],\n"
-    "               synonyms=['revenue'], examples=['total amount?']))\n"
+    "               guardrails=['USD only.']))\n"
     "def amount(table):\n    return table.amount\n"
 )
 
@@ -68,8 +66,6 @@ def test_detect_depth_flags_empty_ai_context_slots(semantic_project_factory):
     assert by_ref["sales.orders.amount"] == {
         "missing_business_definition",
         "missing_guardrails",
-        "missing_synonyms",
-        "missing_examples",
     }
 
 
@@ -159,7 +155,7 @@ def test_detect_coverage_clears_shared_keys_with_relationship(semantic_project_f
     assert "dataset_shares_keys_no_relationship" not in _coverage_subkinds(project)
 
 
-def test_gap_terms_include_ref_name_synonyms_examples_and_dataset_fields():
+def test_gap_terms_include_ref_name_and_dataset_fields():
     from types import SimpleNamespace
 
     from marivo.datasource.ir import AiContextIR
@@ -168,30 +164,20 @@ def test_gap_terms_include_ref_name_synonyms_examples_and_dataset_fields():
     objects = {
         "sales.orders": SimpleNamespace(
             name="orders",
-            ai_context=AiContextIR(
-                synonyms=("bookings",),
-                examples=("how many orders?",),
-            ),
+            ai_context=AiContextIR(),
         )
     }
     fields_by_dataset = {
         "sales.orders": [
             SimpleNamespace(
                 name="amount",
-                ai_context=AiContextIR(
-                    synonyms=("revenue",),
-                    examples=("total amount by region",),
-                ),
+                ai_context=AiContextIR(),
             )
         ]
     }
     assert _gap_terms(("sales.orders",), objects, fields_by_dataset) == {
         "orders",
-        "bookings",
-        "how many orders?",
         "amount",
-        "revenue",
-        "total amount by region",
     }
 
 

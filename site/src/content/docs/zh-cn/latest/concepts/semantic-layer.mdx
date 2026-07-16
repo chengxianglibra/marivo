@@ -652,17 +652,11 @@ Catalog 的 `catalog.get("metric.sales.revenue").ref` 返回同一个 `MetricRef
 | --- | --- | --- | --- | --- |
 | `business_definition` | `str` | 否 | `None` | 用一两句话说明对象的业务含义。 |
 | `guardrails` | `list[str]` | 否 | `[]` | 智能体必须遵守的规则：必要的过滤、排除项、范围限制。 |
-| `synonyms` | `list[str]` | 否 | `[]` | 别名，方便智能体解析自然语言引用。 |
-| `examples` | `list[str]` | 否 | `[]` | 该对象能回答的示例问题或表述。 |
-| `instructions` | `str` | 否 | `None` | 关于如何（以及如何不）使用该对象的直接指引。 |
-| `owner_notes` | `str` | 否 | `None` | 来自人类 owner 的备注：来源、注意事项、已知问题。 |
 
 ```python
 ai_context=ms.ai_context(
     business_definition="Gross order amount before refunds.",
     guardrails=["Validate refund exclusions before using as net revenue."],
-    synonyms=["sales", "gmv"],
-    examples=["What was revenue by region last week?"],
 )
 ```
 

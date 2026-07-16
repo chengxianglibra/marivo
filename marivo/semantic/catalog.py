@@ -179,16 +179,6 @@ def _common_detail_sections(
         FieldSection(label="business_definition", value=context.business_definition or "(none)"),
         ListSection(label="guardrails", items=tuple(context.guardrails) or ()),
     ]
-    if context.synonyms:
-        sections.append(
-            FieldSection(label="synonyms", value=_format_tuple_values(context.synonyms))
-        )
-    if context.examples:
-        sections.append(ListSection(label="examples", items=tuple(context.examples)))
-    if context.instructions:
-        sections.append(FieldSection(label="instructions", value=context.instructions))
-    if context.owner_notes:
-        sections.append(FieldSection(label="owner_notes", value=context.owner_notes))
     sections.extend(
         (
             FieldSection(label="source_location", value=_source_location_text(source_location)),

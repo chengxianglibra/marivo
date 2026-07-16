@@ -37,10 +37,6 @@ class AiContextIR:
 
     business_definition: str | None = None
     guardrails: tuple[str, ...] = ()
-    synonyms: tuple[str, ...] = ()
-    examples: tuple[str, ...] = ()
-    instructions: str | None = None
-    owner_notes: str | None = None
 
 
 DatasourceAiContextIR = AiContextIR

@@ -52,10 +52,6 @@ def _ai_context_lines(context: AiContextIR) -> tuple[str, ...]:
     return (
         f"business_definition: {context.business_definition or '(none)'}",
         f"guardrails: {_format_tuple(context.guardrails)}",
-        f"synonyms: {_format_tuple(context.synonyms)}",
-        f"examples: {_format_tuple(context.examples)}",
-        f"instructions: {context.instructions or '(none)'}",
-        f"owner_notes: {context.owner_notes or '(none)'}",
     )
 
 

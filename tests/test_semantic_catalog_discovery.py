@@ -100,10 +100,6 @@ def _make_ctx():
     return AiContextView(
         business_definition=None,
         guardrails=(),
-        synonyms=(),
-        examples=(),
-        instructions=None,
-        owner_notes=None,
     )
 
 

@@ -584,12 +584,7 @@ def test_ai_context_value_fields() -> None:
     import dataclasses
 
     field_names = {f.name for f in dataclasses.fields(typing_mod.AiContextValue)}
-    assert "business_definition" in field_names
-    assert "guardrails" in field_names
-    assert "synonyms" in field_names
-    assert "examples" in field_names
-    assert "instructions" in field_names
-    assert "owner_notes" in field_names
+    assert field_names == {"business_definition", "guardrails"}
 
 
 def test_ai_context_value_accessible_from_ms() -> None:

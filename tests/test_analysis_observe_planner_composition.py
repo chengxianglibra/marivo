@@ -33,10 +33,6 @@ def _make_ctx() -> AiContextView:
     return AiContextIR(
         business_definition=None,
         guardrails=(),
-        synonyms=(),
-        examples=(),
-        instructions=None,
-        owner_notes=None,
     )
 
 

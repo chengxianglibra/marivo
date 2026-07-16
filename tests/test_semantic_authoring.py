@@ -2222,7 +2222,7 @@ def test_metric_with_ai_context() -> None:
 
 
 def test_ai_context_with_valid_keys_works() -> None:
-    """ai_context with all valid keys should work."""
+    """ai_context with all supported keys should work."""
     ctx = _enter_ctx(default_domain="sales")
     try:
 
@@ -2232,10 +2232,6 @@ def test_ai_context_with_valid_keys_works() -> None:
             ai_context=ms.ai_context(
                 business_definition="Revenue",
                 guardrails=["Must be positive"],
-                synonyms=["rev", "sales"],
-                examples=["orders.amount.sum()"],
-                instructions="Use with care",
-                owner_notes="Team Data",
             ),
         )
         def revenue(table: object) -> object:
@@ -2244,18 +2240,18 @@ def test_ai_context_with_valid_keys_works() -> None:
         ir, _ = ctx.pending_objects[-1]
         assert ir.ai_context.business_definition == "Revenue"
         assert ir.ai_context.guardrails == ("Must be positive",)
-        assert ir.ai_context.synonyms == ("rev", "sales")
-        assert ir.ai_context.examples == ("orders.amount.sum()",)
-        assert ir.ai_context.instructions == "Use with care"
-        assert ir.ai_context.owner_notes == "Team Data"
     finally:
         _exit_ctx()
 
 
-def test_ai_context_invalid_key_raises_type_error() -> None:
-    """ms.ai_context() with an invalid keyword raises TypeError from Python."""
+@pytest.mark.parametrize(
+    "key",
+    ("summary", "synonyms", "examples", "instructions", "owner_notes"),
+)
+def test_ai_context_invalid_key_raises_type_error(key: str) -> None:
+    """ms.ai_context() rejects unsupported metadata keys."""
     with pytest.raises(TypeError, match="ai_context"):
-        ms.ai_context(summary="oops")  # type: ignore[call-arg]
+        ms.ai_context(**{key: "oops"})  # type: ignore[arg-type]
 
 
 def test_ai_context_with_wrong_type_for_guardrails_raises() -> None:
@@ -2299,10 +2295,6 @@ def test_ai_context_empty_returns_defaults() -> None:
     assert isinstance(val, ms.AiContextValue)
     assert val.business_definition is None
     assert val.guardrails == ()
-    assert val.synonyms == ()
-    assert val.examples == ()
-    assert val.instructions is None
-    assert val.owner_notes is None
 
 
 def test_ai_context_raw_dict_raises_teachable_error() -> None:
@@ -2328,7 +2320,7 @@ def test_ai_context_raw_dict_raises_teachable_error() -> None:
 def test_ai_context_error_location_points_to_user_code() -> None:
     """ms.ai_context() type errors report the user's call site, not internal code."""
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.ai_context(instructions=42)  # type: ignore[arg-type]
+        ms.ai_context(business_definition=42)  # type: ignore[arg-type]
     assert exc_info.value.location is not None
     # The location should point to this test file, not to authoring.py
     assert "test_semantic_authoring" in exc_info.value.location.file
