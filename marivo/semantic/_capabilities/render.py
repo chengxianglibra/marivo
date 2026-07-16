@@ -117,9 +117,38 @@ def _render_authoring(descriptor: AuthoringCapability) -> str:
     return _bounded("\n".join(lines))
 
 
+def _render_boundary(descriptor: AuthoringCapability) -> str:
+    """Render a non-callable boundary capability.
+
+    Boundary capabilities are concepts carried on result fields of other
+    capabilities, not callable entrypoints. Rendering them with the callable
+    ``Output family`` / ``Effects`` block advertises a call that does not
+    exist (see issue #19). Point agents at the producing capability and the
+    result field instead.
+    """
+    lines = [descriptor.canonical_id, f"  {descriptor.summary}", "", "  Not a callable entrypoint."]
+    if descriptor.canonical_id == "analysis_handoff":
+        lines.extend(
+            (
+                "  The typed handoff is produced by readiness and carried on a result",
+                "  field: catalog.readiness(refs=...) returns a ReadinessReport whose",
+                "  .analysis_handoff is a SemanticToAnalysisHandoff (None while any ref",
+                "  is blocked). Analysis consumes it via",
+                "  Session.validate_semantic_handoff(report.analysis_handoff).",
+            )
+        )
+    if descriptor.see_also:
+        lines.append(
+            "  See also: " + ", ".join(_target_text(target) for target in descriptor.see_also)
+        )
+    return _bounded("\n".join(lines))
+
+
 def _render_descriptor(descriptor: AuthoringCapability) -> str:
     if descriptor.canonical_id == "authoring":
         return _render_authoring(descriptor)
+    if descriptor.kind == "boundary":
+        return _render_boundary(descriptor)
 
     lines = [descriptor.canonical_id, f"  {descriptor.summary}", ""]
     if descriptor.public_entrypoint is not None:
