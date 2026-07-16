@@ -11,7 +11,11 @@ from typing import Any, Literal, TypeGuard, cast
 import numpy as np
 import pandas as pd
 
-from marivo.analysis.errors import DiscoverInsufficientDataError, SemanticKindMismatchError
+from marivo.analysis.errors import (
+    DiscoverAxisNotMaterializedError,
+    DiscoverInsufficientDataError,
+    SemanticKindMismatchError,
+)
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -615,13 +619,20 @@ def _run_scorer(
                 context={"objective": objective, "missing": "search_space"},
             )
         df = source.to_pandas()
-        bucket_column, _ = _delta_axes(cast("DeltaFrame", source))
+        bucket_column, dim_columns = _delta_axes(cast("DeltaFrame", source))
         value_column = require_numeric_column(
             df.drop(columns=[c for c in [bucket_column] if c in df.columns]),
             value,
             purpose="discover",
         )
         axes = _dimension_columns_for_ids(source, search_space)
+        _require_materialized_axes(
+            objective=objective,
+            df=df,
+            axes=axes,
+            dimension_ids=search_space,
+            available_dimension_columns=dim_columns,
+        )
         semantic_id_by_column = _semantic_ids_by_column(source, search_space)
         rows = score_driver_axes(
             df,
@@ -658,6 +669,14 @@ def _run_scorer(
             purpose="discover",
         )
         axes = _dimension_columns_for_ids(source, search_space or []) or dim_columns
+        if search_space:
+            _require_materialized_axes(
+                objective=objective,
+                df=df,
+                axes=axes,
+                dimension_ids=search_space,
+                available_dimension_columns=dim_columns,
+            )
         semantic_id_by_column = _semantic_ids_by_column(
             source,
             search_space or [],
@@ -975,6 +994,36 @@ def _dimension_columns_for_ids(
             matched_column = dimension_id if dimension_id in df_columns else axis_leaf
         columns.append(matched_column)
     return columns
+
+
+def _require_materialized_axes(
+    *,
+    objective: CandidateObjective,
+    df: pd.DataFrame,
+    axes: list[str],
+    dimension_ids: list[str],
+    available_dimension_columns: list[str],
+) -> None:
+    """Fail closed when a requested search_space axis is not in the frame.
+
+    Previously these axes were silently skipped, producing an empty (or
+    partial) CandidateSet indistinguishable from "no driver/slice found".
+    """
+    missing = [axis for axis in axes if axis not in df.columns]
+    if not missing:
+        return
+    raise DiscoverAxisNotMaterializedError(
+        message=(
+            f"discover({objective}) search_space references axes not materialized "
+            f"in the source frame: {', '.join(missing)}"
+        ),
+        context={
+            "objective": objective,
+            "missing_axes": missing,
+            "search_space": dimension_ids,
+            "available_dimension_columns": available_dimension_columns,
+        },
+    )
 
 
 def _semantic_ids_by_column(

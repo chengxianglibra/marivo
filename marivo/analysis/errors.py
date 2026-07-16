@@ -666,6 +666,48 @@ class DiscoverInsufficientDataError(AnalysisError):
         )
 
 
+class DiscoverAxisNotMaterializedError(AnalysisError):
+    """Raised when a discover search_space references axes not materialized in the source frame.
+
+    Fail-closed counterpart to the previous silent skip: a requested axis that
+    is absent from the frame (wrong id, or forgotten in ``observe``) raises
+    instead of being dropped to an indistinguishable empty CandidateSet.
+    """
+
+    def _derive_fields(self) -> _DerivedFields:
+        objective = self._context.get("objective")
+        missing = self._context.get("missing_axes")
+        available = self._context.get("available_dimension_columns")
+        objective_ref = objective if isinstance(objective, str) and objective else "discover"
+        missing_ref = (
+            ", ".join(str(axis) for axis in missing)
+            if isinstance(missing, (list, tuple)) and missing
+            else "<missing_axes>"
+        )
+        available_ref = (
+            ", ".join(str(axis) for axis in available)
+            if isinstance(available, (list, tuple)) and available
+            else "<none>"
+        )
+        return _DerivedFields(
+            expected="axes materialized as columns in the source frame",
+            received=f"missing axes: {missing_ref}",
+            location=f"session.discover.{objective_ref} search_space",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=(
+                    "re-observe the source with the requested dimensions, or pass only "
+                    f"materialized axes. Available dimension columns: {available_ref}"
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
+                snippet=(
+                    "frame = session.observe(metric, grain='day', dimensions=[region, page])\n"
+                    "session.discover.driver_axes(delta, search_space=[region, page])"
+                ),
+            ),
+        )
+
+
 class AlignmentPolicyValidationError(AnalysisError):
     def _derive_fields(self) -> _DerivedFields:
         case = self._context.get("case")

@@ -14,6 +14,7 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AnalysisError,
+    DiscoverAxisNotMaterializedError,
     DiscoverInsufficientDataError,
     SemanticKindMismatchError,
 )
@@ -998,3 +999,57 @@ def test_point_anomalies_seasonal_robust_resists_masking():
     assert mod_day in robust_days  # robust baseline surfaces the moderate spike
     # weekly seasonality is not flagged, only the two spikes
     assert robust_out["item_id"].is_unique
+
+
+def test_driver_axes_rejects_unmaterialized_search_space():
+    """A search_space axis not materialized in the frame fails closed instead
+    of being silently dropped (issue #10)."""
+    session = session_attach.get_or_create(name="demo")
+    delta = _delta(
+        session,
+        pd.DataFrame({"country": ["US", "CA"], "delta": [10.0, -2.0]}),
+        semantic_kind="segmented",
+    )
+    with pytest.raises(DiscoverAxisNotMaterializedError) as exc:
+        session.discover.driver_axes(
+            delta,
+            search_space=[make_ref("nonexistent", SemanticKind.DIMENSION)],
+        )
+    assert exc.value._context["objective"] == "driver_axes"
+    assert "nonexistent" in exc.value._context["missing_axes"]
+    assert "country" in exc.value._context["available_dimension_columns"]
+
+
+def test_interesting_slices_rejects_partially_unmaterialized_search_space():
+    """Partial missing still fails closed; only the missing axis is reported."""
+    session = session_attach.get_or_create(name="demo")
+    delta = _delta(
+        session,
+        pd.DataFrame({"country": ["US", "CA", "DE"], "delta": [10.0, -2.0, 0.5]}),
+        semantic_kind="segmented",
+    )
+    with pytest.raises(DiscoverAxisNotMaterializedError) as exc:
+        session.discover.interesting_slices(
+            delta,
+            search_space=[
+                make_ref("country", SemanticKind.DIMENSION),
+                make_ref("nonexistent", SemanticKind.DIMENSION),
+            ],
+            threshold=1.0,
+        )
+    assert exc.value._context["objective"] == "interesting_slices"
+    assert exc.value._context["missing_axes"] == ["nonexistent"]
+    assert "country" in exc.value._context["available_dimension_columns"]
+
+
+def test_interesting_slices_without_search_space_does_not_raise_on_missing():
+    """No explicit search_space falls back to the frame's own dimensions; the
+    materialized-axis check must not fire (issue #10)."""
+    session = session_attach.get_or_create(name="demo")
+    delta = _delta(
+        session,
+        pd.DataFrame({"country": ["US", "CA", "DE"], "delta": [10.0, -2.0, 0.5]}),
+        semantic_kind="segmented",
+    )
+    out = session.discover.interesting_slices(delta, threshold=1.0)
+    assert out.meta.objective == "interesting_slices"
