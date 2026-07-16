@@ -93,7 +93,7 @@ evidence；它不证明每一种未来 analysis query 或 full-source truth。Pa
 | `unknown_ref` | blocker | 请求的 ref 不在 registry 中。 | 修正该 ref，或将其从 readiness 范围中移除。 |
 | `missing_business_definition` | blocker | 被检查的对象没有 `ai_context.business_definition`。 | 补充 `business_definition`。 |
 | `cross_datasource_unfederated` | blocker | 某个 metric 在没有 federation 的情况下跨越多个 datasource。 | 把集成移到上游、启用 federated backend，或拆分 metric。 |
-| `missing_guardrails` | blocker（metric）/ warning（其他 analyzable） | 被检查的 metric 没有 `ai_context.guardrails` 时为 blocker；entity / dimension / measure / time_dimension 缺失时为 warning。 | 补充 `guardrails`。 |
+| `missing_guardrails` | warning | 被检查的 metric、entity、dimension、measure 或 time dimension 没有 `ai_context.guardrails`。Guardrails 是建议性的 enrichment，不是认证必需项。 | 当显式使用约束有帮助时补充 `guardrails`。 |
 | `sql_parity_unverified` | warning | 某个 metric 有 `provenance` SQL 但 parity 未确认。 | 运行 `ms.parity_check(ref)`。 |
 | `fragile_string_ref` | warning | 某个对象使用了脆弱的 string reference。 | 用稳定的 object ref 替换它。 |
 | `time_dimension_pushdown_advisory` | warning | 某个 time dimension 可能无法下推到 partition。 | 当业务时间轴与 partition 一致时，保留原始 partition 列并声明其 parse。 |

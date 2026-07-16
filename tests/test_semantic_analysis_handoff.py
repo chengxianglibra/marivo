@@ -13,11 +13,10 @@ from marivo._boundaries.fingerprints import (
 )
 
 # Authoring source for an enriched, certification-ready ``metric.sales.revenue``
-# backed by a real duckdb ``orders`` table. The metric carries
-# ``business_definition`` and ``guardrails`` so the strict-enrichment readiness
-# check passes (no ``missing_business_definition``/``missing_guardrails``
-# blockers). Mirrors the ``_DATASETS_PY`` shape from ``test_semantic_catalog.py``
-# but enriches every object so readiness can reach ``ready``.
+# backed by a real duckdb ``orders`` table. Every analyzable object carries a
+# ``business_definition`` so strict enrichment has no blockers, plus optional
+# ``guardrails`` so readiness can reach ``ready`` without enrichment warnings.
+# Mirrors the ``_DATASETS_PY`` shape from ``test_semantic_catalog.py``.
 _READY_REVENUE_DATASETS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms

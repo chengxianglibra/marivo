@@ -285,8 +285,8 @@ def _strict_enrichment_issues(
     objects: Mapping[str, object],
 ) -> tuple[list[ReadinessIssue], list[ReadinessIssue]]:
     """Contracts section 7: analyzable handoff refs must carry a non-empty
-    business_definition (blocker) and guardrails (blocker for metrics, warning
-    for other analyzable refs). Richness owns optional enrichment suggestions.
+    business_definition (blocker) and guardrails (warning for all analyzable
+    refs). Richness owns optional enrichment suggestions.
     Relationships are out of scope, matching semantic-preview scoping."""
     analyzable = {
         _SemanticKind.ENTITY,
@@ -322,34 +322,19 @@ def _strict_enrichment_issues(
             # the single most fundamental issue rather than stacking findings.
             continue
         if _missing_guardrails(obj):
-            if kind == _SemanticKind.METRIC:
-                blockers.append(
-                    _issue(
-                        "missing_guardrails",
-                        "blocker",
-                        (ref,),
-                        f"{ref} has no ai_context.guardrails; metrics are the central analysis unit and must declare usage constraints.",
-                        repair(
-                            kind="reauthor",
-                            canonical_id="metric",
-                            action="Add ai_context=ms.ai_context(guardrails=[...]) describing how this metric may and may not be used.",
-                        ),
-                    )
+            warnings.append(
+                _issue(
+                    "missing_guardrails",
+                    "warning",
+                    (ref,),
+                    f"{ref} has no ai_context.guardrails; analysis may proceed but the agent lacks usage constraints.",
+                    repair(
+                        kind="reauthor",
+                        canonical_id="metric",
+                        action="Add ai_context=ms.ai_context(guardrails=[...]) to make safe usage explicit.",
+                    ),
                 )
-            else:
-                warnings.append(
-                    _issue(
-                        "missing_guardrails",
-                        "warning",
-                        (ref,),
-                        f"{ref} has no ai_context.guardrails; analysis may proceed but the agent lacks usage constraints.",
-                        repair(
-                            kind="reauthor",
-                            canonical_id="metric",
-                            action="Add ai_context=ms.ai_context(guardrails=[...]) to make safe usage explicit.",
-                        ),
-                    )
-                )
+            )
     return blockers, warnings
 
 
@@ -616,7 +601,7 @@ def build_readiness_report(
     blockers.extend(_undeclared_naive_time_axis_issues(checked_refs, kinds, objects))
 
     # Strict enrichment: missing business_definition is a blocker;
-    # missing guardrails is a blocker for metrics, a warning otherwise.
+    # missing guardrails is a warning for every analyzable object.
     enrichment_blockers, enrichment_warnings = _strict_enrichment_issues(
         checked_refs,
         kinds,
