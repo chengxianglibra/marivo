@@ -37,6 +37,11 @@ from marivo.introspection.live.resolve import ResolvedLiveTarget
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
 
+# The analysis surface is consumed as ``mv`` (mirroring ``md``/``ms`` for the
+# datasource/semantic surfaces). Help text uses ``mv.`` throughout, so every
+# page states the import so examples run from a cold start (see issue #22).
+_ANALYSIS_IMPORT = "import marivo.analysis as mv"
+
 # ---------------------------------------------------------------------------
 # Budget and fingerprint helpers
 # ---------------------------------------------------------------------------
@@ -56,6 +61,24 @@ def enforce_budget(text: str, *, max_lines: int, max_codepoints: int) -> str:
     if len(normalized.splitlines()) > max_lines or len(normalized) > max_codepoints:
         raise RuntimeError("analysis help exceeds its registered surface budget")
     return normalized
+
+
+def _with_python_imports(text: str) -> str:
+    """Prefix a focused help page with the ``mv`` import so it runs cold-start."""
+    lines = text.splitlines()
+    return enforce_budget(
+        "\n".join(
+            (
+                lines[0],
+                "  Python imports:",
+                f"    {_ANALYSIS_IMPORT}",
+                "",
+                *lines[1:],
+            )
+        ),
+        max_lines=SURFACE_LIMITS.focused_help_max_lines,
+        max_codepoints=SURFACE_LIMITS.focused_help_max_codepoints,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +173,7 @@ def render_root_help() -> str:
     # Fingerprint (exact paths shown: root help uses reveal=True).
     fp = environment_fingerprint()
     lines.extend(render_fingerprint(fp, reveal=True).split("\n"))
-    lines.append("")
+    lines.extend(("", "Python imports:", f"  {_ANALYSIS_IMPORT}", ""))
 
     # Capability groups
     lines.append("Capabilities:")
@@ -891,24 +914,28 @@ def render_help_target(
         rendering, since the resolver only extracts the id/kind).
     """
     if resolved.kind == "descriptor" and resolved.descriptor is not None:
-        return _render_descriptor_help(resolved.descriptor)
+        return _with_python_imports(_render_descriptor_help(resolved.descriptor))
 
     if resolved.kind == "type_contract" and resolved.type_name is not None:
-        return _render_type_help(resolved.type_name)
+        return _with_python_imports(_render_type_help(resolved.type_name))
 
     if resolved.kind == "error_contract" and resolved.error_name is not None:
-        return _render_error_contract(resolved.error_name)
+        return _with_python_imports(_render_error_contract(resolved.error_name))
 
     if resolved.kind == "error_briefing" and resolved.error_name is not None:
-        return _render_error_briefing(
-            resolved.error_name,
-            resolved.error_kind,
-            resolved.original,
+        return _with_python_imports(
+            _render_error_briefing(
+                resolved.error_name,
+                resolved.error_kind,
+                resolved.original,
+            )
         )
 
     if resolved.kind == "reference_briefing" and resolved.reference_id is not None:
         if resolved.original is None:
             raise RuntimeError("reference_briefing requires original target")
-        return _render_reference_briefing(resolved.reference_id, resolved.original, project)
+        return _with_python_imports(
+            _render_reference_briefing(resolved.reference_id, resolved.original, project)
+        )
 
     raise RuntimeError(f"cannot render resolved target: {resolved}")
