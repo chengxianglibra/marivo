@@ -25,6 +25,9 @@ _GROUPS = (
     ("diagnostics_boundaries", "Diagnostics and boundaries"),
 )
 
+_DATASOURCE_IMPORT = "import marivo.datasource as md"
+_SEMANTIC_IMPORT = "import marivo.semantic as ms"
+
 
 def _bounded(text: str, *, root: bool = False) -> str:
     """Apply the one shared registered render budget."""
@@ -45,6 +48,25 @@ def _target_text(target: LiveHelpTarget) -> str:
     return target.canonical_id or target.surface
 
 
+def _with_python_imports(text: str) -> str:
+    """Make a focused datasource help page executable from a cold start."""
+    lines = text.splitlines()
+    imports = [_DATASOURCE_IMPORT]
+    if "ms." in text:
+        imports.append(_SEMANTIC_IMPORT)
+    return _bounded(
+        "\n".join(
+            (
+                lines[0],
+                "  Python imports:",
+                *(f"    {statement}" for statement in imports),
+                "",
+                *lines[1:],
+            )
+        )
+    )
+
+
 def _constraints(descriptor: AuthoringCapability) -> tuple[str, ...]:
     catalog = {constraint.id: constraint for constraint in iter_constraints()}
     return tuple(
@@ -61,6 +83,9 @@ def render_root_help() -> str:
     lines = [
         "marivo.datasource",
         render_fingerprint(EnvironmentFingerprint.current(), reveal=True),
+        "",
+        "Python imports:",
+        f"  {_DATASOURCE_IMPORT}",
         "",
         "Capabilities:",
     ]
@@ -251,9 +276,9 @@ def render_help_target(
 ) -> str:
     """Render a resolved datasource target without invoking runtime operations."""
     if resolved.kind == "descriptor" and resolved.descriptor is not None:
-        return _render_descriptor(resolved.descriptor)
+        return _with_python_imports(_render_descriptor(resolved.descriptor))
     if resolved.kind == "type_contract" and resolved.type_name is not None:
-        return _render_type(resolved.type_name, original_target)
+        return _with_python_imports(_render_type(resolved.type_name, original_target))
     if resolved.kind in {"error_contract", "error_briefing"} and resolved.error_name is not None:
-        return _render_error(resolved.error_name, resolved.original)
+        return _with_python_imports(_render_error(resolved.error_name, resolved.original))
     raise RuntimeError(f"unsupported datasource help resolution: {resolved.kind}")

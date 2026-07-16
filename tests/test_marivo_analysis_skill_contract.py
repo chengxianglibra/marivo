@@ -121,6 +121,24 @@ def test_marivo_semantic_skill_is_one_file_boundary_kernel() -> None:
         assert required in text, f"Required section {required!r} missing from semantic SKILL.md"
 
 
+def test_marivo_semantic_skill_defines_aliases_before_first_use() -> None:
+    """Cold-start agents must see each public alias before its first help call."""
+    skill_path = REPO_ROOT / "marivo" / "skills" / "marivo-semantic" / "SKILL.md"
+    text = skill_path.read_text(encoding="utf-8")
+
+    for import_statement, first_use in (
+        ("import marivo.datasource as md", "md.help("),
+        ("import marivo.semantic as ms", "ms.help("),
+    ):
+        import_position = text.find(import_statement)
+        use_position = text.find(first_use)
+        assert import_position >= 0, f"Missing public alias declaration: {import_statement}"
+        assert use_position >= 0, f"Missing live help route: {first_use}"
+        assert import_position < use_position, (
+            f"Public alias must be defined before first use: {import_statement}"
+        )
+
+
 def test_no_active_source_references_deleted_semantic_paths() -> None:
     """No active non-spec source file should reference
     marivo-semantic/references (deleted path). Historical specs under
