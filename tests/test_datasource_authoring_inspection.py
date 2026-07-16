@@ -281,6 +281,42 @@ def test_unknown_partition_state_allows_explicit_unpruned_scope(
     assert query_spy.user_data_queries == 1
 
 
+def test_known_partition_with_failed_value_hook_allows_unpruned_fallback(
+    project_root: Path,
+    query_spy: _QuerySpy,
+) -> None:
+    """When partition fields are known but the value hook failed to capture any
+    values (``value_source`` is None), the canonical route must not deadlock.
+
+    ``md.partition(...)`` is unusable (no values) and ``md.unpruned(...)`` is the
+    only bounded fallback. Preflight must permit the bounded unpruned scope so
+    the user is not forced off-route to ``md.raw_sql``. See issue #17.
+    """
+    path = _register_duckdb(project_root)
+    _create_orders(path)
+    base = md.inspect(md.ref("datasource.warehouse"), md.table("orders"))
+    inspection = replace(
+        base,
+        partitioning=replace(
+            base.partitioning,
+            state="known",
+            fields=(PartitionMetadata(name="dt", type="date"),),
+            value_source=None,
+            values=(),
+            values_complete=False,
+        ),
+    )
+
+    snapshot = inspection.sample(
+        scope=md.unpruned(max_rows=10, timeout_seconds=30),
+        columns=("order_id",),
+        refresh=True,
+    )
+
+    assert snapshot.scope == md.unpruned(max_rows=10, timeout_seconds=30)
+    assert query_spy.user_data_queries == 1
+
+
 def test_partitions_only_reshapes_captured_metadata(
     project_root: Path,
 ) -> None:
@@ -369,6 +405,12 @@ def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: P
             base.partitioning,
             state="known",
             fields=(PartitionMetadata(name="dt", type="date"),),
+            # Values were captured but the set is incomplete (truncated), so a
+            # bounded unpruned scope is still rejected in favor of rescoping
+            # with the captured partition evidence. The no-values (hook-failed)
+            # case is covered separately — it permits the unpruned fallback.
+            value_source="metadata",
+            values=((("dt", "2026-07-10"),),),
             values_complete=False,
         ),
     )
