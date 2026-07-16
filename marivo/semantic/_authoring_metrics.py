@@ -208,6 +208,9 @@ def ratio(
 ) -> MetricRef:
     """Declare a derived ratio metric (no body). Override the unit derived from the components at load.
 
+    Components must be tier-1 (simple) or cumulative metrics; a non-cumulative
+    derived component (nested derived) is not analyzable and observe will reject it.
+
     Example::
 
         loss_rate = ms.ratio(name="loss_rate", numerator=lost, denominator=total, unit="1")
@@ -237,7 +240,8 @@ def weighted_average(
 ) -> MetricRef:
     """Declare a derived weighted-average metric (no body). Override the unit derived from the components at load.
 
-    Roles are ``value`` / ``weight``."""
+    Roles are ``value`` / ``weight``. Components must be tier-1 or cumulative
+    metrics; a non-cumulative derived component (nested derived) is not analyzable."""
     return _derived(
         name=name,
         composition=WeightedAverageComposition(
@@ -260,6 +264,9 @@ def linear(
     ai_context: AiContextValue | None = None,
 ) -> MetricRef:
     """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``. Override the unit derived from the components at load.
+
+    Components must be tier-1 or cumulative metrics; a non-cumulative derived
+    component (nested derived) is not analyzable and observe will reject it.
 
     Example::
 
