@@ -256,22 +256,25 @@ issues/lineage, never a next-step recommendation or narrative.
 Attribution permission comes from semantics persisted on the `DeltaFrame`; it
 does not re-query a catalog that may have changed since observation. This gate
 runs on the original delta before `attribute` replays observations to
-materialize a missing axis. `DeltaFrame.contract()` mirrors the same persisted
-boundary: unknown and ordinary non-additive deltas carry a failing attribution
-precondition, semi-additive deltas surface the status-time-axis condition, and
-persisted ratio/weighted-average component paths remain available.
+materialize a missing axis. `DeltaFrame.show()` surfaces the current delta's
+supported, conditional, or blocked attribution state, and `DeltaFrame.contract()`
+mirrors the same persisted boundary with typed preconditions. Unknown and ordinary
+non-additive deltas fail, semi-additive deltas surface the status-time-axis
+condition, and persisted ratio/weighted-average component paths remain available.
 
 | Persisted metric semantics | Axis attribution |
 | --- | --- |
 | `additive` | Supported by the sum/hierarchy paths. |
 | `semi_additive` | Supported on non-time axes; rejected when `axes` contains its `status_time_dimension`. |
 | Component-aware `ratio` / `weighted_average` | Supported by ratio/weighted mix attribution. |
-| `non_additive` without supported component math | Rejected, including mean, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
+| Tier-1 `mean` over a measure | Lowered during observe to `sum(measure)` / `count_non_null(measure)` components and supported by weighted mix attribution. |
+| `non_additive` without supported component math | Rejected, including opaque/tier-2 means, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected; re-run `observe` and `compare` to create a current self-contained delta. |
 
-For an unsupported metric, model explicit ratio/weighted-average components or
-attribute additive numerator and denominator metrics separately. Existing
-non-linear sampled-fold validation still runs first.
+The mean lowering is runtime-only and never substitutes entity row count for
+`count_non_null(measure)`. For an unsupported metric, model explicit
+ratio/weighted-average components or attribute additive numerator and denominator
+metrics separately. Existing non-linear sampled-fold validation still runs first.
 
 ```python
 drivers = session.attribute(

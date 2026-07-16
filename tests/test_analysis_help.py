@@ -92,6 +92,33 @@ def test_root_help_contains_all_direct_capabilities() -> None:
         assert desc.help_target in text, f"missing direct capability: {desc.help_target}"
 
 
+def test_root_help_never_advertises_grouping_topics_as_session_members() -> None:
+    text = _text()
+    for fake_entrypoint in (
+        "session.session",
+        "session.recovery",
+        "session.artifacts",
+        "session.boundary",
+    ):
+        assert fake_entrypoint not in text
+    assert 'mv.help("recovery")' in text
+    assert 'mv.help("artifacts")' in text
+
+
+def test_focused_grouping_help_lists_real_members() -> None:
+    recovery = _text("recovery")
+    assert 'Entrypoint: mv.help("recovery")' in recovery
+    assert "Members:" in recovery
+    assert "session.get_frame(ref)" in recovery
+    assert "session.recent_jobs(limit=5)" in recovery
+
+    artifacts = _text("artifacts")
+    assert 'Entrypoint: mv.help("artifacts")' in artifacts
+    assert "frame.show()" in artifacts
+    assert "frame.contract()" in artifacts
+    assert "frame.to_pandas()" in artifacts
+
+
 def test_root_help_contains_type_algebra_rows() -> None:
     text = _text()
     rows = REGISTRY.type_algebra_rows()
@@ -231,6 +258,8 @@ def test_attribute_help_explains_additivity_boundary() -> None:
     assert "compatible persisted additivity" in text
     assert "ratio" in text
     assert "weighted-average" in text
+    assert "Tier-1 mean" in text
+    assert "count_non_null" in text
     assert "status time axis" in text
     assert "numerator" in text
     assert "denominator" in text

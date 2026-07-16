@@ -272,10 +272,12 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "AttributionAdditivityError",
         ),
         "Axis attribution requires compatible persisted additivity: additive, semi-additive "
-        "off the status time axis, or component-aware ratio/weighted-average; otherwise "
+        "off the status time axis, component-aware ratio/weighted-average, or a Tier-1 mean "
+        "lowered to sum/count_non_null components; otherwise "
         "re-observe or attribute additive numerator and denominator separately.",
         "Axis-sum attribution is valid for additive metrics, semi-additive metrics away "
-        "from their status time axis, and component-aware ratio or weighted-average deltas.",
+        "from their status time axis, component-aware ratio or weighted-average deltas, and "
+        "Tier-1 means with persisted sum/count_non_null components.",
         "Re-observe and compare old artifacts; model non-additive metrics as ratio or "
         "weighted_average components, or attribute additive numerator and denominator separately.",
         help_target="attribute",

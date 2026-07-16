@@ -503,8 +503,8 @@ class BaseFrame(RenderableResult):
             card.field("evidence recovery", "inspect canonical records with session.evidence")
         return card
 
-    def _card(self) -> Card:
-        columns = _display_column_names(self._df.columns)
+    def _base_card(self) -> Card:
+        """Build the shared card header and fields before any preview table."""
         card = Card(identity=self._repr_identity(), available=self._AVAILABLE_ENTRIES)
         status = self._render_status()
         if status is not None:
@@ -512,7 +512,11 @@ class BaseFrame(RenderableResult):
         if self.meta.analysis_purpose:
             card.field("analysis_purpose", self.meta.analysis_purpose)
         self._append_evidence_sections(card)
-        return card.lazy_table(
+        return card
+
+    def _card(self) -> Card:
+        columns = _display_column_names(self._df.columns)
+        return self._base_card().lazy_table(
             columns=columns,
             rows_provider=self._preview_rows_provider,
             row_count=len(self._df),

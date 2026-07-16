@@ -35,11 +35,33 @@ def _persist_metric_component_frame(
     axes: dict[str, Any],
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
     job_ref: str,
+    composition_kind: Literal["ratio", "weighted_average", "linear"] | None = None,
+    components: dict[str, str] | None = None,
+    linear_terms: tuple[tuple[str, str], ...] | None = None,
 ) -> ComponentFrame:
     # Component decomposition operates on arity-1 metric frames; multi-metric
     # frames are gated out upstream. Narrow metric_id for the ComponentFrameMeta
     # contract which requires a single metric id.
     assert parent.meta.metric_id is not None
+    metric_composition = getattr(metric_ir, "composition", None)
+    if composition_kind is None:
+        assert metric_composition is not None
+        resolved_kind = metric_composition.kind
+    else:
+        resolved_kind = composition_kind
+    if components is None:
+        assert metric_composition is not None
+        resolved_components = {
+            k: (v.id if isinstance(v, SemanticRef) else str(v))
+            for k, v in metric_composition.components.items()
+        }
+    else:
+        resolved_components = components
+    resolved_linear_terms = (
+        linear_terms
+        if linear_terms is not None
+        else (metric_ir.linear_terms if resolved_kind == "linear" else ())
+    )
     frame_ref = make_component_artifact_id(parent.ref)
     component = ComponentFrame(
         _df=df.copy(),
@@ -55,12 +77,9 @@ def _persist_metric_component_frame(
             parent_ref=parent.ref,
             parent_kind="metric_frame",
             metric_id=parent.meta.metric_id,
-            composition_kind=metric_ir.composition.kind,
-            components={
-                k: (v.id if isinstance(v, SemanticRef) else str(v))
-                for k, v in metric_ir.composition.components.items()
-            },
-            linear_terms=metric_ir.linear_terms if metric_ir.composition.kind == "linear" else (),
+            composition_kind=resolved_kind,
+            components=resolved_components,
+            linear_terms=resolved_linear_terms,
             axes=axes,
             semantic_kind=semantic_kind,
             semantic_model=parent.meta.semantic_model,
@@ -76,11 +95,12 @@ def _attach_metric_component_ref(
     parent: MetricFrame,
     component: ComponentFrame,
     metric_ir: Any,
+    composition: dict[str, Any] | None = None,
 ) -> MetricFrame:
     parent.meta = parent.meta.model_copy(
         update={
             "component_ref": component.ref,
-            "composition": _composition_payload(metric_ir),
+            "composition": composition or _composition_payload(metric_ir),
         }
     )
     parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))

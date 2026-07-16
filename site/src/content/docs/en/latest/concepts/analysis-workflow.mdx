@@ -246,7 +246,8 @@ metric delta.
 The `DeltaFrame` persists the semantic gate used by attribution; Marivo does
 not look up a possibly changed catalog at attribution time. The original delta
 is checked before Marivo replays observations to materialize a requested axis.
-`DeltaFrame.contract()` exposes this boundary as an attribution precondition:
+`DeltaFrame.show()` states whether attribution is supported, conditional, or
+blocked, and `DeltaFrame.contract()` exposes the same boundary as a typed precondition:
 unknown and ordinary non-additive deltas fail, semi-additive deltas require axes
 that exclude the status time dimension, and persisted ratio/weighted-average
 component paths remain available.
@@ -256,11 +257,13 @@ component paths remain available.
 | `additive` | Supported by sum and hierarchy attribution. |
 | `semi_additive` | Supported on non-time axes; rejected on its `status_time_dimension`. |
 | Component-aware `ratio` / `weighted_average` | Supported by ratio/weighted mix attribution. |
-| Other `non_additive` metrics | Rejected, including mean, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
+| Tier-1 `mean` over a measure | Automatically lowered to `sum(measure)` / `count_non_null(measure)` and supported by weighted mix attribution. |
+| Other `non_additive` metrics | Rejected, including opaque/tier-2 means, median, percentile, min, max, count-distinct, tier-2 non-additive metrics, and non-additive linear compositions. |
 | Missing additivity metadata | Rejected. Re-run `observe` and `compare` before retrying. |
 
-For rejected metrics, model explicit ratio/weighted-average components or
-attribute additive numerator and denominator metrics separately.
+Mean lowering uses non-null measure count, not entity row count. For rejected
+metrics, model explicit ratio/weighted-average components or attribute additive
+numerator and denominator metrics separately.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -507,6 +510,10 @@ summaries = session.frame_summaries()
 jobs = session.recent_jobs(limit=5)
 previous = session.get_frame(ref)
 ```
+
+Use `mv.help("recovery")` to list these real Session members. `recovery` and
+`artifacts` are help topics, not `session.recovery` / `session.artifacts`
+namespaces.
 
 ## Evidence and knowledge
 

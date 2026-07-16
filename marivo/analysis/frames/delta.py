@@ -13,6 +13,7 @@ from marivo.analysis.frames.base import (
     ArtifactPrecondition,
     BaseFrame,
     BaseFrameMeta,
+    _display_column_names,
     assert_semantic_shape,
 )
 from marivo.introspection.live.model import LiveHelpTarget
@@ -57,6 +58,11 @@ def _supports_component_attribution(meta: DeltaFrameMeta) -> bool:
     return meta.composition.get("kind") in {"ratio", "weighted_average"}
 
 
+def _component_attribution_shape(meta: DeltaFrameMeta) -> Literal["ratio_mix", "weighted_mix"]:
+    kind = meta.composition.get("kind") if isinstance(meta.composition, dict) else None
+    return "ratio_mix" if kind == "ratio" else "weighted_mix"
+
+
 def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondition | None:
     """Describe the persisted additivity gate without loading sidecars."""
     if meta.cumulative is not None:
@@ -73,7 +79,16 @@ def _attribution_contract_precondition(meta: DeltaFrameMeta) -> ArtifactPrecondi
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="attribute"),
             ),
         )
-    if _supports_component_attribution(meta) or meta.additivity == "additive":
+    if _supports_component_attribution(meta):
+        shape = _component_attribution_shape(meta)
+        lowered_from = meta.composition.get("lowered_from") if meta.composition else None
+        source = f" lowered_from={lowered_from}" if isinstance(lowered_from, str) else ""
+        return ArtifactPrecondition(
+            check="component_attribution_available",
+            status="pass",
+            reason=f"direct attribute is supported with attribution_shape={shape}{source}",
+        )
+    if meta.additivity == "additive":
         return None
     help_target = LiveHelpTarget(surface="analysis", canonical_id="attribute")
     if meta.additivity == "semi_additive" and meta.status_time_dimension is not None:
@@ -198,7 +213,22 @@ class DeltaFrame(BaseFrame):
         return to_date
 
     def _card(self) -> Card:
-        card = super()._card()
+        card = self._base_card()
+        precondition = _attribution_contract_precondition(self.meta)
+        if precondition is None:
+            card.field("attribute", "supported attribution_shape=sum")
+        elif precondition.status == "pass":
+            card.field("attribute", precondition.reason or "supported")
+        elif precondition.check == "attribution_status_time_axis_excluded":
+            card.field(
+                "attribute",
+                f"conditional: {precondition.reason}; inspect .contract() for repair",
+            )
+        else:
+            card.field(
+                "attribute",
+                f"blocked: {precondition.reason}; inspect .contract() for repair",
+            )
         to_date = self._to_date_tail()
         if to_date is not None:
             card.field(
@@ -209,7 +239,11 @@ class DeltaFrame(BaseFrame):
                     f"reset_grain={to_date.get('reset_grain')}"
                 ),
             )
-        return card
+        return card.lazy_table(
+            columns=_display_column_names(self._df.columns),
+            rows_provider=self._preview_rows_provider,
+            row_count=len(self._df),
+        )
 
     def contract(self) -> ArtifactContract:
         """Return the mechanical contract with persisted attribution gates."""
