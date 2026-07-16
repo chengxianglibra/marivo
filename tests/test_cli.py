@@ -240,7 +240,9 @@ def test_module_datasource_help_uses_subprocess_environment_fingerprint() -> Non
     )
 
     assert result.returncode == 0
-    assert f"Python: {Path(sys.executable).resolve()}" in result.stdout
+    # Help must report the interpreter actually running marivo (sys.executable),
+    # not the symlink-resolved system Python. doctor reports the same value.
+    assert f"Python: {sys.executable}" in result.stdout
     assert f"Package: {Path(marivo.__file__).resolve()}" in result.stdout
 
 

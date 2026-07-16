@@ -29,6 +29,25 @@ def test_environment_fingerprint_current_is_self_consistent() -> None:
     assert fingerprint.package_path
 
 
+def test_environment_fingerprint_reports_running_interpreter_not_symlink_target() -> None:
+    """The fingerprint must report ``sys.executable`` (the interpreter that is
+    actually running marivo, e.g. ``.venv/bin/python``), not the symlink target
+    that ``Path.resolve()`` would chase it to (the system Python).
+
+    This keeps ``marivo help`` consistent with ``marivo doctor`` and with the
+    ``Package:`` line, which already points into the venv. See issue #20.
+    """
+    from pathlib import Path
+
+    fingerprint = live_model.EnvironmentFingerprint.current()
+    assert fingerprint.python_executable == sys.executable
+    # If the interpreter is a venv symlink, resolving it must NOT leak into the
+    # fingerprint — that is exactly the system-Python mismatch reported in #20.
+    resolved = str(Path(sys.executable).resolve())
+    if resolved != sys.executable:
+        assert fingerprint.python_executable != resolved
+
+
 def test_authoring_values_have_one_private_owner() -> None:
     assert authoring_model.AuthoringCapability is not None
     assert authoring_model.AuthoringContract is not None

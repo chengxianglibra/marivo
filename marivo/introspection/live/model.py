@@ -45,7 +45,7 @@ class EnvironmentFingerprint(BaseModel):
 
         return cls(
             marivo_version=marivo.__version__,
-            python_executable=str(Path(sys.executable).resolve()),
+            python_executable=sys.executable,
             package_path=str(Path(marivo.__file__).resolve()),
         )
 
