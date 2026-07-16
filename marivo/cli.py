@@ -12,7 +12,6 @@ from pathlib import Path
 import tomli_w
 
 from marivo import __version__
-from marivo._publish.s3 import default_s3_client_factory
 from marivo.config import (
     AGENTS_SKILLS_DIR,
     AUTHORED_DIR,
@@ -23,8 +22,6 @@ from marivo.config import (
     SKILL_SEMANTIC,
     STATE_DIR,
 )
-
-_s3_client_factory = default_s3_client_factory
 
 
 def _render_track_help(track: str, target: str | None) -> str:
@@ -227,8 +224,6 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Delete existing project artifacts and recreate from scratch",
     )
-    publish_parser = subparsers.add_parser("publish", help="Upload a file or directory to S3")
-    publish_parser.add_argument("path", help="File or directory to upload")
     doctor_parser = subparsers.add_parser("doctor", help="Diagnose Marivo environment setup")
     doctor_parser.add_argument("--project-root", default=None, help="Project root to inspect")
     doctor_parser.add_argument("--format", choices=("text", "json"), default="text")
@@ -267,19 +262,6 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "init":
         init_project(force=args.force)
-    elif args.command == "publish":
-        from marivo._publish.config import PublishConfigError
-        from marivo._publish.static import publish_path
-
-        try:
-            result = publish_path(args.path, client_factory=_s3_client_factory)
-        except (FileNotFoundError, PublishConfigError, ValueError) as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            raise SystemExit(1) from None
-        suffix = "file" if result.file_count == 1 else "files"
-        print(f"Uploaded {result.file_count} {suffix}")
-        print(f"URL: {result.url}")
-        print(f"S3: {result.uri}")
     elif args.command == "doctor":
         from marivo.doctor import DoctorOptions, exit_code, render_fix_snap, render_text, run_doctor
 

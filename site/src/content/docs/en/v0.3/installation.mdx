@@ -124,50 +124,6 @@ If neither is set, local telemetry defaults to `"on"`.
 
 Marivo is a Python library, not a hosted service. Deploy a Marivo project by installing the library where the agent runs, checking in datasource and semantic declarations, and providing datasource secrets through environment variables referenced by `*_env` fields.
 
-To let agents upload finished deliverables to S3 without rediscovering endpoint
-and credential settings, add non-secret publish config to the project
-`marivo.toml`:
-
-```toml
-[publish.s3]
-S3_BUCKET_PATH = "s3://bucket/base/prefix"
-AWS_ENDPOINT_URL_S3 = "https://s3.example.com"
-```
-
-Marivo uses path-style addressing for the published link. With the configuration
-above, a file uploaded as `report.html` is reported as
-`https://s3.example.com/bucket/base/prefix/report.html`.
-
-Store the matching S3 credentials in the user-global secret file:
-
-```toml
-# ~/.marivo/secrets.toml
-[publish.s3]
-AWS_ACCESS_KEY_ID = "..."
-AWS_SECRET_ACCESS_KEY = "..."
-```
-
-Then upload any finished file or directory:
-
-```bash
-marivo publish ./report.html
-marivo publish ./output-dir
-```
-
-Example output:
-
-```text
-Uploaded 1 file
-URL: https://s3.example.com/bucket/base/prefix/report.html
-S3: s3://bucket/base/prefix/report.html
-```
-
-`marivo publish` is a simple uploader: it does not validate, package, or inspect
-the content. Files are uploaded under `S3_BUCKET_PATH`, and existing objects are
-overwritten by normal S3 behavior. Files ending in `.html` or `.htm` are uploaded
-with `Content-Type: text/html`; other file types are uploaded without MIME
-inference.
-
 For local development from this repository:
 
 ```bash
