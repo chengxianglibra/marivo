@@ -275,15 +275,15 @@ def test_cross_sectional_outliers_rejects_time_series():
         session.discover.cross_sectional_outliers(frame)
 
 
-def test_typed_discover_helpers_do_not_accept_strategy():
+def test_point_anomalies_rejects_unsupported_strategy():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(
         session,
         pd.DataFrame({"bucket": ["a", "b", "c"], "value": [1.0, 2.0, 99.0]}),
         semantic_kind="time_series",
     )
-    with pytest.raises(TypeError):
-        session.discover.point_anomalies(frame, strategy="iqr")  # type: ignore[call-arg]
+    with pytest.raises(SemanticKindMismatchError):
+        session.discover.point_anomalies(frame, strategy="iqr")  # type: ignore[arg-type]
 
 
 def test_period_shifts_segment_merging():
@@ -960,3 +960,41 @@ def test_cross_sectional_outliers_rejects_unmaterialized_peer_scope():
         )
     assert exc.value._context["objective"] == "cross_sectional_outliers"
     assert "nonexistent" in exc.value._context["missing_axes"]
+
+
+def test_point_anomalies_seasonal_robust_resists_masking():
+    """A big spike must not mask a second, moderate spike via std inflation.
+    The seasonal_robust_zscore baseline (per-day-of-week median/MAD) surfaces
+    both; the default global z-score misses the moderate one (issue #6)."""
+    session = session_attach.get_or_create(name="demo")
+    # 8 weeks starting Monday: weekday 10, weekend 2; two spikes
+    days = pd.date_range("2026-01-05", periods=56, freq="D", tz="UTC")
+    weekly = [10.0, 10.0, 10.0, 10.0, 10.0, 2.0, 2.0]
+    values = [
+        weekly[i % 7] + (100.0 if i == 20 else 0.0) + (30.0 if i == 40 else 0.0)
+        for i in range(56)
+    ]
+    series = _metric(
+        session,
+        pd.DataFrame({"bucket": days, "value": values}),
+        semantic_kind="time_series",
+    )
+
+    def candidate_days(out: pd.DataFrame) -> set[str]:
+        return {pd.Timestamp(w).date().isoformat() for w in out["window_start"]}
+
+    big_day = days[20].date().isoformat()
+    mod_day = days[40].date().isoformat()
+
+    default_out = session.discover.point_anomalies(series, threshold=3.0).to_pandas()
+    assert big_day in candidate_days(default_out)
+    assert mod_day not in candidate_days(default_out)  # masked by the big spike
+
+    robust_out = session.discover.point_anomalies(
+        series, threshold=3.0, strategy="seasonal_robust_zscore"
+    ).to_pandas()
+    robust_days = candidate_days(robust_out)
+    assert big_day in robust_days
+    assert mod_day in robust_days  # robust baseline surfaces the moderate spike
+    # weekly seasonality is not flagged, only the two spikes
+    assert robust_out["item_id"].is_unique

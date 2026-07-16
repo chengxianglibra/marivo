@@ -140,6 +140,99 @@ def score_period_shifts(
     )
 
 
+def score_point_anomalies_seasonal_robust(
+    source_df: pd.DataFrame,
+    *,
+    source_ref: str,
+    value_column: str,
+    threshold: float,
+    time_column: str | None = None,
+) -> list[dict[str, Any]]:
+    """Score point anomalies with a robust, day-of-week-stratified baseline.
+
+    Median/MAD (mean-absolute-deviation fallback) within each day-of-week
+    group resists an anomaly contaminating the baseline (masking), and
+    stratifying by day-of-week avoids flagging weekly seasonality (e.g.
+    weekend dips) that a global z-score reports as anomalies. Falls back to a
+    global robust baseline when no datetime time column is available.
+    """
+    series = source_df[value_column].astype(float)
+    has_time = (
+        bool(time_column)
+        and time_column in source_df.columns
+        and is_datetime64_any_dtype(source_df[time_column])
+    )
+    if has_time:
+        dow = source_df[time_column].dt.dayofweek
+        median = series.groupby(dow, dropna=False).transform("median")
+        dev = (series - median).abs()
+        mad = dev.groupby(dow, dropna=False).transform("median")
+        mean_ad = dev.groupby(dow, dropna=False).transform("mean")
+    else:
+        median_val = float(series.median())
+        median = pd.Series(np.full(len(series), median_val), index=series.index)
+        dev = (series - median).abs()
+        mad_val = float(dev.median())
+        mean_ad_val = float(dev.mean())
+        mad = pd.Series(np.full(len(dev), mad_val), index=dev.index)
+        mean_ad = pd.Series(np.full(len(dev), mean_ad_val), index=dev.index)
+
+    median_arr = median.to_numpy()
+    mad_arr = mad.to_numpy()
+    scale = np.where(mad_arr > 0, mad_arr, mean_ad.to_numpy())
+    scale_label = np.where(mad_arr > 0, "mad", "mean_ad")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z_values = np.where(
+            scale > 0,
+            (series.to_numpy() - median_arr) / (1.4826 * scale),
+            0.0,
+        )
+
+    time_columns = [time_column] if time_column else _detect_time_columns(source_df)
+    key_columns = [
+        col for col in source_df.columns if col != value_column and col not in time_columns
+    ]
+    baseline_window: dict[str, str] | None = None
+    if time_columns:
+        ts_col = source_df[time_columns[0]].dropna()
+        if not ts_col.empty:
+            baseline_window = {
+                "start": pd.Timestamp(ts_col.min()).isoformat(),
+                "end": pd.Timestamp(ts_col.max()).isoformat(),
+            }
+    rows: list[dict[str, Any]] = []
+    for row_index, is_candidate in enumerate(np.abs(z_values) >= threshold):
+        if not bool(is_candidate):
+            continue
+        row = source_df.iloc[row_index]
+        z = float(z_values[row_index])
+        keys = {str(col): _scalar(row[col]) for col in key_columns if pd.notna(row[col])}
+        window = _row_window(source_df, row_index, time_columns)
+        observed = float(row[value_column]) if pd.notna(row[value_column]) else None
+        baseline = float(median_arr[row_index])
+        rows.append(
+            {
+                "item_id": "",  # assigned globally below
+                "score": z,
+                "observed_value": observed,
+                "baseline_value": baseline,
+                "delta": (observed - baseline) if observed is not None else None,
+                "direction": "high" if z > 0 else "low",
+                "reason_codes": [
+                    f"robust_z={z:.2f}",
+                    f"{scale_label[row_index]}={float(scale[row_index]):.2f}",
+                ],
+                "source_refs": [f"{source_ref}#row={row_index}"],
+                "keys": keys if keys else {},
+                "window": window,
+                "baseline_window": baseline_window,
+            }
+        )
+    for index, entry in enumerate(rows):
+        entry["item_id"] = f"cand_{index}"
+    return rows
+
+
 def _segments_for_series(
     df: pd.DataFrame,
     *,
