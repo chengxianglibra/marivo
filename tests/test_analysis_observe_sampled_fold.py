@@ -248,6 +248,7 @@ def test_sampled_mean_fold_aggregates_space_then_time(sampled_bandwidth_project)
         {"province": "shanghai", "value": 90.0},
     ]
     assert frame.meta.fold["time_fold"] == "mean"
+    assert frame.meta.fold["fold_kind"] == "mean"
     assert frame.meta.fold["status_time_dimension"] == "sales.bandwidth_samples.sample_ts"
     assert frame.meta.reaggregatable is False
 
@@ -490,6 +491,116 @@ def test_decompose_allows_mean_fold_delta(sampled_bandwidth_project) -> None:
         delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
     )
     assert result.meta.attribution_kind == "decomposition"
+
+
+def _seed_partial_coverage(con):
+    """Seed bandwidth_samples where shanghai has only 6 of 12 sample slots.
+
+    beijing keeps all 12 slots (2 devices per slot -> 12 distinct sample points);
+    shanghai keeps only slots 0..5 (6 distinct sample points). This produces
+    uneven per-segment sample counts within the window: beijing coverage_ratio
+    1.0, shanghai 0.5 -> min < avg -> mean-fold attribution is approximate.
+    """
+    con.raw_sql(
+        "CREATE TABLE bandwidth_samples ("
+        "sample_id INTEGER, dt DATE, sample_ts TIMESTAMP, sample_ts_text VARCHAR, "
+        "upstream_bw DOUBLE, upstream_bw_var DOUBLE, reserved_bw DOUBLE, province VARCHAR)"
+    )
+    rows = []
+    sid = 1
+    for day in ("2026-01-01", "2026-01-02"):
+        for i in range(12):
+            minute = i * 5
+            ts = f"TIMESTAMP '{day} 00:{minute:02d}:00'"
+            ts_text = f"{day.replace('-', '')}00{minute:02d}00"
+            rows.append(
+                f"({sid}, DATE '{day}', {ts}, '{ts_text}', 100.0, "
+                f"{(i + 1) * 10.0}, 200.0, 'beijing')"
+            )
+            sid += 1
+            rows.append(f"({sid}, DATE '{day}', {ts}, '{ts_text}', 200.0, 0.0, 0.0, 'beijing')")
+            sid += 1
+            # shanghai only seeded for the first 6 slots of each day
+            if i < 6:
+                rows.append(
+                    f"({sid}, DATE '{day}', {ts}, '{ts_text}', 90.0, 0.0, 0.0, 'shanghai')"
+                )
+                sid += 1
+    con.raw_sql("INSERT INTO bandwidth_samples VALUES " + ",".join(rows))
+
+
+@pytest.fixture()
+def sampled_bandwidth_partial_coverage_project(tmp_path):
+    _bootstrap_bandwidth(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_partial_coverage(con)
+    s = session_attach.get_or_create(name="demo_partial", backends=_backends(con))
+    return s
+
+
+def _comparability_issues(frame) -> list:
+    return [
+        issue
+        for issue in frame.meta.blocking_issues
+        if issue.kind == "comparability" and issue.severity == "warning"
+    ]
+
+
+def test_decompose_mean_fold_warns_on_uneven_coverage(
+    sampled_bandwidth_partial_coverage_project,
+) -> None:
+    session = sampled_bandwidth_partial_coverage_project
+    cur = session.observe(
+        make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-02T00:00:00", "end": "2026-01-02T01:00:00"},
+        grain="hour",
+        dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
+    )
+    base = session.observe(
+        make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+        dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
+    )
+    delta = session.compare(cur, base)
+    assert delta.meta.fold["fold_kind"] == "mean"
+
+    result = session.attribute(
+        delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
+    )
+
+    issues = _comparability_issues(result)
+    assert len(issues) == 1
+    issue = issues[0]
+    assert issue.payload is not None
+    assert issue.payload["reason"] == "mean_fold_uneven_coverage"
+    assert "current_coverage_summary" in issue.payload
+    assert "baseline_coverage_summary" in issue.payload
+
+
+def test_decompose_mean_fold_no_warning_on_even_coverage(
+    sampled_bandwidth_project,
+) -> None:
+    session = sampled_bandwidth_project
+    cur = session.observe(
+        make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-02T00:00:00", "end": "2026-01-02T01:00:00"},
+        grain="hour",
+        dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
+    )
+    base = session.observe(
+        make_ref("sales.upstream_bw", SemanticKind.METRIC),
+        time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
+        grain="hour",
+        dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
+    )
+    delta = session.compare(cur, base)
+
+    result = session.attribute(
+        delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
+    )
+
+    assert _comparability_issues(result) == []
 
 
 # ---------------------------------------------------------------------------
