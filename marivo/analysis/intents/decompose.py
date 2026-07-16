@@ -11,12 +11,14 @@ import pandas as pd
 
 from marivo.analysis._capabilities.model import LiveHelpTarget
 from marivo.analysis.errors import (
+    AnalysisError,
     AnalysisRepair,
     AttributionAdditivityError,
     ComponentDecompositionError,
     CumulativeFrameUnsupportedError,
     SemanticKindMismatchError,
 )
+from marivo.analysis.followups import BlockingIssue
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.component import (
     ComponentFrame,
@@ -163,13 +165,24 @@ _NON_LINEAR_FOLD_RECOMMENDED_PATH = (
 def _non_linear_fold_labels(frame: DeltaFrame) -> list[str]:
     fold = getattr(frame.meta, "fold", None)
     component_folds = getattr(frame.meta, "component_folds", [])
-    fold_labels = [fold.get("time_fold")] if isinstance(fold, dict) else []
-    fold_labels.extend(item.get("time_fold") for item in component_folds if isinstance(item, dict))
-    return [
-        str(label)
-        for label in fold_labels
-        if label and str(label) != "derived" and not str(label).startswith("mean")
-    ]
+    entries: list[dict[str, Any]] = []
+    if isinstance(fold, dict):
+        entries.append(fold)
+    entries.extend(item for item in component_folds if isinstance(item, dict))
+    non_linear: list[str] = []
+    for entry in entries:
+        label = entry.get("time_fold")
+        if not label or str(label) == "derived":
+            continue
+        fold_kind = entry.get("fold_kind")
+        # Structured fold_kind (populated by observe): only 'mean' is linear.
+        # Legacy payload without fold_kind: only an exact 'mean' label is linear,
+        # avoiding the old startswith('mean') prefix match silently passing
+        # labels like 'mean_weighted'.
+        is_linear = (fold_kind == "mean") if fold_kind is not None else (str(label) == "mean")
+        if not is_linear:
+            non_linear.append(str(label))
+    return non_linear
 
 
 def _component_allows_non_linear_fold(component: ComponentFrame | None) -> bool:
@@ -193,6 +206,70 @@ def _raise_non_linear_fold_error(frame: DeltaFrame, fold_labels: list[str]) -> N
             "recommended_path": _NON_LINEAR_FOLD_RECOMMENDED_PATH,
         },
     )
+
+
+def _mean_fold_coverage_warning(frame: DeltaFrame, session: Session) -> list[BlockingIssue]:
+    """Warn (non-blocking) when a mean-fold delta decomposes segments whose
+    per-window sample counts differ.
+
+    Sum-of-segment-means equals overall-mean-of-sums only when every segment
+    has the same sample count; missing samples (device up/down, collection
+    gaps) make the contribution decomposition approximate. The warning is
+    best-effort: it requires the current/baseline source frames to be
+    loadable and to carry a coverage_summary (hand-built test deltas without
+    real source frames are skipped silently).
+    """
+    fold = getattr(frame.meta, "fold", None)
+    if not isinstance(fold, dict):
+        return []
+    fold_kind = fold.get("fold_kind")
+    if fold_kind is not None:
+        is_mean = fold_kind == "mean"
+    else:
+        is_mean = str(fold.get("time_fold", "")) == "mean"
+    if not is_mean:
+        return []
+
+    summaries: dict[str, dict[str, Any]] = {}
+    for side, ref in (
+        ("current", frame.meta.source_current_ref),
+        ("baseline", frame.meta.source_baseline_ref),
+    ):
+        try:
+            loaded = load_frame(ref, session=session)
+        except AnalysisError:
+            return []
+        summary = getattr(loaded.meta, "coverage_summary", None)
+        if not isinstance(summary, dict):
+            return []
+        summaries[side] = summary
+
+    def _uneven(summary: dict[str, Any]) -> bool:
+        try:
+            return float(summary["min"]) < float(summary["avg"])
+        except (TypeError, ValueError, KeyError):
+            return False
+
+    if not (_uneven(summaries["current"]) or _uneven(summaries["baseline"])):
+        return []
+
+    return [
+        BlockingIssue(
+            issue_id=f"mean_fold_uneven_coverage:{frame.ref}",
+            kind="comparability",
+            severity="warning",
+            source_refs=[frame.ref],
+            message=(
+                "mean-fold decomposition is approximate: per-segment sample "
+                "counts differ across the window"
+            ),
+            payload={
+                "reason": "mean_fold_uneven_coverage",
+                "current_coverage_summary": summaries["current"],
+                "baseline_coverage_summary": summaries["baseline"],
+            },
+        )
+    ]
 
 
 def _status_time_dimension(frame: DeltaFrame) -> str | None:
@@ -1055,6 +1132,8 @@ def decompose(
 
     component = _validate_attribution_semantics(frame, axes=axis_ids, session=session)
 
+    coverage_warnings = _mean_fold_coverage_warning(frame, session)
+
     started_at = datetime.now(UTC)
     started = monotonic()
     source_df = frame.to_pandas()
@@ -1160,6 +1239,7 @@ def decompose(
             started_at=started_at,
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
+            extra_blocking_issues=coverage_warnings,
         )
 
     if validated_mode is not None:
@@ -1214,6 +1294,7 @@ def decompose(
             started_at=started_at,
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
+            extra_blocking_issues=coverage_warnings,
         )
 
     if frame.meta.semantic_kind == "panel":
@@ -1253,6 +1334,7 @@ def decompose(
             started_at=started_at,
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
+            extra_blocking_issues=coverage_warnings,
         )
 
     output = _ordered_hierarchy_output(
@@ -1288,4 +1370,5 @@ def decompose(
         started_at=started_at,
         started_monotonic=started,
         analysis_purpose=_analysis_purpose,
+        extra_blocking_issues=coverage_warnings,
     )
