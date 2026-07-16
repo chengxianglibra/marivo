@@ -33,6 +33,7 @@ from marivo.introspection.live.model import SURFACE_LIMITS, EnvironmentFingerpri
 from marivo.introspection.live.reflect import import_registered_callable
 from marivo.introspection.live.render import render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
+from marivo.refs import SymbolKind
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -41,6 +42,35 @@ if TYPE_CHECKING:
 # datasource/semantic surfaces). Help text uses ``mv.`` throughout, so every
 # page states the import so examples run from a cold start (see issue #22).
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
+
+# Focused help pages whose examples pass a typed ref id to ``catalog.get(...)``.
+# They document the ``<kind>.<semantic_id>`` shape so agents need not reverse
+# engineer the semantic model to build a valid id (see issue #24).
+_REF_ID_FORMAT_TARGETS: frozenset[str] = frozenset({"observe", "catalog.get"})
+
+# Kind -> semantic_id structure, matching the ref subclasses in
+# ``marivo.semantic.refs`` (e.g. MetricRef("sales.revenue"),
+# DimensionRef("sales.orders.country")). The kind names come from SymbolKind.
+_REF_ID_FORMATS: tuple[tuple[SymbolKind, str], ...] = (
+    (SymbolKind.METRIC, '"metric.<domain>.<metric_name>"'),
+    (SymbolKind.DIMENSION, '"dimension.<domain>.<entity>.<dimension_name>"'),
+    (SymbolKind.TIME_DIMENSION, '"time_dimension.<domain>.<entity>.<dimension_name>"'),
+    (SymbolKind.MEASURE, '"measure.<domain>.<entity>.<measure_name>"'),
+    (SymbolKind.ENTITY, '"entity.<domain>.<entity_name>"'),
+    (SymbolKind.DOMAIN, '"domain.<domain_name>"'),
+)
+
+
+def _ref_id_format_lines() -> list[str]:
+    width = max(len(kind.value) for kind, _ in _REF_ID_FORMATS)
+    rows = [f"    {kind.value:<{width}}  {template}" for kind, template in _REF_ID_FORMATS]
+    return [
+        "",
+        "  Ref ID format:",
+        '    catalog.get(id) accepts "<kind>.<semantic_id>". Common kinds:',
+        *rows,
+    ]
+
 
 # ---------------------------------------------------------------------------
 # Budget and fingerprint helpers
@@ -497,6 +527,10 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
                     cleaned_lines.append(f"    {ex_line}")
             for cl in cleaned_lines:
                 lines.append(cl)
+
+    # Ref id format (only for pages whose examples rely on catalog.get("<kind>.<id>"))
+    if desc.help_target in _REF_ID_FORMAT_TARGETS:
+        lines.extend(_ref_id_format_lines())
 
     # Constraints
     constraints = _constraints_for_descriptor(desc)
