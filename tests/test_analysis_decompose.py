@@ -734,6 +734,92 @@ def test_decompose_allows_semi_additive_delta_over_spatial_axis() -> None:
     assert out.to_pandas()["contribution"].sum() == pytest.approx(8.0)
 
 
+def test_decompose_fold_kind_treats_mean_prefixed_label_as_non_linear() -> None:
+    """A fold whose structured fold_kind is not 'mean' must be rejected even
+    when its time_fold label starts with 'mean' (regression for the old
+    startswith('mean') prefix match)."""
+    from marivo.analysis.errors import ComponentDecompositionError
+
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US", "CN"], "delta": [10.0, -2.0]}),
+        semantic_kind="segmented",
+        additivity="semi_additive",
+        aggregation="sum",
+        status_time_dimension="sales.orders.status_at",
+        fold={
+            "time_fold": "mean_weighted",
+            "fold_kind": "mean_weighted",
+            "status_time_dimension": "sales.orders.status_at",
+        },
+    )
+
+    with pytest.raises(ComponentDecompositionError) as exc_info:
+        decompose(
+            frame,
+            axis=make_ref("region", SemanticKind.DIMENSION),
+            session=session,
+        )
+
+    assert exc_info.value._context["reason"] == "non_linear_time_fold"
+    assert exc_info.value._context["time_folds"] == ["mean_weighted"]
+
+
+def test_decompose_fold_kind_mean_is_linear_over_spatial_axis() -> None:
+    """A structured fold_kind='mean' delta is linear and decomposes by axis."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US", "CN"], "delta": [10.0, -2.0]}),
+        semantic_kind="segmented",
+        additivity="semi_additive",
+        aggregation="sum",
+        status_time_dimension="sales.orders.status_at",
+        fold={
+            "time_fold": "mean",
+            "fold_kind": "mean",
+            "status_time_dimension": "sales.orders.status_at",
+        },
+    )
+
+    out = decompose(
+        frame,
+        axis=make_ref("region", SemanticKind.DIMENSION),
+        session=session,
+    )
+
+    assert out.meta.method == "ordered_hierarchy_sum"
+    assert out.to_pandas()["contribution"].sum() == pytest.approx(8.0)
+
+
+def test_decompose_legacy_fold_payload_without_fold_kind_still_classified() -> None:
+    """A legacy fold payload lacking fold_kind falls back to the time_fold label:
+    'mean' is linear, a percentile label is non-linear."""
+    from marivo.analysis.errors import ComponentDecompositionError
+
+    session = session_attach.get_or_create(name="demo")
+    non_linear = _delta(
+        session,
+        pd.DataFrame({"region": ["US"], "delta": [10.0]}),
+        semantic_kind="segmented",
+        additivity="semi_additive",
+        aggregation="sum",
+        status_time_dimension="sales.orders.status_at",
+        fold={
+            "time_fold": "percentile(0.95)",
+            "status_time_dimension": "sales.orders.status_at",
+        },
+    )
+    with pytest.raises(ComponentDecompositionError) as exc_info:
+        decompose(
+            non_linear,
+            axis=make_ref("region", SemanticKind.DIMENSION),
+            session=session,
+        )
+    assert exc_info.value._context["reason"] == "non_linear_time_fold"
+
+
 def test_decompose_rejects_semi_additive_delta_over_status_time_axis() -> None:
     session = session_attach.get_or_create(name="demo")
     status_time = "sales.orders.status_at"

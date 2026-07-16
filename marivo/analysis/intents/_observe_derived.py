@@ -501,6 +501,7 @@ def _build_fold_meta(metric_ir: Any, catalog: Any) -> dict[str, Any]:
             sample_interval_token_val = sample_interval_token(si)
     return {
         "time_fold": metric_ir.time_fold.label(),
+        "fold_kind": getattr(metric_ir.time_fold, "kind", None),
         "status_time_dimension": metric_ir.status_time_dimension,
         "sample_interval": sample_interval_token_val,
     }
@@ -517,6 +518,7 @@ def _build_derived_fold_meta(derived_plan: DerivedObservePlan, catalog: Any) -> 
         fold_entry: dict[str, Any] = {
             "component_metric_id": cp_ir.semantic_id,
             "time_fold": cp_ir.time_fold.label(),
+            "fold_kind": getattr(cp_ir.time_fold, "kind", None),
             "status_time_dimension": cp_ir.status_time_dimension,
         }
         component_folds.append(fold_entry)
