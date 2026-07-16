@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 from typing import Literal
 
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
@@ -26,6 +28,53 @@ _ROOT_GROUP_LABELS = {
 
 def _target_text(target: LiveHelpTarget) -> str:
     return f"{target.surface}.{target.canonical_id}"
+
+
+def _call_name(node: ast.expr) -> str | None:
+    parts: list[str] = []
+    current = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not isinstance(current, ast.Name):
+        return None
+    parts.append(current.id)
+    return ".".join(reversed(parts))
+
+
+def _validate_minimal_example_signature(
+    *, example: str, public_entrypoint: str, callable_obj: object
+) -> None:
+    tree = ast.parse(example)
+    matching_calls = tuple(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _call_name(node.func) == public_entrypoint
+    )
+    assert len(matching_calls) == 1, (
+        f"minimal example must call {public_entrypoint!r} exactly once: {example}"
+    )
+
+    call = matching_calls[0]
+    assert all(not isinstance(argument, ast.Starred) for argument in call.args), (
+        f"minimal example must not use starred positional arguments: {example}"
+    )
+    assert all(keyword.arg is not None for keyword in call.keywords), (
+        f"minimal example must not use expanded keyword arguments: {example}"
+    )
+    assert callable(callable_obj)
+    signature = inspect.signature(callable_obj)
+    positional: list[object] = [object() for _ in call.args]
+    parameters = tuple(signature.parameters.values())
+    if parameters and parameters[0].name in {"self", "cls"}:
+        positional.insert(0, object())
+    keywords = {keyword.arg: object() for keyword in call.keywords if keyword.arg is not None}
+    try:
+        signature.bind(*positional, **keywords)
+    except TypeError as exc:
+        raise AssertionError(
+            f"minimal example for {public_entrypoint!r} does not match {signature}: {example}"
+        ) from exc
 
 
 def _focused_budget_text(canonical_id: str) -> str:
@@ -99,6 +148,12 @@ def validate_semantic_live_surface() -> None:
             assert REGISTRY.by_callable(callable_obj) is descriptor
             assert descriptor.minimal_example is not None
             assert "..." not in descriptor.minimal_example
+            assert descriptor.public_entrypoint is not None
+            _validate_minimal_example_signature(
+                example=descriptor.minimal_example,
+                public_entrypoint=descriptor.public_entrypoint,
+                callable_obj=callable_obj,
+            )
 
     group_names: tuple[
         Literal[

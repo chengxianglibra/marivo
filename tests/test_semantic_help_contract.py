@@ -110,6 +110,30 @@ def test_help_text_aggregate_contains_measure_parameter() -> None:
     assert "measure" in text
 
 
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("relationship", "keys=[ms.join_on(order_customer_id, customer_id)]"),
+        ("join_on", "ms.join_on(order_customer_id, customer_id)"),
+        ("snapshot", "partition_field=snapshot_date, grain='day'"),
+        ("validity", "valid_from=valid_from, valid_to=valid_to"),
+        ("semi_additive", "over=snapshot_date, fold='last'"),
+        ("verify_object", "catalog.verify_object(revenue.ref)"),
+        ("preview", "catalog.preview(revenue.ref, using=orders_snapshot)"),
+    ],
+)
+def test_help_examples_use_typed_refs_and_required_evidence(target: str, expected: str) -> None:
+    assert expected in ms.help_text(target)
+
+
+def test_time_dimension_column_help_inlines_parse_selection() -> None:
+    text = ms.help_text("time_dimension_column")
+    assert "parse=ms.strptime('%Y%m%d')" in text
+    assert "string/integer columns require ms.strptime(...)" in text
+    assert "hour-only columns require ms.hour_prefix(...)" in text
+    assert "naive datetime/timestamp columns require an explicit timezone-bearing parse" in text
+
+
 # ---------------------------------------------------------------------------
 # Type help
 # ---------------------------------------------------------------------------

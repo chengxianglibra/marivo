@@ -376,9 +376,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "time_dimension_dtype_advisory",
         "assembly",
         ("time_dimension",),
-        "Time dimension data_type declarations must be compatible with the body expression's ibis dtype.",
-        "A mismatch between declared data_type and the actual ibis expression dtype causes TypeError at execution.",
-        "Ensure the .cast() target in the body matches the declared data_type: .cast('date') → data_type='date'; .cast('timestamp') or raw timestamp column → data_type='datetime' or 'timestamp'.",
+        "Native date and timezone-aware datetime/timestamp columns may omit parse; "
+        "string/integer columns require ms.strptime(...), hour-only columns require "
+        "ms.hour_prefix(...), and naive datetime/timestamp columns require an explicit "
+        "timezone-bearing parse.",
+        "Deferred parse resolves only native temporal ibis types; encoded time values need "
+        "explicit parse metadata, and naive native timestamps need a declared source timezone.",
+        "Use ms.strptime(format, ...) for string/integer columns, ms.hour_prefix(prefix, ...) "
+        "for hour-only columns, and ms.datetime(timezone=...) or ms.timestamp(timezone=...) "
+        "for naive native temporal columns.",
     ),
     ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE: _constraint(
         ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE,
