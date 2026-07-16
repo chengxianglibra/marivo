@@ -45,6 +45,7 @@ SQL parity 状态。它不检查 GitHub/GitLab 审批状态，也不做审计审
 | --- | --- | --- |
 | `catalog.verify_object(obj)` | 静态 object validation | 否 |
 | `catalog.preview(obj, using=snapshot)` | 执行 scoped runtime smoke check，只记录 metadata，不持久化 rows | 是 |
+| `catalog.preview(refs=[...], using=snapshot_or_mapping)` | 合并兼容的 runtime smoke checks，同时按 ref 分别记录 evidence | 是 |
 | `catalog.readiness(refs=[revenue])` | 读取 matching verification/preview evidence | 否 |
 | `ms.parity_check(ref)` | 可选且 potentially unbounded 的 metric/provenance SQL diagnostic | 是 |
 | `ms.richness()` | 关于覆盖度/深度的建议性报告；从不 block | 否 |
@@ -65,6 +66,7 @@ Snapshot 和 preview 时间戳只作为参考信息；仅仅时间较旧不会 b
 | `blockers` | `tuple[ReadinessIssue, ...]` | 阻止所选 refs 完成认证的问题。 |
 | `warnings` | `tuple[ReadinessIssue, ...]` | 不会 block 的建议性问题。 |
 | `analysis_ready_refs` | `tuple[str, ...]` | 通过当前认证契约的 refs。 |
+| `preview_required_refs` | `tuple[SemanticRef, ...]` | 缺少 matching runtime preview evidence 的 typed executable refs。 |
 | `input_summary` | `ReadinessInputSummary` | 检查了什么：datasources、refs、tables。 |
 | `checked_at` | `str` | 检查的 ISO-8601 时间戳。 |
 | `analysis_handoff` | `SemanticToAnalysisHandoff \| None` | 指向 analysis 接面的类型化 handoff；blocked 或没有 ready ref 时为 `None`。 |
@@ -83,8 +85,10 @@ Snapshot 和 preview 时间戳只作为参考信息；仅仅时间较旧不会 b
 | `message` | 期望是什么、实际是什么。 |
 | `repair` | 类型化的 `AuthoringRepair \| None`，包含 `action`、`help_target`、可选的 `snippet` 与 `candidates` —— 即具体的下一步及其契约的查阅位置。 |
 
-`report.show()` 打印一张有界卡片；`report.to_dict()` 返回完整的机器可读列表，便于程序化处理；
-`report.contract()` 返回机械式续行契约，包括 refs 通过认证时的 `analysis_handoff` 转移。
+`report.show()` 会把多个 `runtime_preview_missing` blocker 合并成一条 batch repair 提示，
+同时 `report.blockers` 仍保留逐 ref 细节；`report.to_dict()` 返回完整机器可读列表；
+`report.contract()` 在缺失 preview evidence 时暴露一个 batch `preview` transition，并在
+refs 通过认证时暴露 `analysis_handoff` transition。
 
 ## 问题种类
 
@@ -110,9 +114,13 @@ datasources）：
 ```python
 revenue = catalog.get("metric.sales.revenue")
 report = catalog.readiness(refs=[revenue])
-for issue in report.blockers:
-    print(issue.kind, issue.refs, "→", issue.repair.action if issue.repair else "")
+if report.preview_required_refs:
+    catalog.preview(refs=report.preview_required_refs, using=orders_snapshot)
+    report = catalog.readiness(refs=[revenue])
 ```
+
+Batch preview 会在连接前校验全部 bindings，合并兼容的 entity/field/measure 与 metric
+执行计划，并继续为每个 ref 记录独立、精确的 preview check。Entity preview 不会认证其 children。
 
 使用该 report 完成 semantic changes 的 closeout，或满足更严格 workflow 的认证要求。日常分析
 不会自动调用它。关于分析如何记录结论，参见 [证据链](/zh-cn/latest/concepts/evidence/)。

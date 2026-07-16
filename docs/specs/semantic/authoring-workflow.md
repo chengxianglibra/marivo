@@ -262,6 +262,10 @@ treats any `unverified` metric (including via derived propagation) as a failure.
   enforces verify-before-preview as policy.
 - **`catalog.preview(obj, using=snapshot)`** is the explicit scoped runtime gate;
   multi-entity objects use an exact entity-keyed snapshot mapping.
+- **`catalog.preview(refs=report.preview_required_refs, using=...)`** is the
+  canonical readiness-repair path when several already-authored objects lack
+  preview evidence. It batches compatible execution plans but persists exact
+  evidence per object; it does not replace the one-object authoring loop.
 - **`catalog.readiness(refs=[obj])`** is the final zero-query closeout gate. It
   reads matching static and runtime-check evidence, enforces preview evidence
   for executable families, and never refreshes automatically. Evidence age is

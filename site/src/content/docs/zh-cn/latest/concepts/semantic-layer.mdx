@@ -800,3 +800,7 @@ Uncommon formats、keys、timezone、aggregation、unit、additivity、relations
 写完一个 Python declaration 后，加载 typed catalog object，依次运行
 `catalog.verify_object(obj)`、`catalog.preview(obj, using=snapshot)` 和零查询
 `catalog.readiness(refs=[obj])`。
+
+当 readiness 报告多个 runtime preview 缺失时，仍通过同一个入口修复：
+`catalog.preview(refs=report.preview_required_refs, using=snapshot_or_mapping)`。
+它会合并兼容查询，但仍为每个 ref 保留独立 evidence；这不是 batch authoring 捷径。

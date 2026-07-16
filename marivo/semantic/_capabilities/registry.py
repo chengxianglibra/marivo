@@ -89,6 +89,8 @@ OUTPUT_FAMILIES = frozenset(
         "SemanticCatalog",
         "CatalogObject",
         "VerifyResult",
+        "PreviewBatchResult",
+        "PreviewResult | PreviewBatchResult",
         "ReadinessReport",
         "RichnessReport",
         "ParityResult",
@@ -632,17 +634,21 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "preview",
             "marivo.semantic.catalog.SemanticCatalog.preview",
-            "Run a scoped data preview for one semantic object.",
+            "Run scoped data previews for one semantic object or an explicit batch.",
             kind="method",
-            output="None",
-            inputs=_inputs(
-                ("receiver", "SemanticCatalog"),
-                ("subject", "CatalogObject"),
-                ("evidence", "DiscoverySnapshot"),
+            output="PreviewResult | PreviewBatchResult",
+            inputs=(
+                AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
+                AuthoringInputRequirement(
+                    role="subject", family="CatalogObject", min_count=1, max_count=None
+                ),
+                AuthoringInputRequirement(
+                    role="evidence", family="DiscoverySnapshot", min_count=1, max_count=None
+                ),
             ),
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
-            example="catalog.preview(revenue.ref, using=orders_snapshot)",
+            example="catalog.preview(refs=report.preview_required_refs, using=orders_snapshot)",
             preconditions=("semantic.loaded",),
             produced_state="semantic.previewed",
             required_states=_states("semantic.loaded"),
@@ -828,7 +834,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         TimeDimension,
         TimeDimensionDetails,
     )
-    from marivo.semantic.dtos import VerifyResult
+    from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
     from marivo.semantic.ir import JoinKey, SqlProvenance
     from marivo.semantic.parity import ParityResult
     from marivo.semantic.readiness import (
@@ -1009,9 +1015,18 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         state_bearing=True,
     )
     add(
+        PreviewBatchResult,
+        "PreviewBatchResult",
+        ("preview",),
+        properties=("status", "refs", "results"),
+        methods=("show", "contract", "render"),
+        state_bearing=True,
+    )
+    add(
         ReadinessReport,
         "ReadinessReport",
         ("readiness",),
+        properties=("preview_required_refs",),
         methods=("show", "contract", "render"),
         state_bearing=True,
     )

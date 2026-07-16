@@ -82,6 +82,7 @@ def test_all_list_matches_expected() -> None:
         "MetricDetails",
         "MetricRef",
         "ParityResult",
+        "PreviewBatchResult",
         "ReadinessIssue",
         "ReadinessInputSummary",
         "ReadinessReport",

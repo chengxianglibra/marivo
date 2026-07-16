@@ -28,6 +28,7 @@ from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult, result_repr
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringAssessment,
+    PreviewBatchResult,
     VerifyResult,
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
@@ -106,6 +107,10 @@ def _preview_result() -> PreviewResult:
             cache_status="fresh",
         ),
     )
+
+
+def _preview_batch_result() -> PreviewBatchResult:
+    return PreviewBatchResult(results=(_preview_result(),))
 
 
 def _datasource_description() -> DatasourceDescription:
@@ -242,6 +247,7 @@ def _richness_report() -> RichnessReport:
 
 TERMINAL_BUILDERS: list = [
     pytest.param(_preview_result, id="PreviewResult"),
+    pytest.param(_preview_batch_result, id="PreviewBatchResult"),
     pytest.param(_datasource_description, id="DatasourceDescription"),
     pytest.param(_datasource_list, id="DatasourceList"),
     pytest.param(_datasource_summary, id="DatasourceSummary"),
@@ -286,6 +292,18 @@ def test_preview_result_renders_shared_card_shape() -> None:
             "available:",
             "- .render()",
             "- .show()",
+        ]
+    )
+
+    assert _preview_batch_result().render() == "\n".join(
+        [
+            "PreviewBatchResult status=passed refs=1",
+            "previews (1):",
+            "- sales.orders: semantic_dataset, rows=1, warnings=0",
+            "available:",
+            "- .results",
+            "- .refs",
+            "- .contract()",
         ]
     )
 
@@ -393,6 +411,8 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "available:",
             "- .render()",
             "- .to_dict()",
+            "- .contract()",
+            "- .preview_required_refs",
         ]
     )
     assert _richness_report().render() == "\n".join(

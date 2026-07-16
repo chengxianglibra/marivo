@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo._authoring.model import AuthoringContract
+from marivo.preview import PreviewResult
 from marivo.render import Card, RenderableResult
 from marivo.semantic.ir import (
     CsvSourceIR,
@@ -177,3 +178,46 @@ class VerifyResult(RenderableResult):
         from marivo.semantic._capabilities.contracts import contract_for_verify_result
 
         return contract_for_verify_result(self.ref)
+
+
+@dataclass(frozen=True, repr=False)
+class PreviewBatchResult(RenderableResult):
+    """Successful bounded previews for an explicitly requested ref batch."""
+
+    results: tuple[PreviewResult, ...]
+    status: Literal["passed"] = "passed"
+
+    @property
+    def refs(self) -> tuple[str, ...]:
+        """Return previewed semantic refs in caller-supplied order."""
+        return tuple(result.ref for result in self.results)
+
+    def _repr_identity(self) -> str:
+        return f"PreviewBatchResult status={self.status} refs={len(self.results)}"
+
+    def _card(self) -> Card:
+        return Card(
+            identity=self._repr_identity(),
+            available=(".results", ".refs", ".contract()"),
+        ).listing(
+            label=f"previews ({len(self.results)})",
+            items=tuple(
+                f"{result.ref}: {result.kind}, rows={result.returned_row_count}, "
+                f"warnings={len(result.warnings)}"
+                for result in self.results
+            ),
+        )
+
+    def contract(self) -> AuthoringContract:
+        """Return the query-free readiness continuation for this batch.
+
+        Returns
+        -------
+        AuthoringContract
+            Normalized contract scoped to every successfully previewed ref.
+        """
+        from marivo.semantic._capabilities.contracts import (
+            contract_for_preview_batch_result,
+        )
+
+        return contract_for_preview_batch_result(self.refs)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime
 from enum import Enum
@@ -33,6 +33,7 @@ from marivo.semantic.ir import (
     SemiAdditive,
     composition_components,
 )
+from marivo.semantic.refs import EntityRef
 
 if TYPE_CHECKING:
     from marivo.semantic.catalog import Entity
@@ -796,6 +797,114 @@ def normalize_preview_bindings(
         semantic_fingerprint=_fingerprint(semantic_payload),
         dependency_fingerprint=_fingerprint(dependencies),
     )
+
+
+def normalize_preview_batch_bindings(
+    *,
+    refs: Sequence[tuple[str, SymbolKind]],
+    using: PreviewUsing,
+    registry: Registry,
+    sidecar: Sidecar,
+    project_root: Path,
+) -> tuple[NormalizedPreviewBindings, ...]:
+    """Validate one exact snapshot binding set for a semantic ref batch."""
+    batch_refs = tuple(ref for ref, _kind in refs)
+    entity_ids = tuple(
+        dict.fromkeys(
+            entity_id
+            for ref, kind in refs
+            for entity_id in _dependency_entities(ref, kind, registry)
+        )
+    )
+    if not entity_ids:
+        _raise(
+            ErrorKind.MATERIALIZE_FAILED,
+            "catalog.preview(refs=...) requires at least one executable semantic ref.",
+            cls=SemanticRuntimeError,
+            refs=batch_refs,
+            details={"query_executed": False},
+        )
+
+    by_entity: dict[str, DiscoverySnapshot]
+    if len(entity_ids) == 1:
+        if not isinstance(using, DiscoverySnapshot):
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "A batch with one dependency entity requires one DiscoverySnapshot in using=.",
+                cls=SemanticRuntimeError,
+                refs=batch_refs,
+                details={"query_executed": False, "received_type": type(using).__name__},
+            )
+        by_entity = {entity_ids[0]: using}
+    else:
+        if not isinstance(using, Mapping):
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "A batch with multiple dependency entities requires a Mapping keyed by Entity or entity SemanticRef.",
+                cls=SemanticRuntimeError,
+                refs=batch_refs,
+                details={"query_executed": False, "received_type": type(using).__name__},
+            )
+        by_entity = {}
+        for key, snapshot in using.items():
+            entity_id = _normalize_mapping_key(key, preview_ref=batch_refs[0])
+            if not isinstance(snapshot, DiscoverySnapshot):
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    "Batch preview Mapping values must be DiscoverySnapshot instances.",
+                    cls=SemanticRuntimeError,
+                    refs=batch_refs,
+                    details={
+                        "query_executed": False,
+                        "entity": entity_id,
+                        "received_type": type(snapshot).__name__,
+                    },
+                )
+            if entity_id in by_entity:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Batch preview repeats entity binding {entity_id!r}.",
+                    cls=SemanticRuntimeError,
+                    refs=batch_refs,
+                    details={"query_executed": False},
+                )
+            by_entity[entity_id] = snapshot
+        if set(by_entity) != set(entity_ids):
+            missing = tuple(entity_id for entity_id in entity_ids if entity_id not in by_entity)
+            extra = tuple(entity_id for entity_id in by_entity if entity_id not in entity_ids)
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "Batch preview Mapping must cover exactly the dependency entities.",
+                cls=SemanticRuntimeError,
+                refs=batch_refs,
+                details={
+                    "query_executed": False,
+                    "missing": missing,
+                    "unrelated": extra,
+                },
+            )
+
+    normalized: list[NormalizedPreviewBindings] = []
+    for ref, kind in refs:
+        dependency_entities = _dependency_entities(ref, kind, registry)
+        ref_using: PreviewUsing
+        if len(dependency_entities) == 1:
+            ref_using = by_entity[dependency_entities[0]]
+        else:
+            ref_using = {
+                EntityRef(entity_id): by_entity[entity_id] for entity_id in dependency_entities
+            }
+        normalized.append(
+            normalize_preview_bindings(
+                ref=ref,
+                kind=kind,
+                using=ref_using,
+                registry=registry,
+                sidecar=sidecar,
+                project_root=project_root,
+            )
+        )
+    return tuple(normalized)
 
 
 def persist_preview_check(
