@@ -899,8 +899,8 @@ def test_readiness_render_surfaces_repair_fix_hints(
     )
 
 
-def test_readiness_ready_with_warnings_renders_handoff_decision() -> None:
-    """A ready_with_warnings report must render an explicit handoff decision."""
+def test_readiness_ready_with_warnings_renders_direct_ready_refs() -> None:
+    """A ready_with_warnings report must render its directly consumable refs."""
     report = ReadinessReport(
         status="ready_with_warnings",
         analysis_ready_refs=("sales.total_amount",),
@@ -927,8 +927,8 @@ def test_readiness_ready_with_warnings_renders_handoff_decision() -> None:
     )
 
     text = report.render()
-    assert "handoff" in text.lower()
     assert "ready_with_warnings" in text
+    assert "analysis_ready: sales.total_amount" in text
 
 
 def test_missing_business_definition_repair_mentions_ai_context(

@@ -44,10 +44,9 @@ forbidden_modules =
     marivo.semantic
     marivo.analysis
     marivo._authoring
-    marivo._boundaries
 
 [importlinter:contract:authoring-is-private-domain-kernel]
-name = _authoring must not depend on surfaces or boundary protocols
+name = _authoring must not depend on surfaces
 type = forbidden
 source_modules =
     marivo._authoring
@@ -55,15 +54,3 @@ forbidden_modules =
     marivo.datasource
     marivo.semantic
     marivo.analysis
-    marivo._boundaries
-
-[importlinter:contract:boundaries-are-surface-neutral]
-name = _boundaries must not depend on surfaces or authoring
-type = forbidden
-source_modules =
-    marivo._boundaries
-forbidden_modules =
-    marivo.datasource
-    marivo.semantic
-    marivo.analysis
-    marivo._authoring

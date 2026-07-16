@@ -85,7 +85,7 @@ def test_semantic_catalog_contract_exposes_browse_load(
     assert "preview" not in kinds
 
 
-def test_readiness_report_contract_exposes_handoff_for_ready_refs() -> None:
+def test_readiness_report_keeps_ready_refs_without_analysis_transition() -> None:
     from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
 
     report = ReadinessReport(
@@ -101,12 +101,11 @@ def test_readiness_report_contract_exposes_handoff_for_ready_refs() -> None:
         checked_at="2026-07-14T00:00:00Z",
     )
     contract = report.contract()
-    ready_transitions = [t for t in contract.transitions if t.kind == "analysis_handoff"]
-    assert len(ready_transitions) == 1
-    assert ready_transitions[0].available
+    assert report.analysis_ready_refs == ("metric.sales.revenue",)
+    assert contract.transitions == ()
 
 
-def test_readiness_report_contract_blocks_handoff_when_blocked() -> None:
+def test_readiness_report_contract_does_not_invent_analysis_transition_when_blocked() -> None:
     from marivo.semantic.readiness import (
         ReadinessInputSummary,
         ReadinessIssue,
@@ -133,6 +132,4 @@ def test_readiness_report_contract_blocks_handoff_when_blocked() -> None:
         checked_at="2026-07-14T00:00:00Z",
     )
     contract = report.contract()
-    handoff = [t for t in contract.transitions if t.kind == "analysis_handoff"]
-    assert len(handoff) == 1
-    assert not handoff[0].available
+    assert contract.transitions == ()

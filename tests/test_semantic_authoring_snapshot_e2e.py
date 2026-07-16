@@ -143,7 +143,7 @@ def _acquire_secret_backed_snapshot(
     return secure_snapshot
 
 
-def test_real_duckdb_authoring_snapshot_reaches_analysis_handoff(
+def test_real_duckdb_authoring_snapshot_reaches_analysis_ready_refs(
     authoring_evidence_project: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -164,11 +164,11 @@ def test_real_duckdb_authoring_snapshot_reaches_analysis_handoff(
     assert readiness.status in {"ready", "ready_with_warnings"}
     assert not readiness.blockers
 
-    session = mv.session.get_or_create(name="authoring-handoff")
-    handoff_readiness = session.catalog.readiness(refs=[revenue.ref])
-    assert handoff_readiness.status in {"ready", "ready_with_warnings"}
-    assert not handoff_readiness.blockers
-    assert revenue.ref.id in handoff_readiness.analysis_ready_refs
+    session = mv.session.get_or_create(name="authoring-readiness")
+    session_readiness = session.catalog.readiness(refs=[revenue.ref])
+    assert session_readiness.status in {"ready", "ready_with_warnings"}
+    assert not session_readiness.blockers
+    assert revenue.ref.id in session_readiness.analysis_ready_refs
     secure_snapshot = _acquire_secret_backed_snapshot(authoring_evidence_project, monkeypatch)
     assert secure_snapshot.id != snapshot.id
     _assert_private_authoring_json(

@@ -80,7 +80,6 @@ TransitionKind = Literal[
     "verify",
     "preview",
     "readiness",
-    "analysis_handoff",
 ]
 TransitionInputRole = Literal[
     "receiver",

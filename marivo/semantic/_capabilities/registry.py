@@ -656,7 +656,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             public_entrypoint="catalog.preview",
         ),
         # ------------------------------------------------------------------
-        # readiness_handoff
+        # readiness
         # ------------------------------------------------------------------
         _capability(
             "readiness",
@@ -674,18 +674,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             produced_state="semantic.ready",
             required_states=_states("semantic.loaded"),
             public_entrypoint="catalog.readiness",
-        ),
-        _capability(
-            "analysis_handoff",
-            None,
-            "Handoff of ready semantic refs to the analysis surface.",
-            kind="boundary",
-            output=None,
-            effects=_NONE,
-            see_also=(
-                _target("readiness"),
-                LiveHelpTarget(surface="analysis", canonical_id="help"),
-            ),
         ),
         # ------------------------------------------------------------------
         # diagnostics_boundaries
@@ -791,7 +779,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "trailing",
             ),
             "verify_preview": ("verify_object", "preview"),
-            "readiness_handoff": ("readiness", "analysis_handoff"),
+            "readiness": ("readiness",),
             "diagnostics_boundaries": ("richness", "parity_check", "help", "help_text"),
         }
     )

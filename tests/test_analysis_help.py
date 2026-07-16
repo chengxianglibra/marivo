@@ -333,7 +333,7 @@ def test_error_instance_help_shows_concrete_repair() -> None:
     assert "repair" in text.lower() or "action" in text.lower()
     # The concrete repair action should be present.
     assert (
-        "retry" in text.lower() or "semantic_handoff" in text.lower() or "inspect" in text.lower()
+        "retry" in text.lower() or "semantic_authoring" in text.lower() or "inspect" in text.lower()
     )
 
 

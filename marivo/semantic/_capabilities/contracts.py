@@ -267,24 +267,22 @@ def contract_for_readiness_report(
     analysis_ready_refs: tuple[str, ...],
     blockers: tuple[ReadinessBlocker, ...],
 ) -> AuthoringContract:
-    """Expose analysis handoff transitions for ready and blocked refs.
+    """Expose semantic repair transitions for a readiness report.
 
     Parameters
     ----------
     analysis_ready_refs:
         Semantic refs that passed readiness certification.
     blockers:
-        Readiness issues blocking handoff. Each blocker must expose ``.refs``
+        Readiness issues blocking analysis. Each blocker must expose ``.refs``
         and ``.kind`` attributes.
 
     Returns
     -------
     AuthoringContract
-        A normalized contract with ``analysis_handoff`` transitions: one
-        available transition per ready ref, and one blocked transition per
-        ref on each blocker.
+        A normalized contract containing any mechanically valid semantic
+        repair transitions. Ready refs are carried by the report itself.
     """
-    analysis_target = LiveHelpTarget(surface="analysis", canonical_id="boundary.semantic_handoff")
     transitions: list[AuthoringTransition] = []
     preview_refs = tuple(
         dict.fromkeys(
@@ -320,36 +318,6 @@ def contract_for_readiness_report(
                 ),
             )
         )
-    for ref in analysis_ready_refs:
-        transitions.append(
-            _transition(
-                "analysis_handoff",
-                kind="analysis_handoff",
-                subject_refs=(ref,),
-                produced_state=_state("semantic.ready", (ref,)),
-                available=True,
-                input_requirements=(
-                    AuthoringInputRequirement(
-                        role="subject",
-                        family="SemanticRef",
-                        subject_refs=(ref,),
-                    ),
-                ),
-                help_target=analysis_target,
-            )
-        )
-    for blocker in blockers:
-        for ref in blocker.refs:
-            transitions.append(
-                _transition(
-                    "analysis_handoff",
-                    kind="analysis_handoff",
-                    subject_refs=(ref,),
-                    available=False,
-                    blocked_by=(blocker.kind,),
-                    help_target=analysis_target,
-                )
-            )
     return _normalize_contract(
         AuthoringContract(
             subject_refs=tuple(analysis_ready_refs),

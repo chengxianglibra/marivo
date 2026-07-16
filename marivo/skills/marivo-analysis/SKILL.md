@@ -21,7 +21,7 @@ general data-analysis questions that do not use Marivo.
 ## Mission and authority
 
 This skill is a **boundary protocol**, not a manual, tutorial, or analysis
-planner. It protects Marivo-specific semantic, evidence, state, and handoff
+planner. It protects Marivo-specific semantic, evidence, state, and routing
 boundaries. It does not describe how to perform an analysis, which operators
 to call, or how to interpret results.
 
@@ -99,23 +99,22 @@ Missing business semantics return to semantic authoring; runtime
 capability gaps remain custom terminal work until modeled explicitly.
 One-off analysis code must not absorb another layer's responsibility.
 
-## Handoffs
+## Routing
 
-| Condition | Handoff |
+| Condition | Route |
 | --- | --- |
 | A required business object is missing or must change | `marivo-semantic` |
-| Semantic authoring returns ready refs | Route `ReadinessReport.analysis_handoff` (`SemanticToAnalysisHandoff`) to the registered `boundary.semantic_handoff` receiver (`Session.validate_semantic_handoff`); analysis consumes the handed-off refs only after a `SemanticHandoffReceipt` is returned |
+| Semantic authoring returns ready refs | Read the current `ReadinessReport`; after blockers are cleared and warnings are disclosed, consume only `analysis_ready_refs` through the ordinary analysis APIs |
 | The task needs terminal custom analysis | `md.raw_sql(...)` or `frame.to_pandas()` (terminal; cannot re-enter typed analysis) |
 | The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
 | The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
 
-A missing or changed semantic object produces an `AnalysisRepair(kind="semantic_handoff")`
-carrying an `AnalysisToSemanticHandoff`. The skill transfers that typed payload
-to `marivo-semantic` and does not reconstruct it from conversation memory or
-add a broader catalog-cleanup request. The returning handoff is mechanically
-validated by the analysis boundary before routing resumes; the
-`SemanticHandoffReceipt` does not select an operator or record warning
-acceptance.
+A missing or changed semantic object produces an
+`AnalysisRepair(kind="semantic_authoring")`. The skill follows that repair's
+semantic help target and concrete action without reconstructing the requirement
+from conversation memory or adding a broader catalog-cleanup request. After the
+smallest required semantic change passes explicit readiness, analysis resumes
+with the report's current `analysis_ready_refs`.
 
 ## Boundary-violation behavior
 
@@ -123,7 +122,7 @@ The skill does not provide fallback implementations.
 
 | Situation | Required behavior |
 | --- | --- |
-| Missing or ambiguous semantic object | Distinguish invalid lookup from genuine absence; for genuine absence stop the affected branch and transfer the typed semantic-authoring handoff |
+| Missing or ambiguous semantic object | Distinguish invalid lookup from genuine absence; for genuine absence stop the affected branch and follow the structured semantic-authoring repair |
 | Invalid API, shape, parameter, or operator | Follow the current structured error and live help; do not use a skill-cached workaround |
 | Result-impacting blocker | Repair it, weaken the conclusion explicitly, or stop; never silently emit a stronger claim |
 | Session or artifact cannot be recovered | Use the live recovery surface and disclose evidence-chain loss if recovery still fails |

@@ -85,7 +85,7 @@ exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 | `catalog.verify_object(obj)` | Static, zero-query validation of one typed catalog object. |
 | `catalog.preview(obj, using=snapshot_or_mapping)` | Scoped runtime preview for one object, bound to matching snapshot evidence. |
 | `catalog.preview(refs=[...], using=snapshot_or_mapping)` | Batch compatible runtime plans while persisting an independent preview check for every ref. |
-| `catalog.readiness(refs=[obj])` | Zero-query readiness gate scoped to typed handoff objects. |
+| `catalog.readiness(refs=[obj])` | Zero-query readiness gate scoped to typed semantic refs. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
 `ReadinessReport.preview_required_refs` is the canonical typed input for batch
@@ -308,34 +308,18 @@ verify-before-preview as a policy edge; the runtime does not consume a
 a readiness requirement. All three return silent result objects with `.show()` /
 `.render()`.
 
-### Typed analysis handoff
+### Analysis-ready refs
 
-`ReadinessReport` exposes
-`analysis_handoff: SemanticToAnalysisHandoff | None`. It is `None` when no
-requested ref is analysis-ready or when a blocker applies to the requested
-handoff set. The field type is a module-internal handoff value, not a top-level
-constructor or public `__all__` entry; agents consume it from the result field,
-they do not construct or import it as an authoring API.
+`ReadinessReport.analysis_ready_refs` is the complete result-owned list of refs
+that passed the current scoped readiness check. A blocker removes its affected
+refs from that list; warnings remain visible on the same report and require an
+explicit proceed-or-stop decision by the caller.
 
-When present, the handoff carries the exact analysis-boundary help target, ready
-refs, readiness status, project/catalog/environment fingerprints, warning ids,
-preview-evidence ids, and caveats. It records identifiers and row-free evidence
-metadata only — it never embeds preview rows, credentials, or plaintext sampled
-values. The in-memory environment fingerprint retains exact paths for validation;
-`ReadinessReport.show()` and `.to_dict()` mask them under the shared privacy rule
-(only root help and explicit environment-mismatch diagnostics render raw paths).
-
-The agent routes the handoff to the registered analysis
-`boundary.semantic_handoff` target. Its sole public receiver,
-`Session.validate_semantic_handoff(handoff)`, validates the payload against a
-newly created, current, or recovered analysis session — checking environment
-identity, project/catalog fingerprints, ref existence and kind, current
-readiness, warning-id consistency, and preview-evidence existence and ownership — without
-querying a datasource, opening a connection, or mutating state. Success returns
-a `SemanticHandoffReceipt`; a stale environment, project, catalog, ref,
-readiness, or preview-evidence fact emits typed semantic repair instead. The
-receipt is in-memory only and is not persisted. Analysis consumes the handed-off
-refs only from a successful receipt, whether this is first entry or re-entry.
+The report does not create a second transfer object or validation token. After
+readiness succeeds, an agent passes only the listed refs to the ordinary analysis
+APIs. Analysis resolves those refs against its current catalog at the actual
+operation boundary. Readiness remains explicit and is not invoked automatically
+by `session.observe(...)` or another analysis operator.
 
 ## Relationship to analysis
 
@@ -347,10 +331,8 @@ dimension, or bypasses the registry to read a table directly. When an analysis
 needs a new business object, extend `semantic` first, then let `analysis` consume
 it — business definitions do not hide inside one-off analysis scripts.
 
-The crossing is a typed handoff, not a bare ready-ref or a conceptual hand-wave.
-Semantic readiness produces a `SemanticToAnalysisHandoff` (see
-[Readiness and richness](#typed-analysis-handoff)); analysis consumes the
-handed-off refs only after `Session.validate_semantic_handoff(...)` returns a
-`SemanticHandoffReceipt`. A missing required semantic object activates
-`marivo-semantic` and returns to the same semantic entry, requiring matching scoped
-readiness before resuming.
+Semantic readiness is the explicit certification boundary: analysis uses only
+`analysis_ready_refs` from the current report. A missing required semantic object
+activates `marivo-semantic` through the structured `semantic_authoring` repair and
+returns to the same semantic entry, requiring matching scoped readiness before
+resuming.

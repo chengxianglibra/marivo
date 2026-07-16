@@ -14,7 +14,7 @@ SemanticRootGroup = Literal[
     "browse_load",
     "author_families",
     "verify_preview",
-    "readiness_handoff",
+    "readiness",
     "diagnostics_boundaries",
 ]
 

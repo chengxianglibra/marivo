@@ -108,16 +108,16 @@ def test_semantic_examples_may_be_absent() -> None:
     )
 
 
-def test_marivo_semantic_skill_is_one_file_boundary_kernel() -> None:
+def test_marivo_semantic_skill_is_one_file_routing_kernel() -> None:
     """The packaged semantic skill shape is exactly one file, with no embedded
-    code/repair symbols and all required boundary sections present."""
+    code/repair symbols and all required routing sections present."""
     semantic_dir = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
     entries = sorted(p.name for p in semantic_dir.iterdir())
     assert entries == ["SKILL.md"], f"Expected exactly SKILL.md in {semantic_dir}; found {entries}"
     text = (semantic_dir / "SKILL.md").read_text(encoding="utf-8")
     for forbidden in ("def ", "class ", "canonical_id=", "RepairKind", "AuthoringRepair"):
         assert forbidden not in text, f"Forbidden token {forbidden!r} present in semantic SKILL.md"
-    for required in ("Ownership", "Hard boundaries", "Handoff", "Closeout"):
+    for required in ("Ownership", "Hard boundaries", "Routing", "Closeout"):
         assert required in text, f"Required section {required!r} missing from semantic SKILL.md"
 
 

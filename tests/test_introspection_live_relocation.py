@@ -7,8 +7,6 @@ import sys
 
 import marivo
 from marivo._authoring import model as authoring_model
-from marivo._boundaries import semantic_analysis as boundary_model
-from marivo.analysis._capabilities import model as analysis_model
 from marivo.introspection.live import model as live_model
 
 
@@ -57,36 +55,10 @@ def test_authoring_values_have_one_private_owner() -> None:
     assert not hasattr(live_model, "AuthoringRepair")
 
 
-def test_handoff_values_have_one_private_owner() -> None:
-    assert boundary_model.AnalysisToSemanticHandoff is not None
-    assert boundary_model.SemanticToAnalysisHandoff is not None
-    assert boundary_model.SemanticHandoffReceipt is not None
-    for name in (
-        "AnalysisToSemanticHandoff",
-        "SemanticToAnalysisHandoff",
-        "SemanticHandoffReceipt",
-    ):
-        assert not hasattr(live_model, name)
-        assert not hasattr(analysis_model, name)
-
-
-def test_analysis_to_semantic_handoff_required_kind_is_symbol_kind() -> None:
-    from marivo.refs import SymbolKind
-
-    handoff = boundary_model.AnalysisToSemanticHandoff(
-        required_kind=SymbolKind.METRIC,
-        requirement="need a metric",
-        affected_capability_id="observe",
-        environment_fingerprint=live_model.EnvironmentFingerprint.current(),
-    )
-    assert handoff.required_kind is SymbolKind.METRIC
-
-
 def test_private_leaf_imports_do_not_load_surfaces() -> None:
     script = """
 import marivo.introspection.live.model
 import marivo._authoring.model
-import marivo._boundaries.semantic_analysis
 import sys
 for forbidden in ('marivo.datasource', 'marivo.semantic', 'marivo.analysis'):
     assert forbidden not in sys.modules, forbidden

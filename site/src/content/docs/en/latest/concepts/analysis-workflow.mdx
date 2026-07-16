@@ -475,7 +475,7 @@ step. `artifact.contract().boundary_ports` lists typed terminal-exit ports
 When an operator fails, it raises a typed `AnalysisError` subclass. Every error
 carries stable typed fields — `expected`, `received`, `location`, and `repair` —
 not a generic details bag. The `repair` field is a typed `AnalysisRepair` object
-with `kind` (`retry`, `inspect`, `semantic_handoff`, `environment`), `action`,
+with `kind` (`retry`, `inspect`, `semantic_authoring`, `environment`), `action`,
 `help_target`, optional `snippet`, and optional `candidates` drawn from live
 state. Follow the repair guidance; it points to the exact `mv.help(...)` target
 for the failing capability.
@@ -490,11 +490,12 @@ exit. Neither preserves lineage or evidence continuity. Terminal results
 cannot re-enter typed analysis. If business semantics are missing, return
 to semantic authoring.
 
-### Semantic handoff
+### Semantic authoring
 
 Analysis consumes stable semantic refs and never guesses business meaning. If a
 required metric, dimension, or time dimension is missing or disputed, the
-analysis stops and hands off to `marivo-semantic` rather than silently changing
+analysis stops and follows its `semantic_authoring` repair into
+`marivo-semantic` rather than silently changing
 the definition during analysis. The semantic layer owns the business-object
 contract; the analysis layer owns typed computation over those objects.
 

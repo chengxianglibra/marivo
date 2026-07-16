@@ -57,7 +57,6 @@ InputFamily = (
         "AlignmentPolicy",
         "SamplingPolicy",
         "TimeScopeInput",
-        "SemanticToAnalysisHandoff",
     ]
 )
 

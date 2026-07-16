@@ -6,18 +6,17 @@ Date: 2026-07-16
 
 ## Summary
 
-Refactor Marivo's private live-help infrastructure into four explicit layers:
+Refactor Marivo's private live-help infrastructure into three explicit layers:
 
 1. a neutral `marivo.introspection.live` resolution kernel;
 2. a private `marivo._authoring` domain kernel shared only by datasource and
    semantic authoring;
-3. surface-owned datasource, semantic, and analysis capability kernels;
-4. a private semantic-analysis boundary protocol.
+3. surface-owned datasource, semantic, and analysis capability kernels.
 
 Before this cutover, the implementation had the right public behavior but an
 imprecise internal ownership boundary. `marivo.introspection.live` called
 itself neutral while also owning datasource/semantic authoring states, effects,
-transitions, repairs, and semantic-analysis handoff schemas. Analysis,
+transitions and repairs. Analysis,
 meanwhile, retained a parallel resolver because its richer capability
 descriptors could not be represented losslessly by the authoring-shaped
 `LiveCapability` model.
@@ -29,14 +28,12 @@ The implemented design shares mechanisms without flattening domain contracts:
 - `marivo._authoring` owns the private cross-surface value model for the
   datasource-to-semantic authoring lifecycle;
 - each public surface owns the meaning, topology, renderer, runtime contracts,
-  and validation of its native capability registry;
-- `marivo._boundaries.semantic_analysis` owns the directional handoff and
-  continuity protocol between semantic and analysis.
+  and validation of its native capability registry.
 
 This is an internal architectural cutover. It does not change public imports,
 help targets, help text, signatures, result fields, operator behavior,
 datasource effects, semantic readiness behavior, analysis type algebra, or
-skill policy. No new public `authoring`, `introspection`, or `boundaries`
+skill policy. No new public `authoring` or `introspection`
 module is introduced.
 
 ## Relationship To Existing Designs
@@ -48,8 +45,8 @@ This design refines internal ownership in:
 
 Those designs remain authoritative for their public surface contracts. This
 document supersedes only their internal placement claims where they describe
-one shared live capability model, one shared renderer, authoring contracts, or
-semantic-analysis handoffs as neutral introspection infrastructure.
+one shared live capability model, one shared renderer, or authoring contracts
+as neutral introspection infrastructure.
 
 The boundary-kernel skills remain unchanged in responsibility:
 
@@ -73,11 +70,10 @@ following:
 - datasource/semantic effect and transition vocabularies;
 - `AuthoringContract` and `AuthoringRepair`;
 - `LiveCapability`, whose fields are shaped around authoring transitions;
-- analysis-to-semantic and semantic-to-analysis handoff schemas.
 
 The package is import-neutral, but import neutrality alone does not make a
 model conceptually neutral. Names such as `semantic.previewed`,
-`evidence.acquired`, `reacquire`, and `SemanticHandoffReceipt` express domain
+`evidence.acquired`, and `reacquire` express domain
 meaning rather than target-resolution mechanics.
 
 ### Analysis cannot adopt the current shared descriptor losslessly
@@ -107,13 +103,6 @@ effects, transitions, contracts, and repairs. That does not make those concepts
 part of introspection. Conversely, concrete transition availability and repair
 generation depend on surface-owned registries and runtime objects and must not
 move into a shared authoring module.
-
-### Handoff continuity is not introspection
-
-Directional handoffs, project fingerprints, catalog fingerprints, readiness
-status, and handoff receipts protect a cross-domain execution boundary. They
-may reference a live help target and environment fingerprint, but their primary
-responsibility is continuity validation, not symbol discovery.
 
 ### Duplicate resolver mechanics can drift
 
@@ -221,9 +210,7 @@ flowchart TD
     DS --> NativeRegistry
     Sem --> NativeRegistry
 
-    Boundary["marivo._boundaries.semantic_analysis"] --> Sem
-    Boundary --> Analysis["analysis boundary validator"]
-    Analysis --> NativeRegistry
+    Analysis["analysis capability kernel"] --> NativeRegistry
 ```
 
 The dependency direction is downward toward smaller, more neutral concepts:
@@ -235,15 +222,15 @@ marivo.refs
 marivo.introspection.live
     ^                 ^
     |                 |
-marivo._authoring     marivo._boundaries.semantic_analysis
-    ^      ^                    ^                 ^
-    |      |                    |                 |
-datasource semantic          semantic          analysis
+marivo._authoring
+    ^      ^
+    |      |
+datasource semantic
 
 analysis --------------------> marivo.introspection.live
 ```
 
-`marivo._authoring` and `marivo._boundaries` are private packages and are not
+`marivo._authoring` is a private package and is not
 added to any public `__all__`.
 
 ## Layer 1: Neutral Live Introspection Kernel
@@ -606,71 +593,15 @@ generic resolved target to the existing analysis renderer.
 After parity is proven, delete the analysis-owned duplicate resolver and
 suggestion implementation. The analysis renderer and registry remain.
 
-## Layer 4: Semantic-Analysis Boundary Protocol
+## Direct Semantic Readiness
 
-### Placement
+Semantic readiness exposes certified refs directly through
+`ReadinessReport.analysis_ready_refs`. Missing business objects route back to
+semantic authoring through `AnalysisRepair(kind="semantic_authoring")`.
 
-Create:
-
-```text
-marivo/_boundaries/
-    __init__.py
-    semantic_analysis.py
-    fingerprints.py
-```
-
-This private package owns:
-
-- `AnalysisToSemanticHandoff`;
-- `SemanticToAnalysisHandoff`;
-- `SemanticHandoffReceipt`;
-- project fingerprint computation;
-- catalog fingerprint computation;
-- shared continuity-field rendering/masking helpers specific to the handoff.
-
-It depends on:
-
-- `marivo.refs` for typed semantic identities;
-- `marivo.introspection.live` for `LiveHelpTarget` and
-  `EnvironmentFingerprint`.
-
-It imports none of `marivo.datasource`, `marivo.semantic`, or
-`marivo.analysis` at module load time.
-
-### Ownership
-
-Semantic owns producing `SemanticToAnalysisHandoff` from readiness. Analysis
-owns validating it and producing `SemanticHandoffReceipt`. Analysis owns
-producing `AnalysisToSemanticHandoff` for genuine semantic absence. The private
-boundary package owns only the shared schemas and deterministic continuity
-algorithms.
-
-The boundary package does not choose an operator, infer a semantic object,
-accept warnings, run readiness, or mutate session state.
-
-### Persistence boundary
-
-Directional handoff and receipt objects are in-memory boundary values. They do
-not appear in session-store rows, project state, user-global state, artifact or
-job metadata, evidence storage, or any other Marivo persistence schema.
-`ReadinessReport.to_dict()` may produce a masked display projection of a
-handoff, but that render is not a repository persistence contract.
-
-This non-persistence rule is a prerequisite for the atomic private-type move.
-If a future design persists a handoff or receipt, it must first define a
-versioned storage schema, serialization identity, privacy behavior, and
-backward-compatible decode/migration rules. It may not rely on the private
-module relocation guarantees in this design.
-
-### No compatibility re-export
-
-Because these are private internal modules, the cutover updates all internal
-imports atomically. It does not leave re-exports from
-`marivo.introspection.live.model` or
-`marivo.analysis._capabilities.model` as a second supported location.
-
-Public field annotations and runtime object identity remain stable within the
-candidate package. No handoff type is added to a public module `__all__`.
+No shared transfer schema, receipt, project/catalog fingerprint, or analysis-side
+readiness validator exists. Readiness remains explicit; ordinary analysis APIs
+resolve their semantic refs against the current session catalog when invoked.
 
 ## Target Package Layout
 
@@ -691,11 +622,6 @@ marivo/
         normalize.py          # shared deterministic contract normalization
         render.py             # bounded authoring-contract rendering
         errors.py             # contract-scope payloads
-
-    _boundaries/
-        __init__.py
-        semantic_analysis.py  # directional handoff schemas and receipt
-        fingerprints.py       # project/catalog continuity fingerprints
 
     datasource/
         _capabilities/
@@ -739,12 +665,8 @@ Retain the existing rules:
 
 Add:
 
-- `marivo.introspection.live` must not import `marivo._authoring` or
-  `marivo._boundaries`;
-- `marivo._authoring` must not import datasource, semantic, analysis, or
-  `_boundaries`;
-- `marivo._boundaries` must not import datasource, semantic, analysis, or
-  `_authoring`;
+- `marivo.introspection.live` must not import `marivo._authoring`;
+- `marivo._authoring` must not import datasource, semantic, or analysis;
 - analysis must not import datasource/semantic merely to configure its live
   resolver at module import time; existing runtime semantic integration remains
   explicit and lazy where required.
@@ -754,8 +676,6 @@ The intended private dependency graph is acyclic:
 ```text
 introspection.live <- _authoring <- datasource
 introspection.live <- _authoring <- semantic
-introspection.live <- _boundaries <- semantic
-introspection.live <- _boundaries <- analysis
 introspection.live <- analysis._capabilities
 ```
 
@@ -774,8 +694,7 @@ The refactor must preserve:
 - analysis `ArtifactContract` behavior;
 - analysis type algebra and runtime family gate;
 - datasource effect and explicit-scope facts;
-- semantic verification, preview, readiness, and handoff behavior;
-- directional handoff validation and receipt identity;
+- semantic verification, preview, readiness, and direct `analysis_ready_refs` behavior;
 - public `__all__` snapshots.
 
 Private import paths are intentionally not compatibility contracts. Repository
@@ -794,10 +713,6 @@ may expose a mixed ownership state.
 - Assert current analysis registry/type-algebra/runtime-gate identity.
 - Assert datasource/semantic authoring state, transition, effect, repair, and
   contract behavior.
-- Assert handoff schema identity, fingerprint algorithms, and receipt
-  validation.
-- Assert that no handoff or receipt type or serialized payload is present in
-  session, project, artifact, job, evidence, or user-global persistence.
 - Extend import-linter contracts for the target private layers before moving
   domain code.
 
@@ -833,17 +748,7 @@ may expose a mixed ownership state.
 - Keep concrete builders and registry ownership in their surface modules.
 - Remove old private re-exports rather than maintaining two locations.
 
-### Phase 5: Extract the semantic-analysis boundary
-
-- Move directional handoff schemas and receipts into
-  `marivo._boundaries.semantic_analysis`.
-- Move project/catalog continuity fingerprints into the boundary package.
-- Update semantic producers, analysis consumers, errors, tests, and renderers
-  atomically.
-- Preserve masked ordinary rendering and exact environment diagnostics.
-- Remove handoff/fingerprint ownership from introspection.
-
-### Phase 6: Close ownership and documentation drift
+### Phase 5: Close ownership and documentation drift
 
 - Narrow the `marivo.introspection.live` package docstring to mechanism-only
   ownership.
@@ -893,21 +798,15 @@ may expose a mixed ownership state.
 - Contract rendering and scope errors retain current budgets and repairs.
 - Skill-owned policy order is not added as fake runtime state.
 
-### Boundary tests
+### Readiness tests
 
-- Semantic readiness produces the same typed handoff facts.
-- Analysis rejects stale environment, project, catalog, ref, readiness, and
-  preview-evidence facts before issuing a receipt.
-- Project and catalog fingerprints remain byte-for-byte compatible.
-- Ordinary handoff/receipt rendering masks paths; explicit environment
-  diagnostics reveal them.
-- Construct and validate a handoff, persist and recover the owning session, and
-  prove that no handoff or receipt object/payload was written to session rows,
-  artifact/job metadata, project state, evidence storage, or user-global state.
-- Assert that no persistent model or store schema includes a handoff/receipt
-  field; a display-only `ReadinessReport.to_dict()` projection does not satisfy
-  or weaken this assertion.
-- The private boundary package imports no surface module.
+- Semantic readiness exposes certified refs only through
+  `ReadinessReport.analysis_ready_refs`.
+- Blocked refs stay out of that tuple; warnings remain visible on the report.
+- `ReadinessReport.contract()` exposes semantic repair transitions only and
+  does not invent an analysis transition.
+- Analysis missing-object errors use `semantic_authoring` repair with the
+  current semantic help target and concrete action.
 
 ### Surface and packaging tests
 
@@ -950,26 +849,11 @@ and exhaustive tests reject every invalid combination and prevent field growth.
 Mitigation: require identity-preserving lookup tests. The adapter returns the
 exact native descriptor object and stores no descriptor rows.
 
-### Moving private types breaks runtime Pydantic identity
-
-Mitigation: perform the move atomically, update all internal imports and tests,
-and verify serialization/repr/field parity. Do not preserve two class objects
-or compatibility subclasses. This mitigation depends on handoff and receipt
-objects remaining absent from every persistence schema. The boundary test must
-prove that premise before relocation; if it fails, a versioned persistence
-migration is required and this move cannot proceed as specified.
-
 ### Shared authoring normalization imposes false ordering
 
 Mitigation: share normalization only when both surface contracts intentionally
 use the same mechanical ordering. Keep teaching order and policy order outside
 the shared function.
-
-### Handoff extraction creates import cycles
-
-Mitigation: the boundary package depends only on refs and the neutral live
-kernel. Surface behavior remains in semantic/analysis and imports the shared
-schemas in one direction.
 
 ### Refactoring help changes agent behavior unintentionally
 
@@ -999,13 +883,12 @@ inspection, scope, and evidence states.
 ### Move all authoring contracts into `marivo.datasource`
 
 Rejected because datasource would own semantic load, verification, preview,
-readiness, and handoff vocabulary.
+and readiness vocabulary.
 
-### Keep authoring and handoff models in introspection
+### Keep authoring models in introspection
 
 Rejected because import neutrality is not conceptual neutrality. It obscures
-ownership and makes future analysis integration appear to require authoring
-semantics.
+ownership and makes authoring semantics appear to be generic help mechanics.
 
 ### Duplicate datasource and semantic contract models
 

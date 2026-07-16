@@ -1,6 +1,6 @@
 ---
 name: marivo-semantic
-description: Use for Marivo datasource declaration, physical source inspection, evidence acquisition, new or changed semantic objects, semantic verification/preview/readiness repair, or an analysis handoff that reports a genuinely missing business object.
+description: Use for Marivo datasource declaration, physical source inspection, evidence acquisition, new or changed semantic objects, semantic verification/preview/readiness repair, or an analysis repair that reports a genuinely missing business object.
 ---
 
 # marivo-semantic
@@ -13,7 +13,7 @@ Use this skill when the task involves:
 - physical source inspection or evidence acquisition;
 - new or changed semantic objects;
 - semantic verification, preview, or readiness repair;
-- an analysis handoff that reports a genuinely missing business object.
+- an analysis repair that reports a genuinely missing business object.
 
 Metric-centered investigation over already-ready refs remains owned by
 `marivo-analysis`. Do not keep this skill active merely because an analysis
@@ -26,7 +26,7 @@ catalog, or authoring planner. It preserves the semantic track's real partial
 order and its human-judgment boundary. It tells a general-purpose coding agent
 how to resume from current live state, preserve datasource evidence, author one
 explicit object, validate that object through every required stage, stop for one
-unresolved business decision, and hand only ready refs to analysis.
+unresolved business decision, and expose only ready refs to analysis.
 
 An environment-verified live Marivo surface outranks any cached knowledge in
 this file. Unverified `PATH` output does not. If the installed Marivo package,
@@ -37,7 +37,7 @@ guessing.
 Authority is divided explicitly:
 
 - live Marivo owns mechanical contracts and current state;
-- the skill owns ordering, safety, evidence, and handoff policy;
+- the skill owns ordering, safety, evidence, and routing policy;
 - the agent owns technical interpretation and explicit Python drafting;
 - the user or business owner owns unresolved business meaning.
 
@@ -61,7 +61,7 @@ A bare `marivo` resolved from `PATH` is not authoritative unless its rendered
 fingerprint matches the interpreter and package used for execution. If
 authoritative discovery and execution fingerprints differ, repair or stop
 before opening a datasource connection, reading user data, mutating project or
-user state, authoring semantic files, or handing refs to analysis.
+user state, authoring semantic files, or using refs in analysis.
 
 After entry:
 
@@ -74,7 +74,7 @@ After entry:
 - the agent owns evidence-based drafting and technical handling, including
   uncommon physical formats;
 - the user or business owner owns unresolved business-semantic decisions and
-  approves metric meaning before analysis handoff.
+  approves metric meaning before analysis use.
 
 The skill does not enumerate any API details, signatures, parameter tables,
 backend catalogs, result fields, error kinds, or exact repair calls.
@@ -114,8 +114,8 @@ signature, transition call, or parameter table from this file:
     the active snapshot.
 11. **readiness** — run the registered readiness capability; follow typed
     repair for any blocker.
-12. **analysis** — hand off only live-marked ready refs through the analysis
-    boundary.
+12. **analysis** — use only live-marked `analysis_ready_refs` through the
+    ordinary analysis APIs.
 
 The router prefers object-near live guidance in this order: current structured
 error repair; current object/result `.contract()`; focused help for the target
@@ -144,7 +144,7 @@ dependency before dependent
 one authored object before its validation cycle
 static verification before required runtime preview
 required runtime preview before readiness
-readiness before analysis handoff
+readiness before analysis
 ```
 
 The live surface declares which object families require static-only,
@@ -306,30 +306,26 @@ options are forbidden.
   is not promoted to a universal readiness step by skill prose.
 - A diagnostic result cannot override unresolved business meaning.
 
-## Handoffs
+## Routing
 
-The skill follows object-near contract and help for every handoff. Exact type
-and field names remain discoverable from the installed live surface; this file
-does not reconstruct them from conversation memory.
+The skill follows object-near contract and help for every route. Exact API and
+field names remain discoverable from the installed live surface; this file does
+not reconstruct them from conversation memory.
 
-| Condition | Handoff |
+| Condition | Route |
 | --- | --- |
-| Analysis reports a required business object genuinely does not exist | Activate `marivo-semantic`; author the smallest dependency-closed set, one validated object at a time, then hand off ready refs |
-| Semantic readiness exposes an analysis handoff | Activate `marivo-analysis`; follow the semantic-to-analysis handoff's live target; transfer governed inputs exactly as recorded by readiness |
+| Analysis reports a required business object genuinely does not exist | Activate `marivo-semantic`; follow the `semantic_authoring` repair and author the smallest dependency-closed set, one validated object at a time |
+| Semantic readiness exposes analysis-ready refs | Disclose warnings, apply the proceed-or-stop policy, then activate `marivo-analysis` with exactly `ReadinessReport.analysis_ready_refs` |
 | An unresolved business decision remains | One-question grill stop; stop mutation and validation for that object until answered |
 | An unresolved environment fingerprint mismatch | Environment-repair stop; no datasource, semantic, or analysis work proceeds until one authoritative environment is established |
 
-When semantic readiness exposes a non-`None` analysis handoff, the skill
-activates `marivo-analysis` and transfers the ready typed refs, fingerprints,
-readiness status, and snapshot/preview evidence identity exactly as recorded by
-readiness. Analysis consumes those handed-off refs only after its query-free
-boundary returns a `SemanticHandoffReceipt`; fingerprint, ref, readiness, or
-preview-evidence rejection routes back through typed repair. A semantic-first
-task creates or recovers an analysis session before validation; no prior blocked
-analysis branch is required. A `ready_with_warnings` payload reports warnings;
-it does not prove that the runtime captured user or agent acceptance. Before
-transferring that payload, the skill explicitly discloses the warnings and
-applies its proceed-or-stop policy.
+When semantic readiness is not blocked, the skill activates `marivo-analysis`
+with exactly the refs listed in `analysis_ready_refs`; it does not infer extra
+catalog work or create a second validation token. A semantic-first task may
+create or recover an analysis session before using those refs; no prior blocked
+analysis branch is required. A `ready_with_warnings` report does not prove that
+the runtime captured user or agent acceptance, so the skill explicitly
+discloses the warnings and applies its proceed-or-stop policy first.
 
 ## Closeout obligations
 
@@ -341,7 +337,7 @@ Successful semantic closeout states only Marivo-specific facts:
 - which registered validation stages passed;
 - which refs are analysis-ready;
 - which warnings or caveats remain;
-- which analysis task or branch receives the handoff.
+- which analysis task or branch receives the ready refs.
 
 Closeout does not generate a general modeling tutorial, repeat constructor
 syntax, or claim that observed data proved business meaning.
@@ -368,6 +364,6 @@ The skill does not provide fallback implementations or memorized workarounds.
 | A dependency is missing or not ready | Repair/ready the dependency before authoring the dependent |
 | Static verification fails | Repair and reverify the same object |
 | Required preview is missing or does not match current definitions/dependencies | Run or repair scoped preview before readiness |
-| Readiness is blocked | Follow typed repair; do not hand off the blocked ref |
-| Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then hand off ready refs |
+| Readiness is blocked | Follow typed repair; do not expose the blocked ref as analysis-ready |
+| Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then expose only ready refs |
 | Runtime transition contradicts its registered input, state, target-surface, or effect facts | Treat candidate as internally inconsistent; stop and report the contract defect |

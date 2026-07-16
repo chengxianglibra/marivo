@@ -33,7 +33,7 @@ def test_registry_group_members_are_registered() -> None:
         "browse_load",
         "author_families",
         "verify_preview",
-        "readiness_handoff",
+        "readiness",
         "diagnostics_boundaries",
     )
     for group in groups:

@@ -20,7 +20,7 @@ _GROUPS = (
     ("browse_load", "Browse and load"),
     ("author_families", "Author by object family"),
     ("verify_preview", "Verify and preview"),
-    ("readiness_handoff", "Readiness and analysis handoff"),
+    ("readiness", "Readiness"),
     ("diagnostics_boundaries", "Diagnostics and boundaries"),
 )
 
