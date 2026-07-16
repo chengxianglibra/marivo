@@ -21,7 +21,7 @@ _ROOT_GROUP_LABELS = {
     "browse_load": "Browse and load",
     "author_families": "Author by object family",
     "verify_preview": "Verify and preview",
-    "readiness_handoff": "Readiness and analysis handoff",
+    "readiness": "Readiness",
     "diagnostics_boundaries": "Diagnostics and boundaries",
 }
 
@@ -160,7 +160,7 @@ def validate_semantic_live_surface() -> None:
             "browse_load",
             "author_families",
             "verify_preview",
-            "readiness_handoff",
+            "readiness",
             "diagnostics_boundaries",
         ],
         ...,
@@ -168,7 +168,7 @@ def validate_semantic_live_surface() -> None:
         "browse_load",
         "author_families",
         "verify_preview",
-        "readiness_handoff",
+        "readiness",
         "diagnostics_boundaries",
     )
     group_members = tuple(member for group in group_names for member in REGISTRY.group(group))

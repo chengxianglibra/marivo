@@ -134,7 +134,7 @@ read or executed by the library. This mirrors the ownership split stated in
 | Readiness and analysis-ready refs | `ReadinessReport` |
 | Mechanically available calls, effects, and transition facts | private authoring-state registry (not a public API) |
 | Current failed-operation repair | typed error/result repair object |
-| Ordered routing discipline and handoff policy | `marivo-semantic` skill |
+| Ordered routing discipline and readiness policy | `marivo-semantic` skill |
 | Evidence interpretation and technical drafting | agent |
 | Unresolved business meaning and caliber acceptance | user or business owner |
 
@@ -144,13 +144,11 @@ they require, but it cannot choose which object to author, acquire data on the
 agent's behalf, or advance to readiness automatically. It is not a third public
 `marivo.authoring` module and is not exposed for user mutation.
 
-The typed semantic-to-analysis handoff is a module-internal result field —
-`ReadinessReport.analysis_handoff: SemanticToAnalysisHandoff | None` — not a
-top-level constructor or a public `__all__` entry. Analysis consumes the
-handed-off refs only after `Session.validate_semantic_handoff(...)` returns a
-`SemanticHandoffReceipt`. The handoff and receipt values are module-internal
-handoff types consumed from result/error fields; agents never construct or
-import them as an authoring API.
+`ReadinessReport.analysis_ready_refs` is the direct semantic-to-analysis
+contract. It lists the refs that passed the current scoped certification;
+blockers and warnings remain on the same report. No additional transfer object
+or hidden authoring API exists between readiness and ordinary analysis
+operations.
 
 ## Relationship to prior schema designs
 

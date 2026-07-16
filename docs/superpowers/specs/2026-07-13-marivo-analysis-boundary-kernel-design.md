@@ -1,10 +1,16 @@
 # Marivo Analysis Boundary Kernel Design
 
-Status: base analysis cutover implemented; semantic-handoff follow-up pending written-spec re-review
+Status: base analysis cutover implemented; semantic-routing follow-up pending written-spec re-review
 
 Date: 2026-07-13
 
 ## Summary
+
+> **2026-07-16 simplification amendment:** Semantic readiness now exposes
+> `ReadinessReport.analysis_ready_refs` directly. Missing semantic objects use
+> `AnalysisRepair(kind="semantic_authoring")`. No directional payload,
+> validation result, or analysis-side readiness boundary exists. Any older
+> transfer/result language below is historical and non-normative.
 
 Redesign the packaged `marivo-analysis` skill as a minimal boundary kernel
 between a general-purpose coding agent and the live Marivo analysis runtime.
@@ -14,7 +20,7 @@ general analytical practice, or constrain valid exploration paths.
 The target is a single `SKILL.md` with near-zero static product knowledge. It
 will activate Marivo's live progressive-disclosure surface, state a small set
 of non-negotiable semantic and evidence boundaries, define cross-capability
-handoffs, and require Marivo-specific traceability at closeout.
+routings, and require Marivo-specific traceability at closeout.
 
 This is an atomic breaking contract and guidance redesign. It provides no
 compatibility package shape, deprecated attachment path, redirect, or user
@@ -50,7 +56,7 @@ template. This creates four problems:
 Adopt a **boundary-kernel** design.
 
 `marivo-analysis` is the minimal policy adapter that protects Marivo-specific
-semantic, evidence, state, and handoff boundaries. It does not describe how to
+semantic, evidence, state, and routing boundaries. It does not describe how to
 perform an analysis. Within the legal boundary, the agent remains free to plan,
 branch, inspect, recover, validate, stop, and report according to the task.
 
@@ -76,12 +82,12 @@ command and follow the live analysis route. This is maximally small, but it
 does not protect against Marivo-specific category errors such as redefining a
 business metric from raw fields, treating artifact affordances as
 recommendations, silently discarding blockers, or losing an evidence chain
-across handoffs.
+across routings.
 
 ### Boundary kernel — selected
 
 The skill contains one live entry rule, a small set of hard boundaries,
-handoff conditions, and closeout obligations. It preserves agent autonomy while
+routing conditions, and closeout obligations. It preserves agent autonomy while
 protecting the parts of Marivo usage that a general-purpose model cannot infer
 from generic analysis knowledge alone.
 
@@ -100,7 +106,7 @@ composed separately when a task requires it.
 | Environment-bound CLI help and `mv.help()` | Capability discovery, environment identity, API contracts, operator semantics, constraints, examples, and recovery mechanisms |
 | Semantic objects | Business definitions, units, composition, additivity, guardrails, and provenance |
 | Artifact `show()`, `contract()`, and metadata | Current facts, mechanical compatibility, lineage, quality, blockers, and confidence scope |
-| `marivo-analysis` skill | Hard boundaries, cross-capability handoffs, evidence continuity, and Marivo-specific closeout obligations |
+| `marivo-analysis` skill | Hard boundaries, cross-capability routings, evidence continuity, and Marivo-specific closeout obligations |
 | Agent | Requirement interpretation, hypotheses, exploration path, method selection, judgment, stop criteria, conclusions, and recommendations |
 | Repository maintainer guidance | Repository tests, dogfooding, internal feedback, and development rules |
 
@@ -108,20 +114,20 @@ The active guide and analysis specs must stop saying that the skill owns
 workflow. The replacement contract is:
 
 > Environment-verified Marivo live surfaces own capabilities and runtime
-> guidance. The skill owns hard boundaries, handoffs, evidence continuity, and
+> guidance. The skill owns hard boundaries, routings, evidence continuity, and
 > Marivo-specific closeout obligations. The agent owns analysis planning and
 > judgment.
 
 This analysis decision does not erase the semantic track's real partial order.
 Semantic authoring must acquire evidence, satisfy object dependencies, verify,
-preview, and reach scoped readiness before analysis handoff; the
+preview, and reach scoped readiness before analysis routing; the
 `marivo-semantic` skill may own that state-transition routing while live
 `md.help(...)` / `ms.help(...)` own API facts. Analysis begins after readiness
 and exposes a non-linear graph of legal operators, so its skill owns boundaries
 rather than a route. Aligning semantic fingerprints, typed repair objects, and
 discovery ergonomics is named future work under **semantic live-surface
 alignment**, not part of the base breaking analysis cutover. The typed
-bidirectional handoff, analysis validator, semantic producer, and corresponding
+bidirectional routing, analysis validator, semantic producer, and corresponding
 rules in both skills land later as one atomic semantic-authoring cutover; none
 of those pieces is published early.
 
@@ -138,7 +144,7 @@ matches the interpreter and package that will execute the analysis.
 
 Ordinary API additions, removals, signature changes, and new artifact families
 must not require a skill edit. The skill changes only when a boundary,
-ownership rule, or handoff contract changes.
+ownership rule, or routing contract changes.
 
 ### Agent autonomy
 
@@ -156,7 +162,7 @@ moves to a deliverable/publishing capability.
 
 The task's semantic anchors, artifacts, jobs, scope, blockers, confidence, and
 open gaps remain recoverable across scripts, context compaction, and agent
-handoffs.
+routings.
 
 ### Minimal cognitive load
 
@@ -268,52 +274,19 @@ objects, and producing or publishing deliverables must use the corresponding
 public boundary. One-off analysis code must not absorb another layer's
 responsibility.
 
-### Handoffs
+### Routing
 
-Define only the trigger for each handoff, never the target capability's usage
-instructions:
+The skill keeps cross-track routing explicit without inventing transfer objects:
 
-The exact payload/type names below are design-level live-owner acceptance
-criteria. `SKILL.md` refers conceptually to the handoff exposed by the current
-error or semantic readiness result and follows live help/contract; it does not
-copy field names or method recipes.
+- genuine semantic absence follows
+  `AnalysisRepair(kind="semantic_authoring")` into `marivo-semantic`;
+- semantic authoring returns only after explicit readiness and analysis consumes
+  exactly `ReadinessReport.analysis_ready_refs`;
+- terminal custom analysis and deliverable production keep their independent
+  boundaries.
 
-The base analysis skill treats a genuine missing business object as a
-conceptual semantic-authoring handoff. It does not require
-`SemanticToAnalysisHandoff` or `SemanticHandoffReceipt`, because their producer
-and validator are not part of the base analysis release.
-
-The later datasource/semantic live-surface cutover atomically replaces that
-clause in both skills with the complete target contract below. Within that
-target package the typed rule is unconditional; the release does not detect an
-older producer, accept bare ready refs, or provide a transition period.
-
-| Condition | Handoff |
-| --- | --- |
-| A required business object is missing or must change | `marivo-semantic` |
-| Semantic authoring hands ready refs to analysis | The registered analysis semantic-handoff boundary |
-| The task needs terminal custom analysis | The live help's controlled terminal exit |
-| A custom result must re-enter typed analysis | The live help's governed entry |
-| The user requests a durable report, notebook, slides, HTML, or publishing | The corresponding independent delivery capability |
-| The work is Marivo repository maintenance or dogfooding | Follow repository-local maintainer instructions; do not use the public skill as maintainer guidance |
-
-In the target semantic-authoring cutover, the missing-business-object handoff
-consumes the current analysis error's typed `AnalysisRepair.semantic_handoff`
-payload. That payload is the sole mechanical owner of the missing
-kind/requirement, affected capability, current semantic and project context,
-artifact/evidence lineage, and environment fingerprint. The skill preserves
-and transfers it; it does not reconstruct those fields from conversation
-memory or add a broader catalog-cleanup request.
-
-Every semantic-to-analysis handoff in that target package consumes the semantic
-readiness result's typed `SemanticToAnalysisHandoff`. The skill follows its
-registered live target and does not duplicate the exact method or field recipe.
-The analysis boundary mechanically validates the environment, project/catalog
-identity, refs, readiness, and preview evidence and returns
-`SemanticHandoffReceipt`; analysis consumes the handed-off refs only from that
-receipt. For a semantic-first task, the agent creates or recovers a `Session`
-before validation; no prior analysis branch is required. The receipt does not
-select an operator or record warning acceptance.
+The skill does not reconstruct missing-object requirements from conversation
+memory, and readiness warnings never imply captured acceptance.
 
 ### Closeout obligations
 
@@ -329,7 +302,7 @@ Do not prescribe a report structure. Require only that:
   semantic authoring;
 - absolute interpreter and package paths remain available only to the live
   in-memory validator and explicit environment-authority diagnostics. Ordinary
-  handoff/receipt renders mask them, and they do not enter persisted analysis
+  routing/result renders mask them, and they do not enter persisted analysis
   state, user-facing reports, or deliverables. Internal diagnostic logs and
   evaluator transcripts may retain them.
 
@@ -343,7 +316,7 @@ user question
     -> agent chooses and revises its analysis path
     -> Marivo artifacts preserve facts and state
     -> agent makes judgments
-    -> traceable closeout or explicit handoff
+    -> traceable closeout or explicit routing
 ```
 
 This is a state and ownership flow, not a required sequence of analysis
@@ -355,7 +328,7 @@ The skill does not provide fallback implementations.
 
 | Situation | Required behavior |
 | --- | --- |
-| Missing or ambiguous semantic object | Distinguish invalid lookup from genuine absence; for genuine absence stop the affected branch and transfer the typed semantic-authoring handoff |
+| Missing or ambiguous semantic object | Distinguish invalid lookup from genuine absence; for genuine absence stop the affected branch and transfer the typed semantic-authoring routing |
 | Invalid API, shape, parameter, or operator | Follow the current structured error and live help; do not use a skill-cached workaround |
 | Result-impacting blocker | Repair it, weaken the conclusion explicitly, or stop; never silently emit a stronger claim |
 | Session or artifact cannot be recovered | Use the live recovery surface and disclose evidence-chain loss if recovery still fails |
@@ -375,10 +348,10 @@ or invalid guidance. Do not preserve wording, paths, runners, redirects,
 compatibility copies, or tombstones merely to ease the cutover.
 
 The later semantic-authoring release makes one further atomic edit to this
-single-file analysis skill: it installs the typed bidirectional handoff rule in
+single-file analysis skill: it installs the typed bidirectional routing rule in
 the same candidate that adds the analysis validator and semantic producer. It
 does not ship that rule before those live owners or keep the earlier conceptual
-handoff as a fallback afterward.
+routing as a fallback afterward.
 
 Expected ownership:
 
@@ -425,7 +398,7 @@ rewrite of historical records.
 - It contains no API signatures, operator inventory, parameter tables, call
   examples, ordered analysis process, generic methodology checklist, report
   template, repository test commands, or internal feedback procedure.
-- It contains only the trigger, authority rule, hard boundaries, handoffs, and
+- It contains only the trigger, authority rule, hard boundaries, routings, and
   closeout obligations defined above.
 - An ordinary Marivo API change does not require a skill update.
 
@@ -460,20 +433,20 @@ rewrite of historical records.
   quota on real investigations.
 - An environment mismatch stops execution before analysis rather than allowing
   one package's help to guide another package's runtime.
-- A missing metric causes a semantic-authoring handoff rather than raw-field
+- A missing metric causes a semantic-authoring routing rather than raw-field
   redefinition.
-- The semantic-authoring handoff preserves its typed requirement, affected
+- The semantic-authoring routing preserves its typed requirement, affected
   capability, project/semantic context, artifact/evidence lineage, and
   environment fingerprint without skill reconstruction.
-- In the atomic semantic-authoring target, analysis consumes handed-off ready
+- In the atomic semantic-authoring target, analysis consumes analysis-ready ready
   refs only after the registered boundary produces
-  `SemanticHandoffReceipt`; this applies to first entry and re-entry, and the
+  `ReadinessReport`; this applies to first entry and re-entry, and the
   skill neither reconstructs nor treats the payload as proof of warning
   acceptance.
 - A result-impacting blocker prevents an unqualified strong conclusion.
 - An API change is resolved from current help/errors rather than cached skill
   text.
-- Terminal analysis and durable deliverables cross explicit public handoffs.
+- Terminal analysis and durable deliverables cross explicit public routings.
 - User-facing closeout omits absolute interpreter and package paths even when
   internal diagnostics retain the full fingerprint.
 
@@ -501,8 +474,8 @@ The implementation must:
 Scenario-based review covers the agent-behavior acceptance criteria. It is a
 review of outcomes and boundaries, not a prose snapshot of the skill.
 
-Base-analysis package checks assert that no receipt-only rule or
-`boundary.semantic_handoff` target is exposed without the semantic producer.
+Base-analysis package checks assert that no result-only rule or
+`catalog.readiness(...)` target is exposed without the semantic producer.
 The later semantic-authoring candidate verifies producer, consumer, both
 directional schemas, both skill rules, first entry, and re-entry together; no
 mixed-version or legacy-ready-ref scenario is supported or scored.

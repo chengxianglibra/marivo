@@ -69,7 +69,6 @@ Snapshot 和 preview 时间戳只作为参考信息；仅仅时间较旧不会 b
 | `preview_required_refs` | `tuple[SemanticRef, ...]` | 缺少 matching runtime preview evidence 的 typed executable refs。 |
 | `input_summary` | `ReadinessInputSummary` | 检查了什么：datasources、refs、tables。 |
 | `checked_at` | `str` | 检查的 ISO-8601 时间戳。 |
-| `analysis_handoff` | `SemanticToAnalysisHandoff \| None` | 指向 analysis 接面的类型化 handoff；blocked 或没有 ready ref 时为 `None`。 |
 
 `status` 由严重程度推导：只要有 blocker ⇒ `blocked`；只有 warnings ⇒ `ready_with_warnings`；
 其余 ⇒ `ready`。
@@ -87,8 +86,8 @@ Snapshot 和 preview 时间戳只作为参考信息；仅仅时间较旧不会 b
 
 `report.show()` 会把多个 `runtime_preview_missing` blocker 合并成一条 batch repair 提示，
 同时 `report.blockers` 仍保留逐 ref 细节；`report.to_dict()` 返回完整机器可读列表；
-`report.contract()` 在缺失 preview evidence 时暴露一个 batch `preview` transition，并在
-refs 通过认证时暴露 `analysis_handoff` transition。
+`report.contract()` 在缺失 preview evidence 时暴露一个 batch `preview` transition。
+通过认证的 refs 直接保留在 `analysis_ready_refs` 中。
 
 ## 问题种类
 
@@ -125,18 +124,11 @@ Batch preview 会在连接前校验全部 bindings，合并兼容的 entity/fiel
 使用该 report 完成 semantic changes 的 closeout，或满足更严格 workflow 的认证要求。日常分析
 不会自动调用它。关于分析如何记录结论，参见 [证据链](/zh-cn/latest/concepts/evidence/)。
 
-## 到 analysis 的类型化 handoff
+## 继续进入 analysis
 
-当 readiness 未被 block 且至少有一个请求的 ref 是 analysis-ready 时，report 会在
-`analysis_handoff` 上携带一个类型化的 `SemanticToAnalysisHandoff`。其 project、catalog 与
-environment fingerprints 由 analysis 端 validator 所检查的同一个 index 和 workspace 计算
-而来，因此 handoff 证明这些机械事实在 readiness 时刻是当前的，而不携带任何查询结果。
-
-analysis 接面对该 handoff 只有唯一的接收方：`Session.validate_semantic_handoff(handoff)`。
-它不执行 datasource 查询、不打开连接、不改变状态 —— 只重新校验 environment identity、
-fingerprints、ref 的存在与 kind、当前 readiness、warning 一致性以及 preview-evidence 的存在与归属，
-然后返回一个仅在内存中的 `SemanticHandoffReceipt`。某个事实过期时会抛出带 semantic repair 的
-类型化 `AnalysisError`，指回 semantic 接面；绝不静默回退。
+当 readiness 未被 block 时，`analysis_ready_refs` 包含本次请求中已经通过认证的 refs。
+Warnings 继续显示在同一份 report 上，调用方必须在决定继续前明确披露。中间不再创建额外的
+传递对象。
 
 ```python
 import marivo.semantic as ms
@@ -144,9 +136,11 @@ import marivo.semantic as ms
 catalog = ms.load()
 revenue = catalog.get("metric.sales.revenue")
 report = catalog.readiness(refs=[revenue.ref])
-handoff = report.analysis_handoff  # SemanticToAnalysisHandoff | None
-# route to analysis: session.validate_semantic_handoff(handoff) -> SemanticHandoffReceipt
+if report.status == "blocked":
+    report.show()
+    raise SystemExit
+ready_refs = report.analysis_ready_refs
 ```
 
-`report.contract()` 在 refs 通过认证时把 `analysis_handoff` 转移暴露为一个机械有效的下一步
-动作，因此智能体可以从 readiness 路由到 analysis，而无需自由文本建议。
+Readiness 仍需显式调用；analysis operators 不会自动执行它。处理 warnings 后，只把列出的
+refs 传给普通 analysis APIs。

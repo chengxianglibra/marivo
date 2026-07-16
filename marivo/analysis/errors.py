@@ -7,16 +7,14 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
 
-from marivo._boundaries.semantic_analysis import AnalysisToSemanticHandoff
 from marivo.analysis._cumulative import cumulative_compare_blocker
 from marivo.datasource import errors as _datasource_errors
-from marivo.introspection.live.model import EnvironmentFingerprint, LiveHelpTarget
-from marivo.semantic.catalog import SemanticKind
+from marivo.introspection.live.model import LiveHelpTarget
 
 DatasourceFieldInvalidError = _datasource_errors.DatasourceFieldInvalidError
 DatasourceSecretInPlaintextError = _datasource_errors.DatasourceSecretInPlaintextError
 
-RepairKind = Literal["retry", "inspect", "semantic_handoff", "environment"]
+RepairKind = Literal["retry", "inspect", "semantic_authoring", "environment"]
 
 
 class AnalysisRepair(BaseModel):
@@ -27,7 +25,7 @@ class AnalysisRepair(BaseModel):
     kind:
         Closed repair category. ``retry`` means the agent can re-attempt with
         a corrected call. ``inspect`` means the agent should gather more
-        evidence before proceeding. ``semantic_handoff`` means a required
+        evidence before proceeding. ``semantic_authoring`` means a required
         semantic object is absent and the marivo-semantic skill must author
         it. ``environment`` means project or datasource state must be
         repaired before retry.
@@ -39,9 +37,6 @@ class AnalysisRepair(BaseModel):
         Optional paste-ready code snippet.
     candidates:
         Optional tuple of live candidate strings (e.g. available metric ids).
-    semantic_handoff:
-        Typed handoff to the semantic layer, populated when ``kind`` is
-        ``semantic_handoff``.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -51,7 +46,6 @@ class AnalysisRepair(BaseModel):
     help_target: LiveHelpTarget
     snippet: str | None = None
     candidates: tuple[str, ...] = ()
-    semantic_handoff: AnalysisToSemanticHandoff | None = None
 
 
 class _DerivedFields(TypedDict, total=False):
@@ -211,7 +205,7 @@ class MetricNotFoundError(AnalysisError):
             received=metric_ref,
             location="session.observe call",
             repair=AnalysisRepair(
-                kind="semantic_handoff",
+                kind="semantic_authoring",
                 action=(
                     f"metric_id={metric_ref} has no close match in the loaded "
                     "catalog; author and register the metric in the semantic "
@@ -226,12 +220,6 @@ class MetricNotFoundError(AnalysisError):
                     "catalog = ms.load()\n"
                     'session.observe(catalog.get("metric.<new_metric_id>"), '
                     'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
-                ),
-                semantic_handoff=AnalysisToSemanticHandoff(
-                    required_kind=SemanticKind.METRIC,
-                    requirement=f"metric_id={metric_ref} is not registered in the active semantic model",
-                    affected_capability_id="observe",
-                    environment_fingerprint=EnvironmentFingerprint.current(),
                 ),
             ),
         )
@@ -1105,7 +1093,7 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
             received=dim_ref,
             location="session.observe dimensions argument",
             repair=AnalysisRepair(
-                kind="semantic_handoff",
+                kind="semantic_authoring",
                 action=(
                     f"dimension {dim_ref!r} has no close match on the metric's "
                     "datasets; author and register the dimension in the semantic "
@@ -1120,12 +1108,6 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                     "catalog = ms.load()\n"
                     'session.observe(catalog.get("metric.sales.revenue"), '
                     'dimensions=[catalog.get("dimension.<new_dimension>").ref])'
-                ),
-                semantic_handoff=AnalysisToSemanticHandoff(
-                    required_kind=SemanticKind.DIMENSION,
-                    requirement=f"dimension {dim_ref} is not found on the metric's datasets",
-                    affected_capability_id="observe",
-                    environment_fingerprint=EnvironmentFingerprint.current(),
                 ),
             ),
         )

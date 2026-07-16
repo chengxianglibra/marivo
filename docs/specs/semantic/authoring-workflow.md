@@ -109,7 +109,7 @@ when the kind requires it.
 ## Per-object cycle
 
 The per-object cycle is the registered lifecycle applied to one object. Its
-mechanical transitions — load, verify, preview, readiness, analysis handoff —
+mechanical transitions — load, verify, preview, and readiness —
 and their exact inputs, effects, and preconditions are disclosed by focused
 `ms.help(<target>)` and the current object/result's `.contract()`, not restated
 here as a second runbook. `CatalogObject.contract()` exposes the exact
@@ -270,20 +270,18 @@ treats any `unverified` metric (including via derived propagation) as a failure.
   reads matching static and runtime-check evidence, enforces preview evidence
   for executable families, and never refreshes automatically. Evidence age is
   reported through snapshot metadata but does not block readiness or force a
-  new datasource query. On success it
-  populates `ReadinessReport.analysis_handoff: SemanticToAnalysisHandoff | None`.
+  new datasource query. On success it exposes the certified refs through
+  `ReadinessReport.analysis_ready_refs`.
 
 `ms.parity_check(...)` is an optional, potentially unbounded provenance SQL
 diagnostic and is never readiness-required. `ms.richness(...)` remains advisory.
 
-## Handoff stop conditions
+## Analysis stop conditions
 
-The crossing to `marivo-analysis` is a typed handoff, not a bare ready-ref.
-`ReadinessReport.analysis_handoff` is `None` while any blocker remains; the
-agent routes a non-`None` handoff to the analysis
-`boundary.semantic_handoff` target, whose sole public receiver
-`Session.validate_semantic_handoff(...)` returns a `SemanticHandoffReceipt` only
-after query-free validation. Do not hand off while any blocker remains:
+The crossing to `marivo-analysis` uses the explicit readiness result directly.
+Only refs listed in `ReadinessReport.analysis_ready_refs` may continue; blockers
+and warnings remain on the same report. Do not continue while any blocker
+remains:
 
 - project load or check failed;
 - a datasource required for live validation is unreachable;
@@ -294,7 +292,7 @@ after query-free validation. Do not hand off while any blocker remains:
 - a metric spans multiple datasources without federation support;
 - a metric body needs raw SQL to express the business logic.
 
-These are warnings, not blockers — handoff may proceed with them recorded:
+These are warnings, not blockers — analysis may proceed after they are disclosed:
 
 - a provenance-bearing metric is still `unverified`, or its parity is `drifted`;
 - a metric is trusted without provenance;

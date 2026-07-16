@@ -78,15 +78,3 @@ def test_phase3_catalog_object_and_results_have_contract() -> None:
     assert callable(getattr(SemanticCatalog, "contract", None))
     assert callable(getattr(VerifyResult, "contract", None))
     assert callable(getattr(ReadinessReport, "contract", None))
-
-
-def test_phase4_readiness_report_carries_masked_analysis_handoff() -> None:
-    import marivo.semantic as ms
-    from marivo.semantic.readiness import ReadinessReport
-
-    # The field exists and defaults to None.
-    fields = {f.name for f in __import__("dataclasses").fields(ReadinessReport)}
-    assert "analysis_handoff" in fields
-    # The handoff type is module-internal, not a public export.
-    assert not hasattr(ms, "SemanticToAnalysisHandoff")
-    assert "SemanticToAnalysisHandoff" not in ms.__all__

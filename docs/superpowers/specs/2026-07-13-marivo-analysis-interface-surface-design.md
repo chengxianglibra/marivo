@@ -1,6 +1,6 @@
 # Marivo Analysis Live Interface Surface Design
 
-Status: base analysis cutover implemented; semantic-handoff follow-up pending written-spec re-review
+Status: base analysis cutover implemented; semantic-routing follow-up pending written-spec re-review
 
 Date: 2026-07-13
 
@@ -11,6 +11,12 @@ design owns the neutral resolver, native-registry adapter, private authoring,
 and semantic-analysis boundary package split.
 
 ## Summary
+
+> **2026-07-16 simplification amendment:** Semantic readiness now exposes
+> `ReadinessReport.analysis_ready_refs` directly. Missing semantic objects use
+> `AnalysisRepair(kind="semantic_authoring")`. No directional payload,
+> validation result, or analysis-side readiness boundary exists. Any older
+> transfer/result language below is historical and non-normative.
 
 Redesign the public `marivo.analysis` guidance surface as a live capability and
 contract kernel for general-purpose coding agents.
@@ -60,7 +66,7 @@ contract before the packaged skill attachments are removed:
 
 ```text
 marivo-analysis skill
-    owns hard boundaries, handoff triggers, evidence continuity, closeout obligations
+    owns hard boundaries, routing triggers, evidence continuity, closeout obligations
 
 Marivo live interface surface
     owns capability discovery, static contracts, runtime facts, recovery mechanics
@@ -338,7 +344,7 @@ external consumer can define the required schema and compatibility policy.
 | Artifact `show()` / metadata | Bounded current facts, lineage, quality, blockers, confidence | API manuals, recommendations |
 | Artifact `contract()` | Mechanical compatibility, deterministic/judgment parameter slots, boundary ports | Ranked next actions or stop decisions |
 | Structured errors | Actual failure context, expected/received values, live candidates, concrete repair, canonical help target | Skill-file references or guessed workarounds |
-| Boundary skill | Hard boundaries, handoff triggers, evidence continuity, closeout obligations | API signatures, operator inventory, examples, workflow |
+| Boundary skill | Hard boundaries, routing triggers, evidence continuity, closeout obligations | API signatures, operator inventory, examples, workflow |
 | Agent | Question interpretation, hypotheses, exploration path, method choice, stop criteria, conclusions | Redefining semantic truth or hiding material blockers |
 
 ## Design Goals
@@ -431,34 +437,18 @@ The non-prescriptive analysis surface does not imply that every Marivo track
 must be an unordered capability graph. Semantic authoring has a real policy
 order: datasource evidence precedes evidence-backed authoring; dependency
 objects precede dependents; the skill requires static verification before
-runtime preview; and readiness precedes analysis handoff. The
+runtime preview; and readiness precedes analysis. The
 `marivo-semantic` skill owns that routing discipline while `md.help(...)` and
 `ms.help(...)` own version-sensitive API contracts and mechanically observable
 requirements. Analysis
 starts from ready semantic objects and exposes multiple mechanically legal
 branches, so its skill must not choose the next operator.
 
-Cross-track consistency still matters, but the bidirectional typed handoff must
-not be split across releases. The base analysis cutover removes stale workflow
-links and retains a discoverable semantic entry; it does **not** publish
-`boundary.semantic_handoff`, either directional handoff schema,
-`SemanticHandoffReceipt`, or a receipt-only skill rule.
-
-The follow-up datasource/semantic live-surface cutover atomically adds all of
-these pieces across both modules and both skills:
-
-- analysis produces `AnalysisToSemanticHandoff` for genuine semantic absence;
-- semantic readiness produces `SemanticToAnalysisHandoff`;
-- analysis validates that payload through `boundary.semantic_handoff` and
-  returns `SemanticHandoffReceipt`;
-- the analysis and semantic skills require the typed boundary for every
-  semantic-to-analysis crossing.
-
-No released package may contain the consumer or receipt-only policy without
-the semantic producer. The target cutover directly replaces the prior
-conceptual handoff; it provides no legacy ready-ref return, compatibility
-branch, alias, or migration interval. The policy order remains semantic-owned
-rather than being flattened into an analysis-style graph.
+Cross-track consistency stays small: analysis uses `semantic_authoring` repair
+for genuine absence, while semantic readiness exposes `analysis_ready_refs`
+directly. No transfer payload, result, or analysis-side readiness capability
+is part of the public or private contract. The policy order remains
+semantic-owned rather than being flattened into an analysis-style graph.
 
 The tracks share one object-near mechanical-reading convention:
 `.show()` renders the result or evidence content, while `.contract()` renders
@@ -696,65 +686,10 @@ The initial boundary capabilities are:
 - `boundary.derive_metric_frame`: governed Ibis result entry into a typed
   `MetricFrame`.
 
-The follow-up semantic-authoring cutover atomically adds
-`boundary.semantic_handoff`: query-free governed entry of a semantic readiness
-handoff into a created or recovered analysis session. It is not registered or
-advertised by the base analysis cutover.
-
-At registry finalization, `boundary.to_pandas.accepted_inputs["receiver"]` is
-materialized as the closed set of all registered artifact families, and its
-external `output_family` is `pandas.DataFrame`. Registry validation requires
-every artifact family to expose the public `to_pandas()` boundary. Runtime
-validation, focused help, and type algebra read the materialized set; the
-renderer does not rediscover families through reflection or a hand-authored
-list.
-
-`Session.derive_metric_frame(...)` has exactly one descriptor and one
-capability id: `boundary.derive_metric_frame`. It is not also registered as an
-operator. Consequently `mv.help(session.derive_metric_frame)` and
-`mv.help(mv.Session.derive_metric_frame)` both resolve to that boundary
-descriptor.
-
-`Session.validate_semantic_handoff(handoff)` is the sole public receiver for
-`boundary.semantic_handoff`. It accepts the shared private
-`SemanticToAnalysisHandoff` value produced by semantic readiness and returns a
-consumed-not-constructed `SemanticHandoffReceipt`. It performs no datasource
-query, opens no connection, mutates no project/session state, and chooses no
-analysis operator. “Session” here means a newly created, current, or recovered
-receiver; no prior analysis artifact, blocked branch, or earlier handoff is
-required. A semantic-first task creates or recovers the session and then
-validates the handoff before analysis consumes its ready refs. The boundary
-validates, against that session and its loaded catalog:
-
-- exact environment identity;
-- project and catalog fingerprints;
-- existence and kind of every ready ref;
-- current readiness of the handed-off refs;
-- consistency of readiness status, warning ids, and caveats;
-- freshness and ownership of every required preview-evidence id.
-
-An environment mismatch emits environment repair. A stale project, catalog,
-ref, readiness, or preview-evidence fact emits a new
-`AnalysisToSemanticHandoff` through typed semantic repair. Success returns:
-
-```python
-class SemanticHandoffReceipt(BaseModel):
-    ready_refs: tuple[SemanticRef, ...]
-    project_fingerprint: str
-    catalog_fingerprint: str
-    environment_fingerprint: EnvironmentFingerprint
-    readiness_status: Literal["ready", "ready_with_warnings"]
-    warning_ids: tuple[str, ...] = ()
-    preview_evidence_ids: tuple[str, ...] = ()
-    caveats: tuple[str, ...] = ()
-```
-
-The receipt proves only that those mechanical facts were current at validation
-time. It does not record warning acceptance, recommend an operator, or claim
-that a prior analysis branch exists. The full receipt is in-memory only and the
-boundary does not persist it. Later analysis artifacts record the semantic refs
-and evidence they actually consume through existing lineage; they never inherit
-or persist the receipt's raw interpreter or package paths.
+Semantic readiness is not an analysis boundary capability. It exposes certified
+refs directly through `ReadinessReport.analysis_ready_refs`; ordinary analysis
+operators resolve those refs against the current session catalog when invoked.
+Readiness remains explicit and is never invoked automatically by an operator.
 
 The registry states boundary mechanics only. The skill owns when a task must
 cross one of these boundaries.
@@ -805,7 +740,7 @@ The root groups capabilities by role, not by Python suffix or presumed level:
 8. **Recovery** — jobs, summaries, and frame restoration.
 9. **Boundaries** — terminal exit and governed entry, including
    `boundary.derive_metric_frame`; after the semantic-authoring cutover this
-   group also contains `boundary.semantic_handoff`.
+   group also contains `catalog.readiness(...)`.
 
 Groups are deterministic and deliberately teaching-ordered. Session,
 semantic-input, and policy concepts appear before artifact production because
@@ -866,8 +801,8 @@ window_bucket / dow_aligned / holiday_aligned /
   attribute
 all registered artifact families -> boundary.to_pandas -> pandas.DataFrame
   (terminal)
-semantic readiness -> SemanticToAnalysisHandoff ->
-  boundary.semantic_handoff -> SemanticHandoffReceipt
+semantic readiness -> analysis_ready_refs ->
+  semantic readiness -> readiness result
   (registered atomically by the semantic-authoring cutover)
 ```
 
@@ -1056,10 +991,10 @@ CandidateSet.select
 errors.SemanticKindMismatchError
 boundary.to_pandas
 boundary.derive_metric_frame
-boundary.semantic_handoff
+semantic readiness
 ```
 
-`boundary.semantic_handoff` joins this grammar only in the atomic
+`catalog.readiness(...)` joins this grammar only in the atomic
 semantic-authoring cutover; it is not a pre-registered base-analysis target.
 Only canonical targets appear in root help, `see also`, artifact affordances,
 constraints, and errors.
@@ -1076,9 +1011,9 @@ class LiveHelpTarget(BaseModel):
 ```
 
 `canonical_id=None` selects the registered root for the named surface. The type
-is consumed through repair and handoff fields and is not a top-level public
+is consumed through repair and routing fields and is not a top-level public
 constructor or root-help member. Analysis-local targets use
-`surface="analysis"`; a semantic-authoring handoff uses the semantic root.
+`surface="analysis"`; a semantic-authoring routing uses the semantic root.
 
 Operator ids are global verbs even when the callable is hosted by `Session`:
 there is one public receiver and the operation's semantic identity is
@@ -1210,18 +1145,18 @@ class EnvironmentFingerprint(BaseModel):
     package_path: str
 ```
 
-It is consumed by help, handoffs, and evaluator events and is not a top-level
+It is consumed by help, routings, and evaluator events and is not a top-level
 public constructor.
 
 The CLI fingerprint describes the process that resolved the command. The SDK
 fingerprint describes the importing process. Privacy has three explicit layers:
 
 1. **In-memory structured value.** `EnvironmentFingerprint` retains resolved
-   absolute paths so live equality and repair can be exact. Handoff and receipt
+   absolute paths so live equality and repair can be exact. Routing and result
    fields may carry that value in memory.
 2. **Rendering.** Only explicit environment-authority views—root help and an
    environment-mismatch diagnostic—show raw paths. Ordinary object/result,
-   contract, handoff, receipt, error, and report renders show Marivo version
+   contract, routing, result, error, and report renders show Marivo version
    plus a deterministic opaque fingerprint id and mask both path fields.
    Programmatic in-process field access remains exact.
 3. **Persistence.** Raw fingerprint paths are never written to analysis
@@ -1386,7 +1321,7 @@ does_not_preserve = typed artifact identity, automatic lineage for custom work
 Governed entry is not an artifact-local next action and therefore does not
 appear as a port on every artifact. It remains discoverable through the root
 boundary group as `boundary.derive_metric_frame`; the semantic-authoring
-cutover adds `boundary.semantic_handoff` to that group with its producer and
+cutover adds `catalog.readiness(...)` to that group with its producer and
 policy in the same release.
 
 ## Static Constraints And Examples
@@ -1407,42 +1342,13 @@ change:
 Help may render a bounded constraint summary and a minimal runnable example.
 It must not copy a complete error catalog or full site guide into one topic.
 
-## Structured Error, Repair, And Handoff Contract
+## Structured Error And Repair Contract
 
-`AnalysisError` remains the common exception base. Add a precise repair model
-rather than encoding recovery only in rendered strings or a generic details
-dictionary:
-
-The base analysis cutover retains the closed `semantic_handoff` repair kind but
-does not expose the directional payload schemas below. The semantic-authoring
-cutover replaces that conceptual repair directly with the complete
-bidirectional contract, validator, producer, and both skill rules in one
-target-only candidate. There is no dual payload shape or compatibility
-projection.
+Every `AnalysisError` exposes stable `expected`, `received`, `location`, and
+`repair` fields. `AnalysisRepair` remains the only repair envelope:
 
 ```python
-RepairKind = Literal["retry", "inspect", "semantic_handoff", "environment"]
-
-class AnalysisToSemanticHandoff(BaseModel):
-    required_kind: SemanticKind | None
-    requirement: str
-    affected_capability_id: str
-    environment_fingerprint: EnvironmentFingerprint
-    semantic_context_refs: tuple[str, ...] = ()
-    artifact_refs: tuple[str, ...] = ()
-    evidence_refs: tuple[str, ...] = ()
-    project_fingerprint: str | None = None
-
-class SemanticToAnalysisHandoff(BaseModel):
-    help_target: LiveHelpTarget
-    ready_refs: tuple[SemanticRef, ...]
-    project_fingerprint: str
-    catalog_fingerprint: str
-    environment_fingerprint: EnvironmentFingerprint
-    readiness_status: Literal["ready", "ready_with_warnings"]
-    warning_ids: tuple[str, ...] = ()
-    preview_evidence_ids: tuple[str, ...] = ()
-    caveats: tuple[str, ...] = ()
+RepairKind = Literal["retry", "inspect", "semantic_authoring", "environment"]
 
 class AnalysisRepair(BaseModel):
     kind: RepairKind
@@ -1450,71 +1356,13 @@ class AnalysisRepair(BaseModel):
     help_target: LiveHelpTarget
     snippet: str | None = None
     candidates: tuple[str, ...] = ()
-    semantic_handoff: AnalysisToSemanticHandoff | None = None
 ```
 
-`AnalysisRepair`, `AnalysisToSemanticHandoff`, `SemanticToAnalysisHandoff`, and
-`SemanticHandoffReceipt` use the shared private surface/handoff foundation.
-They are public field or method input/output types but are not top-level
-`mv.__all__` entries or root-help members. `SemanticKind` in the handoff is the
-public catalog enum from `marivo.semantic`, not an analysis artifact-family
-alias.
-
-`RepairKind` is intentionally closed. Adding a new literal requires renderer
-and exhaustive-match test updates. Implementations must not emit an
-unregistered free-form kind as a shortcut.
-
-`semantic_handoff` is required exactly when `kind == "semantic_handoff"` and is
-`None` for every other kind. Its `help_target` is the registered semantic root.
-The payload carries only identifiers, fingerprints, and lineage refs already
-owned by the failed analysis context; it does not embed artifact data or infer a
-replacement business object. `affected_capability_id` must resolve through the
-analysis capability registry.
-
-Every `SemanticToAnalysisHandoff.help_target` resolves exactly to
-`LiveHelpTarget(surface="analysis",
-canonical_id="boundary.semantic_handoff")`; the validator rejects any other
-target rather than guessing a receiver.
-
-The stable public fields on `AnalysisError` are:
-
-```text
-message      human-readable failure summary
-expected     precise expected contract, when applicable
-received     precise received value/type/shape, when applicable
-location     public call or parameter where the failure occurred
-repair       AnalysisRepair or None
-```
-
-Subtype-specific values may remain private only when the runtime needs them to
-derive the public fields above. They have no compatibility guarantee and are
-not retained solely because an older error exposed them through `details`.
-
-Each actionable error exposes:
-
-- what was expected;
-- what was received;
-- where the failure occurred;
-- a repair object when repair is known;
-- current candidates when the runtime can derive them;
-- the complete `AnalysisToSemanticHandoff` when a required business object truly
-  does not exist.
-
-`str(error)` renders those fields in the existing teachable template style.
-`mv.help(error)` renders the error-family contract plus the concrete instance
-repair. `mv.help("errors.<ErrorType>")` renders the static error contract only.
-
-`HelpTargetError` subclasses `AnalysisError`. It is constructed without calling
-the help resolver recursively and carries canonical suggestions derived from
-the registry. Its suggestion set follows the lexical index contract above;
-summary-keyword matches are evaluated before id-only edit distance.
-
-No error contains:
-
-- a packaged skill path;
-- a reference to `SKILL.md` as an API manual;
-- a cached workaround that bypasses the current public API;
-- hardcoded candidates when live state is available.
+Genuine semantic absence uses `semantic_authoring`, points to the semantic help
+surface, and explains the missing requirement in the ordinary error fields and
+repair action. It does not create a nested transfer payload. After the missing
+object is authored and explicit readiness passes, analysis resumes with the
+current report's `analysis_ready_refs`.
 
 ### Semantic-not-found distinction
 
@@ -1524,7 +1372,7 @@ Metric and dimension resolution errors distinguish three cases:
    returned candidates.
 2. **Catalog or project unavailable** — repair the environment or load state.
 3. **Required semantic object absent** — stop the affected branch and emit a
-   typed semantic-authoring handoff containing the exact requirement,
+   typed semantic-authoring routing containing the exact requirement,
    capability, current semantic context, artifact/evidence lineage, project
    identity when available, and authoritative environment fingerprint.
 
@@ -1587,14 +1435,14 @@ not the base analysis cutover. That release atomically changes analysis and
 semantic code, both packaged skills, active docs, and tests to:
 
 - Add `LiveHelpTarget`, `EnvironmentFingerprint`, and the shared directional
-  handoff schemas where not already supplied by the shared foundation.
+  routing schemas where not already supplied by the shared foundation.
 - Make semantic-missing repair carry a complete
-  `AnalysisToSemanticHandoff`; `Session.validate_semantic_handoff(...)` must
-  validate `SemanticToAnalysisHandoff` and return `SemanticHandoffReceipt`.
-- Register and publish `boundary.semantic_handoff` only when
-  `ReadinessReport.analysis_handoff` and both target skill rules are present in
+  `semantic_authoring repair`; explicit `catalog.readiness(...)` must
+  validate `analysis_ready_refs` and return `ReadinessReport`.
+- Register and publish `catalog.readiness(...)` only when
+  `ReadinessReport.analysis_ready_refs` and both target skill rules are present in
   the same candidate.
-- Replace the prior conceptual cross-track handoff directly. Do not add a
+- Replace the prior conceptual cross-track routing directly. Do not add a
   legacy ready-ref branch, fallback construction, alias, deprecation period, or
   migration adapter.
 
@@ -1652,7 +1500,7 @@ semantic execution extension and remains optional for all other analysis.
 ### Skill and guidance workstream
 
 - Replace the packaged analysis skill with the one-file boundary kernel.
-- Keep its base semantic handoff conceptual; do not add a receipt-only rule
+- Keep its base semantic routing conceptual; do not add a result-only rule
   before the semantic-authoring follow-up installs both live owners.
 - Delete all attachments, examples, attachment runners, and active links to
   them.
@@ -1720,12 +1568,12 @@ not executed by make test and its policy limits do not live in SURFACE_LIMITS.
   match the registry.
 - Every constraint and repair help target resolves through its declared
   `LiveHelpTarget.surface`.
-- Every `semantic_handoff` repair has a complete
-  `AnalysisToSemanticHandoff`; all other repair kinds reject that payload.
-- `boundary.semantic_handoff` accepts only `SemanticToAnalysisHandoff`, performs
+- Every `semantic_authoring` repair has a complete
+  `semantic_authoring repair`; all other repair kinds reject that payload.
+- `catalog.readiness(...)` accepts only `analysis_ready_refs`, performs
   no datasource read, connection, or mutation; validates every environment,
   project, catalog, ref, readiness, and preview-evidence fact; and returns
-  `SemanticHandoffReceipt` only on success.
+  `ReadinessReport` only on success.
 - Every type-algebra producer/consumer edge is registry-backed and every typed
   capability is represented in the graph.
 - Every aggregated type-algebra label resolves to one canonical grouping-topic
@@ -1760,7 +1608,7 @@ not executed by make test and its policy limits do not live in SURFACE_LIMITS.
 - No active datasource or semantic help, error, result, or current doc points
   to removed `workflow` or `advanced` analysis targets.
 
-The two directional-payload and `boundary.semantic_handoff` assertions above
+The two directional-payload and `catalog.readiness(...)` assertions above
 belong to the semantic-authoring target candidate. They are not release gates
 for the earlier base analysis cutover in isolation; that candidate must not
 expose either half of the typed crossing.
@@ -1824,7 +1672,7 @@ deferred typed-metadata design instead.
   script render equal normalized fingerprints.
 - Deliberately different environment fixtures render different fingerprints.
 - Root help and explicit environment-mismatch diagnostics render resolved raw
-  paths; ordinary `ReadinessReport`, handoff, `SemanticHandoffReceipt`,
+  paths; ordinary `ReadinessReport`, routing, `ReadinessReport`,
   contract, error, artifact, and report renders mask those paths and show only
   version plus opaque fingerprint id.
 - Persistence fixtures prove that neither raw fingerprint path appears in
@@ -1845,11 +1693,11 @@ Review at least these independent legal paths:
 4. Observe two frames, compare, and attribute over a chosen semantic axis.
 5. Recover a persisted artifact in a later script and continue from its
    contract.
-6. Encounter a missing metric and receive a semantic-authoring handoff rather
+6. Encounter a missing metric and receive a semantic-authoring routing rather
    than a raw-field workaround.
 7. Enter or re-enter analysis from scoped semantic readiness through
-   `boundary.semantic_handoff`, reject one stale-fingerprint fixture, and
-   consume ready refs only from the validated receipt without choosing an
+   `catalog.readiness(...)`, reject one stale-fingerprint fixture, and
+   consume ready refs only from the validated result without choosing an
    operator for the agent. Run both a semantic-first fixture with a newly
    created session and a blocked-analysis fixture with a recovered session.
 8. Encounter an invalid shape or parameter and repair it from the structured
@@ -1903,7 +1751,7 @@ and verify that historical versioned docs have no diff.
   location.
 - `workflow` and `advanced` are not public help topics or aliases.
 - The current datasource/semantic surface contains no cross-link to either
-  removed target and routes analysis handoff to the registered analysis root.
+  removed target and routes analysis routing to the registered analysis root.
 - The root contains no question-to-operator routing or ordered analysis plan.
 - The root's intentional teaching order is documented without presenting a
   default, prerequisite, or recommended operator path.
@@ -1979,11 +1827,11 @@ and verify that historical versioned docs have no diff.
   repair data.
 - Error repair candidates are derived from current state where possible.
 - Missing semantic objects produce a complete typed
-  `AnalysisToSemanticHandoff` with requirement, affected capability,
+  `semantic_authoring repair` with requirement, affected capability,
   semantic/project context, evidence/artifact lineage, and environment
   fingerprint.
-- Analysis consumes handed-off ready refs only from a
-  `SemanticHandoffReceipt` produced by the query-free registered boundary;
+- Analysis consumes analysis-ready ready refs only from a
+  `ReadinessReport` produced by the query-free registered boundary;
   this applies equally to first entry and re-entry, and stale facts return
   typed repair instead.
 - No active constraint or error points into the packaged analysis skill.

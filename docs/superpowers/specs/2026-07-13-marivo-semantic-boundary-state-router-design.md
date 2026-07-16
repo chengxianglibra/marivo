@@ -6,6 +6,12 @@ Date: 2026-07-13
 
 ## Summary
 
+> **2026-07-16 simplification amendment:** Semantic readiness now exposes
+> `ReadinessReport.analysis_ready_refs` directly. Missing semantic objects use
+> `AnalysisRepair(kind="semantic_authoring")`. No directional payload,
+> validation result, or analysis-side readiness boundary exists. Any older
+> transfer/result language below is historical and non-normative.
+
 Redesign the packaged `marivo-semantic` skill as a minimal boundary and
 state-routing policy for datasource setup and semantic-layer authoring.
 
@@ -64,8 +70,8 @@ because a call is mechanically available before the skill permits choosing it.
 This semantic-authoring cutover follows the analysis live-interface cutover,
 which supplies the shared introspection and environment-authority foundation.
 It is not folded into the base analysis release. Its own atomic candidate also
-adds the analysis-side handoff schemas, validator/receipt, and analysis-skill
-handoff clause together with the semantic producer; none of those requirements
+adds the analysis-side routing schemas, validator/result, and analysis-skill
+routing clause together with the semantic producer; none of those requirements
 is published early. The later business semantic object-model cutover extends
 this state router without adding object-family manuals back into the skill.
 
@@ -94,7 +100,7 @@ Some current hard boundaries are durable policy:
 - one explicit scope must precede a user-data read;
 - one snapshot is reused within an active batch;
 - one unresolved semantic decision is asked at a time;
-- readiness precedes analysis handoff.
+- readiness precedes analysis routing.
 
 Other lines are version-sensitive product facts:
 
@@ -152,7 +158,7 @@ contains no private product catalog. It preserves four kinds of responsibility:
 1. activation and environment authority;
 2. ordered state-routing discipline;
 3. evidence, safety, and judgment boundaries;
-4. cross-track handoff and closeout obligations.
+4. cross-track routing and closeout obligations.
 
 Everything else is either a live Marivo fact, agent judgment, or user decision.
 
@@ -166,7 +172,7 @@ and follow object-near contracts.
 This is maximally small, but it does not protect the semantic track's essential
 boundaries: evidence before meaning, dependencies before dependents, one object
 at a time, one unresolved question at a time, verification before required
-preview, or readiness before analysis handoff.
+preview, or readiness before analysis routing.
 
 ### Boundary state-router — selected
 
@@ -278,7 +284,7 @@ not link to deleted paths.
 
 The single file has no fixed line-count target. It is bounded structurally:
 one trigger, one mission, one live-entry rule, one routing loop, one hard-
-boundary section, one handoff section, and one closeout section. API examples,
+boundary section, one routing section, and one closeout section. API examples,
 tables, backend matrices, and error catalogs are forbidden regardless of total
 length.
 
@@ -292,7 +298,7 @@ The description activates the skill when work requires any of:
 - physical source inspection or evidence acquisition;
 - new or changed semantic objects;
 - semantic verification, preview, or readiness repair;
-- an analysis handoff that reports a genuinely missing business object.
+- an analysis routing that reports a genuinely missing business object.
 
 Metric-centered investigation over already-ready refs remains owned by
 `marivo-analysis`. The semantic skill must not remain active merely because an
@@ -309,7 +315,7 @@ The mission states:
 Authority is divided explicitly:
 
 - live Marivo owns mechanical contracts and current state;
-- the skill owns ordering, safety, evidence, and handoff policy;
+- the skill owns ordering, safety, evidence, and routing policy;
 - the agent owns technical interpretation and explicit Python drafting;
 - the user or business owner owns unresolved business meaning.
 
@@ -387,7 +393,7 @@ dependency before dependent
 one authored object before its validation cycle
 static verification before required runtime preview
 required runtime preview before readiness
-readiness before analysis handoff
+readiness before analysis routing
 ```
 
 The live surface declares which object families require static-only,
@@ -576,71 +582,29 @@ function names.
   it is not promoted to a universal readiness step by skill prose.
 - A diagnostic result cannot override unresolved business meaning.
 
-## Handoffs
-
-The exact type and field names below specify live-owner acceptance, not prose
-to copy into `SKILL.md`. The packaged skill says conceptually “when the current
-analysis error exposes a semantic handoff” and “when semantic readiness exposes
-an analysis handoff,” then follows object-near contract/help. Exact names such
-as `AnalysisRepair.semantic_handoff` and
-`ReadinessReport.analysis_handoff` remain discoverable from the installed live
-surface, preserving the skill-content ban on exact result fields.
+## Cross-Track Routing
 
 ### Analysis to semantic
 
-When analysis reports that a required business object genuinely does not
-exist, the analysis boundary activates this skill with the current
-`AnalysisRepair.semantic_handoff` payload. Its typed
-`AnalysisToSemanticHandoff` carries:
-
-- the missing semantic kind or requirement;
-- affected analysis branch or intent;
-- current semantic/project context;
-- evidence/artifact lineage that must be preserved;
-- the authoritative environment fingerprint.
-
-The semantic skill does not reconstruct these fields from conversation memory
-or broaden the request into general catalog cleanup. It authors or repairs the
-smallest dependency-closed set required for the blocked analysis branch, one
-object and validation cycle at a time, then obtains scoped readiness.
+When analysis reports genuine semantic absence, its structured repair uses
+`kind="semantic_authoring"`, a semantic help target, and a concrete action.
+The router authors only the smallest dependency-closed requirement described by
+that error; it does not reconstruct a broader cleanup request from conversation
+memory.
 
 ### Semantic to analysis
 
-The handoff occurs only when the live readiness result exposes a non-`None`
-`ReadinessReport.analysis_handoff`. Its typed `SemanticToAnalysisHandoff` carries:
+When explicit readiness is not blocked, the router discloses warnings, applies
+its proceed-or-stop policy, and activates `marivo-analysis` with exactly
+`ReadinessReport.analysis_ready_refs`. There is no second validation token or
+analysis-side readiness receiver. Ordinary analysis operations resolve the refs
+against the current session catalog when invoked.
 
-- exact ready typed refs;
-- project/catalog fingerprint;
-- environment fingerprint;
-- readiness status and current warning ids;
-- snapshot/preview evidence identity required by the live contract;
-- any remaining non-blocking caveats.
+### User and environment stops
 
-The skill does not construct this payload, teach analysis operators, or choose
-the analysis path. It activates `marivo-analysis`, follows the
-semantic-to-analysis handoff's live target, and transfers the governed inputs
-exactly as recorded by readiness. Analysis consumes those handed-off refs only
-after its query-free boundary returns a `SemanticHandoffReceipt`; fingerprint,
-ref, readiness, or preview-evidence rejection routes back through typed repair.
-A semantic-first task creates or recovers an analysis session before validation;
-no prior blocked analysis branch is required.
-
-A `ready_with_warnings` payload reports warnings; it does not prove that the
-runtime captured user or agent acceptance. Before transferring that payload,
-the skill explicitly discloses the warnings and applies its proceed-or-stop
-policy.
-
-### User-decision handoff
-
-An unresolved business decision produces the one-question grill stop. The
-agent does not disguise it as a runtime error, create an inferred default, or
-continue authoring dependents.
-
-### Environment handoff
-
-An unresolved fingerprint mismatch produces an environment-repair stop. No
-datasource, semantic, or analysis work proceeds until one authoritative
-environment is established.
+An unresolved business decision remains a one-question stop. An environment
+fingerprint mismatch remains an environment-repair stop before datasource,
+semantic, or analysis work proceeds.
 
 ## Closeout Obligations
 
@@ -652,7 +616,7 @@ Successful semantic closeout states only Marivo-specific facts:
 - which registered validation stages passed;
 - which refs are analysis-ready;
 - which warnings or caveats remain;
-- which analysis task or branch receives the handoff.
+- which analysis task or branch receives the routing.
 
 Closeout does not generate a general modeling tutorial, repeat constructor
 syntax, or claim that observed data proved business meaning.
@@ -703,7 +667,7 @@ permanent workaround.
 | Source builder and typed-ref names | Live datasource/semantic help |
 | Scope, scan, persistence, and secret principles | Retain as policy; mechanics move live |
 | Exact raw diagnostic/parity calls | Live boundary help/effect registry |
-| Analysis handoff requirement | Retain in skill; mechanics move live |
+| Analysis routing requirement | Retain in skill; mechanics move live |
 
 ### `references/datasource.md`
 
@@ -714,7 +678,7 @@ durable scope/privacy/evidence rules in the root skill. Delete the file.
 ### `references/closeout.md`
 
 Move readiness fields and exact calls to live semantic results/help. Retain the
-ready-only handoff and closeout obligations in the root skill. Delete the file.
+ready-only routing and closeout obligations in the root skill. Delete the file.
 
 ### `references/pitfalls.md`
 
@@ -739,22 +703,22 @@ source.
 ## Atomic Replacement Scope
 
 The skill replacement is released only with the companion live-surface
-cutover and the analysis-side handoff extension. Implementation may prepare
+cutover and the analysis-side routing extension. Implementation may prepare
 files earlier on a branch, but no candidate package may delete attachments or
-publish either handoff half while runtime constraints, errors, skills, or latest
+publish either routing half while runtime constraints, errors, skills, or latest
 documentation still depend on the earlier conceptual crossing.
 
 The coordinated cutover updates:
 
 - `marivo/skills/marivo-semantic/SKILL.md`;
-- the handoff clause in `marivo/skills/marivo-analysis/SKILL.md`;
+- the routing clause in `marivo/skills/marivo-analysis/SKILL.md`;
 - all files under its current `references/` tree;
 - attachment/example runners and tests;
 - runtime constraint and error links;
 - datasource and semantic help topics;
 - result transition and repair fields;
-- both directional handoff schemas, `boundary.semantic_handoff`,
-  `Session.validate_semantic_handoff(...)`, and `SemanticHandoffReceipt`;
+- both directional routing schemas, `catalog.readiness(...)`,
+  explicit `catalog.readiness(...)`, and `ReadinessReport`;
 - `agent-guide.md` and active semantic specs;
 - latest English and Chinese site authoring documentation;
 - CLI entry guidance;
@@ -773,7 +737,7 @@ After cutover, active documentation uses the same ownership statement:
 > observable state, mechanically available calls, orthogonal effects, and
 > repair. The `marivo-semantic` skill
 > owns ordered routing discipline, evidence and safety boundaries, the
-> one-question business-decision protocol, and ready-only handoff. The agent
+> one-question business-decision protocol, and ready-only routing. The agent
 > owns technical drafting; the user or business owner owns unresolved meaning.
 
 No active guide may say that:
@@ -814,7 +778,7 @@ Structural tests assert the presence of:
 - business-authority precedence and conflict stop;
 - one-question grill stop;
 - scope, privacy, evidence, and judgment boundaries;
-- readiness-only analysis handoff;
+- readiness-only analysis routing;
 - closeout obligations.
 
 They assert the absence of:
@@ -836,7 +800,7 @@ capitalization-sensitive phrases.
 Before deleting each attachment, inventory every retained fact and prove its
 live target exists in the candidate package. Every runtime constraint, error,
 transition, and repair help target resolves through its declared live surface
-without a skill path. Cross-track cases carry complete typed handoff payloads.
+without a skill path. Cross-track cases carry complete typed routing payloads.
 Package checks reject a candidate that contains the semantic producer without
 the analysis validator, the validator without the producer, or either target
 skill rule without both live owners.
@@ -853,8 +817,8 @@ Review at least:
 6. one unresolved business decision;
 7. unscoped or potentially unbounded read prevention;
 8. environment mismatch stop;
-9. analysis missing-semantic handoff followed by validated re-entry;
-10. semantic-first handoff into a newly created or recovered analysis session;
+9. analysis missing-semantic routing followed by validated re-entry;
+10. semantic-first routing into a newly created or recovered analysis session;
 11. future object family whose preview mode differs from current objects.
 
 The skill must route from live state without knowing version-specific mechanics
@@ -865,7 +829,7 @@ for any scenario.
 The standalone marivo-agent-evals project owns model-backed candidate
 evaluation, fixtures, event logging, safety oracles, and trial policy. This
 repository exposes deterministic installed-package, help, repair, result,
-handoff, and skill-shape contracts for that evaluator but does not run a model
+routing, and skill-shape contracts for that evaluator but does not run a model
 or store its evaluation harness.
 ### Repository checks
 
@@ -888,7 +852,7 @@ it must not fail because deleted skill examples no longer exist.
 
 - The packaged skill is one root `SKILL.md` with no attachments or examples.
 - Its sections are limited to trigger, authority, live entry, routing,
-  boundaries, handoffs, and closeout.
+  boundaries, routings, and closeout.
 - It contains no version-sensitive API catalog or fallback mechanics.
 
 ### Ownership consistency
@@ -926,9 +890,9 @@ it must not fail because deleted skill examples no longer exist.
   dependency blockers, and readiness blockers produce explicit stops or live
   repair.
 - Analysis-to-semantic and semantic-to-analysis crossings preserve their typed
-  handoff payloads without reconstruction from conversation memory.
-- Analysis consumes handed-off ready refs only from
-  `SemanticHandoffReceipt`, for both first entry and re-entry.
+  routing payloads without reconstruction from conversation memory.
+- Analysis consumes analysis-ready ready refs only from
+  `ReadinessReport`, for both first entry and re-entry.
 - The skill does not hide a defective live transition behind a memorized
   workaround.
 

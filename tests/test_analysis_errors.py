@@ -26,7 +26,6 @@ from marivo.analysis.errors import (
     WindowInvalidError,
 )
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.semantic.catalog import SemanticKind
 
 
 def test_base_is_exception():
@@ -60,7 +59,7 @@ def test_all_subclasses_are_analysis_errors(cls):
 
 
 def test_analysis_repair_accepts_known_kinds() -> None:
-    for kind in ("retry", "inspect", "semantic_handoff", "environment"):
+    for kind in ("retry", "inspect", "semantic_authoring", "environment"):
         repair = AnalysisRepair(
             kind=kind,
             action="do something",
@@ -215,7 +214,7 @@ def test_help_target_error_location_is_help_target() -> None:
 
 
 # ---------------------------------------------------------------------------
-# semantic_handoff vs retry repair dispatch for metric/dimension lookup
+# semantic_authoring vs retry repair dispatch for metric/dimension lookup
 # ---------------------------------------------------------------------------
 
 
@@ -237,8 +236,8 @@ def test_metric_not_found_uses_retry_when_candidates_exist() -> None:
     assert err.received == "sales.revenu"
 
 
-def test_metric_not_found_uses_semantic_handoff_when_no_candidates() -> None:
-    """When available_ids is empty, repair kind is 'semantic_handoff'."""
+def test_metric_not_found_uses_semantic_authoring_when_no_candidates() -> None:
+    """When available_ids is empty, repair routes to semantic authoring."""
 
     err = MetricNotFoundError(
         message="metric 'nonexistent' is not registered",
@@ -249,17 +248,22 @@ def test_metric_not_found_uses_semantic_handoff_when_no_candidates() -> None:
     )
 
     assert err.repair is not None
-    assert err.repair.kind == "semantic_handoff"
+    assert err.repair.kind == "semantic_authoring"
     assert err.repair.candidates == ()
     assert err.repair.help_target == LiveHelpTarget(surface="semantic")
-    assert err.repair.semantic_handoff is not None
-    assert err.repair.semantic_handoff.required_kind == SemanticKind.METRIC
+    assert set(type(err.repair).model_fields) == {
+        "kind",
+        "action",
+        "help_target",
+        "snippet",
+        "candidates",
+    }
     assert err.received == "sales.nonexistent"
     assert "semantic layer" in err.repair.action
 
 
-def test_metric_not_found_uses_semantic_handoff_when_available_ids_absent() -> None:
-    """When no available_ids context at all, repair kind is 'semantic_handoff'."""
+def test_metric_not_found_uses_semantic_authoring_when_available_ids_absent() -> None:
+    """When available_ids is absent, repair routes to semantic authoring."""
 
     err = MetricNotFoundError(
         message="metric 'foo' is not registered",
@@ -267,7 +271,7 @@ def test_metric_not_found_uses_semantic_handoff_when_available_ids_absent() -> N
     )
 
     assert err.repair is not None
-    assert err.repair.kind == "semantic_handoff"
+    assert err.repair.kind == "semantic_authoring"
     assert err.repair.candidates == ()
 
 
@@ -290,8 +294,8 @@ def test_dimension_field_not_found_uses_retry_when_candidates_exist() -> None:
     assert err.received == "regio"
 
 
-def test_dimension_field_not_found_uses_semantic_handoff_when_no_candidates() -> None:
-    """When available_ids is empty, repair kind is 'semantic_handoff'."""
+def test_dimension_field_not_found_uses_semantic_authoring_when_no_candidates() -> None:
+    """When available_ids is empty, repair routes to semantic authoring."""
 
     err = DimensionFieldNotFoundError(
         message="dimension 'unknown' not found on metric datasets",
@@ -303,11 +307,16 @@ def test_dimension_field_not_found_uses_semantic_handoff_when_no_candidates() ->
     )
 
     assert err.repair is not None
-    assert err.repair.kind == "semantic_handoff"
+    assert err.repair.kind == "semantic_authoring"
     assert err.repair.candidates == ()
     assert err.repair.help_target == LiveHelpTarget(surface="semantic")
-    assert err.repair.semantic_handoff is not None
-    assert err.repair.semantic_handoff.required_kind == SemanticKind.DIMENSION
+    assert set(type(err.repair).model_fields) == {
+        "kind",
+        "action",
+        "help_target",
+        "snippet",
+        "candidates",
+    }
     assert err.received == "unknown"
     assert "semantic layer" in err.repair.action
 

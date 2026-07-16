@@ -80,7 +80,6 @@ truth. Parity is never required for readiness.
 | `preview_required_refs` | `tuple[SemanticRef, ...]` | Typed executable refs that need matching runtime preview evidence. |
 | `input_summary` | `ReadinessInputSummary` | What was checked: datasources, refs, and tables. |
 | `checked_at` | `str` | ISO-8601 timestamp of the check. |
-| `analysis_handoff` | `SemanticToAnalysisHandoff \| None` | Typed handoff to the analysis surface; `None` when blocked or no ref is ready. |
 
 `status` is derived from severity: any blocker ⇒ `blocked`; warnings only ⇒
 `ready_with_warnings`; otherwise `ready`.
@@ -100,8 +99,8 @@ target:
 `report.show()` groups multiple `runtime_preview_missing` blockers into one batch
 repair hint while `report.blockers` retains per-ref detail. `report.to_dict()`
 returns the full machine list; `report.contract()` exposes one batch `preview`
-transition when preview evidence is missing and the `analysis_handoff` transition
-when refs passed certification.
+transition when preview evidence is missing. Certified refs remain available
+directly through `analysis_ready_refs`.
 
 Optional `guardrails` enrichment is reported by readiness and richness; it does
 not block certification.
@@ -143,23 +142,12 @@ Use this report to close out semantic changes or satisfy a stricter workflow's
 certification requirement. Routine analysis does not call it automatically. For
 how analysis records what it concludes, see [Evidence](/en/latest/concepts/evidence/).
 
-## Typed handoff to analysis
+## Continue to analysis
 
-When readiness is not blocked and at least one requested ref is analysis-ready,
-the report carries a typed `SemanticToAnalysisHandoff` on `analysis_handoff`.
-Its project, catalog, and environment fingerprints are computed from the same
-index and workspace the analysis-side validator checks, so the handoff proves
-the mechanical facts were current at readiness time without carrying any query
-result.
-
-The analysis surface has exactly one receiver for this handoff:
-`Session.validate_semantic_handoff(handoff)`. It performs no datasource query,
-opens no connection, and mutates no state — it re-verifies environment identity,
-fingerprints, ref existence and kind, current readiness, warning consistency,
-and preview-evidence existence and ownership, then returns an in-memory
-`SemanticHandoffReceipt`. A stale fact raises a typed `AnalysisError` with
-semantic repair pointing back at the semantic surface; it never silently
-falls back.
+When readiness is not blocked, `analysis_ready_refs` contains the requested refs
+that passed certification. Warnings remain visible on the same report and must be
+disclosed before the caller chooses to proceed. There is no second transfer
+object.
 
 ```python
 import marivo.semantic as ms
@@ -167,10 +155,11 @@ import marivo.semantic as ms
 catalog = ms.load()
 revenue = catalog.get("metric.sales.revenue")
 report = catalog.readiness(refs=[revenue.ref])
-handoff = report.analysis_handoff  # SemanticToAnalysisHandoff | None
-# route to analysis: session.validate_semantic_handoff(handoff) -> SemanticHandoffReceipt
+if report.status == "blocked":
+    report.show()
+    raise SystemExit
+ready_refs = report.analysis_ready_refs
 ```
 
-`report.contract()` exposes the `analysis_handoff` transition as a
-mechanically valid next action when refs passed certification, so an agent can
-route from readiness to analysis without free-form suggestions.
+Readiness remains explicit: analysis operators do not run it automatically.
+Pass only the listed refs to the ordinary analysis APIs after handling warnings.

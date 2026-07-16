@@ -82,7 +82,6 @@ def test_readiness_report_render_contains_identity_and_available():
         [
             "ReadinessReport status=ready_with_warnings issues=0",
             "analysis_ready: sales.revenue",
-            "handoff: ready_with_warnings: warnings are non-blocking; proceed to marivo.analysis only if accepted",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
             "- .render()",
