@@ -344,6 +344,25 @@ def _related_targets(desc: CapabilityDescriptor) -> list[str]:
     return related[:5]
 
 
+def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
+    """Return the real registered members taught by a non-invokable topic."""
+    if desc.callable_path is not None:
+        return []
+    members: list[CapabilityDescriptor] = []
+    for candidate in REGISTRY.descriptors:
+        if candidate is desc or candidate.callable_path is None:
+            continue
+        if desc.id in {"discover", "transform", "catalog", "boundary", "session"}:
+            if candidate.id.startswith(f"{desc.id}."):
+                members.append(candidate)
+        elif (desc.id == "recovery" and candidate.root_group == "recovery") or (
+            desc.id == "artifacts"
+            and (candidate.id.startswith("BaseFrame.") or candidate.id == "boundary.to_pandas")
+        ):
+            members.append(candidate)
+    return sorted(members, key=lambda item: item.help_target)
+
+
 def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
     """Render focused help for a single capability descriptor."""
     lines: list[str] = []
@@ -422,6 +441,14 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             lines.append(f"  Restored family: {desc.restored_family}")
         lines.append(f"  Identity input: {desc.identity_input}")
         lines.append(f"  Query behavior: {desc.query_behavior}")
+
+    members = _grouping_members(desc)
+    if members:
+        if lines[-1] != "":
+            lines.append("")
+        lines.append("  Members:")
+        for member in members:
+            lines.append(f"    {member.public_entrypoint}  [{member.help_target}]")
 
     # Example (from docstring)
     if callable_obj is not None:

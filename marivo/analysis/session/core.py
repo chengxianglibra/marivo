@@ -643,9 +643,11 @@ class Session:
         Additive deltas support axis-sum attribution. Semi-additive deltas
         support non-time axes but reject their persisted status time axis.
         Component-aware ratio and weighted-average deltas use mix attribution.
-        Other non-additive metrics, non-additive linear compositions, and
-        deltas missing persisted additivity metadata fail closed. Re-observe
-        and compare old artifacts before retrying attribution.
+        Tier-1 means over a measure are observed with exact sum and non-null
+        count components, then use weighted mix attribution. Other non-additive
+        metrics, non-additive linear compositions, and deltas missing persisted
+        additivity metadata fail closed. Re-observe and compare old artifacts
+        before retrying attribution.
         Plain non-linear sampled folds such as percentile, min, max, first, or
         last retain their earlier guard unless they are part of a persisted
         component-aware ratio or weighted-average delta.

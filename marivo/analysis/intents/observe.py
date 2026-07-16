@@ -30,6 +30,7 @@ from marivo.analysis.intents._observe_base import (  # noqa: F401
     _execute_base,
     _execute_sampled_base,
     _expression_source_columns,
+    _mean_component_contract,
     _prune_base_observe_projection,
     _resolve_fold_time_field,
     _time_dependency_exprs,
@@ -722,6 +723,9 @@ def observe(
             "warnings": plan.warnings,
             "metric_semantics": _metric_semantics_payload(metric_ir),
         }
+        mean_component_contract = _mean_component_contract(metric_ir)
+        if mean_component_contract is not None:
+            params["component_lowering"] = mean_component_contract
         prospective_id = compute_prospective_artifact_id(
             step_type="observe",
             inputs=CommitInputs(input_refs=[]),
@@ -734,7 +738,7 @@ def observe(
             session._connection_runtime.take_captured_queries()
             return cast("MetricFrame", load_frame(prospective_id, session=session))
 
-        result, axes, semantic_kind, coverage_df = _execute_base(
+        result, axes, semantic_kind, coverage_df, mean_component_df = _execute_base(
             plan,
             metric_ir,
             catalog=catalog,
@@ -821,6 +825,28 @@ def observe(
         semantic_kind=semantic_kind,
         subject_grain=_grain_token,
     )
+
+    if mean_component_df is not None and mean_component_contract is not None:
+        mean_components = mean_component_contract["components"]
+        assert isinstance(mean_components, dict)
+        component = _persist_metric_component_frame(
+            session=session,
+            df=mean_component_df,
+            parent=frame,
+            metric_ir=metric_ir,
+            axes=axes,
+            semantic_kind=semantic_kind,
+            job_ref=job_ref,
+            composition_kind="weighted_average",
+            components={str(role): str(value) for role, value in mean_components.items()},
+        )
+        frame = _attach_metric_component_ref(
+            session=session,
+            parent=frame,
+            component=component,
+            metric_ir=metric_ir,
+            composition=mean_component_contract,
+        )
 
     # --- Persist coverage sidecar for sampled metrics ---
     if coverage_df is not None:

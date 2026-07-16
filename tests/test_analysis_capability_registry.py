@@ -602,16 +602,33 @@ def test_help_and_help_text_registered() -> None:
 
 
 def test_grouping_descriptors_exist() -> None:
-    for topic in ("discover", "transform", "recovery", "boundary"):
+    for topic in (
+        "session",
+        "catalog",
+        "discover",
+        "transform",
+        "recovery",
+        "boundary",
+        "artifacts",
+    ):
         desc = REGISTRY.by_help_target(topic)
         assert desc is not None, f"missing grouping descriptor for {topic}"
 
 
 def test_grouping_descriptors_are_not_invokable() -> None:
     """Grouping descriptors must not have a callable_path."""
-    for topic in ("discover", "transform", "recovery", "boundary"):
+    for topic in (
+        "session",
+        "catalog",
+        "discover",
+        "transform",
+        "recovery",
+        "boundary",
+        "artifacts",
+    ):
         desc = REGISTRY.by_help_target(topic)
         assert desc.callable_path is None, f"{topic} grouping must not be invokable"
+        assert desc.public_entrypoint == f'mv.help("{topic}")'
 
 
 # ---------------------------------------------------------------------------

@@ -440,6 +440,61 @@ def test_delta_contract_preserves_component_aware_attribution_exception(
         }
         for item in affordance.preconditions
     )
+    available = next(
+        item for item in affordance.preconditions if item.check == "component_attribution_available"
+    )
+    assert available.status == "pass"
+    expected_shape = "ratio_mix" if composition_kind == "ratio" else "weighted_mix"
+    assert expected_shape in (available.reason or "")
+
+
+def test_delta_show_surfaces_direct_component_attribution() -> None:
+    frame = _delta_contract_frame(
+        additivity="non_additive",
+        composition_kind="weighted_average",
+    )
+    frame.meta.composition = {
+        **(frame.meta.composition or {}),
+        "lowered_from": "mean",
+    }
+
+    rendered = frame.render()
+
+    assert "attribute: direct attribute is supported" in rendered
+    assert "attribution_shape=weighted_mix" in rendered
+    assert "lowered_from=mean" in rendered
+
+
+def test_delta_show_surfaces_blocked_non_additive_attribution() -> None:
+    frame = _delta_contract_frame(additivity="non_additive")
+
+    rendered = frame.render()
+
+    assert "attribute: blocked:" in rendered
+    assert "inspect .contract() for repair" in rendered
+
+
+def test_delta_show_keeps_attribution_guidance_before_bounded_preview() -> None:
+    frame = _delta_contract_frame(
+        additivity="non_additive",
+        composition_kind="ratio",
+    )
+    frame._df = pd.DataFrame(
+        {
+            "bucket_start": ["2026-07-06"] * 7,
+            "bucket_start_b": ["2026-07-06"] * 7,
+            "current": [0.12345678901234567] * 7,
+            "baseline": [0.9876543210987654] * 7,
+            "delta": [-0.8641975320864197] * 7,
+            "pct_change": [-0.8750000000000001] * 7,
+            "diagnostic": ["x" * 1024] * 7,
+        }
+    )
+
+    rendered = frame.render()
+
+    assert "attribute: direct attribute is supported" in rendered
+    assert rendered.index("attribute:") < rendered.index("preview:")
 
 
 def test_delta_contract_keeps_additive_attribution_unblocked() -> None:

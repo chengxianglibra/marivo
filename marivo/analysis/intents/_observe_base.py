@@ -25,6 +25,7 @@ from marivo.analysis.executor.windowing import (
 )
 from marivo.analysis.intents._observe_catalog import (
     _build_entity_adapter,
+    _catalog_object,
     _entity_details,
     _field_details,
 )
@@ -39,7 +40,85 @@ from marivo.analysis.intents.sampled_fold import (
 from marivo.analysis.session.core import Session
 from marivo.analysis.windows.grain import Grain, ensure_grain_supported
 from marivo.analysis.windows.spec import AbsoluteWindow
-from marivo.semantic.catalog import TimeDimensionDetails
+from marivo.semantic.catalog import SemanticKind, TimeDimensionDetails
+
+_MEAN_SUM_COLUMN = "__mean_sum"
+_MEAN_COUNT_COLUMN = "__mean_count_non_null"
+
+
+def _is_lowerable_tier1_mean(metric_ir: Any) -> bool:
+    """Return whether a simple mean has exact runtime components."""
+    return (
+        getattr(metric_ir, "metric_type", None) == "simple"
+        and getattr(metric_ir, "aggregation", None) == "mean"
+        and isinstance(getattr(metric_ir, "measure", None), str)
+        and getattr(metric_ir, "time_fold", None) is None
+    )
+
+
+def _mean_component_contract(metric_ir: Any) -> dict[str, Any] | None:
+    """Return the persisted lowering contract for an exact tier-1 mean."""
+    if not _is_lowerable_tier1_mean(metric_ir):
+        return None
+    return {
+        "kind": "weighted_average",
+        "components": {
+            "value": _MEAN_SUM_COLUMN,
+            "weight": _MEAN_COUNT_COLUMN,
+        },
+        "lowered_from": "mean",
+        "denominator_semantics": "count_non_null",
+        "version": 1,
+    }
+
+
+def _base_aggregations(
+    *,
+    catalog: Any,
+    resolver: Any,
+    metric_ir: Any,
+    metric_datasets: tuple[str, ...],
+    dataset_tables: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the public metric value and any exact attribution components."""
+    aggregations = {
+        "value": _metric_expr(
+            catalog,
+            resolver,
+            metric_ir.semantic_id,
+            metric_datasets,
+            dataset_tables,
+        )
+    }
+    if not _is_lowerable_tier1_mean(metric_ir):
+        return aggregations
+
+    measure = _catalog_object(catalog, metric_ir.measure, SemanticKind.MEASURE)
+    measure_expr = resolver.measure_on(measure.ref, dataset_tables[metric_datasets[0]])
+    aggregations[_MEAN_SUM_COLUMN] = measure_expr.sum()
+    aggregations[_MEAN_COUNT_COLUMN] = measure_expr.count()
+    return aggregations
+
+
+def _split_mean_components(
+    result: Any,
+    *,
+    metric_ir: Any,
+    axes: dict[str, Any],
+) -> tuple[Any, Any | None]:
+    """Detach mean components from the canonical MetricFrame payload."""
+    if not _is_lowerable_tier1_mean(metric_ir):
+        return result, None
+    axis_columns = [
+        axis["column"]
+        for axis in axes.values()
+        if isinstance(axis, dict) and isinstance(axis.get("column"), str)
+    ]
+    component_df = result.df[[*axis_columns, _MEAN_SUM_COLUMN, _MEAN_COUNT_COLUMN, "value"]].rename(
+        columns={"value": metric_ir.name}
+    )
+    canonical_df = result.df[[*axis_columns, "value"]].copy()
+    return replace(result, df=canonical_df, row_count=len(canonical_df)), component_df
 
 
 def _execute_sampled_base(
@@ -311,10 +390,16 @@ def _execute_base(
     session: Session,
     dimensions: list[Any] | None,
     resolved_window: AbsoluteWindow | None,
-) -> tuple[Any, dict[str, Any], Literal["scalar", "time_series", "segmented", "panel"], Any | None]:
-    """Execute a BaseObservePlan and return (result, axes, semantic_kind, coverage_df_or_None)."""
+) -> tuple[
+    Any,
+    dict[str, Any],
+    Literal["scalar", "time_series", "segmented", "panel"],
+    Any | None,
+    Any | None,
+]:
+    """Execute a base observe and return result, shape, coverage, and components."""
     if getattr(metric_ir, "time_fold", None) is not None:
-        return _execute_sampled_base(
+        sampled_result, sampled_axes, sampled_kind, coverage_df = _execute_sampled_base(
             plan,
             metric_ir,
             catalog=catalog,
@@ -322,6 +407,7 @@ def _execute_base(
             session=session,
             resolved_window=resolved_window,
         )
+        return sampled_result, sampled_axes, sampled_kind, coverage_df, None
     metric_datasets = tuple(metric_ir.entities)
     primary_datasource = plan.datasource_name
     read_tz = datasource_read_timezone(session._connection_runtime, primary_datasource)
@@ -375,15 +461,19 @@ def _execute_base(
         }
         bucketed_table = bucketed_table.mutate(**dimension_exprs)
         dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
-        metric_expr = _metric_expr(
-            catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables
+        aggregations = _base_aggregations(
+            catalog=catalog,
+            resolver=resolver,
+            metric_ir=metric_ir,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
         )
         group_names = ["bucket_start", *dimension_names]
         grouped_expr = (
             bucketed_table.group_by(group_names)
-            .aggregate(value=metric_expr)
+            .aggregate(**aggregations)
             .order_by(group_names)
-            .select(*group_names, "value")
+            .select(*group_names, *aggregations)
         )
         result = execute(
             grouped_expr,
@@ -437,14 +527,18 @@ def _execute_base(
             dataset_ir=root_adapter,
         )
         dataset_tables = dict.fromkeys(metric_datasets, bucketed_table)
-        metric_expr = _metric_expr(
-            catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables
+        aggregations = _base_aggregations(
+            catalog=catalog,
+            resolver=resolver,
+            metric_ir=metric_ir,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
         )
         grouped_expr = (
             bucketed_table.group_by("bucket_start")
-            .aggregate(value=metric_expr)
+            .aggregate(**aggregations)
             .order_by("bucket_start")
-            .select("bucket_start", "value")
+            .select("bucket_start", *aggregations)
         )
         result = execute(
             grouped_expr,
@@ -484,14 +578,18 @@ def _execute_base(
         }
         table = table.mutate(**dimension_exprs)
         dataset_tables = dict.fromkeys(metric_datasets, table)
-        metric_expr = _metric_expr(
-            catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables
+        aggregations = _base_aggregations(
+            catalog=catalog,
+            resolver=resolver,
+            metric_ir=metric_ir,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
         )
         grouped_expr = (
             table.group_by(dimension_names)
-            .aggregate(value=metric_expr)
+            .aggregate(**aggregations)
             .order_by(dimension_names)
-            .select(*dimension_names, "value")
+            .select(*dimension_names, *aggregations)
         )
         result = execute(
             grouped_expr,
@@ -505,14 +603,19 @@ def _execute_base(
         }
         semantic_kind = "segmented"
     else:
-        metric_expr = _metric_expr(
-            catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables
+        aggregations = _base_aggregations(
+            catalog=catalog,
+            resolver=resolver,
+            metric_ir=metric_ir,
+            metric_datasets=metric_datasets,
+            dataset_tables=dataset_tables,
         )
-        grouped_expr = plan.table.aggregate(value=metric_expr)
+        grouped_expr = plan.table.aggregate(**aggregations)
         result = execute(
             grouped_expr,
             datasource_name=primary_datasource,
             cache=session._connection_runtime,
             session_id=session.id,
         )
-    return result, axes, semantic_kind, None
+    result, component_df = _split_mean_components(result, metric_ir=metric_ir, axes=axes)
+    return result, axes, semantic_kind, None, component_df

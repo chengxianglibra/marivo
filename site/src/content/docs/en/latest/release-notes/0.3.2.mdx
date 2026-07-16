@@ -26,6 +26,12 @@ fields, dual-read paths, or compatibility flags.
 - `ArtifactContract` now carries `boundary_ports`: typed
   `ArtifactBoundaryPort` objects describing terminal-exit ports (e.g.
   `boundary.to_pandas`) with `preserves` and `does_not_preserve` guarantees.
+- Tier-1 `mean` metrics now persist exact `sum(measure)` and
+  `count_non_null(measure)` components during observe, enabling direct
+  weighted-mix attribution without changing the semantic model.
+- `DeltaFrame.show()` now exposes the persisted attribution gate, and grouping
+  help topics render as `mv.help("...")` with their real members instead of
+  advertising nonexistent `session.recovery` or `session.artifacts` namespaces.
 - The generic `AnalysisError.details` bag is replaced by stable typed fields:
   `expected`, `received`, `location`, and `repair`. The `repair` field is a
   typed `AnalysisRepair` object with `kind`, `action`, `help_target`, optional

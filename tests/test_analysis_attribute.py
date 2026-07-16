@@ -11,7 +11,6 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     AttributionMaterializationError,
-    ComponentDecompositionError,
     SemanticKindMismatchError,
 )
 from marivo.analysis.frames.attribution import AttributionFrame
@@ -315,7 +314,7 @@ def test_attribute_validates_original_delta_before_axis_materialization(
     assert [job.intent for job in session.jobs()].count("compare") == 1
 
 
-def test_attribute_rejects_non_additive_mean_after_axis_materialization(
+def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
     semantic_project_factory,
 ) -> None:
     semantic_project_factory(
@@ -353,9 +352,11 @@ def test_attribute_rejects_non_additive_mean_after_axis_materialization(
         "(DATE '2026-07-01', 'US', 100.0),"
         "(DATE '2026-07-02', 'US', 200.0),"
         "(DATE '2026-07-03', 'CN', 10.0),"
+        "(DATE '2026-07-04', 'US', NULL),"
         "(DATE '2025-07-01', 'US', 100.0),"
         "(DATE '2025-07-02', 'CN', 10.0),"
-        "(DATE '2025-07-03', 'CN', 20.0)"
+        "(DATE '2025-07-03', 'CN', 20.0),"
+        "(DATE '2025-07-04', 'US', NULL)"
     )
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
     avg_amount = session.catalog.get("metric.sales.avg_amount")
@@ -373,6 +374,11 @@ def test_attribute_rejects_non_additive_mean_after_axis_materialization(
     assert cur.meta.additivity == "non_additive"
     assert cur.meta.aggregation == "mean"
     assert cur.meta.status_time_dimension is None
+    assert cur.meta.composition is not None
+    assert cur.meta.composition["kind"] == "weighted_average"
+    assert cur.meta.composition["lowered_from"] == "mean"
+    assert cur.meta.composition["denominator_semantics"] == "count_non_null"
+    assert cur.components().to_pandas()["__mean_count_non_null"].iloc[0] == 3
     assert delta.meta.additivity == "non_additive"
     assert delta.meta.aggregation == "mean"
     assert delta.meta.status_time_dimension is None
@@ -381,18 +387,10 @@ def test_attribute_rejects_non_additive_mean_after_axis_materialization(
     assert loaded_delta.meta.additivity == "non_additive"
     assert loaded_delta.meta.aggregation == "mean"
     assert delta.to_pandas().iloc[0]["delta"] == pytest.approx(60.0)
-    with pytest.raises(ComponentDecompositionError) as exc_info:
-        session.attribute(delta, axes=[region])
+    attribution = session.attribute(delta, axes=[region])
 
-    assert isinstance(exc_info.value, mv.errors.AttributionAdditivityError)
-    assert exc_info.value._context["reason"] == "non_additive_metric"
-    assert exc_info.value._context["metric"] == "sales.avg_amount"
-    assert exc_info.value._context["metric_id"] == "sales.avg_amount"
-    assert exc_info.value._context["additivity"] == "non_additive"
-    assert exc_info.value._context["aggregation"] == "mean"
-    assert exc_info.value._context["axes"] == ["sales.orders.region"]
-    assert exc_info.value.repair is not None
-    assert exc_info.value.repair.help_target.canonical_id == "attribute"
+    assert attribution.meta.method == "weighted_mix"
+    assert attribution.to_pandas()["contribution"].sum() == pytest.approx(60.0)
 
 
 def test_attribute_missing_axis_without_replayable_sources_fails_closed() -> None:

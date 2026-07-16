@@ -21,6 +21,12 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 - `ArtifactContract` 现在携带 `boundary_ports`：类型化的 `ArtifactBoundaryPort` 对象，
   描述终端出口端口（例如 `boundary.to_pandas`），附带 `preserves` 和 `does_not_preserve`
   保证。
+- Tier-1 `mean` metric 会在 observe 时持久化精确的 `sum(measure)` 与
+  `count_non_null(measure)` components，无需修改 semantic model 即可直接执行
+  weighted-mix 归因。
+- `DeltaFrame.show()` 会暴露已持久化的归因门；分组 help topic 以
+  `mv.help("...")` 和真实成员呈现，不再展示不存在的 `session.recovery` 或
+  `session.artifacts` namespace。
 - 通用的 `AnalysisError.details` 包被稳定的类型化字段替代：`expected`、`received`、
   `location` 和 `repair`。`repair` 字段是类型化的 `AnalysisRepair` 对象，包含 `kind`、
   `action`、`help_target`、可选的 `snippet` 和从实时状态生成的可选 `candidates`。

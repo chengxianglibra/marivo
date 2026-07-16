@@ -136,7 +136,7 @@ def _make_grouping_descriptor(
     """Create a non-invokable grouping descriptor for a collapsed topic."""
     return ConstructorCapability(
         id=topic,
-        public_entrypoint=f"session.{topic}",
+        public_entrypoint=f'mv.help("{topic}")',
         help_target=topic,
         summary=summary,
         root_group=root_group,
