@@ -72,6 +72,26 @@ def test_root_help_fingerprint_uses_resolved_paths() -> None:
     assert str(Path(marivo.__file__).resolve()) in lines[2]
 
 
+def test_root_help_documents_mv_namespace_import() -> None:
+    """Root help uses ``mv.`` throughout but must state how to obtain it, so
+    examples are runnable from a cold start. See issue #22.
+    """
+    text = _text()
+    assert "Python imports:" in text
+    assert "import marivo.analysis as mv" in text
+    # The import hint precedes the capability index.
+    assert text.index("import marivo.analysis as mv") < text.index("Capabilities:")
+
+
+def test_focused_help_documents_mv_namespace_import() -> None:
+    """Focused pages also use ``mv.`` and must carry the import hint."""
+    text = _text("observe")
+    assert "Python imports:" in text
+    assert "import marivo.analysis as mv" in text
+    # The import hint follows the target name on the first line.
+    assert text.splitlines()[0] == "observe"
+
+
 # ---------------------------------------------------------------------------
 # Root groups and canonical targets
 # ---------------------------------------------------------------------------
