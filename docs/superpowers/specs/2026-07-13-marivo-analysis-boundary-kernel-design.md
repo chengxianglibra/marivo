@@ -222,11 +222,11 @@ After entry:
 - structured errors own repair guidance.
 
 Focused help is responsible for being self-contained for one correct minimal
-invocation. When a cold agent needs avoidable disclosure hops, that is an
-interface defect measured by the separate evaluation gate, not a runtime
-permission rule in the skill. Complex legal investigations may consult as many
-focused topics as their actual branches require; the skill neither counts nor
-forbids those calls.
+invocation. Avoidable disclosure hops are an interface defect that an external
+Agent UX evaluator may measure; they are not a runtime permission rule in the
+skill. Complex legal investigations may consult as many focused topics as
+their actual branches require; the skill neither counts nor forbids those
+calls.
 
 The skill does not enumerate any of those details.
 
@@ -455,8 +455,9 @@ rewrite of historical records.
 
 - A normal metric-analysis task activates live help and allows the agent to
   choose its own path.
-- Cold-agent disclosure efficiency satisfies the interface spec's evaluation
-  limits; the skill itself imposes no help-call quota on real investigations.
+- Focused help exposes enough information for an external Agent UX evaluator
+  to measure disclosure efficiency; the skill itself imposes no help-call
+  quota on real investigations.
 - An environment mismatch stops execution before analysis rather than allowing
   one package's help to guide another package's runtime.
 - A missing metric causes a semantic-authoring handoff rather than raw-field
@@ -506,17 +507,13 @@ The later semantic-authoring candidate verifies producer, consumer, both
 directional schemas, both skill rules, first entry, and re-entry together; no
 mixed-version or legacy-ready-ref scenario is supported or scored.
 
-Before the atomic cutover is merged or released, a target-only candidate must
-pass the isolated cold-agent evaluation gate defined by
-[`2026-07-13-marivo-analysis-interface-surface-design.md`](2026-07-13-marivo-analysis-interface-surface-design.md).
-The evaluator must withhold source, site docs, deleted skill attachments, prior
-transcripts, and general web/browsing tools; sandbox-tool network egress is
-blocked except local fixture traffic, while the model inference/control-plane
-channel remains available. The pinned model profile runs both the clean
-convergence and deliberate environment-skew smoke cases and records help calls,
-API errors, environment identity, stop events, and artifact outcomes. A failed
-gate blocks cutover; it does not justify restoring compatibility paths to the
-candidate.
+Model-backed Agent UX evaluation is owned by the standalone public
+`marivo-agent-evals` project. It may evaluate a target-only candidate against
+the installed Marivo package, but its model profiles, prompts, scenarios,
+orchestration, scoring thresholds, transcripts, and reports do not live in this
+repository and are not a PR gate here. Marivo PR checks retain only the fast,
+deterministic package, surface, help, error, result, skill-structure, and drift
+contracts described above.
 
 ## Non-goals
 

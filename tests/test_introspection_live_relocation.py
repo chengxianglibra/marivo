@@ -27,7 +27,6 @@ def test_surface_limits_singleton_has_expected_fields():
     limits = live_model.SURFACE_LIMITS
     assert limits.object_contract_max_subjects == 8
     assert limits.help_suggestion_limit == 5
-    assert limits.cold_agent_trials_per_case == 3
 
 
 def test_analysis_kernel_re_exports_relocated_primitives():

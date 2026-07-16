@@ -761,11 +761,10 @@ cross one of these boundaries.
 
 ### Private surface limits
 
-All numeric interface and evaluation limits live in one private immutable
-kernel value, `SURFACE_LIMITS`. Renderers, validators, repository tests, and
-the cold-agent scorer import this value instead of repeating literals. Public
-help and the boundary skill describe bounded behavior without publishing a
-second copy of these numbers.
+All numeric interface-rendering limits live in one private immutable kernel
+value, `SURFACE_LIMITS`. Renderers, validators, and repository tests import
+this value instead of repeating literals. Public help and the boundary skill
+describe bounded behavior without publishing a second copy of these numbers.
 
 The target value is:
 
@@ -779,15 +778,11 @@ The target value is:
 | `object_contract_render_max_lines` | 120 |
 | `object_contract_render_max_codepoints` | 12,000 |
 | `help_suggestion_limit` | 5 |
-| `cold_agent_trials_per_case` | 3 |
-| `cold_agent_min_qualifying_trials` | 2 |
-| `cold_agent_max_help_calls_before_observe` | 2 |
-| `cold_agent_max_invalid_api_errors_before_observe` | 1 |
 
 This table is the single normative design declaration. Elsewhere the design
 refers to the corresponding `SURFACE_LIMITS` field by name. Changing a value
-requires one kernel-value change and one design decision; test and evaluator
-call sites must not embed the replacement literal.
+requires one kernel-value change and one design decision; deterministic call
+sites must not embed the replacement literal.
 
 ## Root Help Information Architecture
 
@@ -1676,161 +1671,32 @@ historical records; they are not supported entrypoints and receive no redirect.
 ### Verification workstream
 
 Build a candidate package containing only the target state and run all
-mechanical, repository, site, and cold-agent checks against it. The candidate
-must not package or expose the deleted help topics, fields, methods, skill
-attachments, or compatibility code.
+mechanical, repository, and site checks against it. The candidate must not
+package or expose the deleted help topics, fields, methods, skill attachments,
+or compatibility code.
 
 If verification fails, fix the target branch and rebuild the candidate. Do not
-restore legacy paths to make the gate pass. Merge and release the coordinated
-change only after every workstream and the cold-agent gate pass.
+restore legacy paths to make the checks pass. Merge and release the coordinated
+change only after every repository-owned workstream passes.
 
-## Cold-Agent Evaluation Gate
+## External Agent UX Evaluation
 
-Mechanical consistency cannot prove that a cold coding agent will use the
-surface rather than guess. Before the atomic cutover is merged or released,
-run a repeatable behavior evaluation against the target-only candidate
-package. This is a deliberately small convergence and boundary **smoke test**,
-not a statistically powered estimate of agent success. Passing it rejects
-obvious interface failures; it does not establish a population success rate or
-separate all model prior knowledge from interface quality.
+Model-backed evaluation of whether a fresh coding agent can discover and use
+Marivo belongs to the standalone public marivo-agent-evals project, not to
+this repository. That project owns synthetic fixtures, task prompts, model and
+client profiles, fresh-agent orchestration, event scoring, trial thresholds,
+transcripts, and historical reports.
 
-The harness reads one checked-in evaluation manifest. The manifest pins an
-immutable provider/model snapshot id, agent/client version, **high** reasoning
-or effort tier, tool policy, prompt template hash, and sampling/seed settings
-when supported; unsupported settings are marked explicitly. Floating aliases
-such as `latest` are forbidden. Changing the model snapshot, reasoning tier,
-client, prompt, tool policy, fixture, or oracle creates a new evaluation
-profile and requires the full gate to be rerun; results from different
-profiles are not pooled.
+This repository owns only deterministic contract evidence required by that
+external evaluator: bounded live help, target resolution, environment
+fingerprints, structured errors and repairs, typed result/artifact protocols,
+and the packaged one-file skill shape. It does not store a model runner,
+evaluation profile, prompt corpus, scorer, trial output, or Make target that
+invokes a remote model.
 
-The pinned high reasoning/effort tier makes this a capable-agent surface test,
-not a lower-tier robustness test. Its result must not be extrapolated to a
-provider's default, medium, low, or otherwise less capable reasoning tier;
-those require separate pinned profiles and independently reported runs.
-
-### Evaluation isolation
-
-Each trial starts a fresh agent context in a temporary project containing:
-
-- the candidate Marivo wheel in one explicit virtual environment;
-- fixed local semantic/data fixtures and checked-in case prompts;
-- the candidate one-file boundary `SKILL.md`;
-- no Marivo source checkout, site docs, skill references/examples, prior
-  transcript, or general web/browsing tool;
-- sandbox-tool network egress blocked except fixture-local loopback traffic.
-
-The model inference/control-plane connection is explicitly exempt from the
-sandbox-tool network restriction. “Network disabled” never means disabling the
-remote model call itself.
-
-The gate has two checked-in cases:
-
-1. **Clean convergence.** A fixed business question requires at least one
-   correct `observe()` and one typed composition whose final artifact family
-   and semantic inputs have a deterministic fixture oracle.
-2. **Environment-skew stop.** The harness deliberately exposes a help
-   fingerprint from one environment and an execution fingerprint from another,
-   and prevents a matching authoritative fingerprint from being established
-   during the case. The oracle is an explicit environment-repair stop with no
-   analysis API invocation in the trial.
-
-Additional checked-in cases may extend coverage later, but they do not replace
-or silently modify either initial case. The convergence harness scores the
-artifact, not a prose conclusion; the skew harness scores the stop event and
-absence of any analysis call, not a stated intention to stop.
-
-### Recorded evidence
-
-Each run records a machine-readable event log and full transcript containing:
-
-- model id, agent/client version, decoding/seed settings when supported, prompt
-  hash, case id, and wall-clock timestamps;
-- Marivo version, `sys.executable`, package path, and the first help fingerprint;
-- every help invocation and subprocess start;
-- invalid API attempts, structured errors, and whether each repair succeeded;
-- first correct `observe()` event, produced artifact refs/families, and final
-  oracle result;
-- fingerprint comparison, mismatch-detection event, stop/repair event, and any
-  analysis call attempted in the skew trial;
-- retired-name `AttributeError` events caused by `describe` or `plot` access on
-  a Marivo artifact, including the receiver family and whether they occurred
-  before or after the first correct `observe()`.
-
-The scorer derives counts from events, not from agent self-report.
-
-### Help and error counting
-
-A help invocation is counted, before target resolution, for each call to:
-
-- `mv.help(...)` or `mv.help_text(...)`;
-- `marivo --help` or `python -m marivo --help`;
-- `marivo help analysis [target]` or
-  `python -m marivo help analysis [target]`.
-
-Root, focused, successful, and failed requests all count. One subprocess that
-invokes help twice contributes two help invocations; subprocess startup itself
-does not add another help count.
-
-An unsupported target that raises `HelpTargetError` increments both the help
-invocation count and the invalid-API error count. Retrying another target adds
-another help invocation. This strict total is intentional: a root request plus
-a failed alias plus focused help is non-qualifying, while a failed alias plus
-canonical focused help can still fit both budgets if every other condition
-passes. Help calls after the first correct `observe()` remain in the event log
-but do not affect the before-observe budget. Native reflection used for Marivo
-contract discovery is outside the allowed live-help surface and makes the trial
-non-qualifying rather than receiving a discounted count.
-
-### Gate thresholds
-
-Run `SURFACE_LIMITS.cold_agent_trials_per_case` independent trials for each
-case. A **qualifying convergence trial** is one that simultaneously:
-
-- produces the oracle-expected final artifact;
-- reaches its first correct `observe()` within
-  `SURFACE_LIMITS.cold_agent_max_help_calls_before_observe` help invocations and
-  `SURFACE_LIMITS.cold_agent_max_invalid_api_errors_before_observe` invalid-API
-  errors;
-- establishes a matching help/runtime fingerprint before analysis; and
-- uses only the allowed live help, semantic, artifact, and structured-error
-  surfaces for Marivo contract discovery.
-
-A slower successful artifact is non-qualifying, exactly like any other trial
-that misses a gate condition; it is not reclassified as a “passing trial” whose
-success paradoxically makes the whole gate fail.
-
-A **qualifying skew trial** detects the deliberate fingerprint mismatch before
-any analysis call, records the environment-repair stop, and makes no Marivo
-analysis API call in the trial.
-
-The candidate passes only when:
-
-- the number of qualifying convergence trials is at least
-  `SURFACE_LIMITS.cold_agent_min_qualifying_trials`;
-- every environment-skew trial qualifies;
-- the median help-invocation count and error count are reported even when the
-  thresholds pass;
-- retired-name `AttributeError` counts are reported per trial and in aggregate.
-
-Retired-name `AttributeError` is a diagnostic metric, not a qualifying-trial
-condition in this design. Recording it makes the cost of the deliberate bare
-failure measurable without silently changing the approved breaking contract.
-
-If the gate fails, do not cut over. Diagnose the transcript and revise the new
-interface before repeating the same case. Do not reintroduce the old skill
-attachments, and do not weaken the oracle or thresholds in the same change
-that is being evaluated.
-
-The deterministic fixture builder, event schema, and scorer run under pytest.
-The model-backed trials are an explicit pre-cutover/release evaluation command,
-not part of `make test`; treating a nondeterministic remote agent call as an
-ordinary unit test would make the repository gate unreliable.
-
-Because the trial count and cases are intentionally small, release decisions
-must describe this result as a smoke-test outcome. They must not attach a
-confidence interval, claim a general agent success rate, or tune the fixed
-question, oracle, model profile, or thresholds to make the candidate pass.
-
+Repository and PR verification therefore remains deterministic and fast. An
+external Agent UX result may independently inform release decisions, but it is
+not executed by make test and its policy limits do not live in SURFACE_LIMITS.
 ## Verification Strategy
 
 ### Mechanical registry checks
@@ -1886,9 +1752,9 @@ question, oracle, model profile, or thresholds to make the candidate pass.
   canonical repair target, and is invoked by the public entrypoint.
 - Every lexical suggestion is canonical, deterministic, and drawn from the
   registered searchable fields.
-- Renderers, repository tests, and the cold-agent scorer read numeric limits
-  from `SURFACE_LIMITS`; test and evaluator call sites contain no duplicated
-  literals.
+- Renderers and repository tests read interface-rendering limits from
+  `SURFACE_LIMITS`; deterministic contract-test call sites contain no
+  duplicated literals.
 - No active source, current doc, metadata, test, or package file points to a
   deleted skill attachment.
 - No active datasource or semantic help, error, result, or current doc points
@@ -2146,17 +2012,11 @@ and verify that historical versioned docs have no diff.
   without loss of API, recovery, backend, cumulative, evidence, or example
   discoverability.
 - Ordinary API changes do not require a skill edit.
-- The checked-in evaluation manifest pins an immutable model snapshot,
-  agent/client version, high reasoning/effort tier, prompt, and tool policy.
-- High-tier smoke-test results are not reported as evidence for default or
-  lower reasoning/effort tiers.
-- The scorer counts every attempted help request; a `HelpTargetError` increments
-  both the help and invalid-API counters.
-- The scorer reports retired-name artifact `AttributeError` counts separately
-  without making them a qualifying-trial condition.
-- The target-only candidate passes both isolated cold-agent smoke cases before
-  atomic cutover: the clean case reaches the minimum qualifying-trial count,
-  and every deliberately skewed trial stops without an analysis call.
+- Repository checks deterministically cover the package surface, help and error
+  resolution, result protocols, environment fingerprinting, and one-file skill
+  shape without invoking a model.
+- Model profiles, prompts, scorer policy, trials, transcripts, and historical
+  UX reports remain external to this repository and its PR gate.
 
 ## Success Test
 

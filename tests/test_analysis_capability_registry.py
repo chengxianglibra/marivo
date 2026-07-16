@@ -285,9 +285,6 @@ def test_surface_limits_is_the_single_expected_value() -> None:
     assert isinstance(SURFACE_LIMITS, SurfaceLimits)
     values = tuple(getattr(SURFACE_LIMITS, field.name) for field in fields(SurfaceLimits))
     assert all(value > 0 for value in values)
-    assert (
-        SURFACE_LIMITS.cold_agent_min_qualifying_trials <= SURFACE_LIMITS.cold_agent_trials_per_case
-    )
 
 
 def test_surface_limits_field_names() -> None:
@@ -301,10 +298,6 @@ def test_surface_limits_field_names() -> None:
         "object_contract_render_max_lines",
         "object_contract_render_max_codepoints",
         "help_suggestion_limit",
-        "cold_agent_trials_per_case",
-        "cold_agent_min_qualifying_trials",
-        "cold_agent_max_help_calls_before_observe",
-        "cold_agent_max_invalid_api_errors_before_observe",
     }
 
 

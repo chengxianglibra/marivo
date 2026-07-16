@@ -1,4 +1,4 @@
-.PHONY: test typecheck lint format check examples-check docs-api pypi-build pypi-check pypi-clean analysis-surface-eval semantic-surface-eval
+.PHONY: test typecheck lint format check examples-check docs-api pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
 VENV_BIN := .venv/Scripts
@@ -72,13 +72,3 @@ pypi-check: ## Validate PyPI sdist and wheel in dist/pypi/
 
 pypi-clean: ## Remove PyPI build artifacts
 	rm -rf $(PYPI_DIST_DIR) dist/marivo-*.tar.gz dist/marivo-*.whl
-
-analysis-surface-eval: pypi-build ## Run the cold-agent analysis surface evaluation gate
-	@$(VENV_PYTHON) -m scripts.analysis_surface_eval.runner \
-		--profile evals/analysis_surface/profile.toml \
-		--wheel "$$(ls -1 dist/pypi/marivo-*.whl | tail -1)"
-
-semantic-surface-eval: pypi-build ## Run the cold-agent semantic surface evaluation gate
-	@$(VENV_PYTHON) -m scripts.semantic_surface_eval.runner \
-		--profile evals/semantic-surface/profile.toml \
-		--wheel "$$(ls -1 dist/pypi/marivo-*.whl | tail -1)"

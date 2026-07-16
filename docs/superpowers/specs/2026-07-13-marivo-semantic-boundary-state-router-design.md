@@ -24,7 +24,8 @@ semantic surface specified by
 The packaged target is one `SKILL.md` with no references, runnable examples,
 or attachment runner. This is an atomic replacement: attachments are deleted
 only after their retained facts and mechanics are live-owned and the candidate
-package passes the surface and cold-agent gates.
+package passes the deterministic surface, protocol, structure, and drift
+checks.
 
 ## Relationship To The Live Surface
 
@@ -859,27 +860,13 @@ Review at least:
 The skill must route from live state without knowing version-specific mechanics
 for any scenario.
 
-### Cold-agent gate
+### External Agent UX evaluation
 
-Use the candidate, fixtures, event logging, and required cases defined by the
-companion live-surface design. The trial receives only the target one-file
-skill, installed package, fixed project/data fixtures, and task prompt. It does
-not receive the repository, deleted references/examples, site docs, previous
-transcript, or web browsing.
-
-The gate fails if the agent:
-
-- guesses an unregistered API;
-- queries before explicit scope;
-- reacquires evidence without a registered reason;
-- authors more than one object before validation;
-- skips a required dependency, verification, preview, or readiness edge;
-- invents business meaning;
-- asks more than one unresolved decision in a grill turn;
-- proceeds after unresolved environment skew;
-- hands an unready ref to analysis;
-- opens a deleted attachment path.
-
+The standalone marivo-agent-evals project owns model-backed candidate
+evaluation, fixtures, event logging, safety oracles, and trial policy. This
+repository exposes deterministic installed-package, help, repair, result,
+handoff, and skill-shape contracts for that evaluator but does not run a model
+or store its evaluation harness.
 ### Repository checks
 
 The implementation plan runs narrow skill, introspection, datasource,
@@ -947,8 +934,8 @@ it must not fail because deleted skill examples no longer exist.
 
 ### Verification
 
-- Package-shape, skill-content, live-owner, behavioral, repository, and
-  cold-agent gates pass against one target-only candidate.
+- Package-shape, skill-content, live-owner, protocol, and repository checks
+  pass against one target-only candidate without invoking a model.
 - Deleted attachment names and paths are absent from the built wheel and active
   latest documentation.
 
