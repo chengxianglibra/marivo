@@ -4,6 +4,12 @@ Status: base analysis cutover implemented; semantic-handoff follow-up pending wr
 
 Date: 2026-07-13
 
+Internal infrastructure placement is refined by
+[`2026-07-16-marivo-live-infrastructure-layering-design.md`](2026-07-16-marivo-live-infrastructure-layering-design.md).
+This document remains authoritative for the public analysis surface; the newer
+design owns the neutral resolver, native-registry adapter, private authoring,
+and semantic-analysis boundary package split.
+
 ## Summary
 
 Redesign the public `marivo.analysis` guidance surface as a live capability and
