@@ -4,6 +4,13 @@ Status: Phase 1--3 complete; Phase 4--5 planned; not release-ready
 
 Date: 2026-07-13
 
+Internal infrastructure placement is refined by
+[`2026-07-16-marivo-live-infrastructure-layering-design.md`](2026-07-16-marivo-live-infrastructure-layering-design.md).
+This document remains authoritative for the public datasource/semantic
+surface; the newer design narrows `marivo.introspection.live` to neutral
+resolution mechanics and moves shared authoring and semantic-analysis boundary
+concepts to dedicated private owners.
+
 ## Summary
 
 Redesign the agent-facing `marivo.datasource` and `marivo.semantic` guidance
@@ -13,8 +20,9 @@ domain owners.
 The datasource surface owns physical connectivity, source shape, execution
 effects, scope, and acquired evidence. The semantic surface owns authored
 business objects, typed dependencies, static verification, scoped runtime
-preview, and readiness. A shared private authoring-state registry connects
-those two public surfaces without introducing a third public authoring module.
+preview, and readiness. A shared private authoring contract model connects
+their separate native registries without introducing a third public authoring
+module.
 
 The redesigned surface will:
 
@@ -85,16 +93,19 @@ repair is reachable from the candidate package's live surface.
 
 ### Analysis live interface
 
-This design reuses the shared introspection foundation specified by
-[`2026-07-13-marivo-analysis-interface-surface-design.md`](2026-07-13-marivo-analysis-interface-surface-design.md):
+This design reuses the neutral introspection mechanisms refined by
+[`2026-07-16-marivo-live-infrastructure-layering-design.md`](2026-07-16-marivo-live-infrastructure-layering-design.md):
 
 - environment fingerprints;
 - a canonical registered-target resolver;
 - callable, type, runtime-object, and error help;
 - consumed-not-constructed result help;
-- typed repair;
-- CLI and Python rendering from one registry;
+- callable identity and reflection primitives;
 - private numeric output and suggestion limits.
+
+Typed authoring repair and continuation models belong to the private authoring
+domain kernel. CLI/Python adapters and complete help rendering remain owned by
+each public surface.
 
 It does not reuse the analysis capability topology. Analysis exposes several
 unordered mechanically legal branches. Semantic authoring has a real **policy**
@@ -111,10 +122,10 @@ state may route semantic handoff to a removed analysis target.
 
 This semantic redesign is a follow-up cutover, not an expansion of the already
 large analysis atomic release. Its implementation starts from the shared
-introspection, fingerprint, resolver, renderer, repair, CLI, and limit
-foundation produced by the analysis cutover. If development overlaps, the two
-branches coordinate one shared foundation; semantic does not create a parallel
-kernel with equivalent types or behavior.
+target, environment, reflection, resolver, and limit mechanisms plus the
+private authoring domain model. If development overlaps, the two branches
+coordinate those shared owners; semantic does not create a parallel resolver
+or duplicate authoring contract model.
 
 ### Analysis boundary kernel
 
@@ -165,11 +176,12 @@ intermediate public release. Phase 3, Phase 4, and Phase 5 must converge into
 one target-only candidate package before the datasource/semantic live-surface
 cutover is released.
 
-1. **Phase 1 -- shared neutral live foundation (complete).** Establish
-   `marivo.introspection.live` as the private, neutral foundation for live
-   capability models, target resolution, rendering, typed help/contract errors,
-   environment fingerprints, and surface limits. It is shared by the public
-   surfaces; it does not create a third public authoring module.
+1. **Phase 1 -- initial shared live foundation (complete).** Establish the
+   private target, environment, resolver, rendering-budget, authoring-contract,
+   and handoff primitives required by the datasource/semantic cutover. The
+   follow-up layering design narrows `marivo.introspection.live` to neutral
+   mechanisms and relocates authoring and handoff concepts to dedicated private
+   owners without creating a third public authoring module.
 2. **Phase 2 -- datasource live surface (complete).** Hard-cut
    `marivo.datasource` to its capability registry, live help, stable typed
    errors and repairs, object-near contracts, explicit effect facts, and native
@@ -462,13 +474,17 @@ Registered public md/ms callables and types
     + registered error and repair contracts
                          |
                          v
-              shared introspection kernel
-         resolver + renderer + environment fingerprint
-                  /                         \
-                 v                           v
-        md.help / ms.help         marivo help datasource/semantic
-                 |                           |
-                 +-------------+-------------+
+       surface-owned registry and renderer
+                         |
+                         v
+              neutral introspection kernel
+       target resolver + environment/budget primitives
+                         |
+             +-----------+-----------+
+             v                       v
+      md.help / ms.help     marivo help datasource/semantic
+             |                       |
+             +-----------+-----------+
                                v
                     agent invokes public API
                                |
@@ -479,8 +495,9 @@ Registered public md/ms callables and types
        object-near contract / typed repair / help target
 ```
 
-The shared introspection kernel is implementation infrastructure. Public
-ownership remains with `marivo.datasource` and `marivo.semantic`.
+The neutral introspection kernel and private authoring model are implementation
+infrastructure. Complete registries, renderers, and public ownership remain
+with `marivo.datasource` and `marivo.semantic`.
 
 ## Observable State And Policy Order
 
@@ -1303,14 +1320,15 @@ package. Implementation may use parallel internal workstreams, but no
 intermediate public state is released and no mixed old/new crossing is tested
 or supported.
 
-### Shared introspection workstream
+### Neutral introspection workstream
 
 - Generalize the shared resolver for registered strings, callables, bound
   methods, types, runtime objects, and structured errors.
 - Add typed `HelpTargetError` behavior and lexical suggestions.
-- Add environment fingerprints and native CLI routing.
+- Add environment fingerprints and shared reflection primitives.
 - Add shared private surface limits.
-- Add consumed-not-constructed type rendering.
+- Keep native CLI routing and consumed-not-constructed type rendering in the
+  owning surface adapters/renderers.
 
 ### Datasource workstream
 
