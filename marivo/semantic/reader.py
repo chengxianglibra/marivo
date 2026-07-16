@@ -550,6 +550,17 @@ class SemanticProject:
         kind = self._kind_for_ref(ref_str)
 
         if kind != "unknown":
+            nested_warnings = tuple(
+                AssessmentIssue(
+                    kind="nested_derived_unsupported",
+                    severity="warning",
+                    refs=sw.refs,
+                    message=sw.message,
+                    rule_id="nested_derived_unsupported",
+                )
+                for sw in self._warnings
+                if sw.kind == "nested_derived_unsupported" and ref_str in sw.refs
+            )
             return VerifyResult(
                 status="passed",
                 ref=ref_str,
@@ -557,7 +568,7 @@ class SemanticProject:
                 validation_level="static",
                 runtime_checked=False,
                 issues=(),
-                warnings=(),
+                warnings=nested_warnings,
             )
 
         # Unknown kind fallback — check for common wrong-level refs before

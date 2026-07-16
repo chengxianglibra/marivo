@@ -353,6 +353,19 @@ zero-division handling; the generated Ibis follows backend SQL semantics (most
 backends yield `NULL` on a zero denominator), so an explicit fallback must be
 wrapped in a base metric.
 
+### Nested derived (not analyzable)
+
+A derived metric's components must be tier-1 (`simple`) metrics or `cumulative`
+metrics. A component that is itself a non-cumulative derived metric (ratio of
+ratio, linear of ratio, weighted-average of ratio, …) is a **nested derived**
+metric. Authoring and loading accept it (the semantic layer resolves derived
+additivity through a fixpoint), but it is **not analyzable**: observe rejects
+it with `nested-derived-unsupported`. Assembly validation emits a
+`nested_derived_unsupported` warning so the constraint surfaces at
+`verify_object` / `readiness` (status `ready_with_warnings`) — before an agent
+reaches observe. Flatten the metric over tier-1/cumulative components, or
+attribute numerator and denominator separately.
+
 ### Cumulative metrics
 
 `ms.cumulative(...)` answers "how much accumulated up to bucket *t*". The base

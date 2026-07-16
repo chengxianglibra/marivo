@@ -35,6 +35,7 @@ ReadinessIssueKind = Literal[
     "missing_business_definition",
     "missing_guardrails",
     "undeclared_naive_time_axis",
+    "nested_derived_unsupported",
 ]
 
 
@@ -733,6 +734,20 @@ def build_readiness_report(
                         kind="reauthor",
                         canonical_id="time_dimension_column",
                         action="If the business axis matches the partition field, keep the raw string/integer column and declare date_format; keep the expression when business semantics require it.",
+                    ),
+                )
+            )
+        if sw.kind == "nested_derived_unsupported":
+            warnings.append(
+                _issue(
+                    "nested_derived_unsupported",
+                    "warning",
+                    sw.refs,
+                    sw.message,
+                    repair(
+                        kind="reauthor",
+                        canonical_id="metric",
+                        action="Flatten the nested derived metric: compose over tier-1 (simple/cumulative) components, or attribute numerator and denominator separately.",
                     ),
                 )
             )

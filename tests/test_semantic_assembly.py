@@ -982,3 +982,107 @@ def test_semi_additive_over_missing_field_fails() -> None:
     errors, _warnings = assembly_validate(registry)
 
     assert [err.kind for err in errors] == [ErrorKind.INVALID_STATUS_TIME_DIMENSION]
+
+
+def _derived_metric(
+    semantic_id: str, name: str, composition: object
+) -> MetricIR:
+    return MetricIR(
+        semantic_id=semantic_id,
+        domain="sales",
+        name=name,
+        metric_type="derived",
+        entities=(),
+        aggregation=None,
+        measure=None,
+        composition=composition,  # type: ignore[arg-type]
+        additivity=None,
+        provenance=None,
+        ai_context=AiContextIR(),
+        body_ast_hash=semantic_id,
+        python_symbol=name,
+        location=_LOC,
+    )
+
+
+def test_nested_derived_metric_emits_warning() -> None:
+    """A derived metric whose component is itself a non-cumulative derived
+    metric is unanalyzable (observe rejects it); assembly surfaces a warning
+    so readiness/verify catch it before observe (issue #4)."""
+    registry = _make_registry()
+    registry.metrics["sales.count"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.count",
+        name="count",
+        body_ast_hash="count",
+    )
+    registry.metrics["sales.inner_ratio"] = _derived_metric(
+        "sales.inner_ratio",
+        "inner_ratio",
+        RatioComposition(numerator="sales.revenue", denominator="sales.count"),
+    )
+    registry.metrics["sales.outer_ratio"] = _derived_metric(
+        "sales.outer_ratio",
+        "outer_ratio",
+        RatioComposition(numerator="sales.inner_ratio", denominator="sales.revenue"),
+    )
+    errors, warnings = assembly_validate(registry)
+    assert not errors
+    nested = [w for w in warnings if w.kind == WarningKind.NESTED_DERIVED_UNSUPPORTED]
+    assert len(nested) == 1
+    assert "sales.outer_ratio" in nested[0].refs
+    assert "sales.inner_ratio" in nested[0].refs
+
+
+def test_non_nested_derived_metric_emits_no_nested_warning() -> None:
+    """A derived metric over simple (tier-1) components is analyzable and
+    emits no nested-derived warning."""
+    registry = _make_registry()
+    registry.metrics["sales.count"] = dataclasses.replace(
+        registry.metrics["sales.revenue"],
+        semantic_id="sales.count",
+        name="count",
+        body_ast_hash="count",
+    )
+    registry.metrics["sales.ratio"] = _derived_metric(
+        "sales.ratio",
+        "ratio",
+        RatioComposition(numerator="sales.revenue", denominator="sales.count"),
+    )
+    errors, warnings = assembly_validate(registry)
+    assert not errors
+    assert not [
+        w for w in warnings if w.kind == WarningKind.NESTED_DERIVED_UNSUPPORTED
+    ]
+
+
+_BASE_NESTED_PROJECT = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+
+wh = md.ref("datasource.wh")
+orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount", additivity="additive")
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+order_count = ms.count(name="order_count", entity=orders)
+"""
+
+
+def test_nested_derived_metric_load_emits_warning() -> None:
+    """Loading a project with a nested derived metric emits the
+    nested_derived_unsupported warning (status stays ready; not a load error)."""
+    from tests.shared_fixtures import load_inline_semantic
+
+    source = _BASE_NESTED_PROJECT + (
+        "inner = ms.ratio(name='inner', numerator=revenue, denominator=order_count)\n"
+        "outer = ms.ratio(name='outer', numerator=inner, denominator=revenue)\n"
+    )
+    with load_inline_semantic(source) as result:
+        assert result.status == "ready"
+        nested = [
+            w for w in result.warnings if w.kind == WarningKind.NESTED_DERIVED_UNSUPPORTED
+        ]
+        assert len(nested) == 1
+        assert "test.outer" in nested[0].refs
+        assert "test.inner" in nested[0].refs
