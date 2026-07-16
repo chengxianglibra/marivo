@@ -514,7 +514,7 @@ def build_readiness_report(
 
     Performs pure in-memory checks: load errors, unknown refs,
     cross-datasource unfederated metrics, raw SQL requirements,
-    strict enrichment issues, load warnings, and fresh matching preview checks.
+    strict enrichment issues, load warnings, and matching preview checks.
     It never acquires snapshots, refreshes state, or executes a datasource query.
 
     Args:
@@ -630,7 +630,7 @@ def build_readiness_report(
                         "snapshot_missing",
                         "blocker",
                         (ref,),
-                        f"{ref} has no fresh matching datasource snapshot metadata.",
+                        f"{ref} has no matching datasource snapshot metadata.",
                         repair=requirement.repair,
                     )
                 )
@@ -640,7 +640,7 @@ def build_readiness_report(
                     "runtime_preview_missing",
                     "blocker",
                     (ref,),
-                    f"{ref} has no fresh preview check matching its current definition and dependencies.",
+                    f"{ref} has no preview check matching its current definition and dependencies.",
                     repair=requirement.repair,
                 )
             )

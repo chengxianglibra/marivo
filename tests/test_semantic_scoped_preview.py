@@ -190,7 +190,7 @@ def test_preview_rejects_stale_or_mismatched_snapshot_before_connection(
     assert exc_info.value.details["query_executed"] is False
 
 
-def test_preview_rejects_mutated_snapshot_freshness_before_connection(
+def test_preview_rejects_mutated_snapshot_timestamp_metadata_before_connection(
     scoped_catalog,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -206,10 +206,44 @@ def test_preview_rejects_mutated_snapshot_freshness_before_connection(
         lambda: pytest.fail("connection opened"),
     )
 
-    with pytest.raises(SemanticRuntimeError, match="freshness") as exc_info:
+    with pytest.raises(SemanticRuntimeError, match="timestamp metadata") as exc_info:
         catalog.preview(revenue, using=mismatched)
 
     assert exc_info.value.details["query_executed"] is False
+
+
+def test_expired_snapshot_and_preview_evidence_remain_usable_reference_metadata(
+    scoped_catalog,
+    monkeypatch: pytest.MonkeyPatch,
+    query_spy: _QuerySpy,
+) -> None:
+    from marivo.datasource import authoring_store
+    from marivo.semantic import preview_checks
+
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    revenue = catalog.get("metric.sales.revenue")
+    future = orders_snapshot.expires_at + timedelta(hours=1)
+    assert catalog.preview(revenue, using=orders_snapshot).status == "passed"
+    assert query_spy.user_data_queries == 1
+
+    class FutureDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return future if tz is not None else future.replace(tzinfo=None)
+
+    monkeypatch.setattr(authoring_store, "_utc_now", lambda: future)
+    monkeypatch.setattr(preview_checks, "datetime", FutureDateTime)
+
+    query_spy.user_data_queries = 0
+    report = catalog.readiness(refs=[revenue])
+    assert all(issue.kind != "snapshot_missing" for issue in report.blockers)
+    assert all(issue.kind != "runtime_preview_missing" for issue in report.blockers)
+    assert query_spy.user_data_queries == 0
+
+    result = catalog.preview(revenue, using=orders_snapshot)
+    assert result.status == "passed"
+    assert result.coverage.cache_status == "stale"
+    assert query_spy.user_data_queries == 1
 
 
 def test_multi_entity_preview_requires_exact_entity_mapping_before_connection(
@@ -335,6 +369,7 @@ def test_scoped_preview_executes_once_through_timeout_and_never_persists_rows(
     assert result.coverage.scopes == (("sales.orders", orders_snapshot.scope),)
     assert result.coverage.snapshot_ids == (orders_snapshot.id,)
     assert result.coverage.rows_observed == 1
+    assert result.coverage.cache_status == "fresh"
     assert query_spy.user_data_queries == 1
     assert events == ["enter:30", "materialize", "execute", "exit"]
     assert "LIMIT 2" in query_spy.sql[0].upper()

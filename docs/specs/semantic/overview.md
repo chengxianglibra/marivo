@@ -106,7 +106,8 @@ Authoring guidance is split so each surface has one job (elaborated in
   relationship projections reuse that immutable snapshot without queries.
 - **Catalog verification, preview, and readiness — validation.** Static
   verification executes no query, preview requires `using=` evidence scope, and
-  readiness consumes fresh checks without querying.
+  readiness consumes structurally matching checks without querying. Snapshot
+  age remains visible metadata but is not a validation requirement.
 
 The `marivo-semantic` skill owns workflow and routing only:
 

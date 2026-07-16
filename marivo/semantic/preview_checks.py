@@ -543,9 +543,6 @@ def preview_evidence_requirement(
                 and check_id == expected_id
                 and expires_at.tzinfo is not None
                 and created_at.tzinfo is not None
-                and expires_at > now
-                and created_at <= now
-                and created_at <= expires_at
                 and payload.get("semantic_fingerprint") == semantic_fingerprint
                 and payload.get("dependency_fingerprint") == dependency_fingerprint
                 and payload.get("backend") == expected_backend
@@ -560,7 +557,7 @@ def preview_evidence_requirement(
                     repair=repair(
                         kind="retry",
                         canonical_id="readiness",
-                        action="Fresh preview evidence is available; readiness may proceed.",
+                        action="Matching preview evidence is available; readiness may proceed.",
                     ),
                 )
     missing_entities = tuple(entity_id for entity_id in entity_ids if entity_id not in snapshots)
@@ -609,7 +606,7 @@ def _validate_snapshot(
     preview_ref: str,
     project_root: Path,
     registry: Registry,
-) -> None:
+) -> DiscoverySnapshot:
     entity = registry.entities[entity_id]
     if snapshot._project_root.resolve() != project_root.resolve():
         _blocked(
@@ -631,13 +628,6 @@ def _validate_snapshot(
             details={"expected": entity.source.to_dict(), "received": snapshot.source.to_dict()},
         )
     _validate_scope(snapshot.scope, preview_ref=preview_ref)
-    now = datetime.now(UTC)
-    if snapshot.expires_at <= now:
-        _blocked(
-            preview_ref,
-            f"Snapshot {snapshot.id!r} is not fresh.",
-            details={"expires_at": snapshot.expires_at.isoformat()},
-        )
     datasource = registry.datasources.get(entity.datasource)
     if datasource is None:
         _blocked(
@@ -676,13 +666,13 @@ def _validate_snapshot(
     if stored is None:
         _blocked(
             preview_ref,
-            f"Snapshot {snapshot.id!r} is missing, stale, or mismatched in the authoring store.",
+            f"Snapshot {snapshot.id!r} is missing or mismatched in the authoring store.",
             details={"cache_status": lookup.status},
         )
     if stored.created_at != snapshot.created_at or stored.expires_at != snapshot.expires_at:
         _blocked(
             preview_ref,
-            f"Snapshot freshness metadata does not match persisted evidence for entity {entity_id!r}.",
+            f"Snapshot timestamp metadata does not match persisted evidence for entity {entity_id!r}.",
             details={
                 "expected_created_at": stored.created_at.isoformat(),
                 "received_created_at": snapshot.created_at.isoformat(),
@@ -705,6 +695,7 @@ def _validate_snapshot(
             f"Snapshot scope does not match persisted evidence for entity {entity_id!r}.",
             details={},
         )
+    return replace(snapshot, cache_status="stale") if lookup.status == "stale" else snapshot
 
 
 def normalize_preview_bindings(
@@ -766,7 +757,7 @@ def normalize_preview_bindings(
             )
         snapshots = tuple(by_entity[entity_id] for entity_id in entity_ids)
 
-    for entity_id, snapshot in zip(entity_ids, snapshots, strict=True):
+    snapshots = tuple(
         _validate_snapshot(
             snapshot,
             entity_id=entity_id,
@@ -774,6 +765,8 @@ def normalize_preview_bindings(
             project_root=project_root,
             registry=registry,
         )
+        for entity_id, snapshot in zip(entity_ids, snapshots, strict=True)
+    )
     datasource_ids = tuple(registry.entities[entity_id].datasource for entity_id in entity_ids)
     if len(set(datasource_ids)) != 1:
         _blocked(
@@ -832,9 +825,13 @@ def persist_preview_check(
         ),
         snapshot_ids=tuple(snapshot.id for snapshot in bindings.snapshots),
         cache_status=(
-            "cached"
-            if any(snapshot.cache_status == "cached" for snapshot in bindings.snapshots)
-            else "fresh"
+            "stale"
+            if any(snapshot.cache_status == "stale" for snapshot in bindings.snapshots)
+            else (
+                "cached"
+                if any(snapshot.cache_status == "cached" for snapshot in bindings.snapshots)
+                else "fresh"
+            )
         ),
     )
     enriched = replace(result, status="passed", coverage=coverage)

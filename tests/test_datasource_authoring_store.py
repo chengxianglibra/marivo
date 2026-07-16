@@ -399,7 +399,7 @@ def test_query_free_snapshot_lookup_rejects_digest_failure(
     assert query_spy.user_data_queries == 1
 
 
-def test_expired_snapshot_reacquires_once_and_reports_stale(
+def test_expired_snapshot_is_reused_and_reports_stale(
     inspection: SourceInspection,
     query_spy: _QuerySpy,
     monkeypatch: pytest.MonkeyPatch,
@@ -414,11 +414,24 @@ def test_expired_snapshot_reacquires_once_and_reports_stale(
 
     expired = inspection.sample(scope=scope, columns=("region",))
 
-    assert query_spy.user_data_queries == 2
+    assert query_spy.user_data_queries == 1
     assert expired.id == first.id
     assert expired.cache_status == "stale"
-    assert expired.created_at == now + timedelta(hours=25)
-    assert expired.expires_at == now + timedelta(hours=49)
+    assert expired.created_at == now
+    assert expired.expires_at == now + timedelta(hours=24)
+
+    from marivo.datasource import store as datasource_store
+
+    datasource = datasource_store.load_one("warehouse", project_root=inspection._project_root)
+    assert datasource is not None
+    persisted = authoring_store.AuthoringStore(inspection._project_root).valid_snapshots(
+        datasource=inspection.datasource,
+        datasource_fingerprint=authoring_store.datasource_spec_fingerprint(datasource),
+        source=inspection.source,
+        now=now + timedelta(hours=25),
+    )
+    assert len(persisted) == 1
+    assert persisted[0].cache_status == "stale"
 
 
 @pytest.mark.parametrize("change", ["schema", "source", "scope", "columns", "datasource"])
@@ -478,6 +491,55 @@ def test_refresh_bypasses_both_caches_and_executes_exactly_once(
     assert refreshed.id == first.id
     assert refreshed.cache_status == "fresh"
     assert refreshed.created_at >= first.created_at
+
+
+def test_newer_persisted_refresh_replaces_remembered_generation_without_query(
+    project_root: Path,
+    inspection: SourceInspection,
+    query_spy: _QuerySpy,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.datasource import authoring_store
+
+    first_time = datetime(2026, 7, 11, 0, 0, tzinfo=UTC)
+    monkeypatch.setattr(authoring_store, "_utc_now", lambda: first_time)
+    scope = md.unpruned(max_rows=100, timeout_seconds=30)
+    first = inspection.sample(
+        scope=scope,
+        columns=("region",),
+        persist_values=True,
+        refresh=True,
+    )
+    memory_key = f"{project_root.resolve()}:{first.id}"
+    remembered = authoring_store._SNAPSHOT_MEMORY[memory_key]
+
+    backend = ibis.duckdb.connect(str(project_root / "warehouse.duckdb"))
+    backend.raw_sql("UPDATE orders SET region = 'refreshed'")
+    backend.disconnect()
+    monkeypatch.setattr(
+        authoring_store,
+        "_utc_now",
+        lambda: first_time + timedelta(hours=1),
+    )
+    refreshed = inspection.sample(
+        scope=scope,
+        columns=("region",),
+        persist_values=True,
+        refresh=True,
+    )
+
+    authoring_store._SNAPSHOT_MEMORY[memory_key] = remembered
+    reused = inspection.sample(
+        scope=scope,
+        columns=("region",),
+        persist_values=True,
+    )
+
+    assert query_spy.user_data_queries == 2
+    assert reused.created_at == refreshed.created_at
+    assert reused.profiles == refreshed.profiles
+    assert reused.profiles != first.profiles
+    assert reused.cache_status == "cached"
 
 
 def test_snapshot_write_is_same_directory_atomic_and_owner_only(

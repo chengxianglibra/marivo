@@ -250,7 +250,10 @@ options are forbidden.
   object/batch.
 - The agent does not reacquire data merely to obtain another semantic-shaped
   view.
-- Reacquisition or refresh changes evidence identity and invalidates dependent
+- Snapshot age and expiry remain visible reference metadata; age alone never
+  requires reacquisition or invalidates matching preview/readiness evidence.
+- Explicit refresh may replace observations. Definition, datasource, source,
+  schema, scope, or evidence-identity mismatches still invalidate dependent
   preview/readiness evidence according to the live contract.
 - Multi-entity objects use the exact registered evidence mapping; snapshots are
   not silently substituted across entities or sources.
@@ -346,11 +349,11 @@ The skill does not provide fallback implementations or memorized workarounds.
 | Help and execution fingerprints differ | Stop before connection, read, mutation, or authoring |
 | Proposed call has an unknown effect | Read focused live help; do not invoke it from memory |
 | User-data read has no explicit registered scope | Stop before query |
-| A fresh matching snapshot already exists | Reuse it; do not reacquire for another projection |
+| A matching snapshot already exists, regardless of age | Reuse it; treat timestamps and cache status as reference information only |
 | Evidence suggests but cannot establish business meaning | Ask one grounded question and stop |
 | A dependency is missing or not ready | Repair/ready the dependency before authoring the dependent |
 | Static verification fails | Repair and reverify the same object |
-| Required preview is missing or stale | Run or repair scoped preview before readiness |
+| Required preview is missing or does not match current definitions/dependencies | Run or repair scoped preview before readiness |
 | Readiness is blocked | Follow typed repair; do not hand off the blocked ref |
 | Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then hand off ready refs |
 | Runtime transition contradicts its registered input, state, target-surface, or effect facts | Treat candidate as internally inconsistent; stop and report the contract defect |

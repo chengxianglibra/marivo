@@ -277,9 +277,11 @@ Two checks sit at the end of the write loop:
   the explicit certification and diagnostic at the end of an authoring change,
   never writes stdout, and never queries. Analysis APIs do not invoke it
   automatically.
-  `catalog.preview(..., using=...)` persists the fresh scoped runtime metadata
-  that readiness consumes; readiness enforces fresh preview evidence for
+  `catalog.preview(..., using=...)` persists scoped runtime metadata that
+  readiness consumes; readiness enforces structurally matching preview evidence for
   executable families (`static_only`, `single_snapshot`, `snapshot_mapping`).
+  Snapshot and preview age are retained as reference metadata and never block
+  readiness or trigger implicit reacquisition.
   A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a
   blocker (`undeclared_naive_time_axis`): runtime would otherwise fall back to
   the datasource read timezone while report windows use the analysis-session
@@ -322,7 +324,7 @@ The agent routes the handoff to the registered analysis
 `Session.validate_semantic_handoff(handoff)`, validates the payload against a
 newly created, current, or recovered analysis session — checking environment
 identity, project/catalog fingerprints, ref existence and kind, current
-readiness, warning-id consistency, and preview-evidence freshness — without
+readiness, warning-id consistency, and preview-evidence existence and ownership — without
 querying a datasource, opening a connection, or mutating state. Success returns
 a `SemanticHandoffReceipt`; a stale environment, project, catalog, ref,
 readiness, or preview-evidence fact emits typed semantic repair instead. The
@@ -344,5 +346,5 @@ Semantic readiness produces a `SemanticToAnalysisHandoff` (see
 [Readiness and richness](#typed-analysis-handoff)); analysis consumes the
 handed-off refs only after `Session.validate_semantic_handoff(...)` returns a
 `SemanticHandoffReceipt`. A missing required semantic object activates
-`marivo-semantic` and returns to the same semantic entry, requiring fresh scoped
+`marivo-semantic` and returns to the same semantic entry, requiring matching scoped
 readiness before resuming.

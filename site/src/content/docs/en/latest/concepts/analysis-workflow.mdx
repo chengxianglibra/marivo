@@ -119,7 +119,7 @@ the first `observe`.
 
 :::note[When to run readiness]
 Run `catalog.readiness(refs=[...])` after authoring or changing semantic objects,
-or when a workflow requires fresh technical certification. Analysis APIs do not
+or when a workflow requires technical certification. Analysis APIs do not
 invoke it automatically, and routine analysis does not need to refresh authoring
 snapshots before every `observe`. A blocked report means the selected objects
 have not completed that certification; repair them before declaring the semantic

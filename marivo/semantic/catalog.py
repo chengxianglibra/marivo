@@ -2135,7 +2135,7 @@ class SemanticCatalog:
 
         Constraints:
             Use after authoring or changing semantic objects, or when a workflow
-            requests fresh technical certification. Analysis APIs do not invoke
+            requests technical certification. Analysis APIs do not invoke
             readiness automatically.
         """
         self._require_ready()

@@ -90,7 +90,7 @@ class PreviewCoverage:
     scope_exhaustion: Literal["exhaustive", "truncated"]
     scope_exactness: Literal["scope_exact", "sample_only"]
     snapshot_ids: tuple[str, ...]
-    cache_status: Literal["fresh", "cached"]
+    cache_status: Literal["fresh", "cached", "stale"]
 
 
 @dataclass(frozen=True, repr=False)

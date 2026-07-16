@@ -988,13 +988,13 @@ class Session:
         - existence and kind of every ready ref;
         - current readiness of the handed-off refs;
         - consistency of readiness status, warning ids, and caveats;
-        - freshness and ownership of every required preview-evidence id.
+        - existence and ownership of every required preview-evidence id.
 
         Note:
             The semantic readiness producer currently emits an empty
             ``preview_evidence_ids`` tuple: preview evidence is persisted to
             the project check store during semantic preparation but is not yet
-            surfaced as handoff evidence ids. The preview-evidence freshness
+            surfaced as handoff evidence ids. The preview-evidence existence
             check is therefore vacuous until that population is wired; the
             environment, project, catalog, ref, and readiness checks are
             fully active.
@@ -1232,13 +1232,15 @@ class Session:
                     repair=AnalysisRepair(
                         kind="semantic_handoff",
                         action=(
-                            f"Preview-evidence {evidence_id!r} is stale or missing; "
+                            f"Preview-evidence {evidence_id!r} is missing or no longer owned; "
                             "re-run semantic readiness to regenerate preview evidence."
                         ),
                         help_target=LiveHelpTarget(surface="semantic"),
                         semantic_handoff=AnalysisToSemanticHandoff(
                             required_kind=None,
-                            requirement=(f"preview-evidence {evidence_id!r} is stale or missing"),
+                            requirement=(
+                                f"preview-evidence {evidence_id!r} is missing or no longer owned"
+                            ),
                             affected_capability_id="boundary.semantic_handoff",
                             environment_fingerprint=current_env,
                             project_fingerprint=current_project_fp,
