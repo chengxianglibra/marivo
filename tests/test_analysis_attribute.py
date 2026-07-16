@@ -174,6 +174,29 @@ def test_attribute_present_axes_delegates_to_decompose_without_materialization()
     assert "mode" not in out.meta.params
 
 
+def test_attribute_single_axis_ignores_mode_parameter() -> None:
+    """A single-axis attribution has no joint/hierarchy distinction, so ``mode``
+    is meaningless and must be ignored rather than rejected — letting callers
+    pass a fixed ``mode`` without branching on axis count (see issue #23).
+    """
+    session = mv.session.get_or_create(name="demo")
+    frame = _delta(
+        session,
+        pd.DataFrame({"region": ["US", "CN", "US"], "delta": [10.0, -2.0, 4.0]}),
+    )
+
+    out = session.attribute(
+        frame,
+        axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
+        mode="joint",
+    )
+
+    assert isinstance(out, AttributionFrame)
+    assert out.meta.params["axes"] == ["sales.orders.region"]
+    # mode is not applicable to a single axis, so it is dropped from params.
+    assert "mode" not in out.meta.params
+
+
 def test_attribute_rejects_duplicate_axes() -> None:
     session = mv.session.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"region": ["US"], "delta": [10.0]}))

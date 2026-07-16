@@ -16,17 +16,10 @@ def validate_attribution_mode(
     intent: str,
 ) -> AttributionMode | None:
     """Validate the explicit output shape required for multi-axis attribution."""
-    if len(axis_ids) == 1:
-        if mode is not None:
-            raise SemanticKindMismatchError(
-                message=f"{intent} mode is only valid when multiple axes are requested",
-                context={
-                    "argument": "mode",
-                    "reason": "single_axis_mode_not_applicable",
-                    "axis_count": 1,
-                    "mode": mode,
-                },
-            )
+    if len(axis_ids) <= 1:
+        # mode only distinguishes joint vs hierarchy output for *multiple* axes;
+        # with a single axis there is nothing to combine, so it is meaningless
+        # and ignored rather than forcing callers to branch on axis count.
         return None
     if mode in {"joint", "hierarchy"}:
         return mode
