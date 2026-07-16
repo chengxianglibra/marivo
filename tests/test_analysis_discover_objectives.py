@@ -1121,3 +1121,32 @@ def test_period_shifts_score_uses_segment_peak_abs_z():
     # the scenario must actually distinguish peak from end for the test to bind
     assert expected_peak > abs(end_z) + 0.05
     assert abs(float(rows.loc[0, "score"])) == pytest.approx(expected_peak, abs=0.01)
+
+
+def test_point_anomalies_panel_scores_each_segment_independently():
+    """On a panel with segments differing ~100x in magnitude, each segment's
+    intra-series spike must surface. Global z-score drowns the small segment's
+    spike and flags magnitude instead (issue #8)."""
+    session = session_attach.get_or_create(name="demo")
+    days = pd.date_range("2026-01-01", periods=10, freq="D", tz="UTC")
+    a_values = [1.0, 1.0, 1.0, 1.0, 10.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    b_values = [100.0, 100.0, 100.0, 100.0, 1000.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    df = pd.DataFrame(
+        {
+            "bucket": [*days, *days],
+            "region": [*["A"] * 10, *["B"] * 10],
+            # A ~1 with a spike to 10; B ~100 (100x) with a spike to 1000
+            "value": [*a_values, *b_values],
+        }
+    )
+    panel = _metric(session, df, semantic_kind="panel")
+    out = session.discover.point_anomalies(panel, threshold=2.0).to_pandas()
+    keys = [json.loads(k) for k in out["keys_json"]]
+    regions = {k.get("region") for k in keys}
+    # both segments' intra-series spikes surface (global z would only flag B)
+    assert "A" in regions
+    assert "B" in regions
+    # every candidate is the high-direction spike, not a magnitude-driven low
+    assert list(out["direction"]) == ["high"] * len(out)
+    # item_id must be unique across the CandidateSet (no per-group reset dups)
+    assert out["item_id"].is_unique

@@ -51,27 +51,73 @@ def score_point_anomalies(
     value_column: str,
     threshold: float,
     time_column: str | None = None,
+    group_columns: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    series = source_df[value_column]
+    """Score point anomalies, optionally per segment for panel input.
+
+    When ``group_columns`` is provided (panel), each segment series is scored
+    against its own mean/std so a small segment's intra-series anomaly is not
+    drowned by cross-segment magnitude differences. ``keys`` carry the segment.
+    Mirrors the per-series grouping of ``score_period_shifts``.
+    """
+    group_columns = list(group_columns or [])
+    if group_columns:
+        rows: list[dict[str, Any]] = []
+        sort_cols = [*group_columns] + ([time_column] if time_column else [])
+        for _, group_df in source_df.sort_values(sort_cols).groupby(
+            group_columns, dropna=False
+        ):
+            rows.extend(
+                _point_anomalies_for_series(
+                    group_df,
+                    source_ref=source_ref,
+                    value_column=value_column,
+                    threshold=threshold,
+                    time_column=time_column,
+                )
+            )
+        # item_id must be unique across the CandidateSet; the per-series
+        # cand_{row_index} resets each group, so reassign a global ordinal.
+        for index, row in enumerate(rows):
+            row["item_id"] = f"cand_{index}"
+        return rows
+    return _point_anomalies_for_series(
+        source_df,
+        source_ref=source_ref,
+        value_column=value_column,
+        threshold=threshold,
+        time_column=time_column,
+    )
+
+
+def _point_anomalies_for_series(
+    df: pd.DataFrame,
+    *,
+    source_ref: str,
+    value_column: str,
+    threshold: float,
+    time_column: str | None,
+) -> list[dict[str, Any]]:
+    series = df[value_column]
     non_null = series.dropna()
     mean: float | None = None
     if len(non_null) < 2:
-        scores = np.zeros(len(source_df))
+        scores = np.zeros(len(df))
     else:
         std = float(non_null.std(ddof=0))
         if std == 0:
-            scores = np.zeros(len(source_df))
+            scores = np.zeros(len(df))
         else:
             mean = float(non_null.mean())
             scores = ((series - mean) / std).fillna(0).to_numpy()
 
-    time_columns = [time_column] if time_column else _detect_time_columns(source_df)
+    time_columns = [time_column] if time_column else _detect_time_columns(df)
     key_columns = [
-        col for col in source_df.columns if col != value_column and col not in time_columns
+        col for col in df.columns if col != value_column and col not in time_columns
     ]
     baseline_window: dict[str, str] | None = None
     if time_columns:
-        ts_col = source_df[time_columns[0]].dropna()
+        ts_col = df[time_columns[0]].dropna()
         if not ts_col.empty:
             baseline_window = {
                 "start": pd.Timestamp(ts_col.min()).isoformat(),
@@ -81,10 +127,10 @@ def score_point_anomalies(
     for row_index, is_candidate in enumerate(np.abs(scores) >= threshold):
         if not bool(is_candidate):
             continue
-        row = source_df.iloc[row_index]
+        row = df.iloc[row_index]
         score = float(scores[row_index])
         keys = {str(col): _scalar(row[col]) for col in key_columns if pd.notna(row[col])}
-        window = _row_window(source_df, row_index, time_columns)
+        window = _row_window(df, row_index, time_columns)
         observed_value = float(row[value_column]) if pd.notna(row[value_column]) else None
         rows.append(
             {
