@@ -120,47 +120,6 @@ Marivo 是 Python library，不是托管服务。部署 Marivo project 时，需
 library，提交 datasource 和 semantic declarations，并通过 `*_env` 字段引用环境变量来提供
 datasource secrets。
 
-如果希望 agent 将已经生成并检查过的交付物上传到 S3，而不用每次重新判断 endpoint 与凭证配置，
-请把非 secret 的发布配置写入 project 的 `marivo.toml`：
-
-```toml
-[publish.s3]
-S3_BUCKET_PATH = "s3://bucket/base/prefix"
-AWS_ENDPOINT_URL_S3 = "https://s3.example.com"
-```
-
-Marivo 使用 path-style 规则生成发布链接。按上面的配置，上传 `report.html` 后会展示
-`https://s3.example.com/bucket/base/prefix/report.html`。
-
-对应的 S3 credentials 放在 user-global secret 文件：
-
-```toml
-# ~/.marivo/secrets.toml
-[publish.s3]
-AWS_ACCESS_KEY_ID = "..."
-AWS_SECRET_ACCESS_KEY = "..."
-```
-
-然后上传任意已完成的文件或目录：
-
-```bash
-marivo publish ./report.html
-marivo publish ./output-dir
-```
-
-输出示例：
-
-```text
-Uploaded 1 file
-URL: https://s3.example.com/bucket/base/prefix/report.html
-S3: s3://bucket/base/prefix/report.html
-```
-
-`marivo publish` 只是一个简单上传工具：它不会 validate、package 或 inspect 内容。文件会上传到
-`S3_BUCKET_PATH` 之下；如果目标对象已存在，会按普通 S3 `put_object` 行为覆盖。以
-`.html` 或 `.htm` 结尾的文件会使用 `Content-Type: text/html` 上传；其他文件类型不会进行
-MIME 推断。
-
 从当前仓库进行本地开发：
 
 ```bash
