@@ -107,19 +107,63 @@ def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeRe
     catalog, schema_name, table_name = _partition_table_parts(request)
     if schema_name is None:
         raise RuntimeError("trino partition inspection requires database= or datasource schema")
-    quoted_columns = ", ".join(
-        quote_identifier(column, PROFILE) for column in request.partition_columns
-    )
     table_ref = ".".join(
         quote_identifier(part, PROFILE)
         for part in (catalog, schema_name, f"{table_name}$partitions")
     )
-    order_by = ", ".join(
-        f"{quote_identifier(column, PROFILE)} DESC" for column in request.partition_columns
+    # Hive-connector ``$partitions`` exposes partition columns as top-level
+    # columns, but Iceberg ``$partitions`` nests partition values under a
+    # ``partition`` row column — so ``SELECT <col>`` raises COLUMN_NOT_FOUND on
+    # Iceberg even though the column exists in ``SHOW COLUMNS``. Probe the
+    # ``$partitions`` schema once and route through the ``partition`` row when
+    # the partition columns are not top-level. See issue #21.
+    iceberg = _partitions_table_is_iceberg(request.backend, table_ref, request.partition_columns)
+    select_columns = ", ".join(
+        _partition_column_select(column, iceberg) for column in request.partition_columns
     )
-    sql = f"SELECT {quoted_columns} FROM {table_ref} ORDER BY {order_by} LIMIT {request.limit}"
+    order_by = ", ".join(
+        f"{_partition_column_ref(column, iceberg)} DESC" for column in request.partition_columns
+    )
+    sql = f"SELECT {select_columns} FROM {table_ref} ORDER BY {order_by} LIMIT {request.limit}"
     frame = decode_cursor_frame(request.backend.raw_sql(sql), include_types=False, max_rows=None)
     return PartitionProbeResult(rows=frame.rows, value_source="metadata")
+
+
+def _partitions_table_is_iceberg(
+    backend: BaseBackend,
+    table_ref: str,
+    partition_columns: tuple[str, ...],
+) -> bool:
+    """Return True when ``$partitions`` nests partition values under ``partition``.
+
+    Iceberg's ``$partitions`` table has a ``partition`` row column and does not
+    expose the partition columns at the top level. Hive's ``$partitions`` exposes
+    the partition columns directly. A ``LIMIT 0`` probe reads only the column
+    metadata, so it scans no partition data.
+    """
+    probe = decode_cursor_frame(
+        backend.raw_sql(f"SELECT * FROM {table_ref} LIMIT 0"),
+        include_types=False,
+        max_rows=None,
+    )
+    columns = set(probe.columns)
+    if not columns:
+        return False
+    return "partition" in columns and not all(column in columns for column in partition_columns)
+
+
+def _partition_column_ref(column: str, iceberg: bool) -> str:
+    quoted = quote_identifier(column, PROFILE)
+    return f"{quote_identifier('partition', PROFILE)}.{quoted}" if iceberg else quoted
+
+
+def _partition_column_select(column: str, iceberg: bool) -> str:
+    quoted = quote_identifier(column, PROFILE)
+    if not iceberg:
+        return quoted
+    # Route through the ``partition`` row and alias back to the column name so
+    # downstream value extraction (row.get(field.name)) resolves the column.
+    return f"{quote_identifier('partition', PROFILE)}.{quoted} AS {quoted}"
 
 
 _TRINO_PARTITION_ARRAY_RE = re.compile(
