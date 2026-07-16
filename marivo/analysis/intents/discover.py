@@ -565,7 +565,7 @@ def _run_scorer(
         )
         df = source.to_pandas()
         value_column = require_numeric_column(df, value, purpose="discover")
-        time_column, _ = _resolve_frame_axes(source, df)
+        time_column, dim_columns = _resolve_frame_axes(source, df)
         if strategy == "seasonal_robust_zscore":
             rows = score_point_anomalies_seasonal_robust(
                 df,
@@ -575,12 +575,18 @@ def _run_scorer(
                 time_column=time_column,
             )
         else:
+            # Panel (time + segments) scores each segment series independently so a
+            # small segment's intra-series anomaly is not drowned by cross-segment
+            # magnitude differences. Gate on a real time column so a string-bucket
+            # series is not mis-grouped on its bucket.
+            group_columns = dim_columns if time_column else []
             rows = score_point_anomalies(
                 df,
                 source_ref=source.ref,
                 value_column=value_column,
                 threshold=threshold_value,
                 time_column=time_column,
+                group_columns=group_columns,
             )
         params = {"value": value, "threshold": threshold_value}
         return rows, params
