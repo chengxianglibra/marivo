@@ -1056,3 +1056,68 @@ def test_interesting_slices_without_search_space_does_not_raise_on_missing():
     )
     out = session.discover.interesting_slices(delta, threshold=1.0)
     assert out.meta.objective == "interesting_slices"
+
+
+def test_point_anomalies_omits_window_when_no_time_column():
+    """With no usable time column the candidate carries no window instead of a
+    fabricated now() (issue #12)."""
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(
+        session,
+        pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [0.0, 0.0, 0.0, 10.0]}),
+    )
+    out = session.discover.point_anomalies(frame, threshold=1.0)
+    rows = out.to_pandas()
+    assert len(rows) >= 1
+    assert pd.isna(rows.loc[0, "window_start"])
+    assert pd.isna(rows.loc[0, "window_end"])
+
+
+def test_point_anomalies_select_window_raises_when_row_has_no_window():
+    session = session_attach.get_or_create(name="demo")
+    frame = _metric(
+        session,
+        pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [0.0, 0.0, 0.0, 10.0]}),
+    )
+    out = session.discover.point_anomalies(frame, threshold=1.0)
+    with pytest.raises(SemanticKindMismatchError):
+        out.select(rank=1, attribute="window")
+
+
+def test_period_shifts_score_uses_segment_peak_abs_z():
+    """period_shifts scores the segment's peak |z|, not the segment-end z, so a
+    strong-then-decaying shift is not underestimated (issue #12)."""
+    session = session_attach.get_or_create(name="demo")
+    n = 80
+    delta = np.zeros(n)
+    # strong shift then a weaker tail so the rolling-mean z peaks before the
+    # segment end
+    delta[12:24] = 40.0
+    delta[24:40] = 12.0
+    df = pd.DataFrame(
+        {
+            "bucket": pd.date_range("2026-01-01", periods=n, freq="D", tz="UTC"),
+            "delta": delta,
+        }
+    )
+    src = _delta(session, df, semantic_kind="time_series")
+    out = session.discover.period_shifts(src, threshold=1.5)
+    rows = out.to_pandas()
+    assert len(rows) >= 1
+
+    # replicate the scorer's z to compute the expected in-segment peak and end
+    window_size = max(7, n // 10)
+    series = pd.Series(delta).astype(float)
+    window_means = series.rolling(window_size, min_periods=window_size).mean()
+    valid = window_means.dropna()
+    overall_mean = float(valid.mean())
+    overall_std = float(valid.std(ddof=0))
+    z = (window_means - overall_mean) / overall_std
+    hits = (z.abs() >= 1.5).fillna(False)
+    hit_idx = np.flatnonzero(hits.to_numpy())
+    assert len(hit_idx) > 0
+    expected_peak = float(np.abs(z.iloc[hit_idx]).max())
+    end_z = float(z.iloc[hit_idx[-1]])
+    # the scenario must actually distinguish peak from end for the test to bind
+    assert expected_peak > abs(end_z) + 0.05
+    assert abs(float(rows.loc[0, "score"])) == pytest.approx(expected_peak, abs=0.01)
