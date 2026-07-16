@@ -69,7 +69,7 @@ def test_root_help_reveals_current_environment() -> None:
     text = md.help_text()
 
     assert f"Marivo: {marivo.__version__}" in text
-    assert f"Python: {Path(sys.executable).resolve()}" in text
+    assert f"Python: {sys.executable}" in text
     assert f"Package: {Path(marivo.__file__).resolve()}" in text
 
 
