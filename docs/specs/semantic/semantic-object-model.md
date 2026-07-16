@@ -59,10 +59,6 @@ dimension, time_dimension, measure, metric, and relationship. It is built with
 |---|---|---|
 | `business_definition` | `str \| None` | Full business meaning; may be multi-line. Most important on entities and metrics. |
 | `guardrails` | `Sequence[str]` | Do/don't notes (e.g. "excludes unpaid orders"). |
-| `synonyms` | `Sequence[str]` | Alternate names for reuse/search. |
-| `examples` | `Sequence[str]` | Natural-language example questions only — no SQL, Ibis, or expected values. |
-| `instructions` | `str \| None` | Operational guidance for agents. |
-| `owner_notes` | `str \| None` | Ownership / stewardship context. |
 
 All fields are optional; missing fields render as `null` or empty lists. Unknown
 field names fail closed via the keyword-argument mechanism, so unconsumable

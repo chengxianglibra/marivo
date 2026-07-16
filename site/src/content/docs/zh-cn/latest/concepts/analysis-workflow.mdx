@@ -82,7 +82,7 @@ catalog = session.catalog
 revenue = catalog.get("metric.sales.revenue")           # a metric object
 region = catalog.get("dimension.sales.orders.region")      # a dimension object
 
-revenue.details().show()     # 读取 business_definition、guardrails、instructions
+revenue.details().show()     # 读取 business_definition 和 guardrails
 region.details().show()
 ```
 

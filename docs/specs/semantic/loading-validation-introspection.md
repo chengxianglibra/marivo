@@ -135,8 +135,8 @@ from the loaded index:
 
 `catalog.get(...).details()` returns a structured details dataclass (not just
 text). Every details type exposes `ref`, `kind`, `name`, `domain`, `context`,
-`business_definition`, `guardrails`, `synonyms`, `examples`, `instructions`,
-`owner_notes`, `python_symbol`, `source_location`, `parents`, `children`, and
+`business_definition`, `guardrails`, `python_symbol`, `source_location`,
+`parents`, `children`, and
 `dependents`, plus type-specific facts (datasource `backend_type`/`fields`/
 `env_refs`; entity `datasource`/`source`/`primary_key`/`versioning`; measure
 `additivity`/`unit`; time dimension parse/granularity/timezone; metric

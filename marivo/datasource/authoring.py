@@ -27,10 +27,8 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
             message=(
                 "ai_context= expects an AiContextValue from ms.ai_context(...), "
                 "not a raw dict. Construct it explicitly with "
-                "ms.ai_context(business_definition=..., guardrails=[...], "
-                "synonyms=[...], examples=[...], instructions=..., owner_notes=...). "
-                "The legacy summary= and glossary= keys are not accepted; use "
-                "business_definition= and instructions= respectively."
+                "ms.ai_context(business_definition=..., guardrails=[...]). "
+                "summary= and other unsupported metadata keys are not accepted."
             ),
             expected="an AiContextValue from ms.ai_context(...)",
             received=type(ai_context).__name__,
@@ -44,10 +42,6 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
     return AiContextIR(
         business_definition=ai_context.business_definition,
         guardrails=ai_context.guardrails,
-        synonyms=ai_context.synonyms,
-        examples=ai_context.examples,
-        instructions=ai_context.instructions,
-        owner_notes=ai_context.owner_notes,
     )
 
 

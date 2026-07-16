@@ -789,11 +789,6 @@ def _render_reference_briefing(
             lines.append("guardrails:")
             for g in list(ai.guardrails)[:3]:
                 lines.append(f"  - {g}")
-        if getattr(ai, "examples", None):
-            lines.append("examples:")
-            for ex in list(ai.examples)[:3]:
-                lines.append(f"  - {ex}")
-
     composition = getattr(ir, "composition", None)
     comp_kind = getattr(composition, "kind", None)
     if comp_kind == "cumulative":

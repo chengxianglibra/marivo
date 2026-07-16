@@ -236,7 +236,7 @@ def test_empty_domain_file_error_names_help(semantic_project_factory) -> None:
 
 
 def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_factory) -> None:
-    """A raw dict passed to ai_context= during load names ms.ai_context(...) and all fields."""
+    """A raw dict load error names the canonical ms.ai_context(...) fields."""
     bad_model = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
@@ -261,10 +261,6 @@ def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_fa
     assert "ms.ai_context(" in combined
     assert "business_definition" in combined
     assert "guardrails" in combined
-    assert "synonyms" in combined
-    assert "examples" in combined
-    assert "instructions" in combined
-    assert "owner_notes" in combined
     # Explicitly rejects the legacy summary= field.
     assert "summary" in combined
 

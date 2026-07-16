@@ -253,7 +253,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("domain", "entity", "dimension", "time_dimension", "metric", "relationship"),
         "ai_context must use the supported schema.",
         "Agent-facing metadata is persisted in a stable IR shape.",
-        "Use business_definition, guardrails, synonyms, examples, instructions, and owner_notes.",
+        "Use business_definition and guardrails.",
     ),
     ConstraintId.DOMAIN_OWNER_REQUIRED: _constraint(
         ConstraintId.DOMAIN_OWNER_REQUIRED,

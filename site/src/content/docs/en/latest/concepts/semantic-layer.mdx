@@ -706,17 +706,11 @@ at call time.
 | --- | --- | --- | --- | --- |
 | `business_definition` | `str` | No | `None` | What the object means in business terms, in a sentence or two. |
 | `guardrails` | `list[str]` | No | `[]` | Rules an agent must respect: required filters, exclusions, scope limits. |
-| `synonyms` | `list[str]` | No | `[]` | Alternate names so agents can resolve natural-language references. |
-| `examples` | `list[str]` | No | `[]` | Example questions or phrasings this object answers. |
-| `instructions` | `str` | No | `None` | Direct guidance on how (and how not) to use the object. |
-| `owner_notes` | `str` | No | `None` | Notes from the human owner: provenance, caveats, known issues. |
 
 ```python
 ai_context=ms.ai_context(
     business_definition="Gross order amount before refunds.",
     guardrails=["Validate refund exclusions before using as net revenue."],
-    synonyms=["sales", "gmv"],
-    examples=["What was revenue by region last week?"],
 )
 ```
 

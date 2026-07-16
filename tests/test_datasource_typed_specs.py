@@ -179,10 +179,6 @@ def test_spec_ai_context_maps_to_ir() -> None:
         ai_context=ms.ai_context(
             business_definition="Local analytical warehouse.",
             guardrails=["Do not use for production freshness checks."],
-            synonyms=["local wh"],
-            examples=["Inspect local fixture tables."],
-            instructions="Prefer bounded previews.",
-            owner_notes="Analytics platform owns this datasource.",
         ),
     )
 
@@ -190,10 +186,6 @@ def test_spec_ai_context_maps_to_ir() -> None:
 
     assert ir.ai_context.business_definition == "Local analytical warehouse."
     assert ir.ai_context.guardrails == ("Do not use for production freshness checks.",)
-    assert ir.ai_context.synonyms == ("local wh",)
-    assert ir.ai_context.examples == ("Inspect local fixture tables.",)
-    assert ir.ai_context.instructions == "Prefer bounded previews."
-    assert ir.ai_context.owner_notes == "Analytics platform owns this datasource."
 
 
 # -- Help surface tests (public convenience functions) --
@@ -310,10 +302,6 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
             ai_context=ms.ai_context(
                 business_definition="Curated warehouse tables.",
                 guardrails=["Use partition filters."],
-                synonyms=["wh"],
-                examples=["Preview orders before analysis."],
-                instructions="Prefer latest dt partitions.",
-                owner_notes="Data platform.",
             ),
         )
     )
@@ -328,10 +316,6 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     assert "env_refs=auth_env=TRINO_AUTH" in rendered
     assert "business_definition: Curated warehouse tables." in rendered
     assert "guardrails: Use partition filters." in rendered
-    assert "synonyms: wh" in rendered
-    assert "examples: Preview orders before analysis." in rendered
-    assert "instructions: Prefer latest dt partitions." in rendered
-    assert "owner_notes: Data platform." in rendered
     assert ".connect(name)" in rendered
     assert "super-secret-token" not in rendered
 

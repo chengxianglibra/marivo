@@ -95,27 +95,15 @@ def test_ai_context_view_has_all_spec_fields():
     ctx = AiContextView(
         business_definition="Revenue from completed orders.",
         guardrails=("Exclude refunds.",),
-        synonyms=("gross revenue",),
-        examples=("Q3 total: $1.2M",),
-        instructions="Always filter by status='complete'.",
-        owner_notes="Finance team owns this.",
     )
     assert ctx.business_definition == "Revenue from completed orders."
     assert ctx.guardrails == ("Exclude refunds.",)
-    assert ctx.synonyms == ("gross revenue",)
-    assert ctx.examples == ("Q3 total: $1.2M",)
-    assert ctx.instructions == "Always filter by status='complete'."
-    assert ctx.owner_notes == "Finance team owns this."
 
 
 def test_ai_context_view_defaults_to_empty():
     ctx = AiContextView(
         business_definition=None,
         guardrails=(),
-        synonyms=(),
-        examples=(),
-        instructions=None,
-        owner_notes=None,
     )
     assert ctx.guardrails == ()
 
@@ -128,10 +116,6 @@ def _make_ctx() -> AiContextView:
     return AiContextView(
         business_definition="Revenue from completed orders.",
         guardrails=("Exclude refunds.",),
-        synonyms=("gross revenue",),
-        examples=("Q3 total: $1.2M",),
-        instructions="Always filter by status='complete'.",
-        owner_notes="Finance team owns this.",
     )
 
 
@@ -534,10 +518,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         ai_context=ms.ai_context(
             business_definition="One row per completed order.",
             guardrails=["Exclude test orders."],
-            synonyms=["transactions"],
-            examples=["completed order count"],
-            instructions="Use created_at for reporting windows.",
-            owner_notes="Finance analytics owns this entity.",
         ),
     )
 
@@ -546,10 +526,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         ai_context=ms.ai_context(
             business_definition="Region assigned to the completed order.",
             guardrails=["Do not infer sales ownership from region alone."],
-            synonyms=["market"],
-            examples=["APAC"],
-            instructions="Use for geographic slicing.",
-            owner_notes="Maintained by sales ops.",
         ),
     )
     def region(table):
@@ -562,10 +538,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         ai_context=ms.ai_context(
             business_definition="Gross order amount before refunds.",
             guardrails=["Does not net out refunds."],
-            synonyms=["gross sales"],
-            examples=["order amount"],
-            instructions="Aggregate with sum for revenue.",
-            owner_notes="Finance validates monthly.",
         ),
     )
     def amount(table):
@@ -578,10 +550,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         ai_context=ms.ai_context(
             business_definition="Order creation timestamp.",
             guardrails=["Do not use as payment settlement time."],
-            synonyms=["created time"],
-            examples=["2026-01-01T00:00:00Z"],
-            instructions="Use as the default time window.",
-            owner_notes="UTC normalized upstream.",
         ),
     )
     def created_at(table):
@@ -594,10 +562,6 @@ _RICH_DETAILS_DATASETS_PY = textwrap.dedent("""\
         ai_context=ms.ai_context(
             business_definition="Total gross order amount before refunds.",
             guardrails=["Do not use as net revenue."],
-            synonyms=["gross revenue"],
-            examples=["Q1 gross revenue"],
-            instructions="Use created_at for reporting windows.",
-            owner_notes="Owned by finance analytics.",
         ),
     )
 """)
@@ -1045,10 +1009,6 @@ def test_catalog_details_expose_ai_context_via_context_field(semantic_project_fa
         details = catalog.get(ref).details()
         assert details.context.business_definition
         assert details.context.guardrails
-        assert details.context.synonyms
-        assert details.context.examples
-        assert details.context.instructions
-        assert details.context.owner_notes
         assert details.python_symbol == python_symbol
         assert details.source_location.file
         assert details.source_location.line > 0
@@ -1091,10 +1051,6 @@ def test_catalog_details_render_bounds_long_business_definition():
         context=AiContextView(
             business_definition="Revenue detail. " * 1000,
             guardrails=(),
-            synonyms=(),
-            examples=(),
-            instructions=None,
-            owner_notes=None,
         ),
         source_location=_make_loc(),
         parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),

@@ -45,10 +45,6 @@ def ai_context(
     *,
     business_definition: str | None = None,
     guardrails: _Sequence[str] | None = None,
-    synonyms: _Sequence[str] | None = None,
-    examples: _Sequence[str] | None = None,
-    instructions: str | None = None,
-    owner_notes: str | None = None,
 ) -> AiContextValue:
     """Construct a validated AiContext for semantic objects.
 
@@ -61,10 +57,6 @@ def ai_context(
     Args:
         business_definition: Plain-language description of what the object represents.
         guardrails: Constraints on how the object should be used.
-        synonyms: Alternative names for the object.
-        examples: Example questions or use cases.
-        instructions: Usage guidance for AI agents.
-        owner_notes: Team or ownership notes.
 
     Returns:
         A validated ``AiContextValue`` for use with ``ai_context=`` parameters.
@@ -73,7 +65,6 @@ def ai_context(
         >>> ctx = ms.ai_context(
         ...     business_definition="Total revenue from all orders",
         ...     guardrails=["Do not use for margin calculations"],
-        ...     synonyms=["total_sales"],
         ... )
         >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", ai_context=ctx)
 
@@ -82,44 +73,30 @@ def ai_context(
     """
     location = _user_caller_location()
 
-    for label, value in (
-        ("guardrails", guardrails),
-        ("synonyms", synonyms),
-        ("examples", examples),
+    if guardrails is not None and (
+        not isinstance(guardrails, list | tuple)
+        or not all(isinstance(item, str) for item in guardrails)
     ):
-        if value is None:
-            continue
-        if not isinstance(value, list | tuple) or not all(isinstance(item, str) for item in value):
-            _raise(
-                ErrorKind.INVALID_AI_CONTEXT,
-                f"ms.ai_context({label}=...) requires list[str] or tuple[str, ...], "
-                f"got {type(value).__name__}.",
-                cls=SemanticDecoratorError,
-                location=location,
-            )
+        _raise(
+            ErrorKind.INVALID_AI_CONTEXT,
+            "ms.ai_context(guardrails=...) requires list[str] or tuple[str, ...], "
+            f"got {type(guardrails).__name__}.",
+            cls=SemanticDecoratorError,
+            location=location,
+        )
 
-    for label, value in (
-        ("business_definition", business_definition),
-        ("instructions", instructions),
-        ("owner_notes", owner_notes),
-    ):
-        if value is None:
-            continue
-        if not isinstance(value, str):
-            _raise(
-                ErrorKind.INVALID_AI_CONTEXT,
-                f"ms.ai_context({label}=...) requires str, got {type(value).__name__}.",
-                cls=SemanticDecoratorError,
-                location=location,
-            )
+    if business_definition is not None and not isinstance(business_definition, str):
+        _raise(
+            ErrorKind.INVALID_AI_CONTEXT,
+            "ms.ai_context(business_definition=...) requires str, "
+            f"got {type(business_definition).__name__}.",
+            cls=SemanticDecoratorError,
+            location=location,
+        )
 
     return AiContextValue(
         business_definition=business_definition,
         guardrails=tuple(guardrails) if guardrails is not None else (),
-        synonyms=tuple(synonyms) if synonyms is not None else (),
-        examples=tuple(examples) if examples is not None else (),
-        instructions=instructions,
-        owner_notes=owner_notes,
     )
 
 
@@ -138,19 +115,13 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
             ErrorKind.INVALID_AI_CONTEXT,
             "ai_context= expects an AiContextValue from ms.ai_context(...), "
             "not a raw dict. Construct it explicitly with "
-            "ms.ai_context(business_definition=..., guardrails=[...], "
-            "synonyms=[...], examples=[...], instructions=..., owner_notes=...). "
-            "The legacy summary= and glossary= keys are not accepted; use "
-            "business_definition= and instructions= respectively.",
+            "ms.ai_context(business_definition=..., guardrails=[...]). "
+            "summary= and other unsupported metadata keys are not accepted.",
             cls=SemanticDecoratorError,
         )
     return AiContextIR(
         business_definition=ai_context.business_definition,
         guardrails=ai_context.guardrails,
-        synonyms=ai_context.synonyms,
-        examples=ai_context.examples,
-        instructions=ai_context.instructions,
-        owner_notes=ai_context.owner_notes,
     )
 
 
