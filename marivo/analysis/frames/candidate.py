@@ -33,6 +33,7 @@ CandidateStrategy = Literal[
     "slice_zscore",
     "global_zscore_runs",
     "mad",
+    "seasonal_robust_zscore",
 ]
 CandidateSourceKind = Literal["metric_frame", "delta_frame"]
 CandidateSemanticKind = Literal["scalar", "time_series", "segmented", "panel"]

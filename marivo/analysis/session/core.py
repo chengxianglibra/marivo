@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.association import AssociationResult
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.base import BaseFrame
-    from marivo.analysis.frames.candidate import CandidateSet
+    from marivo.analysis.frames.candidate import CandidateSet, CandidateStrategy
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.forecast import ForecastFrame
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
@@ -1323,6 +1323,7 @@ class SessionDiscoverNamespace:
         threshold: float | None = None,
         # keep in sync with _DEFAULT_DISCOVER_LIMIT in marivo.analysis.intents.discover
         limit: int | None = 50,
+        strategy: CandidateStrategy | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
         """Find time-series points with unusual values.
@@ -1331,7 +1332,10 @@ class SessionDiscoverNamespace:
         ``threshold`` is an absolute z-score cutoff (|z| >= threshold); default 3.0.
         Lower values flag more candidates. ``limit`` bounds the candidate count
         (top by |z|, default 50; ``None`` for unbounded); truncation is
-        recorded in ``params``.
+        recorded in ``params``. ``strategy`` selects the scoring kernel: the
+        default ``zscore`` uses a global mean/std baseline; ``seasonal_robust_zscore``
+        uses a median/MAD baseline stratified by day-of-week, which resists an
+        anomaly contaminating the baseline and avoids flagging weekly seasonality.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.discover import discover
@@ -1348,6 +1352,7 @@ class SessionDiscoverNamespace:
                 value=value,
                 threshold=threshold,
                 limit=limit,
+                strategy=strategy,
                 analysis_purpose=analysis_purpose,
                 session=self._session,
             )

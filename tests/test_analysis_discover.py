@@ -191,7 +191,7 @@ def test_discover_rejects_unsupported_strategy():
     session = session_attach.get_or_create(name="demo")
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0]}))
 
-    with pytest.raises(TypeError):
+    with pytest.raises(SemanticKindMismatchError):
         session.discover.point_anomalies(frame, strategy="iqr")  # type: ignore[arg-type]
 
 

@@ -48,6 +48,7 @@ from marivo.analysis.intents._discover_scorers import (
     score_interesting_windows,
     score_period_shifts,
     score_point_anomalies,
+    score_point_anomalies_seasonal_robust,
 )
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
@@ -250,6 +251,7 @@ def _discover_dispatch(
         source_kind=source_kind,
         value=value,
         threshold=threshold,
+        strategy=resolved_strategy,
         search_space=search_space_ids,
         peer_scope=peer_scope_ids,
     )
@@ -379,6 +381,7 @@ class DiscoverAPI:
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
+        strategy: CandidateStrategy | None = None,
         session: Session | None = None,
         analysis_purpose: str | None = None,
     ) -> CandidateSet:
@@ -388,6 +391,7 @@ class DiscoverAPI:
             value=value,
             threshold=threshold,
             limit=limit,
+            strategy=strategy,
             session=session,
             analysis_purpose=analysis_purpose,
         )
@@ -501,12 +505,19 @@ class DiscoverAPI:
 discover = DiscoverAPI()
 
 
+_STRATEGY_ALTERNATIVES: dict[CandidateObjective, set[CandidateStrategy]] = {
+    "point_anomalies": {"seasonal_robust_zscore"},
+}
+
+
 def _resolve_strategy(
     objective: CandidateObjective, strategy: CandidateStrategy | None
 ) -> CandidateStrategy:
     default = _DEFAULT_STRATEGY[objective]
     if strategy is None or strategy == default:
         return default
+    if strategy in _STRATEGY_ALTERNATIVES.get(objective, set()):
+        return strategy
     raise SemanticKindMismatchError(
         message=f"unsupported discover strategy {strategy!r}",
         context={"expected_kind": default, "got_kind": str(strategy)},
@@ -538,6 +549,7 @@ def _run_scorer(
     source_kind: CandidateSourceKind,
     value: str | None,
     threshold: float | None,
+    strategy: CandidateStrategy,
     search_space: list[str] | None,
     peer_scope: list[str] | None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -550,13 +562,22 @@ def _run_scorer(
         df = source.to_pandas()
         value_column = require_numeric_column(df, value, purpose="discover")
         time_column, _ = _resolve_frame_axes(source, df)
-        rows = score_point_anomalies(
-            df,
-            source_ref=source.ref,
-            value_column=value_column,
-            threshold=threshold_value,
-            time_column=time_column,
-        )
+        if strategy == "seasonal_robust_zscore":
+            rows = score_point_anomalies_seasonal_robust(
+                df,
+                source_ref=source.ref,
+                value_column=value_column,
+                threshold=threshold_value,
+                time_column=time_column,
+            )
+        else:
+            rows = score_point_anomalies(
+                df,
+                source_ref=source.ref,
+                value_column=value_column,
+                threshold=threshold_value,
+                time_column=time_column,
+            )
         params = {"value": value, "threshold": threshold_value}
         return rows, params
 
