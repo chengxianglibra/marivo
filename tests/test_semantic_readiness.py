@@ -323,8 +323,8 @@ def test_readiness_strict_enrichment_warns_when_only_guardrails_missing_on_non_m
     assert "missing_guardrails" not in _issue_kinds(report.blockers)
 
 
-def test_readiness_blocks_metric_missing_guardrails(semantic_project_factory):
-    """A metric with business_definition but no guardrails is a blocker."""
+def test_readiness_warns_for_metric_missing_guardrails(semantic_project_factory):
+    """A metric with business_definition but no guardrails produces a warning."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -356,7 +356,8 @@ def test_readiness_blocks_metric_missing_guardrails(semantic_project_factory):
     report = project.readiness(refs=("sales.total_amount",))
 
     assert report.status == "blocked"
-    assert "missing_guardrails" in _issue_kinds(report.blockers)
+    assert "missing_guardrails" in _issue_kinds(report.warnings)
+    assert "missing_guardrails" not in _issue_kinds(report.blockers)
     assert "missing_business_definition" not in _issue_kinds(report.blockers)
 
 
