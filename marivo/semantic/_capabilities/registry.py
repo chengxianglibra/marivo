@@ -297,6 +297,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             constraints=(
                 "active_loader_context",
                 "ast_single_return",
+                "time_dimension_dtype_compat",
                 "time_granularity_parse_compatible",
             ),
             example="ms.time_dimension(name='log_date', entity=orders, granularity='day')",
@@ -316,9 +317,13 @@ def _build_registry() -> SemanticCapabilityRegistry:
             constraints=(
                 "active_loader_context",
                 "ref_shape",
+                "time_dimension_dtype_compat",
                 "time_granularity_parse_compatible",
             ),
-            example="ms.time_dimension_column(name='log_date', entity=orders, column='log_date', granularity='day')",
+            example=(
+                "ms.time_dimension_column(name='log_date', entity=orders, "
+                "column='log_date', granularity='day', parse=ms.strptime('%Y%m%d'))"
+            ),
         ),
         _capability(
             "measure",
@@ -392,7 +397,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "cumulative_anchor"),
-            example="mtd_revenue = ms.cumulative(name='mtd_revenue', metric=revenue, anchor=ms.grain_to_date(grain='month'))",
+            example=(
+                "mtd_revenue = ms.cumulative(name='mtd_revenue', base=revenue, "
+                "anchor=ms.grain_to_date(grain='month'))"
+            ),
         ),
         _capability(
             "ratio",
@@ -451,7 +459,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "relationship_endpoints",
                 "ref_shape",
             ),
-            example="ms.relationship(name='orders_to_customers', from_entity=orders, to_entity=customers, left=['customer_id'], right=['id'])",
+            example=(
+                "ms.relationship(name='orders_to_customers', from_entity=orders, "
+                "to_entity=customers, keys=[ms.join_on(order_customer_id, customer_id)])"
+            ),
         ),
         _capability(
             "join_on",
@@ -460,7 +471,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="JoinKey",
             inputs=_inputs(("dependency", "ColumnName")),
             effects=_AUTHOR,
-            example="ms.join_on(left=['customer_id'], right=['id'])",
+            example="ms.join_on(order_customer_id, customer_id)",
         ),
         _capability(
             "from_sql",
@@ -521,7 +532,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             inputs=_inputs(("dependency", "ColumnName")),
             effects=_AUTHOR,
             constraints=("entity_versioning_valid",),
-            example="ms.snapshot(partition='dt')",
+            example="ms.snapshot(partition_field=snapshot_date, grain='day')",
         ),
         _capability(
             "validity",
@@ -530,7 +541,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="ValiditySpec",
             inputs=_inputs(("dependency", "ColumnName")),
             effects=_AUTHOR,
-            example="ms.validity(start='valid_from', end='valid_to')",
+            example=(
+                "ms.validity(valid_from=valid_from, valid_to=valid_to, "
+                "interval='closed_open', open_end=(None,))"
+            ),
         ),
         _capability(
             "semi_additive",
@@ -538,7 +552,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Build a semi-additive additivity specification.",
             output="Additivity",
             effects=_AUTHOR,
-            example="ms.semi_additive()",
+            example="ms.semi_additive(over=snapshot_date, fold='last')",
         ),
         _capability(
             "datetime",
@@ -547,7 +561,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="DateTimeSpec",
             effects=_AUTHOR,
             constraints=("time_granularity_parse_compatible",),
-            example="ms.datetime(format='%Y-%m-%d %H:%M')",
+            example="ms.datetime(timezone='UTC')",
         ),
         _capability(
             "timestamp",
@@ -556,7 +570,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="TimestampSpec",
             effects=_AUTHOR,
             constraints=("time_granularity_parse_compatible",),
-            example="ms.timestamp(format='%Y-%m-%dT%H:%M:%S')",
+            example="ms.timestamp(timezone='UTC')",
         ),
         _capability(
             "strptime",
@@ -574,7 +588,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="HourPrefixSpec",
             effects=_AUTHOR,
             constraints=("time_granularity_parse_compatible",),
-            example="ms.hour_prefix(format='%Y%m%d%H')",
+            example="ms.hour_prefix(log_date)",
         ),
         _capability(
             "grain_to_date",
@@ -610,7 +624,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ("subject", "CatalogObject"),
             ),
             effects=_LOCAL,
-            example="catalog.verify_object('metric.sales.revenue')",
+            example="catalog.verify_object(revenue.ref)",
             produced_state="semantic.verified",
             required_states=_states("semantic.loaded"),
             public_entrypoint="catalog.verify_object",
@@ -628,7 +642,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
-            example="catalog.preview('metric.sales.revenue')",
+            example="catalog.preview(revenue.ref, using=orders_snapshot)",
             preconditions=("semantic.loaded",),
             produced_state="semantic.previewed",
             required_states=_states("semantic.loaded"),
