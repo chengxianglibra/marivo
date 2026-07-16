@@ -263,6 +263,21 @@ def test_focused_help_includes_runnable_example() -> None:
     assert "..." not in example_section
 
 
+def test_observe_and_catalog_get_document_ref_id_format() -> None:
+    """``observe`` and ``catalog.get`` examples use ``catalog.get("<kind>.<id>")``
+    but must also state the ref/ID format rules so agents do not have to reverse
+    engineer the semantic model. See issue #24.
+    """
+    for target in ("observe", "catalog.get"):
+        text = _text(target)
+        assert "Ref ID format" in text, f"{target} missing ref id format section"
+        # The accepted shape and the common kinds an agent authors against.
+        assert '"<kind>.<semantic_id>"' in text
+        assert "metric.<domain>.<metric_name>" in text
+        assert "dimension.<domain>.<entity>.<dimension_name>" in text
+        assert "measure.<domain>.<entity>.<measure_name>" in text
+
+
 def test_focused_help_includes_invocation_critical_constraints() -> None:
     text = _text("observe")
     desc = REGISTRY.by_help_target("observe")
