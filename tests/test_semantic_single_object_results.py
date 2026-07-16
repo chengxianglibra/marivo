@@ -87,6 +87,8 @@ def test_readiness_report_render_contains_identity_and_available():
             "available:",
             "- .render()",
             "- .to_dict()",
+            "- .contract()",
+            "- .preview_required_refs",
         ]
     )
 

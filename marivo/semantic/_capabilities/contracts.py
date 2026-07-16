@@ -117,6 +117,37 @@ def contract_for_verify_result(ref: str) -> AuthoringContract:
     )
 
 
+def contract_for_preview_batch_result(refs: tuple[str, ...]) -> AuthoringContract:
+    """Expose query-free readiness after a successful preview batch."""
+    previewed = _state("semantic.previewed", refs)
+    return _normalize_contract(
+        AuthoringContract(
+            subject_refs=refs,
+            states=(previewed,),
+            transitions=(
+                _transition(
+                    "readiness",
+                    kind="readiness",
+                    subject_refs=refs,
+                    required_states=(previewed,),
+                    produced_state=_state("semantic.ready", refs),
+                    available=True,
+                    input_requirements=(
+                        AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
+                        AuthoringInputRequirement(
+                            role="subject",
+                            family="SemanticRef",
+                            subject_refs=refs,
+                            min_count=len(refs),
+                            max_count=len(refs),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
+
+
 def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
     """Expose verify, preview, and readiness continuations for one catalog object.
 
@@ -255,6 +286,40 @@ def contract_for_readiness_report(
     """
     analysis_target = LiveHelpTarget(surface="analysis", canonical_id="boundary.semantic_handoff")
     transitions: list[AuthoringTransition] = []
+    preview_refs = tuple(
+        dict.fromkeys(
+            ref
+            for blocker in blockers
+            if blocker.kind == "runtime_preview_missing"
+            for ref in blocker.refs
+        )
+    )
+    if preview_refs:
+        transitions.append(
+            _transition(
+                "preview",
+                kind="preview",
+                subject_refs=preview_refs,
+                produced_state=_state("semantic.previewed", preview_refs),
+                available=True,
+                input_requirements=(
+                    AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
+                    AuthoringInputRequirement(
+                        role="subject",
+                        family="CatalogObject",
+                        subject_refs=preview_refs,
+                        min_count=len(preview_refs),
+                        max_count=len(preview_refs),
+                    ),
+                    AuthoringInputRequirement(
+                        role="evidence",
+                        family="DiscoverySnapshot",
+                        min_count=1,
+                        max_count=None,
+                    ),
+                ),
+            )
+        )
     for ref in analysis_ready_refs:
         transitions.append(
             _transition(

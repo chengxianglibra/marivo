@@ -12,8 +12,10 @@ from marivo._authoring.model import AuthoringRepair
 from marivo._boundaries.semantic_analysis import SemanticToAnalysisHandoff
 from marivo.datasource.authoring import DatasourceRef
 from marivo.introspection.live.render import mask_fingerprint
+from marivo.refs import SemanticRef, SymbolKind
 from marivo.render import Card, RenderableResult
 from marivo.semantic.errors import repair
+from marivo.semantic.refs import make_ref
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringContract
@@ -107,6 +109,7 @@ class ReadinessReport(RenderableResult):
     warnings: tuple[ReadinessIssue, ...]
     input_summary: ReadinessInputSummary
     checked_at: str
+    preview_required_refs: tuple[SemanticRef, ...] = ()
     analysis_handoff: SemanticToAnalysisHandoff | None = None
 
     def _repr_identity(self) -> str:
@@ -115,14 +118,33 @@ class ReadinessReport(RenderableResult):
         )
 
     def _card(self) -> Card:
-        card = Card(identity=self._repr_identity(), available=(".render()", ".to_dict()"))
+        card = Card(
+            identity=self._repr_identity(),
+            available=(
+                ".render()",
+                ".to_dict()",
+                ".contract()",
+                ".preview_required_refs",
+            ),
+        )
         if self.blockers:
+            runtime_preview_blockers = tuple(
+                issue for issue in self.blockers if issue.kind == "runtime_preview_missing"
+            )
+            blocker_items = [
+                f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
+                for i in self.blockers
+                if i.kind != "runtime_preview_missing"
+            ]
+            if runtime_preview_blockers:
+                blocker_items.append(
+                    "runtime_preview_missing: "
+                    f"{len(self.preview_required_refs)} refs require runtime preview -> fix: "
+                    "catalog.preview(refs=report.preview_required_refs, using=...)"
+                )
             card = card.listing(
                 label=f"blockers ({len(self.blockers)})",
-                items=tuple(
-                    f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
-                    for i in self.blockers
-                ),
+                items=tuple(blocker_items),
             )
         if self.warnings:
             card = card.listing(
@@ -158,6 +180,7 @@ class ReadinessReport(RenderableResult):
             "warnings": [issue.to_dict() for issue in self.warnings],
             "input_summary": self.input_summary.to_dict(),
             "checked_at": self.checked_at,
+            "preview_required_refs": [ref.id for ref in self.preview_required_refs],
             "analysis_handoff": _handoff_to_dict(self.analysis_handoff),
         }
 
@@ -737,6 +760,12 @@ def build_readiness_report(
 
     blocked_refs = _refs_with_issue(blockers)
     analysis_ready_refs = tuple(ref for ref in checked_refs if ref not in blocked_refs)
+    preview_required_ids = _dedupe(
+        ref for issue in blockers if issue.kind == "runtime_preview_missing" for ref in issue.refs
+    )
+    preview_required_refs = tuple(
+        make_ref(ref, SymbolKind(kinds[ref].value)) for ref in preview_required_ids if ref in kinds
+    )
 
     datasources_checked: tuple[str, ...] = scoped_datasources if reg is not None else ()
 
@@ -751,4 +780,5 @@ def build_readiness_report(
             tables=_dataset_refs(checked_refs, kinds),
         ),
         checked_at=_checked_at(),
+        preview_required_refs=preview_required_refs,
     )

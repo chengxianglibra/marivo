@@ -860,3 +860,9 @@ relationship cardinality, and business meaning remain agent-owned.
 After one Python declaration, reload its typed catalog object and run
 `catalog.verify_object(obj)`, `catalog.preview(obj, using=snapshot)`, then
 zero-query `catalog.readiness(refs=[obj])`.
+
+When readiness reports several missing runtime previews, repair them through
+the same entry point with
+`catalog.preview(refs=report.preview_required_refs, using=snapshot_or_mapping)`.
+This batches compatible queries but preserves independent evidence for every ref;
+it is not a batch-authoring shortcut.

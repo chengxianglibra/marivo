@@ -126,7 +126,10 @@ def test_help_text_aggregate_contains_measure_parameter() -> None:
         ("validity", "valid_from=valid_from, valid_to=valid_to"),
         ("semi_additive", "over=snapshot_date, fold='last'"),
         ("verify_object", "catalog.verify_object(revenue.ref)"),
-        ("preview", "catalog.preview(revenue.ref, using=orders_snapshot)"),
+        (
+            "preview",
+            "catalog.preview(refs=report.preview_required_refs, using=orders_snapshot)",
+        ),
     ],
 )
 def test_help_examples_use_typed_refs_and_required_evidence(target: str, expected: str) -> None:

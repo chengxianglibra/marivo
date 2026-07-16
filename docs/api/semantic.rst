@@ -179,6 +179,7 @@ Readiness & assessment
    RichnessReport
    ParityResult
    VerifyResult
+   PreviewBatchResult
 
 Keys & kinds
 ------------

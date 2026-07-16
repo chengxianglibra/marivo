@@ -34,6 +34,7 @@ SEMANTIC_PUBLIC = {
     "MetricDetails",
     "MetricRef",
     "ParityResult",
+    "PreviewBatchResult",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",

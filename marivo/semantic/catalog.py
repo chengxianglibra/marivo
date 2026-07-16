@@ -8,11 +8,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Literal, NoReturn, cast
+from typing import TYPE_CHECKING, ClassVar, Literal, NoReturn, cast, overload
 
 from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.datasource.source import AuthoringScope
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
@@ -20,6 +21,7 @@ from marivo.preview import (
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
+    preview_from_pandas,
     preview_ibis_table,
     preview_ibis_value,
     validate_preview_limit,
@@ -27,7 +29,7 @@ from marivo.preview import (
 from marivo.refs import SemanticRef
 from marivo.render import Card, FieldSection, ListSection, RenderableResult, Section
 from marivo.semantic.constraints import ConstraintId
-from marivo.semantic.dtos import DatasetSource
+from marivo.semantic.dtos import DatasetSource, PreviewBatchResult
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
     DateParse,
@@ -56,7 +58,9 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.parity import propagated_parity_status
 from marivo.semantic.preview_checks import (
+    NormalizedPreviewBindings,
     PreviewUsing,
+    normalize_preview_batch_bindings,
     normalize_preview_bindings,
     persist_preview_check,
 )
@@ -109,6 +113,14 @@ AiContextView = AiContextIR
 SnapshotVersioning = SnapshotVersioningIR
 ValidityVersioning = ValidityVersioningIR
 EntityVersioning = EntityVersioningIR
+
+
+@dataclass(frozen=True)
+class _BatchPreviewItem:
+    order: int
+    ref: SemanticRef
+    kind: SymbolKind
+    bindings: NormalizedPreviewBindings
 
 
 # ---------------------------------------------------------------------------
@@ -2213,7 +2225,97 @@ class SemanticCatalog:
             entity_scopes=entity_scopes,
         )
 
+    @overload
     def preview(
+        self,
+        ref: CatalogObject | SemanticRef,
+        *,
+        using: PreviewUsing,
+        refs: None = None,
+        limit: int = PREVIEW_DEFAULT_LIMIT,
+        include_types: bool = True,
+        context_columns: Iterable[str] | None = None,
+    ) -> PreviewResult: ...
+
+    @overload
+    def preview(
+        self,
+        ref: None = None,
+        *,
+        refs: Sequence[CatalogObject | SemanticRef],
+        using: PreviewUsing,
+        limit: int = PREVIEW_DEFAULT_LIMIT,
+        include_types: bool = True,
+        context_columns: None = None,
+    ) -> PreviewBatchResult: ...
+
+    def preview(
+        self,
+        ref: CatalogObject | SemanticRef | None = None,
+        *,
+        refs: Sequence[CatalogObject | SemanticRef] | None = None,
+        using: PreviewUsing,
+        limit: int = PREVIEW_DEFAULT_LIMIT,
+        include_types: bool = True,
+        context_columns: Iterable[str] | None = None,
+    ) -> PreviewResult | PreviewBatchResult:
+        """Return bounded runtime previews for one or more semantic objects.
+
+        Args:
+            ref: One CatalogObject or SemanticRef to preview.
+            refs: Non-empty batch of CatalogObject or SemanticRef values.
+            using: Exact discovery snapshot binding for every dependency entity.
+            limit: Maximum number of preview rows to return.
+            include_types: Whether to include backend schema type strings.
+            context_columns: Optional parent-entity columns to include before a
+                single dimension or time-dimension preview value. Batch preview
+                uses deterministic default context and rejects this option.
+
+        Returns:
+            PreviewResult for ``ref=`` or PreviewBatchResult for ``refs=``.
+
+        Example:
+            >>> revenue = catalog.get("metric.sales.revenue")
+            >>> catalog.preview(revenue.ref, using=orders_snapshot).warnings
+            >>> report = catalog.readiness(refs=[revenue.ref])
+            >>> catalog.preview(refs=report.preview_required_refs, using=orders_snapshot).show()
+
+        Constraints:
+            Exactly one of ``ref`` or ``refs`` is required. Batch refs must be
+            unique and executable. A one-entity batch accepts one snapshot;
+            a multi-entity batch requires an exact entity-to-snapshot mapping.
+        """
+        if (ref is None) == (refs is None):
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.preview() requires exactly one of ref= or refs=.",
+                cls=SemanticRuntimeError,
+                details={"query_executed": False},
+            )
+        if refs is not None:
+            if context_columns is not None:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    "catalog.preview(refs=...) does not accept context_columns; use ref= for a custom field context.",
+                    cls=SemanticRuntimeError,
+                    details={"query_executed": False},
+                )
+            return self._preview_batch(
+                refs,
+                using=using,
+                limit=limit,
+                include_types=include_types,
+            )
+        assert ref is not None
+        return self._preview_one(
+            ref,
+            using=using,
+            limit=limit,
+            include_types=include_types,
+            context_columns=context_columns,
+        )
+
+    def _preview_one(
         self,
         ref: CatalogObject | SemanticRef,
         *,
@@ -2222,33 +2324,7 @@ class SemanticCatalog:
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
     ) -> PreviewResult:
-        """Return a bounded preview for one executable semantic object.
-
-        Args:
-            ref: Full semantic ref string or SemanticRef to preview.
-            using: Exact discovery snapshot binding for every dependency entity.
-            limit: Maximum number of preview rows to return.
-            include_types: Whether to include backend schema type strings.
-            context_columns: Optional parent-entity columns to include before a
-                dimension or time-dimension preview value.
-
-        Returns:
-            PreviewResult with bounded rows, display columns, warnings, and
-            sample policy metadata.
-
-        Example:
-            >>> region = catalog.get("dimension.sales.orders.region")
-            >>> amount = catalog.get("measure.sales.orders.amount")
-            >>> revenue = catalog.get("metric.sales.revenue")
-            >>> catalog.preview(region.ref, using=orders_snapshot, context_columns=("order_id",))
-            >>> catalog.preview(amount.ref, using=orders_snapshot)
-            >>> catalog.preview(revenue.ref, using=orders_snapshot).warnings
-
-        Constraints:
-            ``context_columns`` is valid only for dimension and time-dimension
-            refs. Measure previews show bounded row-level values. Metric previews
-            use the existing approximate pre-aggregate sample behavior.
-        """
+        """Execute the existing one-object preview contract."""
         reg = self._require_ready()
         ref_obj = _require_semantic_ref(ref, parameter="preview(ref=...)")
         ref_str = ref_obj.id
@@ -2489,6 +2565,381 @@ class SemanticCatalog:
             bindings=bindings,
             project_root=self.workspace_dir,
         )
+
+    def _preview_batch(
+        self,
+        refs: Sequence[CatalogObject | SemanticRef],
+        *,
+        using: PreviewUsing,
+        limit: int,
+        include_types: bool,
+    ) -> PreviewBatchResult:
+        reg = self._require_ready()
+        if not refs:
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.preview(refs=...) requires a non-empty sequence.",
+                cls=SemanticRuntimeError,
+                details={"query_executed": False},
+            )
+        ref_objects = tuple(
+            _require_semantic_ref(value, parameter="preview(refs=...)") for value in refs
+        )
+        seen_ids: set[str] = set()
+        duplicate_seen: set[str] = set()
+        duplicate_list: list[str] = []
+        for ref_obj in ref_objects:
+            if ref_obj.id in seen_ids and ref_obj.id not in duplicate_seen:
+                duplicate_list.append(ref_obj.id)
+                duplicate_seen.add(ref_obj.id)
+            seen_ids.add(ref_obj.id)
+        duplicate_ids = tuple(duplicate_list)
+        if duplicate_ids:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"catalog.preview(refs=...) received duplicate refs: {list(duplicate_ids)}.",
+                cls=SemanticRuntimeError,
+                refs=duplicate_ids,
+                details={"query_executed": False},
+            )
+
+        supported_kinds = {
+            SemanticKind.ENTITY,
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+            SemanticKind.MEASURE,
+            SemanticKind.METRIC,
+            SemanticKind.RELATIONSHIP,
+        }
+        resolved: list[tuple[str, SymbolKind]] = []
+        for ref_obj in ref_objects:
+            kind = self._resolve_kind_of(ref_obj.id, reg)
+            if kind is None:
+                self._raise_not_found(ref_obj.id)
+            if kind != ref_obj.kind:
+                _raise(
+                    ErrorKind.NOT_FOUND,
+                    f"Semantic object {ref_obj.id!r} is loaded as {kind}, not {ref_obj.kind}.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref_obj.id,),
+                    details={"query_executed": False},
+                )
+            if kind not in supported_kinds:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"catalog.preview(refs=...) does not support {kind} refs.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref_obj.id,),
+                    details={"query_executed": False, "kind": str(kind)},
+                )
+            resolved.append((ref_obj.id, kind))
+
+        preview_limit = validate_preview_limit(limit)
+        sidecar = self._project._sidecar
+        if sidecar is None:
+            _raise(
+                ErrorKind.PROJECT_NOT_LOADED,
+                "Semantic catalog sidecar is unavailable. Reload the catalog before previewing.",
+                cls=SemanticRuntimeError,
+                refs=tuple(ref.id for ref in ref_objects),
+                details={"query_executed": False},
+            )
+        normalized = normalize_preview_batch_bindings(
+            refs=resolved,
+            using=using,
+            registry=reg,
+            sidecar=sidecar,
+            project_root=self.workspace_dir,
+        )
+        items = tuple(
+            _BatchPreviewItem(order, ref_obj, kind, bindings)
+            for order, (ref_obj, (_ref_id, kind), bindings) in enumerate(
+                zip(ref_objects, resolved, normalized, strict=True)
+            )
+        )
+
+        groups: dict[tuple[object, ...], list[_BatchPreviewItem]] = {}
+        row_kinds = {
+            SemanticKind.ENTITY,
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+            SemanticKind.MEASURE,
+        }
+        for item in items:
+            identity = (
+                item.bindings.datasource_id,
+                item.bindings.entity_ids,
+                tuple(snapshot.id for snapshot in item.bindings.snapshots),
+                item.bindings.timeout_seconds,
+            )
+            key: tuple[object, ...]
+            if item.kind in row_kinds:
+                key = ("row", *identity)
+            elif item.kind == SemanticKind.METRIC:
+                key = ("metric", *identity)
+            else:
+                key = ("relationship", item.order)
+            groups.setdefault(key, []).append(item)
+
+        connections = self._project._connection_service()
+        by_order: dict[int, PreviewResult] = {}
+        for group_key, group_items in groups.items():
+            try:
+                if group_key[0] == "row":
+                    raw_results = self._preview_row_group(
+                        tuple(group_items),
+                        connections=connections,
+                        limit=preview_limit,
+                        include_types=include_types,
+                    )
+                    results = tuple(
+                        persist_preview_check(
+                            result,
+                            bindings=item.bindings,
+                            project_root=self.workspace_dir,
+                        )
+                        for item, result in zip(group_items, raw_results, strict=True)
+                    )
+                elif group_key[0] == "metric":
+                    raw_results = self._preview_metric_group(
+                        tuple(group_items),
+                        connections=connections,
+                        limit=preview_limit,
+                        include_types=include_types,
+                    )
+                    results = tuple(
+                        persist_preview_check(
+                            result,
+                            bindings=item.bindings,
+                            project_root=self.workspace_dir,
+                        )
+                        for item, result in zip(group_items, raw_results, strict=True)
+                    )
+                else:
+                    item = group_items[0]
+                    results = (
+                        self._preview_one(
+                            item.ref,
+                            using=(
+                                item.bindings.snapshots[0]
+                                if len(item.bindings.entity_ids) == 1
+                                else {
+                                    make_ref(entity_id, SemanticKind.ENTITY): snapshot
+                                    for entity_id, snapshot in zip(
+                                        item.bindings.entity_ids,
+                                        item.bindings.snapshots,
+                                        strict=True,
+                                    )
+                                }
+                            ),
+                            limit=preview_limit,
+                            include_types=include_types,
+                        ),
+                    )
+            except SemanticRuntimeError:
+                raise
+            except Exception as exc:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    f"Batch preview {group_key[0]} group failed: {exc}",
+                    cls=SemanticRuntimeError,
+                    refs=tuple(item.ref.id for item in group_items),
+                    details={"group": str(group_key[0])},
+                )
+            by_order.update(
+                (item.order, result) for item, result in zip(group_items, results, strict=True)
+            )
+        return PreviewBatchResult(results=tuple(by_order[index] for index in range(len(items))))
+
+    def _preview_row_group(
+        self,
+        items: tuple[_BatchPreviewItem, ...],
+        *,
+        connections: DatasourceConnectionService,
+        limit: int,
+        include_types: bool,
+    ) -> tuple[PreviewResult, ...]:
+        reg = self._require_ready()
+        bindings = items[0].bindings
+        entity_id = bindings.entity_ids[0]
+        resolver = self._resolver(
+            connections=connections,
+            entity_scopes=bindings.entity_scopes,
+        )
+        parent_table = resolver.table(make_ref(entity_id, SemanticKind.ENTITY))
+        raw_columns = tuple(parent_table.columns)
+        include_entity = any(item.kind == SemanticKind.ENTITY for item in items)
+        raw_selected = set(raw_columns if include_entity else ())
+        aliases: dict[int, str] = {}
+        contexts: dict[int, tuple[str, ...]] = {}
+        semantic_values = []
+        used_names = set(raw_columns)
+        for item in items:
+            if item.kind == SemanticKind.ENTITY:
+                continue
+            alias = f"__marivo_preview_{item.order}"
+            while alias in used_names:
+                alias = f"_{alias}"
+            used_names.add(alias)
+            aliases[item.order] = alias
+            if item.kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+                field_ir = reg.dimensions[item.ref.id]
+                field_name = item.ref.id.rsplit(".", 1)[-1]
+                context = tuple(column for column in raw_columns if column != field_name)[:3]
+                contexts[item.order] = context
+                raw_selected.update(context)
+                value = resolver.dimension(item.ref)
+            else:
+                value = resolver.measure(item.ref)
+            semantic_values.append(value.name(alias))
+
+        selected_raw_columns = tuple(column for column in raw_columns if column in raw_selected)
+        preview_table = parent_table.select(
+            *[parent_table[column] for column in selected_raw_columns],
+            *semantic_values,
+        )
+        profile = require_profile_for_backend_type(bindings.backend)
+        timeout = profile.authoring_timeout
+        if timeout is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "catalog.preview() requires an adapter-enforced authoring timeout.",
+                cls=SemanticRuntimeError,
+                refs=tuple(item.ref.id for item in items),
+                details={"query_executed": False, "backend": bindings.backend},
+            )
+        backend = connections.session_backend(bindings.datasource_id)
+        with timeout(backend, bindings.timeout_seconds):
+            dataframe = preview_table.limit(limit + 1).execute()
+        schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
+        from marivo.datasource.timezone import system_timezone_name
+
+        report_tz = system_timezone_name()
+        results: list[PreviewResult] = []
+        for item in items:
+            if item.kind == SemanticKind.ENTITY:
+                columns = raw_columns
+                frame = dataframe.loc[:, list(columns)]
+                result_types = (
+                    {column: schema_types[column] for column in columns} if include_types else {}
+                )
+                kind: Literal["semantic_dataset", "semantic_field", "semantic_measure"] = (
+                    "semantic_dataset"
+                )
+                timezones: dict[str, dict[str, str | None]] = {}
+            else:
+                alias = aliases[item.order]
+                semantic_name = item.ref.id.rsplit(".", 1)[-1]
+                columns = (*contexts.get(item.order, ()), alias)
+                frame = dataframe.loc[:, list(columns)].rename(columns={alias: semantic_name})
+                result_types = (
+                    {
+                        **{column: schema_types[column] for column in columns if column != alias},
+                        semantic_name: schema_types[alias],
+                    }
+                    if include_types
+                    else {}
+                )
+                kind = (
+                    "semantic_field"
+                    if item.kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}
+                    else "semantic_measure"
+                )
+                timezones = {}
+                if item.kind == SemanticKind.TIME_DIMENSION:
+                    field_ir = reg.dimensions[item.ref.id]
+                    entity_ir = reg.entities[field_ir.entity]
+                    engine_tz_method = getattr(resolver.connections, "engine_timezone", None)
+                    datasource_timezone = (
+                        engine_tz_method(entity_ir.datasource)
+                        if callable(engine_tz_method)
+                        else None
+                    )
+                    timezones = _preview_timezones_for_field(
+                        column_name=semantic_name,
+                        field_ir=field_ir,
+                        datasource_timezone=datasource_timezone,
+                        report_tz=report_tz,
+                    )
+            results.append(
+                preview_from_pandas(
+                    frame,
+                    kind=kind,
+                    ref=item.ref.id,
+                    requested_limit=limit,
+                    sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=limit),
+                    types=result_types,
+                    timezones=timezones,
+                    report_tz=report_tz,
+                )
+            )
+        return tuple(results)
+
+    def _preview_metric_group(
+        self,
+        items: tuple[_BatchPreviewItem, ...],
+        *,
+        connections: DatasourceConnectionService,
+        limit: int,
+        include_types: bool,
+    ) -> tuple[PreviewResult, ...]:
+        bindings = items[0].bindings
+        resolver = self._resolver(
+            connections=connections,
+            sample_size=METRIC_PREVIEW_SAMPLE_SIZE,
+            entity_scopes=bindings.entity_scopes,
+        )
+        aliases = tuple(f"__marivo_metric_{item.order}" for item in items)
+        values = tuple(
+            resolver.metric(item.ref).name(alias)
+            for item, alias in zip(items, aliases, strict=True)
+        )
+        if len(bindings.entity_ids) == 1:
+            parent_table = resolver.table(make_ref(bindings.entity_ids[0], SemanticKind.ENTITY))
+            preview_table = parent_table.aggregate(list(values))
+        else:
+            metric_tables = tuple(value.as_table() for value in values)
+            preview_table = metric_tables[0]
+            for metric_table in metric_tables[1:]:
+                preview_table = preview_table.cross_join(metric_table)
+
+        profile = require_profile_for_backend_type(bindings.backend)
+        timeout = profile.authoring_timeout
+        if timeout is None:
+            _raise(
+                ErrorKind.MATERIALIZE_FAILED,
+                "catalog.preview() requires an adapter-enforced authoring timeout.",
+                cls=SemanticRuntimeError,
+                refs=tuple(item.ref.id for item in items),
+                details={"query_executed": False, "backend": bindings.backend},
+            )
+        backend = connections.session_backend(bindings.datasource_id)
+        with timeout(backend, bindings.timeout_seconds):
+            dataframe = preview_table.limit(limit + 1).execute()
+        schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
+        results: list[PreviewResult] = []
+        for item, alias in zip(items, aliases, strict=True):
+            frame = dataframe.loc[:, [alias]].rename(columns={alias: "value"})
+            results.append(
+                preview_from_pandas(
+                    frame,
+                    kind="semantic_metric",
+                    ref=item.ref.id,
+                    requested_limit=limit,
+                    sample_policy=PreviewSamplePolicy(
+                        method="pre_aggregate_limit",
+                        limit=limit,
+                    ),
+                    types={"value": schema_types[alias]} if include_types else {},
+                    warnings=(
+                        PreviewWarning(
+                            kind="approximate_preview",
+                            message=f"metric computed on {METRIC_PREVIEW_SAMPLE_SIZE} row sample, result is approximate",
+                        ),
+                    ),
+                )
+            )
+        return tuple(results)
 
 
 def load(

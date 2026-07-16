@@ -83,9 +83,15 @@ exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 | `catalog.get("<typed_id>")` | Resolve and validate one `CatalogObject` by typed ID. |
 | `catalog.domains`, `catalog.metrics`, … | Typed global collections; each supports `.items`, `.ids()`, `.refs()`, `.get(key)`, `.show()`. |
 | `catalog.verify_object(obj)` | Static, zero-query validation of one typed catalog object. |
-| `catalog.preview(obj, using=snapshot_or_mapping)` | Scoped runtime preview bound to matching snapshot evidence. |
+| `catalog.preview(obj, using=snapshot_or_mapping)` | Scoped runtime preview for one object, bound to matching snapshot evidence. |
+| `catalog.preview(refs=[...], using=snapshot_or_mapping)` | Batch compatible runtime plans while persisting an independent preview check for every ref. |
 | `catalog.readiness(refs=[obj])` | Zero-query readiness gate scoped to typed handoff objects. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
+
+`ReadinessReport.preview_required_refs` is the canonical typed input for batch
+preview repair. The report keeps per-ref blockers for structured diagnostics,
+groups them in bounded rendering, and exposes one batch preview transition from
+`.contract()`. Entity preview evidence never satisfies child refs.
 
 ### Navigation matrix
 

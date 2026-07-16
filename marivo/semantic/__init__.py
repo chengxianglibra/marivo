@@ -85,7 +85,7 @@ from marivo.semantic.catalog import (
     TimeDimensionDetails,
     load,
 )
-from marivo.semantic.dtos import VerifyResult
+from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
 from marivo.semantic.help import help, help_text
 from marivo.semantic.ir import (
     JoinKey,
@@ -203,6 +203,7 @@ __all__ = [
     "MetricDetails",
     "MetricRef",
     "ParityResult",
+    "PreviewBatchResult",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",

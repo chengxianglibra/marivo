@@ -125,6 +125,12 @@ Mechanical availability is not policy permission: the agent must complete and
 read static verification before choosing preview even when focused help shows
 preview is callable from a loaded object.
 
+When readiness reports several already-authored refs with missing runtime
+preview evidence, follow its result-local contract and pass its typed missing-ref
+batch to the registered preview capability. This is a repair optimization over
+compatible execution plans, not permission to author a domain-sized batch or to
+skip the one-object validation loop.
+
 ### Durable partial order
 
 The skill preserves these invariant policy edges:

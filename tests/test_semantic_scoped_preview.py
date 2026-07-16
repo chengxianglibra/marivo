@@ -709,3 +709,157 @@ def test_multi_entity_preview_uses_each_explicit_scope(
     )
     assert result.coverage.snapshot_ids == (orders_snapshot.id, refunds_snapshot.id)
     assert query_spy.user_data_queries == 1
+
+
+def test_batch_preview_groups_row_and_metric_queries_and_clears_readiness(
+    scoped_catalog,
+    query_spy: _QuerySpy,
+) -> None:
+    from marivo.semantic.dtos import PreviewBatchResult
+
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    refs = [
+        catalog.get("entity.sales.orders").ref,
+        catalog.get("dimension.sales.orders.region").ref,
+        catalog.get("measure.sales.orders.amount").ref,
+        catalog.get("metric.sales.gross_revenue").ref,
+        catalog.get("metric.sales.double_revenue").ref,
+        catalog.get("metric.sales.revenue").ref,
+    ]
+    missing = catalog.readiness(refs=refs)
+
+    assert [ref.id for ref in missing.preview_required_refs] == [ref.id for ref in refs]
+    assert len(
+        [issue for issue in missing.blockers if issue.kind == "runtime_preview_missing"]
+    ) == len(refs)
+    assert missing.render().count("runtime_preview_missing:") == 1
+    preview_transitions = [
+        transition for transition in missing.contract().transitions if transition.kind == "preview"
+    ]
+    assert len(preview_transitions) == 1
+    assert preview_transitions[0].available is True
+    assert preview_transitions[0].subject_refs == tuple(ref.id for ref in refs)
+    assert query_spy.user_data_queries == 0
+
+    result = catalog.preview(
+        refs=missing.preview_required_refs,
+        using=orders_snapshot,
+        limit=2,
+    )
+
+    assert isinstance(result, PreviewBatchResult)
+    assert result.status == "passed"
+    assert result.refs == tuple(ref.id for ref in refs)
+    assert query_spy.user_data_queries == 2
+    assert tuple(catalog._project._connection_service()._session_backends) == ("warehouse",)
+    assert result.results[0].columns == ("order_id", "amount", "region", "dt")
+    assert result.results[1].columns == ("order_id", "amount", "dt", "region")
+    assert result.results[2].rows == ({"amount": 10.0}, {"amount": 20.0})
+    assert result.results[3].rows == ({"value": 30.0},)
+    assert result.results[4].rows == ({"value": 60.0},)
+    assert result.results[5].rows == ({"value": 30.0},)
+    readiness_transition = result.contract().transitions
+    assert len(readiness_transition) == 1
+    assert readiness_transition[0].kind == "readiness"
+
+    query_spy.user_data_queries = 0
+    ready = catalog.readiness(refs=refs)
+    assert all(issue.kind != "runtime_preview_missing" for issue in ready.blockers)
+    assert query_spy.user_data_queries == 0
+
+
+def test_batch_preview_rejects_invalid_batch_before_connection(
+    scoped_catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    revenue = catalog.get("metric.sales.revenue")
+    monkeypatch.setattr(
+        catalog._project,
+        "_connection_service",
+        lambda: pytest.fail("connection opened"),
+    )
+
+    with pytest.raises(SemanticRuntimeError, match="non-empty"):
+        catalog.preview(refs=[], using=orders_snapshot)
+    with pytest.raises(SemanticRuntimeError, match="exactly one"):
+        catalog.preview(using=orders_snapshot)  # type: ignore[call-overload]
+    with pytest.raises(SemanticRuntimeError, match="exactly one"):
+        catalog.preview(
+            revenue.ref,
+            refs=[revenue.ref],
+            using=orders_snapshot,
+        )  # type: ignore[call-overload]
+    with pytest.raises(SemanticRuntimeError, match="duplicate"):
+        catalog.preview(refs=[revenue.ref, revenue.ref], using=orders_snapshot)
+    with pytest.raises(SemanticRuntimeError, match="context_columns"):
+        catalog.preview(
+            refs=[revenue.ref],
+            using=orders_snapshot,
+            context_columns=("order_id",),  # type: ignore[arg-type]
+        )
+
+
+def test_entity_preview_does_not_satisfy_child_preview_gates(
+    scoped_catalog,
+    query_spy: _QuerySpy,
+) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    entity = catalog.get("entity.sales.orders")
+    child_refs = [
+        catalog.get("dimension.sales.orders.region").ref,
+        catalog.get("measure.sales.orders.amount").ref,
+        catalog.get("metric.sales.revenue").ref,
+    ]
+
+    catalog.preview(entity.ref, using=orders_snapshot)
+    query_spy.user_data_queries = 0
+    report = catalog.readiness(refs=child_refs)
+
+    assert [ref.id for ref in report.preview_required_refs] == [ref.id for ref in child_refs]
+    assert query_spy.user_data_queries == 0
+
+
+def test_batch_preview_accepts_exact_union_mapping_for_multi_entity_refs(
+    scoped_catalog,
+    query_spy: _QuerySpy,
+) -> None:
+    catalog, orders_snapshot, refunds_snapshot = scoped_catalog
+    revenue = catalog.get("metric.sales.revenue")
+    net_revenue = catalog.get("metric.sales.net_revenue")
+
+    result = catalog.preview(
+        refs=[revenue.ref, net_revenue.ref],
+        using={
+            catalog.get("entity.sales.orders").ref: orders_snapshot,
+            catalog.get("entity.sales.refunds").ref: refunds_snapshot,
+        },
+    )
+
+    assert result.refs == ("sales.revenue", "sales.net_revenue")
+    assert result.results[0].rows == ({"value": 30.0},)
+    assert result.results[1].rows == ({"value": 30.0},)
+    assert query_spy.user_data_queries == 2
+
+
+def test_batch_group_failure_does_not_persist_group_checks(
+    scoped_catalog,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
+    refs = [
+        catalog.get("dimension.sales.orders.region").ref,
+        catalog.get("measure.sales.orders.amount").ref,
+    ]
+
+    def fail_group(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("batch group failed")
+
+    monkeypatch.setattr(catalog, "_preview_row_group", fail_group)
+
+    with pytest.raises(SemanticRuntimeError, match="batch group failed") as exc_info:
+        catalog.preview(refs=refs, using=orders_snapshot)
+
+    assert exc_info.value.semantic_refs == tuple(ref.id for ref in refs)
+    assert list((tmp_path / ".marivo" / "authoring" / "checks").glob("*.json")) == []
