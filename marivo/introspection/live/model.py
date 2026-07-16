@@ -21,10 +21,10 @@ from marivo.refs import SemanticRef, SymbolKind
 
 @dataclass(frozen=True)
 class SurfaceLimits:
-    """Numeric interface and evaluation limits for the help surface.
+    """Numeric rendering and suggestion limits for the help surface.
 
-    Renderers, validators, repository tests, and the cold-agent scorer
-    import :data:`SURFACE_LIMITS` instead of repeating literals.
+    Renderers, validators, and repository tests import
+    :data:`SURFACE_LIMITS` instead of repeating literals.
     """
 
     root_help_max_lines: int = 80
@@ -35,10 +35,6 @@ class SurfaceLimits:
     object_contract_render_max_lines: int = 120
     object_contract_render_max_codepoints: int = 12_000
     help_suggestion_limit: int = 5
-    cold_agent_trials_per_case: int = 3
-    cold_agent_min_qualifying_trials: int = 2
-    cold_agent_max_help_calls_before_observe: int = 2
-    cold_agent_max_invalid_api_errors_before_observe: int = 1
 
 
 SURFACE_LIMITS = SurfaceLimits()
