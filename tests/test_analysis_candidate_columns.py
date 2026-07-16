@@ -139,6 +139,25 @@ def test_validate_shape_columns_passes_for_well_formed_point_anomaly() -> None:
     validate_shape_columns("point_anomaly", df)  # must not raise
 
 
+def test_validate_shape_columns_passes_for_point_anomaly_without_window() -> None:
+    """A point anomaly with no usable time column omits the window; the shape
+    must accept a window-less row (issue #12)."""
+    rows = [
+        {
+            "item_id": "cand_0",
+            "score": 3.5,
+            "observed_value": 50.0,
+            "baseline_value": 3.5,
+            "delta": 46.5,
+            "direction": "high",
+        }
+    ]
+    df = build_union_columns("point_anomaly", rows)
+    validate_shape_columns("point_anomaly", df)  # must not raise
+    assert pd.isna(df.loc[0, "window_start"])
+    assert pd.isna(df.loc[0, "window_end"])
+
+
 def test_validate_shape_columns_rejects_missing_required_field() -> None:
     rows = [{"item_id": "cand_0", "score": 3.5}]  # no direction, no window, no context
     df = build_union_columns("point_anomaly", rows)
@@ -185,15 +204,14 @@ def test_validate_shape_columns_rejects_invalid_followup_payload() -> None:
     [
         (
             "point_anomaly",
+            {"direction", "observed_value", "baseline_value", "delta"},
             {
+                "keys_json",
                 "window_start",
                 "window_end",
-                "direction",
-                "observed_value",
-                "baseline_value",
-                "delta",
+                "baseline_window_start",
+                "baseline_window_end",
             },
-            {"keys_json", "baseline_window_start", "baseline_window_end"},
         ),
         (
             "period_shift",

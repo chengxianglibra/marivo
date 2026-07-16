@@ -67,7 +67,7 @@ _COMMON_REQUIRED: set[str] = {
 
 REQUIRED_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
     "point_anomaly": _COMMON_REQUIRED
-    | {"window_start", "window_end", "direction", "observed_value", "baseline_value", "delta"},
+    | {"direction", "observed_value", "baseline_value", "delta"},
     "period_shift": _COMMON_REQUIRED
     | {
         "window_start",
@@ -83,7 +83,13 @@ REQUIRED_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
 }
 
 ALLOWED_OPTIONAL_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
-    "point_anomaly": {"keys_json", "baseline_window_start", "baseline_window_end"},
+    "point_anomaly": {
+        "keys_json",
+        "window_start",
+        "window_end",
+        "baseline_window_start",
+        "baseline_window_end",
+    },
     "period_shift": {"keys_json"},
     "driver_axis": {"axis_semantic_id"},
     "slice": {"window_start", "window_end"},

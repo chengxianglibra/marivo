@@ -133,6 +133,14 @@ def select(
         decoded = json.loads(raw)
         return {_selector_key(name): value for name, value in decoded.items()}
     if base_attr == "window":
+        if pd.isna(row["window_start"]) or pd.isna(row["window_end"]):
+            raise SemanticKindMismatchError(
+                message=(
+                    "select(attribute='window') row has no window "
+                    "(source lacked a usable time column)"
+                ),
+                context={"shape": shape, "attribute": attribute},
+            )
         return _absolute_window(row["window_start"], row["window_end"])
     if base_attr == "baseline_window":
         return _absolute_window(row["baseline_window_start"], row["baseline_window_end"])

@@ -19,19 +19,22 @@ def _detect_time_columns(df: pd.DataFrame) -> list[str]:
 
 
 def _row_window(df: pd.DataFrame, row_index: int, time_columns: list[str]) -> dict[str, str] | None:
+    """Build a point-anomaly window from the row's time column.
+
+    Returns None when there is no usable time column or the row's timestamp is
+    missing/unparseable, so the candidate carries no window rather than a
+    fabricated ``now()`` value.
+    """
     if not time_columns:
-        ts = pd.Timestamp.now(tz="UTC").isoformat()
-        return {"start": ts, "end": ts}
+        return None
     time_col = time_columns[0]
     raw = df.iloc[row_index][time_col]
     if pd.isna(raw):
-        ts = pd.Timestamp.now(tz="UTC").isoformat()
-        return {"start": ts, "end": ts}
+        return None
     try:
         iso = pd.Timestamp(raw).isoformat()
     except (ValueError, TypeError):
-        ts = pd.Timestamp.now(tz="UTC").isoformat()
-        return {"start": ts, "end": ts}
+        return None
     return {"start": iso, "end": iso}
 
 
@@ -258,7 +261,7 @@ def _segments_for_series(
     z = (window_means - overall_mean) / overall_std
     hits = (z.abs() >= threshold).fillna(False)
 
-    segments: list[tuple[int, int, float]] = []
+    segments: list[tuple[int, int]] = []
     in_segment = False
     seg_start = 0
     for idx in range(n):
@@ -268,19 +271,23 @@ def _segments_for_series(
             in_segment = True
         elif not is_hit and in_segment:
             in_segment = False
-            sign = float(np.sign(z.iloc[idx - 1]))
-            segments.append((seg_start, idx - 1, sign))
+            segments.append((seg_start, idx - 1))
     if in_segment:
-        sign = float(np.sign(z.iloc[n - 1]))
-        segments.append((seg_start, n - 1, sign))
+        segments.append((seg_start, n - 1))
 
     rows: list[dict[str, Any]] = []
-    for seg_idx, (start, end, sign) in enumerate(segments):
+    for seg_idx, (start, end) in enumerate(segments):
         seg_len = end - start + 1
         baseline_end = start - 1
         baseline_start = max(0, baseline_end - seg_len + 1)
         if baseline_end < 0:
             continue
+        # Score on the segment's peak |z| (not the segment-end z), so a
+        # strong-then-decaying shift is not underestimated. Direction follows
+        # the sign at that peak. Mirrors interesting_windows' max_abs_z.
+        seg_z = z.iloc[start : end + 1].to_numpy()
+        peak_rel = int(np.argmax(np.abs(seg_z)))
+        peak_z = float(seg_z[peak_rel])
         window = {
             "start": pd.Timestamp(df.iloc[start][bucket_column]).isoformat(),
             "end": pd.Timestamp(df.iloc[end][bucket_column]).isoformat(),
@@ -292,11 +299,11 @@ def _segments_for_series(
         rows.append(
             {
                 "item_id": f"shift_{seg_idx}",
-                "score": float(z.iloc[end]) if pd.notna(z.iloc[end]) else 0.0,
-                "direction": "high" if sign >= 0 else "low",
+                "score": peak_z,
+                "direction": "high" if peak_z >= 0 else "low",
                 "reason_codes": [
                     f"window_size={window_size}",
-                    f"abs_z={abs(z.iloc[end]):.2f}",
+                    f"max_abs_z={abs(peak_z):.2f}",
                 ],
                 "source_refs": [source_ref],
                 "keys": keys,
