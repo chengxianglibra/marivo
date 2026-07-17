@@ -396,9 +396,17 @@ class BaseFrame(RenderableResult):
             boundary_ports=_build_boundary_ports(registry),
         )
 
-    def to_pandas(self) -> pd.DataFrame:
-        """Return a defensive copy of the wrapped DataFrame."""
+    def _dataframe_copy(self) -> pd.DataFrame:
+        """Return an internal defensive copy without public export shaping."""
         return self._df.copy()
+
+    def _export_dataframe(self) -> pd.DataFrame:
+        """Return the DataFrame shape exposed by the terminal pandas boundary."""
+        return self._dataframe_copy()
+
+    def to_pandas(self) -> pd.DataFrame:
+        """Return a defensive copy shaped for terminal pandas consumption."""
+        return self._export_dataframe()
 
     def __getitem__(self, key: Any) -> Any:
         return self._df[key]

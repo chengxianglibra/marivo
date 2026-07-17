@@ -79,7 +79,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         return cast("MetricFrame", load_frame(prospective_id, session=session))
 
     axis_columns = [axis["column"] for axis in frame.meta.axes.values() if "column" in axis]
-    df = frame.to_pandas()[[*axis_columns, entry["column"]]].rename(
+    df = frame._dataframe_copy()[[*axis_columns, entry["column"]]].rename(
         columns={entry["column"]: MetricFrame.VALUE_COLUMN}
     )
 

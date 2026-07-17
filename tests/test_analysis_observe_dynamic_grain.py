@@ -68,7 +68,7 @@ def test_observe_five_minute_grain(tmp_path):
     assert frame.meta.semantic_kind == "time_series"
     assert frame.meta.axes["time"]["grain"] == "5minute"
     df = frame.to_pandas()
-    mapping = {str(b): v for b, v in zip(df["bucket_start"], df["value"], strict=True)}
+    mapping = {str(b): v for b, v in zip(df["bucket_start"], df["hits"], strict=True)}
     assert mapping["2026-06-03 00:05:00"] == 1.0
     assert mapping["2026-06-03 00:10:00"] == 2.0
     assert mapping["2026-06-03 00:15:00"] == 4.0

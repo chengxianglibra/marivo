@@ -102,8 +102,8 @@ def correlate(
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    a_df = a.to_pandas()
-    b_df = b.to_pandas()
+    a_df = a._dataframe_copy()
+    b_df = b._dataframe_copy()
     a_value = require_numeric_column(a_df, measure_a, purpose="correlate a")
     b_value = require_numeric_column(b_df, measure_b, purpose="correlate b")
     aligned, driver_field = _align(a_df, b_df, a_value=a_value, b_value=b_value)

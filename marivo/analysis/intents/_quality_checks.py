@@ -15,7 +15,7 @@ _FREQ = GRAIN_FREQ
 
 
 def run_metric_checks(frame: MetricFrame, *, tz: str | None = None) -> list[dict[str, str]]:
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     rows = [_row_count_check(df, semantic_kind=frame.meta.semantic_kind)]
     rows.extend(_null_ratio_checks(df, frame))
     if frame.meta.semantic_kind in {"time_series", "panel"}:

@@ -46,7 +46,7 @@ def _normalize_attribute_axes(session: Session, axes: list[DimensionInput]) -> l
 
 
 def _missing_axis_ids(frame: DeltaFrame, axis_ids: list[str]) -> list[str]:
-    columns = [str(column) for column in frame.to_pandas().columns]
+    columns = [str(column) for column in frame._dataframe_copy().columns]
     return [
         axis_id
         for axis_id in axis_ids

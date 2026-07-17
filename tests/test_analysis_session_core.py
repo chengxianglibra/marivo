@@ -331,7 +331,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     frame = session.observe(metric)
 
     assert frame.meta.metric_id == "finance.refunds_total"
-    assert frame.to_pandas()["value"].tolist() == [150.0]
+    assert frame.to_pandas()["refunds_total"].tolist() == [150.0]
 
 
 def test_session_close_closes_connection_runtime(tmp_path):

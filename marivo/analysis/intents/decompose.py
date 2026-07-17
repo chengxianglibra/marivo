@@ -611,7 +611,7 @@ def _component_mix_output(
     axis_column: str,
     bucket_column: str | None = None,
 ) -> pd.DataFrame:
-    df = component.to_pandas()
+    df = component._dataframe_copy()
     if bucket_column is None:
         return _component_mix_output_for_df(
             df=df,
@@ -812,7 +812,7 @@ def _component_multi_axis_output(
     bucket_column: str | None,
 ) -> pd.DataFrame:
     """Produce joint or hierarchy component attribution, preserving panel buckets."""
-    df = component.to_pandas()
+    df = component._dataframe_copy()
     if component.meta.composition_kind == "linear":
 
         def joint_for_df(values: pd.DataFrame, axes: list[str]) -> pd.DataFrame:
@@ -1136,14 +1136,14 @@ def decompose(
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    source_df = frame.to_pandas()
+    source_df = frame._dataframe_copy()
     value_column = require_numeric_column(source_df, "delta", purpose="decompose")
     raise_first(validate_decompose_axes_columns(frame, axis_ids, source_df=source_df))
     axis_columns = _axis_columns_for_delta(frame, axis_ids, source_df=source_df)
 
     # Component-aware path: ratio/weighted mix or linear additive attribution.
     if component is not None:
-        component_columns = [str(column) for column in component.to_pandas().columns]
+        component_columns = [str(column) for column in component._dataframe_copy().columns]
         component_axis_columns: list[str] = []
         missing_component_axes: list[str] = []
         for axis_id, axis_column in zip(axis_ids, axis_columns, strict=True):
@@ -1177,7 +1177,7 @@ def decompose(
                 )
         if validated_mode is None and component.meta.composition_kind == "linear":
             output = _component_linear_output_for_df(
-                df=component.to_pandas(),
+                df=component._dataframe_copy(),
                 component=component,
                 axis_column=component_axis_columns[0],
             )

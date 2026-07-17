@@ -563,7 +563,7 @@ def _run_scorer(
         threshold_value = _validate_threshold(
             _threshold_info["default"] if threshold is None else threshold
         )
-        df = source.to_pandas()
+        df = source._dataframe_copy()
         value_column = require_numeric_column(df, value, purpose="discover")
         time_column, dim_columns = _resolve_frame_axes(source, df)
         if strategy == "seasonal_robust_zscore":
@@ -597,7 +597,7 @@ def _run_scorer(
         threshold_value = _validate_threshold(
             _threshold_info["default"] if threshold is None else threshold
         )
-        df = source.to_pandas()
+        df = source._dataframe_copy()
         bucket_column, group_columns = _delta_axes(cast("DeltaFrame", source))
         value_column = require_numeric_column(
             df.drop(columns=[bucket_column, *group_columns]), value, purpose="discover"
@@ -624,7 +624,7 @@ def _run_scorer(
                 message="discover(driver_axes) requires a non-empty search_space",
                 context={"objective": objective, "missing": "search_space"},
             )
-        df = source.to_pandas()
+        df = source._dataframe_copy()
         bucket_column, dim_columns = _delta_axes(cast("DeltaFrame", source))
         value_column = require_numeric_column(
             df.drop(columns=[c for c in [bucket_column] if c in df.columns]),
@@ -662,7 +662,7 @@ def _run_scorer(
         threshold_value = _validate_threshold(
             _threshold_info["default"] if threshold is None else threshold
         )
-        df = source.to_pandas()
+        df = source._dataframe_copy()
         if isinstance(source, DeltaFrame):
             bucket_column, dim_columns = _delta_axes(source)
             non_value_columns = [bucket_column, *dim_columns]
@@ -713,7 +713,7 @@ def _run_scorer(
         threshold_value = _validate_threshold(
             _threshold_info["default"] if threshold is None else threshold
         )
-        df = source.to_pandas()
+        df = source._dataframe_copy()
         if isinstance(source, DeltaFrame):
             bucket_column, group_columns = _delta_axes(source)
         else:
@@ -749,7 +749,7 @@ def _run_scorer(
         threshold_value = _validate_threshold(
             _threshold_info["default"] if threshold is None else threshold
         )
-        df = source.to_pandas()
+        df = source._dataframe_copy()
         bucket_col, segment_columns = _resolve_frame_axes(source, df)
         value_column = require_numeric_column(
             df.drop(columns=[c for c in [bucket_col, *segment_columns] if c]),
@@ -978,7 +978,7 @@ def _dimension_columns_for_ids(
         return []
     axes = source.meta.alignment.get("axes") if isinstance(source, DeltaFrame) else source.meta.axes
     columns: list[str] = []
-    df_columns = set(source.to_pandas().columns)
+    df_columns = set(source._dataframe_copy().columns)
     for dimension_id in dimension_ids:
         matched_column: str | None = None
         if isinstance(axes, dict):
@@ -1089,7 +1089,7 @@ def _delta_axes(source: DeltaFrame) -> tuple[str, list[str]]:
     applies the DeltaFrame-specific default that a bucket column always
     exists.
     """
-    df = source.to_pandas()
+    df = source._dataframe_copy()
     time_column, dim_columns = _resolve_frame_axes(source, df)
     bucket_column = time_column or "bucket_start"
     return bucket_column, dim_columns

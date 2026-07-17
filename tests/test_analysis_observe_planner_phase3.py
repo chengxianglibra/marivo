@@ -132,7 +132,7 @@ def test_aggregate_then_join_executes_one_to_many(tmp_path):
     # order 3 (30): qty=3
     # Group by qty: qty=1 -> 10, qty=2 -> 10, qty=3 -> 30, qty=5 -> 20
     expected = {1: 10.0, 2: 10.0, 3: 30.0, 5: 20.0}
-    assert dict(zip(df["qty"], df["value"], strict=True)) == expected
+    assert dict(zip(df["qty"], df["gmv_with_items"], strict=True)) == expected
 
 
 def test_aggregate_then_join_records_lineage(tmp_path):

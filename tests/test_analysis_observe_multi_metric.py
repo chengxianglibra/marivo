@@ -120,11 +120,11 @@ def test_fused_values_match_single_observes(sales_session):
     fused_df = fused.to_pandas().set_index("bucket_start")
     assert (
         fused_df["revenue"].tolist()
-        == revenue.to_pandas().set_index("bucket_start")["value"].tolist()
+        == revenue.to_pandas().set_index("bucket_start")["revenue"].tolist()
     )
     assert (
         fused_df["order_count"].tolist()
-        == count.to_pandas().set_index("bucket_start")["value"].tolist()
+        == count.to_pandas().set_index("bucket_start")["order_count"].tolist()
     )
 
 

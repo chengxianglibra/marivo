@@ -189,6 +189,11 @@ fuses same-datasource metrics into one query and outer-joins cross-datasource
 metrics on the time axis. Use `frame.metric(id)` to project an arity-1 frame
 for drill-down on a single metric.
 
+On frames returned by `observe`, `to_pandas()` always uses one value column per
+metric, regardless of arity. The column uses the metric short name, or a
+qualified metric id when names collide, so single- and multi-metric observations
+can be merged without arity-specific renames.
+
 ```python
 report = session.observe(
     [revenue, catalog.get("metric.sales.total_orders")],

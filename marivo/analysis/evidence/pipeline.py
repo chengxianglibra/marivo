@@ -697,7 +697,7 @@ def commit_result(
     # 2. Atomic Parquet write
     artifact_dir = frames_dir / artifact_id
     parquet_path = artifact_dir / "data.parquet"
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
 
     # 2c. Compute confidence_scope and quality_summary (step 4c)

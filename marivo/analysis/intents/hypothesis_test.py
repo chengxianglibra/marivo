@@ -117,8 +117,8 @@ def hypothesis_test(
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    a_df = a.to_pandas()
-    b_df = b.to_pandas()
+    a_df = a._dataframe_copy()
+    b_df = b._dataframe_copy()
     a_value = require_numeric_column(a_df, value_a, purpose="hypothesis_test a")
     b_value = require_numeric_column(b_df, value_b, purpose="hypothesis_test b")
 

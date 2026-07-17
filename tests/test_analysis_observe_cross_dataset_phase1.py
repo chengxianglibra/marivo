@@ -106,8 +106,8 @@ def test_segmented_cross_dataset_dimension_preserves_unmatched_root_rows(tmp_pat
 
     assert frame.meta.semantic_kind == "segmented"
     df = frame.to_pandas()
-    assert set(df.columns) == {"tier", "value"}
-    by_tier = {row.tier: row.value for row in df.itertuples()}
+    assert set(df.columns) == {"tier", "revenue_by_user"}
+    by_tier = {row.tier: row.revenue_by_user for row in df.itertuples()}
     assert by_tier["gold"] == pytest.approx(30.0)
     assert by_tier["silver"] == pytest.approx(30.0)
     # Unmatched root rows (user_id=999) produce NULL tier after left join,
@@ -146,7 +146,7 @@ def test_panel_cross_dataset_dimension_uses_root_time_axis(tmp_path):
 
     assert frame.meta.semantic_kind == "panel"
     assert frame.meta.axes["time"]["time_dimension"] == "order_date"
-    assert set(frame.to_pandas().columns) == {"bucket_start", "tier", "value"}
+    assert set(frame.to_pandas().columns) == {"bucket_start", "tier", "revenue_by_user"}
 
 
 def test_one_to_many_traversal_is_blocked(tmp_path):
@@ -314,7 +314,7 @@ def test_snapshot_as_of_root_time_per_row_partition(tmp_path):
         session=_session(con),
     )
 
-    by_tier = frame.to_pandas().set_index("tier")["value"].to_dict()
+    by_tier = frame.to_pandas().set_index("tier")["revenue_by_profile"].to_dict()
     # With as_of_root_time: order 1 (2026-07-01) -> partition 20260701 -> tier 'gold'
     # order 2 (2026-07-02) -> partition 20260701 -> tier 'new_silver'
     assert by_tier == {"gold": pytest.approx(10.0), "new_silver": pytest.approx(20.0)}
