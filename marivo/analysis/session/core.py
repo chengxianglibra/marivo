@@ -742,8 +742,11 @@ class Session:
         Supports Pearson (linear), Spearman (monotonic rank), and Kendall (ordinal
         concordance) correlation under ``window_bucket`` alignment. ``lag_range``
         explores delayed associations: each lag pairs ``a[t]`` with ``b[t+lag]``;
-        the result carries one row per lag and ``meta.best_lag`` marks the
-        strongest. Default is lag 0 only. Both frames must belong to the active session.
+        positive lag means ``a`` leads ``b`` and negative lag means ``b`` leads
+        ``a``. Non-zero lag requires time-series or panel inputs; panel shifts stay
+        within each dimension series, and null pairs are dropped after shifting.
+        The result carries one row per lag and ``meta.best_lag`` marks the strongest.
+        Default is lag 0 only. Both frames must belong to the active session.
 
         Args:
             a: First MetricFrame.
@@ -752,7 +755,8 @@ class Session:
             measure_b: Numeric column on ``b``. Defaults to the frame's measure column.
             alignment: Defaults to ``mv.window_bucket()``.
             method: ``"pearson"``, ``"spearman"``, or ``"kendall"``.
-            lag_range: Lags to explore (e.g. ``range(0, 5)``). Defaults to lag 0.
+            lag_range: Signed lags to explore for time-series or panel inputs
+                (e.g. ``range(-3, 4)``). Defaults to lag 0.
 
         Raises:
             SemanticKindMismatchError: Inputs are not MetricFrames, or alignment
@@ -761,9 +765,11 @@ class Session:
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:
+            >>> # lag=k pairs a[t] with b[t+k]; positive means a leads b.
             >>> result = session.correlate(
             ...     a, b,
             ...     alignment=mv.window_bucket(),
+            ...     lag_range=range(-3, 4),
             ...     analysis_purpose="验证收入和订单量是否同向变化",
             ... )
             >>> result.show()

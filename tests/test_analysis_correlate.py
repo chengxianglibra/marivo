@@ -24,11 +24,19 @@ def _chdir(tmp_path, monkeypatch):
     yield
 
 
-def _metric(session, df, *, metric_id, semantic_model="sales", semantic_kind="time_series"):
+def _metric(
+    session,
+    df,
+    *,
+    metric_id,
+    semantic_model="sales",
+    semantic_kind="time_series",
+    axes=None,
+):
     return make_metric_frame(
         df,
         metric_id=metric_id,
-        axes={},
+        axes=axes or {},
         measure={"name": metric_id.rsplit(".", 1)[-1]},
         semantic_kind=semantic_kind,
         semantic_model=semantic_model,
@@ -144,6 +152,54 @@ def test_correlate_common_key_alignment_uses_all_common_non_numeric_columns():
     assert df.iloc[0]["correlation"] == pytest.approx(1.0)
 
 
+def test_correlate_panel_lag_shifts_within_each_series():
+    session = session_attach.get_or_create(name="demo")
+    axes = {
+        "segment": {"role": "dimension", "column": "segment"},
+        "time": {"role": "time", "column": "bucket", "grain": "day"},
+    }
+    a = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "segment": [1, 1, 2, 2],
+                "bucket": ["2026-07-01", "2026-07-02"] * 2,
+                "value": [0.0, 1000.0, 10.0, 20.0],
+            }
+        ),
+        metric_id="sales.a",
+        semantic_kind="panel",
+        axes=axes,
+    )
+    b = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "segment": [1, 1, 2, 2],
+                "bucket": ["2026-07-01", "2026-07-02"] * 2,
+                "value": [5.0, 0.0, -1000.0, 10.0],
+            }
+        ),
+        metric_id="sales.b",
+        semantic_kind="panel",
+        axes=axes,
+    )
+
+    result = session.correlate(
+        a,
+        b,
+        measure_a="value",
+        measure_b="value",
+        lag_range=[1],
+    )
+
+    row = result.to_pandas().iloc[0]
+    assert row["correlation"] == pytest.approx(1.0)
+    assert row["aligned_row_count"] == 2
+    assert row["dropped_row_count"] == 0
+    assert result.meta.aligned_row_count == 2
+
+
 def test_correlate_rejects_duplicate_composite_keys_without_persisting():
     session = session_attach.get_or_create(name="demo")
     a = _metric(
@@ -223,6 +279,42 @@ def test_correlate_sample_alignment_truncates_and_drops_nulls():
     assert df.iloc[0]["aligned_row_count"] == 3
     assert df.iloc[0]["dropped_row_count"] == 1
     assert df.iloc[0]["correlation"] == pytest.approx(1.0)
+
+
+def test_correlate_lag_filters_nulls_after_shifting():
+    session = session_attach.get_or_create(name="demo")
+    axes = {"time": {"role": "time", "column": "bucket", "grain": "day"}}
+    buckets = pd.date_range("2026-07-01", periods=5, freq="D")
+    a = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": buckets,
+                "value": [0.0, 1000.0, 10.0, 20.0, 30.0],
+            }
+        ),
+        metric_id="sales.a",
+        axes=axes,
+    )
+    b = _metric(
+        session,
+        pd.DataFrame(
+            {
+                "bucket": buckets,
+                "value": [999.0, 0.0, None, 10.0, 20.0],
+            }
+        ),
+        metric_id="sales.b",
+        axes=axes,
+    )
+
+    result = session.correlate(a, b, lag_range=[1])
+
+    row = result.to_pandas().iloc[0]
+    assert row["correlation"] == pytest.approx(1.0)
+    assert row["aligned_row_count"] == 3
+    assert row["dropped_row_count"] == 1
+    assert result.meta.correlation == pytest.approx(1.0)
 
 
 def test_correlate_writes_job_and_frame():
@@ -332,6 +424,29 @@ def test_correlate_rejects_mixed_semantic_kind():
     )
     with pytest.raises(SemanticKindMismatchError):
         session.correlate(a, b)
+
+
+@pytest.mark.parametrize("semantic_kind", ["scalar", "segmented"])
+def test_correlate_rejects_nonzero_lag_without_time_axis(semantic_kind):
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(
+        session,
+        pd.DataFrame({"segment": ["a", "b"], "value": [1.0, 2.0]}),
+        metric_id="sales.a",
+        semantic_kind=semantic_kind,
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"segment": ["a", "b"], "value": [2.0, 4.0]}),
+        metric_id="sales.b",
+        semantic_kind=semantic_kind,
+    )
+
+    with pytest.raises(
+        SemanticKindMismatchError,
+        match="non-zero lag_range requires time_series or panel MetricFrames",
+    ):
+        session.correlate(a, b, lag_range=[-1, 0, 1])
 
 
 def test_correlate_rejects_insufficient_aligned_rows():
@@ -458,6 +573,33 @@ def test_correlate_supports_spearman_and_kendall_methods():
     assert pearson.meta.correlation < 1.0
 
 
+@pytest.mark.parametrize("method", ["pearson", "spearman", "kendall"])
+def test_correlate_lag_uses_positional_slices_and_is_symmetric(method):
+    from marivo.analysis.intents.correlate import _correlations_by_lag
+
+    aligned = pd.DataFrame(
+        {
+            "value_a": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0],
+            "value_b": [0.0, 0.0, 1.0, 3.0, 2.0, 5.0],
+        }
+    )
+    expected_lag_one = pd.Series([1.0, 3.0, 2.0, 5.0, 4.0]).corr(
+        pd.Series([0.0, 1.0, 3.0, 2.0, 5.0]),
+        method=method,
+    )
+
+    correlations = _correlations_by_lag(aligned, lags=[1, 2, 3], method=method)
+    assert correlations[1] == pytest.approx(expected_lag_one)
+    assert correlations[2] == pytest.approx(1.0)
+    assert pd.notna(correlations[3])
+
+    swapped = aligned.rename(columns={"value_a": "value_b", "value_b": "value_a"})[
+        ["value_a", "value_b"]
+    ]
+    swapped_correlation = _correlations_by_lag(swapped, lags=[-2], method=method)
+    assert correlations[2] == pytest.approx(swapped_correlation[-2])
+
+
 def test_correlate_lag_range_explores_lags_and_marks_best():
     """lag_range returns one row per lag and marks the lag with the strongest
     association. Here b lags a by 2 positions, so lag=2 should recover r=1.0.
@@ -476,14 +618,53 @@ def test_correlate_lag_range_explores_lags_and_marks_best():
         metric_id="sales.b",
     )
 
-    result = session.correlate(a, b, lag_range=range(0, 4))
+    result = session.correlate(a, b, lag_range=range(-3, 4))
 
     df = result.to_pandas()
-    assert list(df["lag_offset"]) == [0, 1, 2, 3]
+    assert list(df["lag_offset"]) == [-3, -2, -1, 0, 1, 2, 3]
+    assert list(df["aligned_row_count"]) == [3, 4, 5, 6, 5, 4, 3]
     assert df.loc[df["lag_offset"] == 2, "correlation"].iloc[0] == pytest.approx(1.0)
     assert result.meta.best_lag == 2
+    assert result.meta.aligned_row_count == 4
     assert result.meta.correlation == pytest.approx(1.0)
-    assert result.meta.lag_policy["mode"] == "range"
+    assert result.meta.lag_policy == {
+        "mode": "range",
+        "lags": [-3, -2, -1, 0, 1, 2, 3],
+    }
+
+    loaded = session.get_frame(result.ref)
+    assert isinstance(loaded, AssociationResult)
+    assert loaded.meta.best_lag == 2
+    assert loaded.meta.lag_policy == result.meta.lag_policy
+
+
+def test_correlate_best_lag_tie_prefers_smallest_absolute_lag():
+    session = session_attach.get_or_create(name="demo")
+    values = pd.DataFrame({"value": [1.0, 2.0, 1.0, 2.0, 1.0, 2.0]})
+    a = _metric(session, values, metric_id="sales.a")
+    b = _metric(session, values, metric_id="sales.b")
+
+    result = session.correlate(a, b, lag_range=[-2, 0, 2])
+
+    assert result.meta.best_lag == 0
+    assert result.meta.correlation == pytest.approx(1.0)
+
+
+def test_correlate_rejects_lag_range_without_usable_overlap():
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 3.0, 2.0, 5.0]}),
+        metric_id="sales.a",
+    )
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [2.0, 1.0, 4.0, 3.0]}),
+        metric_id="sales.b",
+    )
+
+    with pytest.raises(AlignmentFailedError, match="produced NaN for every lag"):
+        session.correlate(a, b, lag_range=[-4, 4])
 
 
 def test_normalize_key_dtypes_casts_object_date_to_datetime64():

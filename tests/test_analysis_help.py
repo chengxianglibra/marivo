@@ -295,6 +295,21 @@ def test_focused_help_includes_invocation_critical_constraints() -> None:
         assert constraint_id in text, f"missing constraint: {constraint_id}"
 
 
+def test_correlate_help_explains_signed_lag_semantics() -> None:
+    text = _text("correlate")
+
+    assert "correlate_lag_semantics" in text
+    assert "range(-3, 4)" in text
+    assert "a[t]" in text
+    assert "b[t+k]" in text
+    assert "positive means a leads b" in text
+    assert "negative means b leads a" in text
+    assert "lag 0 is the default" in text
+    assert "Non-zero lags require time_series or panel frames" in text
+    assert "panel lag shifts stay within each dimension series" in text
+    assert "null pairs are dropped after shifting" in text
+
+
 def test_attribute_help_explains_additivity_boundary() -> None:
     text = _text("attribute")
 

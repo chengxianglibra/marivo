@@ -347,7 +347,11 @@ def _build_registry() -> CapabilityRegistry:
             summary="Measure the association between two MetricFrames.",
             root_group="typed_analysis",
             root_visibility="direct",
-            constraint_ids=("frame_kind_compatible", "alignment_policy_shape"),
+            constraint_ids=(
+                "frame_kind_compatible",
+                "alignment_policy_shape",
+                "correlate_lag_semantics",
+            ),
             callable_path="marivo.analysis.session.core.Session.correlate",
             receiver="Session",
             accepted_inputs={

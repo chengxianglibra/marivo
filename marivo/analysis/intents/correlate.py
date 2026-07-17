@@ -7,7 +7,9 @@ import hashlib
 import json
 import secrets
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from math import isclose
 from time import monotonic
 from typing import Any, Literal, cast
 
@@ -44,6 +46,13 @@ def _gen_ref(prefix: str) -> str:
 def _params_digest(params: dict[str, Any]) -> str:
     body = json.dumps(params, sort_keys=True, default=str).encode("utf-8")
     return f"sha256:{hashlib.sha256(body).hexdigest()}"
+
+
+@dataclass(frozen=True)
+class _LagResult:
+    correlation: float
+    aligned_row_count: int
+    dropped_row_count: int
 
 
 def correlate(
@@ -98,6 +107,14 @@ def correlate(
     if method not in {"pearson", "spearman", "kendall"}:
         raise SemanticKindMismatchError(message=f"unsupported correlation method {method!r}")
     lags = _resolve_lags(lag_range)
+    if any(lag != 0 for lag in lags) and a.meta.semantic_kind not in {
+        "time_series",
+        "panel",
+    }:
+        raise SemanticKindMismatchError(
+            message="non-zero lag_range requires time_series or panel MetricFrames",
+            context={"semantic_kind": a.meta.semantic_kind, "lags": lags},
+        )
     lag_mode = "single" if lag_range is None else "range"
 
     started_at = datetime.now(UTC)
@@ -106,11 +123,26 @@ def correlate(
     b_df = b._dataframe_copy()
     a_value = require_numeric_column(a_df, measure_a, purpose="correlate a")
     b_value = require_numeric_column(b_df, measure_b, purpose="correlate b")
-    aligned, driver_field = _align(a_df, b_df, a_value=a_value, b_value=b_value)
-    if driver_field:
-        aligned = aligned.sort_values(driver_field.split(","), kind="stable").reset_index(drop=True)
-    before_drop = len(aligned)
-    aligned = aligned.dropna(subset=["value_a", "value_b"]).reset_index(drop=True)
+    alignment_keys = _alignment_keys(
+        a,
+        b,
+        a_df=a_df,
+        b_df=b_df,
+        a_value=a_value,
+        b_value=b_value,
+    )
+    aligned, alignment_keys = _align(
+        a_df,
+        b_df,
+        a_value=a_value,
+        b_value=b_value,
+        keys=alignment_keys,
+    )
+    series_keys = _lag_series_keys(a, b, alignment_keys=alignment_keys, lags=lags)
+    sort_keys = [*series_keys, *[key for key in alignment_keys if key not in series_keys]]
+    if sort_keys:
+        aligned = aligned.sort_values(sort_keys, kind="stable").reset_index(drop=True)
+    driver_field = ",".join(alignment_keys) or None
     if len(aligned) < 2:
         raise AlignmentFailedError(
             message=f"alignment '{alignment.kind}' produced fewer than two rows"
@@ -118,15 +150,23 @@ def correlate(
     if aligned["value_a"].nunique(dropna=True) < 2 or aligned["value_b"].nunique(dropna=True) < 2:
         raise AlignmentFailedError(message=f"{method} correlation is undefined for constant input")
 
-    correlations = _correlations_by_lag(aligned, lags=lags, method=method)
-    finite = {lag: value for lag, value in correlations.items() if pd.notna(value)}
+    lag_results = _lag_results_by_lag(
+        aligned,
+        lags=lags,
+        method=method,
+        group_keys=series_keys,
+    )
+    finite = {
+        lag: result.correlation
+        for lag, result in lag_results.items()
+        if pd.notna(result.correlation)
+    }
     if not finite:
         raise AlignmentFailedError(message=f"{method} correlation produced NaN for every lag")
-    best_lag = max(finite, key=lambda lag: abs(finite[lag]))
+    best_lag = _select_best_lag(finite)
     best_correlation = finite[best_lag]
 
     alignment_dump = alignment.model_dump(mode="json")
-    n = len(aligned)
     output = pd.DataFrame(
         {
             "metric_id_a": [a.meta.metric_id] * len(lags),
@@ -143,9 +183,9 @@ def correlate(
             "value_column_b": [b_value] * len(lags),
             "input_row_count_a": [len(a_df)] * len(lags),
             "input_row_count_b": [len(b_df)] * len(lags),
-            "aligned_row_count": [max(0, n - lag) for lag in lags],
-            "dropped_row_count": [before_drop - n] * len(lags),
-            "correlation": [correlations[lag] for lag in lags],
+            "aligned_row_count": [lag_results[lag].aligned_row_count for lag in lags],
+            "dropped_row_count": [lag_results[lag].dropped_row_count for lag in lags],
+            "correlation": [lag_results[lag].correlation for lag in lags],
         }
     )
     params = {
@@ -193,8 +233,8 @@ def correlate(
         method=method,
         alignment=alignment_dump,
         lag_policy=lag_policy,
-        aligned_row_count=max(0, n - best_lag),
-        dropped_row_count=before_drop - n,
+        aligned_row_count=lag_results[best_lag].aligned_row_count,
+        dropped_row_count=lag_results[best_lag].dropped_row_count,
         correlation=best_correlation,
         best_lag=best_lag,
     )
@@ -281,13 +321,167 @@ def _normalize_key_dtypes(
 
 
 def _resolve_lags(lag_range: range | Sequence[int] | None) -> list[int]:
-    """Return the sorted, de-duplicated non-negative lags to evaluate."""
+    """Return the sorted, de-duplicated signed lags to evaluate."""
     if lag_range is None:
         return [0]
-    lags = sorted({int(lag) for lag in lag_range})
-    if any(lag < 0 for lag in lags):
-        raise SemanticKindMismatchError(message="lag_range values must be non-negative")
-    return lags
+    return sorted({int(lag) for lag in lag_range})
+
+
+def _select_best_lag(correlations: dict[int, float]) -> int:
+    """Select strongest absolute correlation, preferring the closest lag on ties."""
+    strongest = max(abs(value) for value in correlations.values())
+    tied = [
+        lag
+        for lag, value in correlations.items()
+        if isclose(abs(value), strongest, rel_tol=1e-12, abs_tol=1e-12)
+    ]
+    return min(tied, key=lambda lag: (abs(lag), lag))
+
+
+def _time_axis_column(frame: MetricFrame) -> str | None:
+    axes = frame.meta.axes
+    time_axis = axes.get("time")
+    if isinstance(time_axis, dict):
+        column = time_axis.get("column") or time_axis.get("field")
+        if isinstance(column, str) and column:
+            return column
+    for axis in axes.values():
+        if not isinstance(axis, dict) or axis.get("role") != "time":
+            continue
+        column = axis.get("column") or axis.get("field")
+        if isinstance(column, str) and column:
+            return column
+    return None
+
+
+def _axis_columns(frame: MetricFrame) -> list[str]:
+    """Return declared time and dimension columns in stable metadata order."""
+    columns: list[str] = []
+    for axis in frame.meta.axes.values():
+        if isinstance(axis, dict) and axis.get("role") in {"time", "dimension"}:
+            column = axis.get("column") or axis.get("field")
+            if isinstance(column, str) and column:
+                columns.append(column)
+        elif isinstance(axis, list):
+            for entry in axis:
+                if not isinstance(entry, dict):
+                    continue
+                column = entry.get("column") or entry.get("field")
+                if isinstance(column, str) and column:
+                    columns.append(column)
+    return list(dict.fromkeys(columns))
+
+
+def _alignment_keys(
+    a: MetricFrame,
+    b: MetricFrame,
+    *,
+    a_df: pd.DataFrame,
+    b_df: pd.DataFrame,
+    a_value: str,
+    b_value: str,
+) -> list[str]:
+    """Resolve shared declared axes, retaining legacy non-numeric key fallback."""
+    b_axes = set(_axis_columns(b))
+    declared = [
+        column
+        for column in _axis_columns(a)
+        if column in b_axes
+        and column in a_df.columns
+        and column in b_df.columns
+        and column not in {a_value, b_value}
+    ]
+    fallback = _common_non_numeric_columns(a_df, b_df)
+    return list(dict.fromkeys([*declared, *fallback]))
+
+
+def _lag_series_keys(
+    a: MetricFrame,
+    b: MetricFrame,
+    *,
+    alignment_keys: list[str],
+    lags: list[int],
+) -> list[str]:
+    """Return keys that identify independent panel series for lag shifting."""
+    if not any(lag != 0 for lag in lags) or a.meta.semantic_kind != "panel":
+        return []
+    time_a = _time_axis_column(a)
+    time_b = _time_axis_column(b)
+    if time_a is None or time_a != time_b or time_a not in alignment_keys:
+        raise AlignmentFailedError(
+            message="signed lag for panel frames requires one shared time key",
+            context={
+                "time_column_a": time_a,
+                "time_column_b": time_b,
+                "alignment_keys": alignment_keys,
+            },
+        )
+    series_keys = [key for key in alignment_keys if key != time_a]
+    if not series_keys:
+        raise AlignmentFailedError(
+            message="signed lag for panel frames requires at least one shared series key",
+            context={"time_column": time_a, "alignment_keys": alignment_keys},
+        )
+    return series_keys
+
+
+def _shifted_pairs(group: pd.DataFrame, *, lag: int) -> pd.DataFrame:
+    """Pair one ordered series by position without pandas label alignment."""
+    n = len(group)
+    offset = abs(lag)
+    if offset >= n:
+        return pd.DataFrame(columns=["value_a", "value_b"])
+    if lag > 0:
+        a_slice = group["value_a"].iloc[: n - lag]
+        b_slice = group["value_b"].iloc[lag:]
+    elif lag < 0:
+        a_slice = group["value_a"].iloc[offset:]
+        b_slice = group["value_b"].iloc[: n - offset]
+    else:
+        a_slice = group["value_a"]
+        b_slice = group["value_b"]
+    return pd.DataFrame(
+        {
+            "value_a": a_slice.to_numpy(copy=False),
+            "value_b": b_slice.to_numpy(copy=False),
+        }
+    )
+
+
+def _lag_results_by_lag(
+    aligned: pd.DataFrame,
+    *,
+    lags: list[int],
+    method: Literal["pearson", "spearman", "kendall"],
+    group_keys: Sequence[str] = (),
+) -> dict[int, _LagResult]:
+    """Compute each lag within independent series, then filter null pairs."""
+    if group_keys:
+        grouper: str | list[str] = str(group_keys[0]) if len(group_keys) == 1 else list(group_keys)
+        groups = [group for _, group in aligned.groupby(grouper, sort=False, dropna=False)]
+    else:
+        groups = [aligned]
+
+    results: dict[int, _LagResult] = {}
+    for lag in lags:
+        pair_parts = [_shifted_pairs(group, lag=lag) for group in groups]
+        candidates = pd.concat(pair_parts, ignore_index=True)
+        valid = candidates.dropna(subset=["value_a", "value_b"]).reset_index(drop=True)
+        dropped_row_count = len(candidates) - len(valid)
+        if (
+            len(valid) < 2
+            or valid["value_a"].nunique(dropna=True) < 2
+            or valid["value_b"].nunique(dropna=True) < 2
+        ):
+            correlation = float("nan")
+        else:
+            correlation = float(valid["value_a"].corr(valid["value_b"], method=method))
+        results[lag] = _LagResult(
+            correlation=correlation,
+            aligned_row_count=len(valid),
+            dropped_row_count=dropped_row_count,
+        )
+    return results
 
 
 def _correlations_by_lag(
@@ -295,28 +489,22 @@ def _correlations_by_lag(
     *,
     lags: list[int],
     method: Literal["pearson", "spearman", "kendall"],
+    group_keys: Sequence[str] = (),
 ) -> dict[int, float]:
     """Correlate value_a[t] with value_b[t+lag] for each lag.
 
-    A positive lag pairs each ``a`` point with the ``b`` point ``lag`` positions
-    later, capturing delayed effects (e.g. cache degradation preceding failure
-    rise). NaN is returned for lags whose overlap is too short or constant.
+    A positive lag means ``a`` leads ``b``; a negative lag means ``b`` leads
+    ``a``. NaN is returned for lags whose overlap is too short or constant.
     """
-    n = len(aligned)
-    series_a = aligned["value_a"]
-    series_b = aligned["value_b"]
-    correlations: dict[int, float] = {}
-    for lag in lags:
-        if lag >= n:
-            correlations[lag] = float("nan")
-            continue
-        a_slice = series_a.iloc[: n - lag]
-        b_slice = series_b.iloc[lag:]
-        if a_slice.nunique(dropna=True) < 2 or b_slice.nunique(dropna=True) < 2:
-            correlations[lag] = float("nan")
-            continue
-        correlations[lag] = float(a_slice.corr(b_slice, method=method))
-    return correlations
+    return {
+        lag: result.correlation
+        for lag, result in _lag_results_by_lag(
+            aligned,
+            lags=lags,
+            method=method,
+            group_keys=group_keys,
+        ).items()
+    }
 
 
 def _align(
@@ -325,8 +513,8 @@ def _align(
     *,
     a_value: str,
     b_value: str,
-) -> tuple[pd.DataFrame, str | None]:
-    keys = _common_non_numeric_columns(a_df, b_df)
+    keys: list[str],
+) -> tuple[pd.DataFrame, list[str]]:
     if not keys:
         n = min(len(a_df), len(b_df))
         left = a_df.reset_index(drop=True).iloc[:n][[a_value]]
@@ -338,14 +526,14 @@ def _align(
                     "value_b": right[b_value],
                 }
             ),
-            None,
+            [],
         )
     _ensure_unique_keys(a_df, keys=keys, label="a")
     _ensure_unique_keys(b_df, keys=keys, label="b")
     left = a_df[[*keys, a_value]].rename(columns={a_value: "value_a"})
     right = b_df[[*keys, b_value]].rename(columns={b_value: "value_b"})
     left, right = _normalize_key_dtypes(left, right, keys)
-    return pd.merge(left, right, on=keys, validate="one_to_one"), ",".join(keys)
+    return pd.merge(left, right, on=keys, validate="one_to_one"), keys
 
 
 def _common_non_numeric_columns(a_df: pd.DataFrame, b_df: pd.DataFrame) -> list[str]:

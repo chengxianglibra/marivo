@@ -27,6 +27,7 @@ class ConstraintId(StrEnum):
     FRAME_KIND_COMPATIBLE = "frame_kind_compatible"
     DISCOVER_MINIMUM_EVIDENCE = "discover_minimum_evidence"
     ALIGNMENT_POLICY_SHAPE = "alignment_policy_shape"
+    CORRELATE_LAG_SEMANTICS = "correlate_lag_semantics"
     TRANSFORM_ARGUMENTS = "transform_arguments"
     TRANSFORM_FRAME_SHAPE = "transform_frame_shape"
     TRANSFORM_OPERATOR_SUPPORTED = "transform_operator_supported"
@@ -136,6 +137,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Calendar-backed variants require a calendar, while window_bucket uses request-window buckets without one.",
         "Use kind='window_bucket' without calendar, or pass calendar=mv.CalendarRef(...) for calendar-backed kinds.",
         help_target="alignment",
+    ),
+    ConstraintId.CORRELATE_LAG_SEMANTICS: _constraint(
+        ConstraintId.CORRELATE_LAG_SEMANTICS,
+        "AlignmentFailed",
+        "runtime",
+        ("correlate", "AssociationResult"),
+        "Signed lag k pairs a[t] with b[t+k]: positive means a leads b, negative means b leads a, and lag 0 is the default. Non-zero lags require time_series or panel frames; panel lag shifts stay within each dimension series, and null pairs are dropped after shifting.",
+        "Per-series shifting preserves panel boundaries and missing bucket positions.",
+        "Pass a signed lag_range whose offsets leave at least two overlapping, non-constant pairs, such as range(-3, 4).",
+        help_target="correlate",
     ),
     ConstraintId.TRANSFORM_ARGUMENTS: _constraint(
         ConstraintId.TRANSFORM_ARGUMENTS,
