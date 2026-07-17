@@ -458,9 +458,12 @@ class Materializer:
         datasource_id = self._resolve_single_datasource(metric_ir, registry)
         backend_type = self._backend_type_for_datasource(datasource_id, registry)
         if target_kind == "entity":
-            return self.entity(target_id).count()
+            table = self._apply_filter(self.entity(target_id), metric_ir.filter)
+            return table.count()
         if target_kind == "measure":
-            column = self.measure(target_id)
+            entity_id = metric_ir.entities[0]
+            table = self._apply_filter(self.entity(entity_id), metric_ir.filter)
+            column = self.measure_on(target_id, table)
             return self._apply_agg(
                 semantic_id,
                 column,
@@ -473,6 +476,18 @@ class Materializer:
             cls=SemanticRuntimeError,
             refs=(semantic_id,),
         )
+
+    @staticmethod
+    def _apply_filter(
+        table: ibis.Table,
+        filter_pairs: tuple[tuple[str, object], ...] | None,
+    ) -> ibis.Table:
+        """Apply AND-joined equality predicates (from ``ms.where(...)``)."""
+        if not filter_pairs:
+            return table
+        for column, value in filter_pairs:
+            table = table.filter(table[column] == value)
+        return table
 
     def _apply_agg(
         self,

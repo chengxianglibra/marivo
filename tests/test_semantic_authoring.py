@@ -1708,6 +1708,69 @@ def test_count_rejects_string_entity() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ms.where() filtered count / aggregate
+# ---------------------------------------------------------------------------
+
+
+def test_where_requires_at_least_one_condition() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.where()  # type: ignore[call-arg]
+    finally:
+        _exit_ctx()
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+
+
+def test_count_with_filter_records_equality_predicates_on_ir() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        orders = EntityRef("sales.orders")
+        ref = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
+        ir, _sidecar = _LOADER_CTX.get().pending_objects[-1]  # type: ignore[union-attr]
+        assert isinstance(ref, MetricRef)
+        assert ref.id == "sales.failed_count"
+        assert ir.filter == (("state", "FAILED"),)
+    finally:
+        _exit_ctx()
+
+
+@pytest.mark.parametrize("bad_filter", [{"state": "FAILED"}, [("state", "FAILED")], "FAILED"])
+def test_count_rejects_non_where_filter(bad_filter: object) -> None:
+    """A filter that is not a WhereFilter must raise a typed error pointing at
+    ms.where(...), not a generic load failure. See MR !29 review P2.
+    """
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.count(
+                name="failed_count",  # type: ignore[arg-type]
+                entity=EntityRef("sales.orders"),
+                filter=bad_filter,  # type: ignore[arg-type]
+            )
+    finally:
+        _exit_ctx()
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "ms.where" in str(exc_info.value)
+
+
+def test_aggregate_rejects_non_where_filter() -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.aggregate(
+                name="failed_amount",
+                measure=MeasureRef("sales.orders.amount"),
+                agg="sum",
+                filter={"state": "FAILED"},  # type: ignore[arg-type]
+            )
+    finally:
+        _exit_ctx()
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "ms.where" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
 # ms.ratio() derived registration
 # ---------------------------------------------------------------------------
 

@@ -437,6 +437,51 @@ def test_metric_materialize_sum(semantic_project_factory, backend_factory) -> No
     assert result == pytest.approx(300.0)
 
 
+def test_count_with_filter_materializes_subset_count(
+    semantic_project_factory, backend_factory
+) -> None:
+    """ms.count(filter=ms.where(...)) counts only matching rows. See issue #27."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
+                "source=md.table('orders'))\n"
+                "us_order_count = ms.count(name='us_order_count', entity=orders, "
+                "filter=ms.where(region='US'))\n"
+            ),
+        }
+    )
+    with _patch_connection_service(project, backend_factory):
+        metric_expr = _materialize_metric(project, "sales.us_order_count")
+    # orders has one US row and one EU row.
+    assert metric_expr.to_pandas() == 1
+
+
+def test_aggregate_with_filter_materializes_subset_sum(
+    semantic_project_factory, backend_factory
+) -> None:
+    """ms.aggregate(filter=ms.where(...)) aggregates only matching rows."""
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/datasets.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
+                "source=md.table('orders'))\n"
+                "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
+                "additivity='additive')\n"
+                "us_amount = ms.aggregate(name='us_amount', measure=amount, agg='sum', "
+                "filter=ms.where(region='US'))\n"
+            ),
+        }
+    )
+    with _patch_connection_service(project, backend_factory):
+        metric_expr = _materialize_metric(project, "sales.us_amount")
+    assert metric_expr.to_pandas() == pytest.approx(100.0)
+
+
 def test_trino_percentile_aggregate_uses_approx_quantile(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {

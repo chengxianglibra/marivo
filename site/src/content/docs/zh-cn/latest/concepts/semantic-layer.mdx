@@ -367,21 +367,29 @@ metric 不是一次 query 的结果，而是智能体可以安全 observe 的、
 | `measure` | `MeasureRef` | 是 | — | 要聚合的 measure。 |
 | `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"min"`、`"max"` 等。 |
 | `fold` | fold | 否 | `None` | semi-additive measure 的 time-fold 覆盖。 |
+| `filter` | `WhereFilter` | 否 | `None` | 由 `ms.where(col=value, ...)` 构建的 AND 等值过滤，仅聚合匹配行。 |
 | `unit` | `str` | 否 | 继承 | 覆盖从 measure 推导的 unit。 |
 | `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", filter=ms.where(region="US"))
 ```
 
 #### Count metric —— `ms.count`
 
 需要统计 entity 行数时使用 `ms.count`，不要为了计行数额外声明冗余 measure。这个 helper
-只接受 ref，并会从 entity ref 推断 metric 所属 domain。
+只接受 ref，并会从 entity ref 推断 metric 所属 domain。传入 `filter=ms.where(...)` 可对子集
+计数（如失败数），无需手写 metric body。
 
 ```python
 order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="订单总数。"))
+failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 ```
+
+`ms.where(**conditions)` 构建一个 AND 等值过滤（若干 `col=value`，value 为
+`str` / `int` / `float` / `bool`）。作为 `ms.count` 或 `ms.aggregate` 的 `filter=`
+入参，用于失败率、错误率、成功率等子集指标。
 
 #### 派生 metrics —— `ms.ratio` / `ms.weighted_average` / `ms.linear`
 

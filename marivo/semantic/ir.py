@@ -441,6 +441,24 @@ AggKind = (
 )
 AggregationTargetKind = Literal["measure", "entity"]
 
+# Equality predicate value for a filtered tier-1 aggregation (column=value).
+WhereValue = str | int | float | bool
+
+
+@dataclass(frozen=True)
+class WhereFilter:
+    """AND-joined equality predicates for a filtered tier-1 metric.
+
+    Built by ``ms.where(col=value, ...)`` and consumed by ``ms.count`` /
+    ``ms.aggregate`` to restrict the aggregated rows.
+    """
+
+    conditions: tuple[tuple[str, WhereValue], ...]
+
+
+# Tuple form of :class:`WhereFilter` stored on MetricIR (JSON-safe, hashable).
+FilterIR = tuple[tuple[str, WhereValue], ...]
+
 
 @dataclass(frozen=True)
 class SemiAdditive:
@@ -644,6 +662,7 @@ class MetricIR:
     fold_override: TimeFoldIR | None = (
         None  # tier-1 only: overrides the measure's semi-additive fold at load
     )
+    filter: FilterIR | None = None  # tier-1 only: AND equality predicates
 
     def __post_init__(self) -> None:
         if self.fold_override is not None and self.aggregation is None:

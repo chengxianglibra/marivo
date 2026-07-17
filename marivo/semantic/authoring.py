@@ -15,7 +15,7 @@ unchanged.  Implementations live in:
 
 from __future__ import annotations
 
-from marivo.semantic._authoring_declarations import aggregate, count, domain, metric
+from marivo.semantic._authoring_declarations import aggregate, count, domain, metric, where
 from marivo.semantic._authoring_decorators import (
     dimension,
     dimension_column,
@@ -84,4 +84,5 @@ __all__ = [
     "trailing",
     "validity",
     "weighted_average",
+    "where",
 ]

@@ -85,6 +85,23 @@ def test_help_resolves_callable_target() -> None:
     assert "load" in text
 
 
+def test_where_is_registered_help_target_and_count_teaches_filter() -> None:
+    """ms.where is a public primitive and must be a registered help target; count
+    and aggregate must teach filter=ms.where(...). See MR !29 review (help).
+    """
+    where_text = ms.help_text("where")
+    assert "where" in where_text
+    assert "ms.where" in where_text
+
+    count_text = ms.help_text("count")
+    assert "filter" in count_text.lower()
+    assert "ms.where" in count_text
+
+    aggregate_text = ms.help_text("aggregate")
+    assert "filter" in aggregate_text.lower()
+    assert "ms.where" in aggregate_text
+
+
 def test_help_resolves_type_target() -> None:
     text = ms.help_text(ms.SemanticCatalog)
     assert "SemanticCatalog" in text
