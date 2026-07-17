@@ -18,8 +18,8 @@ from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic._capabilities.registry import REGISTRY
 
 
-class ReadinessBlocker(Protocol):
-    """Structural type for readiness blockers accessed by contract builders.
+class ReadinessIssueLike(Protocol):
+    """Structural type for readiness issues accessed by contract builders.
 
     Avoids importing :class:`~marivo.semantic.readiness.ReadinessIssue` to
     prevent a circular dependency.
@@ -265,7 +265,7 @@ def contract_for_semantic_catalog() -> AuthoringContract:
 
 def contract_for_readiness_report(
     analysis_ready_refs: tuple[str, ...],
-    blockers: tuple[ReadinessBlocker, ...],
+    issues: tuple[ReadinessIssueLike, ...],
 ) -> AuthoringContract:
     """Expose semantic repair transitions for a readiness report.
 
@@ -273,8 +273,8 @@ def contract_for_readiness_report(
     ----------
     analysis_ready_refs:
         Semantic refs that passed readiness certification.
-    blockers:
-        Readiness issues blocking analysis. Each blocker must expose ``.refs``
+    issues:
+        Readiness issues with mechanical repair transitions. Each issue must expose ``.refs``
         and ``.kind`` attributes.
 
     Returns
@@ -286,10 +286,7 @@ def contract_for_readiness_report(
     transitions: list[AuthoringTransition] = []
     preview_refs = tuple(
         dict.fromkeys(
-            ref
-            for blocker in blockers
-            if blocker.kind == "runtime_preview_missing"
-            for ref in blocker.refs
+            ref for issue in issues if issue.kind == "runtime_preview_missing" for ref in issue.refs
         )
     )
     if preview_refs:

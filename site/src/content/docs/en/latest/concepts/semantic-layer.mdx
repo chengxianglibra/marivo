@@ -576,7 +576,9 @@ loading and certification answer different questions. Analysis APIs load,
 resolve, plan, and runtime-check their inputs without invoking readiness
 automatically. Repair a blocked report before declaring the semantic change
 complete; routine analysis of unchanged objects does not rerun readiness before
-every call.
+every call. Missing or stale runtime preview certification appears as a warning,
+not a blocker: disclose it for routine analysis and repair it before authoring
+closeout.
 :::
 
 Two more checks support authoring:

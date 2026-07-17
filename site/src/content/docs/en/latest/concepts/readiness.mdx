@@ -11,8 +11,10 @@ workflow asks for technical certification. It identifies incomplete
 objects, unknown references, and missing current validation or preview evidence.
 
 A blocked report does not mean the analysis question is invalid. It means the
-selected objects have not completed this certification. Repair the named gap
-before declaring the semantic change complete.
+selected objects have a semantic or technical blocker. Missing or stale runtime
+preview certification is reported as a warning instead: disclose it, continue
+routine analysis when no blocker remains, and repair it before declaring a new
+or changed semantic object complete.
 
 Analysis APIs do not invoke readiness automatically. Routine analysis of
 unchanged objects relies on live catalog loading, semantic input resolution,
@@ -33,9 +35,12 @@ individually.
 ## What ready means
 
 `ready` means the selected semantic objects have current technical certification
-evidence for the requested scope. It is not a runtime authorization token: it
-does not approve the business definition, guarantee every future query, or
-decide whether a conclusion is suitable for a business decision.
+evidence for the requested scope. `ready_with_warnings` may include missing or
+stale preview certification, while `analysis_ready_refs` still identifies the
+directly requested refs whose dependency closures have no blocker. Neither
+status is a runtime authorization token: it does not approve the business
+definition, guarantee every future query, or decide whether a conclusion is
+suitable for a business decision.
 
 The sections below document the report and API behavior for readers who need
 to inspect the technical contract.
@@ -76,8 +81,8 @@ truth. Parity is never required for readiness.
 | `status` | `"ready" \| "ready_with_warnings" \| "blocked"` | Overall verdict (see below). |
 | `blockers` | `tuple[ReadinessIssue, ...]` | Issues that prevent the selected refs from completing certification. |
 | `warnings` | `tuple[ReadinessIssue, ...]` | Advisory issues that do not block. |
-| `analysis_ready_refs` | `tuple[str, ...]` | Refs that passed the current certification contract. |
-| `preview_required_refs` | `tuple[SemanticRef, ...]` | Typed executable refs that need matching runtime preview evidence. |
+| `analysis_ready_refs` | `tuple[str, ...]` | Directly requested refs whose dependency closures contain no blocker. |
+| `preview_required_refs` | `tuple[SemanticRef, ...]` | Typed executable refs with missing or stale preview certification. |
 | `input_summary` | `ReadinessInputSummary` | What was checked: datasources, refs, and tables. |
 | `checked_at` | `str` | ISO-8601 timestamp of the check. |
 
@@ -96,8 +101,8 @@ target:
 | `message` | What was expected and what was found. |
 | `repair` | A typed `AuthoringRepair \| None` carrying `action`, `help_target`, optional `snippet`, and `candidates` — the concrete next step and where to read its contract. |
 
-`report.show()` groups multiple `runtime_preview_missing` blockers into one batch
-repair hint while `report.blockers` retains per-ref detail. `report.to_dict()`
+`report.show()` groups multiple `runtime_preview_missing` warnings into one batch
+repair hint while `report.warnings` retains per-ref detail. `report.to_dict()`
 returns the full machine list; `report.contract()` exposes one batch `preview`
 transition when preview evidence is missing. Certified refs remain available
 directly through `analysis_ready_refs`.
@@ -118,7 +123,7 @@ not block certification.
 | `fragile_string_ref` | warning | An object uses a fragile string reference. | Replace it with a stable object ref. |
 | `time_dimension_pushdown_advisory` | warning | A time dimension may not push down to the partition. | Keep the raw partition column and declare its parse if the business axis matches it. |
 | `snapshot_missing` | blocker | No structurally matching datasource snapshot metadata exists for an executable ref. Expiration alone never triggers this issue. | Acquire a matching scoped snapshot. |
-| `runtime_preview_missing` | blocker | No preview check matches the current semantic definition, dependencies, snapshot ids, backend, and scopes. Expiration alone never triggers this issue. | Run the scoped preview with the matching snapshot bindings. |
+| `runtime_preview_missing` | warning | No preview check matches the current semantic definition, dependencies, snapshot ids, backend, and scopes. Expiration alone never triggers this issue. | Routine analysis may proceed; run the scoped preview before declaring a new or changed object complete. |
 
 ## Scope the check
 
@@ -129,7 +134,7 @@ metric, its measures, dimensions, entities, and datasources) for you:
 ```python
 revenue = catalog.get("metric.sales.revenue")
 report = catalog.readiness(refs=[revenue])
-if report.preview_required_refs:
+if report.preview_required_refs:  # required for authoring closeout; optional for routine analysis
     catalog.preview(refs=report.preview_required_refs, using=orders_snapshot)
     report = catalog.readiness(refs=[revenue])
 ```
@@ -144,10 +149,11 @@ how analysis records what it concludes, see [Evidence](/en/latest/concepts/evide
 
 ## Continue to analysis
 
-When readiness is not blocked, `analysis_ready_refs` contains the requested refs
-that passed certification. Warnings remain visible on the same report and must be
-disclosed before the caller chooses to proceed. There is no second transfer
-object.
+When readiness is not blocked, `analysis_ready_refs` contains only the directly
+requested refs whose dependency closures have no blocker. Warnings remain
+visible on the same report and must be disclosed before the caller chooses to
+proceed. A `runtime_preview_missing` warning alone does not stop routine
+analysis. There is no second transfer object.
 
 ```python
 import marivo.semantic as ms

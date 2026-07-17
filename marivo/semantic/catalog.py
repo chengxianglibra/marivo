@@ -2093,8 +2093,9 @@ class SemanticCatalog:
         acquiring, refreshing, or querying. Missing evidence produces exact
         next calls for the caller to execute explicitly.
 
-        When readiness is not blocked, ``analysis_ready_refs`` identifies the
-        selected refs that may be passed explicitly to the analysis surface.
+        ``analysis_ready_refs`` contains only directly selected refs whose full
+        dependency closure has no blocker. Warnings, including missing or stale
+        runtime preview certification, remain visible without excluding a ref.
 
         Args:
             refs: Semantic refs to check. Resolves the full dependency closure

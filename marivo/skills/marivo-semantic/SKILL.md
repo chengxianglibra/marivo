@@ -125,11 +125,14 @@ Mechanical availability is not policy permission: the agent must complete and
 read static verification before choosing preview even when focused help shows
 preview is callable from a loaded object.
 
-When readiness reports several already-authored refs with missing runtime
-preview evidence, follow its result-local contract and pass its typed missing-ref
-batch to the registered preview capability. This is a repair optimization over
-compatible execution plans, not permission to author a domain-sized batch or to
-skip the one-object validation loop.
+During authoring closeout, when readiness reports several refs with missing
+runtime preview evidence, follow its result-local contract and pass its typed
+missing-ref batch to the registered preview capability. This is a repair
+optimization over compatible execution plans, not permission to author a
+domain-sized batch or to skip the one-object validation loop. For routine
+analysis of already-authored refs, missing or stale preview certification is an
+advisory: disclose it and proceed with the directly requested analysis-ready
+refs unless another blocker affects their dependency closure.
 
 ### Durable partial order
 
@@ -325,7 +328,9 @@ catalog work or create a second validation token. A semantic-first task may
 create or recover an analysis session before using those refs; no prior blocked
 analysis branch is required. A `ready_with_warnings` report does not prove that
 the runtime captured user or agent acceptance, so the skill explicitly
-discloses the warnings and applies its proceed-or-stop policy first.
+discloses the warnings and applies its proceed-or-stop policy first. A missing
+runtime preview warning alone does not stop routine analysis; it is repaired
+before declaring a new or changed semantic object authoring-complete.
 
 ## Closeout obligations
 
@@ -363,7 +368,8 @@ The skill does not provide fallback implementations or memorized workarounds.
 | Evidence suggests but cannot establish business meaning | Ask one grounded question and stop |
 | A dependency is missing or not ready | Repair/ready the dependency before authoring the dependent |
 | Static verification fails | Repair and reverify the same object |
-| Required preview is missing or does not match current definitions/dependencies | Run or repair scoped preview before readiness |
+| Preview is missing or stale during authoring closeout | Run or repair scoped preview before declaring the object authoring-complete |
+| Preview is missing or stale during routine analysis | Disclose the advisory and continue with directly requested `analysis_ready_refs` unless another blocker applies |
 | Readiness is blocked | Follow typed repair; do not expose the blocked ref as analysis-ready |
 | Analysis needs an absent object | Author the smallest dependency-closed set for that governed requirement, one validated object at a time, then expose only ready refs |
 | Runtime transition contradicts its registered input, state, target-surface, or effect facts | Treat candidate as internally inconsistent; stop and report the contract defect |
