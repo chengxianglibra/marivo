@@ -260,7 +260,9 @@ revenue = ms.aggregate(name="revenue", measure=paid_amount, agg="sum")
 `ms.aggregate(measure=..., agg=...)` supports `sum | min | max | mean | median |
 percentile | count | count_distinct` (`ms.count(...)` is the counting shortcut).
 `agg=("percentile", q)` follows backend support — Trino uses approximate
-percentile (`APPROX_PERCENTILE`).
+percentile (`APPROX_PERCENTILE`). Both `ms.aggregate` and `ms.count` accept an
+optional `filter=ms.where(col=value, ...)` to restrict the aggregation to a
+subset of rows (e.g. a failure or error subset) without a hand-written body.
 
 **Tier-2** `@ms.metric(...)` is the expression escape hatch, used only when a
 metric cannot be expressed as measure + aggregate. It declares dependencies with

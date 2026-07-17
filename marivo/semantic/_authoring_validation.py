@@ -94,9 +94,20 @@ def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
         return hashlib.sha256(b"<unavailable>").hexdigest()[:16]
 
 
-def _compute_agg_hash(measure_id: str, agg: Any, fold: TimeFoldIR | None) -> str:
+def _compute_agg_hash(
+    measure_id: str,
+    agg: Any,
+    fold: TimeFoldIR | None,
+    *,
+    filter: tuple[tuple[str, Any], ...] | None = None,
+) -> str:
     payload = repr(
-        {"measure": measure_id, "agg": agg, "fold": (fold.kind, fold.q) if fold else None}
+        {
+            "measure": measure_id,
+            "agg": agg,
+            "fold": (fold.kind, fold.q) if fold else None,
+            "filter": filter,
+        }
     )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 

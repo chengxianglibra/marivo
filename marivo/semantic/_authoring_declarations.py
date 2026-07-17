@@ -37,6 +37,8 @@ from marivo.semantic.ir import (
     DomainIR,
     MetricIR,
     SqlProvenance,
+    WhereFilter,
+    WhereValue,
 )
 from marivo.semantic.refs import DomainRef, EntityRef, MeasureRef, MetricRef
 from marivo.semantic.typing import AiContextValue
@@ -109,6 +111,7 @@ def aggregate(
     measure: MeasureRef,
     agg: AggKind,
     fold: str | tuple[Literal["percentile"], float] | None = None,
+    filter: WhereFilter | None = None,
     unit: str | None = None,
     domain: DomainRef | None = None,
     ai_context: AiContextValue | None = None,
@@ -131,6 +134,8 @@ def aggregate(
             collapses the ``over`` time axis. Distinct from
             ``agg=("percentile", q)``, which aggregates across rows in each
             query group rather than along the time axis.
+        filter: Optional ``ms.where(col=value, ...)`` to aggregate only matching
+            rows (e.g. a subset sum). ``None`` aggregates all rows.
         unit: Override the unit derived from ``measure`` at load. Leave None to
             inherit the measure's unit (count/count_distinct derive nothing).
         domain: Override the active domain.
@@ -152,6 +157,7 @@ def aggregate(
     fold_ir = _normalize_time_fold(fold, semantic_id=semantic_id) if fold is not None else None
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
+    filter_pairs = _resolve_filter_pairs(filter)
     metric_ir = MetricIR(
         semantic_id=semantic_id,
         domain=resolved_domain,
@@ -164,7 +170,7 @@ def aggregate(
         additivity=None,
         provenance=None,
         ai_context=ai_ctx,
-        body_ast_hash=_compute_agg_hash(measure_id, agg, fold_ir),
+        body_ast_hash=_compute_agg_hash(measure_id, agg, fold_ir, filter=filter_pairs),
         python_symbol=obj_name,
         location=location,
         root_entity=entity_id,
@@ -172,15 +178,83 @@ def aggregate(
         unit=unit,
         aggregation_target=measure_id,
         aggregation_target_kind="measure",
+        filter=filter_pairs,
     )
     _push_ir(ctx, metric_ir, None)
     return MetricRef(semantic_id)
+
+
+def _resolve_filter_pairs(filter: WhereFilter | None) -> tuple[tuple[str, WhereValue], ...] | None:
+    """Validate and unwrap a ``filter=`` argument into IR predicate pairs.
+
+    Non-None values must be a :class:`WhereFilter` from ``ms.where(...)``; raw
+    dicts/tuples/strings raise a typed ``SemanticDecoratorError`` pointing at
+    ``ms.where(...)`` instead of a generic load failure. See MR !29 review P2.
+    """
+    if filter is None:
+        return None
+    if not isinstance(filter, WhereFilter):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "filter must be a WhereFilter built by ms.where(col=value, ...); "
+            f"got {type(filter).__name__}.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    return filter.conditions
+
+
+def where(**conditions: WhereValue) -> WhereFilter:
+    """Build an AND-joined equality filter for ``ms.count`` / ``ms.aggregate``.
+
+    Each keyword is a column on the target entity mapped to the value it must
+    equal, e.g. ``ms.where(state="FAILED")``. Use this to express subset counts
+    (failure rate, error rate, success rate) without a hand-written metric body.
+
+    Args:
+        **conditions: One or more ``column=value`` equality predicates (str,
+            int, float, or bool values). ``None`` is not supported.
+
+    Returns:
+        A :class:`WhereFilter` to pass as ``filter=``.
+
+    Example:
+        >>> failed = ms.count(name="failed_count", entity=queries, filter=ms.where(state="FAILED"))
+    """
+    if not conditions:
+        _raise(
+            ErrorKind.INVALID_REF,
+            "ms.where requires at least one column=value equality condition",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    normalized: list[tuple[str, WhereValue]] = []
+    for column, value in conditions.items():
+        if value is None:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"ms.where column {column!r} does not support None; "
+                "use a concrete value or a custom @ms.metric body for IS NULL.",
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.REF_SHAPE,
+            )
+        if not isinstance(value, str | int | float | bool):
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"ms.where column {column!r} value must be str/int/float/bool, "
+                f"got {type(value).__name__}",
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.REF_SHAPE,
+            )
+        normalized.append((str(column), value))
+    return WhereFilter(conditions=tuple(normalized))
 
 
 def count(
     *,
     name: str,
     entity: EntityRef,
+    filter: WhereFilter | None = None,
     ai_context: AiContextValue | None = None,
 ) -> MetricRef:
     """Declare a row-count metric for an entity.
@@ -189,6 +263,8 @@ def count(
         name: Metric name inside the entity's domain.
         entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
+        filter: Optional ``ms.where(col=value, ...)`` to count only matching rows
+            (e.g. a failure/error subset). ``None`` counts all rows.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra
             agent-facing hints.
 
@@ -198,6 +274,7 @@ def count(
     Example:
         >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
         >>> order_count = ms.count(name="order_count", entity=orders)
+        >>> failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 
     Constraints:
         Counts rows of the target entity. Use ``ms.aggregate(...)`` for measure
@@ -211,6 +288,7 @@ def count(
     _check_duplicate(ctx, semantic_id, MetricIR)
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
+    filter_pairs = _resolve_filter_pairs(filter)
     metric_ir = MetricIR(
         semantic_id=semantic_id,
         domain=resolved_domain,
@@ -223,12 +301,13 @@ def count(
         additivity=None,
         provenance=None,
         ai_context=ai_ctx,
-        body_ast_hash=_compute_agg_hash(entity_id, "count", None),
+        body_ast_hash=_compute_agg_hash(entity_id, "count", None, filter=filter_pairs),
         python_symbol=name,
         location=location,
         root_entity=entity_id,
         aggregation_target=entity_id,
         aggregation_target_kind="entity",
+        filter=filter_pairs,
     )
     _push_ir(ctx, metric_ir, None)
     return MetricRef(semantic_id)

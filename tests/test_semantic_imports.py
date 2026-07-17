@@ -135,6 +135,7 @@ def test_all_list_matches_expected() -> None:
         "help",
         "typing",
         "errors",
+        "where",
     }
     assert set(ms.__all__) == expected
     assert not hasattr(ms, "component")

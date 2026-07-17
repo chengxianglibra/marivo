@@ -53,6 +53,7 @@ from marivo.semantic.ir import (
     SymbolKind,
     TimestampParse,
     ValidityVersioningIR,
+    WhereValue,
     additivity_bucket,
     composition_components,
 )
@@ -459,6 +460,7 @@ class SimpleMetricDetails(_DetailsBase):
     parity_status: ParityStatus
     aggregation_target: SemanticRef | None = None
     aggregation_target_kind: Literal["measure", "entity"] | None = None
+    filter: tuple[tuple[str, WhereValue], ...] | None = None
 
     @property
     def metric_type(self) -> Literal["simple"]:
@@ -496,6 +498,13 @@ class SimpleMetricDetails(_DetailsBase):
                 FieldSection(
                     label="target",
                     value=f"{self.aggregation_target_kind} {self.aggregation_target.id}",
+                )
+            )
+        if self.filter:
+            sections.append(
+                FieldSection(
+                    label="filter",
+                    value=", ".join(f"{column}={value}" for column, value in self.filter),
                 )
             )
         return sections
@@ -1466,6 +1475,7 @@ def _build_metric_object(
             aggregation_target=aggregation_target,
             aggregation_target_kind=m_ir.aggregation_target_kind
             or ("measure" if m_ir.measure else None),
+            filter=m_ir.filter,
         )
     return _object_from_details(Metric, details, catalog)
 

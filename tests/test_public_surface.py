@@ -87,6 +87,7 @@ SEMANTIC_PUBLIC = {
     "typing",
     "validity",
     "weighted_average",
+    "where",
 }
 
 ANALYSIS_PUBLIC = {

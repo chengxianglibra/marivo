@@ -480,6 +480,42 @@ def test_semantic_object_details_render_points_to_verify_and_readiness(
     assert "certify authored changes" in rendered
 
 
+def test_simple_metric_details_carry_and_render_filter(semantic_project_factory) -> None:
+    """A filtered count must be distinguishable from an unfiltered one in details:
+    the filter is part of the persistent metric definition, so it is carried on
+    SimpleMetricDetails and rendered. See MR !29 review P1.
+    """
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+                orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+
+                @ms.dimension(entity=orders)
+                def region(table):
+                    return table.region
+
+                all_count = ms.count(name="all_count", entity=orders)
+                failed_count = ms.count(
+                    name="failed_count", entity=orders, filter=ms.where(region="FAILED")
+                )
+            """),
+        }
+    )
+    catalog = SemanticCatalog(project)
+    all_details = catalog.get("metric.sales.all_count").details()
+    failed_details = catalog.get("metric.sales.failed_count").details()
+    assert isinstance(all_details, SimpleMetricDetails)
+    assert isinstance(failed_details, SimpleMetricDetails)
+    assert all_details.filter is None
+    assert failed_details.filter == (("region", "FAILED"),)
+    rendered = failed_details.render()
+    assert "filter" in rendered.lower()
+    assert "region=FAILED" in rendered
+
+
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms

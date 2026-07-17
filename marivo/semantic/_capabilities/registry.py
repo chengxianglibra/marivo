@@ -81,6 +81,8 @@ INPUT_FAMILIES = frozenset(
         "HourPrefixSpec",
         "GrainToDateSpec",
         "TrailingSpec",
+        "WhereFilter",
+        "FilterConditions",
     }
 )
 
@@ -115,6 +117,7 @@ OUTPUT_FAMILIES = frozenset(
         "TrailingSpec",
         "None",
         "Text",
+        "WhereFilter",
     }
 )
 
@@ -361,10 +364,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_declarations.aggregate",
             "Declare an aggregate metric from a measure.",
             output="MetricRef",
-            inputs=_inputs(
-                ("mapping_key", "MetricName"),
-                ("subject", "MeasureRef"),
-                ("dependency", "AggFunc"),
+            inputs=(
+                AuthoringInputRequirement(role="mapping_key", family="MetricName"),
+                AuthoringInputRequirement(role="subject", family="MeasureRef"),
+                AuthoringInputRequirement(role="dependency", family="AggFunc"),
+                _optional_input("dependency", "WhereFilter"),
             ),
             effects=_AUTHOR,
             constraints=(
@@ -372,20 +376,37 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "composition_shape",
                 "measure_aggregation_valid",
             ),
-            example="revenue = ms.aggregate(name='revenue', measure=amount, agg='sum')",
+            example=(
+                "us_revenue = ms.aggregate(name='us_revenue', measure=amount, agg='sum', "
+                "filter=ms.where(region='US'))"
+            ),
         ),
         _capability(
             "count",
             "marivo.semantic._authoring_declarations.count",
             "Declare a count metric on an entity.",
             output="MetricRef",
-            inputs=_inputs(
-                ("mapping_key", "MetricName"),
-                ("subject", "EntityRef"),
+            inputs=(
+                AuthoringInputRequirement(role="mapping_key", family="MetricName"),
+                AuthoringInputRequirement(role="subject", family="EntityRef"),
+                _optional_input("dependency", "WhereFilter"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "composition_shape"),
-            example="order_count = ms.count(name='order_count', entity=orders)",
+            example=(
+                "failed = ms.count(name='failed', entity=orders, filter=ms.where(state='FAILED'))"
+            ),
+        ),
+        _capability(
+            "where",
+            "marivo.semantic._authoring_declarations.where",
+            "Build an AND equality filter for ms.count/aggregate (subset count/aggregate).",
+            output="WhereFilter",
+            inputs=_inputs(("subject", "FilterConditions")),
+            effects=_NONE,
+            constraints=("ref_shape",),
+            example="ms.where(state='FAILED')",
+            see_also=(_target("count"), _target("aggregate")),
         ),
         _capability(
             "cumulative",
