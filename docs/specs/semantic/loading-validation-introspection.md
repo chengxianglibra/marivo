@@ -115,7 +115,10 @@ Every container object's bounded `render()` / `show()` card advertises its live
 navigation properties and counts. A domain card includes a `navigation:` section
 listing each valid child collection with its count, so the agent discovers
 `.entities`, `.metrics`, etc. from real state rather than memorizing a matrix.
-Leaf object cards advertise `details()`, `render()`, and `show()`.
+Leaf object cards advertise `details()`, `contract()`, `render()`, and `show()`.
+Metric cards additionally summarize composition and candidate-axis counts, and
+point to `details().show()` for the full authored definition and static analysis
+scope.
 
 ### Lookup rules
 
@@ -147,6 +150,13 @@ text). Every details type exposes `ref`, `kind`, `name`, `domain`, `context`,
 `env_refs`; entity `datasource`/`source`/`primary_key`/`versioning`; measure
 `additivity`/`unit`; time dimension parse/granularity/timezone; metric
 entity/composition/additivity/provenance/parity/unit; relationship join keys).
+Metric details also expose `effective_entities`, `candidate_dimensions`,
+`candidate_time_dimensions`, and role-keyed `measure_lineage`. Derived metrics
+keep their authored `entities=()` shape; effective entities and measures are
+projected recursively from composition components. Candidate axes are dimensions
+owned directly by those effective entities. They are static discovery facts, not
+a promise that every cross-entity relationship or fanout plan is executable;
+`session.observe(...)` remains the authority for plan validity.
 Secrets appear only as env-var *names* — a resolved secret value is never
 rendered.
 
@@ -163,6 +173,11 @@ methods **do not write stdout**; inspection is explicit and silent by default:
 - `result.show()` — print a bounded result card and return `None`.
 - `result.render()` — return the same bounded text without writing stdout.
 - `repr(result)` — a one-line cold-start hint pointing to `.show()`.
+
+State-bearing objects additionally return a structured continuation value from
+`.contract()`. Its default representation and `show()`/`render()` output are
+bounded transition summaries; callers that need machine detail read `states`,
+`transitions`, or `model_dump()` explicitly.
 
 Catalog browsing returns a `CatalogCollection` (not a raw list); use `.items`,
 `.refs()`, `.render()`, and `.show()`. This is the semantic-layer instance of the

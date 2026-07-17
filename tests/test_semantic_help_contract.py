@@ -156,6 +156,18 @@ def test_help_text_semantic_catalog_type() -> None:
     assert _DATASOURCE_IMPORT not in text
 
 
+def test_help_text_metric_type_distinguishes_inspection_display_and_continuation() -> None:
+    text = ms.help_text(ms.Metric)
+
+    assert ".details() for structured semantic metadata" in text
+    assert ".details().show() for bounded readable detail" in text
+    assert ".show() prints the same bounded card returned by .render()" in text
+    assert (
+        ".contract() only exposes mechanically executable verify, preview, and readiness actions"
+        in text
+    )
+
+
 def test_help_text_verify_result_type() -> None:
     text = ms.help_text(ms.VerifyResult)
     assert "VerifyResult" in text

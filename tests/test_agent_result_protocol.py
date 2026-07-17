@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as ma
 import marivo.analysis.frames as analysis_frames
+from marivo._authoring.model import AuthoringContract, AuthoringStateRef
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
@@ -57,6 +58,17 @@ def test_agent_result_is_runtime_checkable() -> None:
             return result_repr("X id=1")
 
     assert isinstance(_Conforming(), AgentResult)
+
+
+def test_authoring_contract_conforms_to_agent_result() -> None:
+    contract = AuthoringContract(
+        subject_refs=("sales.revenue",),
+        states=(AuthoringStateRef(id="semantic.loaded", subject_refs=("sales.revenue",)),),
+        transitions=(),
+    )
+
+    assert_conforms(contract)
+    assert contract.model_dump()["states"][0]["id"] == "semantic.loaded"
 
 
 def assert_conforms(obj: object) -> None:

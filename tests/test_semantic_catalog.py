@@ -1234,6 +1234,129 @@ def test_catalog_metric_details_components_are_role_keyed(semantic_project_facto
     assert "components: numerator=sales.revenue, denominator=sales.order_count" in rendered
 
 
+def test_metric_details_project_effective_scope_and_measure_lineage(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": textwrap.dedent("""\
+                import marivo.datasource as md
+                import marivo.semantic as ms
+
+                queries = ms.entity(
+                    name="queries",
+                    datasource=md.ref("datasource.warehouse"),
+                    source=md.table("queries"),
+                )
+                cluster = ms.dimension_column(
+                    name="cluster", entity=queries, column="cluster"
+                )
+                occurred_at = ms.time_dimension_column(
+                    name="occurred_at",
+                    entity=queries,
+                    column="occurred_at",
+                    granularity="second",
+                    parse=ms.timestamp(timezone="UTC"),
+                )
+                cache_bytes = ms.measure_column(
+                    name="cache_bytes",
+                    entity=queries,
+                    column="cache_bytes",
+                    additivity="additive",
+                )
+                input_bytes = ms.measure_column(
+                    name="input_bytes",
+                    entity=queries,
+                    column="input_bytes",
+                    additivity="additive",
+                )
+                total_cache_bytes = ms.aggregate(
+                    name="total_cache_bytes", measure=cache_bytes, agg="sum"
+                )
+                total_input_bytes = ms.aggregate(
+                    name="total_input_bytes", measure=input_bytes, agg="sum"
+                )
+                query_count = ms.count(name="query_count", entity=queries)
+                cache_hit_rate = ms.ratio(
+                    name="cache_hit_rate",
+                    numerator=total_cache_bytes,
+                    denominator=total_input_bytes,
+                )
+                weighted_cache = ms.weighted_average(
+                    name="weighted_cache",
+                    value=total_cache_bytes,
+                    weight=total_input_bytes,
+                )
+                cache_total = ms.linear(
+                    name="cache_total", add=[total_cache_bytes, total_input_bytes]
+                )
+                cumulative_cache = ms.cumulative(
+                    name="cumulative_cache", base=total_cache_bytes, over=occurred_at
+                )
+                nested_rate = ms.ratio(
+                    name="nested_rate",
+                    numerator=cache_hit_rate,
+                    denominator=query_count,
+                )
+            """),
+        }
+    )
+    catalog = SemanticCatalog(project)
+
+    simple = catalog.get("metric.sales.total_cache_bytes").details()
+    assert isinstance(simple, SimpleMetricDetails)
+    assert simple.entities == (make_ref("sales.queries", SemanticKind.ENTITY),)
+    assert simple.effective_entities == simple.entities
+    assert simple.measure_lineage == (
+        ("measure", make_ref("sales.queries.cache_bytes", SemanticKind.MEASURE)),
+    )
+
+    count = catalog.get("metric.sales.query_count").details()
+    assert isinstance(count, SimpleMetricDetails)
+    assert count.measure_lineage == ()
+
+    ratio = catalog.get("metric.sales.cache_hit_rate").details()
+    assert isinstance(ratio, DerivedMetricDetails)
+    assert ratio.entities == ()
+    assert ratio.effective_entities == (make_ref("sales.queries", SemanticKind.ENTITY),)
+    assert ratio.candidate_dimensions == (
+        make_ref("sales.queries.cluster", SemanticKind.DIMENSION),
+    )
+    assert ratio.candidate_time_dimensions == (
+        make_ref("sales.queries.occurred_at", SemanticKind.TIME_DIMENSION),
+    )
+    assert ratio.measure_lineage == (
+        ("numerator", make_ref("sales.queries.cache_bytes", SemanticKind.MEASURE)),
+        ("denominator", make_ref("sales.queries.input_bytes", SemanticKind.MEASURE)),
+    )
+
+    expected_lineage_by_metric = {
+        "metric.sales.weighted_cache": ("value", "weight"),
+        "metric.sales.cache_total": ("term0", "term1"),
+        "metric.sales.cumulative_cache": ("base",),
+        "metric.sales.nested_rate": (
+            "numerator.numerator",
+            "numerator.denominator",
+        ),
+    }
+    for metric_id, expected_roles in expected_lineage_by_metric.items():
+        details = catalog.get(metric_id).details()
+        assert isinstance(details, DerivedMetricDetails)
+        assert tuple(role for role, _ref in details.measure_lineage) == expected_roles
+
+    rendered = ratio.render()
+    assert "effective_entities: sales.queries" in rendered
+    assert "candidate_dimensions: sales.queries.cluster" in rendered
+    assert "candidate_time_dimensions: sales.queries.occurred_at" in rendered
+    assert "measure_lineage: numerator=sales.queries.cache_bytes" in rendered
+
+    metric_card = catalog.get("metric.sales.cache_hit_rate").render()
+    assert "composition: ratio (2 components)" in metric_card
+    assert "analysis_scope: 1 effective entities; 1 candidate dimensions;" in metric_card
+    assert ".details().show() for definition, candidate axes, and measure lineage" in metric_card
+
+
 def test_catalog_time_dimension_details_include_sample_interval(semantic_project_factory):
     project = semantic_project_factory(
         {

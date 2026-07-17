@@ -107,3 +107,35 @@ def test_render_contract_empty_transitions_disclosed():
     text = render_contract(contract, max_lines=80, max_codepoints=4000)
     # No mechanically invokable continuation is disclosed, not silently empty.
     assert "no" in text.lower() or "none" in text.lower() or "0" in text
+
+
+def test_authoring_contract_is_a_bounded_self_rendering_result(capsys):
+    contract = AuthoringContract(
+        subject_refs=("metric:sales",),
+        states=(AuthoringStateRef(id="semantic.loaded", subject_refs=("metric:sales",)),),
+        transitions=(_transition(True),),
+    )
+
+    assert repr(contract) == (
+        "<AuthoringContract subjects=1 states=1 transitions=1; call .show() to inspect>"
+    )
+    assert "input_requirements=" not in repr(contract)
+    assert str(contract) == contract.render()
+    assert contract.model_dump()["subject_refs"] == ("metric:sales",)
+    assert contract.show() is None
+    assert capsys.readouterr().out == contract.render() + "\n"
+
+
+def test_authoring_contract_summarizes_large_readiness_batches():
+    refs = tuple(f"metric.sales.m{i}" for i in range(110))
+    contract = AuthoringContract(
+        subject_refs=refs,
+        states=tuple(AuthoringStateRef(id="semantic.ready", subject_refs=(ref,)) for ref in refs),
+        transitions=(),
+    )
+
+    text = contract.render()
+
+    assert "- semantic.ready (subjects=110)" in text
+    assert text.count("- semantic.ready") == 1
+    assert text.count("\n") + 1 <= 120
