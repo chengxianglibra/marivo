@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -415,7 +414,7 @@ def test_pct_change_marks_from_zero_growth():
     )
 
     assert len(aligned) == 1
-    assert aligned.iloc[0]["pct_change"] == np.inf
+    assert pd.isna(aligned.iloc[0]["pct_change"])
     assert aligned.iloc[0]["pct_change_status"] == "from_zero_growth"
 
 

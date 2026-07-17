@@ -38,11 +38,12 @@ def compute_delta_columns(
     df.loc[nonzero_baseline, status_column] = "computed"
 
     from_zero_growth = zero_baseline & (delta > 0)
-    df.loc[from_zero_growth, pct_change_column] = np.inf
+    # pct_change is undefined for a zero baseline; leave it null (not +inf) so
+    # the column stays finite and does not poison downstream sorts/aggregates.
+    # pct_change_status still marks the from-zero-growth case. See issue #30.
     df.loc[from_zero_growth, status_column] = "from_zero_growth"
 
     from_zero_decline = zero_baseline & (delta < 0)
-    df.loc[from_zero_decline, pct_change_column] = -np.inf
     df.loc[from_zero_decline, status_column] = "from_zero_decline"
 
     zero_no_change = zero_baseline & (delta == 0)
