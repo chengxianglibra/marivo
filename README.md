@@ -107,8 +107,8 @@ management, and evidence collection.
 ## Development
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev,duckdb,trino]"
+uv venv --python 3.12 --seed
+uv pip install --python .venv/bin/python -e ".[dev,duckdb,trino]"
 ```
 
 Use the repository entrypoints for checks:

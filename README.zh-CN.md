@@ -72,8 +72,8 @@ curl -fsSL https://marivo.io/install.sh | bash
 ## 开发
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev,duckdb,trino]"
+uv venv --python 3.12 --seed
+uv pip install --python .venv/bin/python -e ".[dev,duckdb,trino]"
 ```
 
 通过仓库入口执行检查：
