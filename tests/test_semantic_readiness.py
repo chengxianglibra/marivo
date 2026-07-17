@@ -148,6 +148,108 @@ def test_project_readiness_accepts_refs_argument(
     assert report.input_summary.refs == ("sales.orders",)
 
 
+def test_analysis_ready_refs_include_only_direct_requests(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    from marivo.semantic import preview_checks
+    from marivo.semantic.preview_checks import PreviewEvidenceRequirement
+
+    project = _project(
+        semantic_project_factory,
+        _READY_DOMAIN_PY
+        + textwrap.dedent("""\
+
+            double_amount = ms.linear(
+                name="double_amount",
+                add=[total_amount, total_amount],
+                ai_context=ms.ai_context(
+                    business_definition="Twice the total order amount.",
+                    guardrails=["Use only when a doubled amount is explicitly requested."],
+                ),
+            )
+        """),
+    )
+    monkeypatch.setattr(
+        preview_checks,
+        "preview_evidence_requirement",
+        lambda *_args, **_kwargs: PreviewEvidenceRequirement(
+            status="matched",
+            repair=AuthoringRepair(
+                kind="retry",
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="readiness"),
+                action="Matching preview evidence is available.",
+            ),
+        ),
+    )
+
+    report = project.readiness(refs=("sales.double_amount",))
+
+    assert report.status == "ready"
+    assert report.input_summary.refs == (
+        "sales.double_amount",
+        "sales.total_amount",
+        "sales.orders",
+    )
+    assert report.analysis_ready_refs == ("sales.double_amount",)
+
+
+def test_dependency_blocker_excludes_direct_request_from_analysis_ready_refs(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    from marivo.semantic import preview_checks
+    from marivo.semantic.preview_checks import PreviewEvidenceRequirement
+
+    project = _project(
+        semantic_project_factory,
+        textwrap.dedent("""\
+            import marivo.datasource as md
+            import marivo.semantic as ms
+
+            orders = ms.entity(
+                name="orders",
+                datasource=md.ref("datasource.warehouse"),
+                source=md.table("orders"),
+                ai_context=ms.ai_context(
+                    business_definition="One row per paid order.",
+                    guardrails=["Exclude test orders."],
+                ),
+            )
+            total_orders = ms.count(name="total_orders", entity=orders)
+            double_orders = ms.linear(
+                name="double_orders",
+                add=[total_orders, total_orders],
+                ai_context=ms.ai_context(
+                    business_definition="Twice the total order count.",
+                    guardrails=["Use only when a doubled count is explicitly requested."],
+                ),
+            )
+        """),
+    )
+    monkeypatch.setattr(
+        preview_checks,
+        "preview_evidence_requirement",
+        lambda *_args, **_kwargs: PreviewEvidenceRequirement(
+            status="matched",
+            repair=AuthoringRepair(
+                kind="retry",
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="readiness"),
+                action="Matching preview evidence is available.",
+            ),
+        ),
+    )
+
+    report = project.readiness(refs=("sales.double_orders",))
+
+    assert report.status == "blocked"
+    assert any(
+        issue.kind == "missing_business_definition" and issue.refs == ("sales.total_orders",)
+        for issue in report.blockers
+    )
+    assert report.analysis_ready_refs == ()
+
+
 def test_project_readiness_accepts_semantic_ref_objects(
     semantic_project_factory,
 ) -> None:

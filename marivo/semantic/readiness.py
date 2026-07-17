@@ -99,31 +99,33 @@ class ReadinessReport(RenderableResult):
             ),
         )
         if self.blockers:
-            runtime_preview_blockers = tuple(
-                issue for issue in self.blockers if issue.kind == "runtime_preview_missing"
-            )
             blocker_items = [
                 f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
                 for i in self.blockers
-                if i.kind != "runtime_preview_missing"
             ]
-            if runtime_preview_blockers:
-                blocker_items.append(
-                    "runtime_preview_missing: "
-                    f"{len(self.preview_required_refs)} refs require runtime preview -> fix: "
-                    "catalog.preview(refs=report.preview_required_refs, using=...)"
-                )
             card = card.listing(
                 label=f"blockers ({len(self.blockers)})",
                 items=tuple(blocker_items),
             )
         if self.warnings:
+            preview_warnings = tuple(
+                issue for issue in self.warnings if issue.kind == "runtime_preview_missing"
+            )
+            warning_items = [
+                f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
+                for i in self.warnings
+                if i.kind != "runtime_preview_missing"
+            ]
+            if preview_warnings:
+                warning_items.append(
+                    "runtime_preview_missing: "
+                    f"{len(self.preview_required_refs)} refs are not currently preview-certified; "
+                    "analysis may proceed -> optional fix: "
+                    "catalog.preview(refs=report.preview_required_refs, using=...)"
+                )
             card = card.listing(
                 label=f"warnings ({len(self.warnings)})",
-                items=tuple(
-                    f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
-                    for i in self.warnings
-                ),
+                items=tuple(warning_items),
             )
         if self.analysis_ready_refs:
             card = card.field(label="analysis_ready", value=", ".join(self.analysis_ready_refs))
@@ -150,7 +152,10 @@ class ReadinessReport(RenderableResult):
             contract_for_readiness_report,
         )
 
-        return contract_for_readiness_report(self.analysis_ready_refs, self.blockers)
+        return contract_for_readiness_report(
+            self.analysis_ready_refs,
+            self.blockers + self.warnings,
+        )
 
 
 class _SemanticKind(StrEnum):
@@ -614,12 +619,13 @@ def build_readiness_report(
                     )
                 )
                 continue
-            blockers.append(
+            warnings.append(
                 _issue(
                     "runtime_preview_missing",
-                    "blocker",
+                    "warning",
                     (ref,),
-                    f"{ref} has no preview check matching its current definition and dependencies.",
+                    f"{ref} has no preview check matching its current definition and dependencies; "
+                    "analysis may proceed, but preview is still required to certify an authoring change.",
                     repair=requirement.repair,
                 )
             )
@@ -715,9 +721,16 @@ def build_readiness_report(
             )
 
     blocked_refs = _refs_with_issue(blockers)
-    analysis_ready_refs = tuple(ref for ref in checked_refs if ref not in blocked_refs)
+    analysis_ready_refs = tuple(
+        ref
+        for ref in direct_refs
+        if blocked_refs.isdisjoint(_expand_checked_refs((ref,), kinds, objects)[0])
+    )
     preview_required_ids = _dedupe(
-        ref for issue in blockers if issue.kind == "runtime_preview_missing" for ref in issue.refs
+        ref
+        for issue in (*blockers, *warnings)
+        if issue.kind == "runtime_preview_missing"
+        for ref in issue.refs
     )
     preview_required_refs = tuple(
         make_ref(ref, SymbolKind(kinds[ref].value)) for ref in preview_required_ids if ref in kinds

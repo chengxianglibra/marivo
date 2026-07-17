@@ -145,9 +145,10 @@ agent's behalf, or advance to readiness automatically. It is not a third public
 `marivo.authoring` module and is not exposed for user mutation.
 
 `ReadinessReport.analysis_ready_refs` is the direct semantic-to-analysis
-contract. It lists the refs that passed the current scoped certification;
-blockers and warnings remain on the same report. No additional transfer object
-or hidden authoring API exists between readiness and ordinary analysis
+contract. It lists only directly requested refs whose dependency closures have
+no blocker; dependency refs remain diagnostic input rather than leaking into the
+handoff. Blockers and warnings remain on the same report. No additional transfer
+object or hidden authoring API exists between readiness and ordinary analysis
 operations.
 
 ## Relationship to prior schema designs

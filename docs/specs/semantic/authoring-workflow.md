@@ -271,11 +271,12 @@ treats any `unverified` metric (including via derived propagation) as a failure.
   preview evidence. It batches compatible execution plans but persists exact
   evidence per object; it does not replace the one-object authoring loop.
 - **`catalog.readiness(refs=[obj])`** is the final zero-query closeout gate. It
-  reads matching static and runtime-check evidence, enforces preview evidence
-  for executable families, and never refreshes automatically. Evidence age is
-  reported through snapshot metadata but does not block readiness or force a
-  new datasource query. On success it exposes the certified refs through
-  `ReadinessReport.analysis_ready_refs`.
+  reads matching static and runtime-check evidence, reports missing or stale
+  preview evidence as an advisory, and never refreshes automatically. Evidence
+  age is reported through snapshot metadata but does not block readiness or
+  force a new datasource query. Authoring policy still requires preview repair
+  before closeout. Refs whose dependency closures have no blocker are exposed
+  through `ReadinessReport.analysis_ready_refs`.
 
 `ms.parity_check(...)` is an optional, potentially unbounded provenance SQL
 diagnostic and is never readiness-required. `ms.richness(...)` remains advisory.
@@ -298,6 +299,7 @@ remains:
 
 These are warnings, not blockers — analysis may proceed after they are disclosed:
 
+- runtime preview evidence is missing or stale for an already-authored ref;
 - a provenance-bearing metric is still `unverified`, or its parity is `drifted`;
 - a metric is trusted without provenance;
 - the preview sample is small but materialization succeeded;

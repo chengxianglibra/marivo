@@ -533,7 +533,8 @@ if report.status == "blocked":
 project 可以在 readiness 仍被阻塞时成功 `load()`，因为加载和认证回答不同问题。Analysis APIs
 会加载、解析、规划并在运行时检查输入，但不会自动调用 readiness。Blocked report 需要在声明
 semantic change 完成之前修复；日常分析复用未变化的 objects 时，不必在每次调用前重跑
-readiness。
+readiness。缺失或不匹配的 runtime preview certification 会显示为 warning 而不是 blocker：
+日常分析先披露再继续，authoring closeout 前完成修复。
 :::
 
 另外两个检查支持 authoring：

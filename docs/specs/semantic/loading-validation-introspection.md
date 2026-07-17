@@ -89,7 +89,7 @@ exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
 `ReadinessReport.preview_required_refs` is the canonical typed input for batch
-preview repair. The report keeps per-ref blockers for structured diagnostics,
+preview repair. The report keeps per-ref advisories for structured diagnostics,
 groups them in bounded rendering, and exposes one batch preview transition from
 `.contract()`. Entity preview evidence never satisfies child refs.
 
@@ -284,8 +284,10 @@ Two checks sit at the end of the write loop:
   never writes stdout, and never queries. Analysis APIs do not invoke it
   automatically.
   `catalog.preview(..., using=...)` persists scoped runtime metadata that
-  readiness consumes; readiness enforces structurally matching preview evidence for
-  executable families (`static_only`, `single_snapshot`, `snapshot_mapping`).
+  readiness consumes. Missing or stale preview evidence for executable families
+  (`static_only`, `single_snapshot`, `snapshot_mapping`) is a visible advisory,
+  not an analysis blocker; authoring policy still requires repairing it before
+  declaring a new or changed object complete.
   Snapshot and preview age are retained as reference metadata and never block
   readiness or trigger implicit reacquisition.
   A native `ms.datetime()` or `ms.timestamp()` axis without `timezone=` is a
@@ -310,9 +312,10 @@ a readiness requirement. All three return silent result objects with `.show()` /
 
 ### Analysis-ready refs
 
-`ReadinessReport.analysis_ready_refs` is the complete result-owned list of refs
-that passed the current scoped readiness check. A blocker removes its affected
-refs from that list; warnings remain visible on the same report and require an
+`ReadinessReport.analysis_ready_refs` is the result-owned list of directly
+requested refs whose full dependency closures contain no blocker. Dependency
+refs remain visible in `input_summary.refs` but are never leaked into the
+analysis handoff. Warnings remain visible on the same report and require an
 explicit proceed-or-stop decision by the caller.
 
 The report does not create a second transfer object or validation token. After
