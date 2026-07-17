@@ -165,6 +165,7 @@ drill-down。
 `observe` 返回的 frame 调用 `to_pandas()` 时，值列命名不受 arity 影响：每个
 metric 各占一列，默认使用 metric 短名；名称冲突时使用限定后的 metric id。
 因此 single 与 multi-metric 观测结果可以直接 merge，无需按 arity 单独 rename。
+用 `frame.value_columns` 可读取实际导出的值列名。
 
 ```python
 report = session.observe(

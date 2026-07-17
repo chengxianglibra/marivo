@@ -97,6 +97,21 @@ def test_same_entity_metrics_fuse_into_one_query(sales_session, monkeypatch):
     assert list(frame.columns) == ["bucket_start", "revenue", "order_count"]
 
 
+def test_value_columns_exposes_metric_value_columns_regardless_of_arity(sales_session):
+    """value_columns exposes the metric-named columns exported by to_pandas()."""
+    catalog = sales_session.catalog
+    multi = observe(
+        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.order_count")],
+        time_scope=WINDOW,
+        grain="day",
+        session=sales_session,
+    )
+    assert multi.value_columns == ("revenue", "order_count")
+    # The exposed names match the DataFrame value columns exactly.
+    multi_df = multi.to_pandas()
+    assert set(multi.value_columns) <= set(multi_df.columns)
+
+
 def test_fused_values_match_single_observes(sales_session):
     catalog = sales_session.catalog
     fused = observe(

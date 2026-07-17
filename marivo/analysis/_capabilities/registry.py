@@ -79,7 +79,7 @@ PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "shape",
             "columns",
         ),
-        "MetricFrame": ("semantic_shape", "metrics", "arity", "transform"),
+        "MetricFrame": ("semantic_shape", "metrics", "arity", "value_columns", "transform"),
         "DeltaFrame": ("semantic_shape", "transform"),
         "AttributionFrame": ("attribution_shape",),
     }
