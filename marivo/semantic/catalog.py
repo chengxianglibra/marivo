@@ -411,6 +411,10 @@ class TimeDimensionDetails(_DetailsBase):
 def _metric_common_sections(
     *,
     entities: tuple[SemanticRef, ...],
+    effective_entities: tuple[SemanticRef, ...],
+    candidate_dimensions: tuple[SemanticRef, ...],
+    candidate_time_dimensions: tuple[SemanticRef, ...],
+    measure_lineage: tuple[tuple[str, SemanticRef], ...],
     root_entity: SemanticRef | None,
     metric_type: Literal["simple", "derived"],
     additivity: Literal["additive", "semi_additive", "non_additive"],
@@ -424,10 +428,23 @@ def _metric_common_sections(
     """Render sections shared by all metric detail variants."""
     sections: list[Section] = [
         FieldSection(label="entities", value=_format_refs(entities)),
+        FieldSection(label="effective_entities", value=_format_refs(effective_entities)),
+        FieldSection(label="candidate_dimensions", value=_format_refs(candidate_dimensions)),
+        FieldSection(
+            label="candidate_time_dimensions",
+            value=_format_refs(candidate_time_dimensions),
+        ),
         FieldSection(label="root_entity", value=_format_ref(root_entity)),
         FieldSection(label="type", value=metric_type),
         FieldSection(label="additivity", value=additivity),
     ]
+    if measure_lineage:
+        sections.append(
+            FieldSection(
+                label="measure_lineage",
+                value=", ".join(f"{role}={ref.id}" for role, ref in measure_lineage),
+            )
+        )
     if fold is not None:
         sections.append(FieldSection(label="fold", value=f"{fold} over {status_time_dimension}"))
     sections.append(FieldSection(label="fanout_policy", value=fanout_policy))
@@ -461,6 +478,10 @@ class SimpleMetricDetails(_DetailsBase):
     aggregation_target: SemanticRef | None = None
     aggregation_target_kind: Literal["measure", "entity"] | None = None
     filter: tuple[tuple[str, WhereValue], ...] | None = None
+    effective_entities: tuple[SemanticRef, ...] = ()
+    candidate_dimensions: tuple[SemanticRef, ...] = ()
+    candidate_time_dimensions: tuple[SemanticRef, ...] = ()
+    measure_lineage: tuple[tuple[str, SemanticRef], ...] = ()
 
     @property
     def metric_type(self) -> Literal["simple"]:
@@ -478,6 +499,10 @@ class SimpleMetricDetails(_DetailsBase):
         sections.extend(
             _metric_common_sections(
                 entities=self.entities,
+                effective_entities=self.effective_entities,
+                candidate_dimensions=self.candidate_dimensions,
+                candidate_time_dimensions=self.candidate_time_dimensions,
+                measure_lineage=self.measure_lineage,
                 root_entity=self.root_entity,
                 metric_type=self.metric_type,
                 additivity=self.additivity,
@@ -532,6 +557,10 @@ class DerivedMetricDetails(_DetailsBase):
     unit: str | None
     provenance: SqlProvenance | None
     parity_status: ParityStatus
+    effective_entities: tuple[SemanticRef, ...] = ()
+    candidate_dimensions: tuple[SemanticRef, ...] = ()
+    candidate_time_dimensions: tuple[SemanticRef, ...] = ()
+    measure_lineage: tuple[tuple[str, SemanticRef], ...] = ()
 
     @property
     def metric_type(self) -> Literal["derived"]:
@@ -549,6 +578,10 @@ class DerivedMetricDetails(_DetailsBase):
         sections.extend(
             _metric_common_sections(
                 entities=self.entities,
+                effective_entities=self.effective_entities,
+                candidate_dimensions=self.candidate_dimensions,
+                candidate_time_dimensions=self.candidate_time_dimensions,
+                measure_lineage=self.measure_lineage,
                 root_entity=self.root_entity,
                 metric_type=self.metric_type,
                 additivity=self.additivity,
@@ -846,6 +879,35 @@ class Metric(CatalogObject):
 
     def details(self) -> MetricDetails:
         return cast("MetricDetails", self._details)
+
+    def _card(self) -> Card:
+        details = self.details()
+        if isinstance(details, DerivedMetricDetails):
+            composition = f"{details.composition} ({len(details.components)} components)"
+        elif details.aggregation is not None:
+            target = details.measure or details.aggregation_target
+            composition = (
+                f"{details.aggregation} of {target.id}"
+                if target is not None
+                else details.aggregation
+            )
+        else:
+            composition = "expression body"
+        scope = (
+            f"{len(details.effective_entities)} effective entities; "
+            f"{len(details.candidate_dimensions)} candidate dimensions; "
+            f"{len(details.candidate_time_dimensions)} candidate time dimensions"
+        )
+        return (
+            super()
+            ._card()
+            .field(label="composition", value=composition)
+            .field(label="analysis_scope", value=scope)
+            .field(
+                label="inspect",
+                value=".details().show() for definition, candidate axes, and measure lineage",
+            )
+        )
 
 
 class Relationship(CatalogObject):
@@ -1385,6 +1447,66 @@ def _aggregation_target_ref(m_ir: MetricIR) -> SemanticRef | None:
     return make_ref(target, kind)
 
 
+def _metric_analysis_metadata(
+    metric_ir: MetricIR,
+    registry: Registry,
+) -> tuple[
+    tuple[SemanticRef, ...],
+    tuple[SemanticRef, ...],
+    tuple[SemanticRef, ...],
+    tuple[tuple[str, SemanticRef], ...],
+]:
+    """Project recursive metric dependencies into static analysis metadata."""
+    effective_entity_ids: dict[str, None] = {}
+    measure_lineage: list[tuple[str, SemanticRef]] = []
+
+    def visit(current: MetricIR, *, role_path: str, active: frozenset[str]) -> None:
+        if current.semantic_id in active:
+            raise AssertionError(f"metric composition cycle reached catalog: {current.semantic_id}")
+        next_active = active | {current.semantic_id}
+        for entity_id in current.entities:
+            effective_entity_ids.setdefault(entity_id, None)
+        if current.measure is not None:
+            measure_lineage.append(
+                (role_path or "measure", make_ref(current.measure, SemanticKind.MEASURE))
+            )
+        if current.composition is None:
+            return
+        for role, component_id in composition_components(current.composition).items():
+            component = registry.metrics.get(component_id)
+            if component is None:
+                raise AssertionError(
+                    f"metric composition component missing from ready catalog: {component_id}"
+                )
+            component_path = f"{role_path}.{role}" if role_path else role
+            visit(component, role_path=component_path, active=next_active)
+
+    visit(metric_ir, role_path="", active=frozenset())
+    effective_entities = tuple(
+        make_ref(entity_id, SemanticKind.ENTITY) for entity_id in effective_entity_ids
+    )
+    candidate_dimensions: list[SemanticRef] = []
+    candidate_time_dimensions: list[SemanticRef] = []
+    for dimension in sorted(registry.dimensions.values(), key=lambda item: item.semantic_id):
+        if dimension.entity not in effective_entity_ids:
+            continue
+        target = candidate_time_dimensions if dimension.is_time_dimension else candidate_dimensions
+        target.append(
+            make_ref(
+                dimension.semantic_id,
+                SemanticKind.TIME_DIMENSION
+                if dimension.is_time_dimension
+                else SemanticKind.DIMENSION,
+            )
+        )
+    return (
+        effective_entities,
+        tuple(candidate_dimensions),
+        tuple(candidate_time_dimensions),
+        tuple(measure_lineage),
+    )
+
+
 def _build_metric_object(
     m_ir: MetricIR, reg: Registry, project: SemanticProject, catalog: SemanticCatalog
 ) -> Metric:
@@ -1397,6 +1519,12 @@ def _build_metric_object(
     )
     component_refs = tuple(r for _, r in components)
     aggregation_target = _aggregation_target_ref(m_ir)
+    (
+        effective_entities,
+        candidate_dimensions,
+        candidate_time_dimensions,
+        measure_lineage,
+    ) = _metric_analysis_metadata(m_ir, reg)
     linear_terms = (
         tuple((t.sign, t.metric) for t in m_ir.composition.terms)
         if isinstance(m_ir.composition, LinearComposition)
@@ -1448,6 +1576,10 @@ def _build_metric_object(
             unit=m_ir.unit,
             provenance=m_ir.provenance,
             parity_status=parity_status,
+            effective_entities=effective_entities,
+            candidate_dimensions=candidate_dimensions,
+            candidate_time_dimensions=candidate_time_dimensions,
+            measure_lineage=measure_lineage,
         )
     else:
         details = SimpleMetricDetails(
@@ -1476,6 +1608,10 @@ def _build_metric_object(
             aggregation_target_kind=m_ir.aggregation_target_kind
             or ("measure" if m_ir.measure else None),
             filter=m_ir.filter,
+            effective_entities=effective_entities,
+            candidate_dimensions=candidate_dimensions,
+            candidate_time_dimensions=candidate_time_dimensions,
+            measure_lineage=measure_lineage,
         )
     return _object_from_details(Metric, details, catalog)
 

@@ -82,7 +82,7 @@ catalog = session.catalog
 revenue = catalog.get("metric.sales.revenue")           # a metric object
 region = catalog.get("dimension.sales.orders.region")      # a dimension object
 
-revenue.details().show()     # 读取 business_definition 和 guardrails
+revenue.details().show()     # 读取定义、候选轴和 measure lineage
 region.details().show()
 ```
 
@@ -92,8 +92,11 @@ session 的精简 API 为 `get_or_create`、`current()`、`list()` 和 `delete(n
 
 用 `catalog.domains.show()` 和 scoped navigation 发现 refs，然后对本次分析会使用的每个
 metric、dimension 和 time dimension 调用 `.details().show()`。`details` 输出会展示已编写
-的 `ai_context`；如果所需 object 缺失或定义存在争议，首次 `observe` 前先回到 semantic
-authoring 处理。
+的 `ai_context`；metric details 还会展示 composition、effective entities、候选轴和 measure
+lineage。候选轴只用于静态发现，relationship 与 fanout 的有效性仍以 `observe` 为准。
+`.contract()` 只表示 verify/preview/readiness 等机械下一步；`.render()` 返回的 bounded card
+与 `.show()` 打印的内容相同。如果所需 object 缺失或定义存在争议，首次 `observe` 前先回到
+semantic authoring 处理。
 
 :::note[什么时候运行 readiness]
 新建或修改 semantic objects 后，或者某个 workflow 要求 technical certification 时，

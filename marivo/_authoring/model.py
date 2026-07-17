@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from marivo.introspection.live.model import HelpSurface, LiveHelpTarget
+from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 
 AuthoringStateId = Literal[
     "datasource.declared",
@@ -128,6 +129,38 @@ class AuthoringContract(BaseModel):
     subject_refs: tuple[str, ...]
     states: tuple[AuthoringStateRef, ...]
     transitions: tuple[AuthoringTransition, ...]
+
+    def _repr_identity(self) -> str:
+        return (
+            "AuthoringContract "
+            f"subjects={len(self.subject_refs)} "
+            f"states={len(self.states)} "
+            f"transitions={len(self.transitions)}"
+        )
+
+    def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
+        """Return a bounded summary while preserving typed fields for machine use."""
+        from marivo._authoring.render import render_contract
+        from marivo.introspection.live.model import SURFACE_LIMITS
+
+        return render_contract(
+            self,
+            max_lines=SURFACE_LIMITS.object_contract_render_max_lines,
+            max_codepoints=SURFACE_LIMITS.object_contract_render_max_codepoints,
+            max_output_bytes=max_output_bytes,
+        )
+
+    def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
+        """Print the bounded continuation summary."""
+        print(self.render(max_output_bytes=max_output_bytes))
+
+    def __repr__(self) -> str:
+        from marivo.render import result_repr
+
+        return result_repr(self._repr_identity())
+
+    def __str__(self) -> str:
+        return self.render()
 
 
 RepairKind = Literal[

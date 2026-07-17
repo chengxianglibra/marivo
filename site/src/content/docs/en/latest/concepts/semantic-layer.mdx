@@ -538,11 +538,15 @@ revenue.details().show()
 current = session.observe(revenue, grain="month", dimensions=[region])
 ~~~
 
-`details().show()` exposes the human-authored definition and guardrails. If the
-object is missing or disputed, return to semantic authoring. Otherwise the
-observation becomes the first artifact in the session's evidence-backed
-investigation. Newly authored or changed objects complete scoped readiness as
-part of their authoring closeout.
+`details().show()` exposes the human-authored definition, guardrails, composition,
+effective entities, candidate dimensions/time dimensions, and measure lineage.
+Candidate axes come from the metric's effective entities; `session.observe(...)`
+still validates cross-entity relationships and fanout. Use `.contract().show()`
+only for mechanical verify/preview/readiness continuations. `.show()` prints the
+same bounded card that `.render()` returns. If the object is missing or disputed,
+return to semantic authoring. Otherwise the observation becomes the first artifact
+in the session's evidence-backed investigation. Newly authored or changed objects
+complete scoped readiness as part of their authoring closeout.
 
 ### Load the model and certify changes
 

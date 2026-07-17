@@ -103,7 +103,7 @@ catalog = session.catalog
 revenue = catalog.get("metric.sales.revenue")           # a metric object
 region = catalog.get("dimension.sales.orders.region")      # a dimension object
 
-revenue.details().show()     # read business_definition and guardrails
+revenue.details().show()     # definition, candidate axes, and measure lineage
 region.details().show()
 ```
 
@@ -113,9 +113,13 @@ creates one, and sets it current. The narrow session API is `get_or_create`,
 
 Use `catalog.domains.show()` and scoped navigation to discover refs, then inspect
 every metric, dimension, and time dimension used by the analysis with
-`.details().show()`. The details output is where authored `ai_context` appears;
-if a required object is missing or disputed, return to semantic authoring before
-the first `observe`.
+`.details().show()`. The details output is where authored `ai_context`, metric
+composition, effective entities, candidate axes, and measure lineage appear.
+Candidate axes are static discovery; `observe` remains the authority for
+relationship and fanout validity. `.contract()` is reserved for mechanical
+verify/preview/readiness continuations, while `.render()` returns the same bounded
+card that `.show()` prints. If a required object is missing or disputed, return to
+semantic authoring before the first `observe`.
 
 :::note[When to run readiness]
 Run `catalog.readiness(refs=[...])` after authoring or changing semantic objects,

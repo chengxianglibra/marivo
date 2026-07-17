@@ -254,10 +254,23 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.append(
             "  Consumers: " + ", ".join(_target_text(target) for target in contract.consumers)
         )
-    if "show" in contract.public_methods:
+    if "details" in contract.public_methods:
+        lines.append(
+            "  Inspection: call .details() for structured semantic metadata; "
+            ".details().show() for bounded readable detail."
+        )
+    elif "show" in contract.public_methods:
         lines.append("  Detail: call .show() for bounded readable state.")
+    if "show" in contract.public_methods and "render" in contract.public_methods:
+        lines.append("  Display: .show() prints the same bounded card returned by .render().")
     if "contract" in contract.public_methods:
-        lines.append("  Continuation: call .contract() for mechanically valid next actions.")
+        if type_name == "Metric":
+            lines.append(
+                "  Continuation: .contract() only exposes mechanically executable "
+                "verify, preview, and readiness actions."
+            )
+        else:
+            lines.append("  Continuation: call .contract() for mechanically valid next actions.")
     return _bounded("\n".join(lines))
 
 

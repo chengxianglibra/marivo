@@ -500,9 +500,13 @@ revenue.details().show()
 current = session.observe(revenue, grain="month", dimensions=[region])
 ~~~
 
-`details().show()` 展示人类编写的定义与 guardrails。如果 object 缺失或定义存在争议，先回到
-semantic authoring；否则该 observation 会成为 session 中有 evidence 支撑的调查的第一个
-artifact。新建或修改的 object 把 scoped readiness 作为 authoring closeout 的一部分。
+`details().show()` 展示人类编写的定义、guardrails、composition、effective entities、候选
+普通/时间维度与 measure lineage。候选轴来自 metric 的 effective entities；跨实体 relationship
+与 fanout 仍由 `session.observe(...)` 验证。只有在读取 verify/preview/readiness 等机械下一步时
+才调用 `.contract().show()`；`.show()` 打印的内容与 `.render()` 返回的 bounded card 相同。
+如果 object 缺失或定义存在争议，先回到 semantic authoring；否则该 observation 会成为 session
+中有 evidence 支撑的调查的第一个 artifact。新建或修改的 object 把 scoped readiness 作为
+authoring closeout 的一部分。
 
 ### 加载模型并认证变更
 
