@@ -433,6 +433,59 @@ def test_correlate_normalizes_mismatched_bucket_start_dtypes():
     assert -1.0 <= result.meta.correlation <= 1.0
 
 
+def test_correlate_supports_spearman_and_kendall_methods():
+    """Non-parametric methods must be accepted, not just pearson. For a strictly
+    monotonic but non-linear relationship, spearman/kendall hit 1.0 while pearson
+    does not. See issue #29.
+    """
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0, 4.0]}), metric_id="sales.a")
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 10.0, 100.0, 1000.0]}),
+        metric_id="sales.b",
+    )
+
+    pearson = session.correlate(a, b, method="pearson")
+    spearman = session.correlate(a, b, method="spearman")
+    kendall = session.correlate(a, b, method="kendall")
+
+    assert pearson.meta.method == "pearson"
+    assert spearman.meta.method == "spearman"
+    assert kendall.meta.method == "kendall"
+    assert spearman.meta.correlation == pytest.approx(1.0)
+    assert kendall.meta.correlation == pytest.approx(1.0)
+    assert pearson.meta.correlation < 1.0
+
+
+def test_correlate_lag_range_explores_lags_and_marks_best():
+    """lag_range returns one row per lag and marks the lag with the strongest
+    association. Here b lags a by 2 positions, so lag=2 should recover r=1.0.
+    """
+    session = session_attach.get_or_create(name="demo")
+    a = _metric(
+        session,
+        pd.DataFrame({"value": [1.0, 3.0, 2.0, 5.0, 4.0, 6.0]}),
+        metric_id="sales.a",
+    )
+    # b is a shifted-by-2 copy of a (b[t] = a[t-2]); a non-monotonic so only lag 2
+    # recovers a perfect correlation.
+    b = _metric(
+        session,
+        pd.DataFrame({"value": [0.0, 0.0, 1.0, 3.0, 2.0, 5.0]}),
+        metric_id="sales.b",
+    )
+
+    result = session.correlate(a, b, lag_range=range(0, 4))
+
+    df = result.to_pandas()
+    assert list(df["lag_offset"]) == [0, 1, 2, 3]
+    assert df.loc[df["lag_offset"] == 2, "correlation"].iloc[0] == pytest.approx(1.0)
+    assert result.meta.best_lag == 2
+    assert result.meta.correlation == pytest.approx(1.0)
+    assert result.meta.lag_policy["mode"] == "range"
+
+
 def test_normalize_key_dtypes_casts_object_date_to_datetime64():
     """Unit test for the _normalize_key_dtypes helper."""
     from datetime import date

@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from time import monotonic
 from typing import Any, Literal, cast
@@ -52,7 +53,8 @@ def correlate(
     measure_a: str | None = None,
     measure_b: str | None = None,
     alignment: AlignmentPolicy | None = None,
-    method: Literal["pearson"] = "pearson",
+    method: Literal["pearson", "spearman", "kendall"] = "pearson",
+    lag_range: range | Sequence[int] | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
 ) -> AssociationResult:
@@ -93,8 +95,10 @@ def correlate(
             message="correlate requires matching semantic_kind",
             context={"a": a.meta.semantic_kind, "b": b.meta.semantic_kind},
         )
-    if method != "pearson":
+    if method not in {"pearson", "spearman", "kendall"}:
         raise SemanticKindMismatchError(message=f"unsupported correlation method {method!r}")
+    lags = _resolve_lags(lag_range)
+    lag_mode = "single" if lag_range is None else "range"
 
     started_at = datetime.now(UTC)
     started = monotonic()
@@ -103,39 +107,45 @@ def correlate(
     a_value = require_numeric_column(a_df, measure_a, purpose="correlate a")
     b_value = require_numeric_column(b_df, measure_b, purpose="correlate b")
     aligned, driver_field = _align(a_df, b_df, a_value=a_value, b_value=b_value)
+    if driver_field:
+        aligned = aligned.sort_values(driver_field.split(","), kind="stable").reset_index(drop=True)
     before_drop = len(aligned)
-    aligned = aligned.dropna(subset=["value_a", "value_b"])
+    aligned = aligned.dropna(subset=["value_a", "value_b"]).reset_index(drop=True)
     if len(aligned) < 2:
         raise AlignmentFailedError(
             message=f"alignment '{alignment.kind}' produced fewer than two rows"
         )
     if aligned["value_a"].nunique(dropna=True) < 2 or aligned["value_b"].nunique(dropna=True) < 2:
-        raise AlignmentFailedError(message="pearson correlation is undefined for constant input")
+        raise AlignmentFailedError(message=f"{method} correlation is undefined for constant input")
 
-    correlation = float(aligned["value_a"].corr(aligned["value_b"], method=method))
-    if pd.isna(correlation):
-        raise AlignmentFailedError(message="pearson correlation produced NaN")
+    correlations = _correlations_by_lag(aligned, lags=lags, method=method)
+    finite = {lag: value for lag, value in correlations.items() if pd.notna(value)}
+    if not finite:
+        raise AlignmentFailedError(message=f"{method} correlation produced NaN for every lag")
+    best_lag = max(finite, key=lambda lag: abs(finite[lag]))
+    best_correlation = finite[best_lag]
 
     alignment_dump = alignment.model_dump(mode="json")
+    n = len(aligned)
     output = pd.DataFrame(
         {
-            "metric_id_a": [a.meta.metric_id],
-            "metric_id_b": [b.meta.metric_id],
-            "semantic_model_a": [a.meta.semantic_model],
-            "semantic_model_b": [b.meta.semantic_model],
-            "semantic_kind": [a.meta.semantic_kind],
-            "method": [method],
-            "alignment_kind": [alignment.kind],
-            "lag_mode": ["single"],
-            "lag_offset": [0],
-            "driver_field": [driver_field],
-            "value_column_a": [a_value],
-            "value_column_b": [b_value],
-            "input_row_count_a": [len(a_df)],
-            "input_row_count_b": [len(b_df)],
-            "aligned_row_count": [len(aligned)],
-            "dropped_row_count": [before_drop - len(aligned)],
-            "correlation": [correlation],
+            "metric_id_a": [a.meta.metric_id] * len(lags),
+            "metric_id_b": [b.meta.metric_id] * len(lags),
+            "semantic_model_a": [a.meta.semantic_model] * len(lags),
+            "semantic_model_b": [b.meta.semantic_model] * len(lags),
+            "semantic_kind": [a.meta.semantic_kind] * len(lags),
+            "method": [method] * len(lags),
+            "alignment_kind": [alignment.kind] * len(lags),
+            "lag_mode": [lag_mode] * len(lags),
+            "lag_offset": list(lags),
+            "driver_field": [driver_field] * len(lags),
+            "value_column_a": [a_value] * len(lags),
+            "value_column_b": [b_value] * len(lags),
+            "input_row_count_a": [len(a_df)] * len(lags),
+            "input_row_count_b": [len(b_df)] * len(lags),
+            "aligned_row_count": [max(0, n - lag) for lag in lags],
+            "dropped_row_count": [before_drop - n] * len(lags),
+            "correlation": [correlations[lag] for lag in lags],
         }
     )
     params = {
@@ -145,11 +155,17 @@ def correlate(
         "measure_b": b_value,
         "alignment": alignment_dump,
         "method": method,
+        "lags": list(lags),
     }
     frame_ref = _gen_ref("frame")
     job_ref = _gen_ref("job")
     finished_at = datetime.now(UTC)
     source_refs = [a.ref, b.ref]
+    lag_policy = (
+        {"mode": "single", "offset": 0}
+        if lag_range is None
+        else {"mode": "range", "lags": list(lags)}
+    )
     meta = AssociationResultMeta(
         kind="association_result",
         ref=frame_ref,
@@ -176,10 +192,11 @@ def correlate(
         semantic_models=[a.meta.semantic_model, b.meta.semantic_model],
         method=method,
         alignment=alignment_dump,
-        lag_policy={"mode": "single", "offset": 0},
-        aligned_row_count=len(aligned),
-        dropped_row_count=before_drop - len(aligned),
-        correlation=correlation,
+        lag_policy=lag_policy,
+        aligned_row_count=max(0, n - best_lag),
+        dropped_row_count=before_drop - n,
+        correlation=best_correlation,
+        best_lag=best_lag,
     )
     result = AssociationResult(_df=output, meta=meta)
     left_subject = {"metric": a.meta.metric_id}
@@ -261,6 +278,45 @@ def _normalize_key_dtypes(
             left[key] = pd.to_datetime(left[key])
             right[key] = pd.to_datetime(right[key])
     return left, right
+
+
+def _resolve_lags(lag_range: range | Sequence[int] | None) -> list[int]:
+    """Return the sorted, de-duplicated non-negative lags to evaluate."""
+    if lag_range is None:
+        return [0]
+    lags = sorted({int(lag) for lag in lag_range})
+    if any(lag < 0 for lag in lags):
+        raise SemanticKindMismatchError(message="lag_range values must be non-negative")
+    return lags
+
+
+def _correlations_by_lag(
+    aligned: pd.DataFrame,
+    *,
+    lags: list[int],
+    method: Literal["pearson", "spearman", "kendall"],
+) -> dict[int, float]:
+    """Correlate value_a[t] with value_b[t+lag] for each lag.
+
+    A positive lag pairs each ``a`` point with the ``b`` point ``lag`` positions
+    later, capturing delayed effects (e.g. cache degradation preceding failure
+    rise). NaN is returned for lags whose overlap is too short or constant.
+    """
+    n = len(aligned)
+    series_a = aligned["value_a"]
+    series_b = aligned["value_b"]
+    correlations: dict[int, float] = {}
+    for lag in lags:
+        if lag >= n:
+            correlations[lag] = float("nan")
+            continue
+        a_slice = series_a.iloc[: n - lag]
+        b_slice = series_b.iloc[lag:]
+        if a_slice.nunique(dropna=True) < 2 or b_slice.nunique(dropna=True) < 2:
+            correlations[lag] = float("nan")
+            continue
+        correlations[lag] = float(a_slice.corr(b_slice, method=method))
+    return correlations
 
 
 def _align(

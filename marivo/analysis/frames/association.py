@@ -19,12 +19,13 @@ class AssociationResultMeta(BaseFrameMeta):
     metric_ids: list[str]
     semantic_kinds: list[Literal["scalar", "time_series", "segmented", "panel"]]
     semantic_models: list[str]
-    method: Literal["pearson"]
+    method: Literal["pearson", "spearman", "kendall"]
     alignment: dict[str, Any]
     lag_policy: dict[str, Any]
     aligned_row_count: int
     dropped_row_count: int
     correlation: float
+    best_lag: int = 0
 
 
 @dataclass(repr=False)

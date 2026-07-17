@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -712,15 +712,19 @@ class Session:
         measure_a: str | None = None,
         measure_b: str | None = None,
         alignment: AlignmentPolicy | None = None,
-        method: Literal["pearson"] = "pearson",
+        method: Literal["pearson", "spearman", "kendall"] = "pearson",
+        lag_range: range | Sequence[int] | None = None,
         analysis_purpose: str | None = None,
     ) -> AssociationResult:
         """Measure the association between two MetricFrames over aligned buckets.
 
         When to use: measure statistical association between two metrics over aligned time buckets.
 
-        v1 only supports Pearson correlation under ``window_bucket`` alignment with
-        zero-lag behavior. Both frames must belong to the active session.
+        Supports Pearson (linear), Spearman (monotonic rank), and Kendall (ordinal
+        concordance) correlation under ``window_bucket`` alignment. ``lag_range``
+        explores delayed associations: each lag pairs ``a[t]`` with ``b[t+lag]``;
+        the result carries one row per lag and ``meta.best_lag`` marks the
+        strongest. Default is lag 0 only. Both frames must belong to the active session.
 
         Args:
             a: First MetricFrame.
@@ -728,7 +732,8 @@ class Session:
             measure_a: Numeric column on ``a``. Defaults to the frame's measure column.
             measure_b: Numeric column on ``b``. Defaults to the frame's measure column.
             alignment: Defaults to ``mv.window_bucket()``.
-            method: Only ``"pearson"`` in v1.
+            method: ``"pearson"``, ``"spearman"``, or ``"kendall"``.
+            lag_range: Lags to explore (e.g. ``range(0, 5)``). Defaults to lag 0.
 
         Raises:
             SemanticKindMismatchError: Inputs are not MetricFrames, or alignment
@@ -768,6 +773,7 @@ class Session:
                 measure_b=measure_b,
                 alignment=alignment,
                 method=method,
+                lag_range=lag_range,
                 analysis_purpose=analysis_purpose,
                 session=self,
             )
