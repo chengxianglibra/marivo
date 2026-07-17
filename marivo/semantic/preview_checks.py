@@ -34,6 +34,7 @@ from marivo.semantic.ir import (
     composition_components,
 )
 from marivo.semantic.refs import EntityRef
+from marivo.telemetry import staged
 
 if TYPE_CHECKING:
     from marivo.semantic.catalog import Entity
@@ -907,6 +908,7 @@ def normalize_preview_batch_bindings(
     return tuple(normalized)
 
 
+@staged("persist")
 def persist_preview_check(
     result: PreviewResult,
     *,

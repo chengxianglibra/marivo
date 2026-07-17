@@ -11,11 +11,37 @@ Marivo 会在项目状态目录中写入采用开放遥测结构的本地 JSONL 
 .marivo/telemetry/events.jsonl
 ```
 
-事件覆盖 `marivo init`、分析意图、发现和转换辅助函数，以及逃生通道提升。记录仅包含低基数
-元数据，例如事件名称、意图类别、状态、耗时、错误类别和分析会话 ID；不会包含 SQL 文本、
-datasource 主机、凭据、指标 ID、维度 ID、会话名称、会话问题或帧数据。
+Telemetry schema v2 覆盖显式调用的 CLI、datasource、semantic 和 analysis 公开操作。
+每次操作会写入一对可关联事件：
 
-这些事件只保存在本地，Marivo 不会上传它们。
+- `marivo.operation.started`
+- `marivo.operation.completed`
+
+两条事件共享 operation ID。嵌套的公开调用还会记录 parent operation ID；完成事件包含
+状态、总耗时、稳定的结构化错误与修复字段，或者有界的结果摘要。耗时较高的操作还可能
+记录验证、执行、持久化和 evidence 阶段耗时。
+`marivo.operation.origin` 属性用于区分顶层 `explicit` 调用、`delegated` 委托调用和
+semantic `internal_load` 期间执行的声明。恢复已有分析 session 并重新加载 semantic
+catalog 时，成功的内部声明不会重复写入；外层 semantic `load` 和失败的声明仍会保留。
+
+带 session 的事件可以包含持久化的 `session.question`。分析操作会在调用方传入时记录
+`analysis_purpose`，`md.raw_sql(...)` 会记录其必填的 `reason`。创建或恢复 session 时，
+事件还会说明本次传入的问题是否真正生效，还是因为恢复已有 session 而被忽略。
+
+输入摘要可以包含规范化的 metric、dimension、datasource、semantic 和 artifact 标识符，
+以及计数、类型、选项、限制和 fingerprint。对于 guardrails、datasource client tags 等
+未定义为规范标识符集合的字符串集合，只记录数量和元素类型。`show()`、`contract()`、
+`to_pandas()` 等显式读取会记录 receiver artifact/ref 和 producing job，用于把产物与后续
+消费关联起来。结果摘要可以包含 artifact/job 标识符、content hash、结果类型与状态、
+行数、问题数、缓存状态、截断状态和 evidence 状态。Telemetry 永远不会记录凭据、解析后
+的 secret、datasource 主机、DSN、SQL 原文、文件路径、slice 实际值、frame 行值、自由文本
+集合元素、任意对象 repr 或异常消息。
+
+升级后文件中可能仍保留旧的 schema v1 行。新的消费者应筛选
+`marivo.event.schema_version` 属性为 `2` 的记录；Marivo 不迁移旧行。
+
+这些事件只保存在本地，Marivo 不会上传它们。Session 问题、分析目的和 raw-SQL reason
+会以原文保存在本地事件文件中；在把项目状态分享给其他环境之前应先检查该文件。
 
 通过环境变量为当前进程关闭本地遥测：
 

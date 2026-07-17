@@ -254,7 +254,6 @@ def _build_registry() -> CapabilityRegistry:
 
     # Late imports to avoid circular dependencies at module load time.
     from marivo.analysis.frames.attribution import AttributionFrame
-    from marivo.analysis.frames.base import BaseFrame
     from marivo.analysis.frames.candidate import CandidateSet
     from marivo.analysis.frames.delta import DeltaFrame
     from marivo.analysis.frames.metric import MetricFrame
@@ -680,7 +679,7 @@ def _build_registry() -> CapabilityRegistry:
             root_group="artifact_inspection",
             root_visibility="grouped",
             constraint_ids=("frame_read_bounds",),
-            callable_path=_module_path_for(BaseFrame.show),
+            callable_path="marivo.analysis.frames.base.BaseFrame.show",
             receiver_family="BaseFrame",
             result_kind="terminal_text",
             read_bound="bounded",

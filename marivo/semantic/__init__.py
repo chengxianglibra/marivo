@@ -259,3 +259,19 @@ __all__ = [
     "weighted_average",
     "where",
 ]
+
+
+def _install_telemetry() -> None:
+    import sys
+
+    from marivo.semantic._capabilities.registry import REGISTRY
+    from marivo.telemetry import install_surface_instrumentation
+
+    install_surface_instrumentation(
+        surface="semantic",
+        descriptors=REGISTRY._descriptors,
+        root_module=sys.modules[__name__],
+    )
+
+
+_install_telemetry()

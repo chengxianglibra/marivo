@@ -101,3 +101,19 @@ __all__ = [
     "trino",
     "unpruned",
 ]
+
+
+def _install_telemetry() -> None:
+    import sys
+
+    from marivo.datasource._capabilities.registry import REGISTRY
+    from marivo.telemetry import install_surface_instrumentation
+
+    install_surface_instrumentation(
+        surface="datasource",
+        descriptors=REGISTRY._descriptors,
+        root_module=sys.modules[__name__],
+    )
+
+
+_install_telemetry()

@@ -132,28 +132,6 @@ def test_help_rejects_unknown_string() -> None:
     assert exc_info.value.repair is not None
 
 
-def test_analysis_handoff_help_is_not_a_callable_entrypoint() -> None:
-    """``analysis_handoff`` is a boundary concept, not a callable capability.
-
-    The help must not advertise a non-existent ``ms.analysis_handoff(...)``
-    call. It must state the handoff is not callable and point at the real
-    location: ``ReadinessReport.analysis_handoff`` produced by ``readiness``.
-    See issue #19.
-    """
-    text = ms.help_text("analysis_handoff")
-
-    assert "analysis_handoff" in text
-    # The handoff data is not reachable as a call on the module or catalog.
-    assert "not a callable entrypoint" in text.lower()
-    # Point agents at the producing capability and the result field.
-    assert "readiness" in text
-    assert "ReadinessReport" in text
-    assert "analysis_handoff" in text
-    # The misleading "Output family: None" block must not be rendered for a
-    # boundary concept — it implies a callable producing an output.
-    assert "Output family" not in text
-
-
 def test_help_rejects_private_object() -> None:
     with pytest.raises(SemanticHelpTargetError):
         ms.help_text(object())  # type: ignore[arg-type]

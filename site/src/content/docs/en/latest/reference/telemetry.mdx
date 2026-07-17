@@ -11,13 +11,47 @@ Marivo writes OpenTelemetry-shaped JSONL events to the project state directory:
 .marivo/telemetry/events.jsonl
 ```
 
-Events cover `marivo init`, analysis intents, and discover and transform helpers.
-They record low-cardinality metadata such as event
-name, intent family, status, duration, error class, and analysis session ID.
-They exclude SQL text, datasource hosts, credentials, metric IDs, dimension IDs,
-session names, session questions, and frame data.
+Telemetry schema v2 covers explicit public CLI, datasource, semantic, and
+analysis operations. Each operation writes a correlated pair:
 
-These events stay local. Marivo does not upload them.
+- `marivo.operation.started`
+- `marivo.operation.completed`
+
+The pair shares an operation ID. Nested public calls include a parent operation
+ID, and completed events include status, total duration, stable structured error
+and repair fields, or a bounded result summary. Expensive operations may also
+include validation, execution, persistence, and evidence phase durations.
+The `marivo.operation.origin` attribute distinguishes top-level `explicit`
+calls from `delegated` calls and declarations executed during `internal_load`.
+Successful internal declarations are omitted when an existing analysis session
+reloads its semantic catalog; the enclosing semantic `load` operation and any
+failed declaration remain recorded.
+
+Session-bound events can include the persisted `session.question`. Analysis
+operations include `analysis_purpose` when supplied, and `md.raw_sql(...)`
+includes its required `reason`. Session creation records whether the requested
+question was applied or ignored because an existing session was resumed.
+
+Input summaries can include canonical metric, dimension, datasource, semantic,
+and artifact identifiers together with counts, types, options, limits, and
+fingerprints. String collections that are not defined identifier collections,
+including guardrails and datasource client tags, include only count and item
+types. Explicit artifact reads such as `show()`, `contract()`, and `to_pandas()`
+include the receiver artifact/ref and producing job so consumers can connect a
+result to its later use. Result summaries can include artifact and job
+identifiers, content hash, result kind and status, row and issue counts, cache
+state, truncation, and evidence status. Marivo never writes credentials,
+resolved secrets, datasource hosts, DSNs, SQL text, filesystem paths, slice
+values, frame row values, free-text collection items, arbitrary object
+representations, or exception messages to telemetry.
+
+The file can contain older schema v1 lines after an upgrade. New consumers
+should select records whose `marivo.event.schema_version` attribute is `2`;
+Marivo does not migrate old lines.
+
+These events stay local. Marivo does not upload them. The raw session question,
+analysis purpose, and raw-SQL reason are stored in the local event file; review
+that file before sharing project state outside your environment.
 
 Disable local telemetry for one process:
 

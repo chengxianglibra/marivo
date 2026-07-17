@@ -156,6 +156,8 @@ def test_commit_observe_writes_artifact_and_metric_value_findings(tmp_session) -
 
     assert result.meta.evidence_status == "complete"
     assert result.meta.artifact_id is not None
+    assert result.meta.content_hash is not None
+    assert result.meta.content_hash.startswith("sha256:")
     assert (frames_dir / result.meta.artifact_id / "data.parquet").exists()
     with sqlite3.connect(db_path) as conn:
         artifacts = conn.execute("SELECT artifact_id, step_type FROM artifacts").fetchall()
@@ -171,6 +173,7 @@ def test_commit_observe_writes_artifact_and_metric_value_findings(tmp_session) -
         (frames_dir / result.meta.artifact_id / "meta.json").read_text(encoding="utf-8")
     )
     assert meta_payload["evidence_summary"] == result.evidence_summary.model_dump(mode="json")
+    assert meta_payload["content_hash"] == result.meta.content_hash
 
 
 def test_commit_compare_seeds_change_proposition(tmp_session) -> None:

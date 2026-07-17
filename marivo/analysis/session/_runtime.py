@@ -30,6 +30,7 @@ from marivo.analysis.session._layout import (
 from marivo.analysis.session._store import SessionStore
 from marivo.analysis.session.core import Session
 from marivo.analysis.timezone import ResolvedTimezone, resolve_system_timezone, zoneinfo_from_name
+from marivo.telemetry import staged
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import BaseFrame
@@ -236,6 +237,7 @@ Sqlite3RowLike = Any  # sqlite3.Row is not available at type-check time
 # ---------------------------------------------------------------------------
 
 
+@staged("persist")
 def persist_frame(session: Session, frame: BaseFrame) -> BaseFrameMeta:
     """Write a frame to disk and register it in the session store.
 
@@ -293,6 +295,7 @@ def register_frame_artifact(session: Session, frame: BaseFrame | BaseFrameMeta) 
     )
 
 
+@staged("persist")
 def persist_job_record(session: Session, record: dict[str, Any]) -> None:
     """Write a job record to disk and register it in the session store.
 

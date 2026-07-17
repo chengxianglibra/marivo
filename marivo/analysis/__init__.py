@@ -107,3 +107,19 @@ __all__ = [
     "session",
     "window_bucket",
 ]
+
+
+def _install_telemetry() -> None:
+    import sys
+
+    from marivo.analysis._capabilities.registry import REGISTRY
+    from marivo.telemetry import install_surface_instrumentation
+
+    install_surface_instrumentation(
+        surface="analysis",
+        descriptors=REGISTRY._descriptors,
+        root_module=sys.modules[__name__],
+    )
+
+
+_install_telemetry()

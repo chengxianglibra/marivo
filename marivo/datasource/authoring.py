@@ -453,7 +453,10 @@ def _caller_location() -> DatasourceSourceLocation:
         if frame is not None:
             caller_frame = frame.f_back
             while caller_frame is not None:
-                if caller_frame.f_code.co_filename != _AUTHORING_FILE:
+                if (
+                    caller_frame.f_code.co_filename != _AUTHORING_FILE
+                    and caller_frame.f_globals.get("__name__") != "marivo.telemetry"
+                ):
                     return DatasourceSourceLocation(
                         file=caller_frame.f_code.co_filename,
                         line=caller_frame.f_lineno,
