@@ -292,7 +292,7 @@ def test_window_bucket_panel_sparse_segment_uses_window_spine():
     assert df.iloc[11]["presence_status"] == "new"
     assert df.iloc[11]["baseline"] == pytest.approx(0.0)
     assert df.iloc[11]["delta"] == pytest.approx(11.0)
-    assert df.iloc[11]["pct_change"] == float("inf")
+    assert pd.isna(df.iloc[11]["pct_change"])
     assert df.iloc[11]["pct_change_status"] == "from_zero_growth"
     assert out.meta.alignment["coverage"]["baseline"]["missing_buckets"] == 13
     assert out.meta.alignment["segment_info"]["coverage"]["baseline"]["missing_buckets"] == 13
@@ -424,7 +424,7 @@ def test_compare_panel_window_bucket_calendar_mode_outer_joins_bucket_keys():
     assert by_bucket["2026-07-03"].current == pytest.approx(30.0)
     assert by_bucket["2026-07-03"].baseline == pytest.approx(0.0)
     assert by_bucket["2026-07-03"].delta == pytest.approx(30.0)
-    assert by_bucket["2026-07-03"].pct_change == float("inf")
+    assert pd.isna(by_bucket["2026-07-03"].pct_change)
     assert by_bucket["2026-07-03"].pct_change_status == "from_zero_growth"
     assert out.meta.alignment["mode"] == "calendar_bucket"
 

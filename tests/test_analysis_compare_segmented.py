@@ -81,15 +81,13 @@ def test_compare_segmented_outer_join_preserves_one_sided_segments():
         "pct_change": pytest.approx(30.0 / 70.0),
         "pct_change_status": "computed",
     }
-    assert by_region["SOUTH"] == {
-        "region": "SOUTH",
-        "presence_status": "new",
-        "current": 80.0,
-        "baseline": 0.0,
-        "delta": 80.0,
-        "pct_change": float("inf"),
-        "pct_change_status": "from_zero_growth",
-    }
+    assert by_region["SOUTH"]["region"] == "SOUTH"
+    assert by_region["SOUTH"]["presence_status"] == "new"
+    assert by_region["SOUTH"]["current"] == 80.0
+    assert by_region["SOUTH"]["baseline"] == 0.0
+    assert by_region["SOUTH"]["delta"] == 80.0
+    assert pd.isna(by_region["SOUTH"]["pct_change"])
+    assert by_region["SOUTH"]["pct_change_status"] == "from_zero_growth"
     assert by_region["WEST"] == {
         "region": "WEST",
         "presence_status": "churned",

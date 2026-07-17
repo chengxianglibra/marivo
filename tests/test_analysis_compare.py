@@ -606,8 +606,8 @@ def test_window_bucket_no_overlap_uses_window_spine_for_sparse_time_series(tmp_p
 @pytest.mark.parametrize(
     ("current", "baseline", "expected_pct", "expected_status"),
     [
-        (10.0, 0.0, np.inf, "from_zero_growth"),
-        (-5.0, 0.0, -np.inf, "from_zero_decline"),
+        (10.0, 0.0, np.nan, "from_zero_growth"),
+        (-5.0, 0.0, np.nan, "from_zero_decline"),
         (0.0, 0.0, np.nan, "zero_baseline_no_change"),
         (-50.0, -100.0, 0.5, "computed"),
         (10.0, np.nan, np.nan, "not_computable"),
