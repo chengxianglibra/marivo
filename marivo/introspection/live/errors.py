@@ -59,6 +59,10 @@ def build_help_target_error_payload(
         f"{surface} help target is not registered: received {received!r}. "
         f"Accepted target kinds: {', '.join(_ACCEPTED_KINDS)}."
     )
+    if bounded:
+        # Surface the fuzzy candidates on the first line so agents see the fix
+        # immediately, not only in the Repair section. See issue #35.
+        message += f" Did you mean: {', '.join(bounded)}?"
     return HelpTargetErrorPayload(
         received=received,
         accepted_kinds=_ACCEPTED_KINDS,

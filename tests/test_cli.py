@@ -490,3 +490,21 @@ def test_cli_help_semantic_unknown_target_exits_2(
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
     assert "not registered" in captured.err or "semantic help target" in captured.err
+
+
+def test_help_unknown_track_suggests_valid_tracks_and_target_form(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An unknown CLI help track must teach the valid tracks and the
+    `marivo help <track> <target>` form, not just argparse's 'invalid choice'.
+    See issue #35.
+    """
+    with pytest.raises(SystemExit) as exc_info:
+        main(["help", "catalog"])
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    err = captured.err
+    assert "analysis" in err and "datasource" in err and "semantic" in err
+    # Hint the target form so 'catalog' (a target, not a track) is recoverable
+    # with a concrete suggested command, beyond argparse's bare 'invalid choice'.
+    assert "marivo help analysis catalog" in err
