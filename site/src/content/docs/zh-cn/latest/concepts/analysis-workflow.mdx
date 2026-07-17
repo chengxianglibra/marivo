@@ -263,7 +263,13 @@ attribution.show()
 | `a`、`b` | `MetricFrame` | 是 | — | 要关联的两个 frame。 |
 | `measure_a`、`measure_b` | `str` | 否 | frame measure | 各 frame 上的数值列。 |
 | `alignment` | `AlignmentPolicy` | 否 | `window_bucket` | 桶配对。 |
-| `method` | `"pearson"` | 否 | `"pearson"` | 关联方法（v1：Pearson，零滞后）。 |
+| `method` | `"pearson"`、`"spearman"`、`"kendall"` | 否 | `"pearson"` | 相关性计算方法。 |
+| `lag_range` | `range` 或有符号整数序列 | 否 | lag 0 | 要计算的 lag；`k` 表示 `a[t]` 对 `b[t+k]`。正值表示 `a` 领先 `b`，负值表示 `b` 领先 `a`。 |
+
+非零 lag 要求输入为 `time_series` 或 `panel`。Panel lag 只在各维度序列内偏移，
+不会跨序列边界配对；空值会在偏移后按配对过滤，因此缺失桶不会压缩时间轴。
+每个 lag 至少需要两个重叠且非常量的配对。结果为每个 lag 生成一行，并将绝对
+相关性最强的 lag 记录为 `meta.best_lag`。
 
 ### `forecast` → `ForecastFrame`
 

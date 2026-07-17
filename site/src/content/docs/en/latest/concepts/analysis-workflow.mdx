@@ -300,7 +300,15 @@ Measure the association between two metrics over aligned buckets.
 | `a`, `b` | `MetricFrame` | Yes | — | The two frames to associate. |
 | `measure_a`, `measure_b` | `str` | No | frame measure | Numeric column on each frame. |
 | `alignment` | `AlignmentPolicy` | No | `window_bucket` | Bucket pairing. |
-| `method` | `"pearson"` | No | `"pearson"` | Correlation method (v1: Pearson, zero lag). |
+| `method` | `"pearson"`, `"spearman"`, `"kendall"` | No | `"pearson"` | Correlation method. |
+| `lag_range` | `range` or sequence of signed integers | No | lag 0 | Lags to evaluate; `k` pairs `a[t]` with `b[t+k]`. Positive means `a` leads `b`; negative means `b` leads `a`. |
+
+Non-zero lags require `time_series` or `panel` inputs. Panel lags shift within
+each dimension series, never across series boundaries, and null pairs are
+dropped after shifting so missing buckets do not collapse the time axis. Each
+lag requires at least two overlapping, non-constant pairs. The result contains
+one row per lag and records the strongest absolute correlation as
+`meta.best_lag`.
 
 ### `forecast` → `ForecastFrame`
 

@@ -60,7 +60,7 @@ backend scan.
 | `MetricFrame[panel]` | `MetricFrame` | Segment × time panel |
 | `DeltaFrame[scalar_delta \| time_series_delta \| segmented_delta \| panel_delta]` | `DeltaFrame` | Delta of the corresponding metric shape |
 | `CandidateSet[point_anomaly \| period_shift \| driver_axis \| slice \| window \| cross_sectional_outlier]` | `CandidateSet` | Objective-specific candidates |
-| `AssociationResult[single_lag]` | `AssociationResult` | Zero/one-lag association (current runtime is zero-lag) |
+| `AssociationResult[signed_lag]` | `AssociationResult` | Zero-lag or signed lag-sweep association |
 | `QualityReport[metric \| delta \| candidate \| forecast \| attribution]` | `QualityReport` | Quality report scoped to the assessed family |
 
 Adding a shape requires updating the family registry, producer, consumer
@@ -324,9 +324,14 @@ docstring). All objectives accept `analysis_purpose` to label the step.
 
 ### `correlate`
 
-`correlate(a, b, method=..., alignment=...)` returns an `AssociationResult`
-expressing statistical association only — no causality, no written explanation.
-The current runtime is zero-lag; a lag sweep would require a separate design.
+`correlate(a, b, method=..., alignment=..., lag_range=...)` returns an
+`AssociationResult` expressing statistical association only — no causality, no
+written explanation. `lag=k` pairs `a[t]` with `b[t+k]`: positive lag means `a`
+leads `b`, negative lag means `b` leads `a`, and the default is lag 0. Each lag
+requires at least two overlapping, non-constant values after shifting. Non-zero
+lags require `time_series` or `panel` inputs. Panel shifts are evaluated within
+each dimension series, never across series boundaries, and null pairs are
+dropped only after shifting so missing buckets do not collapse the time axis.
 
 ### `hypothesis_test`
 
