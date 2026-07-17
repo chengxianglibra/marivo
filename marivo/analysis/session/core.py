@@ -488,7 +488,8 @@ class Session:
 
         ``to_pandas()`` on the returned frame always names value columns by
         metric, regardless of arity. It uses each metric's short name, or a
-        qualified metric id when names collide.
+        qualified metric id when names collide. Read ``frame.value_columns``
+        for the exact exported name(s).
 
         Args:
             metric: Catalog metric object or ``SemanticRef``, or a non-empty

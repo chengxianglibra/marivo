@@ -420,12 +420,13 @@ def test_observe_returns_metric_frame(tmp_path):
     assert mf.meta.session_id == s.id
 
 
-def test_observe_single_metric_to_pandas_uses_metric_name(tmp_path):
+def test_observe_single_metric_value_columns_match_metric_name_export(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     mf = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
     assert list(mf.to_pandas().columns) == ["revenue"]
+    assert mf.value_columns == ("revenue",)
 
 
 def test_observe_rejects_bare_metric_string(tmp_path):

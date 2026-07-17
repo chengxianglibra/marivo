@@ -192,7 +192,8 @@ for drill-down on a single metric.
 On frames returned by `observe`, `to_pandas()` always uses one value column per
 metric, regardless of arity. The column uses the metric short name, or a
 qualified metric id when names collide, so single- and multi-metric observations
-can be merged without arity-specific renames.
+can be merged without arity-specific renames. Read `frame.value_columns` for the
+exact exported name(s).
 
 ```python
 report = session.observe(

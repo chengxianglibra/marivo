@@ -312,6 +312,36 @@ class MetricFrame(BaseFrame):
         return tuple(entry["metric_id"] for entry in self.measures_meta())
 
     @property
+    def value_columns(self) -> tuple[str, ...]:
+        """Value column name(s) in ``to_pandas()`` output, in metric order.
+
+        Arity-1 observe frames export the metric short name (matching
+        multi-metric output); other arity-1 frames use ``"value"``. Multi-metric
+        frames use one column per metric. Exposed so callers can merge/rename
+        without guessing the naming from arity. See issue #33.
+        """
+        if self.arity <= 1:
+            return (self._arity1_exported_column_name(),)
+        return tuple(str(entry["column"]) for entry in self.measures_meta())
+
+    def _arity1_exported_column_name(self) -> str:
+        """The column name ``to_pandas()`` uses for the single value column."""
+        last_intent = self.lineage.steps[-1].intent if self.lineage.steps else None
+        if last_intent != "observe" or self.VALUE_COLUMN not in self._df.columns:
+            return self.VALUE_COLUMN
+        measure = self.meta.measure if isinstance(self.meta.measure, dict) else {}
+        name = measure.get("name")
+        if not isinstance(name, str) or not name:
+            metric_id = self.meta.metric_id
+            name = metric_id.rsplit(".", 1)[-1] if metric_id else self.VALUE_COLUMN
+        if name == self.VALUE_COLUMN:
+            return self.VALUE_COLUMN
+        if name in self._df.columns and name != self.VALUE_COLUMN:
+            metric_id = self.meta.metric_id
+            name = metric_id.replace(".", "__") if metric_id else name
+        return name
+
+    @property
     def arity(self) -> int:
         """Number of metrics carried by this frame."""
         return len(self.measures_meta())
