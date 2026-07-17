@@ -69,8 +69,10 @@ from marivo.analysis.evidence.types import (
     TriggeredByFollowup,
 )
 from marivo.analysis.followups import BlockingIssue, ConfidenceScope, FollowupAction
+from marivo.analysis.frames._content_hash import compute_frame_content_hash
 from marivo.analysis.frames._meta_defaults import compute_confidence_scope, compute_quality_summary
 from marivo.analysis.frames.base import BaseFrame
+from marivo.telemetry import staged
 
 # --- Public DTOs ---
 
@@ -654,6 +656,7 @@ def _insert_blocking_issue(
 # --- Main entry point ---
 
 
+@staged("evidence")
 def commit_result(
     *,
     store: JudgmentStore | None,
@@ -729,6 +732,14 @@ def commit_result(
         if hasattr(frame.meta, "affordances"):
             unavailable_update["affordances"] = []
         new_meta = frame.meta.model_copy(update=unavailable_update)
+        new_meta = new_meta.model_copy(
+            update={
+                "content_hash": compute_frame_content_hash(
+                    meta=new_meta,
+                    data_path=parquet_path,
+                )
+            }
+        )
         frame.meta = new_meta
         _write_meta_json(
             artifact_dir / "meta.json",
@@ -951,6 +962,14 @@ def commit_result(
             )
         meta_update["affordances"] = affordances
     new_meta = frame.meta.model_copy(update=meta_update)
+    new_meta = new_meta.model_copy(
+        update={
+            "content_hash": compute_frame_content_hash(
+                meta=new_meta,
+                data_path=parquet_path,
+            )
+        }
+    )
     frame.meta = new_meta
 
     # Write meta.json

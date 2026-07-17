@@ -33,6 +33,14 @@ def _register_authoring_file(path: str) -> None:
     _AUTHORING_FILES.add(path)
 
 
+def _is_internal_caller_frame(frame: Any) -> bool:
+    """Return whether a frame belongs to authoring or transparent instrumentation."""
+    return (
+        frame.f_code.co_filename in _AUTHORING_FILES
+        or frame.f_globals.get("__name__") == "marivo.telemetry"
+    )
+
+
 def _require_ctx() -> LoaderContext:
     """Get the current LoaderContext or raise OutsideLoaderContextError."""
     ctx = _LOADER_CTX.get()
@@ -128,7 +136,7 @@ def _caller_location() -> SourceLocation:
         if frame is not None:
             caller_frame = frame.f_back
             while caller_frame is not None:
-                if caller_frame.f_code.co_filename not in _AUTHORING_FILES:
+                if not _is_internal_caller_frame(caller_frame):
                     filename = caller_frame.f_code.co_filename
                     lineno = caller_frame.f_lineno
                     return SourceLocation(file=filename, line=lineno)
@@ -141,22 +149,20 @@ def _caller_location() -> SourceLocation:
 def _user_caller_location() -> SourceLocation:
     """Best-effort source location of the user's call site.
 
-    Walks up 2 frames: ``_user_caller_location`` -> internal wrapper
-    (e.g. ``ai_context``) -> user code.  Reports the file/line where
-    the user called the public function.
+    Walks past internal authoring and transparent telemetry wrapper frames and
+    reports the file/line where the user called the public function.
     """
     frame = inspect.currentframe()
     try:
-        if frame is not None and frame.f_back is not None:
-            wrapper_frame = frame.f_back
-            if wrapper_frame.f_back is not None:
-                user_frame = wrapper_frame.f_back
-                filename = user_frame.f_code.co_filename
-                lineno = user_frame.f_lineno
-                return SourceLocation(file=filename, line=lineno)
-            filename = wrapper_frame.f_code.co_filename
-            lineno = wrapper_frame.f_lineno
-            return SourceLocation(file=filename, line=lineno)
+        if frame is not None:
+            caller_frame = frame.f_back
+            while caller_frame is not None:
+                if not _is_internal_caller_frame(caller_frame):
+                    return SourceLocation(
+                        file=caller_frame.f_code.co_filename,
+                        line=caller_frame.f_lineno,
+                    )
+                caller_frame = caller_frame.f_back
     except AttributeError:
         pass
     return SourceLocation(file="<unknown>", line=0)

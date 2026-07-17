@@ -18,6 +18,7 @@ from marivo.analysis._capabilities.model import (
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.telemetry import staged
 
 # ---------------------------------------------------------------------------
 # Type classification
@@ -181,6 +182,7 @@ def classify_input_family(value: object) -> str:
 # ---------------------------------------------------------------------------
 
 
+@staged("validate")
 def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
     """Validate that each family-bearing argument matches the registry.
 

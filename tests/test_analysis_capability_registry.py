@@ -879,6 +879,15 @@ def test_reflection_all_public_methods_registered_or_excluded() -> None:
             cap_id = f"{cls_name}.{name}"
             if cap_id in set(REGISTRY.capability_ids):
                 continue
+            # Frame subclasses inherit the single BaseFrame.show capability.
+            # Its registry path is deliberately owner-qualified so telemetry
+            # does not wrap RenderableResult.show across other surfaces.
+            if (
+                issubclass(cls, BaseFrame)
+                and name == "show"
+                and "BaseFrame.show" in set(REGISTRY.capability_ids)
+            ):
+                continue
             # Check if registered via an alias (e.g. boundary.to_pandas)
             if cls_name == "BaseFrame" and name == "to_pandas":
                 continue

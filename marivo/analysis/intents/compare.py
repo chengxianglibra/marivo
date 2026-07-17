@@ -813,7 +813,7 @@ def compare(
         )
         output_frame.meta = output_frame.meta.model_copy(update={"component_ref": delta_comp.ref})
         # Re-persist the output frame meta with the component_ref
-        persist_frame(session, output_frame)
+        output_frame.meta = cast("DeltaFrameMeta", persist_frame(session, output_frame))
 
     persist_job_record(
         session,

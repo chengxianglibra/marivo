@@ -22,6 +22,7 @@ from marivo.config import (
     SKILL_SEMANTIC,
     STATE_DIR,
 )
+from marivo.telemetry import track_operation, tracked_capability
 
 
 def _render_track_help(track: str, target: str | None) -> str:
@@ -171,18 +172,10 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
         print(f"  Installed skills for {agent_label} ({agent_dir_name}/)")
 
 
+@tracked_capability(surface="cli", capability_id="init", capability_kind="command")
 def init_project(force: bool = False, project_dir: Path | None = None) -> None:
     """Initialize a Marivo project and record local usage telemetry."""
-    resolved_project_dir = project_dir or Path.cwd()
-    from marivo.telemetry import track_operation
-
-    with track_operation(
-        "marivo.cli.init",
-        family="cli",
-        intent="init",
-        project_root=resolved_project_dir,
-    ):
-        _init_project_impl(force=force, project_dir=resolved_project_dir)
+    _init_project_impl(force=force, project_dir=project_dir or Path.cwd())
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -264,61 +257,82 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "doctor":
         from marivo.doctor import DoctorOptions, exit_code, render_fix_snap, render_text, run_doctor
 
-        report = run_doctor(
-            DoctorOptions(
-                project_root=args.project_root,
-                format=args.format,
-                fix_snap=args.fix_snap,
-                semantic=args.semantic,
-                connect=args.connect,
-                datasource=args.datasource,
+        with track_operation(
+            "marivo.cli.doctor",
+            family="command",
+            intent="doctor",
+            project_root=Path(args.project_root) if args.project_root else None,
+            attributes={
+                "marivo.input.format": args.format,
+                "marivo.input.fix_snap": args.fix_snap,
+                "marivo.input.semantic": args.semantic,
+                "marivo.input.connect": args.connect,
+            },
+        ):
+            report = run_doctor(
+                DoctorOptions(
+                    project_root=args.project_root,
+                    format=args.format,
+                    fix_snap=args.fix_snap,
+                    semantic=args.semantic,
+                    connect=args.connect,
+                    datasource=args.datasource,
+                )
             )
-        )
-        if args.fix_snap:
-            print(render_fix_snap(report))
-        elif args.format == "json":
-            print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
-        else:
-            print(render_text(report))
-        code = exit_code(report)
-        if code:
-            raise SystemExit(code)
+            if args.fix_snap:
+                print(render_fix_snap(report))
+            elif args.format == "json":
+                print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+            else:
+                print(render_text(report))
+            code = exit_code(report)
+            if code:
+                raise SystemExit(code)
     elif args.command == "help":
-        if args.track == "analysis":
-            from marivo.analysis.errors import HelpTargetError
+        with track_operation(
+            "marivo.cli.help",
+            family="command",
+            intent="help",
+            attributes={
+                "marivo.input.track": args.track,
+                **({"marivo.input.target": args.target} if args.target else {}),
+            },
+        ):
+            if args.track == "analysis":
+                from marivo.analysis.errors import HelpTargetError
 
-            try:
-                print(_render_track_help(args.track, args.target))
-            except HelpTargetError as exc:
-                print(str(exc), file=sys.stderr)
-                raise SystemExit(2) from None
-        elif args.track == "datasource":
-            from marivo.datasource.errors import DatasourceHelpTargetError
+                try:
+                    print(_render_track_help(args.track, args.target))
+                except HelpTargetError as exc:
+                    print(str(exc), file=sys.stderr)
+                    raise SystemExit(2) from None
+            elif args.track == "datasource":
+                from marivo.datasource.errors import DatasourceHelpTargetError
 
-            try:
-                print(_render_track_help(args.track, args.target))
-            except DatasourceHelpTargetError as exc:
-                print(str(exc), file=sys.stderr)
-                raise SystemExit(2) from None
-        elif args.track == "semantic":
-            from marivo.semantic.errors import SemanticHelpTargetError
+                try:
+                    print(_render_track_help(args.track, args.target))
+                except DatasourceHelpTargetError as exc:
+                    print(str(exc), file=sys.stderr)
+                    raise SystemExit(2) from None
+            elif args.track == "semantic":
+                from marivo.semantic.errors import SemanticHelpTargetError
 
-            try:
-                print(_render_track_help(args.track, args.target))
-            except SemanticHelpTargetError as exc:
-                print(str(exc), file=sys.stderr)
+                try:
+                    print(_render_track_help(args.track, args.target))
+                except SemanticHelpTargetError as exc:
+                    print(str(exc), file=sys.stderr)
+                    raise SystemExit(2) from None
+            else:
+                track = args.track
+                # The track is not analysis/datasource/semantic. It may be a help
+                # target the user put in the track slot (e.g. `marivo help catalog`
+                # means `marivo help analysis catalog`). Teach the valid tracks and
+                # the target form instead of argparse's bare 'invalid choice'.
+                print(
+                    f"error: {track!r} is not a help track. "
+                    f"Tracks: analysis, datasource, semantic.\n"
+                    f"If {track!r} is a help target, try: marivo help analysis {track}\n"
+                    f"Or in Python: mv.help({track!r}) / md.help({track!r}) / ms.help({track!r})",
+                    file=sys.stderr,
+                )
                 raise SystemExit(2) from None
-        else:
-            track = args.track
-            # The track is not analysis/datasource/semantic. It may be a help
-            # target the user put in the track slot (e.g. `marivo help catalog`
-            # means `marivo help analysis catalog`). Teach the valid tracks and
-            # the target form instead of argparse's bare 'invalid choice'.
-            print(
-                f"error: {track!r} is not a help track. "
-                f"Tracks: analysis, datasource, semantic.\n"
-                f"If {track!r} is a help target, try: marivo help analysis {track}\n"
-                f"Or in Python: mv.help({track!r}) / md.help({track!r}) / ms.help({track!r})",
-                file=sys.stderr,
-            )
-            raise SystemExit(2) from None

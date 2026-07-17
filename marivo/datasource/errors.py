@@ -118,7 +118,8 @@ class DatasourceAuthoringError(DatasourceError):
         effect_observed: DatasourceObservedEffects,
         repair: AuthoringRepair,
     ) -> None:
-        del code, stage
+        self.code = code
+        self.stage = stage
         super().__init__(
             message=reason,
             expected=expected,
