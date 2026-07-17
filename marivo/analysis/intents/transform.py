@@ -2016,9 +2016,12 @@ def _persist_transform_frame(
             "lineage": lineage,
         }
     )
-    # Transforms change data shape; component links from the parent no longer apply.
+    # Transforms change data shape; component links and component-derived
+    # row facts from the parent no longer apply.
     meta_payload["component_ref"] = None
     meta_payload["composition"] = None
+    if "zero_denominator_rows" in meta_payload:
+        meta_payload["zero_denominator_rows"] = None
     if semantic_kind is not None:
         meta_payload["semantic_kind"] = semantic_kind
     if where_scope is not None and isinstance(parent, MetricFrame):

@@ -237,6 +237,9 @@ class MetricFrameMeta(BaseFrameMeta):
     normalization: dict[str, Any] | None = None
     component_ref: str | None = None
     composition: dict[str, Any] | None = None
+    #: Rows whose present division denominator was zero (null result); None
+    #: for metrics whose composition does not divide.
+    zero_denominator_rows: int | None = None
     fold: dict[str, Any] | None = None
     reaggregatable: bool = True
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None

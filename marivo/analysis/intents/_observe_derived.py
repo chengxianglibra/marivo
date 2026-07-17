@@ -32,6 +32,7 @@ from marivo.analysis.intents._observe_components import (
     _evaluate_composition_on_frame,
     _is_component_aware_composition,
     _role_to_column_name,
+    _zero_denominator_row_count,
 )
 from marivo.analysis.intents._observe_cumulative import _execute_cumulative
 from marivo.analysis.intents._observe_dense import _fixed_grain_seconds_for_coverage
@@ -261,10 +262,12 @@ def _execute_derived(
     dict[str, Any],
     Literal["scalar", "time_series", "segmented", "panel"],
     Any | None,
+    int | None,
 ]:
     """Execute a DerivedObservePlan.
 
-    Returns (result, component_df, axes, semantic_kind, derived_coverage_df_or_None).
+    Returns (result, component_df, axes, semantic_kind,
+    derived_coverage_df_or_None, zero_denominator_rows_or_None).
     """
     pandas = __import__("pandas")
     metric_name = metric_ir.name
@@ -401,6 +404,7 @@ def _execute_derived(
             else:
                 merged = pandas.concat([merged, frame], axis=1)
     merged["value"] = _evaluate_composition_on_frame(metric_ir, merged)
+    zero_denominator_rows = _zero_denominator_row_count(metric_ir, merged)
     if merge_keys:
         result_df = merged[[*merge_keys, "value"]].sort_values(merge_keys).reset_index(drop=True)
     else:
@@ -488,7 +492,14 @@ def _execute_derived(
     for col in dim_columns:
         axes[col] = {"role": "dimension", "column": col}
 
-    return _Result(result_df), component_df, axes, semantic_kind, derived_coverage_df
+    return (
+        _Result(result_df),
+        component_df,
+        axes,
+        semantic_kind,
+        derived_coverage_df,
+        zero_denominator_rows,
+    )
 
 
 def _build_fold_meta(metric_ir: Any, catalog: Any) -> dict[str, Any]:

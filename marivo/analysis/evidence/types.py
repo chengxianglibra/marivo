@@ -97,6 +97,7 @@ class QualitySummary(_FrozenModel):
     sample_coverage_min: float | None = None
     sample_coverage_avg: float | None = None
     sample_coverage_partial_buckets: int | None = None
+    zero_denominator_rows: int | None = None
 
 
 ArtifactEvidenceItemKind = Literal["observation"] | FactKind | OpenItemKind

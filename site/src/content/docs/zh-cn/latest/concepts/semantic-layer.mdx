@@ -408,6 +408,11 @@ net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refun
 aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
 
+观察（observe）时，除法按固定的 `zero_division="null"` 策略求值：某个 bucket 的分母
+（`ms.ratio`）或权重（`ms.weighted_average`）存在但为零时，结果为 null——绝不会出现
+`+/-inf`——受影响的行数记录在观察结果的 `meta.zero_denominator_rows` 与
+`quality_summary.zero_denominator_rows` 中。
+
 #### 累计 metrics —— `ms.cumulative`
 
 当业务问题是"截至 bucket t 累计了多少"时使用 `ms.cumulative(...)`。

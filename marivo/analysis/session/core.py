@@ -548,6 +548,9 @@ class Session:
             ...     slice_by={country: "US"},
             ... )
             >>> us_frame.show()
+            >>> # Derived ratio/weighted_average division uses zero_division="null":
+            >>> # a present zero denominator/weight yields null (never +/-inf) and is
+            >>> # counted in frame.meta.quality_summary.zero_denominator_rows.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.observe import observe

@@ -318,6 +318,12 @@ def test_mv_help_topic_within_budget(capsys) -> None:
     assert len(captured.out.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
 
 
+def test_observe_help_teaches_zero_division_policy() -> None:
+    rendered = mv.help_text("observe")
+    assert 'zero_division="null"' in rendered
+    assert "zero_denominator_rows" in rendered
+
+
 def test_ms_help_topic_within_budget(capsys) -> None:
     ms.help("metric")
     captured = capsys.readouterr()

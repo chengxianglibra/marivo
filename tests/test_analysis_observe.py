@@ -819,6 +819,16 @@ def _bootstrap_failure_rate(tmp_path):
         "    numerator=failed_count,\n"
         "    denominator=failed_count,\n"
         ")\n"
+        "\n"
+        "@ms.metric(entities=[orders], additivity='additive', )\n"
+        "def succeeded_count(orders):\n"
+        "    return (orders.state == 'SUCCEEDED').cast('int64').sum()\n"
+        "\n"
+        "ms.ratio(\n"
+        "    name='failed_per_succeeded',\n"
+        "    numerator=failed_count,\n"
+        "    denominator=succeeded_count,\n"
+        ")\n"
     )
 
 
@@ -910,6 +920,83 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     assert by_bucket["2026-07-02"].failed_count == pytest.approx(0.0)
     assert by_bucket["2026-07-02"].total_count == pytest.approx(1.0)
     assert by_bucket["2026-07-02"].failure_rate == pytest.approx(0.0)
+
+
+def _seed_zero_denominator_orders(con):
+    con.raw_sql("CREATE TABLE orders (order_id INTEGER, created_at DATE, state VARCHAR)")
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', 'FAILED'),"
+        "(2, DATE '2026-07-01', 'SUCCEEDED'),"
+        "(3, DATE '2026-07-02', 'FAILED'),"
+        "(4, DATE '2026-07-02', 'FAILED'),"
+        "(5, DATE '2026-07-03', 'SUCCEEDED'),"
+        "(6, DATE '2026-07-04', 'PENDING')"
+    )
+
+
+def test_observe_derived_ratio_zero_denominator_yields_null_with_quality_count(tmp_path):
+    import numpy as np
+    import pandas as pd
+
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_zero_denominator_orders(con)
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    frame = observe(
+        make_ref("sales.failed_per_succeeded", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-05"},
+        grain="day",
+        session=session,
+    )
+
+    df = frame.to_pandas()
+    assert not np.isinf(df["failed_per_succeeded"]).any()
+    by_bucket = {str(row.bucket_start.date()): row for row in df.itertuples()}
+    assert by_bucket["2026-07-01"].failed_per_succeeded == pytest.approx(1.0)
+    # A present zero denominator yields null, never +/-inf (2 failed / 0 succeeded).
+    assert pd.isna(by_bucket["2026-07-02"].failed_per_succeeded)
+    assert by_bucket["2026-07-03"].failed_per_succeeded == pytest.approx(0.0)
+    # 0 / 0 is also a present zero denominator, not only a source null.
+    assert pd.isna(by_bucket["2026-07-04"].failed_per_succeeded)
+
+    # Affected rows are counted in quality metadata and survive recomputation.
+    assert frame.meta.zero_denominator_rows == 2
+    assert frame.meta.quality_summary is not None
+    assert frame.meta.quality_summary.zero_denominator_rows == 2
+    # The zero-division policy participates in the observe params so pre-policy
+    # cached artifacts cannot be reused as if they matched these semantics.
+    assert frame.meta.lineage.steps[0].params["zero_division"] == "null"
+
+    component_df = frame.components().to_pandas()
+    zero_rows = {str(row.bucket_start.date()): row for row in component_df.itertuples()}
+    assert zero_rows["2026-07-02"].failed_count == pytest.approx(2.0)
+    assert zero_rows["2026-07-02"].succeeded_count == pytest.approx(0.0)
+    assert pd.isna(zero_rows["2026-07-02"].failed_per_succeeded)
+
+
+def test_transform_clears_zero_denominator_rows_from_parent(tmp_path):
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_zero_denominator_orders(con)
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    frame = observe(
+        make_ref("sales.failed_per_succeeded", SemanticKind.METRIC),
+        time_scope={"start": "2026-07-01", "end": "2026-07-05"},
+        grain="day",
+        session=session,
+    )
+    assert frame.meta.zero_denominator_rows == 2
+
+    # Clip to the one bucket without a zero denominator: the parent's count no
+    # longer describes the surviving rows, so the transformed frame must not
+    # carry it into its meta, quality summary, or persisted evidence.
+    windowed = frame.transform.window(window={"start": "2026-07-01", "end": "2026-07-02"})
+    assert windowed.meta.zero_denominator_rows is None
+    assert windowed.meta.quality_summary is not None
+    assert windowed.meta.quality_summary.zero_denominator_rows is None
 
 
 def test_observe_time_series_with_empty_dimensions_list(tmp_path):
