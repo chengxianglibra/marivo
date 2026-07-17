@@ -77,8 +77,8 @@ def test_segmented_observe_keeps_metric_results_after_projection_pruning() -> No
     )
 
     rows = {
-        (row["region"], row["value"])
-        for row in frame.to_pandas()[["region", "value"]].to_dict("records")
+        (row["region"], row["revenue"])
+        for row in frame.to_pandas()[["region", "revenue"]].to_dict("records")
     }
     assert rows == {("NORTH", 40.0), ("SOUTH", 20.0)}
 
@@ -103,8 +103,8 @@ def test_segmented_observe_keeps_derived_dimension_after_projection_pruning(
     )
 
     rows = {
-        (row["market"], row["value"])
-        for row in frame.to_pandas()[["market", "value"]].to_dict("records")
+        (row["market"], row["revenue"])
+        for row in frame.to_pandas()[["market", "revenue"]].to_dict("records")
     }
     assert rows == {("core", 40.0), ("expansion", 20.0)}
 

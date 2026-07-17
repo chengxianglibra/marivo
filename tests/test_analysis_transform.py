@@ -1035,7 +1035,7 @@ def test_transform_filter_preserves_metric_frame(tmp_path):
     assert filtered.meta.kind == "metric_frame"
     assert filtered.meta.semantic_kind == frame.meta.semantic_kind
     assert filtered.meta.row_count < original_len
-    assert filtered.meta.row_count == int((df["value"] > 15).sum())
+    assert filtered.meta.row_count == int((df["revenue"] > 15).sum())
     assert filtered.ref != frame.ref
     assert filtered.lineage.steps[-1].intent == "transform"
     assert filtered.lineage.steps[-1].inputs == [frame.ref]
@@ -1217,7 +1217,11 @@ def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
     assert "country" not in df.columns
     assert "bucket_start" in df.columns
     raw = frame.to_pandas()
-    expected = raw.groupby("bucket_start", as_index=False)["value"].sum()
+    expected = (
+        raw.groupby("bucket_start", as_index=False)["revenue"]
+        .sum()
+        .rename(columns={"revenue": "value"})
+    )
     assert df["value"].tolist() == expected["value"].tolist()
 
 
@@ -1822,7 +1826,7 @@ def test_rollup_grain_takes_period_ends_for_cumulative(cumulative_day_session):
     frame = _observe_cumulative_day(session)
     raw = frame.to_pandas().sort_values("bucket_start").reset_index(drop=True)
     feb_last_day_value = float(
-        raw.loc[raw["bucket_start"] == pd.Timestamp("2026-02-15"), "value"].iloc[0]
+        raw.loc[raw["bucket_start"] == pd.Timestamp("2026-02-15"), "mtd_gmv"].iloc[0]
     )
     assert feb_last_day_value == sum(_DAY_AMOUNTS_T9["2026-02"].values())
 

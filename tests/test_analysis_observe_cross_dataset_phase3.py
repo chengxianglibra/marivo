@@ -105,8 +105,8 @@ def test_segmented_observe_aggregate_then_join(tmp_path):
     # order 1 (10): shirt + pants -> shirt=10, pants=10
     # order 2 (20): shirt -> shirt += 20 -> shirt=30
     # order 3 (30): pants -> pants += 30 -> pants=40
-    assert df.loc["shirt", "value"] == 30.0
-    assert df.loc["pants", "value"] == 40.0
+    assert df.loc["shirt", "gmv_by_category"] == 30.0
+    assert df.loc["pants", "gmv_by_category"] == 40.0
 
 
 def test_where_in_slice_on_fanout_side_counts_root_once(tmp_path):
@@ -125,7 +125,7 @@ def test_where_in_slice_on_fanout_side_counts_root_once(tmp_path):
     # Order 1 (10.0) has one shirt item and one pants item; the IN slice must
     # count the order once, not once per matching item. All three orders have
     # at least one matching item: 10 + 20 + 30.
-    assert float(df["value"].iloc[0]) == 60.0
+    assert float(df["gmv_by_category"].iloc[0]) == 60.0
 
 
 def test_where_equality_slice_on_fanout_side_excludes_non_matching_roots(tmp_path):
@@ -141,7 +141,7 @@ def test_where_equality_slice_on_fanout_side_excludes_non_matching_roots(tmp_pat
     df = frame.to_pandas()
     # Orders 1 (10.0) and 2 (20.0) have a shirt item; order 3 has none and
     # must be excluded entirely.
-    assert float(df["value"].iloc[0]) == 30.0
+    assert float(df["gmv_by_category"].iloc[0]) == 30.0
 
 
 def test_where_slice_on_fanout_dimension_keeps_overlapping_buckets(tmp_path):
@@ -161,8 +161,8 @@ def test_where_slice_on_fanout_dimension_keeps_overlapping_buckets(tmp_path):
     # The slice drops the hat bucket, while order 1 (10.0) still contributes
     # to both of its matching buckets (overlapping-bucket semantics).
     assert set(df.index) == {"shirt", "pants"}
-    assert df.loc["shirt", "value"] == 30.0
-    assert df.loc["pants", "value"] == 40.0
+    assert df.loc["shirt", "gmv_by_category"] == 30.0
+    assert df.loc["pants", "gmv_by_category"] == 40.0
 
 
 def test_panel_observe_aggregate_then_join(tmp_path):
@@ -181,4 +181,4 @@ def test_panel_observe_aggregate_then_join(tmp_path):
     assert frame.meta.semantic_kind == "panel"
     # Spot-check: order 1 on 2026-07-01 contributes 10 to both shirt and pants.
     row = df[(df["bucket_start"].astype(str) == "2026-07-01") & (df["category"] == "shirt")]
-    assert float(row["value"].iloc[0]) == 10.0
+    assert float(row["gmv_by_category"].iloc[0]) == 10.0

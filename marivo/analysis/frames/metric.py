@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+import pandas as pd
 from pydantic import ConfigDict
 
 from marivo.analysis._cumulative import (
@@ -314,6 +315,31 @@ class MetricFrame(BaseFrame):
     def arity(self) -> int:
         """Number of metrics carried by this frame."""
         return len(self.measures_meta())
+
+    def _export_dataframe(self) -> pd.DataFrame:
+        """Return a copy whose value columns are named by metric.
+
+        Arity-1 frames returned by ``observe`` keep ``"value"`` as their
+        internal canonical column but export the metric short name, matching
+        multi-metric observe output. If that name collides with an axis column,
+        the qualified metric id is used.
+        """
+        df = self._dataframe_copy()
+        last_intent = self.lineage.steps[-1].intent if self.lineage.steps else None
+        if last_intent != "observe" or self.arity != 1 or self.VALUE_COLUMN not in df.columns:
+            return df
+
+        measure = self.meta.measure if isinstance(self.meta.measure, dict) else {}
+        measure_name = measure.get("name")
+        if not isinstance(measure_name, str) or not measure_name:
+            metric_id = self.meta.metric_id
+            measure_name = metric_id.rsplit(".", 1)[-1] if metric_id else self.VALUE_COLUMN
+        if measure_name == self.VALUE_COLUMN:
+            return df
+        if measure_name in df.columns:
+            metric_id = self.meta.metric_id
+            measure_name = metric_id.replace(".", "__") if metric_id else measure_name
+        return df.rename(columns={self.VALUE_COLUMN: measure_name})
 
     # Every next-intent is gated at arity > 1; derive from _NEXT_INTENTS so
     # the two cannot drift.  These are capability-id prefixes: any

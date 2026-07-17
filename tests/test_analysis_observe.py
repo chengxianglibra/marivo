@@ -420,6 +420,14 @@ def test_observe_returns_metric_frame(tmp_path):
     assert mf.meta.session_id == s.id
 
 
+def test_observe_single_metric_to_pandas_uses_metric_name(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+    mf = observe(make_ref("sales.revenue", SemanticKind.METRIC), session=s)
+    assert list(mf.to_pandas().columns) == ["revenue"]
+
+
 def test_observe_rejects_bare_metric_string(tmp_path):
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
@@ -840,7 +848,7 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
             "denominator": "sales.total_count",
         },
     }
-    assert set(frame.to_pandas().columns) == {"value"}
+    assert set(frame.to_pandas().columns) == {"failure_rate"}
     assert "failed_count" not in [c.name for c in frame.contract().artifact_schema.columns]
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
@@ -857,7 +865,7 @@ def test_observe_scalar_derived_ratio_links_clean_component_frame(tmp_path):
     assert component_df.iloc[0]["failure_rate"] == pytest.approx(0.5)
 
     self_ratio = observe(make_ref("sales.failed_count_ratio", SemanticKind.METRIC), session=session)
-    assert self_ratio.to_pandas().iloc[0]["value"] == pytest.approx(1.0)
+    assert self_ratio.to_pandas().iloc[0]["failed_count_ratio"] == pytest.approx(1.0)
     self_components = self_ratio.components().to_pandas()
     assert list(self_components.columns) == ["numerator", "denominator", "failed_count_ratio"]
     assert self_components.iloc[0]["numerator"] == pytest.approx(2.0)
@@ -881,7 +889,7 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     assert frame.meta.semantic_kind == "time_series"
     assert frame.meta.component_ref is not None
     assert frame.meta.axes["time"]["column"] == "bucket_start"
-    assert set(frame.to_pandas().columns) == {"bucket_start", "value"}
+    assert set(frame.to_pandas().columns) == {"bucket_start", "failure_rate"}
 
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
@@ -917,7 +925,7 @@ def test_observe_time_series_with_empty_dimensions_list(tmp_path):
     )
 
     assert frame.meta.semantic_kind == "time_series"
-    assert set(frame.to_pandas().columns) == {"bucket_start", "value"}
+    assert set(frame.to_pandas().columns) == {"bucket_start", "revenue"}
 
 
 def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
@@ -1050,7 +1058,7 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
         "2026-05-01 00:00:00",
         "2026-05-01 00:30:00",
     ]
-    assert df["value"].tolist() == pytest.approx([10.0, 20.0])
+    assert df["revenue"].tolist() == pytest.approx([10.0, 20.0])
 
 
 def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):

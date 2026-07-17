@@ -486,6 +486,10 @@ class Session:
         optional ``time_scope`` / ``grain`` / ``dimensions`` / ``slice_by`` filters, executes against
         the session's backend, and persists the result as a MetricFrame on disk.
 
+        ``to_pandas()`` on the returned frame always names value columns by
+        metric, regardless of arity. It uses each metric's short name, or a
+        qualified metric id when names collide.
+
         Args:
             metric: Catalog metric object or ``SemanticRef``, or a non-empty
                 sequence of them for a multi-metric observation over one shared

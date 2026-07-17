@@ -11,6 +11,15 @@ from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
 
 
+def _metric_pandas(frame):
+    """Normalize an observe export for tests that exercise sampled-fold math."""
+    df = frame.to_pandas()
+    measure_name = frame.meta.measure.get("name")
+    if isinstance(measure_name, str) and measure_name in df.columns:
+        return df.rename(columns={measure_name: "value"})
+    return df
+
+
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -242,7 +251,7 @@ def test_sampled_mean_fold_aggregates_space_then_time(sampled_bandwidth_project)
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
 
-    df = frame.to_pandas().sort_values(["bucket_start", "province"]).reset_index(drop=True)
+    df = _metric_pandas(frame).sort_values(["bucket_start", "province"]).reset_index(drop=True)
     assert df[["province", "value"]].to_dict("records") == [
         {"province": "beijing", "value": 300.0},
         {"province": "shanghai", "value": 90.0},
@@ -265,7 +274,7 @@ def test_sampled_mean_fold_accepts_strptime_time_dimension(
         dimensions=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
     )
 
-    df = frame.to_pandas().sort_values(["bucket_start", "province"]).reset_index(drop=True)
+    df = _metric_pandas(frame).sort_values(["bucket_start", "province"]).reset_index(drop=True)
     assert df[["province", "value"]].to_dict("records") == [
         {"province": "beijing", "value": 300.0},
         {"province": "shanghai", "value": 90.0},
@@ -306,7 +315,7 @@ def test_sampled_non_percentile_folds(
         time_scope={"start": "2026-01-01T00:00:00", "end": "2026-01-01T01:00:00"},
         grain="hour",
     )
-    df = frame.to_pandas()
+    df = _metric_pandas(frame)
     assert df["value"].iloc[0] == expected
 
 
@@ -320,7 +329,7 @@ def test_sampled_fold_persists_time_slot_coverage_sidecar(sampled_bandwidth_proj
     assert "actual_samples" not in frame.columns
     coverage = frame.coverage()
     coverage_df = coverage.to_pandas()
-    frame_df = frame.to_pandas()
+    frame_df = _metric_pandas(frame)
     assert coverage_df["bucket_start"].tolist() == frame_df["bucket_start"].tolist()
     assert coverage_df[
         ["actual_samples", "expected_samples", "coverage_ratio", "coverage_status"]
@@ -357,7 +366,7 @@ def test_sampled_percentile_fold_uses_space_aggregated_series(sampled_bandwidth_
         grain="hour",
     )
 
-    df = frame.to_pandas()
+    df = _metric_pandas(frame)
     assert df["value"].iloc[0] == pytest.approx(114.5)
     assert frame.meta.quantile_mode == "exact"
     assert frame.meta.quantile_method == "linear_interpolation"
@@ -370,7 +379,7 @@ def test_sampled_ratio_uses_folded_components_and_min_coverage(sampled_bandwidth
         grain="hour",
     )
 
-    df = frame.to_pandas()
+    df = _metric_pandas(frame)
     assert df["value"].iloc[0] == pytest.approx(0.5725)
     coverage_df = frame.coverage().to_pandas()
     assert coverage_df["coverage_ratio"].iloc[0] == 1.0
@@ -727,7 +736,7 @@ def test_hour_prefix_sampled_fold_aggregates_space_then_time(hour_prefix_bandwid
         dimensions=[make_ref("sales.hourly_bandwidth.province", SemanticKind.DIMENSION)],
     )
 
-    df = frame.to_pandas().sort_values(["bucket_start", "province"]).reset_index(drop=True)
+    df = _metric_pandas(frame).sort_values(["bucket_start", "province"]).reset_index(drop=True)
     # 24 hourly samples per day, each at 300 (beijing) or 90 (shanghai); mean = same
     assert df[["province", "value"]].to_dict("records") == [
         {"province": "beijing", "value": 300.0},
@@ -757,7 +766,7 @@ def test_hour_prefix_non_mean_folds_with_varying_values(
         grain="day",
     )
 
-    df = frame.to_pandas()
+    df = _metric_pandas(frame)
     # Without dimension slicing the spatial sum (beijing + shanghai) is folded;
     # shanghai contributes 0 so the fold result equals the beijing-only value.
     assert df["value"].iloc[0] == expected

@@ -87,9 +87,9 @@ def test_observe_panel_returns_time_and_dimension_axes(tmp_path):
     assert mf.meta.axes["time"]["grain"] == "day"
     assert mf.meta.axes["region"]["role"] == "dimension"
     df = mf.to_pandas()
-    assert {"bucket_start", "region", "value"} == set(df.columns)
+    assert {"bucket_start", "region", "revenue"} == set(df.columns)
     assert len(df) == 4
-    by_key = {(str(row.bucket_start.date()), row.region): row.value for row in df.itertuples()}
+    by_key = {(str(row.bucket_start.date()), row.region): row.revenue for row in df.itertuples()}
     assert by_key[("2026-07-01", "NORTH")] == pytest.approx(10.0)
     assert by_key[("2026-07-02", "SOUTH")] == pytest.approx(40.0)
 
@@ -113,7 +113,7 @@ def test_observe_panel_multi_dimension(tmp_path):
 
     assert mf.meta.semantic_kind == "panel"
     df = mf.to_pandas()
-    assert {"bucket_start", "region", "channel", "value"} == set(df.columns)
+    assert {"bucket_start", "region", "channel", "revenue"} == set(df.columns)
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@ def test_observe_panel_derived_ratio_links_component_frame(tmp_path):
 
     assert frame.meta.semantic_kind == "panel"
     assert frame.meta.component_ref is not None
-    assert set(frame.to_pandas().columns) == {"bucket_start", "region", "value"}
+    assert set(frame.to_pandas().columns) == {"bucket_start", "region", "failure_rate"}
     components = frame.components()
     assert components.meta.semantic_kind == "panel"
     assert components.meta.axes == frame.meta.axes
@@ -246,7 +246,7 @@ def test_observe_panel_derived_weighted_average_uses_weight_component(tmp_path):
     assert set(frame.to_pandas().columns) == {
         "bucket_start",
         "region",
-        "value",
+        "weighted_failure_rate",
     }
     component_df = components.to_pandas()
     assert "total_weight" in component_df.columns

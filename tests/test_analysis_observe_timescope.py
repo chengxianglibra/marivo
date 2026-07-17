@@ -190,7 +190,7 @@ def test_timescope_with_grain_returns_time_series(tmp_path):
             "time_dimension": "order_date",
         }
     }
-    assert list(frame.to_pandas().columns) == ["bucket_start", "value"]
+    assert list(frame.to_pandas().columns) == ["bucket_start", "revenue"]
 
 
 def test_windowed_time_series_rejects_multi_dataset_metric(tmp_path):
@@ -265,5 +265,5 @@ def test_date_time_series_day_bucket_respects_report_tz(tmp_path):
 
     df = frame.to_pandas()
     assert frame.meta.semantic_kind == "time_series"
-    assert df["value"].tolist() == pytest.approx([30.0])
+    assert df["revenue"].tolist() == pytest.approx([30.0])
     assert [item.strftime("%Y-%m-%d") for item in df["bucket_start"]] == ["2026-05-01"]

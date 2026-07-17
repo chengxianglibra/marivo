@@ -93,7 +93,7 @@ def forecast(
         seasonality_period=seasonality_period,
     )
 
-    df = history.to_pandas()
+    df = history._dataframe_copy()
     value_col = require_numeric_column(df, measure_column, purpose="forecast history")
     if df[value_col].isna().any():
         raise ForecastInputQualityError(message="forecast history contains NaN values")

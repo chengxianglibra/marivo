@@ -138,7 +138,7 @@ def _component_fold_payload(
     component = load_frame(frame.meta.component_ref, session=session)
     if not hasattr(component, "to_pandas"):
         return []
-    rows = component.to_pandas().to_dict("records")
+    rows = component._dataframe_copy().to_dict("records")
     return [
         {
             "component_metric_id": row.get("component_metric_id"),
@@ -301,7 +301,7 @@ def _component_role_metric_frame(
     role_column: str,
 ) -> MetricFrame:
     axis_columns = _component_axis_columns(component)
-    df = component.to_pandas()[[*axis_columns, role_column]].copy()
+    df = component._dataframe_copy()[[*axis_columns, role_column]].copy()
     meta = parent.meta.model_copy(
         update={
             "ref": f"{component.ref}_{role_column}",
@@ -357,8 +357,8 @@ def _align_component_role(
             align_period=alignment.period,
             fallback=alignment.fallback,
         )
-        current_df = current_role.to_pandas()
-        baseline_df = baseline_role.to_pandas()
+        current_df = current_role._dataframe_copy()
+        baseline_df = baseline_role._dataframe_copy()
         time_column = _time_axis_column(current_role)
         value_column = _value_column(current_role, current_df, time_column=time_column)
         baseline_value_column = _value_column(
@@ -378,7 +378,7 @@ def _align_component_role(
             report_tz=report_tz,
         )
         return aligned
-    return _align_and_compute(current_role.to_pandas(), baseline_role.to_pandas())
+    return _align_and_compute(current_role._dataframe_copy(), baseline_role._dataframe_copy())
 
 
 def _aligned_key_columns(aligned: pd.DataFrame) -> list[str]:
@@ -609,8 +609,8 @@ def compare(
                 alignment=alignment,
             )
         else:
-            current_df = current.to_pandas()
-            baseline_df = baseline.to_pandas()
+            current_df = current._dataframe_copy()
+            baseline_df = baseline._dataframe_copy()
             if current.meta.semantic_kind == "scalar" and (
                 len(current_df) != 1 or len(baseline_df) != 1
             ):
@@ -640,8 +640,8 @@ def compare(
             align_period=alignment.period,
             fallback=alignment.fallback,
         )
-        current_df = current.to_pandas()
-        baseline_df = baseline.to_pandas()
+        current_df = current._dataframe_copy()
+        baseline_df = baseline._dataframe_copy()
         time_column = _time_axis_column(current)
         baseline_time_column = _time_axis_column(baseline)
         if baseline_time_column != time_column:
@@ -1193,8 +1193,8 @@ def _align_segmented(a: MetricFrame, b: MetricFrame) -> tuple[pd.DataFrame, dict
             message="segmented compare requires at least one dimension axis",
             context={"kind": "SegmentDimensionMissing"},
         )
-    a_df = a.to_pandas()
-    b_df = b.to_pandas()
+    a_df = a._dataframe_copy()
+    b_df = b._dataframe_copy()
     a_value = _value_column_segmented(a, a_df, dim_columns=dim_columns)
     b_value = _value_column_segmented(b, b_df, dim_columns=dim_columns)
     a_prepared = a_df[[*dim_columns, a_value]].rename(columns={a_value: "current"})
@@ -1254,8 +1254,8 @@ def _align_panel(
             },
         )
 
-    a_df = a.to_pandas()
-    b_df = b.to_pandas()
+    a_df = a._dataframe_copy()
+    b_df = b._dataframe_copy()
     a_value = _value_column_segmented(a, a_df, dim_columns=[*dim_columns, time_column])
     b_value = _value_column_segmented(b, b_df, dim_columns=[*dim_columns, time_column])
     _require_calendar_columns(
@@ -1572,8 +1572,8 @@ def _align_time_series_window_bucket(
                 "baseline_time_column": b_time_column,
             },
         )
-    a_df = a.to_pandas()
-    b_df = b.to_pandas()
+    a_df = a._dataframe_copy()
+    b_df = b._dataframe_copy()
     a_value = _value_column(a, a_df, time_column=time_column)
     b_value = _value_column(b, b_df, time_column=time_column)
     a_prepared = (

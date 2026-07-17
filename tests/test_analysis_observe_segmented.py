@@ -136,8 +136,8 @@ def test_observe_single_dimension_returns_segmented_frame(tmp_path):
     assert "region" in mf.meta.axes
     assert mf.meta.axes["region"]["role"] == "dimension"
     df = mf.to_pandas()
-    assert set(df.columns) == {"region", "value"}
-    by_region = df.set_index("region")["value"].to_dict()
+    assert set(df.columns) == {"region", "revenue"}
+    by_region = df.set_index("region")["revenue"].to_dict()
     assert by_region == {"NORTH": pytest.approx(70.0), "SOUTH": pytest.approx(30.0)}
 
 
@@ -181,7 +181,7 @@ def test_observe_multi_dimension_segmented(tmp_path):
 
     assert mf.meta.semantic_kind == "segmented"
     df = mf.to_pandas()
-    assert {"region", "channel", "value"} == set(df.columns)
+    assert {"region", "channel", "revenue"} == set(df.columns)
 
 
 def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
@@ -199,8 +199,8 @@ def test_observe_derived_metric_dimension_from_component_dataset(tmp_path):
     assert mf.meta.semantic_kind == "segmented"
     assert mf.meta.measure["name"] == "failure_rate"
     df = mf.to_pandas()
-    assert set(df.columns) == {"region", "value"}
-    by_region = df.set_index("region")["value"].to_dict()
+    assert set(df.columns) == {"region", "failure_rate"}
+    by_region = df.set_index("region")["failure_rate"].to_dict()
     assert by_region == {"NORTH": pytest.approx(1 / 3), "SOUTH": pytest.approx(1.0)}
 
 
@@ -237,8 +237,8 @@ def test_observe_derived_metric_dimension_honors_timescope(tmp_path):
         "resolved": windowed.meta.window,
         "report_tz": s.report_tz_name,
     }
-    windowed_by_region = windowed.to_pandas().set_index("region")["value"].to_dict()
-    full_by_region = full.to_pandas().set_index("region")["value"].to_dict()
+    windowed_by_region = windowed.to_pandas().set_index("region")["failure_rate"].to_dict()
+    full_by_region = full.to_pandas().set_index("region")["failure_rate"].to_dict()
     assert windowed_by_region == {"NORTH": pytest.approx(0.0), "SOUTH": pytest.approx(1.0)}
     assert windowed_by_region["NORTH"] != pytest.approx(full_by_region["NORTH"])
 
@@ -263,7 +263,7 @@ def test_observe_derived_metric_scalar_uses_component_datasets(tmp_path):
     assert mf.meta.semantic_kind == "scalar"
     assert mf.meta.measure["name"] == "failure_rate"
     df = mf.to_pandas()
-    assert set(df.columns) == {"value"}
+    assert set(df.columns) == {"failure_rate"}
     assert df.iloc[0, 0] == pytest.approx(0.5)
 
 
@@ -281,8 +281,8 @@ def test_observe_derived_metric_dimension_via_relationship(tmp_path):
 
     assert mf.meta.semantic_kind == "segmented"
     df = mf.to_pandas()
-    assert set(df.columns) == {"tier", "value"}
-    by_tier = df.set_index("tier")["value"].to_dict()
+    assert set(df.columns) == {"tier", "failure_rate"}
+    by_tier = df.set_index("tier")["failure_rate"].to_dict()
     assert by_tier == {"gold": pytest.approx(1 / 3), "silver": pytest.approx(1.0)}
 
 
@@ -296,7 +296,7 @@ def test_observe_empty_dimensions_list_returns_scalar_frame(tmp_path):
 
     assert frame.meta.semantic_kind == "scalar"
     df = frame.to_pandas()
-    assert set(df.columns) == {"value"}
+    assert set(df.columns) == {"revenue"}
     assert df.iloc[0, 0] == pytest.approx(100.0)
 
 
@@ -337,7 +337,7 @@ def test_observe_segmented_multi_dataset_metric_with_root_dimension(tmp_path):
 
     assert frame.meta.semantic_kind == "segmented"
     df = frame.to_pandas()
-    assert set(df.columns) == {"channel", "value"}
+    assert set(df.columns) == {"channel", "revenue_plus_user_count"}
 
 
 def test_observe_segmented_multi_dataset_missing_dimension_is_blocked(tmp_path):
@@ -435,7 +435,7 @@ def test_observe_segmented_derived_ratio_links_aligned_component_frame(tmp_path)
     )
 
     assert frame.meta.component_ref is not None
-    assert set(frame.to_pandas().columns) == {"region", "value"}
+    assert set(frame.to_pandas().columns) == {"region", "failure_rate"}
     components = frame.components()
     assert components.meta.parent_ref == frame.ref
     component_df = components.to_pandas()

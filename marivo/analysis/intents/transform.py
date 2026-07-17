@@ -1047,7 +1047,7 @@ def _op_window(
     session: Session,
 ) -> _TransformHandlerResult:
     resolved_window = _resolve_transform_window(window, session=session)
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     time_axis = _window_time_axis(frame, df)
     time_column = time_axis.get("column")
     if not isinstance(time_column, str) or time_column not in df.columns:
@@ -1162,7 +1162,7 @@ def _op_normalize(
             context={"op": "normalize", "mode": mode, "unsupported_kwargs": ["baseline"]},
         )
 
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     column = _primary_normalize_column(frame, df)
     new_df = df.copy()
     dimension_group_columns = _axis_columns_by_role(frame, new_df, "dimension")
@@ -1376,7 +1376,7 @@ def _op_filter(
             context={"op": "filter", "argument": "predicate"},
         )
 
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     mask = predicate(df)
     if not isinstance(mask, pd.Series):
         raise TransformArgError(
@@ -1440,7 +1440,7 @@ def _ordered_take(
             context={"op": op_name, "argument": "limit", "limit": limit},
         )
 
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     if by not in df.columns:
         raise TransformArgError(
             message=f"transform(op='{op_name}') by column {by!r} is not present",
@@ -1512,7 +1512,7 @@ def _op_rank(
             },
         )
 
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     if by not in df.columns:
         raise TransformArgError(
             message=f"transform(op='rank') by column {by!r} is not present",
@@ -1587,7 +1587,7 @@ def _op_rollup(
         column for axis_id, column in axis_columns.items() if axis_id not in drop_ids
     ]
 
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     missing_columns = [column for column in remaining_axis_columns if column not in df.columns]
     if missing_columns:
         raise TransformDimensionNotFoundError(
@@ -1646,7 +1646,7 @@ def _require_target_grain_compatible(frame: TransformFrame, target_grain: str) -
             hint=("Supported rollup grains: hour, day, week, month, quarter, year."),
             context={"op": "rollup", "argument": "grain", "grain": target_grain},
         )
-    time_axis = _window_time_axis(frame, frame.to_pandas())
+    time_axis = _window_time_axis(frame, frame._dataframe_copy())
     current_grain = time_axis.get("grain") if isinstance(time_axis, dict) else None
     if current_grain not in _ROLLUP_GRAIN_RANK:
         raise TransformShapeUnsupportedError(
@@ -1800,7 +1800,7 @@ def _op_rollup_grain(
     """
     _require_target_grain_compatible(frame, grain)
 
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     time_axis = _window_time_axis(frame, df)
     time_col = time_axis["column"]
     dims = [
@@ -1877,7 +1877,7 @@ def _op_slice(
             context={"op": "slice", "argument": "slice_by"},
         )
 
-    df = frame.to_pandas()
+    df = frame._dataframe_copy()
     mask = pd.Series(True, index=df.index)
     locked_single_value_dims: list[tuple[str, str, Any]] = []
 

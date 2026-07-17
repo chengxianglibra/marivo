@@ -17,6 +17,15 @@ from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
 
 
+def _metric_pandas(frame):
+    """Normalize an observe export for tests that exercise cumulative math."""
+    df = frame.to_pandas()
+    measure_name = frame.meta.measure.get("name")
+    if isinstance(measure_name, str) and measure_name in df.columns:
+        return df.rename(columns={measure_name: "value"})
+    return df
+
+
 def _bootstrap_project(tmp_path) -> None:
     """Create a semantic project with cumulative metrics on disk."""
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
@@ -103,7 +112,7 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
         session=session,
     )
 
-    df = frame.to_pandas()
+    df = _metric_pandas(frame)
     assert frame.meta.semantic_kind == "time_series"
     assert frame.meta.reaggregatable is False
     assert frame.meta.cumulative == {
@@ -148,7 +157,7 @@ def test_cumulative_count_distinct_uses_first_seen_not_bucket_sum(tmp_path, monk
         session=session,
     )
 
-    by_day = {str(row.bucket_start.date()): row.value for row in frame.to_pandas().itertuples()}
+    by_day = {str(row.bucket_start.date()): row.value for row in _metric_pandas(frame).itertuples()}
     assert by_day == {
         "2026-07-01": pytest.approx(2.0),
         "2026-07-02": pytest.approx(2.0),
@@ -169,7 +178,7 @@ def test_cumulative_panel_counts_once_per_slice(tmp_path, monkeypatch) -> None:
         session=session,
     )
 
-    df = frame.to_pandas()
+    df = _metric_pandas(frame)
     assert frame.meta.semantic_kind == "panel"
     ca = df[(df["region"] == "CA") & (df["bucket_start"].dt.date.astype(str) == "2026-07-05")]
     us = df[(df["region"] == "US") & (df["bucket_start"].dt.date.astype(str) == "2026-07-05")]
@@ -187,7 +196,7 @@ def test_cumulative_scalar_as_of_window_end(tmp_path, monkeypatch) -> None:
     )
 
     assert frame.meta.semantic_kind == "scalar"
-    assert frame.to_pandas().iloc[0]["value"] == pytest.approx(45.0)
+    assert _metric_pandas(frame).iloc[0]["value"] == pytest.approx(45.0)
 
 
 def test_cumulative_month_grain_does_not_hang(tmp_path, monkeypatch) -> None:
@@ -201,7 +210,7 @@ def test_cumulative_month_grain_does_not_hang(tmp_path, monkeypatch) -> None:
         session=session,
     )
 
-    df = frame.to_pandas()
+    df = _metric_pandas(frame)
     assert frame.meta.semantic_kind == "time_series"
     # Window [2026-06-01, 2026-08-01) with month grain should produce 2 buckets.
     by_month = {str(row.bucket_start.date()): row.value for row in df.itertuples()}
@@ -225,7 +234,7 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
         session=session,
     )
     assert scalar_frame.meta.semantic_kind == "scalar"
-    assert scalar_frame.to_pandas().iloc[0]["value"] == pytest.approx(22.0)
+    assert _metric_pandas(scalar_frame).iloc[0]["value"] == pytest.approx(22.0)
 
     # --- Time-series path: where filter should apply to baseline + flow ---
     # US-only baseline (before 2026-07-01): 5.0 (event on 2026-06-29)
@@ -238,7 +247,9 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
         slice_by={make_ref("region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
-    by_day = {str(row.bucket_start.date()): row.value for row in ts_frame.to_pandas().itertuples()}
+    by_day = {
+        str(row.bucket_start.date()): row.value for row in _metric_pandas(ts_frame).itertuples()
+    }
     assert by_day == {
         "2026-07-01": pytest.approx(15.0),
         "2026-07-02": pytest.approx(15.0),
@@ -263,7 +274,7 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
         session=session,
     )
     cd_by_day = {
-        str(row.bucket_start.date()): row.value for row in cd_frame.to_pandas().itertuples()
+        str(row.bucket_start.date()): row.value for row in _metric_pandas(cd_frame).itertuples()
     }
     assert cd_by_day == {
         "2026-07-01": pytest.approx(1.0),
@@ -373,7 +384,7 @@ def test_cumulative_subday_multi_count_grain_day_anchored(tmp_path, monkeypatch)
         session=session,
     )
 
-    df = frame.to_pandas()
+    df = _metric_pandas(frame)
     by_bucket = {row.bucket_start.strftime("%H:%M"): row.value for row in df.itertuples()}
     assert by_bucket == {
         "02:00": pytest.approx(30.0),
@@ -877,7 +888,7 @@ def test_grain_to_date_month_resets_at_month_boundary(day_project, duckdb_sessio
         end="2026-03-01",
         grain="day",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     # Feb 1 value == Jan 31 is FALSE: Feb 1 resets to that day's flow.
     jan31 = df.loc[df["bucket_start"] == "2026-01-31", "value"].iloc[0]
     feb01 = df.loc[df["bucket_start"] == "2026-02-01", "value"].iloc[0]
@@ -931,7 +942,7 @@ def test_grain_to_date_scalar_full_july_not_empty_august(day_project, duckdb_ses
         start="2026-07-01",
         end="2026-08-01",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     assert len(df) == 1
     assert df.loc[0, "value"] == pytest.approx(project.july_total())
 
@@ -964,7 +975,7 @@ def test_grain_to_date_month_at_month_grain_is_period_total(day_project, duckdb_
         end="2026-03-01",
         grain="month",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     assert df.loc[df["bucket_start"] == "2026-01-01", "value"].iloc[0] == pytest.approx(
         project.jan_total()
     )
@@ -1010,7 +1021,7 @@ def test_grain_to_date_count_distinct_resets_within_period(day_project, duckdb_s
         end="2026-03-01",
         grain="day",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     # User 100 is the only active user Jan 1..Jan 5, so the MTD distinct count
     # is 1 on every one of those days (no double-count within the period).
     jan01 = df.loc[df["bucket_start"] == "2026-01-01", "value"].iloc[0]
@@ -1054,7 +1065,7 @@ def test_grain_to_date_count_distinct_filters_before_dedup(day_project, duckdb_s
         slice_by={make_ref("region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
-    us_df = us_frame.to_pandas()
+    us_df = _metric_pandas(us_frame)
     # US-only Jan MTD: user 100 (Jan 1..5) is the only US user, so every Jan
     # bucket holds 1. The CA-only users (one per remaining Jan day) are
     # excluded before dedup and never counted.
@@ -1065,7 +1076,7 @@ def test_grain_to_date_count_distinct_filters_before_dedup(day_project, duckdb_s
     # Compare against the unfiltered frame: Jan 31 MTD counts user 100 plus
     # every CA-only user (one per Jan day outside Jan 1..5) = 1 + 26 = 27.
     # The US slice strictly excludes them, proving the filter runs before dedup.
-    full_df = cum.to_pandas()
+    full_df = _metric_pandas(cum)
     full_jan31 = full_df.loc[full_df["bucket_start"] == "2026-01-31", "value"].iloc[0]
     assert full_jan31 == pytest.approx(27.0)
     assert jan31 < full_jan31  # the slice actually excluded the CA users
@@ -1100,7 +1111,7 @@ def test_grain_to_date_count_distinct_quarter_reset_aligns_across_paths(
         end="2026-08-01",
         grain="day",
     )
-    qtd = cum_qtd.to_pandas()
+    qtd = _metric_pandas(cum_qtd)
     jan31_qtd = qtd.loc[qtd["bucket_start"] == "2026-01-31", "value"].iloc[0]
     feb01_qtd = qtd.loc[qtd["bucket_start"] == "2026-02-01", "value"].iloc[0]
     jul01_qtd = qtd.loc[qtd["bucket_start"] == "2026-07-01", "value"].iloc[0]
@@ -1121,7 +1132,7 @@ def test_grain_to_date_count_distinct_quarter_reset_aligns_across_paths(
         end="2026-02-02",
         grain="day",
     )
-    mtd = cum_mtd.to_pandas()
+    mtd = _metric_pandas(cum_mtd)
     feb01_mtd = mtd.loc[mtd["bucket_start"] == "2026-02-01", "value"].iloc[0]
     assert feb01_mtd == pytest.approx(1.0)  # user 100 re-counted at month boundary
     assert feb01_qtd != pytest.approx(feb01_mtd)
@@ -1162,7 +1173,7 @@ def test_grain_to_date_count_distinct_seed_scoped_for_mid_period_start(
     executions = _recorded_executions(cum)
     # Seed (first partial period) + flow == 2 queries.
     assert len(executions) == 2
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     # First displayed bucket is Jan 15. The seed (entities first-seen before
     # Jan 15 within the January period) = user 100 (Jan 1..5) + the 9 unique CA
     # users first-seen Jan 6..14 = 10 distinct entities. Jan 15's own flow is
@@ -1194,7 +1205,7 @@ def test_trailing_sum_rolling_window(day_project, duckdb_session) -> None:
         end="2026-02-15",
         grain="day",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     # Feb 8 value == sum of Feb 2..Feb 8 (7-day span ending Feb 8 end).
     assert df.loc[df["bucket_start"] == "2026-02-08", "value"].iloc[0] == pytest.approx(
         project.sum_range("2026-02-02", "2026-02-08")
@@ -1213,7 +1224,7 @@ def test_trailing_partial_window_shows_actual_value(day_project, duckdb_session)
         end="2026-01-10",
         grain="day",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     # Jan 1 window reaches Jan -5 (before data start Jan 1): partial, but shows
     # actual sum (Jan 1's own flow since only Jan 1 falls in the span).
     assert df.loc[df["bucket_start"] == "2026-01-01", "value"].iloc[0] == pytest.approx(1.0)
@@ -1235,7 +1246,7 @@ def test_trailing_empty_window_is_zero_not_carryforward(day_project, duckdb_sess
         end="2026-04-15",
         grain="day",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     # day_project has a 7-day gap in early April; those buckets are 0.
     gap_day = project.first_gap_day()
     assert df.loc[df["bucket_start"] == gap_day, "value"].iloc[0] == 0
@@ -1250,7 +1261,7 @@ def test_trailing_empty_window_is_zero_not_carryforward(day_project, duckdb_sess
         end="2026-04-15",
         grain="day",
     )
-    ah_df = all_history.to_pandas()
+    ah_df = _metric_pandas(all_history)
     ah_gap = ah_df.loc[ah_df["bucket_start"] == gap_day, "value"].iloc[0]
     assert ah_gap == pytest.approx(project.jan_total() + project.feb_total())
     assert ah_gap != 0  # carry-forward vs trailing's true zero
@@ -1269,7 +1280,7 @@ def test_trailing_integer_multiple_rule_rejects_mismatch(day_project, duckdb_ses
         end="2026-02-08",
         grain="hour",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     assert len(df) == 7 * 24  # 168 buckets
 
 
@@ -1300,7 +1311,7 @@ def test_trailing_display_window_clipping(day_project, duckdb_session) -> None:
         end="2026-02-15",
         grain="day",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     assert df["bucket_start"].min() >= pd.Timestamp("2026-02-10")
     assert df["bucket_start"].max() < pd.Timestamp("2026-02-15")
 
@@ -1328,7 +1339,7 @@ def test_trailing_distinct_expansion_join_correctness(day_project, duckdb_sessio
         slice_by={make_ref("region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     # The 7d window for bucket B is [B-6d, B] inclusive (reachback (W-1)*grain,
     # shared with the additive trailing path). User 100 (active Jan 1..5) is
     # present in every bucket whose window reaches Jan 5 (the last active day):
@@ -1368,7 +1379,7 @@ def test_trailing_distinct_empty_bucket_is_zero(day_project, duckdb_session) -> 
         end="2026-04-15",
         grain="day",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     gap_day = day_project[0].first_gap_day()
     assert df.loc[df["bucket_start"] == gap_day, "value"].iloc[0] == 0
 
@@ -1387,7 +1398,7 @@ def test_trailing_distinct_partial_window_marked_in_coverage(day_project, duckdb
         end="2026-01-15",
         grain="day",
     )
-    df = cum.to_pandas()
+    df = _metric_pandas(cum)
     # Jan 1's 7-day window reaches back to Dec 26, before the data start (Jan 1):
     # it shows the actual value (user 100 active Jan 1) and is marked partial.
     assert df.loc[df["bucket_start"] == "2026-01-01", "value"].iloc[0] == pytest.approx(1.0)
