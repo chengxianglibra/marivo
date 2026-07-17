@@ -265,6 +265,35 @@ class WindowAmbiguousError(AnalysisError): ...
 class SliceInvalidError(AnalysisError): ...
 
 
+class SliceEmptyResultError(AnalysisError):
+    def _derive_fields(self) -> _DerivedFields:
+        dimensions = self._context.get("slice_dimensions")
+        if not isinstance(dimensions, (list, tuple)) or not dimensions:
+            return _DerivedFields()
+        return _DerivedFields(
+            expected="a non-empty result for the requested slice_by",
+            received="0 rows",
+            location="session.observe call (slice_by)",
+            repair=AnalysisRepair(
+                kind="inspect",
+                action=(
+                    "Verify the slice_by values exist on the dimension and the "
+                    "time_scope covers data; discover values via md.inspect(...)."
+                ),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
+                snippet=(
+                    "import marivo.datasource as md\n"
+                    "inspection = md.inspect(md.ref('datasource.<name>'), "
+                    "md.table('<entity_table>'))\n"
+                    "inspection.sample(\n"
+                    "    scope=md.unpruned(max_rows=100, timeout_seconds=60),\n"
+                    "    columns=('<column>',),\n"
+                    ").show()  # confirm the slice_by value and time_scope"
+                ),
+            ),
+        )
+
+
 class SliceAmbiguousError(AnalysisError): ...
 
 

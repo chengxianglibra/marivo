@@ -11,6 +11,7 @@ from marivo.analysis.errors import (
     AnalysisError,
     MetricNotFoundError,
     SemanticKindMismatchError,
+    SliceEmptyResultError,
 )
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
@@ -433,7 +434,9 @@ def observe(
                 )
                 if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
                     session._connection_runtime.take_captured_queries()
-                    return cast("MetricFrame", load_frame(prospective_id, session=session))
+                    _cached_frame = cast("MetricFrame", load_frame(prospective_id, session=session))
+                    _raise_on_empty_slice_result(_cached_frame, where_by_id)
+                    return _cached_frame
 
                 cum_result, cum_axes, cum_kind, cum_coverage_df = _execute_cumulative(
                     derived_plan,
@@ -479,7 +482,9 @@ def observe(
                 )
                 if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
                     session._connection_runtime.take_captured_queries()
-                    return cast("MetricFrame", load_frame(prospective_id, session=session))
+                    _cached_frame = cast("MetricFrame", load_frame(prospective_id, session=session))
+                    _raise_on_empty_slice_result(_cached_frame, where_by_id)
+                    return _cached_frame
 
                 result, component_df, derived_axes, derived_kind, derived_coverage_df = (
                     _execute_derived(
@@ -672,6 +677,7 @@ def observe(
                 ],
             },
         )
+        _raise_on_empty_slice_result(frame, where_by_id)
         return frame
 
     # --- Base (non-derived) metric path: route through planner ---
@@ -736,7 +742,9 @@ def observe(
         )
         if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
             session._connection_runtime.take_captured_queries()
-            return cast("MetricFrame", load_frame(prospective_id, session=session))
+            _cached_frame = cast("MetricFrame", load_frame(prospective_id, session=session))
+            _raise_on_empty_slice_result(_cached_frame, where_by_id)
+            return _cached_frame
 
         result, axes, semantic_kind, coverage_df, mean_component_df = _execute_base(
             plan,
@@ -878,4 +886,31 @@ def observe(
             "queries": [{**qe.to_dict(), "output_ref": _output_ref} for qe in _captured_queries],
         },
     )
+    _raise_on_empty_slice_result(frame, where_by_id)
     return frame
+
+
+def _raise_on_empty_slice_result(
+    frame: MetricFrame,
+    where_by_id: dict[str, SliceValue],
+) -> None:
+    """Raise SliceEmptyResultError when slice_by yields zero rows.
+
+    A 0-row result under slice_by is almost always a mismatched slice value or
+    an empty time window; surface it as a typed error with a reminder instead
+    of returning a silent empty frame. This reads only the already-computed
+    ``row_count`` — it never scans the source to verify whether a slice value
+    exists, which would be too costly on very large tables. See issue #26.
+    """
+    if not where_by_id:
+        return
+    if frame.meta.row_count != 0:
+        return
+    dimensions = list(where_by_id.keys())
+    raise SliceEmptyResultError(
+        message=(
+            f"slice_by on dimension(s) {dimensions!r} produced 0 rows. Verify the "
+            "slice_by values and time_scope against the source data."
+        ),
+        context={"slice_dimensions": dimensions},
+    )
