@@ -11,6 +11,7 @@ from marivo.analysis.errors import (
     MetricNotFoundError,
     NoBackendFactoryError,
     SemanticKindMismatchError,
+    SliceEmptyResultError,
     WindowInvalidError,
 )
 from marivo.analysis.frames.metric import MetricFrame
@@ -602,6 +603,43 @@ def test_observe_applies_slice(tmp_path):
         session=s,
     )
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(70.0)
+
+
+def test_observe_slice_by_empty_result_raises_teaching_error(tmp_path):
+    """A slice_by that produces 0 rows must raise a typed teaching error, not
+    silently return an empty frame. The check reads only the result row_count
+    (no source scan). See issue #26.
+    """
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+    with pytest.raises(SliceEmptyResultError) as exc_info:
+        observe(
+            make_ref("sales.revenue", SemanticKind.METRIC),
+            time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+            grain="day",
+            slice_by={make_ref("region", SemanticKind.DIMENSION): "NOPE"},
+            session=s,
+        )
+    err = exc_info.value
+    assert err.received == "0 rows"
+    assert "slice_by" in err.message
+    assert err.repair.kind == "inspect"
+    assert "md.inspect" in err.repair.snippet
+
+
+def test_observe_slice_by_empty_result_in_list_raises(tmp_path):
+    bootstrap_sales_project(tmp_path)
+    con = connect_sales_orders()
+    s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
+    with pytest.raises(SliceEmptyResultError):
+        observe(
+            make_ref("sales.revenue", SemanticKind.METRIC),
+            time_scope={"start": "2026-07-01", "end": "2026-07-31"},
+            grain="day",
+            slice_by={make_ref("region", SemanticKind.DIMENSION): ["NOPE1", "NOPE2"]},
+            session=s,
+        )
 
 
 def test_observe_cache_hit_clears_query_capture(tmp_path):
