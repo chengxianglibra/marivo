@@ -123,15 +123,9 @@ def _reject_unsupported_metric(metric_id: str, metric_details: Any, metric_ir: A
             ),
             context={"metric": metric_id, "reason": "cumulative"},
         )
-    if isinstance(metric_details, DerivedMetricDetails) or metric_ir.metric_type == "derived":
-        raise SemanticKindMismatchError(
-            message=(
-                "observe with multiple metrics accepts simple, unfolded metrics; "
-                f"{metric_id!r} is a derived metric"
-            ),
-            hint=f"observe {metric_id!r} separately: observe(catalog.get({metric_id!r}), ...)",
-            context={"metric": metric_id, "reason": "derived"},
-        )
+    # Non-cumulative derived metrics (ratio / weighted_average / linear) are
+    # allowed: they are observed separately with the shared scope and merged as
+    # columns. See issue #34.
     if getattr(metric_ir, "time_fold", None) is not None:
         raise SemanticKindMismatchError(
             message=(
@@ -306,6 +300,25 @@ def observe_multi(
         _reject_unsupported_metric(metric_id, metric_details, metric_ir)
         metric_irs[metric_id] = metric_ir
 
+    # Partition base (simple) and derived metrics. Derived metrics are observed
+    # separately with the shared scope and merged as columns; at least one base
+    # metric is required to anchor the fused query and axes. See issue #34.
+    derived_metric_ids = [mid for mid in metric_ids if metric_irs[mid].metric_type == "derived"]
+    base_metric_ids = [mid for mid in metric_ids if mid not in set(derived_metric_ids)]
+    if derived_metric_ids and not base_metric_ids:
+        raise SemanticKindMismatchError(
+            message=(
+                "observe with multiple derived metrics requires at least one "
+                "simple (non-derived) metric in the same call to anchor the "
+                f"shared scope; got only derived metrics {derived_metric_ids!r}"
+            ),
+            hint=(
+                "add at least one simple (non-derived) metric to the call to "
+                "anchor the shared scope, or observe each derived metric separately"
+            ),
+            context={"derived_metrics": derived_metric_ids, "reason": "all_derived"},
+        )
+
     resolver = catalog._resolver(connections=session._connection_runtime)
 
     # Shared scope: dimensions/slice/time resolve per metric scope and must agree.
@@ -374,7 +387,7 @@ def observe_multi(
 
     session._connection_runtime.begin_query_capture()
     try:
-        for metric_id in metric_ids:
+        for metric_id in base_metric_ids:
             metric_ir = metric_irs[metric_id]
             required_entity_refs = set(metric_ir.entities)
             for field_id in [
@@ -442,8 +455,7 @@ def observe_multi(
                 for pm in planned
             },
             "metric_semantics": {
-                pm.metric_id: _metric_semantics_payload(pm.metric_ir)
-                for pm in sorted(planned, key=lambda item: item.metric_id)
+                mid: _metric_semantics_payload(metric_irs[mid]) for mid in sorted(metric_ids)
             },
             "warnings": [w for pm in planned for w in pm.plan.warnings],
         }
@@ -477,12 +489,12 @@ def observe_multi(
         session._connection_runtime.take_captured_queries()
         raise
     _captured_queries = session._connection_runtime.take_captured_queries()
-    finished_at = datetime.now(UTC)
+    # finished_at is set after derived observes so duration covers all execution.
 
     axis_columns = (["bucket_start"] if is_time_series else []) + [
         d.field.name for d in planned[0].plan.dimensions
     ]
-    ordered_value_columns = [columns_by_metric[m] for m in metric_ids]
+    base_value_columns = [columns_by_metric[m] for m in base_metric_ids]
     dfs = [r.df for r in group_results]
     if axis_columns:
         merged = functools.reduce(
@@ -491,21 +503,85 @@ def observe_multi(
         merged = merged.sort_values(axis_columns).reset_index(drop=True)
     else:
         merged = pd.concat([df.reset_index(drop=True) for df in dfs], axis=1)
+    merged = merged[[*axis_columns, *base_value_columns]]
+
+    # Observe each derived metric with the shared scope and merge its value
+    # column. Reuses the single-metric derived path (ratio/weighted_average/
+    # linear) so composition math stays correct and alignment is guaranteed.
+    # See issue #34.
+    if derived_metric_ids:
+        from marivo.analysis.intents.observe import observe as _observe_single
+
+        derived_job_refs: list[str] = []
+        for metric_id in derived_metric_ids:
+            derived_column = columns_by_metric[metric_id]
+            derived_frame = _observe_single(
+                _catalog_object(catalog, metric_id, SemanticKind.METRIC),
+                time_scope=time_scope,
+                grain=grain,
+                dimensions=dimensions,
+                slice_by=slice_by,
+                time_dimension=time_dimension,
+                analysis_purpose=analysis_purpose,
+                session=session,
+            )
+            if derived_frame.meta.produced_by_job:
+                derived_job_refs.append(derived_frame.meta.produced_by_job)
+            # Use the actual exported column name (metric short name, or
+            # collision-avoidance name) — NOT VALUE_COLUMN, which to_pandas()
+            # has already renamed. See MR !34 review P1.
+            exported_col = derived_frame.value_columns[0]
+            derived_df = derived_frame.to_pandas().rename(columns={exported_col: derived_column})
+            if axis_columns:
+                merged = merged.merge(
+                    derived_df[[*axis_columns, derived_column]],
+                    on=axis_columns,
+                    how="outer",
+                )
+                merged = merged.sort_values(axis_columns).reset_index(drop=True)
+            elif not derived_df.empty:
+                merged[derived_column] = derived_df[derived_column].iloc[0]
+            else:
+                merged[derived_column] = pd.NA
+
+    finished_at = datetime.now(UTC)
+    ordered_value_columns = [columns_by_metric[m] for m in metric_ids]
     merged = merged[[*axis_columns, *ordered_value_columns]]
 
-    measures = [
-        {
-            "metric_id": pm.metric_id,
-            "name": pm.metric_name,
-            "column": pm.column,
-            "unit": pm.metric_ir.unit,
-            "additivity": _meta_additivity(pm.metric_ir.additivity),
-            "aggregation": _meta_aggregation(pm.metric_ir.aggregation),
-            "status_time_dimension": pm.metric_ir.status_time_dimension,
-            "reaggregatable": True,
-        }
-        for pm in planned
-    ]
+    # Build measures in metric_ids (input) order so value_columns matches the
+    # DataFrame column order exactly. See issue #33 / #34.
+    planned_by_id = {pm.metric_id: pm for pm in planned}
+    measures = []
+    for metric_id in metric_ids:
+        if metric_id in planned_by_id:
+            pm = planned_by_id[metric_id]
+            measures.append(
+                {
+                    "metric_id": pm.metric_id,
+                    "name": pm.metric_name,
+                    "column": pm.column,
+                    "unit": pm.metric_ir.unit,
+                    "additivity": _meta_additivity(pm.metric_ir.additivity),
+                    "aggregation": _meta_aggregation(pm.metric_ir.aggregation),
+                    "status_time_dimension": pm.metric_ir.status_time_dimension,
+                    "reaggregatable": True,
+                }
+            )
+        else:
+            metric_ir = metric_irs[metric_id]
+            _model_name, metric_name = metric_id.split(".", 1)
+            measures.append(
+                {
+                    "metric_id": metric_id,
+                    "name": metric_name,
+                    "column": columns_by_metric[metric_id],
+                    "unit": metric_ir.unit,
+                    "additivity": _meta_additivity(metric_ir.additivity),
+                    "aggregation": None,
+                    "status_time_dimension": metric_ir.status_time_dimension,
+                    "reaggregatable": False,
+                }
+            )
     frame_ref = _gen_ref("frame")
     job_ref = _gen_ref("job")
     meta = MetricFrameMeta(
@@ -578,6 +654,7 @@ def observe_multi(
             "semantic_project_root": str(session.catalog.semantic_root),
             "semantic_model": planned[0].model_name,
             "queries": [{**qe.to_dict(), "output_ref": _output_ref} for qe in _captured_queries],
+            "derived_job_refs": derived_job_refs if derived_metric_ids else [],
         },
     )
     return frame

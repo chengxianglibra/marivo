@@ -486,16 +486,19 @@ class Session:
         optional ``time_scope`` / ``grain`` / ``dimensions`` / ``slice_by`` filters, executes against
         the session's backend, and persists the result as a MetricFrame on disk.
 
-        ``to_pandas()`` on the returned frame always names value columns by
-        metric, regardless of arity. It uses each metric's short name, or a
-        qualified metric id when names collide. Read ``frame.value_columns``
-        for the exact exported name(s).
+        ``to_pandas()`` value column naming: a simple single-metric frame uses
+        ``"value"``; a derived single-metric frame and all multi-metric frames
+        use one column per metric (the metric short name, or a qualified metric
+        id when names collide). Read ``frame.value_columns`` for the exact
+        exported name(s) before merging or renaming across frames.
 
         Args:
             metric: Catalog metric object or ``SemanticRef``, or a non-empty
                 sequence of them for a multi-metric observation over one shared
-                scope. Bare strings are rejected. Sequences accept simple,
-                unfolded metrics only.
+                scope. Bare strings are rejected. Sequences accept simple
+                metrics and non-cumulative derived metrics (ratio /
+                weighted_average / linear); cumulative and folded metrics must
+                be observed individually.
             time_scope: Half-open time range ``{"start": ..., "end": ...}`` — start is
                 inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
                 means data from August 1 is **not** included.
