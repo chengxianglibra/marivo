@@ -38,6 +38,12 @@ The public Marivo surface is the Python library:
 - `marivo.semantic`
 - `marivo.analysis`
 
+Import each surface under its conventional alias — `import marivo.datasource as
+md`, `import marivo.semantic as ms`, `import marivo.analysis as mv`. The
+top-level `marivo` package exports only `__version__`; `marivo.session` and
+similar are not available without importing the surface. Help text and examples
+use these `md` / `ms` / `mv` prefixes throughout.
+
 Rules for this surface:
 
 - Python-track expressions return ibis expressions only. Do not introduce raw

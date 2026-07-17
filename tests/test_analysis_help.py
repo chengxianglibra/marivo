@@ -263,6 +263,15 @@ def test_focused_help_includes_runnable_example() -> None:
     assert "..." not in example_section
 
 
+def test_observe_example_documents_slice_by_usage() -> None:
+    """The observe example must show slice_by filtering, not just dimensions,
+    so agents do not have to guess the filter syntax. See issue #32.
+    """
+    text = _text("observe")
+    example_section = text[text.index("Example:") :]
+    assert "slice_by=" in example_section
+
+
 def test_observe_and_catalog_get_document_ref_id_format() -> None:
     """``observe`` and ``catalog.get`` examples use ``catalog.get("<kind>.<id>")``
     but must also state the ref/ID format rules so agents do not have to reverse

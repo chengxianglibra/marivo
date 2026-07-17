@@ -588,6 +588,23 @@ def test_catalog_domains_returns_models_and_datasources(semantic_project_factory
     assert "datasource.warehouse" in datasource_refs
 
 
+def test_catalog_list_xxx_attribute_error_points_to_collection_property(
+    semantic_project_factory,
+) -> None:
+    """catalog exposes collection properties (catalog.metrics), not list_xxx()
+    methods. The AttributeError must teach the correct property. See issue #32.
+    """
+    catalog = _make_catalog(semantic_project_factory)
+    with pytest.raises(AttributeError) as exc_info:
+        catalog.list_metrics()  # type: ignore[attr-defined]
+    message = str(exc_info.value)
+    assert "list_metrics" in message
+    # The teaching message must point at the collection property by usage.
+    assert "catalog.metrics" in message
+    # The correct property is usable.
+    assert catalog.metrics is not None
+
+
 def test_catalog_domains_includes_sales_model(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     refs = {obj.ref.id for obj in catalog.domains.items}

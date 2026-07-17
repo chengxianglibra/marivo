@@ -199,6 +199,10 @@ Hard rule: a metric body contains only aggregation plus references to declared
 dimensions/time_dimensions/measures. Row-level `.filter(...)`, `.cast(...)`,
 complex `case`, or multi-step chains are extracted first.
 
+For conditional logic, use the current ibis API (`ibis.cases(...)` or
+`value.cases(...)`) rather than the deprecated `value.case().when(...)`, which
+emits a `FutureWarning` on ibis v10+ and will be removed in a future release.
+
 **Sum vs ratio vs weighted average** — the decomposition:
 
 | Metric shape | Decomposition |
