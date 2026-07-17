@@ -441,6 +441,12 @@ net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refun
 aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
 ```
 
+At observe time, division evaluates under a fixed `zero_division="null"` policy:
+a bucket whose denominator (for `ms.ratio`) or weight (for `ms.weighted_average`)
+is present but zero yields a null value — never `+/-inf` — and the affected row
+count is recorded on the observed frame as `meta.zero_denominator_rows` and
+`quality_summary.zero_denominator_rows`.
+
 #### Cumulative metrics — `ms.cumulative`
 
 Use `ms.cumulative(...)` when the business question is "how much accumulated up to bucket t".

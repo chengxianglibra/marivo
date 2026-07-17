@@ -15,6 +15,36 @@ from marivo.analysis.frames.component import (
 
 _COMPONENT_AWARE_COMPOSITIONS = {"ratio", "weighted_average", "linear"}
 
+#: Composition kinds that divide, mapped to the role holding the denominator.
+_DIVISION_DENOMINATOR_ROLES = {"ratio": "denominator", "weighted_average": "weight"}
+
+
+def _divide_null_on_zero(numerator: Any, denominator: Any) -> Any:
+    """Divide with ``zero_division="null"`` semantics.
+
+    A present zero denominator yields null, never +/-inf; null operands stay
+    null. Accepts pandas Series (the merged observe path) and ibis columns.
+    """
+    pandas = __import__("pandas")
+    if isinstance(denominator, pandas.Series):
+        return numerator / denominator.mask(denominator == 0)
+    return numerator / denominator.nullif(0)
+
+
+def _zero_denominator_row_count(metric_ir: Any, frame: Any) -> int | None:
+    """Count merged rows whose present division denominator is zero.
+
+    Returns None for compositions that do not divide (e.g. linear). ``frame``
+    is the merged pandas component frame; absent (null) denominators are not
+    counted — they are missing components, not zero denominators.
+    """
+    kind = getattr(getattr(metric_ir, "composition", None), "kind", None)
+    role = _DIVISION_DENOMINATOR_ROLES.get(kind) if isinstance(kind, str) else None
+    if role is None:
+        return None
+    denominator = frame[_role_to_column_name(metric_ir, role)]
+    return int((denominator == 0).sum())
+
 
 def _is_component_aware_composition(metric_ir: Any) -> bool:
     composition = getattr(metric_ir, "composition", None)
@@ -109,11 +139,11 @@ def _evaluate_composition_on_frame(metric_ir: Any, frame: Any) -> Any:
     if kind == "ratio":
         num_col = _role_to_column_name(metric_ir, "numerator")
         den_col = _role_to_column_name(metric_ir, "denominator")
-        return frame[num_col] / frame[den_col]
+        return _divide_null_on_zero(frame[num_col], frame[den_col])
     if kind == "weighted_average":
         value_col = _role_to_column_name(metric_ir, "value")
         weight_col = _role_to_column_name(metric_ir, "weight")
-        return frame[value_col] / frame[weight_col]
+        return _divide_null_on_zero(frame[value_col], frame[weight_col])
     if kind == "linear":
         terms = metric_ir.composition.components
         acc = None

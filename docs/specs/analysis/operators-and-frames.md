@@ -186,6 +186,16 @@ checks — every parent dimension must resolve to the same semantic field in eve
 component (`component-axis-*`), every parent `slice_by` must apply to every
 component (`component-filter-*`), and versioned datasets shared across components
 must agree on version mode/anchor/predicate/mapping (`component-version-mismatch`).
+Component rows align on the union of their axis keys; a component absent on a key
+stays null and composes to a null value. Division compositions (`ratio`,
+`weighted_average`) evaluate under the fixed `zero_division="null"` policy: a
+present zero denominator/weight yields a null value, never `+/-inf`, and the
+affected-row count is persisted as `frame.meta.zero_denominator_rows` and
+surfaced as `quality_summary.zero_denominator_rows`. The policy participates in
+observe artifact identity, so frames cached under the older bare-division
+semantics are never reused. Transforms drop the count together with the parent's
+component links: a transformed frame carries `zero_denominator_rows = None`
+because the parent's row-level facts no longer describe the transformed rows.
 
 **Grain.** `observe` and `compare` accept `grain` as a token string. Calendar
 grains (`day`, `week`, `month`, `quarter`, `year`) require `count == 1`. Sub-day

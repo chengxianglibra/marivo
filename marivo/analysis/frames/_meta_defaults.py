@@ -103,6 +103,7 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
             if isinstance(v := _coverage_summary_val(meta, "partial_buckets"), (int, float))
             else None
         ),
+        zero_denominator_rows=getattr(meta, "zero_denominator_rows", None),
     )
 
 

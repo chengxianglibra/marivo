@@ -50,6 +50,7 @@ from marivo.analysis.intents._observe_catalog import (  # noqa: F401
 )
 from marivo.analysis.intents._observe_components import (  # noqa: F401
     _COMPONENT_AWARE_COMPOSITIONS,
+    _DIVISION_DENOMINATOR_ROLES,
     _add_fold_metadata_to_component_df,
     _component_frame_df,
     _component_parent_columns,
@@ -472,6 +473,12 @@ def observe(
                 if derived_cumulative_meta is not None:
                     params["cumulative_contract_version"] = CUMULATIVE_CONTRACT_VERSION
                     params["cumulative"] = derived_cumulative_meta
+                _composition_kind = getattr(getattr(metric_ir, "composition", None), "kind", None)
+                if _composition_kind in _DIVISION_DENOMINATOR_ROLES:
+                    # Division policy participates in artifact identity so cached
+                    # frames computed under the old bare-division semantics
+                    # (zero denominator -> +/-inf) are never reused.
+                    params["zero_division"] = "null"
                 prospective_id = compute_prospective_artifact_id(
                     step_type="observe",
                     inputs=CommitInputs(input_refs=[]),
@@ -486,15 +493,20 @@ def observe(
                     _raise_on_empty_slice_result(_cached_frame, where_by_id)
                     return _cached_frame
 
-                result, component_df, derived_axes, derived_kind, derived_coverage_df = (
-                    _execute_derived(
-                        derived_plan,
-                        metric_ir,
-                        catalog=catalog,
-                        resolver=resolver,
-                        session=session,
-                        resolved_window=resolved_window,
-                    )
+                (
+                    result,
+                    component_df,
+                    derived_axes,
+                    derived_kind,
+                    derived_coverage_df,
+                    zero_denominator_rows,
+                ) = _execute_derived(
+                    derived_plan,
+                    metric_ir,
+                    catalog=catalog,
+                    resolver=resolver,
+                    session=session,
+                    resolved_window=resolved_window,
                 )
         except BaseException:
             session._connection_runtime.take_captured_queries()
@@ -619,6 +631,7 @@ def observe(
                 aggregation=_meta_aggregation(metric_ir.aggregation),
                 status_time_dimension=metric_ir.status_time_dimension,
                 cumulative=_derived_cumulative,
+                zero_denominator_rows=zero_denominator_rows,
             )
             frame = MetricFrame(_df=result.df, meta=meta)
             frame = _commit_observe_metric_frame(

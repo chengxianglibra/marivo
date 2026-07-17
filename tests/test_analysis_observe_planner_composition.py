@@ -183,6 +183,65 @@ def test_evaluate_composition_weighted_average_uses_value_role():
     assert float(result_df.iloc[1]) == pytest.approx(0.3)
 
 
+def test_evaluate_composition_weighted_average_zero_weight_is_null():
+    import numpy as np
+    import pandas as pd
+
+    from marivo.analysis.intents.observe import _evaluate_composition_on_frame
+
+    d = metric_details_factory(
+        metric_type="derived",
+        composition="weighted_average",
+        components=[("value", "s.rate"), ("weight", "s.sessions")],
+    )
+    metric_ir = _planned_metric(d)
+    df = pd.DataFrame({"rate": [4.0, 6.0, 0.0], "sessions": [10.0, 0.0, 0.0]})
+    result = _evaluate_composition_on_frame(metric_ir, df)
+    assert result.iloc[0] == pytest.approx(0.4)
+    # A present zero weight yields null, never +/-inf (6/0 and 0/0 alike).
+    assert not np.isinf(result).any()
+    assert pd.isna(result.iloc[1])
+    assert pd.isna(result.iloc[2])
+
+
+def test_zero_denominator_row_count_dispatches_on_composition_kind():
+    import pandas as pd
+
+    from marivo.analysis.intents._observe_components import _zero_denominator_row_count
+
+    ratio = _planned_metric(
+        metric_details_factory(
+            metric_type="derived",
+            composition="ratio",
+            components=[("numerator", "s.a"), ("denominator", "s.b")],
+        )
+    )
+    # An absent (null) denominator is a missing component, not a zero denominator.
+    ratio_frame = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [0.0, None, 4.0]})
+    assert _zero_denominator_row_count(ratio, ratio_frame) == 1
+
+    weighted = _planned_metric(
+        metric_details_factory(
+            metric_type="derived",
+            composition="weighted_average",
+            components=[("value", "s.rate"), ("weight", "s.sessions")],
+        )
+    )
+    weighted_frame = pd.DataFrame({"rate": [4.0, 6.0], "sessions": [0.0, 10.0]})
+    assert _zero_denominator_row_count(weighted, weighted_frame) == 1
+
+    linear = _planned_metric(
+        metric_details_factory(
+            metric_type="derived",
+            composition="linear",
+            components=[("term0", "s.g")],
+            linear_terms=[("+", "s.g")],
+        )
+    )
+    linear_frame = pd.DataFrame({"g": [0.0]})
+    assert _zero_denominator_row_count(linear, linear_frame) is None
+
+
 def test_evaluate_composition_linear_adds_terms():
     import ibis
     import pandas as pd
