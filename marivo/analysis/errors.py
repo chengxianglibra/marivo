@@ -1025,8 +1025,12 @@ class HelpTargetError(AnalysisError):
 
     def __init__(self, *, target: object, suggestions: tuple[str, ...]) -> None:
         received = target if isinstance(target, str) else type(target).__name__
+        message = "analysis help target is not registered"
+        if suggestions:
+            # Surface fuzzy candidates on the first line. See issue #35.
+            message += f". Did you mean: {', '.join(suggestions)}?"
         super().__init__(
-            message="analysis help target is not registered",
+            message=message,
             expected=(
                 "None, canonical target string, registered public callable/type, "
                 "public analysis object, semantic object/ref, or AnalysisError"

@@ -23,6 +23,22 @@ def test_help_target_error_payload_string_target():
     assert payload.message
 
 
+def test_help_target_error_payload_surfaces_did_you_mean_in_message():
+    """Candidates appear in the message itself (first line), not only in the
+    repair section. See issue #35.
+    """
+    payload = build_help_target_error_payload(
+        "snapshot",
+        surface="datasource",
+        candidates=("DiscoverySnapshot", "DiscoverySnapshot.entity"),
+    )
+    assert "Did you mean" in payload.message
+    assert "DiscoverySnapshot" in payload.message
+    # No candidates -> no Did-you-mean suffix.
+    empty = build_help_target_error_payload("x", surface="datasource", candidates=())
+    assert "Did you mean" not in empty.message
+
+
 def test_help_target_error_payload_object_target_uses_type_name():
     class Thing:
         pass

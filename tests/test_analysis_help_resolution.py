@@ -162,6 +162,18 @@ def test_string_aliases_are_not_canonical() -> None:
         assert "observe" in captured.value.repair.candidates
 
 
+def test_help_target_error_surfaces_did_you_mean_on_first_line() -> None:
+    """The fuzzy candidates must appear on the first line of the error (the
+    message), not only buried in the Repair section, so agents see the fix
+    immediately. See issue #35.
+    """
+    with pytest.raises(HelpTargetError) as captured:
+        resolve_help_target("observ")
+    first_line = str(captured.value).splitlines()[0]
+    assert "Did you mean" in first_line
+    assert "observe" in first_line
+
+
 def test_mv_prefix_alias_resolves_to_canonical() -> None:
     # An ``mv.`` prefix pasted from help output resolves to the canonical target.
     resolved = resolve_help_target("mv.Session")

@@ -244,8 +244,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     help_parser.add_argument(
         "track",
-        choices=("analysis", "datasource", "semantic"),
-        help="Environment-bound help track",
+        help="Environment-bound help track (analysis, datasource, semantic)",
     )
     help_parser.add_argument(
         "target",
@@ -310,4 +309,16 @@ def main(argv: list[str] | None = None) -> None:
                 print(str(exc), file=sys.stderr)
                 raise SystemExit(2) from None
         else:
-            raise AssertionError(f"argparse admitted unsupported help track {args.track!r}")
+            track = args.track
+            # The track is not analysis/datasource/semantic. It may be a help
+            # target the user put in the track slot (e.g. `marivo help catalog`
+            # means `marivo help analysis catalog`). Teach the valid tracks and
+            # the target form instead of argparse's bare 'invalid choice'.
+            print(
+                f"error: {track!r} is not a help track. "
+                f"Tracks: analysis, datasource, semantic.\n"
+                f"If {track!r} is a help target, try: marivo help analysis {track}\n"
+                f"Or in Python: mv.help({track!r}) / md.help({track!r}) / ms.help({track!r})",
+                file=sys.stderr,
+            )
+            raise SystemExit(2) from None
