@@ -532,6 +532,14 @@ class Session:
             ...     analysis_purpose="确认三季度按国家收入走势",
             ... )
             >>> frame.show()
+            >>> # Filter to a subset before aggregation with slice_by:
+            >>> us_frame = session.observe(
+            ...     revenue,
+            ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
+            ...     grain="day",
+            ...     slice_by={country: "US"},
+            ... )
+            >>> us_frame.show()
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.observe import observe

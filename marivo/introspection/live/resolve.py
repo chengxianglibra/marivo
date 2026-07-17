@@ -140,26 +140,61 @@ def _resolve_string[DescriptorT: ResolvableHelpDescriptor](
 ) -> ResolvedLiveTarget[DescriptorT]:
     if not target:
         _raise(surface, target)
-    try:
-        return _resolved_descriptor(surface.registry.by_canonical_id(target), surface)
-    except KeyError:
-        pass
-    for type_name in surface.type_index.values():
-        if type_name == target:
+    for candidate in _help_target_candidates(target):
+        try:
+            return _resolved_descriptor(surface.registry.by_canonical_id(candidate), surface)
+        except KeyError:
+            pass
+        for type_name in surface.type_index.values():
+            if type_name == candidate:
+                return ResolvedLiveTarget(
+                    kind="type_contract",
+                    surface=surface.registry.surface,
+                    type_name=type_name,
+                )
+        bare = candidate.rsplit(".", 1)[-1]
+        error_type = surface.error_types.get(bare) or surface.error_types.get(candidate)
+        if error_type is not None:
             return ResolvedLiveTarget(
-                kind="type_contract",
+                kind="error_contract",
                 surface=surface.registry.surface,
-                type_name=type_name,
+                error_name=error_type.__name__,
             )
-    bare = target.rsplit(".", 1)[-1]
-    error_type = surface.error_types.get(bare) or surface.error_types.get(target)
-    if error_type is not None:
-        return ResolvedLiveTarget(
-            kind="error_contract",
-            surface=surface.registry.surface,
-            error_name=error_type.__name__,
-        )
     _raise(surface, target)
+
+
+# Prefixes users paste from help output / CLI invocations. Canonical ids never
+# start with these, so stripping them is safe and lets ``mv.help("mv.observe")``
+# or ``mv.help("analysis mv.session.get_or_create")`` resolve. See issue #32.
+_HELP_TARGET_PREFIXES = (
+    "analysis ",
+    "semantic ",
+    "datasource ",
+    "mv.",
+    "ms.",
+    "md.",
+)
+
+
+def _normalize_help_target(target: str) -> str:
+    normalized = target.strip()
+    changed = True
+    while changed:
+        changed = False
+        for prefix in _HELP_TARGET_PREFIXES:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix) :].strip()
+                changed = True
+                break
+    return normalized
+
+
+def _help_target_candidates(target: str) -> tuple[str, ...]:
+    """Yield the exact target first, then the alias/name-stripped form."""
+    normalized = _normalize_help_target(target)
+    if normalized and normalized != target:
+        return (target, normalized)
+    return (target,)
 
 
 def _resolve_callable[DescriptorT: ResolvableHelpDescriptor](

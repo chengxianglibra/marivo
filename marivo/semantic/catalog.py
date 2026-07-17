@@ -1682,6 +1682,33 @@ class SemanticCatalog:
         """Return the workspace directory path."""
         return self._project.workspace_dir
 
+    # Collection property names exposed by SemanticCatalog. Used to teach the
+    # common ``catalog.list_metrics()`` mistake (catalog exposes properties, not
+    # ``list_xxx()`` methods). See issue #32.
+    _COLLECTION_PROPERTIES = frozenset(
+        {
+            "domains",
+            "datasources",
+            "entities",
+            "dimensions",
+            "time_dimensions",
+            "measures",
+            "metrics",
+            "relationships",
+        }
+    )
+
+    def __getattr__(self, name: str) -> NoReturn:
+        if name.startswith("list_"):
+            property_name = name[len("list_") :]
+            if property_name in self._COLLECTION_PROPERTIES:
+                raise AttributeError(
+                    f"{type(self).__name__!r} has no attribute {name!r}; "
+                    f"catalog exposes collection properties, not list_xxx() methods. "
+                    f"Use catalog.{property_name} (e.g. catalog.{property_name}.show())."
+                )
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+
     def load(
         self,
         *,

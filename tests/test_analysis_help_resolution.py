@@ -162,9 +162,11 @@ def test_string_aliases_are_not_canonical() -> None:
         assert "observe" in captured.value.repair.candidates
 
 
-def test_mv_prefix_alias_raises() -> None:
-    with pytest.raises(HelpTargetError):
-        resolve_help_target("mv.Session")
+def test_mv_prefix_alias_resolves_to_canonical() -> None:
+    # An ``mv.`` prefix pasted from help output resolves to the canonical target.
+    resolved = resolve_help_target("mv.Session")
+    assert resolved.kind == "type_contract"
+    assert resolved.type_name == "Session"
 
 
 def test_dotted_type_method_alias_raises() -> None:

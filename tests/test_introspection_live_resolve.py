@@ -89,6 +89,19 @@ def test_resolve_canonical_string_to_descriptor():
     assert resolved.descriptor is PREVIEW
 
 
+def test_resolve_strips_surface_alias_and_name_prefix_from_target_string():
+    """Users paste the entrypoint shown in help (e.g. ``mv.session.get_or_create``
+    or the CLI form ``analysis mv.session.get_or_create``); the resolver must
+    strip the surface-name and alias prefixes to find the canonical id.
+    See issue #32.
+    """
+    surface = _surface((PREVIEW, READINESS))
+    for target in ("ms.preview", "semantic ms.preview", "semantic preview"):
+        resolved = resolve_live_target(target, surface)
+        assert resolved.kind == "descriptor"
+        assert resolved.descriptor is PREVIEW
+
+
 def test_resolve_callable_to_descriptor():
     def preview():  # registered callable stand-in
         ...
