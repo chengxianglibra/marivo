@@ -20,9 +20,10 @@ The maintained documentation describes the Python-native Marivo library only.
 
 ## Agent Guidance
 
-Executable agent examples live under:
+Packaged agent guidance lives under:
 
 - `../marivo/skills/marivo-semantic`
 - `../marivo/skills/marivo-analysis`
 
-Run `make examples-check` after public symbol, signature, exception, or example changes.
+Run `make test TESTS='tests/test_marivo_analysis_skill_contract.py'` after changing either
+packaged skill.

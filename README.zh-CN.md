@@ -84,7 +84,6 @@ uv pip install --python .venv/bin/python -e ".[dev,duckdb,trino]"
 make format
 make lint
 make typecheck
-make examples-check
 make test
 make check
 ```
