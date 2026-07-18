@@ -285,7 +285,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ),
         "Axis attribution requires compatible persisted additivity: additive, semi-additive "
         "off the status time axis, component-aware ratio/weighted-average, or a Tier-1 mean "
-        "lowered to sum/count_non_null components; otherwise "
+        "lowered to sum/count_non_null components. If a DeltaFrame reports "
+        "attribution_shape=weighted_mix lowered_from=mean, call attribute directly: its "
+        "Tier-1 mean is already lowered to sum/count_non_null components, so do not manually "
+        "split numerator and denominator. For other unsupported non-additive metrics, "
         "re-observe or attribute additive numerator and denominator separately.",
         "Axis-sum attribution is valid for additive metrics, semi-additive metrics away "
         "from their status time axis, component-aware ratio or weighted-average deltas, and "

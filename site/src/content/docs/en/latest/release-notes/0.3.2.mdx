@@ -6,8 +6,9 @@ description: Release notes for Marivo 0.3.2.
 
 Marivo 0.3.2 is an atomic breaking cutover of the analysis surface. The
 help system, artifact contract, error model, boundary model, packaged skill,
-and CLI route all change together. There are no aliases, redirects, deprecated
-fields, dual-read paths, or compatibility flags.
+and CLI route all change together. Removed surfaces have no aliases, redirects,
+deprecated fields, dual-read paths, or compatibility flags. The additive
+`frame.id == frame.ref` identity alias does not restore a removed API.
 
 ## Highlights
 
@@ -33,6 +34,11 @@ fields, dual-read paths, or compatibility flags.
   component segments and fails closed unless every deepest partition
   reconciles to its independently computed total delta. `AttributionFrame.show()`
   renders total, one-sided, unattributed, and residual reconciliation facts.
+- Analysis inspection is more uniform: live sessions implement bounded
+  `render()` / `show()`, every frame and frame summary exposes `.id` as a
+  read-only alias of `.ref`, catalog help labels collections as properties,
+  and `mv.help("AttributionMode")` distinguishes multi-axis row layout from
+  attribution math.
 - `DeltaFrame.show()` now exposes the persisted attribution gate, and grouping
   help topics render as `mv.help("...")` with their real members instead of
   advertising nonexistent `session.recovery` or `session.artifacts` namespaces.
@@ -128,10 +134,11 @@ fields, dual-read paths, or compatibility flags.
 
 ## No compatibility or migration behavior
 
-This is an atomic cutover. There are no aliases, redirects, deprecated fields,
-dual-read paths, compatibility flags, or automatic migration. Code that
-references removed symbols, topics, or fields must be updated to the new
-surface.
+This is an atomic cutover. Removed symbols, topics, and fields have no
+compatibility aliases, redirects, deprecated fields, dual-read paths,
+compatibility flags, or automatic migration. Code that references them must be
+updated to the new surface. The additive `frame.id == frame.ref` alias is only
+an identity-access convenience and does not change persisted metadata.
 
 Analysis evidence stores are included in this rule. A non-v2 `judgment.db` and
 a frame sidecar containing removed evidence fields are rejected; recreate the

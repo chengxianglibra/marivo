@@ -69,6 +69,7 @@ PUBLIC_FRAME_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         "BaseFrame": (
+            "id",
             "ref",
             "kind",
             "lineage",
@@ -81,7 +82,36 @@ PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
         ),
         "MetricFrame": ("semantic_shape", "metrics", "arity", "value_columns", "transform"),
         "DeltaFrame": ("semantic_shape", "transform"),
-        "AttributionFrame": ("attribution_shape",),
+        "AttributionFrame": ("attribution_shape", "attribution_mode"),
+    }
+)
+
+PUBLIC_OBJECT_METHODS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "Session": (
+            "render",
+            "show",
+            "jobs",
+            "recent_jobs",
+            "frame_summaries",
+            "get_frame",
+        ),
+    }
+)
+
+PUBLIC_OBJECT_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "Session": (
+            "id",
+            "name",
+            "question",
+            "catalog",
+            "created_at",
+            "updated_at",
+            "report_tz_name",
+            "is_read_only",
+        ),
+        "FrameSummaryEntry": ("id",),
     }
 )
 
@@ -694,6 +724,26 @@ def _build_registry() -> CapabilityRegistry:
         )
     )
 
+    for method_name, summary in (
+        ("render", "Return bounded session state as text without writing stdout."),
+        ("show", "Print bounded session state for inspection."),
+    ):
+        descriptors.append(
+            ReadCapability(
+                id=f"Session.{method_name}",
+                public_entrypoint=f"session.{method_name}()",
+                help_target=f"Session.{method_name}",
+                summary=summary,
+                root_group="artifact_inspection",
+                root_visibility="grouped",
+                constraint_ids=(),
+                callable_path=f"marivo.analysis.session.core.Session.{method_name}",
+                receiver_family="Session",
+                result_kind="terminal_text",
+                read_bound="bounded",
+            )
+        )
+
     descriptors.append(
         ReadCapability(
             id="BaseFrame.contract",
@@ -807,6 +857,26 @@ def _build_registry() -> CapabilityRegistry:
                 output_type=output_type,
             )
         )
+
+    descriptors.append(
+        ConstructorCapability(
+            id="AttributionMode",
+            public_entrypoint='mode="joint" | mode="hierarchy"',
+            help_target="AttributionMode",
+            summary=(
+                "Multi-axis row layout: joint emits one additive row per complete axis "
+                "combination; hierarchy emits prefix rows and only its deepest level "
+                "reconciles. Multi-axis calls have no default. Omit mode for one axis, "
+                "where a supplied value has no effect. Mode is distinct from attribution "
+                "method, so either layout can use weighted_mix."
+            ),
+            root_group="policies_builders",
+            root_visibility="grouped",
+            constraint_ids=(),
+            callable_path=None,
+            output_type='Literal["joint", "hierarchy"]',
+        )
+    )
 
     # -- Recovery / reads: session lifecycle ------------------------------
 

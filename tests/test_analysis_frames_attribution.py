@@ -137,6 +137,25 @@ def test_attribution_frame_as_weighted_mix():
     assert "ratio_mix" in rendered
 
 
+@pytest.mark.parametrize("mode", ["joint", "hierarchy"])
+def test_attribution_mode_is_distinct_from_weighted_mix_method(mode):
+    meta = _meta().model_copy(update={"method": "weighted_mix", "params": {"mode": mode}})
+    frame = AttributionFrame(_df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=meta)
+
+    assert frame.attribution_mode == mode
+    assert frame.attribution_shape == "weighted_mix"
+    assert f"method=weighted_mix mode={mode}" in repr(frame)
+    assert f"method=weighted_mix mode={mode}" in frame.render()
+
+
+def test_attribution_mode_is_none_for_legacy_or_single_axis_artifacts():
+    frame = AttributionFrame(
+        _df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=_meta()
+    )
+
+    assert frame.attribution_mode is None
+
+
 def test_attribution_frame_as_sum_rejects_mismatch():
     meta = _meta().model_copy(update={"method": "weighted_mix"})
     frame = AttributionFrame(_df=pd.DataFrame({"region": ["n"], "contribution": [1.0]}), meta=meta)

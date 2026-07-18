@@ -92,7 +92,7 @@ cheap single-line hint, then `artifact.show()` for a bounded read and
 `artifact.to_pandas()` only as a terminal step when you need a mutable local
 copy. Every artifact carries lineage and is persisted under project-local
 `.marivo/`, so later steps can recover it by ref without re-querying the
-datasource.
+datasource. `artifact.id` is a read-only alias of the canonical `artifact.ref`.
 :::
 
 ## Open a session
@@ -110,6 +110,11 @@ region.details().show()
 `get_or_create` is idempotent: it attaches to an existing session of that name or
 creates one, and sets it current. The narrow session API is `get_or_create`,
 `current()`, `list()`, and `delete(name)`.
+
+`repr(session)` points to `session.show()`. Call it for a bounded state card
+with the question, read/write status, report timezone, timestamps, and the
+available catalog/job/frame inspection paths; `session.render()` returns the
+same text without writing stdout.
 
 Use `catalog.domains.show()` and scoped navigation to discover refs, then inspect
 every metric, dimension, and time dimension used by the analysis with
@@ -290,6 +295,11 @@ For `joint`, contribution rows are additive and sum to the overall change. For
 `hierarchy`, parent rows repeat their descendants' total; sum only the deepest
 level when reconciling the change. Component-aware ratio and weighted-average
 attribution preserves `value_effect`, `mix_effect`, and `residual` in both modes.
+Multi-axis calls have no default mode; omit `mode` for a single axis, where a
+supplied value has no effect. `attribution.attribution_mode` exposes the row
+layout, while `attribution.attribution_shape` / `meta.method` expose the
+attribution math. Both layouts can therefore report `method="weighted_mix"`.
+Use `mv.help("AttributionMode")` for the focused distinction.
 
 Contribution shares name their denominator explicitly:
 

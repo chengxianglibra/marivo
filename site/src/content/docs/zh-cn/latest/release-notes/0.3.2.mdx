@@ -5,7 +5,8 @@ description: Marivo 0.3.2 发布说明。
 ---
 
 Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact 契约、错误模型、边界模型、
-打包 skill 和 CLI 路由同时变更。不提供别名、重定向、弃用字段、双读路径或兼容性标志。
+打包 skill 和 CLI 路由同时变更。被移除的接面不提供别名、重定向、弃用字段、双读路径或
+兼容性标志；新增的 `frame.id == frame.ref` 身份别名不会恢复任何已移除 API。
 
 ## 重点
 
@@ -27,6 +28,9 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 - Attribution 现在会为 new/churned component segment 计算精确的单边 contribution，
   并要求每个最深层 partition 与独立计算的 total delta 完成对账，否则直接失败。
   `AttributionFrame.show()` 会显示 total、one-sided、未归因和 residual 对账事实。
+- Analysis 检查接口现在更一致：live session 支持 bounded `render()` / `show()`；所有 frame
+  和 frame summary 都提供 `.id` 作为 `.ref` 的只读别名；catalog help 会把 collection 标成
+  property；`mv.help("AttributionMode")` 会区分多轴行布局与归因数学。
 - `DeltaFrame.show()` 会暴露已持久化的归因门；分组 help topic 以
   `mv.help("...")` 和真实成员呈现，不再展示不存在的 `session.recovery` 或
   `session.artifacts` namespace。
@@ -105,8 +109,9 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 
 ## 无兼容性或迁移行为
 
-这是一次原子性切换。不提供别名、重定向、弃用字段、双读路径、兼容性标志或自动迁移。引用了
-已移除符号、主题或字段的代码必须更新到新接面。
+这是一次原子性切换。已移除符号、主题或字段不提供兼容别名、重定向、弃用字段、双读路径、
+兼容性标志或自动迁移；引用它们的代码必须更新到新接面。新增的 `frame.id == frame.ref`
+只提供统一身份访问，不改变持久化 metadata。
 
 analysis evidence store 同样遵循该规则：非 v2 `judgment.db` 以及包含已移除 evidence 字段的
 frame sidecar 会被拒绝；应重新创建 analysis session，以生成 canonical typed findings 与 digest。

@@ -215,6 +215,12 @@ def _session_summary() -> SessionSummary:
     )
 
 
+def test_frame_summary_entry_id_aliases_ref() -> None:
+    entry = _frame_summary_entry()
+
+    assert entry.id == entry.ref
+
+
 def _authoring_assessment() -> AuthoringAssessment:
     issue = AssessmentIssue(
         kind="missing_evidence",

@@ -588,6 +588,12 @@ def test_base_frame_reads_registered() -> None:
     assert "BaseFrame.to_pandas" in ids or "boundary.to_pandas" in ids
 
 
+def test_session_display_reads_registered() -> None:
+    ids = set(REGISTRY.capability_ids)
+    assert "Session.render" in ids
+    assert "Session.show" in ids
+
+
 def test_help_and_help_text_registered() -> None:
     ids = set(REGISTRY.capability_ids)
     assert "help" in ids

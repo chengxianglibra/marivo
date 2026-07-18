@@ -51,10 +51,11 @@ class AttributionFrame(BaseFrame):
     meta: AttributionFrameMeta
 
     def _repr_identity(self) -> str:
+        mode_part = f" mode={self.attribution_mode}" if self.attribution_mode is not None else ""
         return (
             f"AttributionFrame ref={self.meta.ref} "
             f"attribution_kind={self.meta.attribution_kind} "
-            f"method={self.meta.method} rows={self.meta.row_count}"
+            f"method={self.meta.method}{mode_part} rows={self.meta.row_count}"
         )
 
     def _base_card(self) -> Card:
@@ -84,6 +85,16 @@ class AttributionFrame(BaseFrame):
     def attribution_shape(self) -> str:
         """The decomposition method tag: 'sum', 'ratio_mix', or 'weighted_mix'."""
         return self.meta.method
+
+    @property
+    def attribution_mode(self) -> Literal["joint", "hierarchy"] | None:
+        """The multi-axis row layout, distinct from attribution math ``method``."""
+        mode = self.meta.params.get("mode")
+        if mode == "joint":
+            return "joint"
+        if mode == "hierarchy":
+            return "hierarchy"
+        return None
 
     def as_sum(self) -> AttributionFrame:
         assert_attribution_shape(got=self.meta.method, expected="sum", frame_kind=self.meta.kind)

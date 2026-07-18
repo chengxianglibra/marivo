@@ -295,6 +295,11 @@ class BaseFrame(RenderableResult):
         return self.meta.ref
 
     @property
+    def id(self) -> str:
+        """Alias for the canonical persisted artifact ``ref``."""
+        return self.ref
+
+    @property
     def lineage(self) -> Lineage:
         return self.meta.lineage
 

@@ -279,6 +279,7 @@ def test_decompose_multi_axis_joint_returns_each_axis_combination_once():
 
     df = out.to_pandas()
     assert out.meta.method == "sum"
+    assert out.attribution_mode == "joint"
     assert out.meta.driver_field is None
     assert len(df) == 4
     assert df["contribution"].sum() == pytest.approx(8.0)
