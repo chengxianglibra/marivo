@@ -268,8 +268,18 @@ def _extract_findings(
             prepared["dimension"] = driver_field
         if "contribution_value" not in prepared.columns and contribution_column in prepared.columns:
             prepared["contribution_value"] = prepared[contribution_column]
-        if "contribution_share" not in prepared.columns and "pct_contribution" in prepared.columns:
-            prepared["contribution_share"] = prepared["pct_contribution"]
+        if (
+            "contribution_share" not in prepared.columns
+            and "share_of_total_delta" in prepared.columns
+        ):
+            prepared["contribution_share"] = prepared["share_of_total_delta"]
+        reconciliation = getattr(meta, "reconciliation", None)
+        if (
+            "reconciliation_residual" not in prepared.columns
+            and reconciliation is not None
+            and reconciliation.residual is not None
+        ):
+            prepared["reconciliation_residual"] = reconciliation.residual
         findings = extract_decomposition_findings(
             df=prepared,
             artifact_id=artifact_id,

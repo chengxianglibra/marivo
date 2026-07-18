@@ -24,6 +24,9 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 - Tier-1 `mean` metric 会在 observe 时持久化精确的 `sum(measure)` 与
   `count_non_null(measure)` components，无需修改 semantic model 即可直接执行
   weighted-mix 归因。
+- Attribution 现在会为 new/churned component segment 计算精确的单边 contribution，
+  并要求每个最深层 partition 与独立计算的 total delta 完成对账，否则直接失败。
+  `AttributionFrame.show()` 会显示 total、one-sided、未归因和 residual 对账事实。
 - `DeltaFrame.show()` 会暴露已持久化的归因门；分组 help topic 以
   `mv.help("...")` 和真实成员呈现，不再展示不存在的 `session.recovery` 或
   `session.artifacts` namespace。
@@ -76,6 +79,9 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 - **`AnalysisError.details` 移除。** 由稳定的类型化字段（`expected`、`received`、
   `location`、`repair`）和类型化的 `AnalysisRepair` 对象替代。不再有通用的 details 包。
 - **`ArtifactContract.boundary_ports` 新增。** 从能力注册表派生的类型化终端出口边界端口。
+- **`pct_contribution` 移除。** Attribution 行改为输出 `share_of_total_delta`、
+  `share_of_positive_pool` 和 `share_of_negative_pool`，使带符号净占比与同号池内占比
+  不再共用隐式或不完整的分母。
 - **`BaseFrame.describe()` 和 `BaseFrame.plot()` 移除。** 故意抛出 `AttributeError`。
   使用 `frame.show()` 和 `frame.to_pandas()`。
 - **`marivo-analysis` skill 精简为单文件。** `references/` 树已删除。skill 是边界协议，

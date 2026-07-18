@@ -5,9 +5,25 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta, assert_attribution_shape
+from marivo.render import Card
+
+
+class AttributionReconciliation(BaseModel):
+    """Closed reconciliation facts for an attribution result."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: Literal["reconciled"] = "reconciled"
+    partition_count: int
+    total_delta: float | None = None
+    contribution_sum: float | None = None
+    one_sided_contribution_sum: float | None = None
+    unattributed_contribution_sum: float | None = None
+    residual: float | None = None
+    max_abs_residual: float
 
 
 class AttributionFrameMeta(BaseFrameMeta):
@@ -25,6 +41,7 @@ class AttributionFrameMeta(BaseFrameMeta):
     params: dict[str, Any]
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
+    reconciliation: AttributionReconciliation | None = None
 
 
 @dataclass(repr=False)
@@ -39,6 +56,29 @@ class AttributionFrame(BaseFrame):
             f"attribution_kind={self.meta.attribution_kind} "
             f"method={self.meta.method} rows={self.meta.row_count}"
         )
+
+    def _base_card(self) -> Card:
+        card = super()._base_card()
+        reconciliation = self.meta.reconciliation
+        if reconciliation is None:
+            return card
+        values = [
+            f"status={reconciliation.status}",
+            f"partitions={reconciliation.partition_count}",
+            f"max_abs_residual={reconciliation.max_abs_residual:.12g}",
+        ]
+        for name in (
+            "total_delta",
+            "contribution_sum",
+            "one_sided_contribution_sum",
+            "unattributed_contribution_sum",
+            "residual",
+        ):
+            value = getattr(reconciliation, name)
+            if value is not None:
+                values.append(f"{name}={value:.12g}")
+        card.field("reconciliation", " ".join(values))
+        return card
 
     @property
     def attribution_shape(self) -> str:

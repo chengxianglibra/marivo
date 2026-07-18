@@ -291,6 +291,22 @@ For `joint`, contribution rows are additive and sum to the overall change. For
 level when reconciling the change. Component-aware ratio and weighted-average
 attribution preserves `value_effect`, `mix_effect`, and `residual` in both modes.
 
+Contribution shares name their denominator explicitly:
+
+- `share_of_total_delta` is signed and may exceed 100% when a driver offsets
+  the net movement;
+- `share_of_positive_pool` is populated only for positive contributions;
+- `share_of_negative_pool` is populated only for negative contributions and
+  reports a positive within-pool share.
+
+Marivo does not rename either sign pool to “improvement” or “degradation”
+because metric desirability is not part of the persisted metric contract. Apply
+that interpretation only when the business direction is known. New and churned
+segments retain exact one-sided component contributions. `AttributionFrame.show()`
+prints a reconciliation line with the total delta, contribution sum, one-sided
+contribution sum, unattributed contribution sum, and residual; attribution fails
+closed if a deepest partition does not reconcile within numeric tolerance.
+
 ### `correlate` → `AssociationResult`
 
 Measure the association between two metrics over aligned buckets.

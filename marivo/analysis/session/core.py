@@ -669,6 +669,14 @@ class Session:
         Plain non-linear sampled folds such as percentile, min, max, first, or
         last retain their earlier guard unless they are part of a persisted
         component-aware ratio or weighted-average delta.
+        Every contribution row exposes ``share_of_total_delta`` plus neutral
+        positive- and negative-contribution pool shares. Marivo does not label
+        either pool as improvement or degradation because metric desirability
+        is not part of the persisted metric contract. New and churned component
+        segments receive exact one-sided contributions. The result metadata and
+        ``show()`` card expose total, contribution, one-sided, unattributed, and
+        residual reconciliation facts; attribution fails closed if a deepest
+        partition does not reconcile within numeric tolerance.
 
         Args:
             frame: A DeltaFrame produced by ``session.compare``.
@@ -676,6 +684,11 @@ class Session:
             mode: Required for multiple axes. ``"joint"`` returns one row per
                 axis combination; ``"hierarchy"`` returns ordered prefix rows.
                 Omit for a single axis.
+            analysis_purpose: Optional durable label explaining why this
+                attribution was produced.
+
+        Returns:
+            An AttributionFrame with reconciled contribution and share columns.
 
         Raises:
             SemanticKindMismatchError: ``frame`` is not a DeltaFrame, axes are

@@ -263,6 +263,22 @@ their descendants' totals, so only the deepest level is additive. Candidate
 axes, coverage warnings, and budget stops go to metadata/blocking
 issues/lineage, never a next-step recommendation or narrative.
 
+Every contribution row uses explicit denominators: `share_of_total_delta` is
+the signed contribution divided by the independently computed overall delta;
+`share_of_positive_pool` and `share_of_negative_pool` are non-negative shares
+within the two same-sign contribution pools. Core analysis deliberately does
+not call either pool improvement or degradation because metric desirability is
+not part of the persisted semantic contract. Agents may apply that business
+interpretation only when the metric objective is known.
+
+Component mix attribution treats a structurally absent `0 / 0` side as a zero
+term, so new and churned segments retain exact one-sided contributions instead
+of becoming null. The `AttributionFrame` persists a reconciliation summary and
+renders it in `show()`: total delta, contribution sum, one-sided contribution
+sum, unattributed contribution sum, residual, and partition count. Every
+deepest partition must reconcile within numeric tolerance or attribution fails
+closed; hierarchy parents remain repeated presentation rows.
+
 Attribution permission comes from semantics persisted on the `DeltaFrame`; it
 does not re-query a catalog that may have changed since observation. This gate
 runs on the original delta before `attribute` replays observations to

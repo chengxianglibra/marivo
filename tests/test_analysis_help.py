@@ -346,6 +346,12 @@ def test_attribute_help_explains_additivity_boundary() -> None:
     assert "status time axis" in text
     assert "numerator" in text
     assert "denominator" in text
+    assert "attribution_reconciliation" in text
+    assert "share_of_total_delta" in text
+    assert "positive- and negative-pool shares" in text
+    assert "new and churned" in text
+    assert "one-sided" in text
+    assert "independently computed total delta" in text
 
 
 def test_compare_help_explains_cumulative_component_compatibility() -> None:
