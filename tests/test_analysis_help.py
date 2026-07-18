@@ -131,6 +131,8 @@ def test_focused_grouping_help_lists_real_members() -> None:
     assert "Members:" in recovery
     assert "session.get_frame(ref)" in recovery
     assert "session.recent_jobs(limit=5)" in recovery
+    assert "mv.session.recent()" in recovery
+    assert "mv.session.inspect(name)" in recovery
 
     artifacts = _text("artifacts")
     assert 'Entrypoint: mv.help("artifacts")' in artifacts
@@ -585,6 +587,13 @@ def test_bound_method_resolves_same_as_unbound() -> None:
     # the unbound function and the string target produce the same output.
     text_string = _text("compare")
     assert text_unbound == text_string
+
+
+def test_live_help_preserves_leading_keyword_only_separator() -> None:
+    recent = _text("session.recent")
+    frames = _text("session.frame_summaries")
+    assert "Signature: recent(*, limit: int = 20, cursor: str | None = None)" in recent
+    assert "Signature: frame_summaries(*, kind: str | None = None" in frames
 
 
 def test_type_resolves_same_as_string() -> None:

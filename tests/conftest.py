@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 
 import ibis
 import pytest
 
+from tests.install_marivo_helpers import InstallerEnv, InstallerToolchain
 from tests.shared_fixtures import authoring_evidence_template, sales_orders_template
 
 # Cap DuckDB to a single thread per connection. DuckDB defaults to
@@ -37,37 +40,35 @@ def _reset_analysis_session_process_state():
     reset_process_state()
 
 
+@pytest.fixture(scope="session")
+def installer_toolchain(
+    pytestconfig: pytest.Config,
+) -> InstallerToolchain:
+    """Reuse a versioned immutable installer toolchain across test runs."""
+    cache_root = Path(pytestconfig.cache.mkdir("installer-toolchains"))
+    return InstallerToolchain.load_or_build(cache_root / "v2")
+
+
 @pytest.fixture
-def installer_env(tmp_path):
+def installer_env(tmp_path: Path, installer_toolchain: InstallerToolchain) -> InstallerEnv:
     """Shared fixture for the Marivo installer black-box tests.
 
-    Builds a fake ``bin`` directory of shimmed tools (uname, unsupported
-    pythons) and a sanitized environment. Lives in ``conftest`` so the two
-    split installer test modules can use it without importing it (which would
-    collide with the parameter name under ruff F811). The python/uv shims are
-    added per-test by the modules themselves.
+    Reuses a versioned read-only toolchain while isolating each test's
+    command log, HOME, project target, and environment mapping.
     """
-    import os
-
-    from tests.install_marivo_helpers import _fake_uname, _fake_unsupported_python
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
     log = tmp_path / "commands.log"
     log.touch()
-    _fake_uname(bin_dir)
-    for name in ("python3.14", "python3.13", "python3.12"):
-        _fake_unsupported_python(bin_dir, name)
     env = os.environ.copy()
     env.update(
         {
-            "PATH": f"{bin_dir}:{os.defpath}",
+            "PATH": f"{installer_toolchain.base_bin}:{os.defpath}",
             "FAKE_LOG": str(log),
             "FAKE_UNAME": "Linux",
             "HOME": str(tmp_path / "home"),
+            "FAKE_MARIVO_SHIM": str(installer_toolchain.marivo),
         }
     )
-    return bin_dir, env
+    return installer_toolchain, env
 
 
 @pytest.fixture(scope="session")

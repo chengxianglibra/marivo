@@ -26,9 +26,10 @@ class AnalysisRepair(BaseModel):
         Closed repair category. ``retry`` means the agent can re-attempt with
         a corrected call. ``inspect`` means the agent should gather more
         evidence before proceeding. ``semantic_authoring`` means a required
-        semantic object is absent and the marivo-semantic skill must author
-        it. ``environment`` means project or datasource state must be
-        repaired before retry.
+        semantic object is absent, so typed analysis must stop that branch;
+        the agent may use terminal ``md.raw_sql(...)`` and must request
+        semantic-authoring approval at closeout. ``environment`` means project
+        or datasource state must be repaired before retry.
     action:
         One-sentence concrete next step.
     help_target:
@@ -198,8 +199,8 @@ class MetricNotFoundError(AnalysisError):
                     candidates=candidates,
                 ),
             )
-        # Absent case: no close matches — the metric must be authored/registered
-        # in the semantic layer before analysis can proceed.
+        # Absent case: typed analysis stops. Terminal raw SQL may continue with
+        # temporary inferred semantics, but durable authoring waits for approval.
         return _DerivedFields(
             expected="registered metric semantic object",
             received=metric_ref,
@@ -208,19 +209,11 @@ class MetricNotFoundError(AnalysisError):
                 kind="semantic_authoring",
                 action=(
                     f"metric_id={metric_ref} has no close match in the loaded "
-                    "catalog; author and register the metric in the semantic "
-                    "layer, then reload and retry."
+                    "catalog; stop this typed branch. Terminal md.raw_sql(...) "
+                    "may continue with explicit temporary assumptions; at closeout "
+                    "request approval to author and register the metric before retrying."
                 ),
                 help_target=LiveHelpTarget(surface="semantic"),
-                snippet=(
-                    "import marivo.semantic as ms\n"
-                    "ms.help('authoring')  # read the authoring workflow\n"
-                    "ms.help('metric')     # choose the correct metric constructor\n"
-                    "# After authoring, reload and re-observe:\n"
-                    "catalog = ms.load()\n"
-                    'session.observe(catalog.get("metric.<new_metric_id>"), '
-                    'time_scope={"start": "2026-07-01", "end": "2026-10-01"})'
-                ),
             ),
         )
 
@@ -1022,6 +1015,9 @@ class NoActiveSessionError(AnalysisError): ...
 class SessionStateError(AnalysisError): ...
 
 
+class SessionNotFoundError(SessionStateError): ...
+
+
 class SessionTimezoneConflict(SessionStateError):  # noqa: N818
     def _derive_fields(self) -> _DerivedFields:
         persisted = self._context.get("persisted_report_tz", "<persisted>")
@@ -1086,8 +1082,8 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                     candidates=candidates,
                 ),
             )
-        # No close matches — the dimension must be authored/registered in the
-        # semantic layer before analysis can slice by it.
+        # No close matches: typed slicing stops. A terminal raw SQL branch may
+        # continue, but durable semantic authoring remains approval-gated.
         return _DerivedFields(
             expected="dimension or time dimension on the metric's datasets",
             received=dim_ref,
@@ -1096,19 +1092,11 @@ class DimensionFieldNotFoundError(SemanticKindMismatchError):
                 kind="semantic_authoring",
                 action=(
                     f"dimension {dim_ref!r} has no close match on the metric's "
-                    "datasets; author and register the dimension in the semantic "
-                    "layer, then reload and retry."
+                    "datasets; stop this typed branch. Terminal md.raw_sql(...) "
+                    "may continue with explicit temporary assumptions; at closeout "
+                    "request approval to author and register the dimension before retrying."
                 ),
                 help_target=LiveHelpTarget(surface="semantic"),
-                snippet=(
-                    "import marivo.semantic as ms\n"
-                    "ms.help('authoring')          # read the authoring workflow\n"
-                    "ms.help('dimension_column')   # or ms.help('dimension') for expression bodies\n"
-                    "# After authoring, reload and re-observe:\n"
-                    "catalog = ms.load()\n"
-                    'session.observe(catalog.get("metric.sales.revenue"), '
-                    'dimensions=[catalog.get("dimension.<new_dimension>").ref])'
-                ),
             ),
         )
 

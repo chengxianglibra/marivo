@@ -469,10 +469,8 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             filtered = [p for p in params if p.name != "self"]
             param_strs: list[str] = []
             for p in filtered:
-                if (
-                    p.kind == inspect.Parameter.KEYWORD_ONLY
-                    and param_strs
-                    and not any(s.startswith("*") for s in param_strs)
+                if p.kind == inspect.Parameter.KEYWORD_ONLY and not any(
+                    s.startswith("*") for s in param_strs
                 ):
                     param_strs.append("*")
                 part = p.name

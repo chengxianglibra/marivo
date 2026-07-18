@@ -1,10 +1,4 @@
-"""Black-box tests for the Marivo Bash installer — core lifecycle paths.
-
-The uv/managed-python paths live in ``test_install_marivo_script_uv.py`` so
-that pytest-xdist's ``loadscope`` distribution runs the two halves on separate
-workers (the installer shells out to many fake-tool subprocesses per test, so
-splitting the module is what keeps this suite fast).
-"""
+"""Black-box tests for the Marivo Bash installer lifecycle."""
 
 from __future__ import annotations
 
@@ -13,13 +7,15 @@ from pathlib import Path
 import pytest
 
 from tests.install_marivo_helpers import (
-    _fake_python,
+    InstallerEnv,
     _run_installer,
 )
 
+pytestmark = pytest.mark.release
+
 
 def test_rejects_unknown_argument_before_mutation(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
+    tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
     _, env = installer_env
 
@@ -33,7 +29,7 @@ def test_rejects_unknown_argument_before_mutation(
 @pytest.mark.parametrize("platform", ["MINGW64_NT-10.0", "MSYS_NT-10.0", "CYGWIN_NT-10.0"])
 def test_rejects_native_windows_bash_platforms(
     tmp_path: Path,
-    installer_env: tuple[Path, dict[str, str]],
+    installer_env: InstallerEnv,
     platform: str,
 ) -> None:
     _, env = installer_env
@@ -46,7 +42,7 @@ def test_rejects_native_windows_bash_platforms(
 
 
 def test_refuses_noninteractive_replacement_without_yes(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
+    tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
     _, env = installer_env
     (tmp_path / ".venv").mkdir()
@@ -58,11 +54,9 @@ def test_refuses_noninteractive_replacement_without_yes(
     assert (tmp_path / ".venv").exists()
 
 
-def test_yes_replaces_broken_venv(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
-) -> None:
-    bin_dir, env = installer_env
-    _fake_python(bin_dir)
+def test_yes_replaces_broken_venv(tmp_path: Path, installer_env: InstallerEnv) -> None:
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.python312)
     (tmp_path / ".venv").mkdir()
     marker = tmp_path / ".venv" / "broken"
     marker.touch()
@@ -73,15 +67,12 @@ def test_yes_replaces_broken_venv(
     assert not marker.exists()
 
 
-def test_reuses_valid_python_venv(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
-) -> None:
-    bin_dir, env = installer_env
-    source = _fake_python(bin_dir)
+def test_reuses_valid_python_venv(tmp_path: Path, installer_env: InstallerEnv) -> None:
+    toolchain, env = installer_env
+    source = toolchain.python312
     venv_bin = tmp_path / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
-    (venv_bin / "python").write_bytes(source.read_bytes())
-    (venv_bin / "python").chmod(0o755)
+    (venv_bin / "python").symlink_to(source)
 
     completed = _run_installer(tmp_path, env)
 
@@ -90,24 +81,23 @@ def test_reuses_valid_python_venv(
 
 
 def test_selects_versioned_local_python_newer_than_minimum(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
+    tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
-    bin_dir, env = installer_env
-    _fake_python(bin_dir, default_version="3.11")
-    _fake_python(bin_dir, "python3.13", default_version="3.13")
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.python311, toolchain.python313)
 
     completed = _run_installer(tmp_path, env, "--yes")
 
     assert completed.returncode == 0, completed.stderr
     log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")
-    assert f"python:{bin_dir / 'python3.13'}:-m venv" in log
+    assert f"python:{toolchain.python313}:-m venv" in log
 
 
 def test_installs_marivo_all_with_venv_python_and_initializes_target(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
+    tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
-    bin_dir, env = installer_env
-    _fake_python(bin_dir)
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.python312)
 
     completed = _run_installer(tmp_path, env, "--yes")
 
@@ -124,10 +114,10 @@ def test_installs_marivo_all_with_venv_python_and_initializes_target(
 
 
 def test_stops_before_init_when_marivo_installation_fails(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
+    tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
-    bin_dir, env = installer_env
-    _fake_python(bin_dir)
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.python312)
     env["FAKE_PIP_FAIL"] = "1"
 
     completed = _run_installer(tmp_path, env, "--yes")
@@ -138,11 +128,9 @@ def test_stops_before_init_when_marivo_installation_fails(
     assert not (tmp_path / "marivo.toml").exists()
 
 
-def test_init_failure_preserves_installed_venv(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
-) -> None:
-    bin_dir, env = installer_env
-    _fake_python(bin_dir)
+def test_init_failure_preserves_installed_venv(tmp_path: Path, installer_env: InstallerEnv) -> None:
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.python312)
     env["FAKE_INIT_FAIL"] = "1"
 
     completed = _run_installer(tmp_path, env, "--yes")
@@ -153,10 +141,10 @@ def test_init_failure_preserves_installed_venv(
 
 
 def test_fails_when_init_reports_success_without_required_artifacts(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
+    tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
-    bin_dir, env = installer_env
-    _fake_python(bin_dir)
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.python312)
     env["FAKE_SKIP_INIT_ARTIFACTS"] = "1"
 
     completed = _run_installer(tmp_path, env, "--yes")
@@ -166,10 +154,10 @@ def test_fails_when_init_reports_success_without_required_artifacts(
 
 
 def test_rerun_reuses_environment_and_initialized_project(
-    tmp_path: Path, installer_env: tuple[Path, dict[str, str]]
+    tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
-    bin_dir, env = installer_env
-    _fake_python(bin_dir)
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.python312)
 
     first = _run_installer(tmp_path, env, "--yes")
     second = _run_installer(tmp_path, env, "--yes")

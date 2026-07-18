@@ -1,15 +1,14 @@
-"""Shared black-box test infrastructure for the Marivo Bash installer.
-
-The installer test suite is split across two modules so that pytest-xdist's
-``loadscope`` distribution can run the two halves on separate workers. Both
-modules import their helpers and the ``installer_env`` fixture from here.
-"""
+"""Shared black-box test infrastructure for the Marivo Bash installer."""
 
 from __future__ import annotations
 
+import os
+import shutil
 import stat
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install-marivo.sh"
@@ -75,8 +74,7 @@ if [ "${1:-}" = "-m" ] && [ "${2:-}" = "venv" ]; then
     [ "${FAKE_VENV_FAIL:-0}" != "1" ] || exit 1
     target="${3:?}"
     mkdir -p "$target/bin"
-    cp "$0" "$target/bin/python"
-    chmod +x "$target/bin/python"
+    ln -s "$0" "$target/bin/python"
     exit 0
 fi
 if [ "${1:-}" = "-m" ] && [ "${2:-}" = "ensurepip" ]; then
@@ -97,21 +95,7 @@ if [ "${1:-}" = "-m" ] && [ "${2:-}" = "pip" ]; then
         if [[ "$*" == *"marivo[all]"* ]]; then
             [ "${FAKE_PIP_FAIL:-0}" != "1" ] || exit 1
             marivo="$(dirname "$0")/marivo"
-            cat > "$marivo" <<'MARIVO'
-#!/usr/bin/env bash
-set -eu
-printf 'marivo:%s:%s\n' "$PWD" "$*" >> "${FAKE_LOG:?}"
-if [ "${1:-}" = "--version" ]; then
-    printf 'marivo 0.3.0\n'
-elif [ "${1:-}" = "init" ]; then
-    [ "${FAKE_INIT_FAIL:-0}" != "1" ] || exit 1
-    if [ "${FAKE_SKIP_INIT_ARTIFACTS:-0}" != "1" ]; then
-        printf '[project]\nname = "fake"\n' > marivo.toml
-        mkdir -p models .marivo
-    fi
-fi
-MARIVO
-            chmod +x "$marivo"
+            ln -sf "${FAKE_MARIVO_SHIM:?}" "$marivo"
         fi
         exit 0
     fi
@@ -154,8 +138,7 @@ def _fake_uv_download(bin_dir: Path, root: Path) -> Path:
         "#!/usr/bin/env bash\n"
         "set -eu\n"
         'mkdir -p "$HOME/.local/bin"\n'
-        'cp "$FAKE_UV_SOURCE" "$HOME/.local/bin/uv"\n'
-        'chmod +x "$HOME/.local/bin/uv"\n',
+        'ln -sf "$FAKE_UV_SOURCE" "$HOME/.local/bin/uv"\n',
     )
     _write_executable(
         bin_dir / "curl",
@@ -171,10 +154,164 @@ while [ "$#" -gt 0 ]; do
         shift
     fi
 done
-cp "${FAKE_UV_INSTALLER:?}" "$output"
+ln -sf "${FAKE_UV_INSTALLER:?}" "$output"
 """,
     )
     return installer
+
+
+def _fake_marivo(bin_dir: Path) -> Path:
+    marivo = bin_dir / "marivo"
+    _write_executable(
+        marivo,
+        r"""#!/usr/bin/env bash
+set -eu
+printf 'marivo:%s:%s\n' "$PWD" "$*" >> "${FAKE_LOG:?}"
+if [ "${1:-}" = "--version" ]; then
+    printf 'marivo 0.3.0\n'
+elif [ "${1:-}" = "init" ]; then
+    [ "${FAKE_INIT_FAIL:-0}" != "1" ] || exit 1
+    if [ "${FAKE_SKIP_INIT_ARTIFACTS:-0}" != "1" ]; then
+        printf '[project]\nname = "fake"\n' > marivo.toml
+        mkdir -p models .marivo
+    fi
+fi
+""",
+    )
+    return marivo
+
+
+@dataclass(frozen=True)
+class InstallerToolchain:
+    """Versioned immutable executable shims reused across pytest runs."""
+
+    base_bin: Path
+    python312: Path
+    python311: Path
+    python313: Path
+    managed_python: Path
+    host_python312: Path
+    uv: Path
+    curl: Path
+    uv_installer: Path
+    marivo: Path
+
+    @classmethod
+    def from_root(cls, root: Path) -> InstallerToolchain:
+        """Resolve a previously published toolchain without modifying it."""
+        return cls(
+            base_bin=root / "base-bin",
+            python312=root / "python312-bin" / "python3",
+            python311=root / "python311-bin" / "python3",
+            python313=root / "python313-bin" / "python3.13",
+            managed_python=root / "managed" / "bin" / "python",
+            host_python312=root / "host-bin" / "python3.12",
+            uv=root / "uv-bin" / "uv",
+            curl=root / "download-bin" / "curl",
+            uv_installer=root / "uv-download" / "install-uv.sh",
+            marivo=root / "marivo-bin" / "marivo",
+        )
+
+    @classmethod
+    def load_or_build(cls, root: Path) -> InstallerToolchain:
+        """Reuse a complete versioned cache or publish one atomically."""
+        if cls._is_complete(root):
+            return cls.from_root(root)
+
+        build_root = root.with_name(f".{root.name}-{uuid4().hex}")
+        cls.build(build_root)
+        try:
+            os.replace(build_root, root)
+        except OSError:
+            if not cls._is_complete(root):
+                raise
+            shutil.rmtree(build_root)
+        return cls.from_root(root)
+
+    @classmethod
+    def _is_complete(cls, root: Path) -> bool:
+        if not (root / ".complete").is_file():
+            return False
+        toolchain = cls.from_root(root)
+        executables = (
+            toolchain.python312,
+            toolchain.python311,
+            toolchain.python313,
+            toolchain.managed_python,
+            toolchain.host_python312,
+            toolchain.uv,
+            toolchain.curl,
+            toolchain.uv_installer,
+            toolchain.marivo,
+            toolchain.base_bin / "uname",
+        )
+        return all(path.is_file() and os.access(path, os.X_OK) for path in executables)
+
+    @classmethod
+    def build(cls, root: Path) -> InstallerToolchain:
+        """Build every installer shim once, then make the files read-only."""
+        base_bin = root / "base-bin"
+        python312_bin = root / "python312-bin"
+        python311_bin = root / "python311-bin"
+        python313_bin = root / "python313-bin"
+        managed_bin = root / "managed" / "bin"
+        host_bin = root / "host-bin"
+        uv_bin = root / "uv-bin"
+        download_bin = root / "download-bin"
+        download_root = root / "uv-download"
+        marivo_bin = root / "marivo-bin"
+        for directory in (
+            base_bin,
+            python312_bin,
+            python311_bin,
+            python313_bin,
+            managed_bin,
+            host_bin,
+            uv_bin,
+            download_bin,
+            download_root,
+            marivo_bin,
+        ):
+            directory.mkdir(parents=True)
+
+        _fake_uname(base_bin)
+        for name in ("python3.14", "python3.13", "python3.12"):
+            _fake_unsupported_python(base_bin, name)
+        python312 = _fake_python(python312_bin)
+        python311 = _fake_python(python311_bin, default_version="3.11")
+        python313 = _fake_python(python313_bin, "python3.13", default_version="3.13")
+        managed_python = _fake_python(managed_bin, "python")
+        host_python312 = _fake_python(host_bin, "python3.12")
+        uv = _fake_uv(uv_bin)
+        uv_installer = _fake_uv_download(download_bin, download_root)
+        curl = download_bin / "curl"
+        marivo = _fake_marivo(marivo_bin)
+        (root / ".complete").touch()
+
+        for path in root.rglob("*"):
+            if path.is_file():
+                path.chmod(path.stat().st_mode & ~0o222)
+
+        return cls(
+            base_bin=base_bin,
+            python312=python312,
+            python311=python311,
+            python313=python313,
+            managed_python=managed_python,
+            host_python312=host_python312,
+            uv=uv,
+            curl=curl,
+            uv_installer=uv_installer,
+            marivo=marivo,
+        )
+
+    def activate(self, env: dict[str, str], *tools: Path) -> None:
+        """Prepend selected immutable tool profiles to one test environment."""
+        directories = tuple(dict.fromkeys(tool.parent for tool in tools))
+        env["PATH"] = ":".join((*map(str, directories), env["PATH"]))
+
+
+type InstallerEnv = tuple[InstallerToolchain, dict[str, str]]
 
 
 def _run_installer(

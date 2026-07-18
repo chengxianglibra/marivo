@@ -8,6 +8,9 @@ The public surface is intentionally narrow:
 - ``mv.session.current()`` — return the current ``Session`` or ``None``
   when there is no current session. Safe probe: check and continue work.
 - ``mv.session.list()`` — list sessions in the project.
+- ``mv.session.recent()`` — return a bounded newest-first page for reference.
+- ``mv.session.inspect(name)`` — read a bounded historical metadata snapshot
+  without resuming or touching the session.
 - ``mv.session.delete(name)`` — permanently delete a session.
 
 Removed names: ``archive``, ``attach``, ``create``, ``switch``, ``active``.
@@ -25,8 +28,9 @@ from pathlib import Path
 from typing import Any
 
 from marivo.analysis.session._store import SessionSummary
+from marivo.analysis.session.history import SessionInspection, SessionSummaryPage
 
-__all__ = ["current", "delete", "get_or_create", "list"]
+__all__ = ["current", "delete", "get_or_create", "inspect", "list", "recent"]
 
 _PUBLIC_NAMES = frozenset(__all__)
 
@@ -267,6 +271,62 @@ def list() -> builtins.list[SessionSummary]:
     return store.list_sessions()
 
 
+def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
+    """Return one bounded page of recently updated project sessions.
+
+    Sessions are ordered newest first by ``updated_at`` and stable id. Pass
+    ``next_cursor`` back to this method when the returned page has more rows.
+    This is the bounded discovery path for historical-reference reads;
+    :func:`list` remains the compatibility path that returns every session.
+
+    Args:
+        limit: Maximum summaries to retain, from 1 through 100.
+        cursor: Opaque continuation token from a previous page.
+
+    Returns:
+        A :class:`SessionSummaryPage` of lightweight session metadata.
+
+    Example:
+        >>> page = mv.session.recent(limit=10)
+        >>> if page.items:
+        ...     snapshot = mv.session.inspect(page.items[0].name)
+
+    Constraints:
+        This method does not resume a session or query a datasource.
+    """
+    from marivo.analysis.session.history import recent_sessions
+
+    return recent_sessions(limit=limit, cursor=cursor)
+
+
+def inspect(name: str, *, frame_limit: int = 10, job_limit: int = 5) -> SessionInspection:
+    """Read a bounded metadata snapshot of one historical session.
+
+    Args:
+        name: Exact session name returned by :func:`recent` or :func:`list`.
+        frame_limit: Maximum newest frame summaries to retain, from 1 through 100.
+        job_limit: Maximum recent job summaries to retain, from 1 through 100.
+
+    Returns:
+        A :class:`SessionInspection` containing the session summary, frame
+        summary page, and recent jobs.
+
+    Raises:
+        SessionNotFoundError: The name is absent from the current project.
+
+    Example:
+        >>> snapshot = mv.session.inspect("q4-revenue", frame_limit=10, job_limit=5)
+        >>> snapshot.show()
+
+    Constraints:
+        Inspection does not set the current session, update ``updated_at``,
+        load datasources or semantic objects, or expose execution methods.
+    """
+    from marivo.analysis.session.history import inspect_session
+
+    return inspect_session(name=name, frame_limit=frame_limit, job_limit=job_limit)
+
+
 def _reset_process_state() -> None:
     """Reset the process-level current session to None.
 
@@ -322,7 +382,9 @@ _new.__all__ = __all__
 # Copy public names into the new module
 _new.current = current  # type: ignore[attr-defined]
 _new.get_or_create = get_or_create  # type: ignore[attr-defined]
+_new.inspect = inspect  # type: ignore[attr-defined]
 _new.delete = delete  # type: ignore[attr-defined]
 _new.list = list  # type: ignore[attr-defined]
+_new.recent = recent  # type: ignore[attr-defined]
 _new._reset_process_state = _reset_process_state  # type: ignore[attr-defined]
 sys.modules[__name__] = _new

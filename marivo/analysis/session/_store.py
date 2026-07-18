@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     updated_at TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_sessions_updated_id
+ON sessions(updated_at, id);
+
 CREATE TABLE IF NOT EXISTS runtime_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -80,9 +83,12 @@ class SessionSummary(RenderableResult):
         return f"SessionSummary id={self.id} name={self.name}"
 
     def _card(self) -> Card:
-        return Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
+        card = Card(identity=self._repr_identity(), available=(".render()", ".show()")).status(
             f"jobs={self.job_count} frames={self.frame_count} updated={self.updated_at}"
         )
+        if self.question:
+            card.field("question", self.question)
+        return card
 
 
 def _gen_session_id() -> str:
@@ -303,6 +309,71 @@ class SessionStore:
                     )
                 )
             return summaries
+
+    def page_sessions(
+        self,
+        *,
+        limit: int,
+        after: tuple[str, str] | None,
+    ) -> list[SessionSummary]:
+        """Return at most ``limit + 1`` recently updated session summaries.
+
+        Rows use newest-first keyset order over ``(updated_at, id)``. Counts
+        are calculated in the same query so the page does not grow an N+1
+        read pattern as the project accumulates sessions.
+        """
+        clauses: list[str] = []
+        params: list[object] = []
+        if after is not None:
+            clauses.append("(s.updated_at < ? OR (s.updated_at = ? AND s.id < ?))")
+            params.extend((after[0], after[0], after[1]))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit + 1)
+        with self._connect() as conn:
+            rows = self._fetchall(
+                conn,
+                "SELECT s.*, "
+                "(SELECT COUNT(*) FROM jobs j WHERE j.session_id = s.id) AS job_count, "
+                "(SELECT COUNT(*) FROM artifacts a WHERE a.session_id = s.id) AS frame_count "
+                f"FROM sessions s {where} "
+                "ORDER BY s.updated_at DESC, s.id DESC LIMIT ?",
+                tuple(params),
+            )
+        return [
+            SessionSummary(
+                id=row["id"],
+                name=row["name"],
+                question=row["question"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                job_count=row["job_count"],
+                frame_count=row["frame_count"],
+            )
+            for row in rows
+        ]
+
+    def session_summary(self, name: str) -> SessionSummary | None:
+        """Return one exact session summary without touching session state."""
+        with self._connect() as conn:
+            row = self._fetchone(
+                conn,
+                "SELECT s.*, "
+                "(SELECT COUNT(*) FROM jobs j WHERE j.session_id = s.id) AS job_count, "
+                "(SELECT COUNT(*) FROM artifacts a WHERE a.session_id = s.id) AS frame_count "
+                "FROM sessions s WHERE s.name = ?",
+                (name,),
+            )
+        if row is None:
+            return None
+        return SessionSummary(
+            id=row["id"],
+            name=row["name"],
+            question=row["question"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            job_count=row["job_count"],
+            frame_count=row["frame_count"],
+        )
 
     def touch_session(self, session_id: str) -> str:
         """Bump ``updated_at`` for a session.

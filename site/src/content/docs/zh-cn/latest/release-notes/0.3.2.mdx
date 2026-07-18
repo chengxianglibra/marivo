@@ -50,6 +50,9 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 - `md.raw_sql(...)` 是唯一的终端 raw SQL 执行路径。它将 `authoring_timeout` 与只读
   事务组合，检测精确行截断，并提供 `RawSqlResult.to_pandas()` 用于终端 pandas 导出。
   终端结果无法回到类型化分析。
+- `mv.session.recent(...)` 与 `mv.session.inspect(name)` 提供有界、最新优先的历史 session
+  参考，不会恢复或触碰被检查的 session。语义缺口现在只停止受影响的 typed branch；终端
+  raw SQL 可以通过明确披露的临时推断口径继续，而正式语义 authoring 仍需 closeout 审批。
 
 ## 破坏性变更
 

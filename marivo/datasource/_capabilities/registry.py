@@ -380,7 +380,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "raw_sql",
             "marivo.datasource.manage.raw_sql",
-            "Run a bounded-return read-only diagnostic escape hatch.",
+            "Run bounded read-only terminal analysis, including semantic-gap escape; "
+            "results cannot become canonical metrics.",
             output="RawSqlResult",
             inputs=_inputs(
                 ("subject", "DatasourceRef"),

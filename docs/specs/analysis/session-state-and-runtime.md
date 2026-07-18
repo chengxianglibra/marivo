@@ -37,8 +37,8 @@ that touches a datasource. Operators that need a backend raise
 ### Lifecycle
 
 The public session surface is intentionally small (`mv.session.__all__` is exactly
-`current`, `delete`, `get_or_create`, `list`; the removed names `archive`,
-`attach`, `create`, `switch`, `active` are gone):
+`current`, `delete`, `get_or_create`, `inspect`, `list`, `recent`; the removed
+names `archive`, `attach`, `create`, `switch`, `active` are gone):
 
 - `mv.session.get_or_create(name, question=None, *, default_calendar=None, report_timezone=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
   — the default entry. Idempotent: the first call with a name creates the session,
@@ -49,6 +49,13 @@ The public session surface is intentionally small (`mv.session.__all__` is exact
 - `mv.session.list() -> list[SessionSummary]` — lightweight rows (name, counts,
   timestamps), not live sessions. Each summary already supports bounded
   `.show()`; attach by its `name` to obtain a live `Session`.
+- `mv.session.recent(*, limit=20, cursor=None) -> SessionSummaryPage` — a bounded,
+  newest-updated-first keyset page for selective historical reference.
+- `mv.session.inspect(name, *, frame_limit=10, job_limit=5) -> SessionInspection`
+  — a bounded metadata snapshot containing the exact session summary, recent
+  frame summaries, and recent jobs. It does not resume the session, move the
+  current pointer, touch timestamps, load semantic/datasource state, or expose
+  execution methods.
 - `mv.session.delete(name) -> None` — permanently remove a session and its
   on-disk data; a no-op for unknown names.
 
@@ -137,6 +144,10 @@ datasource freshness, never operator+params alone.
 Loop turn N+1 may lose all in-memory objects (a new script, or context that was
 compacted). Recovery never re-queries the datasource unless the agent explicitly
 asks to refresh/recompute; it reads persisted state:
+
+- `mv.session.recent(...)` followed by `mv.session.inspect(name)` — bounded
+  discovery and metadata-only inspection when a resumed question, clearly
+  repeated task, or recurring failure makes historical reference relevant;
 
 - `session.get_frame(ref) -> BaseFrame` — reconstruct a fully functional frame
   from `data.parquet` + `meta.json`; the result can be passed to any operator.

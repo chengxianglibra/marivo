@@ -6,6 +6,7 @@ from ``attach``, ``active``, or ``persistence``.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -17,8 +18,15 @@ import marivo.analysis as mv
 # ---------------------------------------------------------------------------
 
 
-def test_session_all_exports_exactly_four_names() -> None:
-    assert mv.session.__all__ == ["current", "delete", "get_or_create", "list"]
+def test_session_all_exports_exactly_six_names() -> None:
+    assert mv.session.__all__ == [
+        "current",
+        "delete",
+        "get_or_create",
+        "inspect",
+        "list",
+        "recent",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +139,156 @@ def test_list_returns_count_fields_and_no_state_field(
     assert hasattr(s, "frame_count")
     # Must NOT have state field
     assert not hasattr(s, "state")
+
+
+# ---------------------------------------------------------------------------
+# recent() and inspect()
+# ---------------------------------------------------------------------------
+
+
+def test_recent_is_bounded_newest_first_and_list_stays_compatible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    first = mv.session.get_or_create(name="first", use_datasources=False)
+    second = mv.session.get_or_create(name="second", use_datasources=False)
+
+    listed = mv.session.list()
+    assert isinstance(listed, list)
+    assert [item.name for item in listed] == ["first", "second"]
+
+    page = mv.session.recent(limit=1)
+    assert [item.name for item in page.items] == ["second"]
+    assert page.has_more is True
+    assert page.next_cursor is not None
+    next_page = mv.session.recent(limit=1, cursor=page.next_cursor)
+    assert [item.name for item in next_page.items] == ["first"]
+    assert {item.id for item in (*page.items, *next_page.items)} == {first.id, second.id}
+
+
+def test_inspect_returns_bounded_snapshot_without_touching_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib
+
+    from marivo.analysis.session._layout import write_job_record
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    historical = mv.session.get_or_create(
+        name="historical", question="Why did revenue drop?", use_datasources=False
+    )
+    meta_relative = (
+        Path(".marivo")
+        / "analysis"
+        / "sessions"
+        / historical.id
+        / "frames"
+        / "frame_1"
+        / "meta.json"
+    )
+    meta_path = tmp_path / meta_relative
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(
+        json.dumps(
+            {
+                "ref": "frame_1",
+                "kind": "metric_frame",
+                "metric_id": "metric.sales.revenue",
+                "analysis_purpose": "explain revenue decline",
+            }
+        )
+    )
+    historical._store.record_artifact(
+        session_id=historical.id,
+        artifact_id="frame_1",
+        kind="metric_frame",
+        path=str(meta_relative.with_name("data.parquet")),
+        meta_path=str(meta_relative),
+        content_hash="content-1",
+        produced_by_job="job_1",
+        evidence_status="complete",
+    )
+    job_record = {
+        "id": "job_1",
+        "intent": "observe",
+        "status": "succeeded",
+        "started_at": "2026-01-01T00:00:00+00:00",
+        "duration_ms": 10,
+        "output_frame_ref": "frame_1",
+    }
+    write_job_record(historical._layout, job_record)
+    historical._store.record_job(
+        session_id=historical.id,
+        job_id="job_1",
+        intent="observe",
+        status="succeeded",
+        started_at=job_record["started_at"],
+        finished_at="2026-01-01T00:00:00.010000+00:00",
+        output_artifact_id="frame_1",
+        record_path=str(
+            historical._layout.relative_path(historical._layout.jobs_dir / "job_1.json")
+        ),
+    )
+    active = mv.session.get_or_create(name="active", use_datasources=False)
+    before = next(item for item in mv.session.list() if item.name == "historical")
+    session_meta_path = historical._layout.session_dir / "meta.json"
+    meta_before = session_meta_path.read_text()
+
+    runtime = importlib.import_module("marivo.analysis.session._runtime")
+    monkeypatch.setattr(
+        runtime,
+        "_build_semantic_catalog",
+        lambda project_root: pytest.fail("inspect must not load the semantic catalog"),
+    )
+    snapshot = mv.session.inspect("historical", frame_limit=1, job_limit=1)
+
+    after = next(item for item in mv.session.list() if item.name == "historical")
+    assert mv.session.current() is not None
+    assert mv.session.current().id == active.id
+    assert after.updated_at == before.updated_at
+    assert session_meta_path.read_text() == meta_before
+    assert snapshot.summary.question == "Why did revenue drop?"
+    assert snapshot.frames.items[0].metric_id == "metric.sales.revenue"
+    assert snapshot.recent_jobs[0].id == "job_1"
+
+
+def test_inspect_missing_session_raises_typed_error_with_real_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    mv.session.get_or_create(name="known", use_datasources=False)
+
+    with pytest.raises(mv.errors.SessionNotFoundError) as exc_info:
+        mv.session.inspect("missing")
+
+    repair = exc_info.value.repair
+    assert repair is not None
+    assert repair.kind == "inspect"
+    assert repair.help_target.canonical_id == "session.recent"
+    assert repair.candidates == ("known",)
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (lambda: mv.session.recent(limit=0), "session.recent limit"),
+        (lambda: mv.session.inspect("x", frame_limit=0), "frame_limit"),
+        (lambda: mv.session.inspect("x", job_limit=101), "job_limit"),
+    ],
+)
+def test_history_limits_fail_before_lookup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    call,
+    message: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
+    with pytest.raises(ValueError, match=message):
+        call()
 
 
 # ---------------------------------------------------------------------------

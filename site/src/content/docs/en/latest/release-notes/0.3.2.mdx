@@ -63,6 +63,11 @@ deprecated fields, dual-read paths, or compatibility flags. The additive
   `authoring_timeout` with a read-only transaction, detects exact row
   truncation, and exposes `RawSqlResult.to_pandas()` for terminal pandas
   export. Terminal results cannot re-enter typed analysis.
+- `mv.session.recent(...)` and `mv.session.inspect(name)` provide bounded,
+  newest-first historical-session reference without resuming or touching the
+  inspected session. Semantic gaps now stop only the affected typed branch;
+  terminal raw SQL may continue with disclosed temporary inferred semantics,
+  while durable semantic authoring remains closeout-approval gated.
 
 ## Breaking changes
 

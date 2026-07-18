@@ -34,7 +34,7 @@ jobs:
           .venv/bin/pip install -e ".[dev,docs]"
 
       - name: Run checks
-        run: make check
+        run: make release-check
 
       - name: Build distributions
         run: make pypi-build

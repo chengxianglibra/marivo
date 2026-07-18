@@ -193,6 +193,55 @@ def test_list_sessions_frame_count(store: SessionStore, project_root: Path) -> N
     assert summaries[0].frame_count == 1
 
 
+def test_page_sessions_uses_stable_newest_updated_order(
+    store: SessionStore, project_root: Path
+) -> None:
+    rows = [
+        store.get_or_insert_session(
+            name=name, question=name, cwd=project_root, default_calendar=None
+        )
+        for name in ("old", "same-a", "same-b", "new")
+    ]
+    timestamps = (
+        "2026-01-01T00:00:00+00:00",
+        "2026-01-02T00:00:00+00:00",
+        "2026-01-02T00:00:00+00:00",
+        "2026-01-03T00:00:00+00:00",
+    )
+    with store._connect() as conn:
+        for row, timestamp in zip(rows, timestamps, strict=True):
+            conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (timestamp, row["id"]))
+
+    first = store.page_sessions(limit=2, after=None)
+    assert len(first) == 3
+    assert first[0].name == "new"
+    same_time = sorted((rows[1]["id"], rows[2]["id"]), reverse=True)
+    assert first[1].id == same_time[0]
+
+    second = store.page_sessions(
+        limit=2,
+        after=(first[1].updated_at, first[1].id),
+    )
+    assert [item.id for item in second] == [same_time[1], rows[0]["id"]]
+    assert len({item.id for item in (*first[:2], *second)}) == 4
+
+
+def test_session_summary_returns_exact_counts_without_touching_updated_at(
+    store: SessionStore, project_root: Path
+) -> None:
+    row = store.get_or_insert_session(
+        name="history", question="why", cwd=project_root, default_calendar=None
+    )
+    before = row["updated_at"]
+
+    summary = store.session_summary("history")
+
+    assert summary is not None
+    assert summary.question == "why"
+    assert summary.updated_at == before
+    assert store.session_summary("missing") is None
+
+
 # ---------------------------------------------------------------------------
 # Current pointer
 # ---------------------------------------------------------------------------
