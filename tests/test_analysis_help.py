@@ -141,6 +141,23 @@ def test_focused_grouping_help_lists_real_members() -> None:
     assert "frame.to_pandas()" in artifacts
 
 
+def test_artifact_help_teaches_progressive_reads_without_planning_analysis() -> None:
+    root = _text()
+    artifacts = _text("artifacts")
+
+    for text in (root, artifacts):
+        assert "Read artifacts progressively" in text
+        assert "inspect bounded state" in text
+        assert "check mechanical compatibility" in text
+        assert "terminal boundary" in text
+        assert "intentionally custom work" in text
+
+    assert artifacts.index("frame.show()") < artifacts.index("frame.contract()")
+    assert artifacts.index("frame.contract()") < artifacts.index("frame.to_pandas()")
+    assert "compare" not in artifacts
+    assert "attribute" not in artifacts
+
+
 def test_root_help_contains_type_algebra_rows() -> None:
     text = _text()
     rows = REGISTRY.type_algebra_rows()

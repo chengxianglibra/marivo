@@ -432,6 +432,16 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
             and (candidate.id.startswith("BaseFrame.") or candidate.id == "boundary.to_pandas")
         ):
             members.append(candidate)
+    if desc.id == "artifacts":
+        read_order = {
+            "BaseFrame.show": 0,
+            "BaseFrame.contract": 1,
+            "boundary.to_pandas": 2,
+        }
+        return sorted(
+            members,
+            key=lambda item: (read_order.get(item.id, len(read_order)), item.help_target),
+        )
     return sorted(members, key=lambda item: item.help_target)
 
 

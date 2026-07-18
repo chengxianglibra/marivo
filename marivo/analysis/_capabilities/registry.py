@@ -1204,7 +1204,11 @@ def _build_registry() -> CapabilityRegistry:
     descriptors.append(
         _make_grouping_descriptor(
             "artifacts",
-            "Bounded artifact inspection: show, contract, and to_pandas.",
+            (
+                "Read artifacts progressively: inspect bounded state, check mechanical "
+                "compatibility, then cross a terminal boundary only for intentionally "
+                "custom work."
+            ),
             "artifact_inspection",
         )
     )

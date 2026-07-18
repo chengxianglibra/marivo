@@ -138,6 +138,11 @@ Missing business semantics remain unresolved until approved semantic
 authoring; runtime capability gaps remain custom terminal work until modeled
 explicitly. One-off analysis code must not absorb another layer's responsibility.
 
+Choose a terminal exit deliberately from current artifact state and mechanical
+compatibility. Familiarity with local pandas, SQL, or prior scripts is not a
+reason to leave typed flow; cross the boundary only when the remaining work is
+intentionally custom and terminal.
+
 When a semantic gap blocks typed analysis, `md.raw_sql(...)` is an allowed
 terminal escape without prior approval. The agent may use explicit temporary
 inferred semantics, but must record every assumption and keep the result
