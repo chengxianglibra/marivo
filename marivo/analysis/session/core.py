@@ -98,6 +98,11 @@ class FrameSummaryEntry(RenderableResult):
     analysis_purpose: str | None = None
     evidence_status: str = "unavailable"
 
+    @property
+    def id(self) -> str:
+        """Alias for the persisted frame ``ref``."""
+        return self.ref
+
     def _repr_identity(self) -> str:
         parts = f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
         if self.metric_id:
@@ -117,7 +122,7 @@ class FrameSummaryPage(_BoundedPage[FrameSummaryEntry]):
     """Bounded newest-first page of persisted frame summaries."""
 
 
-class Session:
+class Session(RenderableResult):
     """Call mv.help(Session) for its public consumption contract."""
 
     __slots__ = (
@@ -205,8 +210,26 @@ class Session:
 
             self._calendars = CalendarCache(self._project_root)
 
-    def __repr__(self) -> str:
-        return f"Session(name={self._name!r}, id={self._id!r})"
+    def _repr_identity(self) -> str:
+        return f"Session id={self._id} name={self._name}"
+
+    def _card(self) -> Card:
+        mode = "read_only" if self.is_read_only else "writable"
+        card = Card(
+            identity=self._repr_identity(),
+            available=(
+                ".catalog",
+                ".frame_summaries()",
+                ".recent_jobs()",
+                ".render()",
+                ".show()",
+            ),
+        ).status(mode)
+        card.field("question", self._question or "none")
+        card.field("report_timezone", self._report_tz_name)
+        card.field("created_at", self._created_at.isoformat())
+        card.field("updated_at", self._updated_at.isoformat())
+        return card
 
     def __dir__(self) -> list[str]:
         return sorted(
@@ -531,6 +554,7 @@ class Session:
             >>> catalog = session.catalog
             >>> revenue = catalog.get("metric.sales.revenue")
             >>> country = catalog.get("dimension.sales.orders.country").ref
+            >>> channel = catalog.get("dimension.sales.orders.channel").ref
             >>> frame = session.observe(
             ...     revenue,
             ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
@@ -540,13 +564,13 @@ class Session:
             ... )
             >>> frame.show()
             >>> # Filter to a subset before aggregation with slice_by:
-            >>> us_frame = session.observe(
+            >>> us_online_frame = session.observe(
             ...     revenue,
             ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
             ...     grain="day",
-            ...     slice_by={country: "US"},
+            ...     slice_by={country: "US", channel: "online"},
             ... )
-            >>> us_frame.show()
+            >>> us_online_frame.show()
             >>> # Derived ratio/weighted_average division uses zero_division="null":
             >>> # a present zero denominator/weight yields null (never +/-inf) and is
             >>> # counted in frame.meta.quality_summary.zero_denominator_rows.

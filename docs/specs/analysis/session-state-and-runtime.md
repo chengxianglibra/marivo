@@ -24,6 +24,11 @@ Read-only identity properties: `session.id` (a `sess_<hex>` id), `session.name`,
 (plus `report_tz_name` / `report_tz_resolution` / `report_tz_warning`),
 `session.default_calendar`, and `session.is_read_only`.
 
+`repr(session)` is a bounded one-line identity that points to `session.show()`.
+`session.show()` prints, and `session.render()` returns, the same bounded state
+card with the question, read/write status, report timezone, timestamps, and
+catalog/job/frame inspection entries.
+
 `session.is_read_only` is `True` when no datasource resolution path is configured:
 such a session can read persisted artifacts and evidence but cannot run analysis
 that touches a datasource. Operators that need a backend raise
@@ -42,7 +47,8 @@ The public session surface is intentionally small (`mv.session.__all__` is exact
 - `mv.session.current() -> Session | None` — a safe probe for the current session
   (process-current, else the persisted `current_session_id`, else `None`).
 - `mv.session.list() -> list[SessionSummary]` — lightweight rows (name, counts,
-  timestamps), not live sessions.
+  timestamps), not live sessions. Each summary already supports bounded
+  `.show()`; attach by its `name` to obtain a live `Session`.
 - `mv.session.delete(name) -> None` — permanently remove a session and its
   on-disk data; a no-op for unknown names.
 
@@ -110,6 +116,11 @@ plus the parquet bytes (`compute_frame_content_hash`). After `observe()` /
 `compare()` return, `frame.ref` equals the deterministic artifact id, so a frame
 produced in one script can be reloaded in the next with
 `session.get_frame(prev_frame.ref)`.
+
+Every frame also exposes `frame.id` as a read-only alias for `frame.ref`.
+`FrameSummaryEntry.id` aliases its `ref` the same way. `ref` remains the
+canonical persistence and recovery field; the aliases never create a second
+identity or change on-disk metadata.
 
 `frame.state` (an `ArtifactState`) carries only the baseline runtime facts:
 `materialization` (`materialized` | `recomputed` | `partial`) and `content_hash`.

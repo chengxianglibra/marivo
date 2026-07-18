@@ -24,6 +24,8 @@ from marivo.analysis._capabilities.model import (
 from marivo.analysis._capabilities.registry import (
     PUBLIC_FRAME_METHODS,
     PUBLIC_FRAME_PROPERTIES,
+    PUBLIC_OBJECT_METHODS,
+    PUBLIC_OBJECT_PROPERTIES,
     REGISTRY,
 )
 from marivo.analysis._capabilities.surface import TYPE_REGISTRY
@@ -334,6 +336,18 @@ def _resolve_callable(desc: CapabilityDescriptor) -> object | None:
         return None
 
 
+def _property_return_type(value: object) -> str | None:
+    """Return the declared result type for a registered property."""
+    if not isinstance(value, property) or value.fget is None:
+        return None
+    annotation = inspect.signature(value.fget).return_annotation
+    if annotation is inspect.Signature.empty:
+        return None
+    if isinstance(annotation, str):
+        return annotation
+    return inspect.formatannotation(annotation)
+
+
 def _related_targets(desc: CapabilityDescriptor) -> list[str]:
     """Compute bounded related help targets for a descriptor.
 
@@ -349,6 +363,11 @@ def _related_targets(desc: CapabilityDescriptor) -> list[str]:
         if target != desc.help_target and target not in seen:
             seen.add(target)
             related.append(target)
+
+    if desc.help_target == "attribute":
+        _add("AttributionMode")
+    elif desc.help_target == "AttributionMode":
+        _add("attribute")
 
     # Grouping-topic siblings (e.g. discover.*, transform.*).
     for prefix in ("discover.", "transform.", "catalog.", "session.evidence."):
@@ -420,14 +439,28 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
     """Render focused help for a single capability descriptor."""
     lines: list[str] = []
 
+    callable_obj = _resolve_callable(desc)
+    is_property = isinstance(callable_obj, property)
+    is_value_contract = (
+        isinstance(desc, ConstructorCapability)
+        and desc.callable_path is None
+        and bool(desc.output_type)
+    )
+
     # Identity / entrypoint
     lines.append(f"{desc.help_target}")
-    lines.append(f"  Entrypoint: {desc.public_entrypoint}")
+    label = "Property" if is_property else "Values" if is_value_contract else "Entrypoint"
+    lines.append(f"  {label}: {desc.public_entrypoint}")
     lines.append(f"  {desc.summary}")
     lines.append("")
 
+    if is_property:
+        return_type = _property_return_type(callable_obj)
+        if return_type is not None:
+            lines.append(f"  Returns: {return_type}")
+        lines.append(f"  Inspect: {desc.public_entrypoint}.show()")
+
     # Live signature (for invokable capabilities)
-    callable_obj = _resolve_callable(desc)
     if callable_obj is not None and callable(callable_obj):
         try:
             sig = inspect.signature(callable_obj)
@@ -501,7 +534,16 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             lines.append("")
         lines.append("  Members:")
         for member in members:
-            lines.append(f"    {member.public_entrypoint}  [{member.help_target}]")
+            member_obj = _resolve_callable(member)
+            member_return_type = _property_return_type(member_obj)
+            if member_return_type is None:
+                lines.append(f"    {member.public_entrypoint}  [{member.help_target}]")
+            else:
+                lines.append(
+                    f"    {member.public_entrypoint}  "
+                    f"(property -> {member_return_type}; inspect with .show())  "
+                    f"[{member.help_target}]"
+                )
 
     # Example (from docstring)
     if callable_obj is not None:
@@ -655,7 +697,8 @@ def _render_type_help(type_name: str) -> str:
     # for frame subtypes only).
     from marivo.analysis.frames.base import BaseFrame
 
-    props = PUBLIC_FRAME_PROPERTIES.get(type_name, ())
+    props = PUBLIC_OBJECT_PROPERTIES.get(type_name, ())
+    props = tuple(dict.fromkeys((*props, *PUBLIC_FRAME_PROPERTIES.get(type_name, ()))))
     if isinstance(type_obj, type) and type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
         base_props = PUBLIC_FRAME_PROPERTIES.get("BaseFrame", ())
         props = tuple(dict.fromkeys((*props, *base_props)))
@@ -667,7 +710,8 @@ def _render_type_help(type_name: str) -> str:
 
     # Methods (from registry allowlist, including inherited BaseFrame
     # for frame subtypes only).
-    methods = PUBLIC_FRAME_METHODS.get(type_name, ())
+    methods = PUBLIC_OBJECT_METHODS.get(type_name, ())
+    methods = tuple(dict.fromkeys((*methods, *PUBLIC_FRAME_METHODS.get(type_name, ()))))
     if isinstance(type_obj, type) and type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
         base_methods = PUBLIC_FRAME_METHODS.get("BaseFrame", ())
         methods = tuple(dict.fromkeys((*methods, *base_methods)))

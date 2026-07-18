@@ -195,6 +195,7 @@ def test_attribute_single_axis_ignores_mode_parameter() -> None:
     assert out.meta.params["axes"] == ["sales.orders.region"]
     # mode is not applicable to a single axis, so it is dropped from params.
     assert "mode" not in out.meta.params
+    assert out.attribution_mode is None
 
 
 def test_attribute_rejects_duplicate_axes() -> None:

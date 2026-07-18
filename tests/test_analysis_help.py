@@ -287,13 +287,12 @@ def test_focused_help_includes_runnable_example() -> None:
     assert "..." not in example_section
 
 
-def test_observe_example_documents_slice_by_usage() -> None:
-    """The observe example must show slice_by filtering, not just dimensions,
-    so agents do not have to guess the filter syntax. See issue #32.
-    """
+def test_observe_example_documents_multi_dimension_slice_by_usage() -> None:
+    """The observe example must show filtering by a dimension combination."""
     text = _text("observe")
     example_section = text[text.index("Example:") :]
-    assert "slice_by=" in example_section
+    assert 'channel = catalog.get("dimension.sales.orders.channel").ref' in example_section
+    assert 'slice_by={country: "US", channel: "online"}' in example_section
 
 
 def test_observe_and_catalog_get_document_ref_id_format() -> None:
@@ -343,6 +342,10 @@ def test_attribute_help_explains_additivity_boundary() -> None:
     assert "weighted-average" in text
     assert "Tier-1 mean" in text
     assert "count_non_null" in text
+    assert "attribution_shape=weighted_mix lowered_from=mean" in text
+    assert "call attribute directly" in text
+    assert "already lowered to sum/count_non_null components" in text
+    assert "do not manually split numerator and denominator" in text
     assert "status time axis" in text
     assert "numerator" in text
     assert "denominator" in text
@@ -352,6 +355,34 @@ def test_attribute_help_explains_additivity_boundary() -> None:
     assert "new and churned" in text
     assert "one-sided" in text
     assert "independently computed total delta" in text
+
+
+def test_attribution_mode_help_is_self_contained_and_not_in_root_index() -> None:
+    text = _text("AttributionMode")
+
+    assert 'Values: mode="joint" | mode="hierarchy"' in text
+    assert "one additive row per complete axis combination" in text
+    assert "only its deepest level reconciles" in text
+    assert "Multi-axis calls have no default" in text
+    assert "Omit mode for one axis" in text
+    assert "distinct from attribution method" in text
+    assert "either layout can use weighted_mix" in text
+    assert "AttributionMode" in _text("attribute")
+    assert "AttributionMode" not in _text(None)
+
+
+def test_catalog_collection_help_labels_properties_and_show_path() -> None:
+    group = _text("catalog")
+    focused = _text("catalog.dimensions")
+
+    assert (
+        "session.catalog.dimensions  "
+        "(property -> CatalogCollection[Dimension]; inspect with .show())"
+    ) in group
+    assert "Property: session.catalog.dimensions" in focused
+    assert "Returns: CatalogCollection[Dimension]" in focused
+    assert "Inspect: session.catalog.dimensions.show()" in focused
+    assert "Entrypoint: session.catalog.dimensions" not in focused
 
 
 def test_compare_help_explains_cumulative_component_compatibility() -> None:

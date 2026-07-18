@@ -215,6 +215,7 @@ def test_digest_is_session_local_for_content_identity_and_renders_before_preview
 
 def test_repr_and_show_are_bounded_agent_reads(capsys):
     frame = BaseFrame(_df=pd.DataFrame({"value": range(200)}), meta=_meta(row_count=200))
+    assert frame.id == frame.ref
     assert "call .show() to inspect" in repr(frame)
     frame.show(max_output_bytes=300)
     assert len(capsys.readouterr().out.encode()) <= 301

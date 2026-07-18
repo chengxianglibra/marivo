@@ -69,6 +69,21 @@ def test_session_is_not_read_only_with_factory(tmp_path):
     assert _session(tmp_path, read_only=False).is_read_only is False
 
 
+def test_session_repr_render_and_show_use_bounded_result_protocol(tmp_path, capsys):
+    session = _session(tmp_path)
+
+    assert repr(session) == ("<Session id=sess_t01 name=demo; call .show() to inspect>")
+    rendered = session.render()
+    assert "Session id=sess_t01 name=demo" in rendered
+    assert "status: writable" in rendered
+    assert "question: q" in rendered
+    assert "report_timezone:" in rendered
+    assert ".catalog" in rendered
+    assert ".frame_summaries()" in rendered
+    assert session.show() is None
+    assert capsys.readouterr().out.rstrip() == rendered
+
+
 def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
     s = _session(tmp_path)
     persist_job_record(

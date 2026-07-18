@@ -263,6 +263,14 @@ their descendants' totals, so only the deepest level is additive. Candidate
 axes, coverage warnings, and budget stops go to metadata/blocking
 issues/lineage, never a next-step recommendation or narrative.
 
+There is no default for a multi-axis call; a single-axis call omits `mode`, and
+supplying one there has no effect. `AttributionFrame.attribution_mode` exposes
+the persisted row layout (`"joint"`, `"hierarchy"`, or `None` for single-axis
+and legacy artifacts). It is intentionally distinct from
+`AttributionFrame.attribution_shape` / `meta.method`, which identify the
+attribution math. Both layouts may therefore report `method="weighted_mix"`.
+`mv.help("AttributionMode")` owns this focused contract.
+
 Every contribution row uses explicit denominators: `share_of_total_delta` is
 the signed contribution divided by the independently computed overall delta;
 `share_of_positive_pool` and `share_of_negative_pool` are non-negative shares
@@ -393,7 +401,8 @@ repr(result)  ->  result.show() / result.render()  ->  result.contract()  ->  re
 
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to
-`.to_pandas()`. Frames also expose `.ref`, `.kind`, `.lineage`, `.state`,
+`.to_pandas()`. Frames also expose `.id` (a read-only alias of `.ref`), `.ref`,
+`.kind`, `.lineage`, `.state`,
 `.quality_summary`, `.evidence_status`, `.evidence_digest`, `.columns`, and
 `.shape`. The
 `BaseFrame.describe()` and `BaseFrame.plot()` methods are intentionally removed;
