@@ -32,7 +32,15 @@ def test_datasource_root_help_lists_live_capabilities_and_bounded_effects() -> N
     [
         ("inspect", ("Entrypoint: md.inspect", "Signature:", "Output family: SourceInspection")),
         ("SourceInspection.sample", ("Required state:", "Effects:", "Example:")),
-        ("raw_sql", ("potentially_unbounded_read", "requires_positive_row_guard")),
+        (
+            "raw_sql",
+            (
+                "potentially_unbounded_read",
+                "requires_positive_row_guard",
+                "semantic-gap escape",
+                "cannot become canonical metrics",
+            ),
+        ),
     ],
 )
 def test_focused_help_renders_live_contract(target: str, needles: tuple[str, ...]) -> None:

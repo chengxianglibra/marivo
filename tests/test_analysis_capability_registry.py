@@ -559,6 +559,8 @@ def test_session_recovery_methods_registered() -> None:
         "session.get_or_create",
         "session.current",
         "session.list",
+        "session.recent",
+        "session.inspect",
         "session.delete",
         "session.jobs",
         "session.recent_jobs",

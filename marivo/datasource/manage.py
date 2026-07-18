@@ -650,7 +650,9 @@ def raw_sql(
             are bounded with a wrapper query capped at ``limit + 1`` rows;
             metadata diagnostics such as ``SHOW``, ``DESCRIBE``, ``DESC``, and
             ``EXPLAIN`` execute directly so backend metadata syntax remains valid.
-        reason: Required terminal-analysis reason; shown in the result.
+        reason: Required terminal-analysis reason; shown in the result. For a
+            semantic-gap escape, name the gap, temporary analysis purpose, and
+            inferred assumptions that make the statement provisional.
         limit: Maximum rows to return.
         timeout_seconds: Backend execution timeout; fail-closed if unenforceable.
         include_types: Whether to include returned column type labels when available.
@@ -672,6 +674,9 @@ def raw_sql(
         through a read-only subquery wrapper. The timeout is armed before the user
         statement executes; if the profile has no enforceable timeout the function
         fails closed with ``DatasourceRawSqlError(stage="timeout_setup")``.
+        A semantic gap may use this terminal path without prior approval, but
+        inferred semantics remain provisional and must be disclosed at closeout.
+        The result cannot become a canonical metric or re-enter typed analysis.
         Returned rows are bounded, but the backend diagnostic itself can still be
         expensive; callers must inspect query plans and supply a narrow statement.
         Any execution failure (including a write attempt) surfaces as a

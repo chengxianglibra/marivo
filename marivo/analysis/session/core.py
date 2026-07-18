@@ -122,6 +122,88 @@ class FrameSummaryPage(_BoundedPage[FrameSummaryEntry]):
     """Bounded newest-first page of persisted frame summaries."""
 
 
+def _read_job_summaries(
+    *, store: SessionStore, layout: PersistenceLayout, session_id: str
+) -> list[JobSummary]:
+    """Read persisted job summaries without requiring a live session."""
+    summaries: list[JobSummary] = []
+    for row in store.list_jobs(session_id):
+        record = read_job_record(layout, row["job_id"])
+        summaries.append(
+            JobSummary(
+                id=record["id"],
+                intent=record["intent"],
+                status=record["status"],
+                started_at=record["started_at"],
+                duration_ms=record["duration_ms"],
+                output_frame_ref=record.get("output_frame_ref"),
+            )
+        )
+    summaries.sort(key=lambda item: (item.started_at, item.id))
+    return summaries
+
+
+def _read_frame_summary_page(
+    *,
+    store: SessionStore,
+    project_root: Path,
+    session_id: str,
+    kind: str | None,
+    evidence_status: str | None,
+    limit: int,
+    cursor: str | None,
+) -> FrameSummaryPage:
+    """Read one persisted frame-summary page without a live session."""
+    if not 1 <= limit <= 100:
+        raise ValueError("frame_summaries limit must be within [1, 100]")
+    after: tuple[str, str] | None = None
+    if cursor is not None:
+        committed_at, identity = decode_keyset_cursor(cursor)
+        if not isinstance(committed_at, str):
+            raise ValueError("frame_summaries cursor has an invalid sort key")
+        after = (committed_at, identity)
+    rows = store.page_artifacts(
+        session_id,
+        kind=kind,
+        evidence_status=evidence_status,
+        limit=limit,
+        after=after,
+    )
+    has_more = len(rows) > limit
+    entries: list[FrameSummaryEntry] = []
+    for row in rows[:limit]:
+        meta_path = row["meta_path"]
+        abs_meta = project_root / meta_path
+        try:
+            meta = json.loads(abs_meta.read_text()) if abs_meta.is_file() else {}
+        except (OSError, json.JSONDecodeError):
+            meta = {}
+        entries.append(
+            FrameSummaryEntry(
+                ref=meta.get("ref", row["artifact_id"]),
+                kind=meta.get("kind", row["kind"]),
+                metric_id=meta.get("metric_id"),
+                semantic_kind=meta.get("semantic_kind"),
+                semantic_model=meta.get("semantic_model"),
+                created_at=meta.get("created_at", row["created_at"]),
+                evidence_status=row["evidence_status"],
+                analysis_purpose=meta.get("analysis_purpose"),
+                row_count=meta.get("row_count"),
+                content_hash=meta.get("content_hash", row["content_hash"]),
+            )
+        )
+    next_cursor = None
+    if has_more:
+        last_row = rows[limit - 1]
+        next_cursor = encode_keyset_cursor(last_row["created_at"], last_row["artifact_id"])
+    return FrameSummaryPage(
+        items=tuple(entries),
+        limit=limit,
+        has_more=has_more,
+        next_cursor=next_cursor,
+    )
+
+
 class Session(RenderableResult):
     """Call mv.help(Session) for its public consumption contract."""
 
@@ -320,22 +402,7 @@ class Session(RenderableResult):
         frame ref). For the full record of a single job, use :meth:`job`.
         """
 
-        summaries: list[JobSummary] = []
-        for row in self._store.list_jobs(self.id):
-            job_id = row["job_id"]
-            record = read_job_record(self._layout, job_id)
-            summaries.append(
-                JobSummary(
-                    id=record["id"],
-                    intent=record["intent"],
-                    status=record["status"],
-                    started_at=record["started_at"],
-                    duration_ms=record["duration_ms"],
-                    output_frame_ref=record.get("output_frame_ref"),
-                )
-            )
-        summaries.sort(key=lambda item: (item.started_at, item.id))
-        return summaries
+        return _read_job_summaries(store=self._store, layout=self._layout, session_id=self.id)
 
     def recent_jobs(self, limit: int = 5) -> list[JobSummary]:
         """Return the most recent ``limit`` job summaries, oldest first.
@@ -399,53 +466,14 @@ class Session(RenderableResult):
             page = session.frame_summaries(limit=20)
             next_page = session.frame_summaries(limit=20, cursor=page.next_cursor)
         """
-        if not 1 <= limit <= 100:
-            raise ValueError("frame_summaries limit must be within [1, 100]")
-        after: tuple[str, str] | None = None
-        if cursor is not None:
-            committed_at, identity = decode_keyset_cursor(cursor)
-            if not isinstance(committed_at, str):
-                raise ValueError("frame_summaries cursor has an invalid sort key")
-            after = (committed_at, identity)
-        rows = self._store.page_artifacts(
-            self.id,
+        return _read_frame_summary_page(
+            store=self._store,
+            project_root=self._project_root,
+            session_id=self.id,
             kind=kind,
             evidence_status=evidence_status,
             limit=limit,
-            after=after,
-        )
-        has_more = len(rows) > limit
-        entries: list[FrameSummaryEntry] = []
-        for row in rows[:limit]:
-            meta_path = row["meta_path"]
-            abs_meta = self._project_root / meta_path
-            try:
-                meta = json.loads(abs_meta.read_text()) if abs_meta.is_file() else {}
-            except (OSError, json.JSONDecodeError):
-                meta = {}
-            entries.append(
-                FrameSummaryEntry(
-                    ref=meta.get("ref", row["artifact_id"]),
-                    kind=meta.get("kind", row["kind"]),
-                    metric_id=meta.get("metric_id"),
-                    semantic_kind=meta.get("semantic_kind"),
-                    semantic_model=meta.get("semantic_model"),
-                    created_at=meta.get("created_at", row["created_at"]),
-                    evidence_status=row["evidence_status"],
-                    analysis_purpose=meta.get("analysis_purpose"),
-                    row_count=meta.get("row_count"),
-                    content_hash=meta.get("content_hash", row["content_hash"]),
-                )
-            )
-        next_cursor = None
-        if has_more:
-            last_row = rows[limit - 1]
-            next_cursor = encode_keyset_cursor(last_row["created_at"], last_row["artifact_id"])
-        return FrameSummaryPage(
-            items=tuple(entries),
-            limit=limit,
-            has_more=has_more,
-            next_cursor=next_cursor,
+            cursor=cursor,
         )
 
     def close(self) -> None:

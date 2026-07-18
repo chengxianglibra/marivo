@@ -261,7 +261,9 @@ def test_metric_not_found_uses_semantic_authoring_when_no_candidates() -> None:
         "candidates",
     }
     assert err.received == "sales.nonexistent"
-    assert "semantic layer" in err.repair.action
+    assert "md.raw_sql" in err.repair.action
+    assert "closeout" in err.repair.action
+    assert err.repair.snippet is None
 
 
 def test_metric_not_found_uses_semantic_authoring_when_available_ids_absent() -> None:
@@ -320,7 +322,9 @@ def test_dimension_field_not_found_uses_semantic_authoring_when_no_candidates() 
         "candidates",
     }
     assert err.received == "unknown"
-    assert "semantic layer" in err.repair.action
+    assert "md.raw_sql" in err.repair.action
+    assert "closeout" in err.repair.action
+    assert err.repair.snippet is None
 
 
 # ---------------------------------------------------------------------------

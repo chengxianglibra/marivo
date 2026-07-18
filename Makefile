@@ -1,4 +1,4 @@
-.PHONY: test typecheck lint format check docs-api pypi-build pypi-check pypi-clean
+.PHONY: test release-test typecheck lint format check release-check docs-api pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
 VENV_BIN := .venv/Scripts
@@ -22,6 +22,12 @@ test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
 
+release-test:
+	@./scripts/require-venv.sh pytest
+	@$(VENV_PYTEST) -n 0 -m release \
+		tests/test_install_marivo_script.py \
+		tests/test_install_marivo_script_uv.py
+
 typecheck:
 	@./scripts/require-venv.sh mypy
 	@$(VENV_MYPY) marivo
@@ -37,6 +43,8 @@ format:
 	@$(VENV_RUFF) check --fix .
 
 check: lint typecheck test
+
+release-check: check release-test
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
 	@./scripts/require-venv.sh sphinx-build

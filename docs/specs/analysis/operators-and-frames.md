@@ -504,13 +504,18 @@ cannot re-enter the typed artifact chain.
 - **`md.raw_sql(...)`** — the sole public raw SQL execution path. Returns a
   `RawSqlResult` with timeout enforcement, exact row bounding, and
   `RawSqlResult.to_pandas()` as the terminal pandas exit. Use for custom
-  analysis that cannot be expressed through `session.observe(...)`.
+  analysis that cannot be expressed through `session.observe(...)`, including
+  an analysis branch blocked by a semantic gap. Temporary inferred semantics
+  must be disclosed and remain terminal-only.
 - **`frame.to_pandas()`** — any tabular frame exposes `.to_pandas()`, returning
   an isolated defensive copy for ad-hoc pandas exploration, plotting, or
   modeling.
 
-Missing business semantics are not resolved through terminal exits; they return
-to semantic authoring (`marivo.semantic`). `session.observe(...)` is the sole
+Terminal raw SQL does not resolve missing business semantics. It may provide a
+provisional result without prior approval, but carries no canonical metric
+identity, analysis lineage, or evidence continuity and cannot re-enter typed
+analysis. The closeout retains the gap and requests approval for the smallest
+durable change through `marivo.semantic`. `session.observe(...)` remains the sole
 canonical `MetricFrame` producer.
 
 ## Cross-cutting metadata

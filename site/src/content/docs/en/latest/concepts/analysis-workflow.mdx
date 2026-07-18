@@ -28,8 +28,10 @@ metric, population, comparison, or a business assumption in a way that could
 materially change the conclusion.
 
 Confirm or correct that choice in business terms. If the semantic definition
-itself is missing or wrong, the agent should route the gap to
-`marivo-semantic` instead of silently changing it during analysis.
+itself is missing or wrong, the affected typed branch stops. The agent may use
+terminal `md.raw_sql(...)` with explicit temporary inferred semantics, but it
+must not change the semantic layer during analysis and must request approval for
+the smallest durable fix at closeout.
 
 ## Review the handoff
 
@@ -109,7 +111,7 @@ region.details().show()
 
 `get_or_create` is idempotent: it attaches to an existing session of that name or
 creates one, and sets it current. The narrow session API is `get_or_create`,
-`current()`, `list()`, and `delete(name)`.
+`current()`, `list()`, `recent()`, `inspect(name)`, and `delete(name)`.
 
 `repr(session)` points to `session.show()`. Call it for a bounded state card
 with the question, read/write status, report timezone, timestamps, and the
@@ -123,8 +125,9 @@ composition, effective entities, candidate axes, and measure lineage appear.
 Candidate axes are static discovery; `observe` remains the authority for
 relationship and fanout validity. `.contract()` is reserved for mechanical
 verify/preview/readiness continuations, while `.render()` returns the same bounded
-card that `.show()` prints. If a required object is missing or disputed, return to
-semantic authoring before the first `observe`.
+card that `.show()` prints. If a required object is missing or disputed, stop the
+affected typed branch before the first `observe`; terminal raw SQL may continue
+provisionally, while semantic authoring waits for closeout approval.
 
 :::note[When to run readiness]
 Run `catalog.readiness(refs=[...])` after authoring or changing semantic objects,
@@ -475,11 +478,16 @@ base_frame = session.observe(active_users, ...)
 
 ## Terminal custom analysis
 
-When a calculation cannot be expressed through `session.observe(...))`, use
+When a calculation cannot be expressed through `session.observe(...)`, use
 `md.raw_sql(...)` — the sole terminal raw SQL execution path. It enforces
 a timeout, bounds returned rows, and runs read-only. The result is a
 `RawSqlResult` that cannot re-enter typed analysis; call
 `RawSqlResult.to_pandas()` for the terminal pandas exit.
+
+A semantic gap may also use this path without prior approval. The agent may
+infer a temporary metric, dimension, relationship, or filter definition, but
+must put those assumptions in the analysis record and keep raw-SQL-supported
+claims separate from canonical artifact evidence.
 
 ```python
 import marivo.datasource as md
@@ -495,8 +503,8 @@ df = result.to_pandas()
 
 Use `artifact.to_pandas()` for terminal local pandas work from a typed
 frame. Neither `md.raw_sql(...)` results nor `to_pandas()` exports can
-re-enter typed analysis. If business semantics are missing, return to
-semantic authoring.
+re-enter typed analysis. Raw SQL does not repair missing business semantics:
+the closeout still requests approval for the smallest semantic change.
 
 ## Read and recover artifacts
 
@@ -540,17 +548,21 @@ Marivo maintains a typed analysis chain. The terminal exits are
 defensive copy for custom local analysis; `md.raw_sql(...)` returns a
 `RawSqlResult` with `RawSqlResult.to_pandas()` as its own terminal pandas
 exit. Neither preserves lineage or evidence continuity. Terminal results
-cannot re-enter typed analysis. If business semantics are missing, return
-to semantic authoring.
+cannot re-enter typed analysis. If business semantics are missing, terminal
+raw SQL may provide only a provisional result; retain the gap for closeout
+approval before semantic authoring.
 
 ### Semantic authoring
 
-Analysis consumes stable semantic refs and never guesses business meaning. If a
-required metric, dimension, or time dimension is missing or disputed, the
-analysis stops and follows its `semantic_authoring` repair into
-`marivo-semantic` rather than silently changing
-the definition during analysis. The semantic layer owns the business-object
-contract; the analysis layer owns typed computation over those objects.
+Typed analysis consumes stable semantic refs and never guesses business meaning.
+If a required metric, dimension, or time dimension is missing or disputed, the
+affected typed branch stops. The agent may infer temporary semantics only in a
+terminal `md.raw_sql(...)` branch and must disclose the datasource, purpose,
+assumptions, bounded result, and loss of canonical identity, lineage, and
+evidence continuity. It proposes the smallest durable semantic change at
+closeout and follows `marivo-semantic` only after explicit approval. The semantic
+layer owns the business-object contract; the analysis layer owns typed
+computation over those objects.
 
 When a later script needs previous work, recover persisted facts instead of
 rerunning upstream queries:
@@ -559,6 +571,10 @@ rerunning upstream queries:
 summaries = session.frame_summaries(limit=20)
 jobs = session.recent_jobs(limit=5)
 previous = session.get_frame(ref)
+
+# Only when recovery, a repeated task, or a recurring failure makes history relevant:
+history = mv.session.recent(limit=10)
+prior = mv.session.inspect(history.items[0].name) if history.items else None
 ```
 
 `frame_summaries()` returns a `FrameSummaryPage`. Continue with the opaque

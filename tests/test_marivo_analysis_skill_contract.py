@@ -111,6 +111,43 @@ def test_analysis_skill_keeps_session_scripts_reference_only() -> None:
         assert required in workspace, f"Missing script-workspace boundary: {required}"
 
 
+def test_analysis_skill_bounds_historical_session_reference() -> None:
+    """Historical sessions are selectively inspected reference memory."""
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    section = text[text.index("## Historical session reference") : text.index("## Hard boundaries")]
+    for required in (
+        "external reference memory",
+        "loaded by default",
+        "same failure recurs",
+        "three candidate sessions",
+        "do not support current material claims",
+        "current semantic catalog",
+        "runtime fingerprint",
+        "analysis scope",
+    ):
+        assert required in section, f"Missing historical-session boundary: {required}"
+
+
+def test_analysis_skill_defers_semantic_authoring_and_allows_raw_sql_escape() -> None:
+    """Semantic gaps stop typed work but may continue through a terminal escape."""
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    for required in (
+        "During analysis the agent must not",
+        "semantic definitions",
+        "user approves the closeout proposal",
+        "`md.raw_sql(...)`",
+        "without prior approval",
+        "temporary",
+        "inferred semantics",
+        "cannot re-enter typed analysis",
+        "it is not permission to mutate the semantic layer",
+        "requires explicit user approval",
+        "no-lineage/no-evidence-continuity",
+        "canonical artifact claims and raw-SQL-supported claims remain",
+    ):
+        assert required in text, f"Missing semantic-gap/raw-SQL boundary: {required}"
+
+
 def test_marivo_semantic_skill_is_one_file_routing_kernel() -> None:
     """The packaged semantic skill shape is exactly one file, with no embedded
     code/repair symbols and all required routing sections present."""
