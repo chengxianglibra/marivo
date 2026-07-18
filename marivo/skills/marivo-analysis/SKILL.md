@@ -77,16 +77,20 @@ examples must never override live state.
 
 ### Judgment separation
 
-Artifacts, candidates, scores, quality statuses, and affordances are
-computed facts or mechanical compatibility information. They are not
-business conclusions, recommendations, priorities, or stop conditions.
-The agent owns those judgments.
+Artifacts, typed findings, bounded digests, candidates, scores, quality
+results, issues, and affordances are computed facts or mechanical
+compatibility information. They are not business conclusions,
+recommendations, priorities, or stop conditions. The agent owns
+cross-artifact synthesis and every next-step judgment.
 
 ### Evidence integrity
 
-The agent must not hide blockers that affect validity, coverage, or
-confidence, and must not sever the recoverable evidence chain during
-script, session, or agent transitions.
+An artifact digest is a bounded operator-local read model, not a replacement
+for the artifact or exact findings. When the question exceeds its retained
+items or inference boundaries, the agent must inspect the live fallback
+surface. It must not hide issues that affect validity or coverage, upgrade an
+epistemic kind, or sever the recoverable evidence chain during script,
+session, or agent transitions.
 
 ### Terminal boundary
 
@@ -138,8 +142,8 @@ The skill does not prescribe a report structure. Require only that:
   artifact/job, and analysis scope;
 - Marivo facts, agent interpretations, and unverified hypotheses remain
   distinguishable;
-- result-impacting blockers, quality limitations, and confidence limits are
-  disclosed;
+- result-impacting issues, quality limitations, omissions, and inference
+  boundaries are disclosed;
 - semantic gaps that weakened or blocked the task are named and handed back
   to semantic authoring;
 - absolute interpreter and package paths from the environment fingerprint do

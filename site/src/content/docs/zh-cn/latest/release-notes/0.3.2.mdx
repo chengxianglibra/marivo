@@ -46,6 +46,27 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 
 ## 破坏性变更
 
+- **Evidence Engine Cutover A。** 原来的
+  `finding -> proposition -> assessment` 判断 runtime 被确定性的类型化 findings 与每个
+  artifact 一个有界 `ArtifactDigest` 替代。`session.knowledge()`、
+  proposition/assessment 读取、持久化 follow-up、open items、next steps 及其 public
+  类型全部无别名移除。Marivo 不再生成通用 validation/confidence 标签或 session 级判断；
+  跨 artifact 综合与规划由 agent 负责。
+- **唯一 artifact evidence 路径。** 使用 `artifact.evidence_status`、
+  `artifact.evidence_digest` 与 `artifact.show()`。`evidence_summary`、
+  `blocking_issues`、`ConfidenceScope` 和 artifact issue 快捷属性已移除。
+  `contract().issues` 包含封闭的 `ArtifactIssue` union；`AnalysisScope` 保留既有的
+  metric-shaped scope。
+- **直接、有界的审计读取。** `session.evidence.digests(...)`、
+  `.findings(...)`、`.digest(ref)`、`.finding(id)` 与 `.trace(id)` 替代 judgment API。
+  列表读取返回不可变 keyset page。Evidence store 不可用时抛出
+  `EvidenceStoreUnavailableError`，不会伪装成空 page。
+- **类型化 candidate selection。** `CandidateSet.select(rank=1)` 返回封闭的
+  shape-specific selection。任意 `attribute=` 读取和 candidate affordance/constraint
+  payload 已移除。
+- **保留参数角色的 affordance。** 扁平 `required_inputs` 与
+  `ArtifactParamTemplate` 被准确参数 requirement、接受 family 和当前 artifact bindability
+  替代。本次 cutover 明确不加入 invocation-option 枚举。
 - **移除 help 主题。** `mv.help('workflow')` 和 `mv.help('advanced')` 不再可用。新的
   help 系统使用 `mv.help()`（根索引）、`mv.help(target)`（focused 能力）和
   `mv.help(ClassName)`（类型 help）。help 目标的字符串别名已移除；使用实时接口上的规范
@@ -80,6 +101,9 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 
 这是一次原子性切换。不提供别名、重定向、弃用字段、双读路径、兼容性标志或自动迁移。引用了
 已移除符号、主题或字段的代码必须更新到新接面。
+
+analysis evidence store 同样遵循该规则：非 v2 `judgment.db` 以及包含已移除 evidence 字段的
+frame sidecar 会被拒绝；应重新创建 analysis session，以生成 canonical typed findings 与 digest。
 
 ## 语义与 datasource 实时接口
 

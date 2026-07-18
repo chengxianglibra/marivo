@@ -5,9 +5,25 @@ from typing import Any as _Any
 from marivo.analysis import errors as errors
 from marivo.analysis import session
 from marivo.analysis.calendar.model import CalendarPolicy
-from marivo.analysis.followups import (
-    BlockingIssue,
-    ConfidenceScope,
+from marivo.analysis.evidence import (
+    AnalysisScope,
+    AnomalyCandidate,
+    ArtifactDigest,
+    ArtifactDigestPage,
+    ArtifactIssue,
+    AssociationFact,
+    ChangeFact,
+    ComparabilityIssue,
+    ContributionFact,
+    DataQualityIssue,
+    EvidenceAvailabilityIssue,
+    EvidenceDerivationTrace,
+    Finding,
+    FindingPage,
+    ForecastOutput,
+    ObservationFact,
+    QualityCheckResult,
+    TestDecision,
 )
 from marivo.analysis.frames.association import AssociationResult
 from marivo.analysis.frames.attribution import AttributionFrame
@@ -15,7 +31,7 @@ from marivo.analysis.frames.base import (
     ArtifactAffordance,
     ArtifactColumn,
     ArtifactContract,
-    ArtifactParamTemplate,
+    ArtifactInputRequirement,
     ArtifactPrecondition,
     ArtifactSchema,
     ArtifactState,
@@ -24,7 +40,14 @@ from marivo.analysis.frames.base import (
 )
 from marivo.analysis.frames.candidate import (
     CandidateObjective,
+    CandidateSelection,
     CandidateSet,
+    CrossSectionalOutlierSelection,
+    DriverAxisSelection,
+    PeriodShiftSelection,
+    PointAnomalySelection,
+    SliceSelection,
+    WindowSelection,
 )
 from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.coverage import CoverageFrame
@@ -52,7 +75,12 @@ from marivo.analysis.policies import (
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef
 from marivo.analysis.session._store import SessionSummary
-from marivo.analysis.session.core import FrameSummaryEntry, JobSummary, Session
+from marivo.analysis.session.core import (
+    FrameSummaryEntry,
+    FrameSummaryPage,
+    JobSummary,
+    Session,
+)
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     TimeScope,
@@ -85,20 +113,47 @@ def __dir__() -> list[str]:
 __all__ = [
     "AbsoluteWindow",
     "AlignmentPolicy",
+    "AnalysisScope",
+    "AnomalyCandidate",
+    "ArtifactDigest",
+    "ArtifactDigestPage",
+    "ArtifactIssue",
     "ArtifactRef",
+    "AssociationFact",
     "AssociationResult",
     "AttributionFrame",
     "CalendarRef",
+    "CandidateSelection",
     "CandidateSet",
     "CatalogObject",
+    "ChangeFact",
+    "ComparabilityIssue",
+    "ContributionFact",
+    "CrossSectionalOutlierSelection",
+    "DataQualityIssue",
     "DeltaFrame",
+    "DriverAxisSelection",
+    "EvidenceAvailabilityIssue",
+    "EvidenceDerivationTrace",
+    "Finding",
+    "FindingPage",
     "ForecastFrame",
+    "ForecastOutput",
+    "FrameSummaryEntry",
+    "FrameSummaryPage",
     "HypothesisTestResult",
     "MetricFrame",
+    "ObservationFact",
+    "PeriodShiftSelection",
+    "PointAnomalySelection",
+    "QualityCheckResult",
     "QualityReport",
     "SemanticRef",
     "Session",
+    "SliceSelection",
+    "TestDecision",
     "TimeScope",
+    "WindowSelection",
     "dow_aligned",
     "help",
     "help_text",

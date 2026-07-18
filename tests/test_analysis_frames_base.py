@@ -1,7 +1,7 @@
-"""BaseFrameMeta + BaseFrame: thin pandas wrapper with explicit boundaries."""
+"""Base frame protocol after the typed-digest cutover."""
 
-import subprocess
-import sys
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -9,541 +9,212 @@ import pytest
 from pydantic import ValidationError
 
 from marivo.analysis.errors import FrameMutationError
-from marivo.analysis.evidence.types import ArtifactEvidenceItem, ArtifactEvidenceSummary
-from marivo.analysis.followups import BlockingIssue
+from marivo.analysis.evidence.types import (
+    AnalysisScope,
+    ArtifactDigest,
+    EvidenceAvailabilityIssue,
+    OmissionSummary,
+    OperatorSemantics,
+    RawFallback,
+    Subject,
+)
 from marivo.analysis.frames._content_hash import stable_meta_payload
-from marivo.analysis.frames.base import ArtifactAffordance, BaseFrame, BaseFrameMeta
+from marivo.analysis.frames.base import (
+    ArtifactAffordance,
+    ArtifactContract,
+    ArtifactInputRequirement,
+    BaseFrame,
+    BaseFrameMeta,
+)
+from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
 
 
 def _meta(**overrides) -> BaseFrameMeta:
-    defaults = {
+    values = {
         "kind": "metric_frame",
-        "ref": "frame_abc12345",
-        "session_id": "sess_a3b21c89",
-        "project_root": "/tmp/proj",
-        "produced_by_job": "job_e7c4f8a1",
-        "created_at": datetime(2026, 5, 24, 10, 23, 11, tzinfo=UTC),
+        "ref": "frame_abc",
+        "session_id": "sess_1",
+        "project_root": "/tmp/project",
+        "produced_by_job": None,
+        "created_at": datetime(2026, 7, 18, tzinfo=UTC),
         "row_count": 2,
         "byte_size": 128,
         "lineage": Lineage(),
     }
-    defaults.update(overrides)
-    return BaseFrameMeta(**defaults)
+    values.update(overrides)
+    return BaseFrameMeta(**values)
 
 
-def test_meta_construction_minimum_fields():
-    meta = _meta()
-    assert meta.ref == "frame_abc12345"
-    assert meta.session_id == "sess_a3b21c89"
-    assert meta.row_count == 2
-
-
-def test_base_frame_meta_evidence_fields_default() -> None:
-    meta = BaseFrameMeta(
-        kind="metric_frame",
-        ref="frame_abc",
-        session_id="sess_1",
-        project_root="/tmp",
-        produced_by_job=None,
-        created_at=datetime.now(UTC),
-        row_count=10,
-        byte_size=100,
+def _digest(ref: str = "frame_abc") -> ArtifactDigest:
+    return ArtifactDigest(
+        artifact_ref=ref,
+        operator=OperatorSemantics(
+            operator="observe",
+            operator_version="v1",
+            artifact_family="metric_frame",
+            semantic_shape="scalar",
+        ),
+        subject=Subject(metric="sales.revenue", analysis_axis="scalar"),
+        scope=AnalysisScope(metric_ids=("sales.revenue",)),
+        omissions=OmissionSummary(
+            retained_items=0,
+            omitted_items=0,
+            bounded=True,
+        ),
+        fallback=RawFallback(
+            artifact_ref=ref,
+            findings_available=True,
+            rows_available=True,
+        ),
+        fingerprint="sha256:test",
     )
-    frame = BaseFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
 
-    assert meta.artifact_id is None
+
+def _metric_frame() -> MetricFrame:
+    return MetricFrame(
+        _df=pd.DataFrame({"value": [1.0]}),
+        meta=MetricFrameMeta(
+            ref="metric_1",
+            session_id="sess_1",
+            project_root="/tmp/project",
+            produced_by_job=None,
+            created_at=datetime(2026, 7, 18, tzinfo=UTC),
+            row_count=1,
+            byte_size=8,
+            lineage=Lineage(),
+            metric_id="sales.revenue",
+            axes={},
+            measure={"field": "value"},
+            window=None,
+            where={},
+            semantic_kind="scalar",
+            semantic_model="sales",
+        ),
+    )
+
+
+def test_meta_defaults_are_truthful_and_old_names_are_absent():
+    meta = _meta()
+    frame = BaseFrame(_df=pd.DataFrame({"value": [1.0, 2.0]}), meta=meta)
+
     assert meta.evidence_status == "unavailable"
-    assert meta.blocking_issues == []
-    assert meta.quality_summary is None
-    assert frame.quality_summary is None
-    assert meta.confidence_scope is None
-    assert "quality" not in meta.model_dump()
-    assert "recommended_followups" not in meta.model_dump()
+    assert meta.evidence_digest is None
+    assert meta.analysis_scope is None
+    assert meta.issues == ()
+    assert frame.evidence_status == "unavailable"
+    assert frame.evidence_digest is None
+    for removed in ("confidence_scope", "evidence_summary", "blocking_issues"):
+        assert not hasattr(meta, removed)
+        assert not hasattr(frame, removed)
 
 
-def test_base_frame_meta_accepts_analysis_purpose_without_content_identity() -> None:
-    meta = _meta(analysis_purpose="确认收入下降是否真实")
+def test_frame_is_immutable_and_to_pandas_returns_a_copy():
+    frame = BaseFrame(_df=pd.DataFrame({"value": [1.0, 2.0]}), meta=_meta())
+    exported = frame.to_pandas()
+    exported.loc[0, "value"] = 99.0
+    assert frame.to_pandas().iloc[0, 0] == 1.0
+    with pytest.raises(FrameMutationError):
+        frame["other"] = 1
 
-    assert meta.analysis_purpose == "确认收入下降是否真实"
-    assert "analysis_purpose" not in stable_meta_payload(meta)
 
-
-def test_render_includes_analysis_purpose_when_present() -> None:
+def test_contract_is_the_only_structured_issue_path():
+    issue = EvidenceAvailabilityIssue(
+        issue_id="iss_1",
+        kind="evidence_digest_unavailable",
+        severity="blocking",
+        source_refs=("frame_abc",),
+        failed_stage="digest",
+        findings_available=True,
+        fallback=RawFallback(
+            artifact_ref="frame_abc",
+            findings_available=True,
+            rows_available=True,
+            recommended_when=("partial_evidence",),
+        ),
+        stable_error_category="DigestBuildError",
+    )
     frame = BaseFrame(
         _df=pd.DataFrame({"value": [1.0]}),
-        meta=_meta(analysis_purpose="确认收入下降是否真实"),
+        meta=_meta(evidence_status="partial", issues=(issue,)),
     )
 
+    assert frame.contract().issues == (issue,)
+    assert not hasattr(frame, "issues")
     rendered = frame.render()
-
-    assert "analysis_purpose: 确认收入下降是否真实" in rendered
-
-
-def test_meta_kind_required():
-    with pytest.raises(Exception):
-        BaseFrameMeta()  # type: ignore[call-arg]
+    assert "evidence_digest_unavailable" in rendered
+    assert "stage=digest" in rendered
 
 
-def test_frame_construction_wraps_df_and_meta():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    assert f.ref == "frame_abc12345"
-    assert f.lineage is f.meta.lineage
-
-
-def test_to_pandas_returns_copy():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    out = f.to_pandas()
-    out.loc[0, "x"] = 999
-    assert df.loc[0, "x"] == 1
-
-
-def test_getitem_delegates_to_df():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    assert list(f["x"]) == [1, 2]
-
-
-def test_frame_no_longer_exposes_head():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    assert not hasattr(f, "head")
-
-
-def test_to_pandas_head_remains_available_for_pandas_workflows():
-    df = pd.DataFrame({"x": [1, 2, 3]})
-    f = BaseFrame(_df=df, meta=_meta(row_count=3))
-    assert f.to_pandas().head(2).to_dict("records") == [{"x": 1}, {"x": 2}]
-
-
-def test_shape_columns_len_iter():
-    df = pd.DataFrame({"x": [1, 2], "y": [3, 4]})
-    f = BaseFrame(_df=df, meta=_meta())
-    assert f.shape == (2, 2)
-    assert f.columns == ["x", "y"]
-    assert len(f) == 2
-    rows = list(f)
-    assert rows == ["x", "y"]
-
-
-def test_setitem_raises_frame_mutation_error():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    with pytest.raises(FrameMutationError):
-        f["x"] = [99, 99]
-
-
-def test_arithmetic_raises_frame_mutation_error():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    with pytest.raises(FrameMutationError):
-        f + 1
-
-
-def test_repr_includes_kind_ref_and_row_count():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    r = repr(f)
-    assert r.count("\n") == 0
-    assert "BaseFrame" in r
-    assert "ref=frame_abc12345" in r
-    assert "rows=2" in r
-    assert "call .show() to inspect" in r
-
-
-def test_repr_is_one_line_cold_start_hint():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    r = repr(f)
-    assert r.count("\n") == 0
-    assert r.startswith("<BaseFrame")
-    assert "call .show() to inspect" in r
-    # No preview data rows should appear in repr
-    assert "preview:" not in r
-
-
-def test_repr_includes_ref_and_rows():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    r = repr(f)
-    assert "ref=frame_abc12345" in r
-    assert "rows=2" in r
-
-
-def test_repr_html_returns_none():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    html = f._repr_html_()
-    assert html is None
-
-
-def test_render_returns_string_no_stdout(capsys):
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    result = f.render()
-    captured = capsys.readouterr()
-    assert isinstance(result, str)
-    assert captured.out == ""
-
-
-def test_render_does_not_end_with_newline():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    assert not f.render().endswith("\n")
-
-
-def test_render_contains_identity_columns_preview_available():
-    df = pd.DataFrame({"x": [1, 2]})
-    f = BaseFrame(_df=df, meta=_meta())
-    rendered = f.render()
-    assert "BaseFrame" in rendered
-    assert "frame_abc12345" in rendered
-    assert "columns:" in rendered
-    assert "preview:" in rendered
-    assert "available:" in rendered
-
-
-def test_render_available_never_empty():
-    df = pd.DataFrame({"x": [1]})
-    f = BaseFrame(_df=df, meta=_meta())
-    rendered = f.render()
-    lines = rendered.splitlines()
-    avail_idx = next(i for i, ln in enumerate(lines) if ln == "available:")
-    assert avail_idx < len(lines) - 1
-    assert lines[avail_idx + 1].startswith("- ")
-
-
-def test_render_includes_to_pandas_in_available():
-    df = pd.DataFrame({"x": [1]})
-    f = BaseFrame(_df=df, meta=_meta())
-    assert ".to_pandas()" in f.render()
-
-
-def test_render_available_teaches_show_contract_to_pandas():
-    df = pd.DataFrame({"x": [1]})
-    f = BaseFrame(_df=df, meta=_meta())
-    rendered = f.render()
-    assert ".show()" in rendered
-    assert ".contract()" in rendered
-    assert ".to_pandas()" in rendered
-
-
-def test_show_prints_render_plus_newline(capsys):
-    df = pd.DataFrame({"x": [1]})
-    f = BaseFrame(_df=df, meta=_meta())
-    result = f.show()
-    captured = capsys.readouterr()
-    assert result is None
-    assert captured.out == f.render() + "\n"
-
-
-def test_show_returns_none():
-    df = pd.DataFrame({"x": [1]})
-    f = BaseFrame(_df=df, meta=_meta())
-    assert f.show() is None
-
-
-def test_render_includes_all_small_rows_under_default_byte_budget():
-    df = pd.DataFrame({"x": list(range(20))})
-    f = BaseFrame(_df=df, meta=_meta(row_count=20))
-    rendered = f.render()
-    preview_lines = [
-        ln
-        for ln in rendered.splitlines()
-        if ln
-        and not ln.startswith(
-            ("BaseFrame", "status:", "columns:", "preview:", "available:", "-", "...")
-        )
+def test_affordance_preserves_compare_parameter_roles_without_call_planner():
+    affordance = next(
+        item for item in _metric_frame().contract().affordances if item.capability_id == "compare"
+    )
+    assert [item.parameter for item in affordance.input_requirements] == [
+        "a",
+        "alignment",
+        "b",
+        "sampling",
     ]
-    assert preview_lines == [str(value) for value in range(20)]
-    assert "output truncated" not in rendered
-    assert "more rows" not in rendered
+    assert {
+        item.parameter: item.bindable_from_current_artifact
+        for item in affordance.input_requirements
+    } == {"a": True, "alignment": False, "b": True, "sampling": False}
+    assert not hasattr(affordance, "required_inputs")
+    assert not hasattr(affordance, "param_template")
 
 
-def test_render_truncation_line_uses_byte_budget_marker():
-    cap = 260
-    df = pd.DataFrame(
-        {
-            "name": [f"row-{idx}" for idx in range(40)],
-            "payload": ["payload-" + ("x" * 30) for _ in range(40)],
-        }
+def test_affordance_and_contract_models_are_closed_and_immutable():
+    requirement = ArtifactInputRequirement(
+        parameter="source",
+        accepted_families=("MetricFrame",),
+        bindable_from_current_artifact=True,
     )
-    f = BaseFrame(_df=df, meta=_meta(row_count=40))
-    rendered = f.render(max_output_bytes=cap)
-    assert len(rendered.encode()) <= cap
-    assert f"output truncated at {cap} bytes" in rendered
-    assert "omitted:" in rendered
-    assert "preview" in rendered
-    assert "rows" in rendered
-    assert "pass max_output_bytes=None for full output" in rendered
-    assert "more rows" not in rendered
-    assert ".to_pandas()" in rendered
-
-
-def test_base_frame_exposes_phase1_artifact_protocol() -> None:
-    df = pd.DataFrame(
-        {
-            "bucket_start": ["2026-06-18", "2026-06-19"],
-            "country": ["US", "CA"],
-            "value": [10.0, 20.0],
-        }
+    affordance = ArtifactAffordance(
+        capability_id="assess_quality",
+        public_entrypoint="session.assess_quality(...) ",
+        help_target="assess_quality",
+        input_requirements=(requirement,),
+        expected_output_family="QualityReport",
     )
-    frame = BaseFrame(
-        _df=df,
-        meta=_meta(
-            kind="metric_frame",
-            ref="frame_protocol",
-            content_hash="sha256:" + "1" * 64,
-        ),
-    )
-
-    assert frame.kind == "metric_frame"
-    assert frame.quality_summary is None
-    assert frame.blocking_issues == []
-    assert frame.state.materialization == "materialized"
-    assert frame.state.content_hash == "sha256:" + "1" * 64
-
-    contract = frame.contract()
-    assert contract.kind == "metric_frame"
-    assert contract.ref == "frame_protocol"
-    assert contract.is_canonical is True
-    assert contract.blocking_issues == []
-    assert contract.affordances == []
-    assert [(column.name, column.role) for column in contract.artifact_schema.columns] == [
-        ("bucket_start", "time"),
-        ("country", "dimension"),
-        ("value", "value"),
-    ]
-
-
-def test_analysis_import_does_not_emit_artifact_contract_schema_shadow_warning() -> None:
-    completed = subprocess.run(
-        [sys.executable, "-W", "default", "-c", "import marivo.analysis"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, completed.stderr
-    assert 'Field name "schema" in "ArtifactContract"' not in completed.stderr
-
-
-def test_phase1_protocol_objects_are_closed_models() -> None:
-
-    from marivo.analysis.frames.base import (
-        ArtifactAffordance,
-        ArtifactColumn,
-        ArtifactContract,
-        ArtifactParamTemplate,
-        ArtifactPrecondition,
-        ArtifactSchema,
-        ArtifactState,
-    )
-
-    for model_cls, kwargs in [
-        (
-            ArtifactColumn,
-            {"name": "value", "dtype": "float64", "nullable": False, "role": "value"},
-        ),
-        (
-            ArtifactSchema,
-            {
-                "columns": [],
-                "semantic_shape": None,
-            },
-        ),
-        (
-            ArtifactPrecondition,
-            {"check": "has_rows", "status": "pass", "reason": None},
-        ),
-        (
-            ArtifactParamTemplate,
-            {"deterministic_slots": {"source": "frame_x"}, "judgment_slots": ["axis"]},
-        ),
-        (
-            ArtifactAffordance,
-            {
-                "capability_id": "compare",
-                "public_entrypoint": "session.compare(...)",
-                "help_target": "compare",
-                "required_inputs": ["metric_frame"],
-                "preconditions": [],
-                "param_template": {
-                    "deterministic_slots": {"left": "frame_x"},
-                    "judgment_slots": ["right"],
-                },
-                "expected_output_family": "DeltaFrame",
-            },
-        ),
-        (
-            ArtifactContract,
-            {
-                "kind": "metric_frame",
-                "ref": "frame_x",
-                "is_canonical": True,
-                "artifact_schema": ArtifactSchema(columns=[]),
-                "blocking_issues": [],
-                "affordances": [],
-                "boundary_ports": [],
-            },
-        ),
-        (
-            ArtifactState,
-            {"materialization": "materialized", "content_hash": None},
-        ),
-    ]:
-        with pytest.raises(ValidationError):
-            model_cls(**kwargs, unexpected=True)
-
-
-def test_base_frame_contract_emits_affordances_from_registry() -> None:
-    """MetricFrame contract emits affordances driven by the capability registry."""
-    from datetime import UTC, datetime
-
-    from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-    from marivo.analysis.lineage import Lineage
-
-    meta = MetricFrameMeta(
+    contract = ArtifactContract(
         kind="metric_frame",
-        ref="frame_contracted",
-        session_id="sess_test",
-        project_root="/tmp",
-        produced_by_job=None,
-        created_at=datetime(2026, 6, 28, tzinfo=UTC),
-        row_count=1,
-        byte_size=0,
-        lineage=Lineage(),
-        metric_id="sales.revenue",
-        axes={},
-        measure={"name": "revenue"},
-        window=None,
-        where={},
-        semantic_kind="time_series",
-        semantic_model="sales",
+        ref="frame_abc",
+        is_canonical=True,
+        artifact_schema=_metric_frame().contract().artifact_schema,
+        affordances=(affordance,),
     )
-    frame = MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
-
-    contract = frame.contract()
-
-    assert contract.is_canonical is True
-    capability_ids = [a.capability_id for a in contract.affordances]
-    assert "compare" in capability_ids
-    assert "assess_quality" in capability_ids
-    assert "operator" not in ArtifactAffordance.model_fields
-    compare_aff = next(a for a in contract.affordances if a.capability_id == "compare")
-    assert compare_aff.expected_output_family == "DeltaFrame"
-    assert compare_aff.public_entrypoint == "session.compare(...)"
-    assert compare_aff.help_target == "compare"
-    assert compare_aff.param_template.deterministic_slots == {"source_ref": "frame_contracted"}
-    assert compare_aff.param_template.judgment_slots == []
+    with pytest.raises(ValidationError):
+        ArtifactInputRequirement(
+            parameter="source",
+            accepted_families=("MetricFrame",),
+            bindable_from_current_artifact=True,
+            unexpected=True,  # type: ignore[call-arg]
+        )
+    with pytest.raises(ValidationError):
+        contract.issues = ()  # type: ignore[misc]
 
 
-def test_base_frame_contract_has_terminal_boundary_port() -> None:
-    df = pd.DataFrame({"value": [1.0]})
-    frame = BaseFrame(_df=df, meta=_meta(kind="metric_frame", ref="frame_bp"))
-    contract = frame.contract()
-    assert len(contract.boundary_ports) == 1
-    port = contract.boundary_ports[0]
-    assert port.kind == "terminal_exit"
-    assert port.capability_id == "boundary.to_pandas"
-    assert port.public_entrypoint == "frame.to_pandas()"
-    assert port.help_target == "boundary.to_pandas"
+def test_digest_is_session_local_for_content_identity_and_renders_before_preview():
+    without_digest = _meta(evidence_digest=None)
+    with_digest = _meta(evidence_status="complete", evidence_digest=_digest())
+    assert stable_meta_payload(with_digest) == stable_meta_payload(without_digest)
 
-
-def test_removed_pandas_conveniences_are_plain_attribute_errors() -> None:
-    df = pd.DataFrame({"value": [1.0]})
-    frame: BaseFrame = BaseFrame(_df=df, meta=_meta())
-    with pytest.raises(AttributeError):
-        frame.describe()  # type: ignore[attr-defined]
-    with pytest.raises(AttributeError):
-        frame.plot()  # type: ignore[attr-defined]
-
-
-def test_evidence_summary_is_session_local_for_content_identity() -> None:
-    summary = ArtifactEvidenceSummary(
-        finding_count=1,
-        items=(ArtifactEvidenceItem(kind="observation", statement="revenue: value=1"),),
-    )
-    without_summary = _meta(evidence_summary=None)
-    with_summary = _meta(evidence_summary=summary)
-
-    assert stable_meta_payload(with_summary) == stable_meta_payload(without_summary)
-
-
-def test_render_places_bounded_evidence_before_preview() -> None:
-    summary = ArtifactEvidenceSummary(
-        finding_count=100,
-        items=(
-            ArtifactEvidenceItem(
-                kind="observation",
-                statement="sales.revenue: buckets=100 102.4 -> 118.7 direction=increase",
-            ),
-        ),
-    )
     frame = BaseFrame(
-        _df=pd.DataFrame({"value": range(100)}),
-        meta=_meta(evidence_status="complete", evidence_summary=summary, row_count=100),
-    )
-
-    rendered = frame.render(max_output_bytes=None)
-
-    assert "status: evidence=complete" in rendered
-    assert "evidence: findings=100 items=1 omitted=0" in rendered
-    assert "evidence items:" in rendered
-    assert rendered.index("evidence:") < rendered.index("preview:")
-    assert ".evidence()" not in rendered
-
-    bounded = frame.render(max_output_bytes=336)
-    assert "evidence items:" in bounded
-    assert "sales.revenue:" in bounded
-    assert "omitted: preview" in bounded
-
-
-def test_complete_without_summary_hides_misleading_evidence_status() -> None:
-    frame = BaseFrame(
-        _df=pd.DataFrame({"value": [1]}),
-        meta=_meta(evidence_status="complete", evidence_summary=None),
-    )
-    rendered = frame.render()
-    assert "evidence=complete" not in rendered
-    assert "evidence:" not in rendered
-
-
-def test_unavailable_and_summary_failure_are_distinct() -> None:
-    unavailable = BaseFrame(
-        _df=pd.DataFrame({"value": [1]}),
-        meta=_meta(
-            evidence_status="unavailable",
-            blocking_issues=[
-                BlockingIssue(
-                    issue_id="iss_store",
-                    kind="evidence_store_unavailable",
-                    severity="blocking",
-                    source_refs=["art_1"],
-                    message="evidence store not available; evidence pipeline skipped",
-                )
-            ],
-        ),
-    )
-    summary_failed = BaseFrame(
-        _df=pd.DataFrame({"value": [1]}),
+        _df=pd.DataFrame({"value": range(20)}),
         meta=_meta(
             evidence_status="complete",
-            blocking_issues=[
-                BlockingIssue(
-                    issue_id="iss_summary",
-                    kind="evidence_summary_unavailable",
-                    severity="warning",
-                    source_refs=["art_1"],
-                    message="commit-time evidence summary unavailable; use session.evidence",
-                )
-            ],
+            evidence_digest=_digest(),
+            row_count=20,
         ),
     )
+    rendered = frame.render(max_output_bytes=None)
+    assert "evidence: no evidence findings emitted" in rendered
+    assert rendered.index("evidence:") < rendered.index("preview:")
 
-    assert "status: evidence=unavailable" in unavailable.render()
-    assert "findings=0" not in unavailable.render()
-    assert "status: evidence=complete summary=unavailable" in summary_failed.render()
-    assert "session.evidence" in summary_failed.render()
+
+def test_repr_and_show_are_bounded_agent_reads(capsys):
+    frame = BaseFrame(_df=pd.DataFrame({"value": range(200)}), meta=_meta(row_count=200))
+    assert "call .show() to inspect" in repr(frame)
+    frame.show(max_output_bytes=300)
+    assert len(capsys.readouterr().out.encode()) <= 301

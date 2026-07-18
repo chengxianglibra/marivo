@@ -16,7 +16,6 @@ from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactAffordance,
     ArtifactContract,
-    ArtifactParamTemplate,
     ArtifactPrecondition,
     BaseFrame,
     BaseFrameMeta,
@@ -191,34 +190,27 @@ def _compare_conditional_preconditions(anchor: object) -> list[ArtifactPrecondit
 
 
 def _attach_rollup_affordance(contract: ArtifactContract) -> ArtifactContract:
-    """Replace the plain transform affordance with a rollup-tagged one.
-
-    Cumulative frames with ``rollup_fold="last"`` support grain re-aggregation
-    (take the last bucket per coarser period). The rollup affordance is a
-    transform whose ``param_template.deterministic_slots["op"]`` is ``"rollup"``
-    so agents can detect it mechanically. Frames without ``rollup_fold`` keep the
-    plain transform re-observe hint.
-    """
+    """Expose the persisted rollup capability as a visible precondition fact."""
     affordances: list[ArtifactAffordance] = []
     for affordance in contract.affordances:
         if affordance.capability_id.startswith("transform."):
-            updated_slots = {
-                **affordance.param_template.deterministic_slots,
-                "op": "rollup",
-            }
             affordances.append(
                 affordance.model_copy(
                     update={
-                        "param_template": ArtifactParamTemplate(
-                            deterministic_slots=updated_slots,
-                            judgment_slots=affordance.param_template.judgment_slots,
+                        "preconditions": (
+                            *affordance.preconditions,
+                            ArtifactPrecondition(
+                                check="rollup_fold",
+                                status="pass",
+                                reason="this cumulative frame supports a last-value rollup fold",
+                            ),
                         )
                     }
                 )
             )
         else:
             affordances.append(affordance)
-    return contract.model_copy(update={"affordances": affordances})
+    return contract.model_copy(update={"affordances": tuple(affordances)})
 
 
 class MetricFrameMeta(BaseFrameMeta):
@@ -424,9 +416,9 @@ class MetricFrame(BaseFrame):
                 if affordance.capability_id == "compare":
                     preconditions.append(blocked)
                 blocked_affordances.append(
-                    affordance.model_copy(update={"preconditions": preconditions})
+                    affordance.model_copy(update={"preconditions": tuple(preconditions)})
                 )
-            contract = contract.model_copy(update={"affordances": blocked_affordances})
+            contract = contract.model_copy(update={"affordances": tuple(blocked_affordances)})
         elif anchor is not None:
             caveat = _cumulative_caveat(anchor)
             compare_preconditions = _compare_conditional_preconditions(anchor)
@@ -443,9 +435,9 @@ class MetricFrame(BaseFrame):
                 else:
                     preconditions = [*affordance.preconditions, caveat]
                 anchored_affordances.append(
-                    affordance.model_copy(update={"preconditions": preconditions})
+                    affordance.model_copy(update={"preconditions": tuple(preconditions)})
                 )
-            contract = contract.model_copy(update={"affordances": anchored_affordances})
+            contract = contract.model_copy(update={"affordances": tuple(anchored_affordances)})
         # Rollup affordance iff meta.rollup_fold is set; replaces the plain
         # transform re-observe hint with a rollup-tagged transform affordance.
         if self.meta.rollup_fold is not None:
@@ -474,13 +466,13 @@ class MetricFrame(BaseFrame):
 
         affordances = [
             affordance.model_copy(
-                update={"preconditions": [*affordance.preconditions, precondition]}
+                update={"preconditions": (*affordance.preconditions, precondition)}
             )
             if _is_gated(affordance.capability_id)
             else affordance
             for affordance in contract.affordances
         ]
-        return contract.model_copy(update={"affordances": affordances})
+        return contract.model_copy(update={"affordances": tuple(affordances)})
 
     def as_scalar(self) -> MetricFrame:
         assert_semantic_shape(

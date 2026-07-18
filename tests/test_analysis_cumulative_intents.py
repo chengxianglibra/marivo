@@ -928,18 +928,18 @@ def test_contract_rollup_affordance_iff_rollup_fold(tmp_path, monkeypatch) -> No
         rollup_fold=None,
         metric_id="sales.cum_gmv_plain",
     )
-    # Fold frame: rollup affordance present.
+    # Fold frame: existing transform affordances expose the persisted fold fact.
     c_fold = fold_frame.contract()
     assert any(
         a.capability_id.startswith("transform.")
-        and "rollup" in (a.param_template.deterministic_slots.get("op", "") or "")
+        and any(p.check == "rollup_fold" for p in a.preconditions)
         for a in c_fold.affordances
     )
-    # Non-fold frame: no rollup affordance.
+    # Non-fold frame: no speculative rollup parameter is synthesized.
     c_plain = plain_frame.contract()
     assert not any(
         a.capability_id.startswith("transform.")
-        and "rollup" in (a.param_template.deterministic_slots.get("op", "") or "")
+        and any(p.check == "rollup_fold" for p in a.preconditions)
         for a in c_plain.affordances
     )
 

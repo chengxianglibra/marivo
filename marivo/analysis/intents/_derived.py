@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, cast
@@ -21,7 +21,7 @@ from marivo.analysis.evidence.pipeline import (
     CommitSemanticAnchors,
     commit_result,
 )
-from marivo.analysis.evidence.types import Subject
+from marivo.analysis.evidence.types import ArtifactIssue, Subject
 from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.lineage import Lineage, LineageStep
@@ -111,7 +111,7 @@ def persist_attribution_frame(
     started_at: datetime,
     started_monotonic: float,
     analysis_purpose: str | None = None,
-    extra_blocking_issues: list[Any] | None = None,
+    extra_issues: Sequence[ArtifactIssue] | None = None,
 ) -> AttributionFrame:
     session._connection_runtime.begin_query_capture()
     frame_ref = gen_ref("frame")
@@ -149,7 +149,7 @@ def persist_attribution_frame(
         params=params,
         semantic_kind=semantic_kind,  # type: ignore[arg-type]
         semantic_model=semantic_model,
-        blocking_issues=list(extra_blocking_issues or []),
+        issues=tuple(extra_issues or ()),
     )
     frame = AttributionFrame(_df=df.copy(), meta=meta)
     source_ref_values = [source.meta.artifact_id or source.ref for source in sources]

@@ -3,25 +3,30 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from marivo.analysis._pages import (
+    _BoundedPage,
+    decode_keyset_cursor,
+    encode_keyset_cursor,
+)
 from marivo.analysis.session._layout import PersistenceLayout, read_job_record
 from marivo.analysis.timezone import resolve_system_timezone
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
     from marivo.analysis.evidence import (
-        Assessment,
-        EvidenceTrace,
+        ArtifactDigest,
+        ArtifactDigestPage,
+        EvidenceDerivationTrace,
         Finding,
-        Proposition,
-        SessionKnowledge,
+        FindingPage,
     )
-    from marivo.analysis.evidence.store import JudgmentStore
+    from marivo.analysis.evidence.store import EvidenceStore
     from marivo.analysis.frames.association import AssociationResult
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.base import BaseFrame
@@ -91,6 +96,7 @@ class FrameSummaryEntry(RenderableResult):
     row_count: int | None = None
     content_hash: str | None = None
     analysis_purpose: str | None = None
+    evidence_status: str = "unavailable"
 
     def _repr_identity(self) -> str:
         parts = f"FrameSummaryEntry ref={self.ref} kind={self.kind}"
@@ -105,6 +111,10 @@ class FrameSummaryEntry(RenderableResult):
         if self.analysis_purpose:
             card.field("analysis_purpose", self.analysis_purpose)
         return card
+
+
+class FrameSummaryPage(_BoundedPage[FrameSummaryEntry]):
+    """Bounded newest-first page of persisted frame summaries."""
 
 
 class Session:
@@ -151,7 +161,7 @@ class Session:
         report_tz_warning: str | None = None,
         default_calendar: str | None = None,
         calendars: Any = None,
-        judgment_store: JudgmentStore | None = None,
+        judgment_store: EvidenceStore | None = None,
         judgment_store_unavailable: bool = False,
     ) -> None:
         self._id = id
@@ -352,34 +362,68 @@ class Session:
 
         return load_frame(ref, session=self)
 
-    def frame_summaries(self) -> list[FrameSummaryEntry]:
-        """Return rich metadata for each persisted frame in this session.
+    def frame_summaries(
+        self,
+        *,
+        kind: str | None = None,
+        evidence_status: str | None = None,
+        limit: int = 20,
+        cursor: str | None = None,
+    ) -> FrameSummaryPage:
+        """Return one bounded newest-first keyset page of frame metadata.
 
-        Unlike :meth:`frames` which returns lightweight (ref, kind) pairs,
-        this method includes metric_id, semantic_kind, and other fields
-        needed for semantic lookup across script boundaries.
+        Example:
+            page = session.frame_summaries(limit=20)
+            next_page = session.frame_summaries(limit=20, cursor=page.next_cursor)
         """
+        if not 1 <= limit <= 100:
+            raise ValueError("frame_summaries limit must be within [1, 100]")
+        after: tuple[str, str] | None = None
+        if cursor is not None:
+            committed_at, identity = decode_keyset_cursor(cursor)
+            if not isinstance(committed_at, str):
+                raise ValueError("frame_summaries cursor has an invalid sort key")
+            after = (committed_at, identity)
+        rows = self._store.page_artifacts(
+            self.id,
+            kind=kind,
+            evidence_status=evidence_status,
+            limit=limit,
+            after=after,
+        )
+        has_more = len(rows) > limit
         entries: list[FrameSummaryEntry] = []
-        for row in self._store.list_artifacts(self.id):
+        for row in rows[:limit]:
             meta_path = row["meta_path"]
             abs_meta = self._project_root / meta_path
-            if abs_meta.is_file():
-                meta = json.loads(abs_meta.read_text())
-                entries.append(
-                    FrameSummaryEntry(
-                        ref=meta["ref"],
-                        kind=meta["kind"],
-                        metric_id=meta.get("metric_id"),
-                        semantic_kind=meta.get("semantic_kind"),
-                        semantic_model=meta.get("semantic_model"),
-                        created_at=meta.get("created_at"),
-                        analysis_purpose=meta.get("analysis_purpose"),
-                        row_count=meta.get("row_count"),
-                        content_hash=meta.get("content_hash"),
-                    )
+            try:
+                meta = json.loads(abs_meta.read_text()) if abs_meta.is_file() else {}
+            except (OSError, json.JSONDecodeError):
+                meta = {}
+            entries.append(
+                FrameSummaryEntry(
+                    ref=meta.get("ref", row["artifact_id"]),
+                    kind=meta.get("kind", row["kind"]),
+                    metric_id=meta.get("metric_id"),
+                    semantic_kind=meta.get("semantic_kind"),
+                    semantic_model=meta.get("semantic_model"),
+                    created_at=meta.get("created_at", row["created_at"]),
+                    evidence_status=row["evidence_status"],
+                    analysis_purpose=meta.get("analysis_purpose"),
+                    row_count=meta.get("row_count"),
+                    content_hash=meta.get("content_hash", row["content_hash"]),
                 )
-        entries.sort(key=lambda e: (e.created_at or "", e.ref))
-        return entries
+            )
+        next_cursor = None
+        if has_more:
+            last_row = rows[limit - 1]
+            next_cursor = encode_keyset_cursor(last_row["created_at"], last_row["artifact_id"])
+        return FrameSummaryPage(
+            items=tuple(entries),
+            limit=limit,
+            has_more=has_more,
+            next_cursor=next_cursor,
+        )
 
     def close(self) -> None:
         """Release session resources: the evidence store and cached backends.
@@ -393,68 +437,23 @@ class Session:
         if self._connection_runtime is not None:
             self._connection_runtime.close_all()
 
-    def _evidence_store(self) -> JudgmentStore | None:
-        """Return the lazily-opened JudgmentStore, or None if unavailable."""
+    def _evidence_store(self) -> EvidenceStore | None:
+        """Return the lazily opened EvidenceStore, or None for commit isolation."""
         if self._judgment_store is not None:
             return self._judgment_store
         if self._judgment_store_unavailable:
             return None
         from marivo.analysis.errors import EvidenceStoreUnavailableError
-        from marivo.analysis.evidence.store import open_judgment_store
+        from marivo.analysis.evidence.store import open_evidence_store
 
         db_path = self._layout.session_dir / "judgment.db"
         try:
-            store = open_judgment_store(db_path)
+            store = open_evidence_store(db_path)
         except EvidenceStoreUnavailableError:
             self._judgment_store_unavailable = True
             return None
         self._judgment_store = store
         return store
-
-    def knowledge(self) -> SessionKnowledge:
-        """Return an immutable SessionKnowledge snapshot for this session.
-
-        When to use: synthesis at key decision points, closeout recaps, and
-        cross-script session recovery. The snapshot projects judgment.db into
-        bounded typed sections:
-
-        - ``knowledge.observations()`` -- observation digests for every
-          observe commit, oldest first.
-        - ``knowledge.facts(kind=...)`` -- established facts from compare,
-          attribute, hypothesis_test, forecast, and correlate.
-        - ``knowledge.open_items()`` / ``knowledge.blocked_followups()`` /
-          ``knowledge.next_steps()`` -- unresolved work.
-
-        Returns:
-            SessionKnowledge snapshot. Read-only; does not create a step or
-            enter lineage.
-
-        Example:
-            >>> knowledge = session.knowledge()
-            >>> knowledge.observations()[-1].digest
-            >>> knowledge.facts(kind="change")
-
-        Constraints:
-            Check ``knowledge.evidence_completeness`` before consuming the
-            lists; ``"unavailable"`` means unknown, not empty.
-        """
-        from marivo.analysis.evidence.knowledge import build_session_knowledge
-
-        db_path = self._layout.session_dir / "judgment.db"
-        if not db_path.exists():
-            from datetime import UTC
-            from datetime import datetime as _dt
-
-            from marivo.analysis.evidence.knowledge import SessionKnowledge
-
-            now = _dt.now(UTC)
-            return SessionKnowledge(
-                session_id=self.id,
-                snapshot_id=f"snap_{self.id}_{int(now.timestamp() * 1_000_000)}",
-                snapshot_at=now,
-                evidence_completeness="unavailable",
-            )
-        return build_session_knowledge(db_path=db_path, session_id=self.id)
 
     @property
     def evidence(self) -> EvidenceNamespace:
@@ -889,8 +888,7 @@ class Session:
 
         v1 accepts only MetricFrames. Reports for DeltaFrame / CandidateSet /
         ForecastFrame / AttributionFrame are planned for later releases. The
-        returned QualityReport carries per-check rows, blocking issues, and a list
-        of mechanical affordances for next intents.
+        returned QualityReport carries per-check rows and immutable typed issues.
 
         Args:
             frame: A MetricFrame to inspect.
@@ -904,7 +902,7 @@ class Session:
             ...     frame,
             ...     analysis_purpose="检查收入观察结果是否可用于归因",
             ... )
-            >>> for issue in report.blocking_issues:
+            >>> for issue in report.contract().issues:
             ...     print(issue)
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
@@ -1266,85 +1264,97 @@ class EvidenceNamespace:
     def findings(
         self,
         *,
-        artifact_id: str | None = None,
-        finding_type: str | None = None,
+        kind: str | None = None,
+        artifact_ref: str | None = None,
         subject: Any = None,
-    ) -> Iterator[Finding]:
-        """Return Surface 3 findings for this session."""
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> FindingPage:
+        """Return one bounded newest-first page of canonical findings.
+
+        Example:
+            page = session.evidence.findings(artifact_ref=artifact.ref, limit=50)
+            for finding in page.items:
+                print(finding.finding_type)
+        """
         from marivo.analysis.evidence.audit import query_findings
 
         return query_findings(
-            db_path=self._session._layout.session_dir / "judgment.db",
+            store=self._require_store(),
             session_id=self._session.id,
-            artifact_id=artifact_id,
-            finding_type=finding_type,
+            kind=kind,
+            artifact_ref=artifact_ref,
             subject=subject,
+            limit=limit,
+            cursor=cursor,
         )
 
-    def propositions(
+    def digests(
         self,
         *,
-        proposition_type: str | None = None,
+        operator: str | None = None,
         subject: Any = None,
-        status: str | None = None,
-    ) -> Iterator[Proposition]:
-        """Return Surface 3 propositions for this session."""
-        from marivo.analysis.evidence.audit import query_propositions
+        limit: int = 10,
+        cursor: str | None = None,
+    ) -> ArtifactDigestPage:
+        """Return one bounded newest-first page of persisted digest snapshots.
 
-        return query_propositions(
-            db_path=self._session._layout.session_dir / "judgment.db",
-            session_id=self._session.id,
-            proposition_type=proposition_type,
-            subject=subject,
-            status=status,
-        )
-
-    def assessments(
-        self,
-        *,
-        proposition_id: str | None = None,
-        latest_only: bool = True,
-    ) -> Iterator[Assessment]:
-        """Return Surface 3 assessments for this session."""
-        from marivo.analysis.evidence.audit import query_assessments
-
-        return query_assessments(
-            db_path=self._session._layout.session_dir / "judgment.db",
-            session_id=self._session.id,
-            proposition_id=proposition_id,
-            latest_only=latest_only,
-        )
-
-    def proposition(self, proposition_id: str) -> Proposition:
-        """Return the proposition with the given id for this session."""
-        from marivo.analysis.evidence.audit import get_proposition
-
-        return get_proposition(
-            db_path=self._session._layout.session_dir / "judgment.db",
-            proposition_id=proposition_id,
-        )
-
-    def latest_assessment(self, proposition_id: str) -> Assessment | None:
-        """Return the most recent assessment for a proposition, or None.
-
-        Returns ``None`` when the proposition has never been assessed.
+        Example:
+            page = session.evidence.digests(operator="compare", limit=10)
+            print(page.has_more, page.next_cursor)
+            next_page = session.evidence.digests(limit=10, cursor=page.next_cursor)
         """
-        from marivo.analysis.evidence.audit import get_latest_assessment
+        from marivo.analysis.evidence.audit import query_digests
 
-        return get_latest_assessment(
-            db_path=self._session._layout.session_dir / "judgment.db",
-            proposition_id=proposition_id,
+        return query_digests(
+            store=self._require_store(),
+            session_id=self._session.id,
+            operator=operator,
+            subject=subject,
+            limit=limit,
+            cursor=cursor,
         )
 
-    def trace(self, proposition_id: str) -> EvidenceTrace:
-        """Return the full evidence trace for a proposition.
+    def digest(self, artifact_ref: str) -> ArtifactDigest:
+        """Return the exact persisted digest for one artifact.
 
-        The trace links the proposition to its supporting findings and
-        assessments for audit and explanation.
+        Example:
+            digest = session.evidence.digest(artifact.ref)
+            digest.show()
+        """
+        from marivo.analysis.evidence.audit import get_digest
+
+        return get_digest(store=self._require_store(), artifact_ref=artifact_ref)
+
+    def finding(self, finding_id: str) -> Finding:
+        """Return one canonical typed finding by identity.
+
+        Example:
+            finding = session.evidence.finding(finding_id)
+            print(finding.value)
+        """
+        from marivo.analysis.evidence.audit import get_finding
+
+        return get_finding(store=self._require_store(), finding_id=finding_id)
+
+    def trace(self, finding_id: str) -> EvidenceDerivationTrace:
+        """Trace one finding to its source fields and retained digest items.
+
+        Example:
+            trace = session.evidence.trace(finding_id)
+            print(trace.derivation.rule_id, trace.source_fields)
         """
         from marivo.analysis.evidence.audit import build_evidence_trace
 
-        return build_evidence_trace(
-            db_path=self._session._layout.session_dir / "judgment.db",
-            proposition_id=proposition_id,
-        )
+        return build_evidence_trace(store=self._require_store(), finding_id=finding_id)
+
+    def _require_store(self) -> EvidenceStore:
+        from marivo.analysis.errors import EvidenceStoreUnavailableError
+
+        store = self._session._evidence_store()
+        if store is None:
+            raise EvidenceStoreUnavailableError(
+                message="evidence store is unavailable for this session",
+                context={"session_id": self._session.id},
+            )
+        return store

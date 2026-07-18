@@ -64,9 +64,7 @@ def score_point_anomalies(
     if group_columns:
         rows: list[dict[str, Any]] = []
         sort_cols = [*group_columns] + ([time_column] if time_column else [])
-        for _, group_df in source_df.sort_values(sort_cols).groupby(
-            group_columns, dropna=False
-        ):
+        for _, group_df in source_df.sort_values(sort_cols).groupby(group_columns, dropna=False):
             rows.extend(
                 _point_anomalies_for_series(
                     group_df,
@@ -112,9 +110,7 @@ def _point_anomalies_for_series(
             scores = ((series - mean) / std).fillna(0).to_numpy()
 
     time_columns = [time_column] if time_column else _detect_time_columns(df)
-    key_columns = [
-        col for col in df.columns if col != value_column and col not in time_columns
-    ]
+    key_columns = [col for col in df.columns if col != value_column and col not in time_columns]
     baseline_window: dict[str, str] | None = None
     if time_columns:
         ts_col = df[time_columns[0]].dropna()

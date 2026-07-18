@@ -10,7 +10,13 @@ import pandas as pd
 
 from marivo.analysis.errors import FindingExtractionFailedError
 from marivo.analysis.evidence.identity import make_finding_id
-from marivo.analysis.evidence.types import Finding, Subject
+from marivo.analysis.evidence.types import (
+    AnalysisScope,
+    DerivationRule,
+    Finding,
+    ForecastPointFindingValue,
+    Subject,
+)
 
 
 def _is_missing(value: Any) -> bool:
@@ -39,6 +45,27 @@ def _bucket_key(start: Any, end: Any) -> str:
     return f"{start}|{end}"
 
 
+_VALUE_COLUMNS = {
+    "actual",
+    "error",
+    "horizon_index",
+    "lower",
+    "predicted_value",
+    "upper",
+}
+
+
+def _item_key(row: pd.Series[Any], columns: pd.Index) -> str:
+    """Return a stable bucket key that also separates panel members."""
+    bucket = _bucket_key(row.get("bucket_start"), row.get("bucket_end"))
+    dimensions = [
+        f"{column}={row.get(column)}"
+        for column in columns
+        if column not in _VALUE_COLUMNS and column not in {"bucket_start", "bucket_end"}
+    ]
+    return "|".join([bucket, *dimensions])
+
+
 def extract_forecast_point_findings(
     *,
     df: pd.DataFrame,
@@ -46,6 +73,9 @@ def extract_forecast_point_findings(
     session_id: str,
     subject: Subject,
     committed_at: datetime,
+    model: str,
+    training_scope: AnalysisScope,
+    evaluation_scope: AnalysisScope | None = None,
 ) -> list[Finding]:
     """Extract one finding per future bucket."""
     if df.empty:
@@ -63,17 +93,13 @@ def extract_forecast_point_findings(
                 message="forecast bucket boundaries must be defined",
                 context={"artifact_id": artifact_id},
             )
-        item_key = _bucket_key(bucket_start, bucket_end)
+        item_key = _item_key(row, df.columns)
         lower = _to_float(row.get("lower"))
         upper = _to_float(row.get("upper"))
-        prediction_interval = [lower, upper] if lower is not None and upper is not None else None
-        payload: dict[str, Any] = {
-            "bucket_start": str(bucket_start),
-            "bucket_end": str(bucket_end),
-            "predicted_value": _to_float(row.get("predicted_value")),
-            "prediction_interval": prediction_interval,
-            "horizon_index": _to_int(row.get("horizon_index")),
-        }
+        prediction_interval = (lower, upper) if lower is not None and upper is not None else None
+        horizon_index = _to_int(row.get("horizon_index"))
+        if horizon_index is None:
+            horizon_index = len(findings) + 1
         findings.append(
             Finding(
                 finding_id=make_finding_id(
@@ -82,11 +108,31 @@ def extract_forecast_point_findings(
                     canonical_item_key=item_key,
                 ),
                 finding_type="forecast_point",
+                epistemic_kind="predicted",
                 artifact_id=artifact_id,
                 session_id=session_id,
                 subject=subject,
                 canonical_item_key=item_key,
-                payload=payload,
+                value=ForecastPointFindingValue(
+                    bucket_start=str(bucket_start),
+                    bucket_end=str(bucket_end),
+                    predicted_value=_to_float(row.get("predicted_value")),
+                    prediction_interval=prediction_interval,
+                    horizon_index=horizon_index,
+                    model=model,
+                    training_scope=training_scope,
+                    evaluation_scope=evaluation_scope,
+                    observed_actual=_to_float(row.get("actual")),
+                    accuracy_metric=_to_float(row.get("error")),
+                ),
+                derivation=DerivationRule(
+                    rule_id="extract.forecast_point",
+                    rule_version="v2",
+                    operator="forecast",
+                    source_fields=tuple(str(column) for column in df.columns),
+                    source_finding_refs=(),
+                ),
+                source_refs=(artifact_id,),
                 committed_at=committed_at,
             )
         )

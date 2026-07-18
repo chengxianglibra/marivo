@@ -333,9 +333,9 @@ projection = session.forecast(history, horizon=30)
 Run quality checks over an artifact and return a separate `QualityReport`.
 `artifact.quality_summary` is only a cheap persisted metadata projection; it is
 not the same thing as running `session.assess_quality(artifact)`.
-After the check, the source artifact's `meta.blocking_issues` holds the latest
-quality blockers. Do not report a window as a complete period fact while it
-contains a `time_coverage` blocker.
+The report's `contract().issues` contains typed data-quality failures. Do not
+report a window as a complete period fact when its report contains a blocking
+`time_coverage_incomplete` issue.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -373,7 +373,13 @@ a recommendation from Marivo.
 series = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
+selection = candidates.select(rank=1)
+print(selection.kind, selection.window, selection.keys)
 ```
+
+`select(rank=1)` returns a closed immutable selection variant for the
+candidate shape. It does not accept an arbitrary attribute name and creates no
+job, artifact, lineage step, or evidence record.
 
 ## Transform reference — `frame.transform.*`
 
@@ -473,22 +479,22 @@ The agent read path is layered to keep scripts cheap across loops:
 ```python
 repr(delta)          # cheap single-line hint
 delta.show()         # bounded current-state read
-delta.contract()     # mechanically valid next actions
+delta.contract()     # mechanical compatibility and typed issues
 delta.to_pandas()    # terminal export for custom local analysis
 ```
 
-When an operator emits evidence, `artifact.show()` includes its bounded
-commit-time evidence summary before the result preview. One `show()` is enough
-for the immediate step. Use `session.knowledge()` when reviewing or synthesizing
-multiple steps, and use `session.evidence` for full typed records and audit
-traces.
+When an operator emits evidence, `artifact.show()` includes its bounded typed
+digest before the result preview. The same value is available as
+`artifact.evidence_digest`; check `artifact.evidence_status` for degradation.
+Use `session.evidence` for exact findings and derivation traces.
 
 Use `artifact.contract().affordances` to inspect mechanical compatibility. Each
 affordance carries a `capability_id` (stable registry id), `public_entrypoint`,
-`help_target`, `required_inputs`, `preconditions`, and `expected_output_family`.
-It only describes which public operators can mechanically consume the artifact
-and which inputs are missing; it does not rank, recommend, or decide the next
-step. `artifact.contract().boundary_ports` lists typed terminal-exit ports
+`help_target`, role-preserving `inputs`, `preconditions`, and
+`expected_output_family`. Every input records its exact parameter name,
+accepted artifact families, and whether the current artifact can bind it. The
+contract does not rank, recommend, enumerate calls, or decide the next step.
+`artifact.contract().boundary_ports` lists typed terminal-exit ports
 (e.g. `boundary.to_pandas`) with `preserves` and `does_not_preserve` guarantees.
 
 ### Structured errors
@@ -524,24 +530,28 @@ When a later script needs previous work, recover persisted facts instead of
 rerunning upstream queries:
 
 ```python
-summaries = session.frame_summaries()
+summaries = session.frame_summaries(limit=20)
 jobs = session.recent_jobs(limit=5)
 previous = session.get_frame(ref)
 ```
+
+`frame_summaries()` returns a `FrameSummaryPage`. Continue with the opaque
+`next_cursor` when `has_more` is true. Pages use ordinary keyset semantics, not
+snapshot isolation.
 
 Use `mv.help("recovery")` to list these real Session members. `recovery` and
 `artifacts` are help topics, not `session.recovery` / `session.artifacts`
 namespaces.
 
-## Evidence and knowledge
+## Evidence and audit
 
-Every operator records evidence into the session, so conclusions stay auditable.
+Every committed operator records deterministic typed evidence into the session.
+Marivo does not create cross-artifact judgments or choose the next operation.
 
-- `session.knowledge()` — observation digests, established facts, driver facts,
-  open anomalies, and suggested follow-ups for the whole session.
-- `session.evidence.findings(...)`, `.propositions(...)`, `.assessments(...)`,
-  `.proposition(id)`, `.latest_assessment(id)`, `.trace(id)` — look up the
-  evidence objects, and trace a proposition back to the findings that support it.
+- `session.evidence.digests(...)` — bounded newest-first digest pages.
+- `session.evidence.findings(...)` — bounded newest-first finding pages.
+- `session.evidence.digest(ref)`, `.finding(id)`, `.trace(id)` — exact reads and
+  finding derivation audit.
 
 See [Evidence](/en/latest/concepts/evidence/) for the full model.
 

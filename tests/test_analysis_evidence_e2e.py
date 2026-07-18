@@ -1,4 +1,4 @@
-"""Slice-1 end-to-end demo: observe -> compare -> knowledge -> next_steps."""
+"""End-to-end typed digest persistence and reload."""
 
 from __future__ import annotations
 
@@ -44,23 +44,19 @@ def test_e2e_change_fact_walkthrough(tmp_path) -> None:
     assert delta.meta.evidence_status == "complete"
     assert delta.meta.artifact_id is not None
 
-    # Surface 2
-    knowledge = session.knowledge()
-    assert knowledge.evidence_completeness == "complete"
-    facts = knowledge.facts(kind="change")
-    assert len(facts) == 1
-    fact = facts[0]
+    digest = session.evidence.digest(delta.ref)
+    assert digest == delta.evidence_digest
+    assert len(digest.items) == 1
+    fact = digest.items[0]
+    assert fact.kind == "change"
     assert fact.direction == "increase"
-    assert fact.status == "validated"
-    assert fact.confidence == 0.9
+    assert not hasattr(fact, "status")
+    assert not hasattr(fact, "confidence")
+    assert not hasattr(session, "knowledge")
 
-    # next_steps
-    actions = knowledge.next_steps(top=5)
-    assert any(a.operator == "assess_quality" for a in actions)
-
-    assert delta.evidence_summary is not None
+    assert delta.evidence_digest is not None
     loaded = session.get_frame(delta.ref)
-    assert loaded.evidence_summary == delta.evidence_summary
+    assert loaded.evidence_digest == delta.evidence_digest
     assert loaded.render() == delta.render()
 
 
@@ -83,7 +79,7 @@ def test_e2e_replay_artifact_id_stability(tmp_path) -> None:
     assert cur.meta.artifact_id == cur2.meta.artifact_id
 
 
-def test_e2e_observe_populates_quality_and_confidence_scope(tmp_path) -> None:
+def test_e2e_observe_populates_quality_and_analysis_scope(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
     session = mv.session.get_or_create(
@@ -102,13 +98,12 @@ def test_e2e_observe_populates_quality_and_confidence_scope(tmp_path) -> None:
     assert cur.meta.quality_summary.null_rate is not None
     assert cur.meta.quality_summary.metric_definition_compatibility == "unknown"
 
-    # meta.confidence_scope is populated by pipeline step 4c
-    assert cur.meta.confidence_scope is not None
-    assert cur.meta.confidence_scope.metric_ids == ["sales.revenue"]
-    assert cur.meta.confidence_scope.window is not None
+    assert cur.meta.analysis_scope is not None
+    assert cur.meta.analysis_scope.metric_ids == ("sales.revenue",)
+    assert cur.meta.analysis_scope.window is not None
 
 
-def test_e2e_compare_populates_quality_and_confidence_scope(tmp_path) -> None:
+def test_e2e_compare_populates_quality_and_analysis_scope(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = connect_sales_orders()
     session = mv.session.get_or_create(
@@ -129,8 +124,8 @@ def test_e2e_compare_populates_quality_and_confidence_scope(tmp_path) -> None:
 
     assert delta.meta.quality_summary is not None
     assert delta.meta.quality_summary.sample_size == delta.meta.row_count
-    assert delta.meta.confidence_scope is not None
-    assert "sales.revenue" in delta.meta.confidence_scope.metric_ids
+    assert delta.meta.analysis_scope is not None
+    assert "sales.revenue" in delta.meta.analysis_scope.metric_ids
 
 
 def test_e2e_observe_time_series_coverage(tmp_path) -> None:

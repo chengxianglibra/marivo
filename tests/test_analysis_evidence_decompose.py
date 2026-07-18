@@ -80,10 +80,13 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
             "SELECT finding_type FROM findings WHERE artifact_id=? ORDER BY finding_id",
             (attribution.meta.artifact_id,),
         ).fetchall()
-        proposition_types = conn.execute(
-            "SELECT proposition_type FROM propositions ORDER BY proposition_id"
-        ).fetchall()
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
 
     assert artifact_rows == [("attribute", "attribution_frame", "complete")]
     assert finding_types == [("decomposition_item",), ("decomposition_item",)]
-    assert proposition_types == [("driver",), ("driver",)]
+    assert "propositions" not in tables
+    assert attribution.evidence_digest is not None
+    assert {item.kind for item in attribution.evidence_digest.items} == {"contribution"}
+    assert all(not hasattr(item, "contribution_role") for item in attribution.evidence_digest.items)

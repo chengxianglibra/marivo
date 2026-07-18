@@ -9,30 +9,11 @@ marivo.analysis
 ``SemanticRef`` and ``CatalogObject`` are re-exported here for convenience and
 documented under :doc:`semantic`.
 
-References
-----------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-Alignment & window helpers
---------------------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   dow_aligned
-   holiday_aligned
-   holiday_and_dow_aligned
-   window_bucket
-
 Help and agent surface
 ----------------------
 
-Start with ``python -m marivo help analysis`` to see the capability surface,
-artifact families, constraints, and recovery guidance.
+Start with ``python -m marivo help analysis``. Live help owns callable
+signatures, accepted input families, constraints, and recovery guidance.
 
 .. autosummary::
    :toctree: api/
@@ -44,10 +25,10 @@ artifact families, constraints, and recovery guidance.
 Frames
 ------
 
-Public analysis artifacts expose ``ref``, ``kind``, ``show()``,
-``contract()``, ``quality_summary``, ``blocking_issues``, ``lineage``,
-``state``, and ``to_pandas()``. ``contract().affordances`` describes
-mechanical compatibility only; it is not ranked and is not a recommendation.
+Public artifacts expose ``ref``, ``kind``, ``show()``, ``contract()``,
+``quality_summary``, ``evidence_status``, ``evidence_digest``, ``lineage``,
+``state``, and ``to_pandas()``. ``contract().issues`` contains typed issues;
+role-preserving affordances describe mechanical compatibility only.
 
 .. autosummary::
    :toctree: api/
@@ -61,17 +42,16 @@ mechanical compatibility only; it is not ranked and is not a recommendation.
    CoverageFrame
    AttributionFrame
    ForecastFrame
-   FrameSummaryEntry
    ArtifactAffordance
+   ArtifactInputRequirement
    ArtifactColumn
    ArtifactContract
-   ArtifactParamTemplate
    ArtifactPrecondition
    ArtifactSchema
    ArtifactState
 
-Analysis results
-----------------
+Analysis results and selections
+-------------------------------
 
 .. autosummary::
    :toctree: api/
@@ -81,16 +61,63 @@ Analysis results
    HypothesisTestResult
    QualityReport
    CandidateSet
+   PointAnomalySelection
+   PeriodShiftSelection
+   DriverAxisSelection
+   SliceSelection
+   WindowSelection
+   CrossSectionalOutlierSelection
 
-Scopes & windows
-----------------
+Evidence
+--------
+
+``Finding`` is the typed audit record. ``ArtifactDigest`` is the bounded
+operator-local read model; it never performs cross-artifact judgment.
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   Finding
+   ArtifactDigest
+   EvidenceDerivationTrace
+   AnalysisScope
+   ObservationFact
+   ChangeFact
+   ContributionFact
+   AssociationFact
+   TestDecision
+   ForecastOutput
+   AnomalyCandidate
+   QualityCheckResult
+   DataQualityIssue
+   ComparabilityIssue
+   EvidenceAvailabilityIssue
+
+Bounded pages
+-------------
+
+Pages expose immutable ``items``, ``limit``, ``has_more``, and opaque
+``next_cursor``. They use ordinary newest-first keyset semantics, not snapshot
+isolation.
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   FrameSummaryPage
+   FrameSummaryEntry
+   ArtifactDigestPage
+   FindingPage
+
+Scopes and windows
+------------------
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
    TimeScope
-   ConfidenceScope
    AbsoluteWindow
 
 Policies
@@ -105,8 +132,8 @@ Policies
    CalendarPolicy
    SamplingPolicy
 
-Refs & lineage
---------------
+Refs and lineage
+----------------
 
 .. autosummary::
    :toctree: api/
@@ -117,8 +144,8 @@ Refs & lineage
    Lineage
    LineageStep
 
-Session & jobs
---------------
+Session and jobs
+----------------
 
 .. autosummary::
    :toctree: api/
@@ -127,8 +154,18 @@ Session & jobs
    Session
    SessionSummary
    JobSummary
-   BlockingIssue
-   CandidateObjective
+
+Alignment and window helpers
+----------------------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   dow_aligned
+   holiday_aligned
+   holiday_and_dow_aligned
+   window_bucket
 
 Slices
 ------
@@ -148,11 +185,11 @@ Submodules
    :header-rows: 0
 
    * - ``marivo.analysis.errors``
-     - Typed analysis errors raised across frames and sessions.
+     - Typed analysis errors and local repair contracts.
    * - ``marivo.analysis.evidence``
-     - Evidence facts, findings, and open-item types for investigations.
+     - Typed findings, bounded digests, issues, pages, and derivation traces.
    * - ``marivo.analysis.frames``
-     - Frame classes and their metadata companions.
+     - Frame classes and metadata companions.
    * - ``marivo.analysis.session``
      - Session lifecycle helpers (``get_or_create``, ``current``, ``list``, ``delete``).
 

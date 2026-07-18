@@ -1,157 +1,138 @@
 ---
 title: Evidence
-description: Findings, propositions, and assessments that make analytical conclusions auditable.
+description: Typed findings and bounded digests that make analysis auditable without replacing agent judgment.
 ---
 
-The review loop for accepting a conclusion starts with the business claim, then
-works backward through its assumptions, artifacts, and evidence records. A
-traceable number is necessary, but it is not enough if the metric contract,
-scope, comparison, or breakdown is wrong for the decision.
+Marivo is a pure Python analysis library. It does not use an LLM, decide what a
+business result means, or choose the next analysis step. Its evidence engine
+makes deterministic operator results cheaper to read and easier to audit.
 
-## Use evidence to decide whether the conclusion is useful
+## The evidence model
 
-Ask the agent for the conclusion, its supporting evidence, and the limitations.
-The `marivo-analysis` skill already records the relevant artifacts and evidence
-inside the analysis session; you do not need to name every field or trace in
-your request.
+Each committed operator result follows one path:
 
-For example:
-
-> Summarize the answer to the business question, show the evidence behind the
-> important claims, and explain any limitation that affects how I should use
-> the conclusion.
-
-## Review three things
-
-1. **Does the conclusion answer the question?** Check that it uses the intended
-   metric, scope, and comparison rather than answering a nearby question.
-2. **Are the important claims supported?** The agent should connect material
-   claims to visible Marivo results or evidence, not only provide a plausible
-   narrative.
-3. **Do the limitations change the decision?** Data quality, incomplete evidence,
-   and remaining uncertainty should be reflected in the strength and scope of
-   the conclusion.
-
-Ask the agent to continue only when another analysis step can resolve a specific
-gap. If the metric or another semantic definition is wrong, stop the analysis
-and correct it through `marivo-semantic`; more analysis cannot repair the wrong
-business contract.
-
-The sections below explain Marivo's evidence records and audit APIs for readers
-who need the complete technical trace. When an operator fails, it raises a
-typed `AnalysisError` with stable `expected`/`received`/`location`/`repair`
-fields — the `repair` field is a typed `AnalysisRepair` pointing to the exact
-`mv.help(...)` target for the failing capability.
-
-## Evidence model and audit reference
-
-Every analysis operator records evidence into the session. Evidence lets an agent
-explain not only *what* changed, but *how* it reached that conclusion — and lets a
-human reviewer trace any result back to the inputs that produced it.
-
-Evidence is append-only and persisted in the session's judgment store under
-project-local `.marivo/`, so conclusions stay auditable and replayable after the
-session ends.
-
-When an operator emits evidence, `artifact.show()` includes its bounded
-commit-time evidence summary before the result preview. One `show()` is enough
-for the immediate step. Use `session.knowledge()` when reviewing or synthesizing
-multiple steps, and use `session.evidence` for full typed records and audit
-traces.
-
-## Three layers
-
-Evidence is recorded in three layers, from raw observation to versioned judgment:
-
-| Layer | What it is | Key fields |
-| --- | --- | --- |
-| **Finding** | An atomic, typed observation extracted from one artifact (e.g. "revenue fell 12% MoM in the West region"). | `finding_type`, `artifact_id`, `subject`, `observed_window`, `quality_status` |
-| **Proposition** | A system-seeded claim about a subject, derived from findings (e.g. "revenue changed in Q4"). | `proposition_type`, `subject_key`, `seed_finding_refs` |
-| **Assessment** | A versioned judgment of a proposition: its status and confidence. | `status`, `confidence`, `confidence_basis`, `supersedes_id`, `is_latest` |
-
-Findings and propositions are immutable. Re-running an operator does not edit a
-judgment in place — it writes a **new** assessment that supersedes the previous one
-(`supersedes_id`), and the latest is flagged `is_latest`. The full judgment history
-is preserved.
-
-## Reading what the session knows
-
-`session.knowledge()` returns an immutable `SessionKnowledge` snapshot — the
-read-optimized projection an agent consults to decide its next step. It carries
-**observation digests**, **settled facts**, and **open items**:
-
-```python
-knowledge = session.knowledge()
-
-# What was observed: one bounded digest per observe commit.
-for obs in knowledge.observations():
-    print(obs.subject.metric, obs.semantic_kind, obs.analysis_purpose, obs.digest)
-
-# Settled facts: propositions with a current assessment.
-for fact in knowledge.facts(kind="driver"):
-    print(fact.dimension, fact.contribution_share, fact.status)
-
-# Open items: unresolved anomalies and questions awaiting follow-up.
-for item in knowledge.open_items(kind="anomaly"):
-    print(item.subject, item.confidence)
-
-# Suggested next operators, ranked.
-for action in knowledge.next_steps(top=3):
-    print(action)
+```text
+artifact -> typed findings -> bounded artifact digest
 ```
 
-`observations()` returns bounded digests, oldest first: per-shape value
-summaries (scalar value; time-series bounds and direction; top segments by
-absolute value) plus window, row count, and `analysis_purpose`. Totals and
-shares are composition semantics and are only filled for additive metrics;
-non-additive metrics (ratios, percentiles, sampled folds) keep per-segment
-values without totals, and non-additive panels skip cross-bucket segment
-ranking. Observations are ground truth rather than assessed claims, so they
-carry no status or confidence.
+A `Finding` is a typed extraction from one artifact. An `ArtifactDigest` is an
+operator-specific projection of those findings for the immediate read. The
+agent remains responsible for combining artifacts, judging business impact,
+and deciding what to execute next.
 
-Facts come in five kinds, each produced by an operator:
+The digest never upgrades contribution into cause, correlation into effect, a
+candidate into a confirmed anomaly, a statistical test into business
+importance, or a forecast into an observed outcome. Explicit `boundaries` state
+which inference the operator did not support.
 
-| Fact kind | Produced by | Carries |
-| --- | --- | --- |
-| `change` | `compare` | direction, magnitude, comparison window |
-| `driver` | `attribute` | dimension, contribution share, contribution role |
-| `tested_hypothesis` | `hypothesis_test` | method, alpha, p-value, reject-null |
-| `forecast` | `forecast` | forecast window, horizon, prediction interval |
-| `association` | `correlate` | coefficient, lag, join basis |
+## Read the immediate result
 
-`SessionKnowledge` also exposes `open_items(kind="question")`, `blocked_followups()`
-(follow-ups that cannot run until an issue is resolved), and `for_subject(subject)`
-to filter the whole snapshot to one subject. `evidence_completeness` reports
-whether the underlying evidence is `complete`, `partial`, or `unavailable`.
-
-## Auditing a conclusion
-
-For the raw records and full audit trail, use the `session.evidence` namespace:
-
-| Method | Returns |
-| --- | --- |
-| `session.evidence.findings(...)` | Findings, filterable by `artifact_id`, `finding_type`, `subject`. |
-| `session.evidence.propositions(...)` | Propositions, filterable by `proposition_type`, `subject`, `status`. |
-| `session.evidence.assessments(...)` | Assessments, latest-only by default. |
-| `session.evidence.proposition(id)` | One proposition by id. |
-| `session.evidence.latest_assessment(id)` | The current assessment, or `None` if never assessed. |
-| `session.evidence.trace(id)` | The full `EvidenceTrace` for a proposition. |
-
-`trace(id)` is the audit entry point: an `EvidenceTrace` links a proposition to its
-`latest_assessment`, its `seed_findings`, the `support_findings` and `oppose_findings`
-behind the judgment, and the `source_artifacts` and `source_steps` that produced it.
+Use one structured path:
 
 ```python
-props = list(session.evidence.propositions(proposition_type="change"))
-trace = session.evidence.trace(props[0].proposition_id)
+result = session.compare(current, baseline)
 
-print(trace.proposition.subject_key, "→", trace.latest_assessment.status)
-for finding in trace.seed_findings:
-    print(finding.finding_type, "from", finding.artifact_id)
+print(result.evidence_status)
+digest = result.evidence_digest
+result.show()
 ```
 
-A reviewer can follow this chain from a conclusion back to the exact observations
-and analysis steps that support it — which is what makes a Marivo conclusion
-auditable rather than merely plausible. See the
-[Analysis Workflow](/en/latest/concepts/analysis-workflow/) for the operators that
-emit this evidence.
+`evidence_status` is `complete`, `partial`, or `unavailable`.
+`evidence_digest` is the immutable commit-time `ArtifactDigest`, or `None` when
+it could not be produced. `show()` renders that same bounded digest before the
+data preview.
+
+A digest contains at most five typed items and three inference boundaries. Its
+`omissions` reports discarded item counts, and `fallback` tells you whether
+exact findings and raw rows are available. Absence from a bounded digest does
+not mean absence from the artifact.
+
+The main item types match operator semantics:
+
+| Operator | Digest item | Meaning |
+| --- | --- | --- |
+| `observe` | `ObservationFact` | observed value or distribution summary |
+| `compare` | `ChangeFact` | algebraic change |
+| `attribute` | `ContributionFact` | algebraic contribution, not cause |
+| `correlate` | `AssociationFact` | estimated association, not cause |
+| `hypothesis_test` | `TestDecision` | decision under the declared statistical test |
+| `forecast` | `ForecastOutput` | prediction, not observed actual |
+| `discover.*` | `AnomalyCandidate` | candidate requiring review |
+| `assess_quality` | `QualityCheckResult` | evaluated quality predicate |
+| `transform.*` / `MetricFrame.metric(...)` | empty digest | lineage-preserving transformation or projection only |
+
+## Inspect limits and exact evidence
+
+If the question needs omitted items, row-level validation, or evidence outside
+the operator's inference boundary, follow the digest's exact-read contract:
+
+```python
+digest = session.evidence.digest(result.ref)
+findings = session.evidence.findings(artifact_ref=result.ref, limit=50)
+frame = session.get_frame(result.ref)
+
+for finding in findings.items:
+    print(finding.finding_type, finding.value)
+```
+
+Trace one finding back to its declared source fields and retained digest items:
+
+```python
+trace = session.evidence.trace(findings.items[0].finding_id)
+print(trace.derivation.rule_id, trace.source_fields)
+```
+
+The trace is an audit record, not a system-generated claim or judgment.
+
+## Recover a session with bounded pages
+
+List reads are bounded and newest-first:
+
+```python
+frames = session.frame_summaries(limit=20)
+digests = session.evidence.digests(limit=10)
+findings = session.evidence.findings(limit=50)
+
+if digests.has_more:
+    digests = session.evidence.digests(
+        limit=10,
+        cursor=digests.next_cursor,
+    )
+```
+
+Pages expose immutable `items`, `limit`, `has_more`, and `next_cursor`. They use
+ordinary keyset paging, not snapshot isolation; a new commit between page reads
+may change the newest edge. Treat cursors as opaque continuation tokens.
+
+If the evidence store is unavailable, list and exact reads raise
+`EvidenceStoreUnavailableError`. An empty page means the healthy store matched
+no records.
+
+## Issues and repair
+
+`result.contract().issues` contains closed typed issues:
+
+- `DataQualityIssue` for evaluated quality failures;
+- `ComparabilityIssue` for incompatible or approximate comparisons;
+- `EvidenceAvailabilityIssue` for extraction, digest, or store degradation.
+
+Cutover A is destructive: non-v2 evidence stores and frame sidecars containing
+removed evidence fields are rejected. Recreate the analysis session; Marivo
+does not migrate or reinterpret judgment-era state.
+
+An issue may carry `AnalysisRepair`, which explains how to retry the failing
+capability. Repair is local error recovery; it is not a persisted follow-up
+plan. The agent chooses whether and how to continue.
+
+## Review a conclusion
+
+Check three things:
+
+1. The result uses the intended metric, scope, and comparison.
+2. Every material claim is supported by an artifact or typed evidence item.
+3. The conclusion respects omissions, quality issues, and inference boundaries.
+
+If the metric definition is wrong, stop and repair it through
+`marivo-semantic`. More analysis cannot compensate for the wrong business
+contract. See [Analysis Workflow](/en/latest/concepts/analysis-workflow/) for
+the typed operator loop.

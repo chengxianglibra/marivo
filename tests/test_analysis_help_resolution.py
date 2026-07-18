@@ -124,6 +124,25 @@ def test_nested_evidence_target() -> None:
     assert result.descriptor.id == "session.evidence.findings"
 
 
+@pytest.mark.parametrize(
+    "target",
+    (
+        "ArtifactDigest",
+        "Finding",
+        "ArtifactIssue",
+        "CandidateSelection",
+        "ArtifactDigestPage",
+        "FindingPage",
+        "FrameSummaryPage",
+        "PointAnomalySelection",
+    ),
+)
+def test_cutover_a_result_type_help_targets_resolve(target: str) -> None:
+    result = resolve_help_target(target)
+    assert result.kind == "type_contract"
+    assert result.type_name == target
+
+
 def test_help_target_equals_id_for_simple_capabilities() -> None:
     result = resolve_help_target("compare")
     assert result.descriptor.help_target == "compare"

@@ -1,5 +1,6 @@
 """Session class: store-backed jobs and frame summaries."""
 
+import json
 import textwrap
 from datetime import UTC, datetime
 
@@ -7,8 +8,9 @@ import duckdb
 import pytest
 
 from marivo.analysis.calendar.loader import CalendarCache
-from marivo.analysis.errors import JobNotFoundError
+from marivo.analysis.errors import FrameMetaInvalidError, JobNotFoundError
 from marivo.analysis.session._layout import PersistenceLayout
+from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import _build_connection_runtime, persist_job_record
 from marivo.analysis.session._store import SessionStore
 from marivo.analysis.session.core import JobSummary, Session
@@ -147,7 +149,33 @@ def test_session_frame_summaries_returns_only_registered_artifacts(tmp_path):
     assert len(s.frame_summaries()) == 1
 
 
-def test_session_frame_summaries_sorted_by_created_at_then_ref(tmp_path):
+def test_load_rejects_removed_pre_cutover_evidence_meta(tmp_path):
+    import pandas as pd
+
+    session = _session(tmp_path)
+    frame = make_metric_frame(
+        pd.DataFrame({"value": [1.0]}),
+        metric_id="sales.revenue",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="sales",
+        session=session,
+    )
+    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta.pop("analysis_scope", None)
+    meta.pop("evidence_digest", None)
+    meta["confidence_scope"] = {"metric_ids": ["sales.revenue"]}
+    meta["evidence_summary"] = {"headline": "legacy display prose"}
+    meta["blocking_issues"] = []
+    meta_path.write_text(json.dumps(meta))
+
+    with pytest.raises(FrameMetaInvalidError, match="removed pre-Cutover-A evidence schema"):
+        load_frame(frame.ref, session=session)
+
+
+def test_session_frame_summaries_sorted_newest_first(tmp_path):
     s = _session(tmp_path)
     import pandas as pd
 
@@ -171,10 +199,8 @@ def test_session_frame_summaries_sorted_by_created_at_then_ref(tmp_path):
     )
     records = s.frame_summaries()
     assert len(records) == 2
-    # Frames are sorted by created_at then ref.
-    # The two frames were created sequentially, so they should be in creation order.
-    assert records[0].ref == frame_a.ref
-    assert records[1].ref == frame_b.ref
+    assert records[0].ref == frame_b.ref
+    assert records[1].ref == frame_a.ref
 
 
 def test_session_close_closes_runtime_connections(tmp_path):

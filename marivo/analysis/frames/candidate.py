@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from marivo.analysis.followups import BlockingIssue
-from marivo.analysis.frames.base import ArtifactAffordance, BaseFrame, BaseFrameMeta
+from marivo.analysis.evidence.types import JsonScalar
+from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
+from marivo.analysis.windows import AbsoluteWindow
+from marivo.semantic.refs import DimensionRef
 
 CandidateShape = Literal[
     "point_anomaly",
@@ -55,10 +57,71 @@ class CandidateSetMeta(BaseFrameMeta):
     semantic_model: str
 
     source_refs: list[str]
-    affordances: list[ArtifactAffordance] = Field(default_factory=list)
-    blocking_issues: list[BlockingIssue] = Field(default_factory=list)
-
     params: dict[str, Any]
+
+
+class _CandidateSelectionBase(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: str
+    candidate_ref: str
+    source_artifact_ref: str
+    rank: int = Field(ge=1)
+    score: float
+    reason_codes: tuple[str, ...] = ()
+
+
+class PointAnomalySelection(_CandidateSelectionBase):
+    kind: Literal["point_anomaly"] = "point_anomaly"
+    window: AbsoluteWindow | None = None
+    keys: dict[str | DimensionRef, JsonScalar] = Field(default_factory=dict)
+    direction: str
+    observed_value: float
+    baseline_value: float
+    delta: float
+
+
+class PeriodShiftSelection(_CandidateSelectionBase):
+    kind: Literal["period_shift"] = "period_shift"
+    window: AbsoluteWindow
+    baseline_window: AbsoluteWindow
+    keys: dict[str | DimensionRef, JsonScalar] = Field(default_factory=dict)
+    direction: str
+
+
+class DriverAxisSelection(_CandidateSelectionBase):
+    kind: Literal["driver_axis"] = "driver_axis"
+    axis: str | DimensionRef
+
+
+class SliceSelection(_CandidateSelectionBase):
+    kind: Literal["slice"] = "slice"
+    selector: dict[str | DimensionRef, JsonScalar]
+    window: AbsoluteWindow | None = None
+
+
+class WindowSelection(_CandidateSelectionBase):
+    kind: Literal["window"] = "window"
+    window: AbsoluteWindow
+    keys: dict[str | DimensionRef, JsonScalar] = Field(default_factory=dict)
+
+
+class CrossSectionalOutlierSelection(_CandidateSelectionBase):
+    kind: Literal["cross_sectional_outlier"] = "cross_sectional_outlier"
+    keys: dict[str | DimensionRef, JsonScalar]
+    direction: str
+    peer_scope: tuple[str, ...] = ()
+
+
+CandidateSelection = Annotated[
+    PointAnomalySelection
+    | PeriodShiftSelection
+    | DriverAxisSelection
+    | SliceSelection
+    | WindowSelection
+    | CrossSectionalOutlierSelection,
+    Field(discriminator="kind"),
+]
 
 
 @dataclass(repr=False)
@@ -106,8 +169,13 @@ class CandidateSet(BaseFrame):
     def as_cross_sectional_outlier(self) -> CandidateSet:
         return self._assert_shape("cross_sectional_outlier")
 
-    def select(self, *, rank: int = 1, attribute: str) -> Any:
-        """Read one typed attribute from a single ranked candidate row."""
+    def select(self, *, rank: int = 1) -> CandidateSelection:
+        """Return one closed typed selection for a ranked candidate row.
+
+        Example:
+            selection = candidates.select(rank=1)
+            print(selection.kind, selection.source_artifact_ref)
+        """
         from marivo.analysis.intents.select import select
 
-        return select(self, rank=rank, attribute=attribute)
+        return select(self, rank=rank)

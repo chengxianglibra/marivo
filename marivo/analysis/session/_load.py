@@ -91,16 +91,26 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
                 f"but was loaded through session {session.id!r}"
             ),
         )
+    removed_evidence_fields = {
+        "blocking_issues",
+        "confidence_scope",
+        "evidence_summary",
+    }.intersection(meta)
+    if removed_evidence_fields:
+        raise FrameMetaInvalidError(
+            message=f"frame '{ref}' uses the removed pre-Cutover-A evidence schema",
+            context={
+                "ref": ref,
+                "removed_fields": sorted(removed_evidence_fields),
+                "expected": "analysis_scope, evidence_digest, issues",
+            },
+        )
     kind = meta["kind"]
+    meta.pop("affordances", None)
     if "quality" in meta:
         raise FrameMetaInvalidError(
             message=f"frame '{ref}' uses legacy quality metadata",
             context={"ref": ref, "field": "quality", "expected": "quality_summary"},
-        )
-    if "recommended_followups" in meta:
-        raise FrameMetaInvalidError(
-            message=f"frame '{ref}' uses legacy recommended followup metadata",
-            context={"ref": ref, "field": "recommended_followups", "expected": "affordances"},
         )
     if kind not in _FRAME_CLASSES:
         raise FrameRefNotFound(message=f"unknown frame kind '{kind}' for ref '{ref}'")
@@ -114,6 +124,14 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         )
         if measure_name and str(measure_name) in df.columns and "value" not in df.columns:
             df = df.rename(columns={str(measure_name): "value"})
+    elif kind == "candidate_set":
+        legacy_candidate_columns = [
+            column
+            for column in ("affordances_json", "recommended_followups_json")
+            if column in df.columns
+        ]
+        if legacy_candidate_columns:
+            df = df.drop(columns=legacy_candidate_columns)
     frame_cls, meta_cls = _FRAME_CLASSES[kind]
     return cast("BaseFrame", frame_cls(_df=df, meta=meta_cls(**meta)))
 

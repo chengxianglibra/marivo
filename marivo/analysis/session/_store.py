@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     path TEXT NOT NULL,
     meta_path TEXT NOT NULL,
     content_hash TEXT,
+    evidence_status TEXT NOT NULL DEFAULT 'unavailable',
     created_at TEXT NOT NULL,
     produced_by_job TEXT,
     PRIMARY KEY (session_id, artifact_id),
@@ -137,6 +138,14 @@ class SessionStore:
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(_SCHEMA)
+        artifact_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(artifacts)").fetchall()
+        }
+        if "evidence_status" not in artifact_columns:
+            conn.execute(
+                "ALTER TABLE artifacts ADD COLUMN evidence_status TEXT "
+                "NOT NULL DEFAULT 'unavailable'"
+            )
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -400,6 +409,7 @@ class SessionStore:
         meta_path: str,
         content_hash: str | None,
         produced_by_job: str | None,
+        evidence_status: str = "unavailable",
     ) -> None:
         """Insert an artifact row.
 
@@ -416,7 +426,8 @@ class SessionStore:
         with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO artifacts (session_id, artifact_id, kind, path, meta_path, "
-                "content_hash, created_at, produced_by_job) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "content_hash, evidence_status, created_at, produced_by_job) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     artifact_id,
@@ -424,6 +435,7 @@ class SessionStore:
                     path,
                     meta_path,
                     content_hash,
+                    evidence_status,
                     now,
                     produced_by_job,
                 ),
@@ -460,6 +472,36 @@ class SessionStore:
                 conn,
                 "SELECT * FROM artifacts WHERE session_id = ? ORDER BY created_at",
                 (session_id,),
+            )
+
+    def page_artifacts(
+        self,
+        session_id: str,
+        *,
+        kind: str | None,
+        evidence_status: str | None,
+        limit: int,
+        after: tuple[str, str] | None,
+    ) -> list[sqlite3.Row]:
+        """Return at most ``limit + 1`` newest artifact rows for keyset paging."""
+        clauses = ["session_id = ?"]
+        params: list[object] = [session_id]
+        if kind is not None:
+            clauses.append("kind = ?")
+            params.append(kind)
+        if evidence_status is not None:
+            clauses.append("evidence_status = ?")
+            params.append(evidence_status)
+        if after is not None:
+            clauses.append("(created_at < ? OR (created_at = ? AND artifact_id < ?))")
+            params.extend((after[0], after[0], after[1]))
+        params.append(limit + 1)
+        with self._connect() as conn:
+            return self._fetchall(
+                conn,
+                f"SELECT * FROM artifacts WHERE {' AND '.join(clauses)} "
+                "ORDER BY created_at DESC, artifact_id DESC LIMIT ?",
+                tuple(params),
             )
 
     # ------------------------------------------------------------------

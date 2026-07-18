@@ -417,40 +417,7 @@ class SemanticKindMismatchError(AnalysisError):
                     kind="retry",
                     action="Use a rank within the candidate set's row count.",
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
-                    snippet=(
-                        "if cands.meta.row_count >= 1:\n"
-                        '    value = cands.select(rank=1, attribute="...")'
-                    ),
-                ),
-            )
-        shape = self._context.get("shape")
-        attribute = self._context.get("attribute")
-        valid_fields = self._context.get("valid_fields")
-        if isinstance(shape, str) and isinstance(attribute, str):
-            valid_list = (
-                ", ".join(sorted(valid_fields))
-                if isinstance(valid_fields, list) and valid_fields
-                else None
-            )
-            cause = f"select(attribute={attribute!r}) is not available on a CandidateSet[{shape}]."
-            if valid_list:
-                cause += f" Valid attributes for shape {shape!r}: {valid_list}."
-            first_valid = (
-                sorted(valid_fields)[0]
-                if isinstance(valid_fields, list) and valid_fields
-                else "score"
-            )
-            return _DerivedFields(
-                received=f"attribute={attribute!r}, shape={shape}",
-                location="CandidateSet.select attribute argument",
-                repair=AnalysisRepair(
-                    kind="retry",
-                    action=cause,
-                    help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
-                    snippet=(f'value = cands.select(rank=1, attribute="{first_valid}")'),
-                    candidates=tuple(sorted(valid_fields))
-                    if isinstance(valid_fields, list) and valid_fields
-                    else (),
+                    snippet=("if cands.meta.row_count >= 1:\n    selection = cands.select(rank=1)"),
                 ),
             )
         objective = self._context.get("objective")
@@ -603,7 +570,7 @@ class SemanticKindMismatchError(AnalysisError):
                     help_target=LiveHelpTarget(surface="analysis", canonical_id="discover"),
                     snippet=(
                         "cands = session.discover.point_anomalies(metric)\n"
-                        'window = cands.select(rank=1, attribute="window")'
+                        "selection = cands.select(rank=1)"
                     ),
                 ),
             )
@@ -1281,7 +1248,10 @@ class MigrationFailedError(AnalysisError): ...
 class SessionLockedByAnotherProcessError(AnalysisError): ...
 
 
-class PropositionNotFoundError(AnalysisError): ...
+class FindingNotFoundError(AnalysisError): ...
+
+
+class EvidenceDigestNotAvailableError(AnalysisError): ...
 
 
 class CumulativeFrameUnsupportedError(AnalysisError):

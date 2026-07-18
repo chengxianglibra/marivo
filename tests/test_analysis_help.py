@@ -233,6 +233,30 @@ def test_focused_help_includes_live_signature() -> None:
     assert "time_scope" in text
 
 
+def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:
+    select_text = _text("CandidateSet.select")
+    assert "rank: int = 1" in select_text
+    assert "attribute" not in select_text
+    assert "selection = candidates.select(rank=1)" in select_text
+
+    digests_text = _text("session.evidence.digests")
+    for token in ("operator", "subject", "limit: int = 10", "cursor"):
+        assert token in digests_text
+    assert "page.has_more" in digests_text
+
+    digest_type = _text("ArtifactDigest")
+    for field in ("items", "boundaries", "omissions", "fallback", "fingerprint"):
+        assert field in digest_type
+
+    issue_type = _text("ArtifactIssue")
+    for variant in (
+        "DataQualityIssue",
+        "ComparabilityIssue",
+        "EvidenceAvailabilityIssue",
+    ):
+        assert variant in issue_type
+
+
 def test_focused_help_signature_matches_inspect() -> None:
     text = _text("observe")
     sig = str(inspect.signature(Session.observe))
@@ -631,6 +655,33 @@ def test_base_frame_class_docstring_first_line() -> None:
 
 def test_analysis_all_is_pinned() -> None:
     expected = {
+        "AnalysisScope",
+        "AnomalyCandidate",
+        "ArtifactDigest",
+        "ArtifactDigestPage",
+        "ArtifactIssue",
+        "AssociationFact",
+        "CandidateSelection",
+        "ChangeFact",
+        "ComparabilityIssue",
+        "ContributionFact",
+        "CrossSectionalOutlierSelection",
+        "DataQualityIssue",
+        "DriverAxisSelection",
+        "EvidenceAvailabilityIssue",
+        "EvidenceDerivationTrace",
+        "Finding",
+        "FindingPage",
+        "ForecastOutput",
+        "FrameSummaryEntry",
+        "FrameSummaryPage",
+        "ObservationFact",
+        "PeriodShiftSelection",
+        "PointAnomalySelection",
+        "QualityCheckResult",
+        "SliceSelection",
+        "TestDecision",
+        "WindowSelection",
         "AbsoluteWindow",
         "AlignmentPolicy",
         "ArtifactRef",

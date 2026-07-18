@@ -144,7 +144,7 @@ alongside the core surface:
 | --- | --- | --- |
 | `decompose` | `AttributionFrame` | Frame-local attribution over explicit axes; multi-axis calls require `mode="joint"` or `mode="hierarchy"`. Does not materialize missing dimensions. |
 | `session.transform.<op>` | Same family/shape as input | Family-preserving reshape/filter/rank/window/normalize. |
-| `session.select(...)` | Selection | Typed selector over a ranked artifact (e.g. pick candidate rank 1). |
+| `CandidateSet.select(rank=1)` | `CandidateSelection` | Bounded read returning one closed shape-specific selector; creates no job or artifact. |
 | Sampling helpers | Sample artifact | Prepare a sample/summary for `hypothesis_test`. |
 
 ## Operator detail
@@ -378,7 +378,8 @@ repr(result)  ->  result.show() / result.render()  ->  result.contract()  ->  re
 Frames are immutable: `frame[col]` reads, but `frame[col] = ...` and frame
 arithmetic (`+`, `-`, `*`, `/`) raise `FrameMutationError` directing the agent to
 `.to_pandas()`. Frames also expose `.ref`, `.kind`, `.lineage`, `.state`,
-`.quality_summary`, `.blocking_issues`, `.columns`, and `.shape`. The
+`.quality_summary`, `.evidence_status`, `.evidence_digest`, `.columns`, and
+`.shape`. The
 `BaseFrame.describe()` and `BaseFrame.plot()` methods are intentionally removed;
 accessing them raises `AttributeError`. Use `frame.show()` for bounded inspection
 and `frame.to_pandas()` for terminal custom analysis.
@@ -390,14 +391,15 @@ only — it never ranks, recommends, or narrates:
 
 - `kind`, `ref`, `is_canonical`, and an `artifact_schema` (typed columns +
   `semantic_shape`).
-- `blocking_issues` — why the artifact may be unusable/untrustworthy.
+- `issues` — a closed tuple of typed data-quality, comparability, or evidence
+  availability issues.
 - `affordances: ArtifactAffordance[]` — each a gate that mechanically exists:
   `capability_id` (the stable registry id such as `compare` or
   `discover.driver_axes`), `public_entrypoint` (the public API path),
-  `help_target` (the canonical `mv.help(...)` target), `required_inputs`,
-  `preconditions` (`(check, pass|fail, reason)`), `param_template`
-  (`deterministic_slots` already filled, `judgment_slots` the agent must
-  decide), and `expected_output_family`.
+  `help_target` (the canonical `mv.help(...)` target), role-preserving
+  `inputs` (`parameter`, accepted artifact families, and whether the current
+  artifact can bind that parameter), `preconditions`
+  (`(check, pass|fail, reason)`), and `expected_output_family`.
 - `boundary_ports: ArtifactBoundaryPort[]` — typed terminal-exit ports derived
   from the capability registry. Each port carries `capability_id`
   (e.g. `boundary.to_pandas`), `public_entrypoint`, `help_target`,
@@ -405,17 +407,16 @@ only — it never ranks, recommends, or narrates:
   `frame.to_pandas()` and `md.raw_sql(...)`; results from either cannot
   re-enter typed analysis.
 
-Affordances are not recommendations: Marivo says which doors mechanically exist
-and what each needs; the agent decides which to open, which judgment slots to
-fill, and whether to stop. There is no `decision_descriptor()` / `next_actions` /
-`recommended_followups` planner surface.
+Affordances are not recommendations and do not enumerate invocation options.
+Marivo says which parameters can accept which artifact families; the agent
+decides which valid call matters for the question and whether to stop.
 
 `ArtifactState` (via `result.state`) carries only baseline runtime facts:
 `materialization` (`materialized` | `recomputed` | `partial`) and
 `content_hash`. Cache/freshness/superseded relationships are deliberately not
 baseline artifact fields.
 
-## Candidate consumption and follow-up
+## Candidate consumption
 
 `CandidateSet` items share common fields — `item_id`, `score` (ranking within the
 set only, not cross-artifact), `reason_codes`, `source_refs`, optional
@@ -423,17 +424,16 @@ set only, not cross-artifact), `reason_codes`, `source_refs`, optional
 set of shape-specific required fields per objective. A candidate is a lead, not a
 proven fact.
 
-Candidates are consumed via `session.select(candidate_set, rank=..., attribute=...)`,
-which yields a typed selector (e.g. an axis, window, or slice ref) for a
-downstream `observe`/`attribute`/`transform`. Selection is a typed plan
-expression, not an artifact-producing step, and does not seed findings.
+Candidates are consumed via `candidate_set.select(rank=1)`. The method returns
+one closed immutable variant: `PointAnomalySelection`, `PeriodShiftSelection`,
+`DriverAxisSelection`, `SliceSelection`, `WindowSelection`, or
+`CrossSectionalOutlierSelection`. Each variant preserves the exact typed fields
+needed by the relevant downstream operator. Selection is a bounded read, not an
+artifact-producing step: it creates no job, lineage step, finding, or digest.
 
-Judgment/evaluation results (`HypothesisTestResult`, `AssociationResult`,
+Evaluation results (`HypothesisTestResult`, `AssociationResult`,
 `QualityReport`) are not directly re-fed into `compare`/`attribute`/`discover`.
-To keep the workflow closed they carry `source_refs`, `blocking_issues`, and a
-`confidence_scope`. Blocking issues are typed (`quality`, `sample_size`,
-`comparability`, `definition_drift`, `missing_semantic_ref`, `cost`,
-`permission`) with `warning`/`blocking` severity.
+They retain source refs, `AnalysisScope`, typed issues, and a bounded digest.
 
 ## Shape-aware DAG
 
@@ -450,8 +450,8 @@ time. Projection/read methods are not analysis steps. Summary of the adjacency
 | `DeltaFrame[scalar_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `assess_quality` |
 | `DeltaFrame[segmented_delta]` | `transform.<op>`, `attribute`, `discover.driver_axes`, `discover.interesting_slices`, `assess_quality` |
 | `AttributionFrame` | `transform`, `select`, `assess_quality` |
-| `CandidateSet[*]` | `assess_quality`, `select`, typed follow-up |
-| `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `QualityReport` | `assess_quality` and/or typed follow-up |
+| `CandidateSet[*]` | `assess_quality`, `CandidateSet.select` |
+| `AssociationResult` / `HypothesisTestResult` / `ForecastFrame` / `QualityReport` | bounded reads and supported quality inspection |
 
 Illegal paths fail closed: `candidate_set -> attribute` (select an axis/window/
 slice first); `summary -> compare` (a projection is not a canonical input);

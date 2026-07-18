@@ -1953,10 +1953,9 @@ def test_rollup_partial_tail_coverage(cumulative_day_session):
     assert (jan_row["coverage_status"] == "complete").iloc[0]
 
 
-def test_transform_persists_artifact_job_and_lineage_without_observation_findings(tmp_path):
+def test_transform_persists_artifact_job_lineage_and_empty_digest(tmp_path):
     frame = _make_time_series(tmp_path)
     session = session_attach.current()
-    before_observations = session.knowledge().observations()
 
     out = frame.transform.topk(by="value", limit=1)
 
@@ -1969,9 +1968,6 @@ def test_transform_persists_artifact_job_and_lineage_without_observation_finding
     assert job_record["output_frame_ref"] == out.ref
     assert out.meta.lineage.steps[-1].intent == "transform"
 
-    after_observations = session.knowledge().observations()
-    assert [obs.id for obs in after_observations] == [obs.id for obs in before_observations]
-
     store = session._evidence_store()
     assert store is not None
     conn = store.read()
@@ -1983,11 +1979,19 @@ def test_transform_persists_artifact_job_and_lineage_without_observation_finding
         "SELECT count(*) FROM findings WHERE artifact_id = ?",
         (out.meta.artifact_id,),
     ).fetchone()[0]
-    followup_count = conn.execute(
-        "SELECT count(*) FROM followups WHERE source_artifact_id = ?",
+    digest = conn.execute(
+        "SELECT digest_payload FROM artifact_digests WHERE artifact_id = ?",
         (out.meta.artifact_id,),
-    ).fetchone()[0]
+    ).fetchone()
+    legacy_tables = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
 
-    assert artifact == ("transform", "metric_frame")
+    assert tuple(artifact) == ("transform", "metric_frame")
     assert finding_count == 0
-    assert followup_count == 0
+    assert out.evidence_status == "complete"
+    assert out.evidence_digest is not None
+    assert out.evidence_digest.items == ()
+    assert digest is not None
+    assert "followups" not in legacy_tables

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis.session as session_attach
+from marivo.analysis.evidence.types import EvidenceDerivationTrace
 from tests.test_analysis_evidence_surface3 import _compare, _session
 
 
@@ -12,16 +13,14 @@ def _reset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     session_attach._reset_process_state()
 
 
-def test_session_evidence_trace_assembly(tmp_path: Path) -> None:
+def test_session_evidence_trace_starts_from_finding(tmp_path: Path) -> None:
     session = _session(tmp_path, name="trace")
     delta = _compare(session)
-    props = list(session.evidence.propositions(proposition_type="change"))
+    finding = session.evidence.findings(artifact_ref=delta.ref).items[0]
 
-    trace = session.evidence.trace(props[0].proposition_id)
+    trace = session.evidence.trace(finding.finding_id)
 
-    assert trace.proposition.proposition_id == props[0].proposition_id
-    assert len(trace.seed_findings) >= 1
-    support_ids = {f.finding_id for f in trace.support_findings}
-    seed_ids = {f.finding_id for f in trace.seed_findings}
-    assert seed_ids.issubset(support_ids)
-    assert delta.meta.artifact_id in trace.source_artifacts
+    assert isinstance(trace, EvidenceDerivationTrace)
+    assert trace.finding == finding
+    assert trace.source_artifact_ref == delta.ref
+    assert trace.source_fields == finding.derivation.source_fields

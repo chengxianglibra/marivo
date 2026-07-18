@@ -520,6 +520,9 @@ maintain their own item-kind mapping. Validation rejects a mismatched pair.
 `QualityCheckResult` is `tested` because it reports evaluation of one exact
 expectation predicate; its measured input remains present in the source quality
 finding. Intrinsic `QualitySummary` metadata is context, not a predicate result.
+The pure renderer includes non-null quality context, including scoped evaluated,
+failed, and warning check counts for a quality report; it does not upgrade those
+counts into a global validation label.
 
 The key renames are:
 
@@ -539,8 +542,13 @@ keys, contribution rank, and decomposition method. It carries no
 `primary_driver`, `secondary_driver`, or generic role.
 
 `TestDecision` carries null, alternative, method, alpha, statistic, p-value,
-effect estimate when computed, and `reject_null`. It does not convert
+sample size, effect estimate and interval when computed, and `reject_null`. It does not convert
 `reject_null` into `validated` or `refuted`.
+
+`AnomalyCandidate` retains the detector inputs that make the candidate directly
+readable: candidate reference, score, threshold, rank, current and baseline
+values, absolute and relative deviation, and the detector's flag level. These
+remain candidate facts; none implies confirmation, cause, or impact.
 
 ### Inference boundaries
 
@@ -592,8 +600,7 @@ RequiredEvidenceKind = Literal[
 `kind` identifies the inference that is unavailable. `reason` identifies why
 this artifact/digest cannot supply it. `required_evidence` identifies the
 evidence family that could close the boundary; it is descriptive and does not
-create an automatic follow-up. `legacy_finding_unreadable` is a typed evidence
-failure issue, not an inference boundary.
+create an automatic follow-up.
 
 Builders emit only boundaries relevant to their operator. A scalar observation
 does not mechanically list every inference Marivo could have performed.
@@ -623,7 +630,6 @@ FallbackReason = Literal[
     "unregistered_question",
     "recompute_with_additional_statistic",
     "partial_evidence",
-    "legacy_digest_missing",
 ]
 ```
 
@@ -755,9 +761,9 @@ atomic evidence cutover defined here.
 | `compare` | current, baseline, delta, relative delta when denominator permits, presence, comparison scope | relative delta undefined reason | improvement, regression, materiality without policy |
 | `attribute`/`decompose` | contribution value/share/rank, formula/method, reconciliation residual | causal effect not estimated | driver, root cause, impact certainty |
 | `correlate` | coefficient, method, aligned `n`, lag/alignment | significance/interval when not computed; causal effect | significance without statistic; causality |
-| `hypothesis_test` | null/alternative, statistic, p-value, alpha, effect estimate/interval when computed, `reject_null` | interval/effect when not computed | hypothesis true/false probability; generic validation |
+| `hypothesis_test` | null/alternative, statistic, p-value, alpha, sample size, effect estimate/interval when computed, `reject_null` | interval/effect when not computed | hypothesis true/false probability; generic validation |
 | `forecast` | model/method, horizon, point/interval, training/evaluation scope | actual not observed; accuracy not evaluated | future truth, guaranteed interval coverage |
-| anomaly discovery | score, detector, threshold, candidate rank | candidate not reviewed | confirmed incident, root cause |
+| anomaly discovery | candidate reference, score, detector, threshold, candidate rank, observed/baseline and deviation values when computed | candidate not reviewed | confirmed incident, root cause |
 | quality report | metric/check value and exact expectation predicate result | untested quality dimensions | dataset validated, globally safe |
 
 The endpoint direction in an observation is named
@@ -902,13 +908,19 @@ Analysis computation still wins over evidence projection:
 - store unavailable: return the artifact with intrinsic metadata,
   `evidence_status="unavailable"`, and no digest;
 - `emit_evidence=False`: persist the artifact without findings or digest and do
-  not render an evidence section;
+  not render an evidence section; expose `evidence_status="unavailable"` and do
+  not fabricate an issue for evidence that the caller intentionally suppressed;
 - empty successful extraction: persist an empty digest with zero omissions;
 - a declared `not_computed` boundary is normal complete evidence, not partial
   failure.
 
 No failure path fabricates an empty result and calls it complete when the
 engine does not know whether evidence exists.
+
+A failure to write the final `meta.json` is an artifact-persistence failure,
+not an evidence-projection failure. The runtime must not register a frame in
+`session_store.db` that cannot be reloaded from its sidecar. Retrying the same
+deterministic artifact id after this failure is idempotent.
 
 ### Determinism
 
@@ -1060,6 +1072,10 @@ lineage surfaces continue to own execution history and DAG recovery.
 `EvidenceDigestNotAvailableError` carrying the artifact's status, whether typed
 findings exist, and the exact raw/audit fallback.
 
+`finding(id)` likewise never returns ambiguous `None`; an absent finding raises
+typed `FindingNotFoundError`. This replaces the assessment-era
+`PropositionNotFoundError` on the direct evidence lookup path.
+
 If the evidence store itself is unavailable, `digests(...)`, `digest(...)`,
 `findings(...)`, `finding(...)`, and `trace(...)` raise typed
 `EvidenceStoreUnavailableError`; they never return an empty page, digest-missing,
@@ -1120,7 +1136,7 @@ FollowupAction / TriggeredByFollowup
 There are no deprecation aliases. Keeping both audit vocabularies would preserve
 the exact ambiguity this refactor removes.
 
-## Persistence and migration
+## Persistence and destructive schema cutover
 
 ### Schema v2
 
@@ -1160,43 +1176,19 @@ Fresh v2 databases do not need proposition, assessment-snapshot, or
 assessment-edge tables. They also do not contain `followups`, mutable
 `resolved_by_step_id`, or `triggered_by_followup` state.
 
-### Existing v1 sessions
+### Pre-Cutover-A sessions
 
-Register one atomic, idempotent v1-to-v2 migration:
+There is no v1-to-v2 adapter, dual read, or sidecar compatibility path. An
+existing `judgment.db` whose `PRAGMA user_version` is not exactly v2 is rejected
+with `SchemaVersionMismatchError`. Frame sidecars containing removed
+`confidence_scope`, `evidence_summary`, or `blocking_issues` fields are rejected
+with `FrameMetaInvalidError`.
 
-1. add the v2 typed-finding columns, digest table, and immutable artifact-issue
-   table;
-2. adapt each legacy finding through a frozen v1-to-v2 typed adapter;
-3. build v2 digests from successfully adapted findings;
-4. mark an artifact partial and add `legacy_finding_unreadable` only when a
-   legacy payload cannot be adapted truthfully;
-5. adapt truthful legacy artifact issues, ignoring dead resolution markers;
-6. retain legacy proposition, assessment, blocking-issue, and follow-up tables
-   as unqueried migration history for one schema version;
-7. update `PRAGMA user_version` only after every write succeeds.
-
-The migration ignores legacy status/confidence when building a digest. It does
-not reinterpret `0.9` or `0.3` as probability and does not carry threshold
-`driver` roles forward. Contribution value/share and exact test predicates are
-adapted from source findings.
-
-New runtime code never reads or writes legacy proposition/assessment tables.
-It also never reads or writes legacy follow-up, execution-marker, or resolution
-state. A later schema version may drop those tables after v2 migration has
-shipped and been validated. This preserves auditable source records without
-preserving the old public semantics.
-
-Historical frame `meta.json` files with `evidence_summary` still load. On load,
-the field is treated as legacy display data only and is not converted into a
-truth-bearing digest. If the v2 database has a migrated digest, the loader uses
-that canonical digest. Otherwise it renders `digest=legacy_missing` and exposes
-the raw audit/fallback route.
-
-`evidence_digest_unavailable` replaces the current
-`evidence_summary_unavailable` issue kind for v2 commits. It receives the same
-bounded render treatment and carries an exact audit-read `AnalysisRepair`
-rather than an analytical recompute. The old literal is accepted only while
-loading historical frame metadata; new runtime paths never emit it.
+The recovery path is explicit: remove the incompatible analysis session and
+run the analysis again. No old confidence, proposition, assessment, issue,
+follow-up, execution-marker, or resolution record is reinterpreted as typed v2
+evidence. This is the only behavior consistent with an atomic breaking cutover
+whose old judgment semantics have deliberately been deleted.
 
 ## Artifact issues, contracts, and repair
 
@@ -1225,9 +1217,9 @@ ArtifactIssue = Annotated[
 
 | Variant | Closed kinds | Required typed content |
 | --- | --- | --- |
-| `DataQualityIssue` | `null_rate_high`, `sample_size_low`, `time_coverage_incomplete`, `outlier_sensitivity_detected` | observed value, exact expectation/threshold, evaluated scope |
-| `ComparabilityIssue` | `comparability_incompatible`, `definition_drift_detected`, `cross_session_scope_mismatch` | left/right `AnalysisScope`, incompatible fields, definition refs |
-| `EvidenceAvailabilityIssue` | `evidence_partial`, `evidence_store_unavailable`, `evidence_digest_unavailable`, `legacy_finding_unreadable` | failed stage, findings availability, fallback, stable error category |
+| `DataQualityIssue` | `null_rate_high`, `sample_size_low`, `time_coverage_incomplete`, `outlier_sensitivity_detected`, `duplicate_keys_detected` | observed value, exact expectation/threshold, evaluated scope |
+| `ComparabilityIssue` | `comparability_incompatible`, `comparability_approximate`, `definition_drift_detected`, `cross_session_scope_mismatch` | left/right `AnalysisScope`, incompatible fields, definition refs; approximation details for uneven-coverage mean folding |
+| `EvidenceAvailabilityIssue` | `evidence_partial`, `evidence_store_unavailable`, `evidence_digest_unavailable` | failed stage, findings availability, fallback, stable error category |
 
 The current `outlier_winsorize_recommended` kind becomes
 `outlier_sensitivity_detected`; detection does not prescribe winsorization.
@@ -1274,7 +1266,7 @@ The live `mv.help(...)` surface owns:
 - inference boundaries and fallback mechanics;
 - `artifact.evidence_status`, `artifact.evidence_digest`,
   `artifact.contract().issues`, and the direct `session.evidence` methods;
-- evidence failure states and migration errors.
+- evidence failure states and destructive schema-version errors.
 
 This is net-new help authoring: the live help registry has no evidence topics at
 the design date. Package 4 adds the topics and their resolution tests; it must
@@ -1338,7 +1330,7 @@ policy explicitly rebuilds them.
 | `evidence/knowledge.py` | delete; direct digest reads move to the audit/query layer |
 | `evidence/audit.py` | direct finding/digest/derivation audit |
 | `evidence/pipeline.py` | remove seed/assess/follow-up phases; build and persist one digest |
-| `evidence/store.py` | schema v2, immutable issues, v1 migration, no follow-up tables |
+| `evidence/store.py` | fresh schema v2, immutable issues, strict rejection of every non-v2 store, no follow-up tables |
 | `evidence/identity.py` | add digest item/fingerprint identities; retire proposition/assessment ids |
 | `followups.py` | delete follow-up types; relocate retained compatibility/issue types to their owners |
 | intent internals | remove `_triggered_by` / `triggered_by_followup` parameters and lineage plumbing |
@@ -1350,7 +1342,7 @@ policy explicitly rebuilds them.
 | candidate selection | make `CandidateSet.select(rank=...)` the sole route; return a closed typed selection instead of `attribute -> Any` |
 | frame content hashing | replace the session-local `evidence_summary` exclusion with `evidence_digest` |
 | README/help/docs/site/skills | atomic bilingual public-contract cutover, including net-new evidence help topics |
-| Marivo tests | deterministic derivability, affordance-role, candidate typing, keyset paging, migration, rendering, failure, and drift gates only |
+| Marivo tests | deterministic derivability, affordance-role, candidate typing, keyset paging, schema rejection, rendering, failure, and drift gates only |
 | external evaluation interface | cite exact `marivo-agent-evals` report identities; Suite A gates Cutover A and Suite B remains calibration-only |
 
 ## Test strategy
@@ -1403,17 +1395,12 @@ Minimum adversarial fixtures:
 - every quality digest item traces to a canonical quality-check finding;
 - a bounded large panel reports exact retained/omitted counts and fallback.
 
-### Persistence and migration tests
+### Persistence and destructive-cutover tests
 
 - fresh schema v2 creation;
-- atomic/idempotent v1 migration;
-- legacy finding adapter coverage for every v1 finding kind;
-- unreadable legacy finding produces partial, not fabricated evidence;
-- old proposition/assessment values never enter a v2 digest;
-- old follow-up/open-state rows never enter a v2 public record;
+- every non-v2 evidence-store schema is rejected without migration;
+- sidecars containing removed evidence fields are rejected without adaptation;
 - fresh v2 contains no follow-up, resolution, or triggered-by tables/columns;
-- legacy artifact issues migrate into the closed immutable issue union or are
-  reported as unreadable;
 - DB digest and frame-meta digest byte equality;
 - frame reload and cross-process session recovery;
 - paged `FrameSummaryEntry` values enumerate missing/partial evidence without an
@@ -1423,8 +1410,6 @@ Minimum adversarial fixtures:
 - `FrameSummaryEntry.evidence_status` distinguishes missing/partial digests, and
   `session.evidence.digest(ref)` raises the typed unavailable error rather than
   returning `None`;
-- legacy frame without a migrated digest renders an explicit legacy-missing
-  state;
 - future-schema refusal remains intact.
 
 ### Failure-injection tests
@@ -1561,7 +1546,7 @@ for release.
 
 Model evaluation does not prove logical soundness or callable legality.
 Deterministic Marivo derivability, type, affordance-role, candidate, paging, and
-migration tests are the soundness gate. Suite A tests downstream digest value;
+schema-rejection tests are the soundness gate. Suite A tests downstream digest value;
 Suite B observes closed-loop usability without defining Cutover A's public
 shape.
 
@@ -1582,8 +1567,8 @@ The refactor is complete only when all of the following are true:
 7. Full canonical typed findings and raw artifact fallback remain reachable.
 8. Result computation succeeds when evidence extraction/projection fails, with
    truthful partial/unavailable state.
-9. v1 session migration is atomic, idempotent, and does not propagate old
-   confidence, driver roles, follow-up queues, or mutable open/resolution state.
+9. Every non-v2 evidence store and every sidecar containing removed evidence
+   fields is rejected; there is no compatibility adapter or migration path.
 10. Public API, both READMEs, help, `agent-friendly-public-surface.md`,
     `evidence-access-surface.md`,
     `session-state-and-runtime.md`, `operators-and-frames.md`, latest bilingual
@@ -1641,11 +1626,11 @@ semantics.
 
 ### Package 3 — Store and commit pipeline
 
-- add schema v2 and the v1 adapter migration;
+- add schema v2 and reject every non-v2 store;
 - persist one canonical digest snapshot;
 - remove seed/assess/follow-up writes and triggered/resolution state from
   `commit_result()` and the store;
-- add failure injection, fingerprint equality, reload, and migration tests.
+- add failure injection, fingerprint equality, reload, and schema-rejection tests.
 
 ### Package 4 — Public surface cutover
 

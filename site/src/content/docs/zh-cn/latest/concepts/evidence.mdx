@@ -1,135 +1,124 @@
 ---
 title: 证据链
-description: 用 findings、propositions 和 assessments 让分析结论可审计。
+description: 用类型化 findings 与有界 digest 保持可审计，同时不替代 agent 判断。
 ---
 
-接受结论的检查过程应从业务判断开始，再沿着它的假设、artifact 和证据记录向后追溯。
-最终数字可以回溯是必要条件；如果指标契约、分析范围、比较基线或拆分维度不适合当前决策，
-仅有可回溯的数字仍然不够。
+Marivo 是纯 Python 分析库。它不调用 LLM，不替 agent 判断业务含义，也不替 agent 选择下一步。
+Evidence engine 的职责，是让确定性的 operator 结果更容易读取和审计。
 
-## 用证据判断结论是否值得采用
+## 证据模型
 
-让智能体说明结论、支撑结论的证据，以及使用结论时需要注意的限制。`marivo-analysis` skill
-会在分析会话中记录相关产物和证据，用户不需要在提示词中逐项列出字段或审计记录。
+每个已提交的 operator 结果只经过一条路径：
 
-例如：
-
-> 总结这个业务问题的答案，展示重要判断背后的证据，并说明哪些限制会影响我使用这个结论。
-
-## 重点看三件事
-
-1. **结论是否回答了原来的问题？** 确认使用的是预期指标、分析范围和比较方式，而不是回答了
-   一个相近但不同的问题。
-2. **重要判断是否有证据支持？** 智能体应把关键判断关联到清楚的 Marivo 结果或证据，而不是
-   只给出听起来合理的解释。
-3. **限制是否会影响决策？** 数据质量、证据不完整和仍未解决的不确定性，应体现在结论的强度
-   和适用范围中。
-
-只有新的分析能够解决某个明确缺口时，才让智能体继续调查。如果指标或其他语义定义有误，
-应停止分析并通过 `marivo-semantic` 修正；继续运行分析无法补救错误的业务契约。
-
-需要查看完整技术链路的读者，可以继续了解下面的证据记录和审计 API。当 operator 失败时，它会抛出一个类型化的 `AnalysisError`，携带稳定的
-`expected`/`received`/`location`/`repair` 字段——`repair` 字段是类型化的
-`AnalysisRepair`，指向失败能力的确切 `mv.help(...)` 目标。
-
-## 证据模型与审计参考
-
-每个 analysis operator 都会把 evidence 写入 session。这些 evidence 让 agent 不只说明*发生了什么*，
-也能说明它*如何*得出结论；人工审阅者可以沿着这条链追溯到产生结果的输入。
-
-这些记录是 append-only 的，并持久化在 session 的 judgment 存储中（位于 project 本地的
-`.marivo/`）。因此，session 结束后，结论仍然可审计、可重放。
-
-当 operator 产生 evidence 时，`artifact.show()` 会在结果 preview 之前直接展示有界的
-commit-time evidence 摘要。理解当前步骤只需一次 `show()`；回顾或综合多个步骤时使用
-`session.knowledge()`，需要完整 typed records 与审计链时使用 `session.evidence`。
-
-## 三个层次
-
-证据链分三个层次记录，从原始观察到带版本的判断：
-
-| 层次 | 它是什么 | 关键字段 |
-| --- | --- | --- |
-| **Finding** | 从单个 artifact 中提取的原子、类型化观察（例如“West 区域 revenue 环比下降 12%”）。 | `finding_type`、`artifact_id`、`subject`、`observed_window`、`quality_status` |
-| **Proposition** | 由系统播种、关于某个 subject 的论断，从 findings 派生（例如“Q4 的 revenue 发生了变化”）。 | `proposition_type`、`subject_key`、`seed_finding_refs` |
-| **Assessment** | 对某个 proposition 的、带版本的判断：它的状态与置信度。 | `status`、`confidence`、`confidence_basis`、`supersedes_id`、`is_latest` |
-
-Findings 与 propositions 是不可变的。重新运行 operator 不会原地修改判断，而是写入一条
-**新的** assessment 来取代上一条（`supersedes_id`），并把最新的一条标记为 `is_latest`。
-完整的判断历史会被保留下来。
-
-## 读取 session 已知的事实
-
-`session.knowledge()` 返回一个不可变的 `SessionKnowledge` 快照。这是 agent 用来决定下一步的
-读取视图，承载**观察摘要**、**已确定的 facts** 与**未决的 open items**：
-
-```python
-knowledge = session.knowledge()
-
-# 观察到了什么：每次 observe commit 对应一条有界 digest。
-for obs in knowledge.observations():
-    print(obs.subject.metric, obs.semantic_kind, obs.analysis_purpose, obs.digest)
-
-# 已确定的 facts：带有当前 assessment 的 propositions。
-for fact in knowledge.facts(kind="driver"):
-    print(fact.dimension, fact.contribution_share, fact.status)
-
-# Open items：等待跟进的未决 anomalies 与 questions。
-for item in knowledge.open_items(kind="anomaly"):
-    print(item.subject, item.confidence)
-
-# 建议的下一步 operators，已排序。
-for action in knowledge.next_steps(top=3):
-    print(action)
+```text
+artifact -> typed findings -> bounded artifact digest
 ```
 
-`observations()` 按 commit 顺序返回有界 digest：按 shape 分派的取值摘要（scalar 的值；
-时间序列的首末/极值/方向；segmented 按绝对值排序的 top segments），外加窗口、行数和
-`analysis_purpose`。合计与占比属于 composition 语义，仅对可加（additive）指标填充；
-非可加指标（ratio、percentile、sampled fold 等）保留逐段取值但不给出合计/占比，
-非可加的 panel 也不做跨桶的 segment 排名。观察是 ground truth 而不是待检验主张，
-因此不携带 status 或 confidence。
+`Finding` 是从单个 artifact 中提取出的类型化结果元素。`ArtifactDigest` 是面向当前一步读取的、
+按 operator 定义的 finding 投影。跨 artifact 综合、业务判断与下一步选择始终由 agent 负责。
 
-Facts 分为五种，每种由一个 operator 产生：
+Digest 不会把贡献升级为因果，把相关升级为效果，把候选升级为已确认异常，把统计检验升级为
+业务重要性，也不会把预测升级为已发生事实。`boundaries` 会明确记录 operator 没有支持的推断。
 
-| Fact 种类 | 由谁产生 | 携带 |
-| --- | --- | --- |
-| `change` | `compare` | 方向、幅度、对比窗口 |
-| `driver` | `attribute` | dimension、贡献占比、贡献角色 |
-| `tested_hypothesis` | `hypothesis_test` | 方法、alpha、p 值、是否拒绝原假设 |
-| `forecast` | `forecast` | 预测窗口、horizon、预测区间 |
-| `association` | `correlate` | 相关系数、lag、join 依据 |
+## 读取当前结果
 
-`SessionKnowledge` 还提供 `open_items(kind="question")`、`blocked_followups()`（在某个问题
-解决前无法运行的 follow-ups），以及 `for_subject(subject)` 将整个快照过滤到单个 subject。
-`evidence_completeness` 报告底层 evidence 是 `complete`、`partial` 还是 `unavailable`。
-
-## 审计一个结论
-
-要获取原始记录与完整审计链，使用 `session.evidence` 命名空间：
-
-| 方法 | 返回 |
-| --- | --- |
-| `session.evidence.findings(...)` | Findings，可按 `artifact_id`、`finding_type`、`subject` 过滤。 |
-| `session.evidence.propositions(...)` | Propositions，可按 `proposition_type`、`subject`、`status` 过滤。 |
-| `session.evidence.assessments(...)` | Assessments，默认仅返回最新的。 |
-| `session.evidence.proposition(id)` | 按 id 取单个 proposition。 |
-| `session.evidence.latest_assessment(id)` | 当前 assessment；若从未评估则返回 `None`。 |
-| `session.evidence.trace(id)` | 某个 proposition 的完整 `EvidenceTrace`。 |
-
-`trace(id)` 是审计入口：`EvidenceTrace` 会把 proposition 连接到它的 `latest_assessment`、
-`seed_findings`、判断背后的 `support_findings` 与 `oppose_findings`，以及产生它的
-`source_artifacts` 与 `source_steps`。
+使用唯一的结构化路径：
 
 ```python
-props = list(session.evidence.propositions(proposition_type="change"))
-trace = session.evidence.trace(props[0].proposition_id)
+result = session.compare(current, baseline)
 
-print(trace.proposition.subject_key, "→", trace.latest_assessment.status)
-for finding in trace.seed_findings:
-    print(finding.finding_type, "from", finding.artifact_id)
+print(result.evidence_status)
+digest = result.evidence_digest
+result.show()
 ```
 
-人工审阅者可以沿着这条链，从一个结论回溯到支持它的具体观察与分析步骤。这也是 Marivo 结论
-“可审计”而不只是“看起来合理”的原因。关于写入这些 evidence 的 operators，参见
-[分析流程](/zh-cn/latest/concepts/analysis-workflow/)。
+`evidence_status` 取值为 `complete`、`partial` 或 `unavailable`。
+`evidence_digest` 是不可变的 commit-time `ArtifactDigest`；无法生成时为 `None`。
+`show()` 在数据预览之前渲染的就是同一个有界 digest。
+
+一个 digest 最多保留 5 个类型化 item 和 3 个推断边界。`omissions` 记录被省略的数量，
+`fallback` 说明 exact findings 与原始行是否可用。有界 digest 中没有出现，不代表 artifact 中不存在。
+
+主要 item 与 operator 语义严格对应：
+
+| Operator | Digest item | 含义 |
+| --- | --- | --- |
+| `observe` | `ObservationFact` | 观测值或分布摘要 |
+| `compare` | `ChangeFact` | 代数变化 |
+| `attribute` | `ContributionFact` | 代数贡献，不是因果 |
+| `correlate` | `AssociationFact` | 估计的相关关系，不是因果 |
+| `hypothesis_test` | `TestDecision` | 声明的统计检验下的决策 |
+| `forecast` | `ForecastOutput` | 预测，不是已观测实际值 |
+| `discover.*` | `AnomalyCandidate` | 等待复核的候选 |
+| `assess_quality` | `QualityCheckResult` | 已求值的数据质量谓词 |
+| `transform.*` / `MetricFrame.metric(...)` | 空 digest | 仅保留 lineage 的变换或投影 |
+
+## 查看边界与精确证据
+
+问题涉及被省略的 item、行级验证或 operator 推断边界之外的证据时，使用精确读取：
+
+```python
+digest = session.evidence.digest(result.ref)
+findings = session.evidence.findings(artifact_ref=result.ref, limit=50)
+frame = session.get_frame(result.ref)
+
+for finding in findings.items:
+    print(finding.finding_type, finding.value)
+```
+
+可以把一个 finding 追溯到声明的源字段与被保留的 digest item：
+
+```python
+trace = session.evidence.trace(findings.items[0].finding_id)
+print(trace.derivation.rule_id, trace.source_fields)
+```
+
+Trace 是审计记录，不是系统生成的主张或判断。
+
+## 用有界分页恢复 session
+
+列表读取默认有界，并按最新记录优先：
+
+```python
+frames = session.frame_summaries(limit=20)
+digests = session.evidence.digests(limit=10)
+findings = session.evidence.findings(limit=50)
+
+if digests.has_more:
+    digests = session.evidence.digests(
+        limit=10,
+        cursor=digests.next_cursor,
+    )
+```
+
+Page 暴露不可变的 `items`、`limit`、`has_more` 和 `next_cursor`。它采用普通 keyset
+分页，而不是快照隔离；两次读取之间的新 commit 可能改变最新端。Cursor 只能当作不透明续页令牌。
+
+Evidence store 不可用时，列表和精确读取都会抛出 `EvidenceStoreUnavailableError`。
+空 page 只表示健康存储没有匹配记录。
+
+## Issues 与 repair
+
+`result.contract().issues` 包含封闭的类型化 issue：
+
+- `DataQualityIssue`：已求值的数据质量失败；
+- `ComparabilityIssue`：不兼容或近似的比较；
+- `EvidenceAvailabilityIssue`：extract、digest 或 store 降级。
+
+Cutover A 是破坏性切换：非 v2 evidence store，以及包含已移除 evidence 字段的 frame
+sidecar，都会被拒绝。应重新创建 analysis session；Marivo 不迁移或重新解释 judgment
+时代的状态。
+
+Issue 可以携带 `AnalysisRepair`，说明如何重试失败的能力。Repair 是局部错误恢复信息，
+不是持久化的 follow-up 计划。是否以及如何继续仍由 agent 决定。
+
+## 审阅结论
+
+重点检查三件事：
+
+1. 结果是否使用了预期的 metric、scope 与 comparison；
+2. 每个重要判断是否由 artifact 或类型化 evidence item 支撑；
+3. 结论是否遵守 omissions、质量 issue 与推断边界。
+
+如果 metric 定义有误，应停止并通过 `marivo-semantic` 修复。继续分析不能补偿错误的业务契约。
+类型化 operator 循环参见[分析流程](/zh-cn/latest/concepts/analysis-workflow/)。

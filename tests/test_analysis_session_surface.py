@@ -10,15 +10,14 @@ def _session(tmp_path, monkeypatch):
     return mv.session.get_or_create(name="surface_probe", use_datasources=False)
 
 
-def test_evidence_namespace_exposes_audit_iterators(tmp_path, monkeypatch) -> None:
+def test_evidence_namespace_exposes_bounded_audit_and_exact_reads(tmp_path, monkeypatch) -> None:
     session = _session(tmp_path, monkeypatch)
 
     for name in (
         "findings",
-        "propositions",
-        "assessments",
-        "proposition",
-        "latest_assessment",
+        "digests",
+        "finding",
+        "digest",
         "trace",
     ):
         assert callable(getattr(session.evidence, name))
@@ -37,7 +36,8 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "assess_quality",
         "hypothesis_test",
         "evidence",
-        "knowledge",
+        "frame_summaries",
+        "get_frame",
         "jobs",
         "recent_jobs",
         "close",

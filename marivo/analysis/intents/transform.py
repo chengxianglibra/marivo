@@ -31,7 +31,7 @@ from marivo.analysis.evidence.pipeline import (
     CommitSemanticAnchors,
     commit_result,
 )
-from marivo.analysis.evidence.types import Subject, TriggeredByFollowup
+from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents._types import SliceValue
@@ -107,7 +107,6 @@ def _finish_transform[TTransformFrame: TransformFrame](
     started_at: datetime,
     started_monotonic: float,
     analysis_purpose: str | None,
-    triggered_by_followup: TriggeredByFollowup | None = None,
 ) -> TTransformFrame:
     result = cast(
         "TTransformFrame",
@@ -125,7 +124,6 @@ def _finish_transform[TTransformFrame: TransformFrame](
             normalization=meta_overrides.get("normalization"),
             window=meta_overrides.get("window"),
             analysis_purpose=analysis_purpose,
-            triggered_by_followup=triggered_by_followup,
         ),
     )
     coverage_df = meta_overrides.get("coverage_df")
@@ -1982,7 +1980,6 @@ def _persist_transform_frame(
     normalization: dict[str, Any] | None = None,
     window: dict[str, Any] | None = None,
     analysis_purpose: str | None = None,
-    triggered_by_followup: TriggeredByFollowup | None = None,
 ) -> MetricFrame | DeltaFrame:
     frame_ref = _gen_ref("frame")
     job_ref = _gen_ref("job")
@@ -2064,8 +2061,6 @@ def _persist_transform_frame(
                     analysis_axis=_analysis_axis_for_metric_kind(metric_meta.semantic_kind),
                 ),
                 extractor_family="metric_frame",
-                triggered_by_followup=triggered_by_followup,
-                emit_evidence=False,
             ),
         )
         register_frame_artifact(session, frame)
@@ -2084,8 +2079,6 @@ def _persist_transform_frame(
                 semantic_anchors=CommitSemanticAnchors(values={"metric_id": delta_meta.metric_id}),
                 subject=Subject(metric=delta_meta.metric_id, analysis_axis="change"),
                 extractor_family="delta_frame",
-                triggered_by_followup=triggered_by_followup,
-                emit_evidence=False,
             ),
         )
         register_frame_artifact(session, frame)

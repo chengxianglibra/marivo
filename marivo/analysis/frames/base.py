@@ -10,15 +10,19 @@ from datetime import date, datetime, time
 from typing import Any, Literal
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from marivo.analysis.errors import (
     AnalysisRepair,
     FrameMutationError,
     SemanticKindMismatchError,
 )
-from marivo.analysis.evidence.types import ArtifactEvidenceSummary, QualitySummary
-from marivo.analysis.followups import BlockingIssue, ConfidenceScope
+from marivo.analysis.evidence.types import (
+    AnalysisScope,
+    ArtifactDigest,
+    ArtifactIssue,
+    QualitySummary,
+)
 from marivo.analysis.lineage import Lineage
 from marivo.render import Card, RenderableResult
 
@@ -135,13 +139,14 @@ class ArtifactPrecondition(BaseModel):
     repair: AnalysisRepair | None = None
 
 
-class ArtifactParamTemplate(BaseModel):
-    """Separated deterministic and judgment-filled parameter slots."""
+class ArtifactInputRequirement(BaseModel):
+    """One public input role preserved from the capability registry."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    deterministic_slots: dict[str, Any] = Field(default_factory=dict)
-    judgment_slots: list[str] = Field(default_factory=list)
+    parameter: str
+    accepted_families: tuple[str, ...]
+    bindable_from_current_artifact: bool
 
 
 class ArtifactAffordance(BaseModel):
@@ -152,9 +157,8 @@ class ArtifactAffordance(BaseModel):
     capability_id: str
     public_entrypoint: str
     help_target: str
-    required_inputs: list[str] = Field(default_factory=list)
-    preconditions: list[ArtifactPrecondition] = Field(default_factory=list)
-    param_template: ArtifactParamTemplate = Field(default_factory=ArtifactParamTemplate)
+    input_requirements: tuple[ArtifactInputRequirement, ...] = ()
+    preconditions: tuple[ArtifactPrecondition, ...] = ()
     expected_output_family: str | None = None
 
 
@@ -180,9 +184,9 @@ class ArtifactContract(BaseModel):
     ref: str
     is_canonical: bool
     artifact_schema: ArtifactSchema
-    blocking_issues: list[BlockingIssue] = Field(default_factory=list)
-    affordances: list[ArtifactAffordance] = Field(default_factory=list)
-    boundary_ports: list[ArtifactBoundaryPort] = Field(default_factory=list)
+    issues: tuple[ArtifactIssue, ...] = ()
+    affordances: tuple[ArtifactAffordance, ...] = ()
+    boundary_ports: tuple[ArtifactBoundaryPort, ...] = ()
 
 
 class ArtifactState(BaseModel):
@@ -211,10 +215,10 @@ class BaseFrameMeta(BaseModel):
     lineage: Lineage = Lineage()
     artifact_id: str | None = None
     evidence_status: Literal["complete", "partial", "unavailable"] = "unavailable"
-    confidence_scope: ConfidenceScope | None = None
+    analysis_scope: AnalysisScope | None = None
     quality_summary: QualitySummary | None = None
-    evidence_summary: ArtifactEvidenceSummary | None = None
-    blocking_issues: list[BlockingIssue] = Field(default_factory=list)
+    evidence_digest: ArtifactDigest | None = None
+    issues: tuple[ArtifactIssue, ...] = ()
     content_hash: str | None = None
 
 
@@ -303,12 +307,12 @@ class BaseFrame(RenderableResult):
         return self.meta.quality_summary
 
     @property
-    def evidence_summary(self) -> ArtifactEvidenceSummary | None:
-        return self.meta.evidence_summary
+    def evidence_status(self) -> Literal["complete", "partial", "unavailable"]:
+        return self.meta.evidence_status
 
     @property
-    def blocking_issues(self) -> list[BlockingIssue]:
-        return self.meta.blocking_issues
+    def evidence_digest(self) -> ArtifactDigest | None:
+        return self.meta.evidence_digest
 
     @property
     def state(self) -> ArtifactState:
@@ -344,7 +348,7 @@ class BaseFrame(RenderableResult):
         not recommendations.
 
         Returns:
-            ArtifactContract listing artifact_schema, blocking issues,
+            ArtifactContract listing artifact_schema, issues,
             affordances, and boundary_ports.
 
         Example:
@@ -367,19 +371,20 @@ class BaseFrame(RenderableResult):
                 continue
             desc = registry.by_id(cap_id)
             assert isinstance(desc, operator_cls)
-            required_inputs: list[str] = sorted(
-                {str(fam) for families in desc.accepted_inputs.values() for fam in families}
+            input_requirements = tuple(
+                ArtifactInputRequirement(
+                    parameter=parameter,
+                    accepted_families=tuple(sorted(str(item) for item in families)),
+                    bindable_from_current_artifact=family in {str(item) for item in families},
+                )
+                for parameter, families in sorted(desc.accepted_inputs.items())
             )
             output_family = _output_family_str(desc)
             affordance = ArtifactAffordance(
                 capability_id=desc.id,
                 public_entrypoint=desc.public_entrypoint,
                 help_target=desc.help_target,
-                required_inputs=required_inputs,
-                param_template=ArtifactParamTemplate(
-                    deterministic_slots={"source_ref": self.meta.ref},
-                    judgment_slots=[],
-                ),
+                input_requirements=input_requirements,
                 expected_output_family=output_family,
             )
             # Suppress affordances with failed preconditions that lack visible repair.
@@ -391,9 +396,9 @@ class BaseFrame(RenderableResult):
             ref=self.meta.ref,
             is_canonical=True,
             artifact_schema=self._build_schema(),
-            blocking_issues=list(self.meta.blocking_issues),
-            affordances=affordances,
-            boundary_ports=_build_boundary_ports(registry),
+            issues=self.meta.issues,
+            affordances=tuple(affordances),
+            boundary_ports=tuple(_build_boundary_ports(registry)),
         )
 
     def _dataframe_copy(self) -> pd.DataFrame:
@@ -459,12 +464,12 @@ class BaseFrame(RenderableResult):
         return f"{type(self).__name__} ref={self.meta.ref} rows={self.meta.row_count}"
 
     def _evidence_status_token(self) -> str | None:
-        summary_unavailable = any(
-            issue.kind == "evidence_summary_unavailable" for issue in self.meta.blocking_issues
+        digest_unavailable = any(
+            issue.kind == "evidence_digest_unavailable" for issue in self.meta.issues
         )
-        if summary_unavailable:
-            return f"evidence={self.meta.evidence_status} summary=unavailable"
-        if self.meta.evidence_summary is not None:
+        if digest_unavailable:
+            return f"evidence={self.meta.evidence_status} digest=unavailable"
+        if self.meta.evidence_digest is not None:
             return f"evidence={self.meta.evidence_status}"
         if self.meta.evidence_status in {"partial", "unavailable"}:
             return f"evidence={self.meta.evidence_status}"
@@ -485,29 +490,34 @@ class BaseFrame(RenderableResult):
         return None
 
     def _append_evidence_sections(self, card: Card) -> Card:
-        if self.meta.blocking_issues:
+        if self.meta.issues:
+            from marivo.analysis.evidence.summary import render_artifact_issue
+
             card.listing(
                 "issues",
                 (
-                    f"{issue.severity} {issue.kind}: {issue.message}"
-                    for issue in self.meta.blocking_issues
+                    f"{issue.severity} {issue.kind}: {render_artifact_issue(issue)}"
+                    for issue in self.meta.issues
                 ),
             )
-        summary = self.meta.evidence_summary
-        if summary is not None:
-            if summary.finding_count == 0 and not summary.items:
+        digest = self.meta.evidence_digest
+        if digest is not None:
+            if not digest.items:
                 card.field("evidence", "no evidence findings emitted")
             else:
                 card.field(
                     "evidence",
-                    (
-                        f"findings={summary.finding_count} items={len(summary.items)} "
-                        f"omitted={summary.omitted_count}"
-                    ),
+                    (f"items={len(digest.items)} omitted={digest.omissions.omitted_items}"),
                 )
-                if summary.items:
-                    card.listing("evidence items", (item.statement for item in summary.items))
-        if any(issue.kind == "evidence_summary_unavailable" for issue in self.meta.blocking_issues):
+                from marivo.analysis.evidence.summary import render_digest_item
+
+                card.listing("evidence items", (render_digest_item(item) for item in digest.items))
+            if digest.boundaries:
+                card.listing(
+                    "inference boundaries",
+                    (boundary.kind for boundary in digest.boundaries),
+                )
+        if any(issue.kind == "evidence_digest_unavailable" for issue in self.meta.issues):
             card.field("evidence recovery", "inspect canonical records with session.evidence")
         return card
 

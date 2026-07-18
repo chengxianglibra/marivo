@@ -616,12 +616,47 @@ def _render_type_help(type_name: str) -> str:
             lines.append(f"  {first_prose_line}")
     lines.append("")
 
+    variants = {
+        "ArtifactIssue": (
+            "DataQualityIssue",
+            "ComparabilityIssue",
+            "EvidenceAvailabilityIssue",
+        ),
+        "CandidateSelection": (
+            "PointAnomalySelection",
+            "PeriodShiftSelection",
+            "DriverAxisSelection",
+            "SliceSelection",
+            "WindowSelection",
+            "CrossSectionalOutlierSelection",
+        ),
+    }.get(type_name)
+    if variants:
+        lines.append("  Closed variants:")
+        for variant in variants:
+            lines.append(f"    {variant}")
+        lines.append("")
+
+    model_fields = getattr(type_obj, "model_fields", None)
+    if isinstance(model_fields, dict) and model_fields:
+        lines.append("  Fields:")
+        for field_name in model_fields:
+            lines.append(f"    {field_name}")
+        lines.append("")
+    elif type_name == "FrameSummaryEntry":
+        from dataclasses import fields
+
+        lines.append("  Fields:")
+        for field in fields(type_obj):
+            lines.append(f"    {field.name}")
+        lines.append("")
+
     # Properties (from registry allowlist, including inherited BaseFrame
     # for frame subtypes only).
     from marivo.analysis.frames.base import BaseFrame
 
     props = PUBLIC_FRAME_PROPERTIES.get(type_name, ())
-    if type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
+    if isinstance(type_obj, type) and type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
         base_props = PUBLIC_FRAME_PROPERTIES.get("BaseFrame", ())
         props = tuple(dict.fromkeys((*props, *base_props)))
     if props:
@@ -633,7 +668,7 @@ def _render_type_help(type_name: str) -> str:
     # Methods (from registry allowlist, including inherited BaseFrame
     # for frame subtypes only).
     methods = PUBLIC_FRAME_METHODS.get(type_name, ())
-    if type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
+    if isinstance(type_obj, type) and type_obj is not BaseFrame and issubclass(type_obj, BaseFrame):
         base_methods = PUBLIC_FRAME_METHODS.get("BaseFrame", ())
         methods = tuple(dict.fromkeys((*methods, *base_methods)))
     if methods:

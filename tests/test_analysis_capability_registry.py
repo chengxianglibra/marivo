@@ -565,7 +565,6 @@ def test_session_recovery_methods_registered() -> None:
         "session.job",
         "session.frame_summaries",
         "session.get_frame",
-        "session.knowledge",
     ):
         assert expected in ids, f"missing recovery/read id: {expected}"
 
@@ -574,10 +573,9 @@ def test_session_evidence_methods_registered() -> None:
     ids = set(REGISTRY.capability_ids)
     for expected in (
         "session.evidence.findings",
-        "session.evidence.propositions",
-        "session.evidence.assessments",
-        "session.evidence.proposition",
-        "session.evidence.latest_assessment",
+        "session.evidence.digests",
+        "session.evidence.digest",
+        "session.evidence.finding",
         "session.evidence.trace",
     ):
         assert expected in ids, f"missing evidence id: {expected}"

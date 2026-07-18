@@ -34,7 +34,6 @@ CANDIDATE_COLUMNS: list[str] = [
     "axis",
     "axis_semantic_id",
     "peer_scope_json",
-    "affordances_json",
 ]
 CANDIDATE_DTYPES: dict[str, str] = {
     "item_id": "string",
@@ -54,7 +53,6 @@ CANDIDATE_DTYPES: dict[str, str] = {
     "axis": "string",
     "axis_semantic_id": "string",
     "peer_scope_json": "string",
-    "affordances_json": "string",
 }
 
 _COMMON_REQUIRED: set[str] = {
@@ -62,12 +60,10 @@ _COMMON_REQUIRED: set[str] = {
     "score",
     "reason_codes_json",
     "source_refs_json",
-    "affordances_json",
 }
 
 REQUIRED_COLUMNS_BY_SHAPE: dict[CandidateShape, set[str]] = {
-    "point_anomaly": _COMMON_REQUIRED
-    | {"direction", "observed_value", "baseline_value", "delta"},
+    "point_anomaly": _COMMON_REQUIRED | {"direction", "observed_value", "baseline_value", "delta"},
     "period_shift": _COMMON_REQUIRED
     | {
         "window_start",
@@ -103,7 +99,6 @@ _JSON_DEFAULTS: dict[str, str] = {
     "selector_json": "",
     "keys_json": "",
     "peer_scope_json": "",
-    "affordances_json": "[]",
 }
 
 
@@ -154,8 +149,6 @@ def _row_to_record(row: dict[str, Any]) -> dict[str, Any]:
         record["keys_json"] = _json_dumps(dict(row["keys"]))
     if "peer_scope" in row:
         record["peer_scope_json"] = _json_dumps(list(row["peer_scope"]))
-    if "affordances" in row:
-        record["affordances_json"] = _json_dumps(list(row["affordances"]))
 
     if "window" in row and row["window"] is not None:
         window = row["window"]
@@ -186,8 +179,8 @@ def _is_neutral(column: str, value: Any) -> bool:
     - nullable string columns (direction, axis): pd.NA / None is neutral.
     - JSON columns whose default is "" (selector_json, keys_json,
       peer_scope_json): empty string is neutral.
-    - JSON columns whose default is "[]" (reason_codes_json,
-      source_refs_json, affordances_json): considered populated,
+    - JSON columns whose default is "[]" (reason_codes_json and
+      source_refs_json): considered populated,
       since an empty array is a valid value distinct from "missing".
     """
 
@@ -250,33 +243,3 @@ def validate_shape_columns(shape: CandidateShape, df: pd.DataFrame) -> None:
                         "reason": "unexpected",
                     },
                 )
-
-    for index, raw in df["affordances_json"].items():
-        try:
-            from marivo.analysis.frames.base import ArtifactAffordance
-
-            payload = json.loads(raw) if isinstance(raw, str) else []
-            if not isinstance(payload, list):
-                raise FrameMetaInvalidError(
-                    message=f"candidate row {index} has invalid affordances_json",
-                    context={
-                        "kind": "ItemAffordanceShapeInvalid",
-                        "row_index": int(cast("Any", index)),
-                        "shape": shape,
-                        "raw": raw,
-                    },
-                )
-            for entry in payload:
-                ArtifactAffordance.model_validate(entry)
-        except FrameMetaInvalidError:
-            raise
-        except Exception as exc:
-            raise FrameMetaInvalidError(
-                message=(f"candidate row {index} has invalid affordances_json"),
-                context={
-                    "kind": "ItemAffordanceShapeInvalid",
-                    "row_index": int(cast("Any", index)),
-                    "shape": shape,
-                    "raw": raw,
-                },
-            ) from exc

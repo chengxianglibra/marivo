@@ -294,8 +294,8 @@ projection = session.forecast(history, horizon=30)
 对一个 artifact 运行质量检查，返回一个独立的 `QualityReport`。
 `artifact.quality_summary` 只是 cheap、persisted 的 metadata projection；它不等同于执行
 `session.assess_quality(artifact)`。
-检查后，源 artifact 的 `meta.blocking_issues` 会保存最新的质量 blocker。存在
-`time_coverage` blocker 时，不得把该窗口作为完整周期事实报告。
+Report 的 `contract().issues` 包含类型化数据质量失败。存在 blocking 的
+`time_coverage_incomplete` issue 时，不得把该窗口作为完整周期事实报告。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -332,7 +332,12 @@ Discovery operators 在一个 artifact 中搜索确定性候选行，并返回 `
 series = session.observe(revenue, time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day")
 candidates = session.discover.point_anomalies(series, threshold=2.0)
 candidates.show()
+selection = candidates.select(rank=1)
+print(selection.kind, selection.window, selection.keys)
 ```
+
+`select(rank=1)` 返回与 candidate shape 对应的封闭、不可变 selection variant。
+它不接受任意 attribute 名，也不会创建 job、artifact、lineage step 或 evidence 记录。
 
 ## Transform 参考 —— `frame.transform.*`
 
@@ -423,18 +428,20 @@ Agent 读取 artifact 时按层下钻，以降低跨 loop 成本：
 ```python
 repr(delta)          # 廉价单行提示
 delta.show()         # 有界当前状态读取
-delta.contract()     # 接口上可执行的下一步
+delta.contract()     # 接口兼容性与类型化 issues
 delta.to_pandas()    # 终端导出，用于自定义本地分析
 ```
 
-当 operator 产生 evidence 时，`artifact.show()` 会在结果 preview 之前直接展示有界的
-commit-time evidence 摘要。理解当前步骤只需一次 `show()`；回顾或综合多个步骤时使用
-`session.knowledge()`，需要完整 typed records 与审计链时使用 `session.evidence`。
+当 operator 产生 evidence 时，`artifact.show()` 会在结果 preview 之前展示有界的类型化
+digest。同一个值可以从 `artifact.evidence_digest` 读取；通过
+`artifact.evidence_status` 检查降级。精确 finding 与 derivation trace 使用
+`session.evidence`。
 
 用 `artifact.contract().affordances` 查看接口兼容性。每个 affordance 携带
 `capability_id`（稳定的注册表 id）、`public_entrypoint`、`help_target`、
-`required_inputs`、`preconditions` 和 `expected_output_family`。它只说明哪些
-public operator 可以通过接口消费该 artifact、缺哪些输入；它不排序、不推荐，也不决定下一步。`artifact.contract().boundary_ports` 列出类型化的终端出口端口
+保留参数角色的 `inputs`、`preconditions` 和 `expected_output_family`。每个 input
+记录准确参数名、接受的 artifact family，以及当前 artifact 能否绑定它。Contract
+不排序、不推荐、不枚举调用，也不决定下一步。`artifact.contract().boundary_ports` 列出类型化的终端出口端口
 （例如 `boundary.to_pandas`），并附带 `preserves` 和 `does_not_preserve` 保证。
 
 ### 结构化错误
@@ -463,22 +470,26 @@ Marivo 维护一条类型化分析链。终端出口是 `frame.to_pandas()` 和 
 后续脚本需要前序结果时，读取持久化事实，而不是重跑上游查询：
 
 ```python
-summaries = session.frame_summaries()
+summaries = session.frame_summaries(limit=20)
 jobs = session.recent_jobs(limit=5)
 previous = session.get_frame(ref)
 ```
 
+`frame_summaries()` 返回 `FrameSummaryPage`。`has_more` 为 true 时把不透明的
+`next_cursor` 传回同一个方法。分页采用普通 keyset 语义，不提供快照隔离。
+
 使用 `mv.help("recovery")` 查看这些真实的 Session 成员。`recovery` 与 `artifacts`
 是 help topic，并不是 `session.recovery` / `session.artifacts` namespace。
 
-## 证据链与 knowledge
+## 证据链与审计
 
-每个 operator 都会把 evidence 写入 session，使结论保持可审计。
+每个已提交 operator 都会把确定性的类型化 evidence 写入 session。Marivo 不生成跨 artifact
+判断，也不选择下一步操作。
 
-- `session.knowledge()` —— 整个 session 的观察摘要、既定事实、driver 事实、未决异常和建议的后续。
-- `session.evidence.findings(...)`、`.propositions(...)`、`.assessments(...)`、
-  `.proposition(id)`、`.latest_assessment(id)`、`.trace(id)` —— 查找 evidence 对象，
-  并把一个 proposition 追溯回支持它的 findings。
+- `session.evidence.digests(...)` —— 有界、最新优先的 digest page。
+- `session.evidence.findings(...)` —— 有界、最新优先的 finding page。
+- `session.evidence.digest(ref)`、`.finding(id)`、`.trace(id)` —— 精确读取与 finding
+  derivation 审计。
 
 完整模型见 [证据链](/zh-cn/latest/concepts/evidence/)。
 

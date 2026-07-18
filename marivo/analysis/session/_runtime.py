@@ -265,6 +265,7 @@ def persist_frame(session: Session, frame: BaseFrame) -> BaseFrameMeta:
         ),
         content_hash=updated.content_hash,
         produced_by_job=updated.produced_by_job,
+        evidence_status=updated.evidence_status,
     )
     return updated
 
@@ -292,6 +293,7 @@ def register_frame_artifact(session: Session, frame: BaseFrame | BaseFrameMeta) 
         ),
         content_hash=meta.content_hash,
         produced_by_job=meta.produced_by_job,
+        evidence_status=meta.evidence_status,
     )
 
 

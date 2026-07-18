@@ -1,11 +1,19 @@
+"""Direct digest/finding reads over a real analysis session."""
+
 from pathlib import Path
 
 import ibis
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.errors import PropositionNotFoundError
-from marivo.analysis.evidence.types import Assessment, Finding, Proposition, Subject
+from marivo.analysis.errors import FindingNotFoundError
+from marivo.analysis.evidence.types import (
+    ArtifactDigest,
+    ArtifactDigestPage,
+    Finding,
+    FindingPage,
+    Subject,
+)
 from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
 
@@ -31,12 +39,10 @@ def _seed(con: ibis.BaseBackend) -> None:
 
 
 def _session(tmp_path: Path, *, name: str = "t"):
-    import marivo.analysis.session as session_mod
-
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
     bootstrap_sales_project(tmp_path)
-    return session_mod.get_or_create(
+    return session_attach.get_or_create(
         name=name, backends={"warehouse": lambda: con}, use_datasources=False
     )
 
@@ -44,107 +50,68 @@ def _session(tmp_path: Path, *, name: str = "t"):
 def _compare(session):
     from marivo.semantic.catalog import SemanticKind
 
-    cur = session.observe(
+    current = session.observe(
         metric=make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-05-01", "end": "2026-05-07"},
     )
-    bas = session.observe(
+    baseline = session.observe(
         metric=make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-04-24", "end": "2026-04-30"},
     )
-    return session.compare(cur, bas)
+    return session.compare(current, baseline)
 
 
-def test_session_findings_returns_iterable_of_finding(tmp_path: Path) -> None:
+def test_findings_returns_concrete_page_and_new_filters(tmp_path: Path):
     session = _session(tmp_path)
     delta = _compare(session)
-
-    findings = list(session.evidence.findings(artifact_id=delta.meta.artifact_id))
-
-    assert len(findings) >= 1
-    assert all(isinstance(f, Finding) for f in findings)
-    assert all(f.artifact_id == delta.meta.artifact_id for f in findings)
-
-
-def test_session_findings_filter_by_type(tmp_path: Path) -> None:
-    session = _session(tmp_path)
-    _compare(session)
-
-    deltas = list(session.evidence.findings(finding_type="delta"))
-
-    assert deltas
-    assert all(f.finding_type == "delta" for f in deltas)
-
-
-def test_session_findings_filter_by_subject(tmp_path: Path) -> None:
-    session = _session(tmp_path)
-    _compare(session)
-
-    findings = list(
-        session.evidence.findings(
-            subject=Subject(metric="sales.revenue", slice={}, analysis_axis="change")
-        )
+    page = session.evidence.findings(
+        artifact_ref=delta.ref,
+        kind="delta",
+        limit=10,
     )
+    assert isinstance(page, FindingPage)
+    assert page.items
+    assert all(isinstance(item, Finding) for item in page.items)
+    assert all(item.artifact_id == delta.ref for item in page.items)
+    assert all(item.finding_type == "delta" for item in page.items)
 
-    assert findings
-    assert all(f.subject.metric == "sales.revenue" for f in findings)
 
-
-def test_session_propositions_returns_iterable_of_proposition(tmp_path: Path) -> None:
+def test_findings_filter_by_exact_subject(tmp_path: Path):
     session = _session(tmp_path)
     _compare(session)
+    page = session.evidence.findings(
+        subject=Subject(metric="sales.revenue", analysis_axis="change")
+    )
+    assert page.items
+    assert all(item.subject.analysis_axis == "change" for item in page.items)
 
-    props = list(session.evidence.propositions(proposition_type="change"))
 
-    assert len(props) >= 1
-    assert all(isinstance(p, Proposition) for p in props)
-
-
-def test_session_propositions_filter_by_status(tmp_path: Path) -> None:
+def test_digests_page_and_exact_digest_share_persisted_value(tmp_path: Path):
     session = _session(tmp_path)
-    _compare(session)
+    delta = _compare(session)
+    page = session.evidence.digests(operator="compare")
+    exact = session.evidence.digest(delta.ref)
+    assert isinstance(page, ArtifactDigestPage)
+    assert isinstance(exact, ArtifactDigest)
+    assert exact in page.items
+    assert exact == delta.evidence_digest
 
-    props = list(session.evidence.propositions(status="validated"))
 
-    assert props
-    assert all(isinstance(p, Proposition) for p in props)
-
-
-def test_session_assessments_latest_only_default(tmp_path: Path) -> None:
+def test_finding_exact_lookup_and_not_found(tmp_path: Path):
     session = _session(tmp_path)
-    _compare(session)
-
-    assessments = list(session.evidence.assessments())
-
-    assert assessments
-    assert all(isinstance(a, Assessment) for a in assessments)
-    assert all(a.is_latest for a in assessments)
+    delta = _compare(session)
+    finding = session.evidence.findings(artifact_ref=delta.ref).items[0]
+    assert session.evidence.finding(finding.finding_id) == finding
+    with pytest.raises(FindingNotFoundError):
+        session.evidence.finding("fnd_does_not_exist")
 
 
-def test_session_evidence_proposition_lookup(tmp_path: Path) -> None:
-    session = _session(tmp_path)
-    _compare(session)
-    props = list(session.evidence.propositions(proposition_type="change"))
-
-    prop = session.evidence.proposition(props[0].proposition_id)
-
-    assert prop.proposition_id == props[0].proposition_id
-
-
-def test_session_evidence_proposition_not_found_raises(tmp_path: Path) -> None:
-    session = _session(tmp_path)
-
-    with pytest.raises(PropositionNotFoundError):
-        session.evidence.proposition("prop_does_not_exist")
-
-
-def test_session_evidence_latest_assessment(tmp_path: Path) -> None:
-    session = _session(tmp_path)
-    _compare(session)
-    props = list(session.evidence.propositions(proposition_type="change"))
-
-    assessment = session.evidence.latest_assessment(props[0].proposition_id)
-
-    assert assessment is not None
-    assert assessment.proposition_id == props[0].proposition_id
-    assert assessment.is_latest is True
+def test_removed_judgment_reads_are_not_advertised(tmp_path: Path):
+    namespace = _session(tmp_path).evidence
+    for removed in (
+        "propositions",
+        "assessments",
+        "proposition",
+        "latest_assessment",
+    ):
+        assert not hasattr(namespace, removed)

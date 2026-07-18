@@ -21,7 +21,7 @@ forbidden_modules =
     marivo.analysis
 
 [importlinter:contract:analysis-evidence-isolation]
-name = analysis.evidence must not import analysis internals beyond evidence + frames + lineage + refs + errors + followups + session.persistence
+name = analysis.evidence must not import analysis internals beyond evidence + frames + lineage + refs + errors + session.persistence
 type = forbidden
 source_modules =
     marivo.analysis.evidence

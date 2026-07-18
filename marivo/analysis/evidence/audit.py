@@ -1,266 +1,249 @@
-"""Surface 3 audit helpers for evidence objects."""
+"""Direct reads over persisted typed findings and artifact digests."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
-from marivo.analysis.errors import PropositionNotFoundError
+from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
+from marivo.analysis.errors import (
+    EvidenceDigestNotAvailableError,
+    FindingNotFoundError,
+)
+from marivo.analysis.evidence.store import EvidenceStore
 from marivo.analysis.evidence.types import (
-    Assessment,
-    EvidenceTrace,
+    ArtifactDigest,
+    ArtifactDigestPage,
+    DerivationRule,
+    EvidenceDerivationTrace,
     Finding,
-    Proposition,
+    FindingPage,
+    FindingValueAdapter,
     Subject,
+    TimeWindow,
 )
 
 
-def _open(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _loads_dict(raw: str | None) -> dict[str, Any]:
-    if not raw:
-        return {}
-    value = json.loads(raw)
-    return value if isinstance(value, dict) else {}
-
-
-def _loads_list(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    value = json.loads(raw)
-    return [str(item) for item in value] if isinstance(value, list) else []
+def _loads(raw: str | None, default: Any) -> Any:
+    return json.loads(raw) if raw else default
 
 
 def _row_to_finding(row: sqlite3.Row) -> Finding:
-    subject = Subject.model_validate(json.loads(row["subject_payload"]))
+    observed = _loads(row["observed_window_payload"], None)
     return Finding(
         finding_id=row["finding_id"],
         finding_type=row["finding_type"],
+        epistemic_kind=row["epistemic_kind"],
         artifact_id=row["artifact_id"],
         session_id=row["session_id"],
-        subject=subject,
+        subject=Subject.model_validate_json(row["subject_payload"]),
         canonical_item_key=row["canonical_item_key"],
-        payload=_loads_dict(row["payload"]),
-        committed_at=datetime.fromtimestamp(row["committed_at_us"] / 1_000_000, tz=UTC),
+        value=FindingValueAdapter.validate_python(_loads(row["value_payload"], {})),
+        derivation=DerivationRule.model_validate_json(row["derivation_payload"]),
+        source_refs=tuple(_loads(row["source_refs_payload"], [])),
+        observed_window=TimeWindow.model_validate(observed) if observed else None,
         quality_status=row["quality_status"],
-    )
-
-
-def _row_to_proposition(row: sqlite3.Row) -> Proposition:
-    return Proposition(
-        proposition_id=row["proposition_id"],
-        session_id=row["session_id"],
-        proposition_type=row["proposition_type"],
-        origin_kind=row["origin_kind"],
-        derivation_version=row["derivation_version"],
-        subject_key=row["subject_key"],
-        payload=_loads_dict(row["payload"]),
-        seed_finding_refs=_loads_list(row["seed_finding_refs"]),
-        created_at=datetime.fromtimestamp(row["created_at_us"] / 1_000_000, tz=UTC),
-    )
-
-
-def _row_to_assessment(row: sqlite3.Row) -> Assessment:
-    return Assessment(
-        snapshot_id=row["snapshot_id"],
-        proposition_id=row["proposition_id"],
-        session_id=row["session_id"],
-        supersedes_id=row["supersedes_id"],
-        status=row["status"],
-        confidence=row["confidence"],
-        confidence_basis=row["confidence_basis"] or "",
-        payload=_loads_dict(row["payload"]),
-        created_at=datetime.fromtimestamp(row["created_at_us"] / 1_000_000, tz=UTC),
-        is_latest=bool(row["is_latest"]),
+        committed_at=datetime.fromtimestamp(row["committed_at_us"] / 1_000_000, tz=UTC),
+        extractor_version=row["extractor_version"],
+        artifact_schema_version=row["artifact_schema_version"],
     )
 
 
 def query_findings(
     *,
-    db_path: Path,
+    store: EvidenceStore,
     session_id: str,
-    artifact_id: str | None = None,
-    finding_type: str | None = None,
-    subject: Subject | None = None,
-) -> Iterator[Finding]:
-    from marivo.analysis.evidence.identity import canonical_json
-
-    sql = "SELECT * FROM findings WHERE session_id=?"
-    args: list[Any] = [session_id]
-    if artifact_id is not None:
-        sql += " AND artifact_id=?"
-        args.append(artifact_id)
-    if finding_type is not None:
-        sql += " AND finding_type=?"
-        args.append(finding_type)
+    artifact_ref: str | None = None,
+    kind: str | None = None,
+    subject: Any = None,
+    limit: int = 50,
+    cursor: str | None = None,
+) -> FindingPage:
+    """Return one bounded newest-first page of canonical typed findings."""
+    if not 1 <= limit <= 100:
+        raise ValueError("findings limit must be within [1, 100]")
+    clauses = ["session_id = ?"]
+    params: list[object] = [session_id]
+    if artifact_ref is not None:
+        clauses.append("artifact_id = ?")
+        params.append(artifact_ref)
+    if kind is not None:
+        clauses.append("finding_type = ?")
+        params.append(kind)
     if subject is not None:
-        sql += " AND subject_payload=?"
-        args.append(canonical_json(subject.model_dump(mode="json")))
-    sql += " ORDER BY committed_at_us, finding_id"
+        payload = Subject.model_validate(subject).model_dump(mode="json")
+        clauses.append("subject_payload = ?")
+        params.append(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    if cursor is not None:
+        committed_at, identity = decode_keyset_cursor(cursor)
+        if not isinstance(committed_at, int):
+            raise ValueError("findings cursor has an invalid sort key")
+        clauses.append("(committed_at_us < ? OR (committed_at_us = ? AND finding_id < ?))")
+        params.extend((committed_at, committed_at, identity))
+    params.append(limit + 1)
+    rows = list(
+        store.read().execute(
+            f"SELECT * FROM findings WHERE {' AND '.join(clauses)} "
+            "ORDER BY committed_at_us DESC, finding_id DESC LIMIT ?",
+            tuple(params),
+        )
+    )
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = (
+        encode_keyset_cursor(visible[-1]["committed_at_us"], visible[-1]["finding_id"])
+        if has_more
+        else None
+    )
+    return FindingPage(
+        items=tuple(_row_to_finding(row) for row in visible),
+        limit=limit,
+        has_more=has_more,
+        next_cursor=next_cursor,
+    )
 
-    conn = _open(db_path)
-    try:
-        for row in conn.execute(sql, args):
-            yield _row_to_finding(row)
-    finally:
-        conn.close()
 
-
-def query_propositions(
+def query_digests(
     *,
-    db_path: Path,
+    store: EvidenceStore,
     session_id: str,
-    proposition_type: str | None = None,
-    subject: Subject | None = None,
-    status: str | None = None,
-) -> Iterator[Proposition]:
+    operator: str | None = None,
+    subject: Any = None,
+    limit: int = 10,
+    cursor: str | None = None,
+) -> ArtifactDigestPage:
+    """Return one bounded newest-first page of persisted digest snapshots."""
     from marivo.analysis.evidence.identity import canonical_subject_key
 
-    sql = "SELECT * FROM propositions WHERE session_id=?"
-    args: list[Any] = [session_id]
-    if proposition_type is not None:
-        sql += " AND proposition_type=?"
-        args.append(proposition_type)
+    if not 1 <= limit <= 100:
+        raise ValueError("digests limit must be within [1, 100]")
+    clauses = ["session_id = ?"]
+    params: list[object] = [session_id]
+    if operator is not None:
+        clauses.append("operator = ?")
+        params.append(operator)
     if subject is not None:
-        sql += " AND subject_key=?"
-        args.append(canonical_subject_key(subject))
-    if status is not None:
-        sql += (
-            " AND EXISTS (SELECT 1 FROM assessment_snapshots a "
-            "WHERE a.proposition_id=propositions.proposition_id "
-            "AND a.is_latest=1 AND a.status=?)"
+        clauses.append("subject_key = ?")
+        params.append(canonical_subject_key(Subject.model_validate(subject)))
+    if cursor is not None:
+        committed_at, identity = decode_keyset_cursor(cursor)
+        if not isinstance(committed_at, int):
+            raise ValueError("digests cursor has an invalid sort key")
+        clauses.append("(committed_at_us < ? OR (committed_at_us = ? AND artifact_id < ?))")
+        params.extend((committed_at, committed_at, identity))
+    params.append(limit + 1)
+    rows = list(
+        store.read().execute(
+            f"SELECT * FROM artifact_digests WHERE {' AND '.join(clauses)} "
+            "ORDER BY committed_at_us DESC, artifact_id DESC LIMIT ?",
+            tuple(params),
         )
-        args.append(status)
-    sql += " ORDER BY created_at_us, proposition_id"
-
-    conn = _open(db_path)
-    try:
-        for row in conn.execute(sql, args):
-            yield _row_to_proposition(row)
-    finally:
-        conn.close()
-
-
-def query_assessments(
-    *,
-    db_path: Path,
-    session_id: str,
-    proposition_id: str | None = None,
-    latest_only: bool = True,
-) -> Iterator[Assessment]:
-    sql = "SELECT * FROM assessment_snapshots WHERE session_id=?"
-    args: list[Any] = [session_id]
-    if proposition_id is not None:
-        sql += " AND proposition_id=?"
-        args.append(proposition_id)
-    if latest_only:
-        sql += " AND is_latest=1"
-    sql += " ORDER BY created_at_us, snapshot_id"
-
-    conn = _open(db_path)
-    try:
-        for row in conn.execute(sql, args):
-            yield _row_to_assessment(row)
-    finally:
-        conn.close()
+    )
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = (
+        encode_keyset_cursor(visible[-1]["committed_at_us"], visible[-1]["artifact_id"])
+        if has_more
+        else None
+    )
+    return ArtifactDigestPage(
+        items=tuple(ArtifactDigest.model_validate_json(row["digest_payload"]) for row in visible),
+        limit=limit,
+        has_more=has_more,
+        next_cursor=next_cursor,
+    )
 
 
-def get_proposition(*, db_path: Path, proposition_id: str) -> Proposition:
-    conn = _open(db_path)
-    try:
-        try:
-            row = conn.execute(
-                "SELECT * FROM propositions WHERE proposition_id=?",
-                (proposition_id,),
-            ).fetchone()
-        except sqlite3.OperationalError as exc:
-            if "no such table" not in str(exc):
-                raise
-            row = None
-    finally:
-        conn.close()
+def get_finding(*, store: EvidenceStore, finding_id: str) -> Finding:
+    """Return one typed finding or raise a typed not-found error."""
+    row = (
+        store.read()
+        .execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
+        .fetchone()
+    )
     if row is None:
-        raise PropositionNotFoundError(
-            message=f"proposition_id={proposition_id!r} not found",
-            context={"proposition_id": proposition_id},
+        raise FindingNotFoundError(
+            message=f"finding {finding_id!r} does not exist",
+            expected="an existing canonical finding id",
+            received=finding_id,
+            location="session.evidence.finding",
         )
-    return _row_to_proposition(row)
+    return _row_to_finding(row)
 
 
-def get_latest_assessment(*, db_path: Path, proposition_id: str) -> Assessment | None:
-    conn = _open(db_path)
-    try:
-        row = conn.execute(
-            "SELECT * FROM assessment_snapshots WHERE proposition_id=? AND is_latest=1",
-            (proposition_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-    return _row_to_assessment(row) if row is not None else None
-
-
-def build_evidence_trace(*, db_path: Path, proposition_id: str) -> EvidenceTrace:
-    proposition = get_proposition(db_path=db_path, proposition_id=proposition_id)
-    latest = get_latest_assessment(db_path=db_path, proposition_id=proposition_id)
-    conn = _open(db_path)
-    try:
-        seed_findings: list[Finding] = []
-        if proposition.seed_finding_refs:
-            placeholders = ",".join("?" for _ in proposition.seed_finding_refs)
-            rows = conn.execute(
-                f"SELECT * FROM findings WHERE finding_id IN ({placeholders})",
-                proposition.seed_finding_refs,
-            )
-            seed_findings = [_row_to_finding(row) for row in rows]
-
-        support_findings: list[Finding] = []
-        oppose_findings: list[Finding] = []
-        if latest is not None:
-            rows = conn.execute(
-                """
-                SELECT f.*, e.role FROM assessment_edges e
-                JOIN findings f ON f.finding_id = e.finding_id
-                WHERE e.snapshot_id=?
-                """,
-                (latest.snapshot_id,),
-            )
-            for row in rows:
-                finding = _row_to_finding(row)
-                if row["role"] == "support":
-                    support_findings.append(finding)
-                elif row["role"] == "oppose":
-                    oppose_findings.append(finding)
-
-        source_artifacts = sorted(
-            {finding.artifact_id for finding in seed_findings + support_findings + oppose_findings}
+def get_digest(*, store: EvidenceStore, artifact_ref: str) -> ArtifactDigest:
+    """Return one persisted digest without rebuilding it from findings."""
+    row = (
+        store.read()
+        .execute(
+            "SELECT digest_payload FROM artifact_digests WHERE artifact_id = ?",
+            (artifact_ref,),
         )
-    finally:
-        conn.close()
+        .fetchone()
+    )
+    if row is not None:
+        return ArtifactDigest.model_validate_json(row["digest_payload"])
+    artifact = (
+        store.read()
+        .execute("SELECT evidence_status FROM artifacts WHERE artifact_id = ?", (artifact_ref,))
+        .fetchone()
+    )
+    finding_exists = (
+        store.read()
+        .execute("SELECT 1 FROM findings WHERE artifact_id = ? LIMIT 1", (artifact_ref,))
+        .fetchone()
+        is not None
+    )
+    status = artifact["evidence_status"] if artifact is not None else "unavailable"
+    raise EvidenceDigestNotAvailableError(
+        message=f"artifact {artifact_ref!r} has no persisted evidence digest",
+        expected="a complete persisted ArtifactDigest",
+        received=f"evidence_status={status}, findings_available={finding_exists}",
+        location="session.evidence.digest",
+        context={
+            "artifact_ref": artifact_ref,
+            "evidence_status": status,
+            "findings_available": finding_exists,
+            "fallback": "session.evidence.findings(...) or session.get_frame(ref)",
+        },
+    )
 
-    return EvidenceTrace(
-        proposition=proposition,
-        latest_assessment=latest,
-        seed_findings=seed_findings,
-        support_findings=support_findings,
-        oppose_findings=oppose_findings,
-        source_artifacts=source_artifacts,
-        source_steps=[],
+
+def build_evidence_trace(*, store: EvidenceStore, finding_id: str) -> EvidenceDerivationTrace:
+    """Trace one finding directly to its sources and retained digest items."""
+    finding = get_finding(store=store, finding_id=finding_id)
+    retained: list[str] = []
+    row = (
+        store.read()
+        .execute(
+            "SELECT digest_payload FROM artifact_digests WHERE artifact_id = ?",
+            (finding.artifact_id,),
+        )
+        .fetchone()
+    )
+    if row is not None:
+        digest = ArtifactDigest.model_validate_json(row["digest_payload"])
+        retained = [
+            item.item_id
+            for item in digest.items
+            if finding_id in item.derivation.source_finding_refs
+        ]
+    return EvidenceDerivationTrace(
+        finding=finding,
+        derivation=finding.derivation,
+        source_artifact_ref=finding.artifact_id,
+        source_fields=finding.derivation.source_fields,
+        source_refs=finding.source_refs,
+        retained_digest_item_refs=tuple(retained),
     )
 
 
 __all__ = [
     "build_evidence_trace",
-    "get_latest_assessment",
-    "get_proposition",
-    "query_assessments",
+    "get_digest",
+    "get_finding",
+    "query_digests",
     "query_findings",
-    "query_propositions",
 ]
