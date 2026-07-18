@@ -257,10 +257,10 @@ def test_delta_contract_describes_multi_axis_attribution_mode():
         item for item in frame.contract().affordances if item.capability_id == "attribute"
     )
 
-    assert affordance.param_template.judgment_slots == [
-        "axes",
-        "mode when axes has multiple entries: joint|hierarchy",
-    ]
+    assert [
+        (item.parameter, item.bindable_from_current_artifact)
+        for item in affordance.input_requirements
+    ] == [("axes", False), ("frame", True)]
 
 
 def test_decompose_multi_axis_joint_returns_each_axis_combination_once():

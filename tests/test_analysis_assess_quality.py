@@ -112,7 +112,7 @@ def test_metric_time_coverage_preserves_supported_grain_buckets(
     assert details["coverage_ratio"] == 1.0
 
 
-def test_hourly_time_coverage_blocker_persists_to_source_frame(tmp_path):
+def test_hourly_time_coverage_issue_belongs_only_to_quality_report(tmp_path):
     session = session_attach.get_or_create(name="demo")
     start = "2026-06-30T00:00:00"
     end = "2026-07-01T00:00:00"
@@ -131,13 +131,7 @@ def test_hourly_time_coverage_blocker_persists_to_source_frame(tmp_path):
     details = json.loads(coverage["details_json"])
     loaded_source = load_frame(frame.ref, session=session)
     report_issue = next(
-        issue for issue in report.meta.blocking_issues if issue.kind == "time_coverage"
-    )
-    source_issue = next(
-        issue for issue in frame.meta.blocking_issues if issue.kind == "time_coverage"
-    )
-    loaded_issue = next(
-        issue for issue in loaded_source.meta.blocking_issues if issue.kind == "time_coverage"
+        issue for issue in report.meta.issues if issue.kind == "time_coverage_incomplete"
     )
 
     assert details["expected_buckets"] == 24
@@ -151,18 +145,11 @@ def test_hourly_time_coverage_blocker_persists_to_source_frame(tmp_path):
         "2026-06-30T16:00:00",
     ]
     assert report.meta.overall_status == "blocking"
-    assert frame.quality_summary is not None
-    assert frame.quality_summary.coverage == pytest.approx(0.5)
-    assert report_issue.payload == source_issue.payload == loaded_issue.payload
-    assert report_issue.payload == {
-        "check_id": "time_coverage",
-        "check_kind": "time_coverage",
-        "coverage_ratio": 0.5,
-        "expected_buckets": 24,
-        "missing_examples": details["missing_examples"],
-        "observed_buckets": 12,
-        "origin": "assess_quality",
-    }
+    assert frame.meta.issues == ()
+    assert loaded_source.meta.issues == ()
+    assert report_issue.check_id == "time_coverage"
+    assert report_issue.observed_value == 0.5
+    assert report_issue.expectation == "coverage_ratio >= 0.8"
 
 
 def test_metric_segmented_duplicate_keys_blocking(tmp_path):
@@ -179,7 +166,7 @@ def test_metric_segmented_duplicate_keys_blocking(tmp_path):
     duplicate = report.to_pandas().set_index("check_kind").loc["duplicate_keys"]
 
     assert duplicate["severity"] == "blocking"
-    assert report.meta.blocking_issues[0].kind == "quality"
+    assert report.meta.issues[0].kind == "duplicate_keys_detected"
     assert json.loads(duplicate["details_json"])["duplicate_count"] == 2
 
 
@@ -200,7 +187,7 @@ def test_null_ratio_per_measure_and_row_count_zero(tmp_path):
     empty = _metric(session, [], semantic_kind="scalar", axes={})
     empty_report = session.assess_quality(empty)
     assert empty_report.meta.overall_status == "blocking"
-    assert empty_report.meta.blocking_issues[0].kind == "sample_size"
+    assert empty_report.meta.issues[0].kind == "sample_size_low"
 
 
 def test_scalar_metric_single_row_does_not_emit_row_count_warning(tmp_path):
@@ -414,7 +401,8 @@ def test_assess_quality_returns_report_without_copying_report_into_source_artifa
     report = session.assess_quality(frame)
 
     assert report.kind == "quality_report"
-    assert frame.quality_summary is not None
+    assert frame.quality_summary is None
+    assert frame.meta.issues == ()
     assert not hasattr(frame.meta, "quality")
     assert not hasattr(frame.meta, "recommended_followups")
     assert report.ref != frame.ref

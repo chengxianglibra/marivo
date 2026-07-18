@@ -154,9 +154,8 @@ def test_ratio_segmented_observation_digest_omits_composition_fields(tmp_path):
     )
 
     assert mf.meta.additivity == "non_additive"
-    observations = s.knowledge().observations()
-    assert len(observations) == 1
-    digest = observations[0].digest
+    assert mf.evidence_digest is not None
+    digest = next(item.value for item in mf.evidence_digest.items if item.kind == "observation")
     assert digest.shape == "segmented"
     assert digest.total_value is None
     assert digest.top_segments

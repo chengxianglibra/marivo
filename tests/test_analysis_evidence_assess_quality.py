@@ -1,46 +1,53 @@
-"""assess_quality wired through commit_result."""
+"""Quality reports emit canonical predicate findings before digest construction."""
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
 
 import marivo.analysis.session as session_attach
-from marivo.analysis.evidence.types import ArtifactEvidenceSummary
 from tests.shared_fixtures import seeded_time_series_metric_frame
 
 
 @pytest.fixture(autouse=True)
-def _chdir(tmp_path, monkeypatch):
+def _reset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
     yield
+    session_attach._reset_process_state()
 
 
-def test_assess_quality_populates_surface1_without_findings_or_followups() -> None:
+def test_assess_quality_persists_findings_and_bounded_digest() -> None:
     session = session_attach.get_or_create(name="quality_evidence")
     frame = seeded_time_series_metric_frame(session=session, n_buckets=5)
 
     quality = session.assess_quality(frame)
 
-    assert quality.meta.artifact_id is not None
-    assert quality.meta.ref == quality.meta.artifact_id
-    assert quality.meta.evidence_status == "complete"
-
+    assert quality.evidence_status == "complete"
+    assert quality.evidence_digest is not None
+    assert {item.kind for item in quality.evidence_digest.items} == {"quality_check"}
+    assert all(item.epistemic_kind == "tested" for item in quality.evidence_digest.items)
+    assert quality.evidence_digest.quality is not None
+    assert quality.evidence_digest.quality.evaluated_check_count == 3
+    assert quality.evidence_digest.quality.failed_check_count == 0
+    assert "evaluated_check_count=3" in quality.evidence_digest.render()
     with sqlite3.connect(session._layout.session_dir / "judgment.db") as conn:
-        artifact_rows = conn.execute(
-            "SELECT step_type, artifact_type, evidence_status FROM artifacts WHERE artifact_id=?",
-            (quality.meta.artifact_id,),
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT value_payload FROM findings WHERE artifact_id = ? ORDER BY finding_id",
+            (quality.ref,),
         ).fetchall()
-        finding_count = conn.execute(
-            "SELECT count(*) FROM findings WHERE artifact_id=?",
-            (quality.meta.artifact_id,),
-        ).fetchone()[0]
-        proposition_count = conn.execute("SELECT count(*) FROM propositions").fetchone()[0]
-
-    assert artifact_rows == [("assess_quality", "quality_report", "complete")]
-    assert finding_count == 0
-    assert proposition_count == 0
-
-    assert quality.evidence_summary == ArtifactEvidenceSummary(finding_count=0)
+        legacy_tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+            "('propositions', 'assessment_snapshots', 'followups')"
+        ).fetchall()
+    values = [json.loads(row["value_payload"]) for row in rows]
+    assert {value["kind"] for value in values} == {"quality_check"}
+    assert {value["check_id"] for value in values} == {
+        "row_count",
+        "null_ratio:value",
+        "time_coverage",
+    }
+    assert legacy_tables == []

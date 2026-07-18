@@ -187,9 +187,9 @@ This overview is the entry point. The focused specs:
 - [`session-state-and-runtime.md`](session-state-and-runtime.md) — the `Session`
   object, the project-local `.marivo/analysis/` layout, content-addressed identity,
   cold-start rehydration, cross-session ownership, and failure recovery.
-- [`evidence-access-surface.md`](evidence-access-surface.md) — the result-bound,
-  session-bound, and object-bound evidence surfaces, follow-up generation rules, the
-  `judgment.db` ledger, identity/stability, and the exception taxonomy.
+- [`evidence-access-surface.md`](evidence-access-surface.md) — typed findings,
+  bounded artifact digests, inference boundaries, session audit pages, the v2
+  `judgment.db` ledger, and the agent-owned judgment boundary.
 - [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md) — the two
   timezone axes (read tz and report tz), time-column classification, window/bucket
   computation, and calendar alignment.

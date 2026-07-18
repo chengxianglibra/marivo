@@ -109,7 +109,6 @@ def test_analysis_exports_public_surface_by_layer() -> None:
     advanced_internal = {
         "BaseFrame",
         "BaseFrameMeta",
-        "FrameSummaryEntry",
         "JobSummary",
         "SessionSummary",
         "Lineage",

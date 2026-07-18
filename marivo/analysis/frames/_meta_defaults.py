@@ -1,13 +1,12 @@
-"""Compute default confidence_scope and quality_summary for frame meta at commit time."""
+"""Compute default analysis_scope and quality_summary for frame meta at commit time."""
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 import pandas as pd
 
-from marivo.analysis.evidence.types import QualitySummary
-from marivo.analysis.followups import ConfidenceScope
+from marivo.analysis.evidence.types import AnalysisScope, JsonValue, QualitySummary
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 
 GRAIN_FREQ = {"hour": "h", "day": "D", "week": "W-MON", "month": "MS", "quarter": "QS"}
@@ -104,15 +103,20 @@ def compute_quality_summary(frame: BaseFrame) -> QualitySummary:
             else None
         ),
         zero_denominator_rows=getattr(meta, "zero_denominator_rows", None),
+        evaluated_check_count=(
+            len(checks) if isinstance(checks := getattr(meta, "checks_run", None), list) else None
+        ),
+        failed_check_count=getattr(meta, "blocking_issue_count", None),
+        warning_check_count=getattr(meta, "warning_count", None),
     )
 
 
-def compute_confidence_scope(frame: BaseFrame) -> ConfidenceScope:
-    """Derive ConfidenceScope from frame meta fields."""
+def compute_analysis_scope(frame: BaseFrame) -> AnalysisScope:
+    """Derive the existing metric-shaped analysis scope from frame metadata."""
     meta = frame.meta
     metric_ids: list[str] = []
-    segment_keys: dict[str, Any] = {}
-    window: dict[str, Any] | None = None
+    segment_keys: dict[str, JsonValue] = {}
+    window: dict[str, JsonValue] | None = None
 
     # Use getattr to avoid importing concrete meta types which pull in
     # transitive deps that violate the analysis.evidence isolation contract.
@@ -132,18 +136,28 @@ def compute_confidence_scope(frame: BaseFrame) -> ConfidenceScope:
         metric_ids = [str(target_metric_id)]
 
     if isinstance(axes, dict):
-        segment_keys = {k: v for k, v in axes.items() if k != "time" and isinstance(v, dict)}
+        segment_keys = {
+            str(k): str(v) for k, v in axes.items() if k != "time" and isinstance(v, dict)
+        }
 
     if window_attr is not None:
-        window = window_attr
+        window = (
+            {str(k): v for k, v in window_attr.items()} if isinstance(window_attr, dict) else None
+        )
     elif alignment is not None:
-        window = alignment
+        window = (
+            {str(k): str(v) for k, v in alignment.items()} if isinstance(alignment, dict) else None
+        )
     elif forecast_window is not None:
-        window = forecast_window
+        window = (
+            {str(k): v for k, v in forecast_window.items()}
+            if isinstance(forecast_window, dict)
+            else None
+        )
 
-    return ConfidenceScope(
-        metric_ids=metric_ids,
+    return AnalysisScope(
+        metric_ids=tuple(metric_ids),
         segment_keys=segment_keys,
         window=window,
-        assumptions=[],
+        assumptions=(),
     )

@@ -349,9 +349,8 @@ def test_failed_precondition_without_repair_suppresses_affordance() -> None:
         capability_id="compare",
         public_entrypoint="session.compare(...)",
         help_target="compare",
-        required_inputs=["metric_frame"],
-        preconditions=preconditions,
-        param_template=ArtifactAffordance.model_fields["param_template"].default,
+        input_requirements=(),
+        preconditions=tuple(preconditions),
         expected_output_family="delta_frame",
     )
     from marivo.analysis.frames.base import _visible_precondition

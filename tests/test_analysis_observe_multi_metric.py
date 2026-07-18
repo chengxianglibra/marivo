@@ -258,7 +258,7 @@ def test_evidence_findings_per_metric(sales_session):
     frame = _fused_frame(sales_session)
     findings = [
         f
-        for f in sales_session.evidence.findings(artifact_id=frame.meta.artifact_id)
+        for f in sales_session.evidence.findings(artifact_ref=frame.meta.artifact_id)
         if f.finding_type == "metric_value"
     ]
     subjects = {f.subject.metric for f in findings}

@@ -1,32 +1,35 @@
-"""Stable identity helpers for evidence objects."""
+"""Replay-stable identity helpers for typed evidence values."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Any
+
+from pydantic import BaseModel
 
 from marivo.analysis.evidence.types import Subject
 
-_SUBJECT_HASH_LEN = 32  # SHA-256 first 16 bytes hex
+_SUBJECT_HASH_LEN = 32
 _ID_HASH_LEN = 24
 
 
 def canonical_json(value: Any) -> str:
-    """RFC-8785-compatible canonicalization (sorted keys, no whitespace)."""
+    """Return deterministic JSON for supported evidence payloads."""
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json", exclude_none=False)
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _hash(prefix: str, raw: str, length: int = _ID_HASH_LEN) -> str:
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+def _hash(prefix: str, value: Any, length: int = _ID_HASH_LEN) -> str:
+    digest = hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
     return f"{prefix}{digest[:length]}"
 
 
 def canonical_subject_key(subject: Subject) -> str:
-    """Hash a Subject model to a 32-char hex key."""
-    payload = subject.model_dump(mode="json", exclude_none=False)
-    raw = canonical_json(payload)
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    """Hash a subject's complete normalized semantic content."""
+    digest = hashlib.sha256(canonical_json(subject).encode("utf-8")).hexdigest()
     return digest[:_SUBJECT_HASH_LEN]
 
 
@@ -36,125 +39,94 @@ def make_artifact_id(
     normalized_params: dict[str, Any],
     semantic_anchors: dict[str, Any],
 ) -> str:
-    """Deterministic artifact ID from step type, inputs, params, and anchors."""
-    raw = canonical_json(
+    """Build the deterministic identity of a canonical artifact."""
+    return _hash(
+        "art_",
         {
             "step_type": step_type,
             "inputs": sorted(normalized_inputs),
             "params": normalized_params,
             "semantic_anchors": semantic_anchors,
-        }
+        },
     )
-    return _hash("art_", raw)
 
 
 def make_finding_id(artifact_id: str, finding_type: str, canonical_item_key: str) -> str:
-    """Deterministic finding ID from artifact, type, and item key."""
-    raw = f"{artifact_id}|{finding_type}|{canonical_item_key}"
-    return _hash("fnd_", raw)
-
-
-def make_proposition_id(
-    *,
-    proposition_type: str,
-    origin_kind: str,
-    derivation_version: str,
-    subject_key: str,
-    payload: dict[str, Any],
-) -> str:
-    """Deterministic proposition ID from type, origin, version, subject, and payload."""
-    raw = canonical_json(
+    """Build an identity from finding semantics, excluding persistence time."""
+    return _hash(
+        "fnd_",
         {
-            "type": proposition_type,
-            "origin": origin_kind,
-            "derivation_version": derivation_version,
-            "subject_key": subject_key,
-            "payload": payload,
-        }
+            "artifact_id": artifact_id,
+            "finding_type": finding_type,
+            "canonical_item_key": canonical_item_key,
+        },
     )
-    return _hash("prop_", raw)
 
 
-def make_action_id(
-    *,
-    source_artifact_id: str,
-    category: str,
-    operator: str | None,
-    input_refs: list[str],
-    params: dict[str, Any],
+def make_digest_item_id(
+    *, artifact_ref: str, item_kind: str, source_finding_refs: tuple[str, ...]
 ) -> str:
-    """Deterministic action ID from source artifact, category, operator, refs, and params."""
-    raw = canonical_json(
+    """Build a digest-item identity from its artifact, kind, and source findings."""
+    return _hash(
+        "itm_",
         {
-            "source_artifact_id": source_artifact_id,
-            "category": category,
-            "operator": operator,
-            "input_refs": sorted(input_refs),
-            "params": params,
-        }
+            "artifact_ref": artifact_ref,
+            "item_kind": item_kind,
+            "source_finding_refs": sorted(source_finding_refs),
+        },
     )
-    return _hash("act_", raw)
 
 
-def make_issue_id(
-    *,
-    artifact_id: str,
-    kind: str,
-    source_refs: list[str],
-) -> str:
-    """Deterministic issue ID from artifact, kind, and source refs."""
-    raw = canonical_json(
+def make_digest_fingerprint(digest_payload: BaseModel | dict[str, Any]) -> str:
+    """Fingerprint normalized digest semantics, excluding the fingerprint field."""
+    if isinstance(digest_payload, BaseModel):
+        payload = digest_payload.model_dump(
+            mode="json", exclude={"fingerprint"}, exclude_none=False
+        )
+    else:
+        payload = dict(digest_payload)
+        payload.pop("fingerprint", None)
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def make_issue_id(*, artifact_id: str, kind: str, source_refs: tuple[str, ...]) -> str:
+    """Build an immutable artifact-issue identity."""
+    return _hash(
+        "iss_",
         {
             "artifact_id": artifact_id,
             "kind": kind,
             "source_refs": sorted(source_refs),
-        }
+        },
     )
-    return _hash("iss_", raw)
 
 
-def make_assessment_id(
-    *,
-    proposition_id: str,
-    session_id: str,
-    snapshot_seq: int,
-) -> str:
-    """Deterministic assessment ID from proposition, session, and sequence."""
-    raw = f"{session_id}|{proposition_id}|{snapshot_seq}"
-    return _hash("ass_", raw)
-
-
-def to_microseconds_utc(dt: Any) -> int:
-    """Convert a tz-aware datetime to microseconds since unix epoch UTC."""
-    from datetime import UTC, datetime
-
-    if not isinstance(dt, datetime):
-        raise TypeError(f"expected datetime, got {type(dt).__name__}")
+def to_microseconds_utc(dt: datetime) -> int:
+    """Convert a timezone-aware datetime to microseconds since Unix epoch."""
     if dt.tzinfo is None:
-        raise ValueError("datetime must be tz-aware")
+        raise ValueError("datetime must be timezone-aware")
     return int(dt.astimezone(UTC).timestamp() * 1_000_000)
 
 
 def make_component_artifact_id(parent_ref: str) -> str:
-    """Deterministic component frame ref derived from the parent's ref or artifact_id."""
-    return _hash("comp_", parent_ref)
+    """Build a deterministic component artifact identity."""
+    return _hash("comp_", {"parent_ref": parent_ref})
 
 
 def make_coverage_artifact_id(parent_ref: str) -> str:
-    """Deterministic coverage frame ref derived from the parent's ref or artifact_id."""
-    return _hash("cov_", parent_ref)
+    """Build a deterministic coverage artifact identity."""
+    return _hash("cov_", {"parent_ref": parent_ref})
 
 
 __all__ = [
     "canonical_json",
     "canonical_subject_key",
-    "make_action_id",
     "make_artifact_id",
-    "make_assessment_id",
     "make_component_artifact_id",
     "make_coverage_artifact_id",
+    "make_digest_fingerprint",
+    "make_digest_item_id",
     "make_finding_id",
     "make_issue_id",
-    "make_proposition_id",
     "to_microseconds_utc",
 ]

@@ -9,7 +9,6 @@ from pydantic import ConfigDict, Field
 
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
-    ArtifactParamTemplate,
     ArtifactPrecondition,
     BaseFrame,
     BaseFrameMeta,
@@ -254,23 +253,15 @@ class DeltaFrame(BaseFrame):
                 precondition = _attribution_contract_precondition(self.meta)
                 affordance = affordance.model_copy(
                     update={
-                        "param_template": ArtifactParamTemplate(
-                            deterministic_slots=affordance.param_template.deterministic_slots,
-                            judgment_slots=[
-                                *affordance.param_template.judgment_slots,
-                                "axes",
-                                "mode when axes has multiple entries: joint|hierarchy",
-                            ],
-                        ),
                         "preconditions": (
-                            [*affordance.preconditions, precondition]
+                            (*affordance.preconditions, precondition)
                             if precondition is not None
                             else affordance.preconditions
                         ),
                     }
                 )
             affordances.append(affordance)
-        contract = contract.model_copy(update={"affordances": affordances})
+        contract = contract.model_copy(update={"affordances": tuple(affordances)})
         to_date = self._to_date_tail()
         if to_date is None:
             return contract
@@ -284,10 +275,10 @@ class DeltaFrame(BaseFrame):
             ),
         )
         affordances = [
-            affordance.model_copy(update={"preconditions": [*affordance.preconditions, caveat]})
+            affordance.model_copy(update={"preconditions": (*affordance.preconditions, caveat)})
             for affordance in contract.affordances
         ]
-        return contract.model_copy(update={"affordances": affordances})
+        return contract.model_copy(update={"affordances": tuple(affordances)})
 
     def predicted_attribution_shape(self) -> AttributionShape:
         """Predict the AttributionFrame shape decompose will produce for this delta.

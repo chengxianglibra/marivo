@@ -1,4 +1,4 @@
-"""SQLite judgment.db schema, migration, WAL, lock, GC, SAVEPOINT helper."""
+"""Fresh schema-v2 evidence-store contracts."""
 
 from __future__ import annotations
 
@@ -7,93 +7,118 @@ from pathlib import Path
 
 import pytest
 
+import marivo.analysis.evidence.store as store_module
 from marivo.analysis.errors import (
+    EvidenceStoreUnavailableError,
     SchemaVersionMismatchError,
     SessionLockedByAnotherProcessError,
 )
-from marivo.analysis.evidence.store import (
-    EXPECTED_SCHEMA_VERSION,
-    open_judgment_store,
-)
+from marivo.analysis.evidence.store import EXPECTED_SCHEMA_VERSION, open_evidence_store
 
 
-def test_open_creates_schema(tmp_path: Path) -> None:
+def test_fresh_store_contains_only_v2_evidence_tables(tmp_path: Path) -> None:
     db_path = tmp_path / "judgment.db"
-    store = open_judgment_store(db_path)
+    store = open_evidence_store(db_path)
     try:
         with sqlite3.connect(db_path) as conn:
-            user_version = conn.execute("PRAGMA user_version").fetchone()[0]
-            assert user_version == EXPECTED_SCHEMA_VERSION
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == EXPECTED_SCHEMA_VERSION
             tables = {
                 row[0]
                 for row in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
-            assert {
+            assert tables == {
                 "artifacts",
                 "findings",
-                "propositions",
-                "assessment_snapshots",
-                "assessment_edges",
-                "blocking_issues",
-                "followups",
-            }.issubset(tables)
-            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-            assert mode.lower() == "wal"
+                "artifact_digests",
+                "artifact_issues",
+            }
+            assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
     finally:
         store.close()
 
 
-def test_open_rejects_higher_schema_version(tmp_path: Path) -> None:
+def test_store_rejects_future_schema(tmp_path: Path) -> None:
     db_path = tmp_path / "judgment.db"
     with sqlite3.connect(db_path) as conn:
         conn.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION + 1}")
     with pytest.raises(SchemaVersionMismatchError):
-        open_judgment_store(db_path)
+        open_evidence_store(db_path)
 
 
-def test_savepoint_helper_rollback_preserves_outer_writes(tmp_path: Path) -> None:
+def test_store_rejects_pre_cutover_schema_without_migration(tmp_path: Path) -> None:
     db_path = tmp_path / "judgment.db"
-    store = open_judgment_store(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA user_version = 1")
+    with pytest.raises(SchemaVersionMismatchError, match="requires a fresh v2 evidence store"):
+        open_evidence_store(db_path)
+
+
+def test_store_setup_failure_is_normalized_to_typed_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_connect = sqlite3.connect
+
+    class FailingSetupConnection:
+        def __init__(self) -> None:
+            self._inner = real_connect(":memory:", isolation_level=None)
+            self.closed = False
+
+        @property
+        def row_factory(self):
+            return self._inner.row_factory
+
+        @row_factory.setter
+        def row_factory(self, value):
+            self._inner.row_factory = value
+
+        def execute(self, sql, params=()):
+            if "journal_mode" in sql:
+                raise sqlite3.OperationalError("attempt to write a readonly database")
+            return self._inner.execute(sql, params)
+
+        def close(self) -> None:
+            self.closed = True
+            self._inner.close()
+
+    failing = FailingSetupConnection()
+    monkeypatch.setattr(store_module.sqlite3, "connect", lambda *_args, **_kwargs: failing)
+
+    with pytest.raises(EvidenceStoreUnavailableError, match=r"cannot open judgment\.db"):
+        open_evidence_store(tmp_path / "judgment.db")
+    assert failing.closed
+
+
+def test_transaction_rolls_back_all_projection_rows(tmp_path: Path) -> None:
+    store = open_evidence_store(tmp_path / "judgment.db")
     try:
-        with store.transaction() as tx:
+        with pytest.raises(RuntimeError), store.transaction(immediate=True) as tx:
             tx.execute(
-                "INSERT INTO artifacts(artifact_id, session_id, step_type, "
-                "artifact_type, artifact_schema_version, subject_payload, "
-                "lineage_payload, evidence_status, committed_at_us) VALUES (?,?,?,?,?,?,?,?,?)",
-                ("art_1", "sess_1", "compare", "delta_frame", "v1", "{}", "{}", "complete", 1),
+                """INSERT INTO artifacts
+                   (artifact_id, session_id, step_type, artifact_type,
+                    artifact_schema_version, subject_payload, lineage_payload,
+                    evidence_status, committed_at_us)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ("art_1", "sess_1", "compare", "delta_frame", "v2", "{}", "{}", "complete", 1),
             )
-            try:
-                with tx.savepoint("sp_evidence"):
-                    tx.execute(
-                        "INSERT INTO findings(finding_id, session_id, artifact_id, "
-                        "finding_type, canonical_item_key, subject_payload, "
-                        "payload, committed_at_us) VALUES (?,?,?,?,?,?,?,?)",
-                        ("fnd_1", "sess_1", "art_1", "delta", "value", "{}", "{}", 1),
-                    )
-                    raise RuntimeError("simulate seeding failure")
-            except RuntimeError:
-                pass
-        with sqlite3.connect(db_path) as conn:
-            artifacts = conn.execute("SELECT artifact_id FROM artifacts").fetchall()
-            findings = conn.execute("SELECT finding_id FROM findings").fetchall()
-        assert artifacts == [("art_1",)]
-        assert findings == []
+            raise RuntimeError("rollback")
+        assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
     finally:
         store.close()
 
 
 def test_lock_contention_raises_typed(tmp_path: Path) -> None:
     db_path = tmp_path / "judgment.db"
-    store_a = open_judgment_store(db_path)
+    first = open_evidence_store(db_path)
+    second = open_evidence_store(db_path, busy_timeout_ms=50)
     try:
-        with store_a.transaction(immediate=True), pytest.raises(SessionLockedByAnotherProcessError):
-            store_b = open_judgment_store(db_path, busy_timeout_ms=50)
-            try:
-                with store_b.transaction(immediate=True):
-                    pass
-            finally:
-                store_b.close()
+        with (
+            first.transaction(immediate=True),
+            pytest.raises(SessionLockedByAnotherProcessError),
+            second.transaction(immediate=True),
+        ):
+            pass
     finally:
-        store_a.close()
+        second.close()
+        first.close()

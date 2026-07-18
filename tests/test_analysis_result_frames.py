@@ -1,10 +1,18 @@
+import json
 from datetime import UTC, datetime
 
 import pandas as pd
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
-from marivo.analysis.evidence.types import ArtifactEvidenceItem, ArtifactEvidenceSummary
+from marivo.analysis.evidence.types import (
+    AnalysisScope,
+    ArtifactDigest,
+    OmissionSummary,
+    OperatorSemantics,
+    RawFallback,
+    Subject,
+)
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
@@ -39,6 +47,26 @@ def _base_meta(session, *, kind, ref):
     }
 
 
+def _digest(ref: str, *, operator: str, family: str) -> ArtifactDigest:
+    return ArtifactDigest(
+        artifact_ref=ref,
+        operator=OperatorSemantics(
+            operator=operator,
+            operator_version="v1",
+            artifact_family=family,
+        ),
+        subject=Subject(metric="sales.revenue", analysis_axis="scalar"),
+        scope=AnalysisScope(metric_ids=("sales.revenue",)),
+        omissions=OmissionSummary(retained_items=0, omitted_items=0, bounded=True),
+        fallback=RawFallback(
+            artifact_ref=ref,
+            findings_available=True,
+            rows_available=True,
+        ),
+        fingerprint=f"sha256:{ref}",
+    )
+
+
 def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
@@ -52,6 +80,7 @@ def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
                 "direction": ["high"],
                 "threshold": [3.0],
                 "keys_json": ['{"bucket":"2026-05-01"}'],
+                "affordances_json": ["[]"],
             }
         ),
         meta=CandidateSetMeta(
@@ -69,6 +98,17 @@ def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
         ),
     )
     frame.meta = persist_frame(session, frame)
+    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
+    legacy_meta = json.loads(meta_path.read_text())
+    legacy_meta["affordances"] = [
+        {
+            "capability_id": "assess_quality",
+            "public_entrypoint": "session.assess_quality(...) ",
+            "help_target": "assess_quality",
+            "expected_output_family": "QualityReport",
+        }
+    ]
+    meta_path.write_text(json.dumps(legacy_meta))
 
     loaded = session.get_frame("frame_candidates")
 
@@ -76,6 +116,7 @@ def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
     assert loaded.meta.kind == "candidate_set"
     assert loaded.meta.objective == "point_anomalies"
     assert loaded.to_pandas().iloc[0]["candidate_id"] == "cand_1"
+    assert "affordances_json" not in loaded.columns
 
 
 def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch):
@@ -96,16 +137,8 @@ def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch
             aligned_row_count=10,
             dropped_row_count=0,
             correlation=0.75,
-            evidence_summary=ArtifactEvidenceSummary(
-                finding_count=1,
-                items=(
-                    ArtifactEvidenceItem(
-                        kind="association",
-                        statement="sales.revenue: method=pearson coefficient=0.82 lag=0 join=date",
-                        status="validated",
-                        confidence=0.8,
-                    ),
-                ),
+            evidence_digest=_digest(
+                "frame_assoc", operator="correlate", family="association_result"
             ),
             evidence_status="complete",
         ),
@@ -153,7 +186,9 @@ def test_quality_report_renders_evidence_with_family_status(tmp_path, monkeypatc
             overall_status="warning",
             blocking_issue_count=0,
             warning_count=1,
-            evidence_summary=ArtifactEvidenceSummary(finding_count=0),
+            evidence_digest=_digest(
+                "frame_quality", operator="assess_quality", family="quality_report"
+            ),
             evidence_status="complete",
         ),
     )

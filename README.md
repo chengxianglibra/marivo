@@ -46,9 +46,11 @@ or repeating completed work.
 
 ### Evidence Engine
 
-Material findings and judgments remain connected to their source results. The final
-conclusion can be reviewed against the evidence, quality limits, and unresolved
-questions that shaped it.
+Deterministic typed findings remain connected to their source results and are
+projected into bounded, operator-specific digests. Marivo does not use an LLM or
+make cross-artifact judgments: the agent owns synthesis and next-step choice, while
+typed inference boundaries, omissions, and exact audit reads keep the conclusion
+reviewable.
 
 Before analysis starts, readiness checks the technical handoff for the required
 semantic objects. It blocks incomplete definitions without treating technical

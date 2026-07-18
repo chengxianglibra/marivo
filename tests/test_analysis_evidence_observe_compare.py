@@ -62,7 +62,7 @@ def test_observe_writes_artifact_metadata(tmp_path) -> None:
     assert rows == [("observe", "complete")]
 
 
-def test_observe_emits_observation_digest_into_knowledge(tmp_path) -> None:
+def test_observe_emits_persisted_observation_digest(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
@@ -82,17 +82,17 @@ def test_observe_emits_observation_digest_into_knowledge(tmp_path) -> None:
         ).fetchall()
     assert rows == [("digest",)]
 
-    observations = session.knowledge().observations()
-    assert len(observations) == 1
-    obs = observations[0]
-    assert obs.subject.metric == "sales.revenue"
-    assert obs.digest.shape == "scalar"
-    assert obs.digest.value == 220.0
-    assert obs.analysis_purpose == "check current revenue level"
-    assert obs.source_refs == [frame.meta.artifact_id]
+    digest = session.evidence.digest(frame.ref)
+    assert digest == frame.evidence_digest
+    assert len(digest.items) == 1
+    observation = digest.items[0]
+    assert observation.kind == "observation"
+    assert observation.subject.metric == "sales.revenue"
+    assert observation.value.shape == "scalar"
+    assert observation.value.value == 220.0
 
 
-def test_observe_segmented_emits_digest_despite_no_metric_value_findings(tmp_path) -> None:
+def test_observe_segmented_emits_bounded_digest(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
@@ -111,21 +111,22 @@ def test_observe_segmented_emits_digest_despite_no_metric_value_findings(tmp_pat
         counts = dict(
             conn.execute("SELECT finding_type, count(*) FROM findings GROUP BY finding_type")
         )
-    assert counts.get("metric_value") is None
+    assert counts.get("metric_value") == 1
     assert counts.get("observation") == 1
 
-    observations = session.knowledge().observations()
-    assert len(observations) == 1
-    digest = observations[0].digest
-    assert digest.shape == "segmented"
-    assert digest.segment_count == 1
-    assert digest.top_segments[0].keys == {"region": "US"}
-    assert digest.top_segments[0].value == 220.0
-    assert digest.total_value == 220.0
-    assert digest.top_segments[0].share == 1.0
+    digest = session.evidence.digest(frame.ref)
+    observation = digest.items[0]
+    assert observation.kind == "observation"
+    assert observation.value.shape == "segmented"
+    assert observation.value.segment_count == 1
+    assert observation.value.top_segments[0].keys == {"region": "US"}
+    assert observation.value.top_segments[0].value == 220.0
+    assert observation.value.total_value == 220.0
+    assert observation.value.top_segments[0].share == 1.0
+    assert "top_segments=region=US:value=220,share=1" in digest.render()
 
 
-def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
+def test_compare_emits_change_without_judgment_tables(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
@@ -146,13 +147,16 @@ def test_compare_seeds_change_proposition_and_emits_followups(tmp_path) -> None:
     assert delta.meta.evidence_status == "complete"
     db_path = session._layout.session_dir / "judgment.db"
     with sqlite3.connect(db_path) as conn:
-        prop_count = conn.execute(
-            "SELECT count(*) FROM propositions WHERE proposition_type='change'"
-        ).fetchone()[0]
-    assert prop_count == 1
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    assert "propositions" not in tables
+    assert "followups" not in tables
+    assert delta.evidence_digest is not None
+    assert delta.evidence_digest.items[0].kind == "change"
 
 
-def test_session_knowledge_returns_change_fact(tmp_path) -> None:
+def test_session_direct_digest_returns_computed_change_without_status(tmp_path) -> None:
     bootstrap_sales_project(tmp_path)
     con = ibis.duckdb.connect(":memory:")
     _seed(con)
@@ -167,12 +171,11 @@ def test_session_knowledge_returns_change_fact(tmp_path) -> None:
         time_scope={"start": "2026-04-24", "end": "2026-04-30"},
         session=session,
     )
-    compare(current, baseline, session=session)
+    delta = compare(current, baseline, session=session)
 
-    knowledge = session.knowledge()
-    facts = knowledge.facts(kind="change")
-    assert len(facts) == 1
-    assert facts[0].direction == "increase"
-    assert facts[0].status == "validated"
-    next_steps = knowledge.next_steps(top=5)
-    assert any(action.operator == "assess_quality" for action in next_steps)
+    digest = session.evidence.digest(delta.ref)
+    change = digest.items[0]
+    assert change.kind == "change"
+    assert change.direction == "increase"
+    assert not hasattr(change, "status")
+    assert not hasattr(session, "knowledge")

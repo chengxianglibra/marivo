@@ -1,4 +1,4 @@
-"""SQLite-backed judgment store for analysis evidence runtime."""
+"""SQLite persistence for typed findings, digests, and artifact-local issues."""
 
 from __future__ import annotations
 
@@ -11,14 +11,13 @@ from typing import Any
 
 from marivo.analysis.errors import (
     EvidenceStoreUnavailableError,
-    MigrationFailedError,
     SchemaVersionMismatchError,
     SessionLockedByAnotherProcessError,
 )
 
-EXPECTED_SCHEMA_VERSION = 1
+EXPECTED_SCHEMA_VERSION = 2
 
-_SCHEMA_V1 = """
+_SCHEMA_V2 = """
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -29,97 +28,64 @@ CREATE TABLE IF NOT EXISTS artifacts (
   artifact_schema_version  TEXT NOT NULL,
   subject_payload          TEXT NOT NULL,
   lineage_payload          TEXT NOT NULL,
-  confidence_scope         TEXT,
+  analysis_scope           TEXT,
   quality_summary          TEXT,
   evidence_status          TEXT NOT NULL,
   frame_path               TEXT,
   frame_sha                TEXT,
-  triggered_by_followup    TEXT,
   committed_at_us          INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_artifacts_session_type ON artifacts(session_id, step_type);
+CREATE INDEX IF NOT EXISTS idx_artifacts_session_commit
+  ON artifacts(session_id, committed_at_us DESC, artifact_id DESC);
 
 CREATE TABLE IF NOT EXISTS findings (
   finding_id               TEXT PRIMARY KEY,
   session_id               TEXT NOT NULL,
   artifact_id              TEXT NOT NULL REFERENCES artifacts(artifact_id),
   finding_type             TEXT NOT NULL,
+  epistemic_kind           TEXT NOT NULL,
   canonical_item_key       TEXT NOT NULL,
   subject_axis             TEXT,
   subject_payload          TEXT NOT NULL,
-  observed_window_start_us INTEGER,
-  observed_window_end_us   INTEGER,
+  observed_window_payload  TEXT,
   quality_status           TEXT,
-  payload                  TEXT NOT NULL,
-  artifact_schema_version  TEXT,
-  extractor_version        TEXT,
+  value_kind               TEXT NOT NULL,
+  value_payload            TEXT NOT NULL,
+  derivation_payload       TEXT NOT NULL,
+  source_refs_payload      TEXT NOT NULL,
+  artifact_schema_version  TEXT NOT NULL,
+  extractor_version        TEXT NOT NULL,
   committed_at_us          INTEGER NOT NULL,
   UNIQUE (artifact_id, finding_type, canonical_item_key)
 );
-CREATE INDEX IF NOT EXISTS idx_findings_session_type ON findings(session_id, finding_type);
+CREATE INDEX IF NOT EXISTS idx_findings_session_commit
+  ON findings(session_id, committed_at_us DESC, finding_id DESC);
+CREATE INDEX IF NOT EXISTS idx_findings_artifact
+  ON findings(artifact_id, finding_id);
 
-CREATE TABLE IF NOT EXISTS propositions (
-  proposition_id     TEXT PRIMARY KEY,
-  session_id         TEXT NOT NULL,
-  proposition_type   TEXT NOT NULL,
-  origin_kind        TEXT NOT NULL,
-  derivation_version TEXT NOT NULL,
-  subject_key        TEXT NOT NULL,
-  payload            TEXT NOT NULL,
-  seed_finding_refs  TEXT NOT NULL,
-  created_at_us      INTEGER NOT NULL,
-  UNIQUE (session_id, proposition_id)
+CREATE TABLE IF NOT EXISTS artifact_digests (
+  artifact_id       TEXT PRIMARY KEY REFERENCES artifacts(artifact_id),
+  session_id        TEXT NOT NULL,
+  operator          TEXT NOT NULL,
+  subject_key       TEXT NOT NULL,
+  digest_payload    TEXT NOT NULL,
+  fingerprint       TEXT NOT NULL,
+  committed_at_us   INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_propositions_session_type ON propositions(session_id, proposition_type);
-CREATE INDEX IF NOT EXISTS idx_propositions_subject ON propositions(session_id, subject_key);
+CREATE INDEX IF NOT EXISTS idx_digests_session_commit
+  ON artifact_digests(session_id, committed_at_us DESC, artifact_id DESC);
 
-CREATE TABLE IF NOT EXISTS assessment_snapshots (
-  snapshot_id      TEXT PRIMARY KEY,
-  proposition_id   TEXT NOT NULL REFERENCES propositions(proposition_id),
-  session_id       TEXT NOT NULL,
-  supersedes_id    TEXT,
-  status           TEXT NOT NULL,
-  confidence       REAL,
-  confidence_basis TEXT,
-  payload          TEXT NOT NULL,
-  created_at_us    INTEGER NOT NULL,
-  is_latest        INTEGER NOT NULL DEFAULT 1
+CREATE TABLE IF NOT EXISTS artifact_issues (
+  issue_id          TEXT PRIMARY KEY,
+  session_id        TEXT NOT NULL,
+  artifact_id       TEXT NOT NULL REFERENCES artifacts(artifact_id),
+  kind              TEXT NOT NULL,
+  severity          TEXT NOT NULL,
+  issue_payload     TEXT NOT NULL,
+  created_at_us     INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_assess_latest ON assessment_snapshots(proposition_id, is_latest);
-
-CREATE TABLE IF NOT EXISTS assessment_edges (
-  snapshot_id  TEXT NOT NULL REFERENCES assessment_snapshots(snapshot_id),
-  finding_id   TEXT NOT NULL REFERENCES findings(finding_id),
-  role         TEXT NOT NULL,
-  PRIMARY KEY (snapshot_id, finding_id, role)
-);
-
-CREATE TABLE IF NOT EXISTS blocking_issues (
-  issue_id           TEXT PRIMARY KEY,
-  session_id         TEXT NOT NULL,
-  artifact_id        TEXT NOT NULL REFERENCES artifacts(artifact_id),
-  kind               TEXT NOT NULL,
-  severity           TEXT NOT NULL,
-  payload            TEXT NOT NULL,
-  resolved_by_step_id TEXT,
-  created_at_us      INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_blocking_issues_session_kind ON blocking_issues(session_id, kind);
-CREATE INDEX IF NOT EXISTS idx_blocking_issues_artifact ON blocking_issues(artifact_id);
-
-CREATE TABLE IF NOT EXISTS followups (
-  followup_id          TEXT PRIMARY KEY,
-  session_id           TEXT NOT NULL,
-  source_artifact_id   TEXT NOT NULL REFERENCES artifacts(artifact_id),
-  category             TEXT NOT NULL,
-  source_issue_id      TEXT REFERENCES blocking_issues(issue_id),
-  operator             TEXT,
-  payload              TEXT NOT NULL,
-  executed_step_id     TEXT,
-  created_at_us        INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_followups_session ON followups(session_id);
-CREATE INDEX IF NOT EXISTS idx_followups_source ON followups(source_artifact_id);
+CREATE INDEX IF NOT EXISTS idx_artifact_issues_artifact
+  ON artifact_issues(artifact_id, issue_id);
 """
 
 
@@ -133,21 +99,9 @@ class _Transaction:
     def executemany(self, sql: str, seq_of_params: Any) -> sqlite3.Cursor:
         return self.conn.executemany(sql, seq_of_params)
 
-    @contextmanager
-    def savepoint(self, name: str) -> Iterator[_Transaction]:
-        self.conn.execute(f"SAVEPOINT {name}")
-        try:
-            yield self
-        except BaseException:
-            self.conn.execute(f"ROLLBACK TO SAVEPOINT {name}")
-            self.conn.execute(f"RELEASE SAVEPOINT {name}")
-            raise
-        else:
-            self.conn.execute(f"RELEASE SAVEPOINT {name}")
 
-
-class JudgmentStore:
-    """Per-session SQLite store for evidence artifacts, findings, and propositions."""
+class EvidenceStore:
+    """Per-session store for immutable typed evidence projections."""
 
     def __init__(self, conn: sqlite3.Connection, db_path: Path) -> None:
         self._conn = conn
@@ -174,60 +128,50 @@ class JudgmentStore:
             self._conn.execute("COMMIT")
 
     def read(self) -> sqlite3.Connection:
-        """Return the underlying connection for read-only queries."""
+        """Return the connection used by bounded read adapters."""
         return self._conn
 
     def close(self) -> None:
         self._conn.close()
 
 
-def open_judgment_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> JudgmentStore:
-    """Open or create a judgment.db at *db_path* with WAL mode and schema init."""
+def _initialize_v2(conn: sqlite3.Connection) -> None:
+    conn.executescript(_SCHEMA_V2)
+    conn.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION}")
+
+
+def open_evidence_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> EvidenceStore:
+    """Open or create the project-local ``judgment.db`` evidence store."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=busy_timeout_ms / 1000)
-    except sqlite3.OperationalError as exc:
+        conn.row_factory = sqlite3.Row
+        conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        user_version: int = conn.execute("PRAGMA user_version").fetchone()[0]
+        if user_version == 0:
+            _initialize_v2(conn)
+            user_version = EXPECTED_SCHEMA_VERSION
+    except sqlite3.DatabaseError as exc:
+        if conn is not None:
+            conn.close()
         raise EvidenceStoreUnavailableError(
             message=f"cannot open judgment.db at {db_path}",
             context={"db_path": str(db_path), "cause": str(exc)},
         ) from exc
-
-    conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
-
-    user_version: int = conn.execute("PRAGMA user_version").fetchone()[0]
-    if user_version == 0:
-        try:
-            conn.executescript(_SCHEMA_V1)
-            conn.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION}")
-        except sqlite3.DatabaseError as exc:
-            conn.close()
-            raise MigrationFailedError(
-                message=f"failed to initialize schema at {db_path}",
-                context={"db_path": str(db_path), "cause": str(exc)},
-            ) from exc
-    elif user_version > EXPECTED_SCHEMA_VERSION:
+    if user_version != EXPECTED_SCHEMA_VERSION:
         conn.close()
         raise SchemaVersionMismatchError(
             message=(
-                f"db schema version {user_version} is newer than expected "
-                f"{EXPECTED_SCHEMA_VERSION}; refusing to open"
+                f"judgment.db schema version {user_version} is unsupported; "
+                f"Cutover A requires a fresh v{EXPECTED_SCHEMA_VERSION} evidence store"
             ),
+            hint="Remove the incompatible analysis session and run the analysis again.",
             context={"got": user_version, "expected": EXPECTED_SCHEMA_VERSION},
         )
-    elif user_version < EXPECTED_SCHEMA_VERSION:
-        conn.close()
-        raise MigrationFailedError(
-            message=f"no migration registered for v{user_version} -> v{EXPECTED_SCHEMA_VERSION}",
-            context={"got": user_version, "expected": EXPECTED_SCHEMA_VERSION},
-        )
-
-    return JudgmentStore(conn, db_path)
+    return EvidenceStore(conn, db_path)
 
 
-__all__ = [
-    "EXPECTED_SCHEMA_VERSION",
-    "JudgmentStore",
-    "open_judgment_store",
-]
+__all__ = ["EXPECTED_SCHEMA_VERSION", "EvidenceStore", "open_evidence_store"]

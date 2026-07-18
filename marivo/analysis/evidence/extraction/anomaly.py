@@ -9,7 +9,12 @@ from typing import Any
 import pandas as pd
 
 from marivo.analysis.evidence.identity import make_finding_id
-from marivo.analysis.evidence.types import Finding, Subject
+from marivo.analysis.evidence.types import (
+    AnomalyCandidateFindingValue,
+    DerivationRule,
+    Finding,
+    Subject,
+)
 
 
 def _is_missing(value: Any) -> bool:
@@ -44,18 +49,11 @@ def extract_anomaly_candidate_findings(
         return []
 
     findings: list[Finding] = []
-    for idx, row in df.iterrows():
+    ranked_rows = list(df.iterrows())
+    ranked_rows.sort(key=lambda entry: -(_to_float(entry[1].get("score")) or 0.0))
+    for rank, (idx, row) in enumerate(ranked_rows, start=1):
         candidate_ref = _json_value(row["candidate_ref"]) if "candidate_ref" in row.index else None
         item_key = str(candidate_ref) if candidate_ref else f"row:{idx}"
-        payload: dict[str, Any] = {
-            "candidate_ref": candidate_ref,
-            "score": _to_float(row.get("score")),
-            "flag_level": _json_value(row.get("flag_level")),
-            "current_value": _to_float(row.get("observed_value")),
-            "baseline_value": _to_float(row.get("baseline_value")),
-            "deviation_absolute": _to_float(row.get("delta")),
-            "deviation_relative": _to_float(row.get("deviation_relative")),
-        }
         findings.append(
             Finding(
                 finding_id=make_finding_id(
@@ -64,11 +62,38 @@ def extract_anomaly_candidate_findings(
                     canonical_item_key=item_key,
                 ),
                 finding_type="anomaly_candidate",
+                epistemic_kind="candidate",
                 artifact_id=artifact_id,
                 session_id=session_id,
                 subject=subject,
                 canonical_item_key=item_key,
-                payload=payload,
+                value=AnomalyCandidateFindingValue(
+                    candidate_ref=item_key,
+                    score=_to_float(row.get("score")),
+                    detector=str(row.get("detector") or "point_anomaly_detector"),
+                    threshold=_to_float(row.get("threshold")),
+                    rank=rank,
+                    reason_codes=tuple(str(code) for code in (row.get("reason_codes") or ()))
+                    if isinstance(row.get("reason_codes"), (list, tuple))
+                    else (),
+                    flag_level=(
+                        str(row.get("flag_level"))
+                        if not _is_missing(row.get("flag_level"))
+                        else None
+                    ),
+                    current_value=_to_float(row.get("observed_value")),
+                    baseline_value=_to_float(row.get("baseline_value")),
+                    deviation_absolute=_to_float(row.get("delta")),
+                    deviation_relative=_to_float(row.get("deviation_relative")),
+                ),
+                derivation=DerivationRule(
+                    rule_id="extract.anomaly_candidate",
+                    rule_version="v2",
+                    operator="discover",
+                    source_fields=tuple(str(column) for column in df.columns),
+                    source_finding_refs=(),
+                ),
+                source_refs=(artifact_id,),
                 committed_at=committed_at,
             )
         )

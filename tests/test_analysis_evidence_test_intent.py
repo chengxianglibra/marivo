@@ -58,8 +58,15 @@ def test_hypothesis_test_populates_surface1_and_test_finding() -> None:
             "SELECT finding_type FROM findings WHERE artifact_id=?",
             (result.meta.artifact_id,),
         ).fetchall()
-        proposition_types = conn.execute("SELECT proposition_type FROM propositions").fetchall()
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
 
     assert artifact_rows == [("hypothesis_test", "hypothesis_test_result", "complete")]
     assert finding_types == [("test_result",)]
-    assert proposition_types == [("tested_hypothesis",)]
+    assert "propositions" not in tables
+    assert result.evidence_digest is not None
+    decision = result.evidence_digest.items[0]
+    assert decision.kind == "test_decision"
+    assert isinstance(decision.reject_null, bool)
+    assert not hasattr(decision, "status")

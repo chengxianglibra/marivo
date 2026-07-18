@@ -100,7 +100,8 @@ for sessions, the current-session pointer, artifacts, and jobs:
 
 The store holds the index; the on-disk `frames/<ref>/` directory holds the data and
 the `BaseFrameMeta` sidecar. `frames/<ref>/meta.json` is the source of truth for a
-frame's kind, schema, semantic shape, lineage, quality, and blocking issues.
+frame's kind, schema, semantic shape, lineage, quality, typed issues, evidence
+status, and bounded digest.
 
 ## Content-addressed artifact identity
 
@@ -130,17 +131,19 @@ asks to refresh/recompute; it reads persisted state:
   from `data.parquet` + `meta.json`; the result can be passed to any operator.
   Raises `FrameRefNotFound`, `CrossSessionFrameError`, or
   `FrameCacheCorruptedError`.
-- `session.frame_summaries() -> list[FrameSummaryEntry]` — rich per-frame metadata
-  (`ref`, `kind`, `metric_id`, `semantic_kind`, `semantic_model`, `created_at`,
-  `row_count`, `content_hash`, `analysis_purpose`) for semantic lookup across
-  script boundaries. `session.frames()` returns the lightweight `(ref, kind)`
-  pairs when only identity is needed.
+- `session.frame_summaries(*, kind=None, evidence_status=None, limit=20,
+  cursor=None) -> FrameSummaryPage` — a bounded newest-first keyset page of
+  `FrameSummaryEntry` values (`ref`, `kind`, `metric_id`, `semantic_kind`,
+  `semantic_model`, `created_at`, `row_count`, `content_hash`,
+  `analysis_purpose`, `evidence_status`). Pass `page.next_cursor` to the same
+  method when `page.has_more`.
 - `session.jobs()` / `session.recent_jobs(limit=5) -> list[JobSummary]` and
   `session.job(job_id) -> dict` — the step history and full per-job records
   (raises `JobNotFoundError` for an unknown id).
-- `session.knowledge() -> SessionKnowledge` — a bounded, read-only synthesis
-  snapshot projected from `judgment.db` (observations, established facts, open
-  items). See [`evidence-access-surface.md`](evidence-access-surface.md).
+- `session.evidence.digests(...) -> ArtifactDigestPage` and
+  `session.evidence.findings(...) -> FindingPage` — bounded audit reads;
+  `digest(ref)`, `finding(id)`, and `trace(id)` are exact reads. See
+  [`evidence-access-surface.md`](evidence-access-surface.md).
 
 `analysis_purpose`, accepted by every operator, is persisted on the frame and
 surfaced in `frame_summaries()` so a later turn can tell why a frame was produced.
@@ -176,16 +179,19 @@ An analysis is a multi-frame DAG, not a single object — no one value "is the
 analysis." Cross-turn state is reconstructed from session-level facts that already
 exist, which is why there is no public `AnalysisSnapshot` artifact:
 
-- `frame_summaries()` — refs, kind, semantic shape, metric, row count, created_at;
+- `frame_summaries()` — bounded refs, kind, semantic shape, metric, row count,
+  created_at, and evidence status;
 - `recent_jobs()` — steps/jobs/status/output refs;
-- per-artifact bounded reads — `summary` via `show()`/`render()`, `contract()`,
-  `state`, `lineage`.
+- per-artifact bounded reads — `show()`/`render()`, `contract()`, `state`,
+  `lineage`, `evidence_status`, and `evidence_digest`;
+- bounded audit pages — `session.evidence.digests(...)` and
+  `session.evidence.findings(...)`.
 
-`session.knowledge()` adds a bounded factual projection for synthesis at decision
-points and closeout; it is read-only, does not create a step or enter lineage, and
-is not a `recap()` — it never generates conclusions, headlines, or next-step
-recommendations. Check `knowledge.evidence_completeness` before consuming its
-lists: `"unavailable"` means unknown, not empty.
+The runtime intentionally has no session-level factual synthesis or planner.
+Cross-artifact judgment and the decision to execute another operator belong to
+the agent. If the evidence store cannot be read, audit methods raise
+`EvidenceStoreUnavailableError`; an empty page means a healthy store matched no
+records.
 
 ## Re-run and replay discipline
 

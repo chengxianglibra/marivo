@@ -17,7 +17,8 @@ from marivo.analysis.errors import (
     CumulativeFrameUnsupportedError,
     SemanticKindMismatchError,
 )
-from marivo.analysis.followups import BlockingIssue
+from marivo.analysis.evidence.identity import make_issue_id
+from marivo.analysis.evidence.types import AnalysisScope, ComparabilityIssue
 from marivo.analysis.frames.attribution import AttributionFrame
 from marivo.analysis.frames.component import (
     ComponentFrame,
@@ -208,7 +209,7 @@ def _raise_non_linear_fold_error(frame: DeltaFrame, fold_labels: list[str]) -> N
     )
 
 
-def _mean_fold_coverage_warning(frame: DeltaFrame, session: Session) -> list[BlockingIssue]:
+def _mean_fold_coverage_warning(frame: DeltaFrame, session: Session) -> list[ComparabilityIssue]:
     """Warn (non-blocking) when a mean-fold delta decomposes segments whose
     per-window sample counts differ.
 
@@ -231,6 +232,7 @@ def _mean_fold_coverage_warning(frame: DeltaFrame, session: Session) -> list[Blo
         return []
 
     summaries: dict[str, dict[str, Any]] = {}
+    scopes: dict[str, AnalysisScope] = {}
     for side, ref in (
         ("current", frame.meta.source_current_ref),
         ("baseline", frame.meta.source_baseline_ref),
@@ -243,6 +245,7 @@ def _mean_fold_coverage_warning(frame: DeltaFrame, session: Session) -> list[Blo
         if not isinstance(summary, dict):
             return []
         summaries[side] = summary
+        scopes[side] = loaded.meta.analysis_scope or AnalysisScope()
 
     def _uneven(summary: dict[str, Any]) -> bool:
         try:
@@ -254,20 +257,25 @@ def _mean_fold_coverage_warning(frame: DeltaFrame, session: Session) -> list[Blo
         return []
 
     return [
-        BlockingIssue(
-            issue_id=f"mean_fold_uneven_coverage:{frame.ref}",
-            kind="comparability",
-            severity="warning",
-            source_refs=[frame.ref],
-            message=(
-                "mean-fold decomposition is approximate: per-segment sample "
-                "counts differ across the window"
+        ComparabilityIssue(
+            issue_id=make_issue_id(
+                artifact_id=frame.ref,
+                kind="comparability_approximate",
+                source_refs=(frame.meta.source_current_ref, frame.meta.source_baseline_ref),
             ),
-            payload={
-                "reason": "mean_fold_uneven_coverage",
-                "current_coverage_summary": summaries["current"],
-                "baseline_coverage_summary": summaries["baseline"],
-            },
+            kind="comparability_approximate",
+            severity="warning",
+            source_refs=(frame.ref,),
+            left_scope=scopes["current"],
+            right_scope=scopes["baseline"],
+            incompatible_fields=("sample_coverage",),
+            approximation_details=(
+                "mean-fold segment sample counts are uneven",
+                f"current_min={summaries['current'].get('min')}",
+                f"current_avg={summaries['current'].get('avg')}",
+                f"baseline_min={summaries['baseline'].get('min')}",
+                f"baseline_avg={summaries['baseline'].get('avg')}",
+            ),
         )
     ]
 
@@ -1239,7 +1247,7 @@ def decompose(
             started_at=started_at,
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
-            extra_blocking_issues=coverage_warnings,
+            extra_issues=coverage_warnings,
         )
 
     if validated_mode is not None:
@@ -1294,7 +1302,7 @@ def decompose(
             started_at=started_at,
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
-            extra_blocking_issues=coverage_warnings,
+            extra_issues=coverage_warnings,
         )
 
     if frame.meta.semantic_kind == "panel":
@@ -1334,7 +1342,7 @@ def decompose(
             started_at=started_at,
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
-            extra_blocking_issues=coverage_warnings,
+            extra_issues=coverage_warnings,
         )
 
     output = _ordered_hierarchy_output(
@@ -1370,5 +1378,5 @@ def decompose(
         started_at=started_at,
         started_monotonic=started,
         analysis_purpose=_analysis_purpose,
-        extra_blocking_issues=coverage_warnings,
+        extra_issues=coverage_warnings,
     )

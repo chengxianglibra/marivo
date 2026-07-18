@@ -4,25 +4,24 @@ from __future__ import annotations
 
 # mypy: disable-error-code=import-untyped
 import json
-from collections.abc import Hashable
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 import pandas as pd
 
 from marivo.analysis.errors import QualityShapeUnsupportedError
+from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
     CommitSemanticAnchors,
     commit_result,
 )
-from marivo.analysis.evidence.types import Subject, TriggeredByFollowup
-from marivo.analysis.followups import BlockingIssue
-from marivo.analysis.frames._meta_defaults import compute_quality_summary
+from marivo.analysis.evidence.types import ArtifactIssue, DataQualityIssue, Subject
+from marivo.analysis.frames._meta_defaults import compute_analysis_scope
 from marivo.analysis.frames.base import BaseFrame
-from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.intents._derived import (
     compose_lineage,
@@ -35,7 +34,6 @@ from marivo.analysis.intents._quality_checks import run_metric_checks
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
 from marivo.analysis.session._runtime import (
-    persist_frame,
     persist_job_record,
     register_frame_artifact,
 )
@@ -47,7 +45,6 @@ def assess_quality(
     *,
     analysis_purpose: str | None = None,
     session: Session | None = None,
-    _triggered_by: TriggeredByFollowup | None = None,
 ) -> QualityReport:
     session = resolve_session(session)
     ensure_session_writable(session)
@@ -64,7 +61,7 @@ def assess_quality(
     rows = run_metric_checks(frame, tz=session.report_tz_name if session.report_tz else None)
     output = pd.DataFrame(rows)
     checks_run = output["check_id"].astype(str).tolist()
-    blocking_issues = _blocking_issues(frame, output)
+    issues = _quality_issues(frame, output)
     overall = _overall_status(output)
     params = {
         "source_ref": frame.ref,
@@ -105,7 +102,7 @@ def assess_quality(
         overall_status=overall,
         blocking_issue_count=int((output["severity"] == "blocking").sum()),
         warning_count=int((output["severity"] == "warning").sum()),
-        blocking_issues=blocking_issues,
+        issues=tuple(issues),
     )
     result = QualityReport(_df=output, meta=meta)
     result = cast(
@@ -124,25 +121,9 @@ def assess_quality(
                 analysis_axis="scalar",
             ),
             extractor_family="quality_report",
-            triggered_by_followup=_triggered_by,
         ),
     )
     register_frame_artifact(session, result)
-
-    # Attach a lightweight quality summary and the latest quality blockers to
-    # the source frame. The full QualityReport remains a separate artifact.
-    source_issues = [
-        issue
-        for issue in frame.meta.blocking_issues
-        if not (issue.payload and issue.payload.get("origin") == "assess_quality")
-    ]
-    frame.meta = frame.meta.model_copy(
-        update={
-            "quality_summary": compute_quality_summary(frame),
-            "blocking_issues": [*source_issues, *blocking_issues],
-        }
-    )
-    frame.meta = cast("MetricFrameMeta", persist_frame(session, frame))
 
     persist_job_record(
         session,
@@ -175,58 +156,48 @@ def _overall_status(output: pd.DataFrame) -> Literal["ok", "warning", "blocking"
     return "ok"
 
 
-def _blocking_issues(frame: MetricFrame, output: pd.DataFrame) -> list[BlockingIssue]:
-    issues: list[BlockingIssue] = []
+def _quality_issues(frame: MetricFrame, output: pd.DataFrame) -> list[ArtifactIssue]:
+    issues: list[ArtifactIssue] = []
+    scope = frame.meta.analysis_scope or compute_analysis_scope(frame)
     for row in output.to_dict("records"):
         if row["severity"] != "blocking":
             continue
+        details = json.loads(str(row["details_json"]))
+        kind: str | None = None
+        observed: str | int | float | bool | None = None
+        expectation: str | None = None
         if row["check_kind"] == "duplicate_keys":
-            issues.append(
-                BlockingIssue(
-                    issue_id=f"issue_{len(issues) + 1}",
-                    kind="quality",
-                    severity="blocking",
-                    source_refs=[frame.ref],
-                    message="duplicate key tuples in metric frame",
-                    payload=_quality_issue_payload(row),
-                    remediation_followups=[],
-                )
+            kind = "duplicate_keys_detected"
+            observed = int(details["duplicate_count"])
+            expectation = "duplicate_count == 0"
+        elif row["check_kind"] == "time_coverage":
+            kind = "time_coverage_incomplete"
+            observed = float(details["coverage_ratio"])
+            expectation = "coverage_ratio >= 0.8"
+        elif row["check_kind"] == "row_count" and details.get("row_count") == 0:
+            kind = "sample_size_low"
+            observed = int(details["row_count"])
+            expectation = "row_count > 0"
+        elif row["check_kind"] == "null_ratio":
+            kind = "null_rate_high"
+            observed = float(details["null_ratio"])
+            expectation = "null_ratio <= 0.5"
+        if kind is None or expectation is None:
+            continue
+        issues.append(
+            DataQualityIssue(
+                issue_id=make_issue_id(
+                    artifact_id=frame.ref,
+                    kind=kind,
+                    source_refs=(frame.ref, str(row["check_id"])),
+                ),
+                kind=kind,  # type: ignore[arg-type]
+                severity="blocking",
+                source_refs=(frame.ref,),
+                check_id=str(row["check_id"]),
+                observed_value=observed,
+                expectation=expectation,
+                evaluated_scope=scope,
             )
-        if row["check_kind"] == "time_coverage":
-            issues.append(
-                BlockingIssue(
-                    issue_id=f"issue_{len(issues) + 1}",
-                    kind="time_coverage",
-                    severity="blocking",
-                    source_refs=[frame.ref],
-                    message="metric frame time coverage is below the blocking threshold",
-                    payload=_quality_issue_payload(row),
-                    remediation_followups=[],
-                )
-            )
-        if row["check_kind"] == "row_count":
-            details = json.loads(str(row["details_json"]))
-            if details.get("row_count") == 0:
-                issues.append(
-                    BlockingIssue(
-                        issue_id=f"issue_{len(issues) + 1}",
-                        kind="sample_size",
-                        severity="blocking",
-                        source_refs=[frame.ref],
-                        message="metric frame has zero rows",
-                        payload=_quality_issue_payload(row),
-                        remediation_followups=[],
-                    )
-                )
+        )
     return issues
-
-
-def _quality_issue_payload(row: dict[Hashable, Any]) -> dict[str, Any]:
-    """Build provenance payload for a blocker emitted by assess_quality."""
-    details = json.loads(str(row["details_json"]))
-    return {
-        "origin": "assess_quality",
-        "check_id": str(row["check_id"]),
-        "check_kind": str(row["check_kind"]),
-        **details,
-    }

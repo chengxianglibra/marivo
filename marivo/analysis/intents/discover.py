@@ -22,7 +22,7 @@ from marivo.analysis.evidence.pipeline import (
     CommitSemanticAnchors,
     commit_result,
 )
-from marivo.analysis.evidence.types import Subject, TriggeredByFollowup
+from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.candidate import (
     CandidateObjective,
     CandidateSet,
@@ -167,7 +167,6 @@ def _discover_dispatch(
     peer_scope: list[DimensionInput] | None = None,
     session: Session | None = None,
     analysis_purpose: str | None = None,
-    _triggered_by: TriggeredByFollowup | None = None,
 ) -> CandidateSet:
     """Discover candidate follow-ups (anomalies, drivers, outliers) from a frame.
 
@@ -349,7 +348,6 @@ def _discover_dispatch(
             ),
             extractor_family="candidate_set",
             seeding_context={"observed_window": observed_window},
-            triggered_by_followup=_triggered_by,
         ),
     )
     register_frame_artifact(session, frame)

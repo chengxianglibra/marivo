@@ -548,8 +548,8 @@ def sampled_bandwidth_partial_coverage_project(tmp_path):
 def _comparability_issues(frame) -> list:
     return [
         issue
-        for issue in frame.meta.blocking_issues
-        if issue.kind == "comparability" and issue.severity == "warning"
+        for issue in frame.meta.issues
+        if issue.kind == "comparability_approximate" and issue.severity == "warning"
     ]
 
 
@@ -577,10 +577,8 @@ def test_decompose_mean_fold_warns_on_uneven_coverage(
     issues = _comparability_issues(result)
     assert len(issues) == 1
     issue = issues[0]
-    assert issue.payload is not None
-    assert issue.payload["reason"] == "mean_fold_uneven_coverage"
-    assert "current_coverage_summary" in issue.payload
-    assert "baseline_coverage_summary" in issue.payload
+    assert issue.incompatible_fields == ("sample_coverage",)
+    assert "mean-fold segment sample counts are uneven" in issue.approximation_details
 
 
 def test_decompose_mean_fold_no_warning_on_even_coverage(

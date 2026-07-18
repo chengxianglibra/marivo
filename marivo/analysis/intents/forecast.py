@@ -22,7 +22,7 @@ from marivo.analysis.evidence.pipeline import (
     CommitSemanticAnchors,
     commit_result,
 )
-from marivo.analysis.evidence.types import Subject, TriggeredByFollowup
+from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.forecast import ForecastFrame, ForecastFrameMeta
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents._derived import (
@@ -52,7 +52,6 @@ def forecast(
     measure_column: str | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,
-    _triggered_by: TriggeredByFollowup | None = None,
 ) -> ForecastFrame:
     session = resolve_session(session)
     ensure_session_writable(session)
@@ -198,7 +197,6 @@ def forecast(
                 analysis_axis="forecast",
             ),
             extractor_family="forecast_frame",
-            triggered_by_followup=_triggered_by,
         ),
     )
     register_frame_artifact(session, frame)

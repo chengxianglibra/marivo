@@ -63,8 +63,17 @@ def test_correlate_populates_surface1_and_correlation_finding() -> None:
             "SELECT finding_type FROM findings WHERE artifact_id=?",
             (result.meta.artifact_id,),
         ).fetchall()
-        proposition_types = conn.execute("SELECT proposition_type FROM propositions").fetchall()
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
 
     assert artifact_rows == [("correlate", "association_result", "complete")]
     assert finding_types == [("correlation_result",)]
-    assert proposition_types == [("association",)]
+    assert "propositions" not in tables
+    assert result.evidence_digest is not None
+    association = result.evidence_digest.items[0]
+    assert association.kind == "association"
+    assert association.epistemic_kind == "estimated"
+    assert "causal_effect_not_estimated" in {
+        boundary.kind for boundary in result.evidence_digest.boundaries
+    }

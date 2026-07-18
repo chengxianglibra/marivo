@@ -73,8 +73,8 @@ PUBLIC_FRAME_PROPERTIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "kind",
             "lineage",
             "quality_summary",
-            "evidence_summary",
-            "blocking_issues",
+            "evidence_status",
+            "evidence_digest",
             "state",
             "shape",
             "columns",
@@ -607,7 +607,7 @@ def _build_registry() -> CapabilityRegistry:
             id="CandidateSet.select",
             public_entrypoint="cands.select(...)",
             help_target="CandidateSet.select",
-            summary="Read one typed attribute from a single ranked candidate row.",
+            summary="Return one closed shape-specific selection from a ranked candidate row.",
             root_group="family_operations",
             root_visibility="grouped",
             constraint_ids=("frame_kind_compatible",),
@@ -862,7 +862,7 @@ def _build_registry() -> CapabilityRegistry:
             )
         )
 
-    # -- Session job/frame/knowledge reads --------------------------------
+    # -- Session job/frame reads ------------------------------------------
 
     session_read_specs: tuple[tuple[str, str, str, str, str], ...] = (
         (
@@ -891,7 +891,7 @@ def _build_registry() -> CapabilityRegistry:
             "session.frame_summaries()",
             "session.frame_summaries",
             "Return rich metadata for each persisted frame.",
-            "FrameSummaryEntry",
+            "FrameSummaryPage",
         ),
         (
             "session.get_frame",
@@ -899,13 +899,6 @@ def _build_registry() -> CapabilityRegistry:
             "session.get_frame",
             "Load a persisted frame by ref or artifact_id.",
             "BaseFrame",
-        ),
-        (
-            "session.knowledge",
-            "session.knowledge()",
-            "session.knowledge",
-            "Return an immutable SessionKnowledge snapshot.",
-            "SessionKnowledge",
         ),
     )
 
@@ -931,40 +924,34 @@ def _build_registry() -> CapabilityRegistry:
 
     evidence_specs: tuple[tuple[str, str, str, str], ...] = (
         (
+            "session.evidence.digests",
+            "session.evidence.digests(...) ",
+            "session.evidence.digests",
+            "Return a bounded newest-first page of persisted artifact digests.",
+        ),
+        (
             "session.evidence.findings",
             "session.evidence.findings(...)",
             "session.evidence.findings",
             "Return Surface 3 findings for this session.",
         ),
         (
-            "session.evidence.propositions",
-            "session.evidence.propositions(...)",
-            "session.evidence.propositions",
-            "Return Surface 3 propositions for this session.",
+            "session.evidence.finding",
+            "session.evidence.finding(id)",
+            "session.evidence.finding",
+            "Return one canonical typed finding by identity.",
         ),
         (
-            "session.evidence.assessments",
-            "session.evidence.assessments(...)",
-            "session.evidence.assessments",
-            "Return Surface 3 assessments for this session.",
-        ),
-        (
-            "session.evidence.proposition",
-            "session.evidence.proposition(id)",
-            "session.evidence.proposition",
-            "Return the proposition with the given id.",
-        ),
-        (
-            "session.evidence.latest_assessment",
-            "session.evidence.latest_assessment(id)",
-            "session.evidence.latest_assessment",
-            "Return the most recent assessment for a proposition.",
+            "session.evidence.digest",
+            "session.evidence.digest(artifact_ref)",
+            "session.evidence.digest",
+            "Return one persisted artifact digest by identity.",
         ),
         (
             "session.evidence.trace",
             "session.evidence.trace(id)",
             "session.evidence.trace",
-            "Return the full evidence trace for a proposition.",
+            "Trace one finding to its source fields and retained digest items.",
         ),
     )
 

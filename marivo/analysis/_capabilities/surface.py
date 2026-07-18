@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from types import MappingProxyType
-from typing import NoReturn
+from typing import NoReturn, cast
 
 from marivo.analysis._capabilities.model import CapabilityDescriptor
 from marivo.analysis._capabilities.registry import REGISTRY
@@ -18,10 +18,39 @@ from marivo.introspection.live.resolve import (
 
 def _build_type_registry() -> MappingProxyType[type, str]:
     """Build the exact public analysis type index."""
+    from marivo.analysis.evidence import (
+        AnalysisScope,
+        AnomalyCandidate,
+        ArtifactDigest,
+        ArtifactDigestPage,
+        ArtifactIssue,
+        AssociationFact,
+        ChangeFact,
+        ComparabilityIssue,
+        ContributionFact,
+        DataQualityIssue,
+        EvidenceAvailabilityIssue,
+        EvidenceDerivationTrace,
+        Finding,
+        FindingPage,
+        ForecastOutput,
+        ObservationFact,
+        QualityCheckResult,
+        TestDecision,
+    )
     from marivo.analysis.frames.association import AssociationResult
     from marivo.analysis.frames.attribution import AttributionFrame
     from marivo.analysis.frames.base import BaseFrame
-    from marivo.analysis.frames.candidate import CandidateSet
+    from marivo.analysis.frames.candidate import (
+        CandidateSelection,
+        CandidateSet,
+        CrossSectionalOutlierSelection,
+        DriverAxisSelection,
+        PeriodShiftSelection,
+        PointAnomalySelection,
+        SliceSelection,
+        WindowSelection,
+    )
     from marivo.analysis.frames.component import ComponentFrame
     from marivo.analysis.frames.coverage import CoverageFrame
     from marivo.analysis.frames.delta import DeltaFrame
@@ -29,7 +58,7 @@ def _build_type_registry() -> MappingProxyType[type, str]:
     from marivo.analysis.frames.hypothesis import HypothesisTestResult
     from marivo.analysis.frames.metric import MetricFrame
     from marivo.analysis.frames.quality import QualityReport
-    from marivo.analysis.session.core import Session
+    from marivo.analysis.session.core import FrameSummaryEntry, FrameSummaryPage, Session
 
     return MappingProxyType(
         {
@@ -45,6 +74,33 @@ def _build_type_registry() -> MappingProxyType[type, str]:
             AssociationResult: "AssociationResult",
             ComponentFrame: "ComponentFrame",
             CoverageFrame: "CoverageFrame",
+            AnalysisScope: "AnalysisScope",
+            Finding: "Finding",
+            ArtifactDigest: "ArtifactDigest",
+            EvidenceDerivationTrace: "EvidenceDerivationTrace",
+            ObservationFact: "ObservationFact",
+            ChangeFact: "ChangeFact",
+            ContributionFact: "ContributionFact",
+            AssociationFact: "AssociationFact",
+            TestDecision: "TestDecision",
+            ForecastOutput: "ForecastOutput",
+            AnomalyCandidate: "AnomalyCandidate",
+            QualityCheckResult: "QualityCheckResult",
+            DataQualityIssue: "DataQualityIssue",
+            ComparabilityIssue: "ComparabilityIssue",
+            EvidenceAvailabilityIssue: "EvidenceAvailabilityIssue",
+            ArtifactDigestPage: "ArtifactDigestPage",
+            FindingPage: "FindingPage",
+            FrameSummaryPage: "FrameSummaryPage",
+            FrameSummaryEntry: "FrameSummaryEntry",
+            PointAnomalySelection: "PointAnomalySelection",
+            PeriodShiftSelection: "PeriodShiftSelection",
+            DriverAxisSelection: "DriverAxisSelection",
+            SliceSelection: "SliceSelection",
+            WindowSelection: "WindowSelection",
+            CrossSectionalOutlierSelection: "CrossSectionalOutlierSelection",
+            cast("type", ArtifactIssue): "ArtifactIssue",
+            cast("type", CandidateSelection): "CandidateSelection",
         }
     )
 
@@ -72,6 +128,21 @@ def _help_target_error(target: object, suggestions: tuple[str, ...]) -> NoReturn
 
 def _enrich(target: object) -> ResolvedLiveTarget[CapabilityDescriptor] | None:
     """Resolve analysis-owned runtime briefings before generic dispatch."""
+    from marivo.analysis.evidence import ArtifactIssue
+    from marivo.analysis.frames.candidate import CandidateSelection
+
+    if target is ArtifactIssue:
+        return ResolvedLiveTarget(
+            kind="type_contract",
+            surface="analysis",
+            type_name="ArtifactIssue",
+        )
+    if target is CandidateSelection:
+        return ResolvedLiveTarget(
+            kind="type_contract",
+            surface="analysis",
+            type_name="CandidateSelection",
+        )
     if isinstance(target, AnalysisError):
         return ResolvedLiveTarget(
             kind="error_briefing",

@@ -72,7 +72,7 @@ def test_discover_point_anomalies_returns_candidate_set():
     assert keys == [{"bucket": "a"}, {"bucket": "d"}]
     source_refs = [json.loads(s) for s in df["source_refs_json"]]
     assert source_refs == [[f"{frame.ref}#row=0"], [f"{frame.ref}#row=3"]]
-    assert list(df["affordances_json"]) == ["[]", "[]"]
+    assert "affordances_json" not in df.columns
 
 
 def test_discover_zero_std_returns_empty_candidate_set():

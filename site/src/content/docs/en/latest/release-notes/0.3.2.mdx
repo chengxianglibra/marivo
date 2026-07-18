@@ -56,6 +56,30 @@ fields, dual-read paths, or compatibility flags.
 
 ## Breaking changes
 
+- **Evidence Engine Cutover A.** The former
+  `finding -> proposition -> assessment` judgment runtime is replaced by
+  deterministic typed findings and one bounded `ArtifactDigest` per artifact.
+  `session.knowledge()`, proposition/assessment reads, persisted follow-ups,
+  open items, next steps, and their public types are removed without aliases.
+  Marivo no longer emits generic validation/confidence labels or session-level
+  judgments; the agent owns cross-artifact synthesis and planning.
+- **One artifact evidence path.** Use `artifact.evidence_status`,
+  `artifact.evidence_digest`, and `artifact.show()`. `evidence_summary`,
+  `blocking_issues`, `ConfidenceScope`, and the artifact issue shortcut are
+  removed. `contract().issues` contains the closed `ArtifactIssue` union, and
+  `AnalysisScope` retains the existing metric-shaped scope.
+- **Direct bounded audit reads.** `session.evidence.digests(...)`,
+  `.findings(...)`, `.digest(ref)`, `.finding(id)`, and `.trace(id)` replace the
+  judgment API. List reads return immutable keyset pages. Evidence-store
+  unavailability raises `EvidenceStoreUnavailableError`; it is never reported
+  as an empty page.
+- **Typed candidate selection.** `CandidateSet.select(rank=1)` now returns a
+  closed shape-specific selection. The arbitrary `attribute=` read and
+  candidate affordance/constraint payloads are removed.
+- **Role-preserving affordances.** Flattened `required_inputs` and
+  `ArtifactParamTemplate` are replaced by exact parameter requirements with
+  accepted families and current-artifact bindability. Invocation-option
+  enumeration is intentionally not part of this cutover.
 - **Removed help topics.** `mv.help('workflow')` and `mv.help('advanced')` no
   longer resolve. The new help system uses `mv.help()` (root index),
   `mv.help(target)` (focused capability), and `mv.help(ClassName)` (type help).
@@ -100,6 +124,10 @@ This is an atomic cutover. There are no aliases, redirects, deprecated fields,
 dual-read paths, compatibility flags, or automatic migration. Code that
 references removed symbols, topics, or fields must be updated to the new
 surface.
+
+Analysis evidence stores are included in this rule. A non-v2 `judgment.db` and
+a frame sidecar containing removed evidence fields are rejected; recreate the
+analysis session to produce canonical typed findings and digests.
 
 ## Semantic and datasource live surface
 

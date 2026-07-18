@@ -40,10 +40,20 @@ def test_forecast_populates_surface1_and_forecast_findings() -> None:
             "SELECT finding_type FROM findings WHERE artifact_id=? ORDER BY finding_id",
             (forecast.meta.artifact_id,),
         ).fetchall()
-        proposition_types = conn.execute(
-            "SELECT proposition_type FROM propositions ORDER BY proposition_id"
-        ).fetchall()
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
 
     assert artifact_rows == [("forecast", "forecast_frame", "complete")]
     assert finding_types == [("forecast_point",), ("forecast_point",), ("forecast_point",)]
-    assert proposition_types == [("forecast",), ("forecast",), ("forecast",)]
+    assert "propositions" not in tables
+    assert forecast.evidence_digest is not None
+    assert [item.kind for item in forecast.evidence_digest.items] == [
+        "forecast_output",
+        "forecast_output",
+        "forecast_output",
+    ]
+    assert {boundary.kind for boundary in forecast.evidence_digest.boundaries} == {
+        "forecast_actual_not_observed",
+        "forecast_accuracy_not_evaluated",
+    }

@@ -367,9 +367,10 @@ def test_point_anomalies_select_observed_baseline_delta():
     )
     src = _metric(session, df, semantic_kind="time_series")
     out = session.discover.point_anomalies(src, threshold=2.0)
-    assert out.select(rank=1, attribute="observed_value") == 50.0
-    assert isinstance(out.select(rank=1, attribute="baseline_value"), float)
-    assert isinstance(out.select(rank=1, attribute="delta"), float)
+    selected = out.select(rank=1)
+    assert selected.observed_value == 50.0
+    assert isinstance(selected.baseline_value, float)
+    assert isinstance(selected.delta, float)
 
 
 def test_period_shifts_panel_groups_independently():
@@ -758,7 +759,7 @@ def test_persistence_round_trip(objective, source_kind, builder):
     assert loaded.meta.shape == out.meta.shape
     assert loaded.meta.objective == out.meta.objective
     assert loaded.meta.strategy == out.meta.strategy
-    assert [aff.capability_id for aff in loaded.meta.affordances] == ["assess_quality"]
+    assert not hasattr(loaded.meta, "affordances")
     assert list(loaded.to_pandas().columns) == list(out.to_pandas().columns)
 
 
@@ -1080,8 +1081,7 @@ def test_point_anomalies_select_window_raises_when_row_has_no_window():
         pd.DataFrame({"bucket": ["a", "b", "c", "d"], "value": [0.0, 0.0, 0.0, 10.0]}),
     )
     out = session.discover.point_anomalies(frame, threshold=1.0)
-    with pytest.raises(SemanticKindMismatchError):
-        out.select(rank=1, attribute="window")
+    assert out.select(rank=1).window is None
 
 
 def test_period_shifts_score_uses_segment_peak_abs_z():

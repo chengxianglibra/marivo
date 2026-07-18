@@ -256,13 +256,10 @@ def test_projection_is_idempotent(sales_session):
 def test_projection_emits_no_value_findings(sales_session):
     frame = _fused(sales_session)
     projected = frame.metric("sales.revenue")
-    findings = list(sales_session.evidence.findings(artifact_id=projected.meta.artifact_id))
-    assert findings == []
-    # The projection family must register in the C1 whitelist so that
-    # followup generation succeeds and evidence stays complete (regression
-    # guard for the spurious evidence_partial blocking issue).
+    findings = sales_session.evidence.findings(artifact_ref=projected.meta.artifact_id)
+    assert findings.items == ()
     assert projected.meta.evidence_status == "complete"
-    assert projected.meta.blocking_issues == []
+    assert projected.meta.issues == ()
 
 
 def test_projected_frame_flows_into_compare(sales_session):
