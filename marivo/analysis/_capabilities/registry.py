@@ -321,12 +321,16 @@ def _build_registry() -> CapabilityRegistry:
             id="attribute",
             public_entrypoint="session.attribute(...)",
             help_target="attribute",
-            summary="Attribute a DeltaFrame's movement over explicit axes.",
+            summary=(
+                "Attribute a DeltaFrame's movement over explicit axes with "
+                "reconciled contributions and explicit share denominators."
+            ),
             root_group="typed_analysis",
             root_visibility="direct",
             constraint_ids=(
                 "frame_kind_compatible",
                 "attribution_additivity_compatible",
+                "attribution_reconciliation",
                 "cumulative_attribution_unsupported",
             ),
             callable_path="marivo.analysis.session.core.Session.attribute",

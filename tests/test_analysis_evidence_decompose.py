@@ -90,3 +90,16 @@ def test_decompose_populates_surface1_and_decomposition_findings() -> None:
     assert attribution.evidence_digest is not None
     assert {item.kind for item in attribution.evidence_digest.items} == {"contribution"}
     assert all(not hasattr(item, "contribution_role") for item in attribution.evidence_digest.items)
+    shares = {
+        item.dimension_keys["path"]: item.contribution_share
+        for item in attribution.evidence_digest.items
+    }
+    assert shares == {"CA": pytest.approx(-1.0 / 3.0), "US": pytest.approx(4.0 / 3.0)}
+    assert all(
+        item.reconciliation_residual == pytest.approx(0.0)
+        for item in attribution.evidence_digest.items
+    )
+    reconciliation = attribution.meta.reconciliation
+    assert reconciliation is not None
+    assert reconciliation.total_delta == pytest.approx(15.0)
+    assert reconciliation.contribution_sum == pytest.approx(15.0)

@@ -94,14 +94,16 @@ def test_decompose_panel_per_bucket(tmp_path):
         "driver",
         "path",
         "contribution",
-        "pct_contribution",
+        "share_of_total_delta",
+        "share_of_positive_pool",
+        "share_of_negative_pool",
         "rank",
     ]
 
     for _, bucket_df in df.groupby("bucket_start", sort=False):
         assert list(bucket_df["rank"]) == list(range(1, len(bucket_df) + 1))
-        finite_pct = bucket_df["pct_contribution"].replace([np.inf, -np.inf], np.nan).dropna()
-        assert finite_pct.sum() == pytest.approx(1.0)
+        finite_share = bucket_df["share_of_total_delta"].replace([np.inf, -np.inf], np.nan).dropna()
+        assert finite_share.sum() == pytest.approx(1.0)
 
 
 def test_decompose_panel_accepts_model_prefixed_axis_ref(tmp_path):
@@ -142,11 +144,13 @@ def test_decompose_panel_axes_single_axis_preserves_bucket_scope(tmp_path):
         "driver",
         "path",
         "contribution",
-        "pct_contribution",
+        "share_of_total_delta",
+        "share_of_positive_pool",
+        "share_of_negative_pool",
         "rank",
     ]
     for _, bucket_df in df.groupby("bucket_start", sort=False):
         assert set(bucket_df["level"]) == {1}
         assert list(bucket_df["rank"]) == list(range(1, len(bucket_df) + 1))
-        finite_pct = bucket_df["pct_contribution"].replace([np.inf, -np.inf], np.nan).dropna()
-        assert finite_pct.sum() == pytest.approx(1.0)
+        finite_share = bucket_df["share_of_total_delta"].replace([np.inf, -np.inf], np.nan).dropna()
+        assert finite_share.sum() == pytest.approx(1.0)

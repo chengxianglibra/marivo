@@ -29,6 +29,10 @@ fields, dual-read paths, or compatibility flags.
 - Tier-1 `mean` metrics now persist exact `sum(measure)` and
   `count_non_null(measure)` components during observe, enabling direct
   weighted-mix attribution without changing the semantic model.
+- Attribution now computes exact one-sided contributions for new and churned
+  component segments and fails closed unless every deepest partition
+  reconciles to its independently computed total delta. `AttributionFrame.show()`
+  renders total, one-sided, unattributed, and residual reconciliation facts.
 - `DeltaFrame.show()` now exposes the persisted attribution gate, and grouping
   help topics render as `mv.help("...")` with their real members instead of
   advertising nonexistent `session.recovery` or `session.artifacts` namespaces.
@@ -92,6 +96,10 @@ fields, dual-read paths, or compatibility flags.
   objects. There is no generic details bag.
 - **`ArtifactContract.boundary_ports` added.** Typed terminal-exit boundary
   ports derived from the capability registry.
+- **`pct_contribution` removed.** Attribution rows now expose
+  `share_of_total_delta`, `share_of_positive_pool`, and
+  `share_of_negative_pool`, so signed net shares and same-sign pool shares no
+  longer share an implicit or incomplete denominator.
 - **`BaseFrame.describe()` and `BaseFrame.plot()` removed.** Intentional
   `AttributeError`. Use `frame.show()` and `frame.to_pandas()`.
 - **`marivo-analysis` skill reduced to one file.** The `references/` tree is

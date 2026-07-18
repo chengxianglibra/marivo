@@ -22,7 +22,11 @@ from marivo.analysis.evidence.pipeline import (
     commit_result,
 )
 from marivo.analysis.evidence.types import ArtifactIssue, Subject
-from marivo.analysis.frames.attribution import AttributionFrame, AttributionFrameMeta
+from marivo.analysis.frames.attribution import (
+    AttributionFrame,
+    AttributionFrameMeta,
+    AttributionReconciliation,
+)
 from marivo.analysis.frames.base import BaseFrame
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import (
@@ -112,8 +116,14 @@ def persist_attribution_frame(
     started_monotonic: float,
     analysis_purpose: str | None = None,
     extra_issues: Sequence[ArtifactIssue] | None = None,
+    reconciliation: AttributionReconciliation | None = None,
 ) -> AttributionFrame:
     session._connection_runtime.begin_query_capture()
+    if reconciliation is not None:
+        params = {
+            **params,
+            "reconciliation": reconciliation.model_dump(mode="json"),
+        }
     frame_ref = gen_ref("frame")
     job_ref = gen_ref("job")
     source_refs = [source.meta.artifact_id or source.ref for source in sources]
@@ -150,6 +160,7 @@ def persist_attribution_frame(
         semantic_kind=semantic_kind,  # type: ignore[arg-type]
         semantic_model=semantic_model,
         issues=tuple(extra_issues or ()),
+        reconciliation=reconciliation,
     )
     frame = AttributionFrame(_df=df.copy(), meta=meta)
     source_ref_values = [source.meta.artifact_id or source.ref for source in sources]

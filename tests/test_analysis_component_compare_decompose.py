@@ -377,7 +377,9 @@ def test_decompose_component_aware_ratio_delta_emits_value_and_mix_effects():
     assert list(df.columns) == [
         "region",
         "contribution",
-        "pct_contribution",
+        "share_of_total_delta",
+        "share_of_positive_pool",
+        "share_of_negative_pool",
         "value_effect",
         "mix_effect",
         "residual",
@@ -465,6 +467,83 @@ def test_decompose_component_aware_weighted_delta_uses_weight_share():
     assert "current_total_count" not in df.columns
     # Contribution sum equals the overall weighted-average change.
     assert df["contribution"].sum() == pytest.approx(0.175)
+
+
+def test_decompose_weighted_mix_reconciles_new_and_churned_segments():
+    session = session_attach.get_or_create(name="demo")
+    components = {"value": "sales.weighted_failed", "weight": "sales.total_weight"}
+    current = _component_aware_metric(
+        session,
+        ref="frame_current_one_sided",
+        rows=[
+            {"region": "MATCHED", "failure_rate": 0.20},
+            {"region": "NEW", "failure_rate": 0.30},
+        ],
+        component_rows=[
+            {
+                "region": "MATCHED",
+                "weighted_failed": 20.0,
+                "total_weight": 100.0,
+                "failure_rate": 0.20,
+            },
+            {
+                "region": "NEW",
+                "weighted_failed": 30.0,
+                "total_weight": 100.0,
+                "failure_rate": 0.30,
+            },
+        ],
+        composition_kind="weighted_average",
+        components=components,
+    )
+    baseline = _component_aware_metric(
+        session,
+        ref="frame_baseline_one_sided",
+        rows=[
+            {"region": "MATCHED", "failure_rate": 0.10},
+            {"region": "CHURNED", "failure_rate": 0.20},
+        ],
+        component_rows=[
+            {
+                "region": "MATCHED",
+                "weighted_failed": 10.0,
+                "total_weight": 100.0,
+                "failure_rate": 0.10,
+            },
+            {
+                "region": "CHURNED",
+                "weighted_failed": 20.0,
+                "total_weight": 100.0,
+                "failure_rate": 0.20,
+            },
+        ],
+        composition_kind="weighted_average",
+        components=components,
+    )
+    delta = session.compare(current, baseline)
+
+    attribution = session.attribute(delta, axes=[make_ref("region", SemanticKind.DIMENSION)])
+
+    df = attribution.to_pandas().set_index("region")
+    assert df["contribution"].notna().all()
+    assert df.loc["MATCHED", "contribution"] == pytest.approx(0.05)
+    assert df.loc["NEW", "contribution"] == pytest.approx(0.15)
+    assert df.loc["CHURNED", "contribution"] == pytest.approx(-0.10)
+    assert df["contribution"].sum() == pytest.approx(0.10)
+    assert df.loc["NEW", "share_of_total_delta"] == pytest.approx(1.5)
+    assert df.loc["NEW", "share_of_positive_pool"] == pytest.approx(0.75)
+    assert df.loc["CHURNED", "share_of_negative_pool"] == pytest.approx(1.0)
+    assert "pct_contribution" not in df.columns
+    reconciliation = attribution.meta.reconciliation
+    assert reconciliation is not None
+    assert reconciliation.status == "reconciled"
+    assert reconciliation.total_delta == pytest.approx(0.10)
+    assert reconciliation.contribution_sum == pytest.approx(0.10)
+    assert reconciliation.one_sided_contribution_sum == pytest.approx(0.05)
+    assert reconciliation.unattributed_contribution_sum == pytest.approx(0.0, abs=1e-12)
+    assert reconciliation.residual == pytest.approx(0.0, abs=1e-12)
+    assert "one_sided_contribution_sum=0.05" in attribution.render()
+    assert attribution.evidence_status == "complete"
 
 
 def test_decompose_component_aware_ratio_with_no_valid_denominators_raises():
@@ -813,7 +892,9 @@ def test_decompose_component_aware_panel_ratio_delta_per_bucket():
         "bucket_start",
         "region",
         "contribution",
-        "pct_contribution",
+        "share_of_total_delta",
+        "share_of_positive_pool",
+        "share_of_negative_pool",
         "value_effect",
         "mix_effect",
         "residual",

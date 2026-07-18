@@ -254,6 +254,18 @@ attribution.show()
 子级总量，核对总变化时只对最深层求和。component-aware 的 ratio 和 weighted-average
 在两种模式下都会保留 `value_effect`、`mix_effect` 与 `residual`。
 
+Contribution share 会显式说明分母：
+
+- `share_of_total_delta` 保留符号；当某个 driver 抵消整体净变化时，它可以超过 100%；
+- `share_of_positive_pool` 只为正 contribution 填值；
+- `share_of_negative_pool` 只为负 contribution 填值，并返回正的池内占比。
+
+Marivo 不会把任一符号池直接命名为“改善”或“恶化”，因为当前持久化 metric contract
+不包含指标好坏方向；只有明确业务方向后，agent 才能加上这层解释。new/churned segment
+会保留精确的单边 component contribution。`AttributionFrame.show()` 会显示对账行，包括
+total delta、contribution 合计、one-sided contribution 合计、未归因合计和 residual；若任一
+最深层 partition 无法在数值容差内对齐，归因会直接失败，不会输出表面合计为 100% 的结果。
+
 ### `correlate` → `AssociationResult`
 
 在对齐后的桶上度量两个 metric 之间的关联。

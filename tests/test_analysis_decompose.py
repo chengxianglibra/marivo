@@ -173,26 +173,16 @@ def test_decompose_axes_single_axis_returns_level_one_hierarchy_rows():
     assert out.meta.method == "ordered_hierarchy_sum"
     assert out.meta.params["axes"] == ["region"]
     assert "mode" not in out.meta.params
-    assert out.to_pandas().to_dict("records") == [
-        {
-            "level": 1,
-            "axis": "region",
-            "driver": "north",
-            "path": "north",
-            "contribution": 15.0,
-            "pct_contribution": 1.25,
-            "rank": 1,
-        },
-        {
-            "level": 1,
-            "axis": "region",
-            "driver": "south",
-            "path": "south",
-            "contribution": -3.0,
-            "pct_contribution": -0.25,
-            "rank": 2,
-        },
-    ]
+    df = out.to_pandas().set_index("driver")
+    assert df.loc["north", "contribution"] == pytest.approx(15.0)
+    assert df.loc["north", "share_of_total_delta"] == pytest.approx(1.25)
+    assert df.loc["north", "share_of_positive_pool"] == pytest.approx(1.0)
+    assert pd.isna(df.loc["north", "share_of_negative_pool"])
+    assert df.loc["south", "contribution"] == pytest.approx(-3.0)
+    assert df.loc["south", "share_of_total_delta"] == pytest.approx(-0.25)
+    assert df.loc["south", "share_of_negative_pool"] == pytest.approx(1.0)
+    assert pd.isna(df.loc["south", "share_of_positive_pool"])
+    assert "pct_contribution" not in df.columns
 
 
 def test_decompose_axes_multi_axis_returns_ordered_hierarchy_rows():
@@ -872,7 +862,9 @@ def test_decompose_axes_empty_delta_returns_empty_hierarchy():
         "driver",
         "path",
         "contribution",
-        "pct_contribution",
+        "share_of_total_delta",
+        "share_of_positive_pool",
+        "share_of_negative_pool",
         "rank",
     ]
 

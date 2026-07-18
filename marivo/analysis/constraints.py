@@ -41,6 +41,7 @@ class ConstraintId(StrEnum):
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
     COMPONENT_FRAME_AVAILABLE = "component_frame_available"
     ATTRIBUTION_ADDITIVITY_COMPATIBLE = "attribution_additivity_compatible"
+    ATTRIBUTION_RECONCILIATION = "attribution_reconciliation"
     CUMULATIVE_COMPARE_COMPATIBLE = "cumulative_compare_compatible"
     CUMULATIVE_ATTRIBUTION_UNSUPPORTED = "cumulative_attribution_unsupported"
 
@@ -291,6 +292,21 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Tier-1 means with persisted sum/count_non_null components.",
         "Re-observe and compare old artifacts; model non-additive metrics as ratio or "
         "weighted_average components, or attribute additive numerator and denominator separately.",
+        help_target="attribute",
+    ),
+    ConstraintId.ATTRIBUTION_RECONCILIATION: _constraint(
+        ConstraintId.ATTRIBUTION_RECONCILIATION,
+        "AttributionReconciliation",
+        "runtime",
+        ("attribute", "decompose", "AttributionFrame", "ComponentDecompositionError"),
+        "Attribution emits share_of_total_delta plus positive- and negative-pool shares; "
+        "new and churned component rows keep exact one-sided contributions, and every "
+        "deepest partition must reconcile to its independently computed total delta.",
+        "The AttributionFrame show card reports total, contribution, one-sided, "
+        "unattributed, and residual reconciliation facts instead of hiding missing rows "
+        "behind a normalized percentage.",
+        "Inspect the reconciliation card and component rows; repair invalid component "
+        "weights or inputs before retrying if attribution fails closed.",
         help_target="attribute",
     ),
     ConstraintId.CUMULATIVE_COMPARE_COMPATIBLE: _constraint(

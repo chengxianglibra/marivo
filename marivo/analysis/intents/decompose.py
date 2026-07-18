@@ -19,7 +19,7 @@ from marivo.analysis.errors import (
 )
 from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.types import AnalysisScope, ComparabilityIssue
-from marivo.analysis.frames.attribution import AttributionFrame
+from marivo.analysis.frames.attribution import AttributionFrame, AttributionReconciliation
 from marivo.analysis.frames.component import (
     ComponentFrame,
     resolve_role_column_name,
@@ -460,6 +460,235 @@ def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
     )
 
 
+_ATTRIBUTION_TOTAL_DELTA_COLUMN = "_attribution_total_delta"
+_ATTRIBUTION_ONE_SIDED_COLUMN = "_attribution_one_sided"
+
+
+def _add_contribution_shares(
+    output: pd.DataFrame,
+    *,
+    total_delta: float,
+) -> pd.DataFrame:
+    """Attach signed net and same-sign pool shares without hiding offsets."""
+    contribution = pd.to_numeric(output["contribution"], errors="coerce")
+    valid = contribution.notna()
+    positive_total = float(contribution[valid & (contribution > 0)].sum())
+    negative_total = float(-contribution[valid & (contribution < 0)].sum())
+    output["share_of_total_delta"] = np.where(
+        valid & (total_delta != 0), contribution / total_delta, np.nan
+    )
+    output["share_of_positive_pool"] = np.where(
+        valid & (contribution > 0) & (positive_total != 0),
+        contribution / positive_total,
+        np.nan,
+    )
+    output["share_of_negative_pool"] = np.where(
+        valid & (contribution < 0) & (negative_total != 0),
+        -contribution / negative_total,
+        np.nan,
+    )
+    output[_ATTRIBUTION_TOTAL_DELTA_COLUMN] = total_delta
+    return output
+
+
+def _component_side_value(
+    numerator: pd.Series,
+    basis: pd.Series,
+    *,
+    component: ComponentFrame,
+    side: str,
+) -> pd.Series:
+    """Return a within-segment value, treating an absent zero/zero side as zero."""
+    numeric_numerator = pd.to_numeric(numerator, errors="coerce")
+    numeric_basis = pd.to_numeric(basis, errors="coerce")
+    invalid_zero_basis = (
+        numeric_basis.eq(0) & numeric_numerator.notna() & ~np.isclose(numeric_numerator, 0.0)
+    )
+    if bool(invalid_zero_basis.any()):
+        raise ComponentDecompositionError(
+            message="component-aware decompose found a non-zero numerator with zero weight",
+            context={
+                "component_ref": component.ref,
+                "side": side,
+                "invalid_row_count": int(invalid_zero_basis.sum()),
+            },
+        )
+    value = _safe_divide(numeric_numerator, numeric_basis)
+    structural_zero = numeric_basis.eq(0) & numeric_numerator.fillna(0.0).eq(0)
+    return value.mask(structural_zero, 0.0)
+
+
+def _component_total_value(
+    numerator: pd.Series,
+    basis_total: float,
+    *,
+    component: ComponentFrame,
+    side: str,
+) -> float:
+    numerator_total = float(pd.to_numeric(numerator, errors="coerce").sum(skipna=True))
+    if np.isfinite(basis_total) and basis_total != 0:
+        return numerator_total / basis_total
+    if (
+        np.isfinite(basis_total)
+        and np.isclose(basis_total, 0.0)
+        and np.isclose(numerator_total, 0.0)
+    ):
+        return 0.0
+    raise ComponentDecompositionError(
+        message="component-aware decompose could not form an aggregate component value",
+        context={
+            "component_ref": component.ref,
+            "side": side,
+            "numerator_total": numerator_total,
+            "basis_total": basis_total,
+        },
+    )
+
+
+def _populate_component_mix(
+    output: pd.DataFrame,
+    *,
+    component: ComponentFrame,
+    numerator_name: str,
+    share_role: str,
+    value_name: str,
+) -> pd.DataFrame:
+    current_numerator = pd.to_numeric(output[f"current_{numerator_name}"], errors="coerce")
+    baseline_numerator = pd.to_numeric(output[f"baseline_{numerator_name}"], errors="coerce")
+    current_basis = pd.to_numeric(output[f"current_{share_role}"], errors="coerce")
+    baseline_basis = pd.to_numeric(output[f"baseline_{share_role}"], errors="coerce")
+    current_total = float(current_basis.sum(skipna=True))
+    baseline_total = float(baseline_basis.sum(skipna=True))
+    current_total_value = _component_total_value(
+        current_numerator,
+        current_total,
+        component=component,
+        side="current",
+    )
+    baseline_total_value = _component_total_value(
+        baseline_numerator,
+        baseline_total,
+        component=component,
+        side="baseline",
+    )
+    current_share = (
+        current_basis / current_total if current_total != 0 else pd.Series(0.0, index=output.index)
+    )
+    baseline_share = (
+        baseline_basis / baseline_total
+        if baseline_total != 0
+        else pd.Series(0.0, index=output.index)
+    )
+    current_value = _component_side_value(
+        current_numerator,
+        current_basis,
+        component=component,
+        side="current",
+    )
+    baseline_value = _component_side_value(
+        baseline_numerator,
+        baseline_basis,
+        component=component,
+        side="baseline",
+    )
+    output[f"current_{value_name}"] = current_value
+    output[f"baseline_{value_name}"] = baseline_value
+    output["contribution"] = current_share * current_value - baseline_share * baseline_value
+    output["value_effect"] = current_share * (current_value - baseline_value)
+    output["mix_effect"] = (current_share - baseline_share) * baseline_value
+    output["residual"] = output["contribution"] - output["value_effect"] - output["mix_effect"]
+    if bool(output["contribution"].isna().any()):
+        raise ComponentDecompositionError(
+            message="component-aware decompose could not form every contribution row",
+            context={
+                "component_ref": component.ref,
+                "share_role": share_role,
+                "invalid_row_count": int(output["contribution"].isna().sum()),
+            },
+        )
+    output["current_share"] = current_share
+    output["baseline_share"] = baseline_share
+    output[_ATTRIBUTION_ONE_SIDED_COLUMN] = current_basis.eq(0) ^ baseline_basis.eq(0)
+    return _add_contribution_shares(
+        output,
+        total_delta=current_total_value - baseline_total_value,
+    )
+
+
+def _finalize_attribution_output(
+    output: pd.DataFrame,
+    *,
+    bucket_column: str | None,
+) -> tuple[pd.DataFrame, AttributionReconciliation]:
+    """Validate every deepest attribution partition and remove internal columns."""
+    if output.empty:
+        return (
+            output.drop(
+                columns=[_ATTRIBUTION_TOTAL_DELTA_COLUMN, _ATTRIBUTION_ONE_SIDED_COLUMN],
+                errors="ignore",
+            ),
+            AttributionReconciliation(partition_count=0, max_abs_residual=0.0),
+        )
+
+    checked = output
+    if "level" in checked.columns:
+        checked = checked[checked["level"] == checked["level"].max()]
+    grouped: list[pd.DataFrame]
+    if bucket_column is None:
+        grouped = [checked]
+    else:
+        grouped = [group for _, group in checked.groupby(bucket_column, dropna=False, sort=True)]
+
+    facts: list[tuple[float, float, float, float, float]] = []
+    for group in grouped:
+        total_values = pd.to_numeric(
+            group[_ATTRIBUTION_TOTAL_DELTA_COLUMN], errors="coerce"
+        ).dropna()
+        if total_values.empty:
+            raise ComponentDecompositionError(
+                message="attribution output is missing its independent reconciliation total",
+                context={"bucket_column": bucket_column},
+            )
+        total_delta = float(total_values.iloc[0])
+        contribution_sum = float(pd.to_numeric(group["contribution"], errors="coerce").sum())
+        residual = total_delta - contribution_sum
+        tolerance = max(1e-12, 1e-9 * max(abs(total_delta), abs(contribution_sum), 1.0))
+        if not np.isfinite(residual) or abs(residual) > tolerance:
+            raise ComponentDecompositionError(
+                message="attribution contributions do not reconcile to the overall delta",
+                context={
+                    "total_delta": total_delta,
+                    "contribution_sum": contribution_sum,
+                    "reconciliation_residual": residual,
+                    "tolerance": tolerance,
+                },
+            )
+        one_sided_sum = 0.0
+        if _ATTRIBUTION_ONE_SIDED_COLUMN in group.columns:
+            one_sided = group[_ATTRIBUTION_ONE_SIDED_COLUMN].fillna(False).astype(bool)
+            one_sided_sum = float(
+                pd.to_numeric(group.loc[one_sided, "contribution"], errors="coerce").sum()
+            )
+        facts.append((total_delta, contribution_sum, one_sided_sum, 0.0, abs(residual)))
+
+    single_partition = len(facts) == 1
+    total_delta, contribution_sum, one_sided_sum, residual, _abs_residual = facts[0]
+    reconciliation = AttributionReconciliation(
+        partition_count=len(facts),
+        total_delta=total_delta if single_partition else None,
+        contribution_sum=contribution_sum if single_partition else None,
+        one_sided_contribution_sum=one_sided_sum if single_partition else None,
+        unattributed_contribution_sum=residual if single_partition else None,
+        residual=residual if single_partition else None,
+        max_abs_residual=max(item[4] for item in facts),
+    )
+    cleaned = output.drop(
+        columns=[_ATTRIBUTION_TOTAL_DELTA_COLUMN, _ATTRIBUTION_ONE_SIDED_COLUMN],
+        errors="ignore",
+    )
+    return cleaned, reconciliation
+
+
 def _infer_delta_value_column_name(component: ComponentFrame) -> str:
     """Infer the metric-name value column from the component delta frame columns.
 
@@ -503,38 +732,13 @@ def _component_mix_output_for_df(
             context={"component_ref": component.ref, "missing_columns": missing},
         )
     output = df[required].copy()
-    current_basis = pd.to_numeric(output[f"current_{share_role}"], errors="coerce")
-    baseline_basis = pd.to_numeric(output[f"baseline_{share_role}"], errors="coerce")
-    current_total = current_basis.sum(skipna=True)
-    baseline_total = baseline_basis.sum(skipna=True)
-    if not np.isfinite(current_total) or current_total == 0:
-        current_share = pd.Series(np.nan, index=output.index)
-    else:
-        current_share = current_basis / current_total
-    if not np.isfinite(baseline_total) or baseline_total == 0:
-        baseline_share = pd.Series(np.nan, index=output.index)
-    else:
-        baseline_share = baseline_basis / baseline_total
-    current_value = _safe_divide(output[f"current_{numerator_name}"], current_basis)
-    baseline_value = _safe_divide(output[f"baseline_{numerator_name}"], baseline_basis)
-    output["contribution"] = current_share * current_value - baseline_share * baseline_value
-    output["value_effect"] = current_share * (current_value - baseline_value)
-    output["mix_effect"] = (current_share - baseline_share) * baseline_value
-    output["residual"] = output["contribution"] - output["value_effect"] - output["mix_effect"]
-    valid = output["contribution"].notna()
-    if not bool(valid.any()):
-        raise ComponentDecompositionError(
-            message="component-aware decompose could not form any valid contribution rows",
-            context={"component_ref": component.ref, "share_role": share_role},
-        )
-    total = float(output.loc[valid, "contribution"].sum())
-    output["pct_contribution"] = np.where(
-        valid & (total != 0),
-        output["contribution"] / total,
-        np.nan,
+    output = _populate_component_mix(
+        output,
+        component=component,
+        numerator_name=numerator_name,
+        share_role=share_role,
+        value_name=value_name,
     )
-    output["current_share"] = current_share
-    output["baseline_share"] = baseline_share
     output = output.reindex(
         output["contribution"].abs().sort_values(ascending=False).index
     ).reset_index(drop=True)
@@ -543,7 +747,9 @@ def _component_mix_output_for_df(
         [
             axis_column,
             "contribution",
-            "pct_contribution",
+            "share_of_total_delta",
+            "share_of_positive_pool",
+            "share_of_negative_pool",
             "value_effect",
             "mix_effect",
             "residual",
@@ -555,6 +761,8 @@ def _component_mix_output_for_df(
             f"baseline_{value_name}",
             "current_share",
             "baseline_share",
+            _ATTRIBUTION_TOTAL_DELTA_COLUMN,
+            _ATTRIBUTION_ONE_SIDED_COLUMN,
             "rank",
         ]
     ]
@@ -589,13 +797,8 @@ def _component_linear_output_for_df(
     out["value_effect"] = total  # additive: all contribution is value-effect
     out["mix_effect"] = 0.0
     out["residual"] = 0.0
-    valid = out["contribution"].notna()
-    total_val = float(out.loc[valid, "contribution"].sum()) if valid.any() else 0.0
-    out["pct_contribution"] = np.where(
-        valid & (total_val != 0),
-        out["contribution"] / total_val,
-        np.nan,
-    )
+    total_val = float(out["contribution"].sum())
+    out = _add_contribution_shares(out, total_delta=total_val)
     out = out.reindex(out["contribution"].abs().sort_values(ascending=False).index).reset_index(
         drop=True
     )
@@ -604,10 +807,13 @@ def _component_linear_output_for_df(
         [
             axis_column,
             "contribution",
-            "pct_contribution",
+            "share_of_total_delta",
+            "share_of_positive_pool",
+            "share_of_negative_pool",
             "value_effect",
             "mix_effect",
             "residual",
+            _ATTRIBUTION_TOTAL_DELTA_COLUMN,
             "rank",
         ]
     ]
@@ -679,40 +885,13 @@ def _component_joint_mix_output_for_df(
         .sum(min_count=1)
         .reset_index()
     )
-    current_basis = pd.to_numeric(output[f"current_{share_role}"], errors="coerce")
-    baseline_basis = pd.to_numeric(output[f"baseline_{share_role}"], errors="coerce")
-    current_total = current_basis.sum(skipna=True)
-    baseline_total = baseline_basis.sum(skipna=True)
-    current_share = (
-        current_basis / current_total
-        if np.isfinite(current_total) and current_total != 0
-        else pd.Series(np.nan, index=output.index)
+    output = _populate_component_mix(
+        output,
+        component=component,
+        numerator_name=numerator_name,
+        share_role=share_role,
+        value_name=value_name,
     )
-    baseline_share = (
-        baseline_basis / baseline_total
-        if np.isfinite(baseline_total) and baseline_total != 0
-        else pd.Series(np.nan, index=output.index)
-    )
-    current_value = _safe_divide(output[f"current_{numerator_name}"], current_basis)
-    baseline_value = _safe_divide(output[f"baseline_{numerator_name}"], baseline_basis)
-    output[f"current_{value_name}"] = current_value
-    output[f"baseline_{value_name}"] = baseline_value
-    output["contribution"] = current_share * current_value - baseline_share * baseline_value
-    output["value_effect"] = current_share * (current_value - baseline_value)
-    output["mix_effect"] = (current_share - baseline_share) * baseline_value
-    output["residual"] = output["contribution"] - output["value_effect"] - output["mix_effect"]
-    valid = output["contribution"].notna()
-    if not bool(valid.any()):
-        raise ComponentDecompositionError(
-            message="component-aware decompose could not form any valid contribution rows",
-            context={"component_ref": component.ref, "share_role": share_role},
-        )
-    total = float(output.loc[valid, "contribution"].sum())
-    output["pct_contribution"] = np.where(
-        valid & (total != 0), output["contribution"] / total, np.nan
-    )
-    output["current_share"] = current_share
-    output["baseline_share"] = baseline_share
     output = output.reindex(
         output["contribution"].abs().sort_values(ascending=False).index
     ).reset_index(drop=True)
@@ -721,7 +900,9 @@ def _component_joint_mix_output_for_df(
         [
             *axis_columns,
             "contribution",
-            "pct_contribution",
+            "share_of_total_delta",
+            "share_of_positive_pool",
+            "share_of_negative_pool",
             "value_effect",
             "mix_effect",
             "residual",
@@ -733,6 +914,8 @@ def _component_joint_mix_output_for_df(
             f"baseline_{value_name}",
             "current_share",
             "baseline_share",
+            _ATTRIBUTION_TOTAL_DELTA_COLUMN,
+            _ATTRIBUTION_ONE_SIDED_COLUMN,
             "rank",
         ]
     ]
@@ -794,7 +977,7 @@ def _component_joint_linear_output_for_df(
     out["mix_effect"] = 0.0
     out["residual"] = 0.0
     total_value = float(out["contribution"].sum())
-    out["pct_contribution"] = np.where(total_value != 0, out["contribution"] / total_value, np.nan)
+    out = _add_contribution_shares(out, total_delta=total_value)
     out = out.reindex(out["contribution"].abs().sort_values(ascending=False).index).reset_index(
         drop=True
     )
@@ -803,10 +986,13 @@ def _component_joint_linear_output_for_df(
         [
             *axis_columns,
             "contribution",
-            "pct_contribution",
+            "share_of_total_delta",
+            "share_of_positive_pool",
+            "share_of_negative_pool",
             "value_effect",
             "mix_effect",
             "residual",
+            _ATTRIBUTION_TOTAL_DELTA_COLUMN,
             "rank",
         ]
     ]
@@ -949,6 +1135,7 @@ def _ordered_hierarchy_output(
                 ascending=False,
                 kind="mergesort",
             ).reset_index(drop=True)
+            grouped = _add_contribution_shares(grouped, total_delta=denominator)
             for rank_val, (_, row) in enumerate(grouped.iterrows(), start=1):
                 path_parts = [str(row[column]) for column in group_columns]
                 contribution = float(row["contribution"])
@@ -958,14 +1145,28 @@ def _ordered_hierarchy_output(
                     "driver": row[axis_columns[level - 1]],
                     "path": " > ".join(path_parts),
                     "contribution": contribution,
-                    "pct_contribution": contribution / denominator if denominator != 0 else np.nan,
+                    "share_of_total_delta": row["share_of_total_delta"],
+                    "share_of_positive_pool": row["share_of_positive_pool"],
+                    "share_of_negative_pool": row["share_of_negative_pool"],
+                    _ATTRIBUTION_TOTAL_DELTA_COLUMN: denominator,
                     "rank": rank_val,
                 }
                 if bucket_column is not None:
                     output_row[bucket_column] = bucket_value
                 rows.append(output_row)
 
-    columns = ["level", "axis", "driver", "path", "contribution", "pct_contribution", "rank"]
+    columns = [
+        "level",
+        "axis",
+        "driver",
+        "path",
+        "contribution",
+        "share_of_total_delta",
+        "share_of_positive_pool",
+        "share_of_negative_pool",
+        _ATTRIBUTION_TOTAL_DELTA_COLUMN,
+        "rank",
+    ]
     if bucket_column is not None:
         columns = [bucket_column, *columns]
     output = pd.DataFrame(rows)
@@ -991,7 +1192,7 @@ def _joint_sum_output_for_df(
     output["mix_effect"] = 0.0
     output["residual"] = 0.0
     total = float(output["contribution"].sum())
-    output["pct_contribution"] = np.where(total != 0, output["contribution"] / total, np.nan)
+    output = _add_contribution_shares(output, total_delta=total)
     output = output.reindex(
         output["contribution"].abs().sort_values(ascending=False).index
     ).reset_index(drop=True)
@@ -1000,10 +1201,13 @@ def _joint_sum_output_for_df(
         [
             *axis_columns,
             "contribution",
-            "pct_contribution",
+            "share_of_total_delta",
+            "share_of_positive_pool",
+            "share_of_negative_pool",
             "value_effect",
             "mix_effect",
             "residual",
+            _ATTRIBUTION_TOTAL_DELTA_COLUMN,
             "rank",
         ]
     ]
@@ -1031,10 +1235,13 @@ def _multi_axis_joint_sum_output(
             bucket_column,
             *axis_columns,
             "contribution",
-            "pct_contribution",
+            "share_of_total_delta",
+            "share_of_positive_pool",
+            "share_of_negative_pool",
             "value_effect",
             "mix_effect",
             "residual",
+            _ATTRIBUTION_TOTAL_DELTA_COLUMN,
             "rank",
         ]
         return pd.DataFrame(columns=columns)
@@ -1067,6 +1274,7 @@ def _multi_axis_hierarchy_output(
             grouped = grouped.sort_values(
                 "contribution", key=lambda values: values.abs(), ascending=False, kind="mergesort"
             ).reset_index(drop=True)
+            grouped = _add_contribution_shares(grouped, total_delta=denominator)
             for rank, (_, row) in enumerate(grouped.iterrows(), start=1):
                 contribution = float(row["contribution"])
                 output_row: dict[str, object] = {
@@ -1075,10 +1283,13 @@ def _multi_axis_hierarchy_output(
                     "driver": row[axis_columns[level - 1]],
                     "path": " > ".join(str(row[column]) for column in prefix),
                     "contribution": contribution,
-                    "pct_contribution": contribution / denominator if denominator != 0 else np.nan,
+                    "share_of_total_delta": row["share_of_total_delta"],
+                    "share_of_positive_pool": row["share_of_positive_pool"],
+                    "share_of_negative_pool": row["share_of_negative_pool"],
                     "value_effect": contribution,
                     "mix_effect": 0.0,
                     "residual": 0.0,
+                    _ATTRIBUTION_TOTAL_DELTA_COLUMN: denominator,
                     "rank": rank,
                 }
                 for axis_column in axis_columns:
@@ -1093,10 +1304,13 @@ def _multi_axis_hierarchy_output(
         "path",
         *axis_columns,
         "contribution",
-        "pct_contribution",
+        "share_of_total_delta",
+        "share_of_positive_pool",
+        "share_of_negative_pool",
         "value_effect",
         "mix_effect",
         "residual",
+        _ATTRIBUTION_TOTAL_DELTA_COLUMN,
         "rank",
     ]
     if bucket_column is not None:
@@ -1209,6 +1423,10 @@ def decompose(
                 if component.meta.composition_kind == "linear"
                 else _component_method(component)
             )
+        output, reconciliation = _finalize_attribution_output(
+            output,
+            bucket_column=bucket_column,
+        )
         driver_field = (
             component_axis_columns[0]
             if validated_mode is None
@@ -1248,6 +1466,7 @@ def decompose(
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
             extra_issues=coverage_warnings,
+            reconciliation=reconciliation,
         )
 
     if validated_mode is not None:
@@ -1272,6 +1491,10 @@ def decompose(
             )
             driver_field = "path"
             method = "ordered_hierarchy_sum"
+        output, reconciliation = _finalize_attribution_output(
+            output,
+            bucket_column=bucket_column,
+        )
         params = {
             "source_ref": frame.ref,
             "axes": axis_ids,
@@ -1303,6 +1526,7 @@ def decompose(
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
             extra_issues=coverage_warnings,
+            reconciliation=reconciliation,
         )
 
     if frame.meta.semantic_kind == "panel":
@@ -1311,6 +1535,10 @@ def decompose(
             source_df,
             axis_columns=axis_columns,
             value_column=value_column,
+            bucket_column=bucket_column,
+        )
+        output, reconciliation = _finalize_attribution_output(
+            output,
             bucket_column=bucket_column,
         )
         params = {
@@ -1343,6 +1571,7 @@ def decompose(
             started_monotonic=started,
             analysis_purpose=_analysis_purpose,
             extra_issues=coverage_warnings,
+            reconciliation=reconciliation,
         )
 
     output = _ordered_hierarchy_output(
@@ -1350,6 +1579,7 @@ def decompose(
         axis_columns=axis_columns,
         value_column=value_column,
     )
+    output, reconciliation = _finalize_attribution_output(output, bucket_column=None)
     params = {
         "source_ref": frame.ref,
         "axes": axis_ids,
@@ -1379,4 +1609,5 @@ def decompose(
         started_monotonic=started,
         analysis_purpose=_analysis_purpose,
         extra_issues=coverage_warnings,
+        reconciliation=reconciliation,
     )
