@@ -171,7 +171,6 @@ make test
 make typecheck
 make lint
 make format
-make examples-check
 ```
 
 ## Documentation Routing

@@ -207,11 +207,11 @@ skill file, ask *"could the library teach this from real state at the call
 site?"* If yes, it is contract — delete it from the skill and repoint to
 `help('<x>')` or the structured error. If no (it requires cross-object or
 cross-step judgment), it is process and it stays. Applied at review time — and
-backed by `make examples-check`, which runs the skills' embedded example scripts
-against the real surface — the test keeps field tables and error catalogs from
-re-accumulating as a second, drift-prone source of truth. The goal is not zero
-redundancy — orienting prose and decision trees are valuable — but zero
-*drift-prone* duplication of a contract the code already emits.
+backed by deterministic skill-shape, live-help, and API-drift tests — the test
+keeps field tables and error catalogs from re-accumulating as a second,
+drift-prone source of truth. The goal is not zero redundancy — orienting prose
+and decision trees are valuable — but zero *drift-prone* duplication of a
+contract the code already emits.
 
 This layering is instantiated once per domain:
 
@@ -408,9 +408,10 @@ snapshot-with-allowlist spirit throughout:
   real method.
 - `tests/test_introspection_help_folding.py` — the top-level `help()` family
   partition is pinned, so new symbols are classified deliberately.
-- `make examples-check` — the runnable examples in `help()` and the skills stay
-  green against the real surface, so guidance cannot drift from the code it
-  teaches.
+- `tests/test_marivo_analysis_skill_contract.py` — packaged skills remain
+  bounded one-file routing kernels with no deleted attachment paths.
+- Focused live-help and API-drift tests — runnable help examples and mechanical
+  contracts stay aligned with the real surface.
 
 ## Where to go next
 

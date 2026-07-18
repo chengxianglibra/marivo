@@ -119,7 +119,6 @@ Use the repository entrypoints for checks:
 make format
 make lint
 make typecheck
-make examples-check
 make test
 make check
 ```

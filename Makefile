@@ -1,4 +1,4 @@
-.PHONY: test typecheck lint format check examples-check docs-api pypi-build pypi-check pypi-clean
+.PHONY: test typecheck lint format check docs-api pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
 VENV_BIN := .venv/Scripts
@@ -26,19 +26,6 @@ typecheck:
 	@./scripts/require-venv.sh mypy
 	@$(VENV_MYPY) marivo
 
-examples-check:
-	@for examples_dir in marivo/skills/marivo-*/references/examples; do \
-		if [ ! -d "$$examples_dir" ]; then continue; fi; \
-		EXAMPLE_TYPECHECK_FILES=$$(mktemp); \
-		find "$$examples_dir" -type f \( -name '*.py' -o -name '*.pyi' \) -print0 > "$$EXAMPLE_TYPECHECK_FILES"; \
-		if [ -s "$$EXAMPLE_TYPECHECK_FILES" ]; then \
-			xargs -0 $(VENV_MYPY) --explicit-package-bases --ignore-missing-imports \
-				< "$$EXAMPLE_TYPECHECK_FILES" || { status=$$?; rm -f "$$EXAMPLE_TYPECHECK_FILES"; exit $$status; }; \
-		fi; \
-		rm -f "$$EXAMPLE_TYPECHECK_FILES"; \
-	done
-	@$(VENV_PYTHON) scripts/run_skill_examples.py
-
 lint:
 	@./scripts/require-venv.sh ruff
 	@$(VENV_RUFF) check .
@@ -49,7 +36,7 @@ format:
 	@$(VENV_RUFF) format .
 	@$(VENV_RUFF) check --fix .
 
-check: lint typecheck examples-check test
+check: lint typecheck test
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
 	@./scripts/require-venv.sh sphinx-build

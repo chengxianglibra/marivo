@@ -1,8 +1,8 @@
-"""Package-shape and ownership tests for the marivo-analysis boundary skill.
+"""Package-shape and ownership tests for the packaged Marivo skills.
 
 Asserts the skill directory contains exactly ``SKILL.md``, that no active
-source/test/package metadata references deleted attachment paths, and that
-the example runner handles the analysis skill correctly.
+source/test/package metadata references deleted attachment paths, and that the
+single-file boundary kernels stay bounded.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-analysis"
+SEMANTIC_SKILL_DIR = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
+MAX_SKILL_LINES = 600
 
 
 def _active_references_to_deleted_semantic_paths(forbidden: str) -> list[str]:
@@ -73,10 +75,7 @@ def test_no_active_test_references_deleted_analysis_paths() -> None:
     themselves exempt (they reference the string in assertions, not as
     path pointers)."""
     forbidden = "marivo-analysis/references"
-    exempt_basenames = {
-        "test_marivo_analysis_skill_contract.py",
-        "test_skill_examples_runner.py",
-    }
+    exempt_basenames = {"test_marivo_analysis_skill_contract.py"}
     offenders: list[str] = []
     for py_file in (REPO_ROOT / "tests").rglob("*.py"):
         if py_file.name in exempt_basenames:
@@ -87,34 +86,14 @@ def test_no_active_test_references_deleted_analysis_paths() -> None:
     assert not offenders, f"Active test files reference deleted analysis references: {offenders}"
 
 
-def test_semantic_examples_may_be_absent() -> None:
-    """The example runner must treat absence of semantic examples as valid.
-
-    The marivo-semantic skill is now a single-file boundary kernel with no
-    packaged examples, mirroring marivo-analysis. The runner must still know
-    about the skill directory (for SKILL.md checks) but must not require
-    examples or enforce a semantic example contract.
-    """
-    runner = (REPO_ROOT / "scripts" / "run_skill_examples.py").read_text()
-    assert "marivo-semantic" in runner, (
-        "run_skill_examples.py must still reference marivo-semantic skill dir"
-    )
-    # The semantic example contract enforcement must be removed.
-    assert "_SEMANTIC_EXAMPLE_NAMES" not in runner, (
-        "run_skill_examples.py must not enforce semantic example contract"
-    )
-    assert "_check_semantic_example_contract" not in runner, (
-        "run_skill_examples.py must not enforce semantic example contract"
-    )
-
-
 def test_marivo_semantic_skill_is_one_file_routing_kernel() -> None:
     """The packaged semantic skill shape is exactly one file, with no embedded
     code/repair symbols and all required routing sections present."""
-    semantic_dir = REPO_ROOT / "marivo" / "skills" / "marivo-semantic"
-    entries = sorted(p.name for p in semantic_dir.iterdir())
-    assert entries == ["SKILL.md"], f"Expected exactly SKILL.md in {semantic_dir}; found {entries}"
-    text = (semantic_dir / "SKILL.md").read_text(encoding="utf-8")
+    entries = sorted(p.name for p in SEMANTIC_SKILL_DIR.iterdir())
+    assert entries == ["SKILL.md"], (
+        f"Expected exactly SKILL.md in {SEMANTIC_SKILL_DIR}; found {entries}"
+    )
+    text = (SEMANTIC_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
     for forbidden in ("def ", "class ", "canonical_id=", "RepairKind", "AuthoringRepair"):
         assert forbidden not in text, f"Forbidden token {forbidden!r} present in semantic SKILL.md"
     for required in ("Ownership", "Hard boundaries", "Routing", "Closeout"):
@@ -123,7 +102,7 @@ def test_marivo_semantic_skill_is_one_file_routing_kernel() -> None:
 
 def test_marivo_semantic_skill_defines_aliases_before_first_use() -> None:
     """Cold-start agents must see each public alias before its first help call."""
-    skill_path = REPO_ROOT / "marivo" / "skills" / "marivo-semantic" / "SKILL.md"
+    skill_path = SEMANTIC_SKILL_DIR / "SKILL.md"
     text = skill_path.read_text(encoding="utf-8")
 
     for import_statement, first_use in (
@@ -161,13 +140,12 @@ def test_no_active_test_references_deleted_semantic_paths() -> None:
     )
 
 
-def test_analysis_examples_may_be_absent() -> None:
-    """The example runner must treat absence of analysis examples as valid."""
-    runner = (REPO_ROOT / "scripts" / "run_skill_examples.py").read_text()
-    assert "marivo-analysis" in runner, (
-        "run_skill_examples.py must still know about marivo-analysis skill dir"
-    )
-    # The runner must not hard-fail when analysis examples dir is missing.
-    assert 'skill_dir.name == "marivo-analysis"' in runner or (
-        '"marivo-analysis"' in runner and "examples_dir" in runner
-    ), "run_skill_examples.py must allow absent analysis examples"
+def test_packaged_skill_files_stay_bounded() -> None:
+    """Single-file boundary kernels must stay small enough to load directly."""
+    for skill_dir in (SKILL_DIR, SEMANTIC_SKILL_DIR):
+        skill_path = skill_dir / "SKILL.md"
+        line_count = len(skill_path.read_text(encoding="utf-8").splitlines())
+        assert line_count <= MAX_SKILL_LINES, (
+            f"{skill_path} has {line_count} lines; reduce it to at most {MAX_SKILL_LINES} "
+            "by moving mechanical contracts to live help or structured results"
+        )
