@@ -60,6 +60,26 @@ not runtime permissions enforced by the skill.
 
 The skill does not enumerate any API details, signatures, or examples.
 
+## Script workspace
+
+Use a rerunnable Python script as the default execution unit after analysis
+entry. Store it under the current session's project-local
+`<project_root>/.marivo/analysis/sessions/<session.id>/scripts/` directory and
+run it with the verified `<analysis-python>`. On failure, repair and rerun the
+same script instead of replacing it with disposable snippets.
+
+Before authoring equivalent code, the agent may read scripts from this
+project's current or prior sessions as reference material for imports, session
+recovery, and operator composition. A prior script is an eligible reference
+only when its originating session records a `succeeded` job and the output
+artifact remains recoverable. Reference-only means never executing it directly,
+copying it wholesale, or treating it as trusted current code.
+
+For every new analysis, re-resolve semantic refs, time scopes, and parameters
+against live help and current state. The script is not evidence: material
+claims remain traceable to current semantic objects, artifacts/jobs, and
+analysis scope.
+
 ## Hard boundaries
 
 ### Semantic authority

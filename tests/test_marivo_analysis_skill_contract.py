@@ -86,6 +86,31 @@ def test_no_active_test_references_deleted_analysis_paths() -> None:
     assert not offenders, f"Active test files reference deleted analysis references: {offenders}"
 
 
+def test_analysis_skill_keeps_session_scripts_reference_only() -> None:
+    """Session-local scripts are rerunnable workspaces, not reusable evidence."""
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    live_contract_position = text.index("## Live-contract rule")
+    workspace_position = text.index("## Script workspace")
+    hard_boundaries_position = text.index("## Hard boundaries")
+
+    assert live_contract_position < workspace_position < hard_boundaries_position
+
+    workspace = text[workspace_position:hard_boundaries_position]
+    for required in (
+        "<project_root>/.marivo/analysis/sessions/<session.id>/scripts/",
+        "verified `<analysis-python>`",
+        "`succeeded` job",
+        "artifact remains recoverable",
+        "Reference-only",
+        "never executing it directly",
+        "copying it wholesale",
+        "re-resolve semantic refs, time scopes, and parameters",
+        "script is not evidence",
+        "artifacts/jobs",
+    ):
+        assert required in workspace, f"Missing script-workspace boundary: {required}"
+
+
 def test_marivo_semantic_skill_is_one_file_routing_kernel() -> None:
     """The packaged semantic skill shape is exactly one file, with no embedded
     code/repair symbols and all required routing sections present."""
