@@ -1,7 +1,7 @@
 # Marivo Unified Semantic Object and Reference Design
 
-Status: proposed; written-review revisions integrated; implementation blocked
-until the Tier-2 Semantic Expression Reference Binding Design is accepted
+Status: accepted; implementation in progress; written-review revisions and the
+Tier-2 Semantic Expression Reference Binding Design are integrated
 
 Date: 2026-07-19
 
@@ -87,8 +87,9 @@ author in Python -> compile with ms.load() -> browse CatalogEntry -> pass Ref
   `metric:sales.revenue`.
 - `.id` is removed from refs and catalog entries. `.key`, `.path`, `.kind`, and
   `.name` have non-overlapping meanings.
-- Refs are pure values. They are never callable, catalog-bound, resolver-bound,
-  readiness-bearing, mutable, or late-wired by the loader.
+- Refs are pure identity values. Field-kind refs have one context-bound call
+  operation for semantic expression bodies, but refs are never catalog-bound,
+  resolver-bearing, readiness-bearing, mutable, or late-wired by the loader.
 - Authoring Python files are executed only by the semantic compiler/loader.
   Direct analysis imports of authoring modules are unsupported.
 - `ms.load()` returns a new immutable `SemanticCatalog`. Catalog
@@ -119,10 +120,10 @@ author in Python -> compile with ms.load() -> browse CatalogEntry -> pass Ref
   analysis does not automatically run readiness.
 - There is no generated refs module, ref-export lifecycle, or second
   import-oriented semantic manifest.
-- Removal of callable field refs cannot begin until a companion Tier-2
-  expression-binding design is accepted. That prerequisite preserves the
-  committed `@ms.metric(entities=[...])` positional-alias contract and selects
-  the explicit replacement for applying a field ref to an entity alias.
+- The accepted companion Tier-2 expression-binding design preserves the
+  committed `field_ref(entity_alias)` spelling and
+  `@ms.metric(entities=[...])` positional-alias contract while moving all
+  resolver state into a loader-owned task-local execution context.
 - The unified Ref foundation and structured payload land before the in-flight
   metric-expression graph persistence. No bare-string identity schema is
   released or stabilized as metric-expression v1.
@@ -257,9 +258,11 @@ public runtime input.
 
 ### Ref
 
-A pure, stable, context-free identity value consisting of one semantic kind and
-one semantic path. It does not prove catalog membership, validity, readiness, or
-executability.
+A stable identity value consisting of one semantic kind and one semantic path.
+Its stored state is context-free and does not prove catalog membership,
+validity, readiness, or executability. Field-kind refs additionally support the
+companion design's body-only call operation through loader-owned task-local
+context; that context is never stored in the ref.
 
 ### Compiled catalog
 
@@ -330,6 +333,7 @@ from dataclasses import dataclass
 from typing import Generic, Never, TypeVar, cast, final
 
 KindT = TypeVar("KindT", bound=SemanticKindTag, covariant=True)
+FieldKind = DimensionKind | TimeDimensionKind | MeasureKind
 
 
 @final
@@ -376,6 +380,13 @@ class Ref(Generic[KindT]):
             (RefPayloadV1.from_ref(self),),
         )
 
+    def __call__(
+        self: Ref[FieldKind],
+        entity_alias: IbisTable,
+        /,
+    ) -> IbisValue:
+        return _apply_field_ref_in_active_body(self, entity_alias)
+
     @property
     def key(self) -> str:
         return f"{self.kind.value}:{self.path}"
@@ -400,8 +411,11 @@ may use protocols or phantom marker classes, but these constraints are fixed:
   rejected and public boundaries defensively require `type(value) is Ref`;
 - kind is a closed runtime tag, not inferred from Python subclass;
 - equality and hashing use exactly `(kind, path)`;
-- no ref contains a catalog, registry, resolver, callable, source location,
-  readiness flag, or mutable field;
+- no ref instance stores a catalog, registry, resolver, body callable, source
+  location, readiness flag, or mutable field;
+- `__call__` is a statically field-kind-restricted delegation to the active
+  loader-owned expression context; every non-field runtime kind and every call
+  outside registered body evaluation fails before executing an expression;
 - public errors and help call every instance a `Ref[kind]`.
 
 `KindT` is intentionally phantom runtime state: the closed `kind` field carries
@@ -430,6 +444,12 @@ format and must never replace `RefPayloadV1` in jobs, lineage, or artifacts.
 `dataclasses.replace(ref, ...)` is intentionally unsupported. Semantic identity
 cannot be edited field-by-field; callers construct another exact identity with
 the corresponding `Ref.<kind>(...)` factory.
+
+Field callability does not create a second construction or serialization path.
+Copy, deepcopy, pickle, equality, hashing, Pydantic validation, and durable
+persistence observe only `(kind, path)`. The body context owns binding metadata,
+catalog membership, sidecar resolution, cycle checks, and cleanup as specified
+by the Tier-2 companion design.
 
 Implementation annotations use the exact generic form directly. They do not
 introduce `MetricRefT`, `DimensionRefT`, or other aliases that would recreate a
@@ -711,19 +731,14 @@ on source organization rather than semantic identity.
 The loader is the sole executor of authoring modules. A tool that needs current
 semantic objects calls `ms.load()` and consumes the resulting compiled catalog.
 
-### Refs are not expression resolvers
+### Field calls use loader-owned expression context
 
-All callable and late-bound ref behavior is removed. Field expression
-resolution belongs to an explicit loader-owned expression binding, not to
-`Ref.__call__`.
-
-This document deliberately does not invent the replacement spelling. The
-required companion specification is **Tier-2 Semantic Expression Reference
-Binding Design**. It must be written, accepted, and linked here before
-implementation of this ref cutover begins.
-
-That companion design must preserve the currently committed Tier-2 declaration
-shape:
+Refs contain no expression resolver or catalog state. Field-kind refs retain
+the established `field_ref(entity_alias)` spelling, while `Ref.__call__`
+delegates to an explicit loader-owned task-local expression context. The
+binding and runtime contract are defined by the companion
+[`Tier-2 Semantic Expression Reference Binding Design`](2026-07-19-tier2-semantic-expression-reference-binding-design.md).
+It preserves the currently committed Tier-2 declaration shape:
 
 ```python
 @ms.metric(entities=[orders], ...)
@@ -733,16 +748,11 @@ def paid_revenue(order_rows):
 
 `entities=[...]` remains the ordered dependency declaration; function
 parameters remain positional entity aliases injected in that order, and
-parameter names never establish entity identity. The companion design selects
-the explicit replacement for current field-ref application such as
-`is_paid(order_rows)` and must cover dimension, time-dimension, and measure refs,
-single- and multi-entity bodies, validator restrictions, sidecar execution,
-Ibis attribute shadowing, help, and typing.
-
-Until that specification is accepted, current callable refs remain in place.
-Once the companion design lands, this destructive cutover removes ref
-callability atomically with the new expression binding; there is no interval in
-which committed Tier-2 bodies have no executable replacement.
+parameter names never establish entity identity. The companion covers
+dimension, time-dimension, and measure refs, single- and multi-entity bodies,
+validator restrictions, sidecar execution, Ibis attribute shadowing, help, and
+typing. The cutover deletes mutable resolver-bearing refs atomically with the
+new context-bound implementation; the authoring spelling does not change.
 
 ## Compiled Catalog Contract
 
@@ -1322,7 +1332,8 @@ The implementation cutover removes, rather than adapts:
 - `SymbolKind`, the `SemanticKind = SymbolKind` alias, and every second kind
   enum name; one canonical `SemanticKind` remains;
 - all kind-specific runtime ref subclasses;
-- ref callability and late-bound resolver state;
+- late-bound resolver state and loader mutation of refs; field-kind callability
+  is retained through the loader-owned expression context;
 - `SemanticRef` as a second public/base value family;
 - `ms.ref(...)`, generic `Ref.parse(...)`, and raw `Ref(...)` construction;
 - `.id` / `.semantic_id` ambiguity on public refs and entries;
@@ -1483,16 +1494,17 @@ immediately unreadable state and is explicitly forbidden.
   with a valid rename; tests cover conventional credential-cache reuse when the
   normalized environment-variable key is equal and non-reuse when it differs.
 - `SemanticKind` is the only enum name; `SymbolKind` and enum aliases are absent.
-- No ref is callable or mutable after construction.
+- No ref is mutable or resolver-bearing after construction; only field-kind
+  refs are callable and only through the active loader-owned body context.
 
 ### Authoring and loading
 
 - Every authoring helper returns the exact statically typed `Ref[K]`.
 - Every dependency parameter accepts only its exact ref kind.
 - Normal import of authoring modules is not a supported analysis path.
-- The Tier-2 Semantic Expression Reference Binding Design is accepted before
-  callable refs are removed, preserves `entities=[...]` positional aliases, and
-  supplies an executable replacement for every committed field-ref body shape.
+- The accepted Tier-2 Semantic Expression Reference Binding Design preserves
+  `field_ref(entity_alias)` and `entities=[...]` positional aliases while
+  removing every resolver-bearing ref implementation.
 - Local and external layers compile into one immutable catalog.
 - Reload creates a new compiled catalog and fingerprint without mutating the old
   one.
@@ -1598,10 +1610,12 @@ interpretation was used.
 
 ### Why one runtime Ref class instead of exact subclasses?
 
-Because kind is data, not behavior. Exact static typing remains available
-through `Ref[K]`, while one runtime class removes subclass factories,
-cross-layer base-class leakage, mutable field-ref exceptions, and separate
-serialization paths.
+Because identity representation is data, not a runtime subclass hierarchy.
+Exact static typing remains available through `Ref[K]`; the one permitted
+field-call operation is restricted by its generic self type and checked against
+the closed runtime kind. One runtime class removes subclass factories,
+cross-layer base-class leakage, mutable resolver-bearing field exceptions, and
+separate serialization paths.
 
 ### Why is there no generated refs module?
 
@@ -1616,7 +1630,8 @@ catalog. Those two paths cover the use cases without generating a mirror file.
 ```text
 Definition says what the object means.
 CatalogEntry says what one compiled catalog knows about it.
-Ref says only which object it is.
+Ref state says only which object it is; a field-kind ref may apply that identity
+inside the active loader-owned semantic body context.
 
 Python source is authored.
 Catalogs are compiled.
