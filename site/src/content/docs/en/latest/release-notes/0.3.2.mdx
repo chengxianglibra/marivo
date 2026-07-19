@@ -39,6 +39,10 @@ deprecated fields, dual-read paths, or compatibility flags. The additive
   read-only alias of `.ref`, catalog help labels collections as properties,
   and `mv.help("AttributionMode")` distinguishes multi-axis row layout from
   attribution math.
+- Artifact help now teaches progressive reads in a stable order:
+  `show()` for bounded state, `contract()` for mechanical compatibility, then
+  `to_pandas()` only when the remaining work is intentionally custom and
+  terminal.
 - `DeltaFrame.show()` now exposes the persisted attribution gate, and grouping
   help topics render as `mv.help("...")` with their real members instead of
   advertising nonexistent `session.recovery` or `session.artifacts` namespaces.

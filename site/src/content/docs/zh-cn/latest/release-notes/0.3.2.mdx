@@ -31,6 +31,9 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 - Analysis 检查接口现在更一致：live session 支持 bounded `render()` / `show()`；所有 frame
   和 frame summary 都提供 `.id` 作为 `.ref` 的只读别名；catalog help 会把 collection 标成
   property；`mv.help("AttributionMode")` 会区分多轴行布局与归因数学。
+- Artifact help 现在以稳定顺序引导渐进式读取：先用 `show()` 检查有界状态，再用
+  `contract()` 检查机械兼容性，仅当剩余工作明确属于自定义终端处理时才使用
+  `to_pandas()`。
 - `DeltaFrame.show()` 会暴露已持久化的归因门；分组 help topic 以
   `mv.help("...")` 和真实成员呈现，不再展示不存在的 `session.recovery` 或
   `session.artifacts` namespace。
