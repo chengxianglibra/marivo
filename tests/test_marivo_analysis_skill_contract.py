@@ -1,9 +1,4 @@
-"""Package-shape and ownership tests for the packaged Marivo skills.
-
-Asserts the skill directory contains exactly ``SKILL.md``, that no active
-source/test/package metadata references deleted attachment paths, and that the
-single-file boundary kernels stay bounded.
-"""
+"""Package-shape and ownership tests for the packaged Marivo skills."""
 
 from __future__ import annotations
 
@@ -45,45 +40,27 @@ def _active_references_to_deleted_semantic_paths(forbidden: str) -> list[str]:
     return offenders
 
 
-def test_skill_directory_contains_exactly_skill_md() -> None:
-    """The packaged analysis skill shape is exactly one file."""
+def test_analysis_skill_packages_conditional_runtime_closeout_reference() -> None:
     entries = sorted(p.name for p in SKILL_DIR.iterdir())
-    assert entries == ["SKILL.md"], f"Expected exactly SKILL.md in {SKILL_DIR}; found {entries}"
-
-
-def test_no_references_directory_remains() -> None:
-    """The references/ tree must be fully deleted."""
+    assert entries == ["SKILL.md", "references"]
     refs_dir = SKILL_DIR / "references"
-    assert not refs_dir.exists(), f"references/ still exists at {refs_dir}"
+    assert sorted(path.name for path in refs_dir.iterdir()) == ["runtime-metric-closeout.md"]
+    kernel = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    assert "references/runtime-metric-closeout.md" in kernel
 
 
-def test_no_active_source_references_deleted_analysis_paths() -> None:
-    """No active Python source file in marivo/ should reference
-    marivo-analysis/references (deleted paths)."""
-    forbidden = "marivo-analysis/references"
-    offenders: list[str] = []
-    for py_file in (REPO_ROOT / "marivo").rglob("*.py"):
-        text = py_file.read_text()
-        if forbidden in text:
-            offenders.append(str(py_file.relative_to(REPO_ROOT)))
-    assert not offenders, f"Active source files reference deleted analysis references: {offenders}"
-
-
-def test_no_active_test_references_deleted_analysis_paths() -> None:
-    """No active test file should reference marivo-analysis/references as a
-    real path. Test files that assert the absence of these paths are
-    themselves exempt (they reference the string in assertions, not as
-    path pointers)."""
-    forbidden = "marivo-analysis/references"
-    exempt_basenames = {"test_marivo_analysis_skill_contract.py"}
-    offenders: list[str] = []
-    for py_file in (REPO_ROOT / "tests").rglob("*.py"):
-        if py_file.name in exempt_basenames:
-            continue
-        text = py_file.read_text()
-        if forbidden in text:
-            offenders.append(str(py_file.relative_to(REPO_ROOT)))
-    assert not offenders, f"Active test files reference deleted analysis references: {offenders}"
+def test_runtime_closeout_reference_carries_required_disclosures() -> None:
+    text = (SKILL_DIR / "references" / "runtime-metric-closeout.md").read_text(encoding="utf-8")
+    for required in (
+        "aggregate/fold",
+        "branch-local slice",
+        "zero-division policy",
+        "presentation labels are non-authoritative",
+        "owning analysis session/artifact scope",
+        "current is",
+        "baseline is the comparator",
+    ):
+        assert required in text
 
 
 def test_analysis_skill_keeps_session_scripts_reference_only() -> None:

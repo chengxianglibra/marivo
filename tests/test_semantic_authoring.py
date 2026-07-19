@@ -16,6 +16,7 @@ Tests cover:
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import get_type_hints
 
 import pytest
 
@@ -1618,6 +1619,63 @@ def test_semi_additive_rejects_string_over() -> None:
     assert exc_info.value.kind == ErrorKind.INVALID_REF
     assert "over must be a TimeDimensionRef" in str(exc_info.value)
     assert "got str" in str(exc_info.value)
+
+
+def test_fold_surfaces_publish_shared_closed_aliases() -> None:
+    assert get_type_hints(ms.aggregate)["fold"] is ms.AggregateFoldInput
+    assert get_type_hints(ms.semi_additive)["fold"] is ms.AggregateFoldValue
+
+
+@pytest.mark.parametrize("fold", ["mean", "min", "max", "first", "last", ("percentile", 0.9)])
+def test_aggregate_and_semi_additive_share_fold_normalization(fold: object) -> None:
+    ctx = _enter_ctx(default_domain="sales")
+    try:
+        ms.aggregate(
+            name="inventory",
+            measure=MeasureRef("sales.inventory.quantity"),
+            agg="sum",
+            fold=fold,  # type: ignore[arg-type]
+        )
+        metric_ir, _ = ctx.pending_objects[-1]
+        semi_additive = ms.semi_additive(
+            over=TimeDimensionRef("sales.inventory.snapshot_at"),
+            fold=fold,  # type: ignore[arg-type]
+        )
+    finally:
+        _exit_ctx()
+
+    assert metric_ir.fold_override == semi_additive.fold
+
+
+@pytest.mark.parametrize(
+    "fold",
+    ["auto", "sum", ("percentile", 0.0), ("percentile", 1.0), ("other", 0.5), ("percentile",)],
+)
+def test_aggregate_rejects_values_outside_shared_fold_alias(fold: object) -> None:
+    _enter_ctx(default_domain="sales")
+    try:
+        with pytest.raises(SemanticDecoratorError) as exc_info:
+            ms.aggregate(
+                name="inventory",
+                measure=MeasureRef("sales.inventory.quantity"),
+                agg="sum",
+                fold=fold,  # type: ignore[arg-type]
+            )
+    finally:
+        _exit_ctx()
+
+    assert exc_info.value.kind == ErrorKind.INVALID_TIME_FOLD
+
+
+def test_semi_additive_rejects_null_fold() -> None:
+    with pytest.raises(SemanticDecoratorError) as exc_info:
+        ms.semi_additive(
+            over=TimeDimensionRef("sales.inventory.snapshot_at"),
+            fold=None,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "requires a fold" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

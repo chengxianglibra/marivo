@@ -11,6 +11,8 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 SEMANTIC_PUBLIC = {
+    "AggregateFoldInput",
+    "AggregateFoldValue",
     "AiContextValue",
     "CatalogCollection",
     "CatalogObject",
@@ -135,8 +137,7 @@ ANALYSIS_PUBLIC = {
     "holiday_aligned",
     "holiday_and_dow_aligned",
     "AlignmentPolicy",
-    "SemanticRef",
-    "CatalogObject",
+    "runtime_metric",
     "ArtifactRef",
     "CalendarRef",
     "TimeScope",

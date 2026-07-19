@@ -51,6 +51,7 @@ InputFamily = (
     ArtifactFamily
     | Literal[
         "MetricSemantic",
+        "RuntimeMetricExpression",
         "DimensionSemantic",
         "TimeDimensionSemantic",
         "SemanticProject",

@@ -235,7 +235,7 @@ def test_folded_metric_rejects_observe_with_different_time_dimension(
             make_ref("sales.upstream_bw", SemanticKind.METRIC),
             time_scope={"start": "2026-01-01", "end": "2026-01-02"},
             grain="day",
-            time_dimension=make_ref("sales.bandwidth_samples.dt", SemanticKind.DIMENSION),
+            time_dimension=session.catalog.get("time_dimension.sales.bandwidth_samples.dt").ref,
         )
 
     assert exc_info.value._context["code"] == "status-time-dimension-mismatch"
@@ -384,7 +384,7 @@ def test_sampled_ratio_uses_folded_components_and_min_coverage(sampled_bandwidth
     coverage_df = frame.coverage().to_pandas()
     assert coverage_df["coverage_ratio"].iloc[0] == 1.0
     components = frame.components().to_pandas()
-    assert {"upstream_bw_p95", "reserved_bw"}.issubset(set(components["component_metric_id"]))
+    assert {"upstream_bw_p95", "reserved_bw", "p95_utilization"}.issubset(components.columns)
 
 
 def test_compare_folded_ratio_persists_component_delta(sampled_bandwidth_project) -> None:

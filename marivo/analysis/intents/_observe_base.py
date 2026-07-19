@@ -88,6 +88,7 @@ def _base_aggregations(
             metric_ir.semantic_id,
             metric_datasets,
             dataset_tables,
+            metric_ir=metric_ir,
         )
     }
     if not _is_lowerable_tier1_mean(metric_ir):
@@ -186,7 +187,12 @@ def _execute_sampled_base(
     metric_datasets = tuple(metric_ir.entities)
     dataset_tables = dict.fromkeys(metric_datasets, table)
     metric_expr = _metric_expr(
-        catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables
+        catalog,
+        resolver,
+        metric_ir.semantic_id,
+        metric_datasets,
+        dataset_tables,
+        metric_ir=metric_ir,
     )
     phase_a = table.group_by(["sample_point", *dimension_names]).aggregate(value=metric_expr)
     is_time_series = resolved_window is not None and resolved_window.grain is not None
@@ -332,7 +338,14 @@ def _prune_base_observe_projection(
     try:
         dataset_tables = dict.fromkeys(metric_datasets, table)
         expressions = [
-            _metric_expr(catalog, resolver, metric_ir.semantic_id, metric_datasets, dataset_tables)
+            _metric_expr(
+                catalog,
+                resolver,
+                metric_ir.semantic_id,
+                metric_datasets,
+                dataset_tables,
+                metric_ir=metric_ir,
+            )
         ]
         root_adapter = _build_entity_adapter(
             catalog,

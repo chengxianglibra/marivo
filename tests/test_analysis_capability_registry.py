@@ -661,6 +661,7 @@ def test_all_constraint_ids_are_valid() -> None:
 
 _VALID_INPUT_FAMILIES = set(ARTIFACT_FAMILIES) | {
     "MetricSemantic",
+    "RuntimeMetricExpression",
     "DimensionSemantic",
     "TimeDimensionSemantic",
     "SemanticProject",

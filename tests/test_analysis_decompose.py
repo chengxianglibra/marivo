@@ -651,7 +651,7 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_for_decompose
     with pytest.raises(ComponentDecompositionError) as exc_info:
         decompose(
             delta,
-            axis=make_ref("province", SemanticKind.DIMENSION),
+            axis=make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION),
             session=sampled_bandwidth_for_decompose,
         )
 

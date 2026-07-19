@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.errors import (
     AttributionMaterializationError,
     CumulativeFrameUnsupportedError,
@@ -26,11 +27,10 @@ from marivo.analysis.intents.decompose import (
     _validate_attribution_semantics,
     decompose,
 )
-from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.analysis.session.core import Session, ensure_session_writable
 
 
-def _normalize_attribute_axes(session: Session, axes: list[DimensionInput]) -> list[str]:
+def _normalize_attribute_axes(session: Session, axes: list[AnalysisDimensionRef]) -> list[str]:
     if not axes:
         raise SemanticKindMismatchError(
             message="attribute requires at least one axis",
@@ -94,7 +94,7 @@ def _load_metric_source(
 def attribute(
     frame: DeltaFrame,
     *,
-    axes: list[DimensionInput],
+    axes: list[AnalysisDimensionRef],
     mode: AttributionMode | None = None,
     analysis_purpose: str | None = None,
     session: Session | None = None,

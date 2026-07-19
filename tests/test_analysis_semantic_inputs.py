@@ -54,12 +54,17 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
     return SemanticCatalog(project)
 
 
-def test_normalize_metric_accepts_semantic_object_and_ref(semantic_project_factory) -> None:
+def test_normalize_metric_accepts_exact_ref_and_rejects_loaded_object(
+    semantic_project_factory,
+) -> None:
     catalog = _catalog(semantic_project_factory)
     metric = catalog.get("metric.sales.revenue")
 
-    assert normalize_metric_input(catalog, metric) == "sales.revenue"
     assert normalize_metric_input(catalog, metric.ref) == "sales.revenue"
+    with pytest.raises(SemanticKindMismatchError, match="exact MetricRef") as exc:
+        normalize_metric_input(catalog, metric)  # type: ignore[arg-type]
+    assert exc.value._context["actual_type"] == "Metric"
+    assert "loaded_object.ref" in str(exc.value)
 
 
 def test_normalize_metric_rejects_bare_string(semantic_project_factory) -> None:
@@ -126,7 +131,7 @@ def test_normalize_dimension_accepts_dimension_and_time_dimension(semantic_proje
     catalog = _catalog(semantic_project_factory)
 
     assert (
-        normalize_dimension_input(catalog, catalog.get("dimension.sales.orders.country"))
+        normalize_dimension_input(catalog, catalog.get("dimension.sales.orders.country").ref)
         == "sales.orders.country"
     )
     assert (
@@ -186,7 +191,7 @@ def test_normalize_dimension_unknown_ref_raises_analysis_error(
 def test_normalize_where_inputs_returns_plain_string_keys(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
     country = catalog.get("dimension.sales.orders.country").ref
-    ds = catalog.get("time_dimension.sales.orders.ds")
+    ds = catalog.get("time_dimension.sales.orders.ds").ref
 
     assert normalize_where_inputs(
         catalog, {country: "US", ds: {"op": ">=", "value": "2026-01-01"}}
@@ -228,8 +233,7 @@ def test_measure_ref_is_rejected_as_dimension_axis(semantic_project_factory) -> 
 
     message = str(exc_info.value)
     assert "measure" in message
-    assert "group-by axis" in message
-    assert "categorical dimension" in message
+    assert "exact DimensionRef or TimeDimensionRef" in message
 
 
 def test_measure_rejection_surfaces_repair_in_str(semantic_project_factory) -> None:
@@ -259,8 +263,7 @@ def test_measure_rejection_surfaces_repair_in_str(semantic_project_factory) -> N
     message = str(exc_info.value)
     assert "session.catalog." in message
     assert "measure" in message
-    assert "group-by axis" in message
-    assert "categorical dimension" in message
+    assert "exact DimensionRef or TimeDimensionRef" in message
     assert "Input frame kind" not in message
 
 
@@ -277,7 +280,7 @@ def test_time_dimension_argument_uses_correct_label(semantic_project_factory) ->
         normalize_dimension_input(catalog, metric, argument="time_dimension")
 
     message = str(exc_info.value)
-    assert "time dimension" in message
+    assert "DimensionRef or TimeDimensionRef" in message
     assert "catalog dimension" not in message
 
 
@@ -304,7 +307,7 @@ def test_time_dimension_argument_includes_repair_guidance(semantic_project_facto
     # consume error messages.
     message = str(exc_info.value)
     assert "session.catalog." in message
-    assert "time dimension" in message
+    assert "DimensionRef or TimeDimensionRef" in message
     assert "metric" in message  # actual_kind appears in the cause
 
 
@@ -320,7 +323,7 @@ def test_dimension_argument_label_says_dimension_or_time_dimension(
         normalize_dimension_input(catalog, metric, argument="dimension")
 
     message = str(exc_info.value)
-    assert "dimension or time dimension" in message
+    assert "DimensionRef or TimeDimensionRef" in message
 
 
 def test_wrong_kind_metric_includes_repair_and_available_ids(

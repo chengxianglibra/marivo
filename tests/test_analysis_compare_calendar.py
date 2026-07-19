@@ -761,6 +761,9 @@ def test_compare_calendar_rejects_missing_time_axis(calendar_project):
         measure={"name": "value"},
     )
     baseline = _metric(s, [{"bucket_start": "2026-04-07", "value": 80.0}])
+    current.meta = current.meta.model_copy(
+        update={"comparable_value_semantics": baseline.meta.comparable_value_semantics}
+    )
 
     with pytest.raises(AlignmentFailedError) as exc_info:
         compare(
@@ -792,6 +795,9 @@ def test_compare_calendar_rejects_missing_required_columns_on_baseline(calendar_
             }
         },
         measure={"name": "value"},
+    )
+    baseline.meta = baseline.meta.model_copy(
+        update={"comparable_value_semantics": current.meta.comparable_value_semantics}
     )
 
     with pytest.raises(AlignmentFailedError) as exc_info:

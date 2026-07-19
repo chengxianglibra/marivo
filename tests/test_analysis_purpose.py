@@ -32,7 +32,7 @@ def _sales_session(tmp_path):
 
 def test_observe_analysis_purpose_round_trips_through_session_recovery(tmp_path) -> None:
     session = _sales_session(tmp_path)
-    revenue = session.catalog.get("metric.sales.revenue")
+    revenue = session.catalog.get("metric.sales.revenue").ref
     purpose = "confirm whether September revenue exceeds August"
 
     frame = session.observe(
@@ -49,6 +49,9 @@ def test_observe_analysis_purpose_round_trips_through_session_recovery(tmp_path)
 
     summaries = session.frame_summaries()
     assert len(summaries) == 1
+    component_summaries = session.frame_summaries(kind="component_frame")
+    assert len(component_summaries) == 1
+    assert component_summaries[0].kind == "component_frame"
     assert summaries[0].ref == frame.ref
     assert summaries[0].analysis_purpose == purpose
     assert purpose in summaries[0].render()
@@ -61,7 +64,7 @@ def test_observe_analysis_purpose_round_trips_through_session_recovery(tmp_path)
 
 def test_analysis_purpose_propagates_to_core_discover_and_transform(tmp_path) -> None:
     session = _sales_session(tmp_path)
-    revenue = session.catalog.get("metric.sales.revenue")
+    revenue = session.catalog.get("metric.sales.revenue").ref
     region = session.catalog.get("dimension.sales.orders.region").ref
     cur = session.observe(
         revenue,
@@ -115,7 +118,7 @@ def test_analysis_purpose_propagates_to_core_discover_and_transform(tmp_path) ->
 
 def test_transform_without_analysis_purpose_does_not_inherit_parent_purpose(tmp_path) -> None:
     session = _sales_session(tmp_path)
-    revenue = session.catalog.get("metric.sales.revenue")
+    revenue = session.catalog.get("metric.sales.revenue").ref
     region = session.catalog.get("dimension.sales.orders.region").ref
     parent = session.observe(
         revenue,

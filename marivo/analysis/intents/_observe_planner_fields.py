@@ -9,6 +9,7 @@ from typing import Any
 
 import ibis
 
+from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.intents._observe_planner_catalog import (
     _details,
     _entity,
@@ -35,7 +36,6 @@ from marivo.analysis.intents.observe_errors import (
     RepairSafety,
     raise_observe_planning_error,
 )
-from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.introspection._fuzzy import did_you_mean
 from marivo.semantic.catalog import RelationshipDetails, SemanticCatalog, SemanticKind
 from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
@@ -144,7 +144,7 @@ def resolve_observe_fields(
     catalog: SemanticCatalog,
     metric_ir: Any,
     *,
-    dimensions: list[DimensionInput] | None,
+    dimensions: list[AnalysisDimensionRef] | None,
     where: dict[Any, Any] | None,
     time_dimension: str | None,
     allow_unqualified_outside_scope: bool = False,

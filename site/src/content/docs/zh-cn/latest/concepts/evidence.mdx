@@ -105,7 +105,7 @@ Evidence store 不可用时，列表和精确读取都会抛出 `EvidenceStoreUn
 - `ComparabilityIssue`：不兼容或近似的比较；
 - `EvidenceAvailabilityIssue`：extract、digest 或 store 降级。
 
-Cutover A 是破坏性切换：非 v2 evidence store，以及包含已移除 evidence 字段的 frame
+Cutover A 是破坏性切换：非 v3 evidence store，以及包含已移除 evidence 字段的 frame
 sidecar，都会被拒绝。应重新创建 analysis session；Marivo 不迁移或重新解释 judgment
 时代的状态。
 

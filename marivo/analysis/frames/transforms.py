@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 import pandas as pd
 
+from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
-from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.intents.transform import NormalizeBaseline, NormalizeKind, RankMethod
-from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.analysis.session._runtime import require_current_session
 from marivo.analysis.session.core import _track_session_operation
+from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows import TimeScopeInput
 
 
@@ -64,13 +64,13 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
     def slice(
         self,
         *,
-        slice_by: dict[DimensionInput, SliceValue],
+        slice_by: Mapping[AnalysisDimensionRef, SliceValue],
         analysis_purpose: str | None = None,
     ) -> TFrame:
         """Filter rows by catalog-backed axis values.
 
         Args:
-            slice_by: Mapping from dimension refs/objects to scalar, list, or
+            slice_by: Mapping from exact dimension refs to scalar, list, or
                 range selector values.
             analysis_purpose: Optional durable label explaining why this
                 transform exists.
@@ -82,7 +82,7 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
             >>> us = frame.transform.slice(slice_by={country.ref: "US"})
 
         Constraints:
-            String dimension keys are rejected; pass catalog refs or objects.
+            String dimension keys and loaded catalog objects are rejected; pass exact refs.
         """
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.intents.transform import transform_slice
@@ -105,14 +105,14 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
     def rollup(
         self,
         *,
-        drop_axes: list[DimensionInput] | None = None,
+        drop_axes: list[AnalysisDimensionRef] | None = None,
         grain: str | None = None,
         analysis_purpose: str | None = None,
     ) -> TFrame:
         """Aggregate a frame by dropping axes or re-bucketing the time axis.
 
         Args:
-            drop_axes: Catalog dimension refs/objects to remove before grouping.
+            drop_axes: Exact catalog dimension refs to remove before grouping.
             grain: Target time grain coarser than the current time axis
                 (e.g. ``"month"``). Cumulative frames take the last bucket per
                 period (``rollup_fold="last"``).

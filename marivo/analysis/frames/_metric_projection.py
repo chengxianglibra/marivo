@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from time import monotonic
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-from marivo.analysis.errors import CrossSessionFrameError, MetricArityError
+from marivo.analysis.errors import (
+    CrossSessionFrameError,
+    FrameCacheCorruptedError,
+    MetricArityError,
+)
 from marivo.analysis.evidence.pipeline import (
     CommitInputs,
     CommitParams,
@@ -16,19 +20,149 @@ from marivo.analysis.evidence.pipeline import (
     frame_exists_on_disk,
 )
 from marivo.analysis.evidence.types import Subject
+from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
+from marivo.analysis.intents._observe_persist import (
+    _attach_metric_component_graph_ref,
+    _persist_metric_component_graph_frame,
+)
+from marivo.analysis.intents._runtime_metric_lowering import lower_metric_inputs
 from marivo.analysis.intents.observe import (
     _analysis_axis_for_kind,
+    _evaluator_contracts,
     _gen_ref,
     _params_digest,
 )
 from marivo.analysis.lineage import Lineage, LineageStep
+from marivo.analysis.runtime_metric import from_replay_payload
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import (
     persist_job_record,
     register_frame_artifact,
     require_current_session,
 )
+from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
+    ComparableValueSemanticsV1,
+    ExpressionPresentationV1,
+    MetricArtifactIdentityV1,
+    MetricExpressionGraphV1,
+    MetricIdentity,
+    node_child_ids,
+)
+from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
+from marivo.semantic.metric_graph_lowering import MetricExpressionForestV1, lower_catalog_metric
+
+if TYPE_CHECKING:
+    from marivo.analysis.session.core import Session
+
+
+def _projected_expression_forest(
+    frame: MetricFrame,
+    *,
+    entry_index: int,
+    metric_identity: MetricIdentity,
+    session: Session,
+) -> MetricExpressionForestV1:
+    registry = session.catalog._require_index().registry
+    if isinstance(metric_identity, CatalogMetricIdentity):
+        return lower_catalog_metric(registry, metric_identity.metric_id)
+    observe_params = next(
+        (
+            step.params
+            for step in reversed(frame.lineage.steps)
+            if step.intent == "observe" and step.params is not None
+        ),
+        None,
+    )
+    replay_expressions = (
+        observe_params.get("replay_expressions") if isinstance(observe_params, dict) else None
+    )
+    if not isinstance(replay_expressions, list) or entry_index >= len(replay_expressions):
+        raise FrameCacheCorruptedError(
+            message="multi-metric runtime projection is missing its typed replay expression",
+            context={"frame_ref": frame.ref, "entry_index": entry_index},
+        )
+    try:
+        expression = from_replay_payload(replay_expressions[entry_index])
+    except (TypeError, ValueError) as exc:
+        raise FrameCacheCorruptedError(
+            message="multi-metric runtime projection has an invalid typed replay expression",
+            context={"frame_ref": frame.ref, "entry_index": entry_index},
+        ) from exc
+    return lower_metric_inputs(registry, (expression,))
+
+
+def _project_component_graph_payload(
+    frame: MetricFrame,
+    *,
+    entry_index: int,
+    projected_graph: MetricExpressionGraphV1,
+    projected_presentation: ExpressionPresentationV1,
+    session: Session,
+) -> dict[str, object]:
+    component_ref = frame.meta.component_graph_ref
+    if component_ref is None:
+        raise FrameCacheCorruptedError(
+            message="multi-metric projection requires the persisted recursive component graph",
+            context={"frame_ref": frame.ref, "entry_index": entry_index},
+        )
+    loaded = load_frame(component_ref, session=session)
+    if not isinstance(loaded, ComponentFrame) or not isinstance(loaded.meta.component_graph, dict):
+        raise FrameCacheCorruptedError(
+            message="multi-metric component_graph_ref did not resolve to a component graph",
+            context={"frame_ref": frame.ref, "component_graph_ref": component_ref},
+        )
+    payload = loaded.meta.component_graph
+    raw_nodes = payload.get("nodes")
+    if not isinstance(raw_nodes, list):
+        raise FrameCacheCorruptedError(
+            message="multi-metric component graph has no typed node records",
+            context={"frame_ref": frame.ref, "component_graph_ref": component_ref},
+        )
+    root_id = projected_graph.roots[0]
+    source_prefix = f"root[{entry_index}]"
+
+    def rebase_path(path: str) -> str | None:
+        if path == source_prefix:
+            return "root[0]"
+        if path.startswith(source_prefix + "."):
+            return "root[0]" + path[len(source_prefix) :]
+        return None
+
+    selected_nodes: list[dict[str, object]] = []
+    reachable_ids: set[str] = set()
+    graph_nodes = {record.node_id: record.node for record in projected_graph.nodes}
+
+    def collect(node_id: str) -> None:
+        if node_id in reachable_ids:
+            return
+        reachable_ids.add(node_id)
+        for child_id in node_child_ids(graph_nodes[node_id]):
+            collect(child_id)
+
+    collect(root_id)
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict) or raw_node.get("node_id") not in reachable_ids:
+            continue
+        occurrence_paths = raw_node.get("occurrence_paths")
+        rebased_paths = (
+            sorted(
+                rebased
+                for path in occurrence_paths
+                if isinstance(path, str)
+                if (rebased := rebase_path(path)) is not None
+            )
+            if isinstance(occurrence_paths, list)
+            else []
+        )
+        selected_nodes.append({**raw_node, "occurrence_paths": rebased_paths})
+    return {
+        "schema": "metric-component-graph/v1",
+        "root_node_ids": [root_id],
+        "nodes": selected_nodes,
+        "presentation": canonical_value(projected_presentation),
+    }
 
 
 def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
@@ -66,8 +200,28 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         )
 
     entry = by_id[metric_id]
+    entry_index = entries.index(entry)
+    observe_params = next(
+        (
+            step.params
+            for step in reversed(frame.lineage.steps)
+            if step.intent == "observe" and isinstance(step.params, dict)
+        ),
+        None,
+    )
+    replay_expressions = (
+        observe_params.get("replay_expressions") if isinstance(observe_params, dict) else None
+    )
+    if not isinstance(replay_expressions, list) or entry_index >= len(replay_expressions):
+        raise FrameCacheCorruptedError(
+            message="multi-metric frame is missing its typed projection replay expression",
+            context={"frame_ref": frame.ref, "metric_id": metric_id},
+        )
     parent_artifact = frame.meta.artifact_id or frame.meta.ref
-    params = {"metric": metric_id}
+    params = {
+        "metric": metric_id,
+        "replay_expression": replay_expressions[entry_index],
+    }
     anchors = {"metric_id": metric_id, "model": metric_id.split(".", 1)[0]}
     prospective_id = compute_prospective_artifact_id(
         step_type="select_metric",
@@ -85,12 +239,78 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
 
     started_at = datetime.now(UTC)
     started = monotonic()
-    frame_ref = _gen_ref("frame")
+    # The projected component graph must name the deterministic parent
+    # identity that the evidence commit publishes.
+    frame_ref = prospective_id
     job_ref = _gen_ref("job")
     grain_token: str | None = None
     window = frame.meta.window
     if isinstance(window, dict):
         grain_token = window.get("grain")
+    metric_identity = frame.meta.metric_identities[entry_index]
+    projected_forest = _projected_expression_forest(
+        frame,
+        entry_index=entry_index,
+        metric_identity=metric_identity,
+        session=session,
+    )
+    projected_graph = projected_forest.graph
+    projected_dependency_digest = projected_forest.dependency_digest
+    projected_presentation = projected_forest.presentation
+    evaluator_contracts = _evaluator_contracts(projected_forest)
+    expression_fingerprint = projected_graph.roots[0]
+    comparable = frame.meta.comparable_value_semantics
+    key_schema = frame.meta.key_schema
+    projected_comparable = None
+    if expression_fingerprint is not None and comparable is not None and key_schema is not None:
+        comparable_payload = {
+            "expression_fingerprint": expression_fingerprint,
+            "evaluator_contracts": evaluator_contracts,
+            "global_slice": comparable.global_slice,
+            "key_schema_fingerprint": key_schema.fingerprint,
+            "unit": entry["unit"],
+            "fold": None,
+            "source_domain_fingerprint": comparable.source_domain_fingerprint,
+            "definition_transform_fingerprint": None,
+        }
+        projected_comparable = ComparableValueSemanticsV1(
+            schema="comparable-value-semantics/v1",
+            expression_fingerprint=expression_fingerprint,
+            evaluator_contracts=evaluator_contracts,
+            global_slice=comparable.global_slice,
+            key_schema_fingerprint=key_schema.fingerprint,
+            unit=entry["unit"],
+            fold=None,
+            source_domain_fingerprint=comparable.source_domain_fingerprint,
+            definition_transform_fingerprint=None,
+            fingerprint=fingerprint(comparable_payload),
+        )
+    parent_artifact_identity = frame.meta.artifact_identity
+    projected_artifact_identity = None
+    if parent_artifact_identity is not None:
+        presentation_fingerprint = fingerprint(projected_presentation)
+        artifact_payload = {
+            "metric_identities": (metric_identity,),
+            "scope_fingerprint": parent_artifact_identity.scope_fingerprint,
+            "source_domain_fingerprint": parent_artifact_identity.source_domain_fingerprint,
+            "dependency_fingerprint": projected_dependency_digest.fingerprint,
+            "snapshot_fingerprint": parent_artifact_identity.snapshot_fingerprint,
+            "coverage_fingerprint": parent_artifact_identity.coverage_fingerprint,
+            "presentation_fingerprint": presentation_fingerprint,
+            "artifact_schema_version": parent_artifact_identity.artifact_schema_version,
+        }
+        projected_artifact_identity = MetricArtifactIdentityV1(
+            schema="metric-artifact/v1",
+            metric_identities=(metric_identity,),
+            scope_fingerprint=parent_artifact_identity.scope_fingerprint,
+            source_domain_fingerprint=parent_artifact_identity.source_domain_fingerprint,
+            dependency_fingerprint=projected_dependency_digest.fingerprint,
+            snapshot_fingerprint=parent_artifact_identity.snapshot_fingerprint,
+            coverage_fingerprint=parent_artifact_identity.coverage_fingerprint,
+            presentation_fingerprint=presentation_fingerprint,
+            artifact_schema_version=parent_artifact_identity.artifact_schema_version,
+            fingerprint=fingerprint(artifact_payload),
+        )
     meta = MetricFrameMeta(
         kind="metric_frame",
         ref=frame_ref,
@@ -115,6 +335,34 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             ]
         ),
         metric_id=metric_id,
+        metric_identity=metric_identity,
+        metric_identities=(metric_identity,),
+        expression_graph=projected_graph,
+        expression_fingerprint=expression_fingerprint,
+        semantic_dependency_digest=projected_dependency_digest,
+        presentation=projected_presentation,
+        presentation_fingerprint=(
+            fingerprint(projected_presentation) if projected_presentation is not None else None
+        ),
+        artifact_identity=projected_artifact_identity,
+        key_schema=key_schema,
+        source_compatibility_domain=frame.meta.source_compatibility_domain,
+        comparable_value_semantics=projected_comparable,
+        execution_stats=(
+            frame.meta.execution_stats.model_copy(
+                update={
+                    "root_origins": (
+                        "catalog"
+                        if isinstance(metric_identity, CatalogMetricIdentity)
+                        else "runtime",
+                    ),
+                    "cache_hit": False,
+                    "replay_used": False,
+                }
+            )
+            if frame.meta.execution_stats is not None
+            else None
+        ),
         axes=frame.meta.axes,
         measure={"name": entry["name"]},
         window=frame.meta.window,
@@ -122,6 +370,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         semantic_kind=frame.meta.semantic_kind,
         semantic_model=anchors["model"],
         unit=entry["unit"],
+        unit_state=entry.get("unit_state"),
         reaggregatable=bool(entry["reaggregatable"]),
         additivity=entry["additivity"],
         aggregation=entry.get("aggregation"),
@@ -129,6 +378,28 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         cumulative=frame.meta.cumulative,
     )
     projected = MetricFrame(_df=df, meta=meta)
+    component_graph = _project_component_graph_payload(
+        frame,
+        entry_index=entry_index,
+        projected_graph=projected_graph,
+        projected_presentation=projected_presentation,
+        session=session,
+    )
+    component = _persist_metric_component_graph_frame(
+        session=session,
+        df=df,
+        parent=projected,
+        axes=frame.meta.axes,
+        semantic_kind=frame.meta.semantic_kind,
+        job_ref=job_ref,
+        component_graph=component_graph,
+    )
+    projected = _attach_metric_component_graph_ref(
+        session=session,
+        parent=projected,
+        component=component,
+        persist_parent=False,
+    )
     result = cast(
         "MetricFrame",
         commit_result(

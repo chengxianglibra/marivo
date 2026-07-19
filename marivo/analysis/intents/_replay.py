@@ -5,16 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
+from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.errors import AttributionMaterializationError, JobNotFoundError
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.policies import AlignmentPolicy
-from marivo.analysis.semantic_inputs import DimensionInput
+from marivo.analysis.runtime_metric import MetricExprInput, from_replay_payload
 from marivo.analysis.session.core import Session
 from marivo.analysis.windows.spec import TimeScopeInput
-from marivo.refs import SemanticRef
-from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from marivo.semantic.refs import DimensionRef, TimeDimensionRef
 
 _ALIGNMENT_POLICY_FIELDS = {
     "kind",
@@ -25,15 +24,18 @@ _ALIGNMENT_POLICY_FIELDS = {
     "strict_lengths",
 }
 
+type ReplayMetricInput = MetricExprInput | tuple[MetricExprInput, ...]
+
 
 @dataclass(frozen=True)
 class ObserveReplay:
-    metric: str
+    metric: ReplayMetricInput
     time_scope: TimeScopeInput
     grain: str | None
     dimensions: tuple[str, ...]
     slice_by: dict[str, Any]
     time_dimension: str | None
+    dependency_fingerprint: str | None = None
 
     def with_dimensions(self, axis_ids: list[str]) -> ObserveReplay:
         dimensions = list(self.dimensions)
@@ -47,26 +49,27 @@ class ObserveReplay:
             dimensions=tuple(dimensions),
             slice_by=dict(self.slice_by),
             time_dimension=self.time_dimension,
+            dependency_fingerprint=self.dependency_fingerprint,
         )
 
     def call_observe(self, session: Session) -> MetricFrame:
         """Invoke ``observe`` with this replay's recovered parameters."""
         from marivo.analysis.intents.observe import observe
 
-        dimensions: list[DimensionInput] = [
+        dimensions: list[AnalysisDimensionRef] = [
             _dimension_ref(session, dimension_id) for dimension_id in self.dimensions
         ]
-        time_dimension: DimensionInput | None = (
+        time_dimension: TimeDimensionRef | None = (
             _time_dimension_ref(session, self.time_dimension)
             if self.time_dimension is not None
             else None
         )
-        slice_by: dict[DimensionInput, Any] = {
+        slice_by: dict[AnalysisDimensionRef, Any] = {
             _dimension_ref(session, dimension_id): value
             for dimension_id, value in self.slice_by.items()
         }
-        return observe(
-            make_ref(self.metric, SemanticKind.METRIC),
+        result = observe(
+            self.metric,
             time_scope=self.time_scope,
             grain=self.grain,
             dimensions=dimensions or None,
@@ -74,9 +77,60 @@ class ObserveReplay:
             time_dimension=time_dimension,
             session=session,
         )
+        stats = result.meta.execution_stats
+        if stats is not None:
+            result.meta = result.meta.model_copy(
+                update={"execution_stats": stats.model_copy(update={"replay_used": True})}
+            )
+            from marivo.telemetry import _add_operation_attributes
+
+            _add_operation_attributes(
+                {
+                    "marivo.analysis.metric_graph.replay_used": True,
+                    "marivo.analysis.metric_graph.cache_hit": stats.cache_hit,
+                    "marivo.analysis.metric_graph.artifact_deduplicated": (
+                        stats.artifact_deduplicated
+                    ),
+                    "marivo.analysis.metric_graph.cse_used": (stats.cse_reused_occurrences > 0),
+                }
+            )
+        actual_digest = result.meta.semantic_dependency_digest
+        if self.dependency_fingerprint is not None and (
+            actual_digest is None or actual_digest.fingerprint != self.dependency_fingerprint
+        ):
+            raise AttributionMaterializationError(
+                message="Metric expression dependencies changed since the source observation",
+                context={
+                    "recoverability_status": "semantic_dependency_changed",
+                    "expected_dependency_fingerprint": self.dependency_fingerprint,
+                    "actual_dependency_fingerprint": (
+                        actual_digest.fingerprint if actual_digest is not None else None
+                    ),
+                },
+            )
+        return result
 
 
 def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveReplay:
+    observe_index = next(
+        (
+            index
+            for index in range(len(frame.lineage.steps) - 1, -1, -1)
+            if frame.lineage.steps[index].intent == "observe"
+        ),
+        None,
+    )
+    if observe_index is not None:
+        later_intents = tuple(step.intent for step in frame.lineage.steps[observe_index + 1 :])
+        if later_intents and later_intents != ("select_metric",):
+            raise AttributionMaterializationError(
+                message="MetricFrame replay cannot discard post-observe transformations",
+                context={
+                    "recoverability_status": "transformed_replay_state_unavailable",
+                    "source_ref": frame.ref,
+                    "post_observe_intents": later_intents,
+                },
+            )
     params = _observe_params_from_lineage(frame)
     if not params:
         params = _observe_params_from_job(frame, session=session)
@@ -90,8 +144,36 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
             },
         )
 
-    metric = params.get("metric")
-    if not isinstance(metric, str) or not metric:
+    replay_params = params
+    if observe_index is not None and len(frame.lineage.steps) > observe_index + 1:
+        select_step = frame.lineage.steps[observe_index + 1]
+        if select_step.intent == "select_metric" and isinstance(select_step.params, dict):
+            replay_params = select_step.params
+    replay_expression = replay_params.get("replay_expression")
+    replay_expressions = replay_params.get("replay_expressions")
+    try:
+        has_replay_expression = replay_expression is not None
+        has_replay_expressions = isinstance(replay_expressions, list) and bool(replay_expressions)
+        if has_replay_expression == has_replay_expressions:
+            raise ValueError("observe replay requires exactly one typed replay payload shape")
+        if has_replay_expressions:
+            assert isinstance(replay_expressions, list)
+            metric: ReplayMetricInput | None = tuple(
+                from_replay_payload(item) for item in replay_expressions
+            )
+        elif has_replay_expression:
+            metric = from_replay_payload(replay_expression)
+        else:
+            metric = None
+    except (TypeError, ValueError) as exc:
+        raise AttributionMaterializationError(
+            message="MetricFrame observe replay expression is invalid",
+            context={
+                "recoverability_status": "observe_expression_invalid",
+                "source_ref": frame.ref,
+            },
+        ) from exc
+    if metric is None:
         raise AttributionMaterializationError(
             message="MetricFrame observe replay is missing metric",
             context={
@@ -113,17 +195,38 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
             resolved_timescope = resolved
 
     dimensions = params.get("dimensions")
-    dimension_ids = (
-        tuple(
-            sid for sid in (_extract_dimension_id(item) for item in dimensions) if sid is not None
+    if dimensions is None:
+        dimension_ids: tuple[str, ...] = ()
+    elif isinstance(dimensions, list):
+        extracted_dimensions = tuple(_extract_dimension_id(item) for item in dimensions)
+        if any(item is None for item in extracted_dimensions):
+            raise AttributionMaterializationError(
+                message="MetricFrame observe replay dimensions are invalid",
+                context={
+                    "recoverability_status": "observe_dimensions_invalid",
+                    "source_ref": frame.ref,
+                },
+            )
+        dimension_ids = tuple(cast("str", item) for item in extracted_dimensions)
+    else:
+        raise AttributionMaterializationError(
+            message="MetricFrame observe replay dimensions are invalid",
+            context={
+                "recoverability_status": "observe_dimensions_invalid",
+                "source_ref": frame.ref,
+            },
         )
-        if isinstance(dimensions, list)
-        else ()
-    )
     where = params.get("where")
     slice_by = dict(cast("dict[str, Any]", where)) if isinstance(where, dict) else {}
     grain = resolved_timescope.get("grain")
     time_dimension = resolved_timescope.get("time_dimension")
+    dependency_digest = params.get("semantic_dependency_digest")
+    dependency_fingerprint = (
+        dependency_digest.get("fingerprint")
+        if isinstance(dependency_digest, dict)
+        and isinstance(dependency_digest.get("fingerprint"), str)
+        else None
+    )
 
     return ObserveReplay(
         metric=metric,
@@ -134,6 +237,7 @@ def recover_observe_replay(frame: MetricFrame, *, session: Session) -> ObserveRe
         time_dimension=str(time_dimension)
         if isinstance(time_dimension, str) and time_dimension
         else None,
+        dependency_fingerprint=dependency_fingerprint,
     )
 
 
@@ -182,32 +286,23 @@ def _observe_params_from_job(frame: MetricFrame, *, session: Session) -> dict[st
     return dict(cast("dict[str, Any]", params)) if isinstance(params, dict) else {}
 
 
-def _dimension_ref(session: Session, semantic_id: str) -> SemanticRef:
-    try:
-        return session.catalog.get(f"dimension.{semantic_id}").ref
-    except Exception:
-        return make_ref(semantic_id, SemanticKind.DIMENSION)
+def _dimension_ref(session: Session, semantic_id: str) -> AnalysisDimensionRef:
+    dimension = session.catalog._require_index().registry.dimensions.get(semantic_id)
+    if dimension is not None and dimension.is_time_dimension:
+        return TimeDimensionRef(semantic_id)
+    return DimensionRef(semantic_id)
 
 
-def _time_dimension_ref(session: Session, semantic_id: str) -> SemanticRef:
-    try:
-        return session.catalog.get(f"time_dimension.{semantic_id}").ref
-    except Exception:
-        return make_ref(semantic_id, SemanticKind.TIME_DIMENSION)
+def _time_dimension_ref(session: Session, semantic_id: str) -> TimeDimensionRef:
+    del session
+    return TimeDimensionRef(semantic_id)
 
 
 def _extract_dimension_id(item: object) -> str | None:
-    """Extract a dimension semantic_id from a stored lineage item.
-
-    ``observe()`` stores dimensions as ``[{"semantic_id": "..."}]`` via
-    ``_dump_dimensions``.  Plain strings are accepted as a fallback for
-    any legacy frames that predate the dict format.
-    """
+    """Extract a dimension semantic_id from a current typed lineage item."""
     if isinstance(item, dict):
         semantic_id = item.get("semantic_id")
-        if isinstance(semantic_id, str) and semantic_id:
+        if set(item) == {"semantic_id"} and isinstance(semantic_id, str) and semantic_id:
             return semantic_id
         return None
-    if isinstance(item, str):
-        return item
     return None

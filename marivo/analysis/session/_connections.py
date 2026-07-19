@@ -15,6 +15,7 @@ class AnalysisConnectionRuntime:
         self.service = service
         self._validated: set[str] = set()
         self._capture_buffer: list[Any] | None = None
+        self._metric_artifact_cache: dict[tuple[str, str], str] = {}
 
     def session_backend(self, datasource_name: str) -> Any:
         return self.service.session_backend(datasource_name)
@@ -66,7 +67,29 @@ class AnalysisConnectionRuntime:
         self._capture_buffer = None
         return queries
 
+    def source_snapshot_token(self, datasource_name: str) -> str | None:
+        """Return an exact provider-owned source revision, when available."""
+
+        backend = self.get_or_create(datasource_name)
+        provider = getattr(backend, "marivo_snapshot_token", None)
+        if not callable(provider):
+            return None
+        token = provider()
+        return token if isinstance(token, str) and token else None
+
+    def cached_metric_artifact(self, cache_key: str, snapshot_token: str) -> str | None:
+        return self._metric_artifact_cache.get((cache_key, snapshot_token))
+
+    def remember_metric_artifact(
+        self,
+        cache_key: str,
+        snapshot_token: str,
+        artifact_ref: str,
+    ) -> None:
+        self._metric_artifact_cache[(cache_key, snapshot_token)] = artifact_ref
+
     def close_all(self) -> None:
         self.service.close_all()
         self._validated.clear()
         self._capture_buffer = None
+        self._metric_artifact_cache.clear()

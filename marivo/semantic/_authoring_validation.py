@@ -19,6 +19,7 @@ from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
     Additivity,
+    AggregateFoldInput,
     DateParse,
     DatetimeParse,
     HourPrefixParse,
@@ -92,6 +93,11 @@ def _compute_body_ast_hash(fn: Callable[..., Any]) -> str:
         return hashlib.sha256(source.encode()).hexdigest()[:16]
     except (OSError, TypeError, IndentationError):
         return hashlib.sha256(b"<unavailable>").hexdigest()[:16]
+
+
+def _compute_column_hash(column: str) -> str:
+    """Return a stable definition digest for a direct-column declaration."""
+    return hashlib.sha256(f"column:{column}".encode()).hexdigest()[:16]
 
 
 def _compute_agg_hash(
@@ -215,7 +221,7 @@ def _normalize_sample_interval_value(
 
 
 def _normalize_time_fold(
-    time_fold: str | tuple[str, float] | None,
+    time_fold: AggregateFoldInput,
     *,
     semantic_id: str,
 ) -> TimeFoldIR | None:
@@ -230,9 +236,22 @@ def _normalize_time_fold(
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.TIME_FOLD_VALID,
             )
-        return TimeFoldIR(kind=time_fold)  # type: ignore[arg-type]
+        return TimeFoldIR(kind=time_fold)
+    if not isinstance(time_fold, tuple) or len(time_fold) != 2:
+        _raise(
+            ErrorKind.INVALID_TIME_FOLD,
+            "time_fold must be mean/min/max/first/last or ('percentile', q).",
+            refs=(semantic_id,),
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.TIME_FOLD_VALID,
+        )
     kind, q = time_fold
-    if kind != "percentile" or not isinstance(q, (float, int)) or not 0 < float(q) < 1:
+    if (
+        kind != "percentile"
+        or isinstance(q, bool)
+        or not isinstance(q, (float, int))
+        or not 0 < float(q) < 1
+    ):
         _raise(
             ErrorKind.INVALID_TIME_FOLD,
             "percentile time_fold must be ('percentile', q) with 0 < q < 1.",

@@ -33,6 +33,12 @@ def canonical_subject_key(subject: Subject) -> str:
     return digest[:_SUBJECT_HASH_LEN]
 
 
+def make_scope_fingerprint(scope: Any) -> str:
+    """Fingerprint one normalized artifact scope for typed evidence ownership."""
+
+    return hashlib.sha256(canonical_json(scope).encode("utf-8")).hexdigest()
+
+
 def make_artifact_id(
     step_type: str,
     normalized_inputs: list[str],
@@ -113,9 +119,12 @@ def make_component_artifact_id(parent_ref: str) -> str:
     return _hash("comp_", {"parent_ref": parent_ref})
 
 
-def make_coverage_artifact_id(parent_ref: str) -> str:
+def make_coverage_artifact_id(parent_ref: str, *, node_id: str | None = None) -> str:
     """Build a deterministic coverage artifact identity."""
-    return _hash("cov_", {"parent_ref": parent_ref})
+    payload = {"parent_ref": parent_ref}
+    if node_id is not None:
+        payload["node_id"] = node_id
+    return _hash("cov_", payload)
 
 
 __all__ = [
@@ -128,5 +137,6 @@ __all__ = [
     "make_digest_item_id",
     "make_finding_id",
     "make_issue_id",
+    "make_scope_fingerprint",
     "to_microseconds_utc",
 ]

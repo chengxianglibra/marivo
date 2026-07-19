@@ -22,7 +22,7 @@ __all__ = [
 class ConstraintId(StrEnum):
     """Stable identifiers for analysis constraints."""
 
-    METRIC_REF_REGISTERED = "metric_ref_registered"
+    METRIC_EXPRESSION_RESOLVABLE = "metric_expression_resolvable"
     WINDOW_ABSOLUTE_PARSEABLE = "window_absolute_parseable"
     FRAME_KIND_COMPATIBLE = "frame_kind_compatible"
     DISCOVER_MINIMUM_EVIDENCE = "discover_minimum_evidence"
@@ -44,6 +44,7 @@ class ConstraintId(StrEnum):
     ATTRIBUTION_RECONCILIATION = "attribution_reconciliation"
     CUMULATIVE_COMPARE_COMPATIBLE = "cumulative_compare_compatible"
     CUMULATIVE_ATTRIBUTION_UNSUPPORTED = "cumulative_attribution_unsupported"
+    RUNTIME_METRIC_CLOSED_ALGEBRA = "runtime_metric_closed_algebra"
 
 
 _DATASOURCE_DOC = "site/src/content/docs/en/latest/concepts/semantic-layer.mdx"
@@ -77,14 +78,14 @@ def _constraint(
 
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
-    ConstraintId.METRIC_REF_REGISTERED: _constraint(
-        ConstraintId.METRIC_REF_REGISTERED,
+    ConstraintId.METRIC_EXPRESSION_RESOLVABLE: _constraint(
+        ConstraintId.METRIC_EXPRESSION_RESOLVABLE,
         "MetricNotFound",
         "runtime",
-        ("observe", "CatalogObject"),
-        "Observed metrics must resolve to a registered semantic metric.",
-        "Analysis frames are materialized from semantic metric ids; unresolved ids cannot produce SQL.",
-        "Use session.catalog.get('metric.<model.metric>') and confirm the id with session.catalog.metrics.ids().",
+        ("observe", "MetricRef", "RuntimeMetricExpr"),
+        "Every metric-expression leaf must resolve to an analysis-ready governed ref.",
+        "Catalog metric refs and runtime expressions share one graph planner; unresolved or unready leaves cannot produce a typed frame.",
+        "Pass an exact catalog MetricRef or build a closed expression with mv.runtime_metric.* from exact MeasureRef/MetricRef operands.",
         help_target="observe",
     ),
     ConstraintId.WINDOW_ABSOLUTE_PARSEABLE: _constraint(
@@ -268,9 +269,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ComponentFrameUnavailable",
         "runtime",
         ("MetricFrame", "DeltaFrame", "ComponentFrame", "components"),
-        "Component frames exist only for component-aware derived metric results.",
-        "Base sum metrics and non-derived frames have no linked component_ref to load.",
-        "Call frame.components() only when frame.meta.component_ref is present.",
+        "Observed MetricFrames require a persisted recursive component graph.",
+        "Every graph root retains evaluator, child-role, quality, coverage, presentation, and governed-leaf lineage state.",
+        "Re-run session.observe(...) when component_graph_ref is absent or its ComponentFrame cannot be loaded.",
         help_target="artifacts",
     ),
     ConstraintId.ATTRIBUTION_ADDITIVITY_COMPATIBLE: _constraint(
@@ -336,6 +337,21 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "wrappers even when compare was allowed.",
         "Attribute or decompose the underlying flow metrics separately.",
         help_target="attribute",
+    ),
+    ConstraintId.RUNTIME_METRIC_CLOSED_ALGEBRA: _constraint(
+        ConstraintId.RUNTIME_METRIC_CLOSED_ALGEBRA,
+        "SemanticKindMismatch",
+        "runtime",
+        (
+            "runtime_metric.aggregate",
+            "runtime_metric.slice",
+            "runtime_metric.ratio",
+            "RuntimeMetricExpression",
+        ),
+        "Runtime metrics use a closed recursive algebra over governed refs.",
+        "Closed descriptors preserve typed planning, replay, lineage, units, and quality facts without creating catalog authority.",
+        "Use exact MeasureRef, MetricRef, DimensionRef, or TimeDimensionRef values and materialize the descriptor only through session.observe(...).",
+        help_target="runtime_metric",
     ),
 }
 

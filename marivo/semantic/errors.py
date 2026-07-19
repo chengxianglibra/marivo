@@ -347,7 +347,6 @@ class WarningKind(StrEnum):
     TIME_DIMENSION_PUSHDOWN_ADVISORY = "time_dimension_pushdown_advisory"
     TIME_DIMENSION_DTYPE_ADVISORY = "time_dimension_dtype_advisory"
     FILTERED_DOMAIN_REF = "filtered_domain_ref"
-    NESTED_DERIVED_UNSUPPORTED = "nested_derived_unsupported"
 
 
 @dataclass(frozen=True)
@@ -364,7 +363,6 @@ class StructuredWarning:
         "time_dimension_pushdown_advisory",
         "time_dimension_dtype_advisory",
         "filtered_domain_ref",
-        "nested_derived_unsupported",
     ]
     message: str
     refs: tuple[str, ...]

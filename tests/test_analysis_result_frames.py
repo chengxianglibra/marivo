@@ -2,9 +2,11 @@ import json
 from datetime import UTC, datetime
 
 import pandas as pd
+import pytest
 
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
+from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.types import (
     AnalysisScope,
     ArtifactDigest,
@@ -67,7 +69,7 @@ def _digest(ref: str, *, operator: str, family: str) -> ArtifactDigest:
     )
 
 
-def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
+def test_candidate_set_rejects_removed_persisted_affordances(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
     session = mv.session.get_or_create(name="demo")
@@ -110,13 +112,8 @@ def test_candidate_set_round_trips_through_load_frame(tmp_path, monkeypatch):
     ]
     meta_path.write_text(json.dumps(legacy_meta))
 
-    loaded = session.get_frame("frame_candidates")
-
-    assert isinstance(loaded, CandidateSet)
-    assert loaded.meta.kind == "candidate_set"
-    assert loaded.meta.objective == "point_anomalies"
-    assert loaded.to_pandas().iloc[0]["candidate_id"] == "cand_1"
-    assert "affordances_json" not in loaded.columns
+    with pytest.raises(FrameMetaInvalidError, match="corrupt current-schema metadata payload"):
+        session.get_frame("frame_candidates")
 
 
 def test_association_result_round_trips_through_load_frame(tmp_path, monkeypatch):

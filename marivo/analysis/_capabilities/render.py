@@ -272,7 +272,7 @@ def _grouping_topic_for(desc: CapabilityDescriptor) -> str | None:
     if desc.root_visibility != "grouped":
         return None
     # Check for dotted prefixes that have a registered grouping topic.
-    for prefix in ("discover.", "transform.", "catalog."):
+    for prefix in ("discover.", "transform.", "catalog.", "runtime_metric."):
         if desc.id.startswith(prefix):
             topic = prefix.rstrip(".")
             try:
@@ -424,7 +424,14 @@ def _grouping_members(desc: CapabilityDescriptor) -> list[CapabilityDescriptor]:
     for candidate in REGISTRY.descriptors:
         if candidate is desc or candidate.callable_path is None:
             continue
-        if desc.id in {"discover", "transform", "catalog", "boundary", "session"}:
+        if desc.id in {
+            "discover",
+            "transform",
+            "catalog",
+            "runtime_metric",
+            "boundary",
+            "session",
+        }:
             if candidate.id.startswith(f"{desc.id}."):
                 members.append(candidate)
         elif (desc.id == "recovery" and candidate.root_group == "recovery") or (

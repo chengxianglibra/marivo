@@ -1,5 +1,6 @@
-"""v1.2 frame loading compatibility checks."""
+"""Current-schema frame loading and destructive rejection checks."""
 
+import json
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -9,6 +10,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.errors import (
     CrossSessionFrameError,
     FrameCacheCorruptedError,
+    FrameMetaInvalidError,
     FrameRefNotFound,
 )
 from marivo.analysis.frames.metric import MetricFrame
@@ -292,6 +294,30 @@ def test_registered_frame_with_missing_bytes_raises_corrupted_error():
     data_path = session._layout.frames_dir / frame.ref / "data.parquet"
     data_path.unlink()
     with pytest.raises(FrameCacheCorruptedError):
+        session.get_frame(frame.ref)
+
+
+@pytest.mark.parametrize("schema_version", [None, "analysis-artifact/v2", "analysis-artifact/v4"])
+def test_registered_frame_rejects_every_non_current_artifact_schema(schema_version):
+    session = session_attach.get_or_create(name="demo")
+    frame = make_metric_frame(
+        pd.DataFrame({"value": [1.0]}),
+        metric_id="custom.metric",
+        axes={},
+        measure={"name": "value"},
+        semantic_kind="scalar",
+        semantic_model="custom",
+        session=session,
+    )
+    meta_path = session._layout.frames_dir / frame.ref / "meta.json"
+    payload = json.loads(meta_path.read_text())
+    if schema_version is None:
+        payload.pop("artifact_schema_version")
+    else:
+        payload["artifact_schema_version"] = schema_version
+    meta_path.write_text(json.dumps(payload))
+
+    with pytest.raises(FrameMetaInvalidError, match="unsupported artifact schema"):
         session.get_frame(frame.ref)
 
 

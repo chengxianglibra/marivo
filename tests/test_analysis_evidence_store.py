@@ -1,4 +1,4 @@
-"""Fresh schema-v2 evidence-store contracts."""
+"""Fresh schema-v3 evidence-store contracts."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from marivo.analysis.errors import (
 from marivo.analysis.evidence.store import EXPECTED_SCHEMA_VERSION, open_evidence_store
 
 
-def test_fresh_store_contains_only_v2_evidence_tables(tmp_path: Path) -> None:
+def test_fresh_store_contains_only_v3_evidence_tables(tmp_path: Path) -> None:
     db_path = tmp_path / "judgment.db"
     store = open_evidence_store(db_path)
     try:
@@ -51,8 +51,23 @@ def test_store_rejects_pre_cutover_schema_without_migration(tmp_path: Path) -> N
     db_path = tmp_path / "judgment.db"
     with sqlite3.connect(db_path) as conn:
         conn.execute("PRAGMA user_version = 1")
-    with pytest.raises(SchemaVersionMismatchError, match="requires a fresh v2 evidence store"):
+    with pytest.raises(SchemaVersionMismatchError, match="requires a fresh v3 evidence store"):
         open_evidence_store(db_path)
+
+
+def test_existing_user_version_zero_store_is_not_silently_initialized(tmp_path: Path) -> None:
+    db_path = tmp_path / "judgment.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("CREATE TABLE legacy_findings (id TEXT PRIMARY KEY)")
+        conn.execute("INSERT INTO legacy_findings VALUES ('legacy')")
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
+
+    with pytest.raises(SchemaVersionMismatchError, match="schema version 0"):
+        open_evidence_store(db_path)
+
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT id FROM legacy_findings").fetchone()[0] == "legacy"
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
 
 
 def test_store_setup_failure_is_normalized_to_typed_unavailable(
@@ -100,7 +115,7 @@ def test_transaction_rolls_back_all_projection_rows(tmp_path: Path) -> None:
                     artifact_schema_version, subject_payload, lineage_payload,
                     evidence_status, committed_at_us)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                ("art_1", "sess_1", "compare", "delta_frame", "v2", "{}", "{}", "complete", 1),
+                ("art_1", "sess_1", "compare", "delta_frame", "v3", "{}", "{}", "complete", 1),
             )
             raise RuntimeError("rollback")
         assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0

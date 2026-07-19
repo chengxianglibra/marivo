@@ -351,18 +351,15 @@ zero-division handling; the generated Ibis follows backend SQL semantics (most
 backends yield `NULL` on a zero denominator), so an explicit fallback must be
 wrapped in a base metric.
 
-### Nested derived (not analyzable)
+### Recursive derived metrics
 
-A derived metric's components must be tier-1 (`simple`) metrics or `cumulative`
-metrics. A component that is itself a non-cumulative derived metric (ratio of
-ratio, linear of ratio, weighted-average of ratio, …) is a **nested derived**
-metric. Authoring and loading accept it (the semantic layer resolves derived
-additivity through a fixpoint), but it is **not analyzable**: observe rejects
-it with `nested-derived-unsupported`. Assembly validation emits a
-`nested_derived_unsupported` warning so the constraint surfaces at
-`verify_object` / `readiness` (status `ready_with_warnings`) — before an agent
-reaches observe. Flatten the metric over tier-1/cumulative components, or
-attribute numerator and denominator separately.
+Derived metrics may consume other derived metrics. Authorization is checked at
+each node: ratio, weighted-average, linear, and cumulative retain their own
+child, unit, source, scope, and evaluation requirements. Semantic readiness
+lowers the complete selected metric through the same graph contract used by
+analysis and blocks graphs deeper than 10 nodes or wider than 256 pre-CSE
+occurrences. A legal ratio of ratios is therefore analysis-ready; an illegal
+child combination fails with the responsible dependency and occurrence path.
 
 ### Cumulative metrics
 
@@ -417,13 +414,25 @@ The authoritative declaration site is the measure's `unit=`; tier-1 and derived
 metrics inherit it at load, and an explicit `unit=` on a metric overrides.
 Derivation rules: `sum/min/max/mean/median/percentile` preserve `measure.unit`;
 `count/count_distinct` yield `None` (author `{order}` explicitly);
-`ratio(num, denom)` with equal known units yields `"1"`;
+`ratio(num, denom)` uses `MetricUnitAlgebraV2`: equal known units yield `"1"`
+and unequal factorable units form a reduced quotient;
 `weighted_average` yields `value.unit`; `linear` yields the common unit and
 raises `INCOMMENSURABLE_LINEAR_UNITS` when terms carry ≥2 distinct known units
 (an author override cannot suppress this — the physics of addition is
 label-independent). Units never affect computed values; `None` is always valid
-(richness-advisory only, never a readiness blocker). Authoring-time validation is
-lightweight (non-empty, printable ASCII); full UCUM grammar is a non-goal.
+(richness-advisory only, never a readiness blocker).
+
+Automatic derivation uses one bounded grammar shared by catalog and runtime
+typed aggregation. `1` is the empty product; `.` joins product atoms; one `/`
+separates numerator and denominator products. Atoms are non-empty printable
+ASCII without whitespace or `. / ( )`, and `1` is reserved. Equal
+case-sensitive factors cancel one-for-one, remaining factors sort bytewise,
+and repeated factors remain repeated. Thus
+`(CNY/{request})/(s/{request})` reduces to `CNY/s`, `CNY/CNY` to `1`, and
+`1/{request}` remains unchanged. Authoring-valid strings outside this grammar
+remain opaque catalog metadata and cannot be combined automatically by a
+parent; an explicit valid unit on that catalog parent remains authoritative.
+Extending the grammar requires a new algebra version.
 
 ## Relationship
 

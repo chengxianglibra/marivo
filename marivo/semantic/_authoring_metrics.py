@@ -192,6 +192,7 @@ def _derived(
         python_symbol=name,
         location=location,
         unit=unit,
+        unit_override=unit,
     )
     _push_ir(ctx, metric_ir, None)
     return MetricRef(semantic_id)
@@ -208,8 +209,8 @@ def ratio(
 ) -> MetricRef:
     """Declare a derived ratio metric (no body). Override the unit derived from the components at load.
 
-    Components must be tier-1 (simple) or cumulative metrics; a non-cumulative
-    derived component (nested derived) is not analyzable and observe will reject it.
+    Components may themselves be derived metrics. Each nested ratio must satisfy
+    its own unit, source, scope, and bounded-graph contract before analysis.
 
     Example::
 
@@ -240,8 +241,9 @@ def weighted_average(
 ) -> MetricRef:
     """Declare a derived weighted-average metric (no body). Override the unit derived from the components at load.
 
-    Roles are ``value`` / ``weight``. Components must be tier-1 or cumulative
-    metrics; a non-cumulative derived component (nested derived) is not analyzable."""
+    Roles are ``value`` / ``weight``. Components may be derived when the value
+    and weight subgraphs satisfy the weighted-average evaluator's unit, source,
+    scope, and bounded-graph contracts."""
     return _derived(
         name=name,
         composition=WeightedAverageComposition(
@@ -265,8 +267,8 @@ def linear(
 ) -> MetricRef:
     """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``. Override the unit derived from the components at load.
 
-    Components must be tier-1 or cumulative metrics; a non-cumulative derived
-    component (nested derived) is not analyzable and observe will reject it.
+    Terms may be derived metrics. Every recursively lowered term must be
+    commensurable and satisfy the shared source, scope, and graph budgets.
 
     Example::
 

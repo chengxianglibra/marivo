@@ -15,9 +15,9 @@ from marivo.analysis.errors import (
     SessionLockedByAnotherProcessError,
 )
 
-EXPECTED_SCHEMA_VERSION = 2
+EXPECTED_SCHEMA_VERSION = 3
 
-_SCHEMA_V2 = """
+_SCHEMA_V3 = """
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -135,24 +135,26 @@ class EvidenceStore:
         self._conn.close()
 
 
-def _initialize_v2(conn: sqlite3.Connection) -> None:
-    conn.executescript(_SCHEMA_V2)
+def _initialize_v3(conn: sqlite3.Connection) -> None:
+    conn.executescript(_SCHEMA_V3)
     conn.execute(f"PRAGMA user_version = {EXPECTED_SCHEMA_VERSION}")
 
 
 def open_evidence_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> EvidenceStore:
     """Open or create the project-local ``judgment.db`` evidence store."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    is_new_store = not db_path.exists()
     conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=busy_timeout_ms / 1000)
         conn.row_factory = sqlite3.Row
         conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA foreign_keys = ON")
         user_version: int = conn.execute("PRAGMA user_version").fetchone()[0]
-        if user_version == 0:
-            _initialize_v2(conn)
+        if user_version == EXPECTED_SCHEMA_VERSION or (user_version == 0 and is_new_store):
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA foreign_keys = ON")
+        if user_version == 0 and is_new_store:
+            _initialize_v3(conn)
             user_version = EXPECTED_SCHEMA_VERSION
     except sqlite3.DatabaseError as exc:
         if conn is not None:
@@ -166,7 +168,7 @@ def open_evidence_store(db_path: Path, *, busy_timeout_ms: int = 5000) -> Eviden
         raise SchemaVersionMismatchError(
             message=(
                 f"judgment.db schema version {user_version} is unsupported; "
-                f"Cutover A requires a fresh v{EXPECTED_SCHEMA_VERSION} evidence store"
+                f"this release requires a fresh v{EXPECTED_SCHEMA_VERSION} evidence store"
             ),
             hint="Remove the incompatible analysis session and run the analysis again.",
             context={"got": user_version, "expected": EXPECTED_SCHEMA_VERSION},

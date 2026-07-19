@@ -59,6 +59,8 @@ def test_all_symbols_importable() -> None:
 
 def test_all_list_matches_expected() -> None:
     expected = {
+        "AggregateFoldInput",
+        "AggregateFoldValue",
         "AiContextValue",
         "CatalogCollection",
         "CatalogObject",

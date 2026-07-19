@@ -51,9 +51,12 @@ from marivo.semantic._authoring_values import (
     timestamp,
     validity,
 )
+from marivo.semantic.ir import AggregateFoldInput, AggregateFoldValue
 from marivo.semantic.refs import DomainRef
 
 __all__ = [
+    "AggregateFoldInput",
+    "AggregateFoldValue",
     "DomainRef",
     "aggregate",
     "ai_context",

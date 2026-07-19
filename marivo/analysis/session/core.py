@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -38,12 +38,14 @@ if TYPE_CHECKING:
     from marivo.analysis.frames.quality import QualityReport
     from marivo.analysis.intents._attribution_mode import AttributionMode
     from marivo.analysis.intents._shape import SemanticShape
-    from marivo.analysis.intents._types import SliceValue
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
-    from marivo.analysis.semantic_inputs import DimensionInput, MetricInput
+    from marivo.analysis.runtime_metric import AnalysisDimensionRef
+    from marivo.analysis.semantic_inputs import ObserveMetricInput
     from marivo.analysis.session._store import SessionStore
+    from marivo.analysis.slice_types import SliceValue
     from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
     from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.refs import TimeDimensionRef
 
 SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
@@ -460,7 +462,10 @@ class Session(RenderableResult):
         limit: int = 20,
         cursor: str | None = None,
     ) -> FrameSummaryPage:
-        """Return one bounded newest-first keyset page of frame metadata.
+        """Return one bounded newest-first page of analysis-result metadata.
+
+        With no ``kind`` filter, linked component and coverage sidecars are
+        omitted. Pass their exact kind to inspect those internal frames.
 
         Example:
             page = session.frame_summaries(limit=20)
@@ -518,13 +523,13 @@ class Session(RenderableResult):
 
     def observe(
         self,
-        metric: MetricInput | list[MetricInput] | tuple[MetricInput, ...],
+        metric: ObserveMetricInput | list[ObserveMetricInput] | tuple[ObserveMetricInput, ...],
         *,
         time_scope: TimeScopeInput = None,
         grain: GrainInput = None,
-        dimensions: list[DimensionInput] | None = None,
-        slice_by: dict[DimensionInput, SliceValue] | None = None,
-        time_dimension: DimensionInput | None = None,
+        dimensions: list[AnalysisDimensionRef] | None = None,
+        slice_by: Mapping[AnalysisDimensionRef, SliceValue] | None = None,
+        time_dimension: TimeDimensionRef | None = None,
         expect_shape: SemanticShape | None = None,
         analysis_purpose: str | None = None,
     ) -> MetricFrame:
@@ -532,55 +537,48 @@ class Session(RenderableResult):
 
         When to use: starting point for any metric analysis workflow.
 
-        Resolves ``metric`` against the active semantic catalog, applies the
-        optional ``time_scope`` / ``grain`` / ``dimensions`` / ``slice_by`` filters, executes against
-        the session's backend, and persists the result as a MetricFrame on disk.
+        Resolves an exact catalog ``MetricRef`` or a closed recursive value from
+        ``mv.runtime_metric``, applies the shared observation scope, executes one
+        bounded expression graph, and persists the result as a MetricFrame.
 
-        ``to_pandas()`` value column naming: a simple single-metric frame uses
-        ``"value"``; a derived single-metric frame and all multi-metric frames
-        use one column per metric (the metric short name, or a qualified metric
-        id when names collide). Read ``frame.value_columns`` for the exact
-        exported name(s) before merging or renaming across frames.
+        ``to_pandas()`` exports one value column per ordered root. Read
+        ``frame.value_columns`` before merging or renaming frames.
 
         Args:
-            metric: Catalog metric object or ``SemanticRef``, or a non-empty
-                sequence of them for a multi-metric observation over one shared
-                scope. Bare strings are rejected. Sequences accept simple
-                metrics and non-cumulative derived metrics (ratio /
-                weighted_average / linear); cumulative and folded metrics must
-                be observed individually.
+            metric: Exact ``MetricRef``, ``RuntimeMetricExpr``, or a non-empty
+                list/tuple of either over one shared scope. Loaded catalog
+                objects, generic refs, and bare strings are rejected; pass the
+                loaded metric's ``.ref``. Catalog and runtime roots may be
+                recursively composed, including nested catalog-derived metrics.
             time_scope: Half-open time range ``{"start": ..., "end": ...}`` — start is
                 inclusive, end is exclusive.  For date-only strings, ``end="2026-08-01"``
                 means data from August 1 is **not** included.
             grain: Optional time bucket grain. When present, observe returns a time
                 series or panel depending on ``dimensions``.
-            dimensions: Segment axes. Omit, pass ``None``, or pass ``[]`` for no
-                segment axes. In v1 all non-empty dimension lists must resolve to
-                the same entity as ``metric``.
-            slice_by: Pre-aggregation row filter. Keys are catalog dimension objects/refs for
-                the filtered dimension; values are either a scalar (``==``), a
+            dimensions: Exact ``DimensionRef``/``TimeDimensionRef`` segment
+                axes. Omit, pass ``None``, or pass ``[]`` for no segment axes.
+            slice_by: Pre-aggregation global row filter. Keys are exact dimension
+                refs; values are either a scalar (``==``), a
                 list/tuple/set (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
                 ``==, !=, in, >, >=, <, <=, between``.
-            time_dimension: Pick the entity time axis as
-                a catalog time-dimension object/ref when an entity declares multiple
-                ``@ms.time_dimension`` columns. Omit when the entity has a single (or
-                default) time dimension.
+            time_dimension: Exact ``TimeDimensionRef`` selecting the time axis
+                when an entity declares multiple time dimensions.
             expect_shape: Optional guard. If set, observe predicts the output shape
                 from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
                 before any backend work when the prediction differs.
 
         Raises:
-            MetricNotFoundError: The metric id is unknown or not ``<domain>.<metric>``.
-            SemanticKindMismatchError: ``metric`` is not a catalog metric object/ref,
-                ``time_dimension`` is not a catalog dimension object/ref, or a ``slice_by``
-                key is not a catalog dimension object/ref.
+            MetricNotFoundError: A catalog metric ref is unknown.
+            SemanticKindMismatchError: A semantic input is not the required exact
+                ref subclass, roots do not share one shape/model/source domain,
+                or an expression exceeds the fixed graph contract.
             ObservePlanningError: Planning failed (e.g. cross-datasource plan, missing
                 path, ambiguous dimension). Check ``details["code"]`` for the specific
                 error code.
 
         Example:
             >>> catalog = session.catalog
-            >>> revenue = catalog.get("metric.sales.revenue")
+            >>> revenue = catalog.get("metric.sales.revenue").ref
             >>> country = catalog.get("dimension.sales.orders.country").ref
             >>> channel = catalog.get("dimension.sales.orders.channel").ref
             >>> frame = session.observe(
@@ -612,9 +610,9 @@ class Session(RenderableResult):
             family="core",
             intent="observe",
             attributes={"marivo.analysis.dimension_count": len(dimensions or [])},
-        ):
+        ) as telemetry_operation:
             validate_capability_inputs("observe", metric=metric, time_scope=time_scope)
-            return observe(
+            result = observe(
                 metric,
                 time_scope=time_scope,
                 grain=grain,
@@ -625,6 +623,72 @@ class Session(RenderableResult):
                 analysis_purpose=analysis_purpose,
                 session=self,
             )
+            graph = result.meta.expression_graph
+            if graph is not None:
+                node_kind_counts: dict[str, int] = {}
+                zero_policies: set[str] = set()
+                for record in graph.nodes:
+                    node_kind_counts[record.node.kind] = (
+                        node_kind_counts.get(record.node.kind, 0) + 1
+                    )
+                    zero_policy = getattr(record.node, "zero_division", None)
+                    if isinstance(zero_policy, str):
+                        zero_policies.add(zero_policy)
+                graph_attributes: dict[str, str | int | float | bool] = {
+                    "marivo.analysis.metric_graph.root_count": len(graph.roots),
+                    "marivo.analysis.metric_graph.node_count": len(graph.nodes),
+                    "marivo.analysis.metric_graph.pre_cse_occurrence_count": len(graph.occurrences),
+                    "marivo.analysis.metric_graph.max_depth": max(
+                        (occurrence.path.count(".") + 1 for occurrence in graph.occurrences),
+                        default=0,
+                    ),
+                    "marivo.analysis.metric_graph.node_kinds": ",".join(
+                        f"{kind}:{node_kind_counts[kind]}" for kind in sorted(node_kind_counts)
+                    ),
+                    "marivo.analysis.metric_graph.reused_occurrences": max(
+                        0, len(graph.occurrences) - len(graph.nodes)
+                    ),
+                    "marivo.analysis.metric_graph.zero_policies": ",".join(sorted(zero_policies)),
+                    "marivo.analysis.semantic_shape": result.meta.semantic_kind,
+                }
+                execution_stats = result.meta.execution_stats
+                if execution_stats is not None:
+                    downstream_blockers = set(execution_stats.downstream_blockers)
+                    cumulative = result.meta.cumulative
+                    if isinstance(cumulative, dict):
+                        compare_blocker = cumulative.get("compare_blocker")
+                        if isinstance(compare_blocker, str) and compare_blocker:
+                            downstream_blockers.add(compare_blocker)
+                    graph_attributes.update(
+                        {
+                            "marivo.analysis.metric_graph.root_origins": ",".join(
+                                execution_stats.root_origins
+                            ),
+                            "marivo.analysis.metric_graph.cache_hit": execution_stats.cache_hit,
+                            "marivo.analysis.metric_graph.artifact_deduplicated": (
+                                execution_stats.artifact_deduplicated
+                            ),
+                            "marivo.analysis.metric_graph.cse_used": (
+                                execution_stats.cse_reused_occurrences > 0
+                            ),
+                            "marivo.analysis.metric_graph.replay_used": (
+                                execution_stats.replay_used
+                            ),
+                            "marivo.analysis.metric_graph.physical_execution_count": (
+                                execution_stats.physical_execution_count
+                            ),
+                            "marivo.analysis.downstream_blockers": (
+                                ",".join(sorted(downstream_blockers)) or "none"
+                            ),
+                        }
+                    )
+                if telemetry_operation is not None:
+                    telemetry_operation.attributes.update(graph_attributes)
+                else:
+                    from marivo.telemetry import _add_operation_attributes
+
+                    _add_operation_attributes(graph_attributes)
+            return result
 
     def compare(
         self,
@@ -638,8 +702,11 @@ class Session(RenderableResult):
 
         When to use: quantify change between two periods; produces a DeltaFrame for attribute or discover.
 
-        The two frames must share ``metric_id`` and ``semantic_kind``. ``segmented``
-        frames must share segment columns; ``panel`` frames must share grain.
+        The two frames must share persisted comparable value semantics and
+        ``semantic_kind``. Equivalent catalog and runtime expressions may have
+        different metric identities. Segmented frames must share exact requested
+        dimension refs; time-bearing frames must share time-dimension identity,
+        grain, and report timezone.
 
         Args:
             current: Current-period MetricFrame.
@@ -648,15 +715,15 @@ class Session(RenderableResult):
                 ``segmented`` frames, only ``window_bucket`` is supported in v1.
 
         Raises:
-            SemanticKindMismatchError: Different ``metric_id``, ``semantic_kind``, or
-                ``current``/``baseline`` is not a MetricFrame.
+            SemanticKindMismatchError: Different value semantics or
+                ``semantic_kind``, or ``current``/``baseline`` is not a MetricFrame.
             SegmentDimensionMismatchError: ``segmented`` frames disagree on segment columns.
             PanelGrainMismatchError: ``panel`` frames disagree on time grain.
             AlignmentPolicyNotApplicableError: Alignment kind incompatible with the frame shape.
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:
-            >>> revenue = session.catalog.get("metric.sales.revenue")
+            >>> revenue = session.catalog.get("metric.sales.revenue").ref
             >>> cur = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})
             >>> base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})
             >>> delta = session.compare(
@@ -695,7 +762,7 @@ class Session(RenderableResult):
         self,
         frame: DeltaFrame,
         *,
-        axes: list[DimensionInput],
+        axes: list[AnalysisDimensionRef],
         mode: AttributionMode | None = None,
         analysis_purpose: str | None = None,
     ) -> AttributionFrame:
@@ -732,7 +799,7 @@ class Session(RenderableResult):
 
         Args:
             frame: A DeltaFrame produced by ``session.compare``.
-            axes: One or more catalog dimension refs/objects to attribute over.
+            axes: One or more exact catalog dimension refs to attribute over.
             mode: Required for multiple axes. ``"joint"`` returns one row per
                 axis combination; ``"hierarchy"`` returns ordered prefix rows.
                 Omit for a single axis.
@@ -1168,7 +1235,7 @@ class SessionDiscoverNamespace:
         self,
         source: DeltaFrame,
         *,
-        search_space: list[DimensionInput],
+        search_space: list[AnalysisDimensionRef],
         value: str | None = None,
         limit: int | None = 50,
         analysis_purpose: str | None = None,
@@ -1206,7 +1273,7 @@ class SessionDiscoverNamespace:
         self,
         source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[DimensionInput] | None = None,
+        search_space: list[AnalysisDimensionRef] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = 50,
@@ -1282,7 +1349,7 @@ class SessionDiscoverNamespace:
         self,
         source: MetricFrame,
         *,
-        peer_scope: list[DimensionInput] | None = None,
+        peer_scope: list[AnalysisDimensionRef] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = 50,

@@ -25,6 +25,7 @@ from marivo.semantic._authoring_context import (
     _resolve_domain,
 )
 from marivo.semantic._authoring_validation import (
+    _compute_column_hash,
     _normalize_additivity,
     _validate_relationship_keys,
     _validate_sample_interval_granularity,
@@ -196,6 +197,7 @@ def dimension_column(
         kind=DimensionKind.CATEGORICAL,
         python_symbol=obj_name,
         location=location,
+        body_ast_hash=_compute_column_hash(column_name),
     )
     ref = DimensionRef(semantic_id)
     _push_ir(ctx, ir, _column_accessor(column_name))
@@ -257,7 +259,7 @@ def dimension(
             )
         _check_duplicate(ctx, semantic_id, DimensionIR)
 
-        validate_metric_body_ast(fn, "base", body_kind="dimension")
+        body_hash = validate_metric_body_ast(fn, "base", body_kind="dimension")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
@@ -271,6 +273,7 @@ def dimension(
             kind=DimensionKind.CATEGORICAL,
             python_symbol=fn.__name__,
             location=location,
+            body_ast_hash=body_hash,
         )
         _push_ir(ctx, ir, fn)
 
@@ -351,6 +354,7 @@ def measure_column(
         unit=unit,
         python_symbol=obj_name,
         location=location,
+        body_ast_hash=_compute_column_hash(column_name),
     )
     ref = MeasureRef(semantic_id)
     _push_ir(ctx, ir, _column_accessor(column_name))
@@ -414,7 +418,7 @@ def measure(
             )
         _check_duplicate(ctx, semantic_id, MeasureIR)
         _validate_unit(unit, semantic_id, "measure")
-        validate_metric_body_ast(fn, "base", body_kind="measure")
+        body_hash = validate_metric_body_ast(fn, "base", body_kind="measure")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
         ir = MeasureIR(
@@ -427,6 +431,7 @@ def measure(
             unit=unit,
             python_symbol=fn.__name__,
             location=location,
+            body_ast_hash=body_hash,
         )
         _push_ir(ctx, ir, fn)
         ref = MeasureRef(semantic_id)
@@ -514,6 +519,7 @@ def time_dimension_column(
         is_default=is_default,
         python_symbol=obj_name,
         location=location,
+        body_ast_hash=_compute_column_hash(column_name),
     )
     ref = TimeDimensionRef(semantic_id)
     _push_ir(ctx, ir, _column_accessor(column_name))
@@ -591,7 +597,7 @@ def time_dimension(
         _check_duplicate(ctx, semantic_id, DimensionIR)
 
         _validate_time_parse(parse)
-        validate_metric_body_ast(fn, "base", body_kind="time_dimension")
+        body_hash = validate_metric_body_ast(fn, "base", body_kind="time_dimension")
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
@@ -615,6 +621,7 @@ def time_dimension(
             is_default=is_default,
             python_symbol=fn.__name__,
             location=location,
+            body_ast_hash=body_hash,
         )
         _push_ir(ctx, ir, fn)
 

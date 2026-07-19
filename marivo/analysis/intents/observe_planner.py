@@ -1,22 +1,15 @@
-"""Phase 1 observe planner dispatch.
-
-The planner is split across private submodules (types, catalog, fields,
-versioning, joins, base, comparability). This shell retains the public
-``plan_observe`` dispatcher and re-exports the symbols that ``observe`` /
-``observe_multi`` / tests import from ``marivo.analysis.intents.observe_planner``.
-``__all__`` also satisfies mypy's ``no_implicit_reexport``.
-"""
+"""Graph-native observe planner entry point and stable planner helpers."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from marivo.analysis.intents._metric_graph_plan import (
+    MetricGraphObservePlanV1,
+    plan_catalog_metric_graph_observe,
+)
 from marivo.analysis.intents._observe_planner_base import plan_base_observe
 from marivo.analysis.intents._observe_planner_catalog import resolve_metric_root
-from marivo.analysis.intents._observe_planner_comparability import (
-    _plan_cumulative_observe,
-    _plan_derived_observe,
-)
 from marivo.analysis.intents._observe_planner_fields import (
     _effective_key,
     resolve_observe_fields,
@@ -29,11 +22,7 @@ from marivo.analysis.intents._observe_planner_joins import (
 )
 from marivo.analysis.intents._observe_planner_types import (
     BaseObservePlan,
-    ComponentPlan,
-    CumulativeObservePlan,
-    DerivedObservePlan,
     JoinSafety,
-    ObservePlan,
     _is_cumulative_metric,
     _planned_metric,
 )
@@ -42,10 +31,8 @@ from marivo.semantic.catalog import SemanticCatalog
 
 __all__ = [
     "BaseObservePlan",
-    "ComponentPlan",
-    "CumulativeObservePlan",
-    "DerivedObservePlan",
     "JoinSafety",
+    "MetricGraphObservePlanV1",
     "_derive_version_mode",
     "_effective_key",
     "_field_fn",
@@ -72,8 +59,9 @@ def plan_observe(
     where: Any,
     resolved_window: Any,
     time_dimension: Any,
-    component_metric_irs: dict[str, Any] | None = None,
-) -> ObservePlan:
+) -> BaseObservePlan | MetricGraphObservePlanV1:
+    """Plan a simple physical leaf or a recursive catalog metric graph."""
+
     if catalog is None:
         catalog = session.catalog
     if metric_ir.metric_type != "derived":
@@ -88,28 +76,14 @@ def plan_observe(
             resolved_window=resolved_window,
             time_dimension=time_dimension,
         )
-    if _is_cumulative_metric(metric_ir):
-        return _plan_cumulative_observe(
-            catalog=catalog,
-            session=session,
-            metric_ir=metric_ir,
-            dataset_irs=dataset_irs,
-            dataset_fns=dataset_fns,
-            dimensions=dimensions,
-            where=where,
-            resolved_window=resolved_window,
-            time_dimension=time_dimension,
-            component_metric_irs=component_metric_irs,
-        )
-    return _plan_derived_observe(
+    return plan_catalog_metric_graph_observe(
         catalog=catalog,
         session=session,
-        metric_ir=metric_ir,
+        metric_ids=(metric_ir.semantic_id,),
         dataset_irs=dataset_irs,
         dataset_fns=dataset_fns,
         dimensions=dimensions,
         where=where,
         resolved_window=resolved_window,
         time_dimension=time_dimension,
-        component_metric_irs=component_metric_irs,
     )

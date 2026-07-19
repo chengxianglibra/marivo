@@ -12,7 +12,6 @@ from marivo.analysis.evidence.types import (
     ArtifactDigestPage,
     Finding,
     FindingPage,
-    Subject,
 )
 from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
@@ -78,12 +77,13 @@ def test_findings_returns_concrete_page_and_new_filters(tmp_path: Path):
 
 def test_findings_filter_by_exact_subject(tmp_path: Path):
     session = _session(tmp_path)
-    _compare(session)
+    delta = _compare(session)
+    finding = session.evidence.findings(artifact_ref=delta.ref).items[0]
     page = session.evidence.findings(
-        subject=Subject(metric="sales.revenue", analysis_axis="change")
+        subject=finding.subject,
     )
     assert page.items
-    assert all(item.subject.analysis_axis == "change" for item in page.items)
+    assert all(item.subject == finding.subject for item in page.items)
 
 
 def test_digests_page_and_exact_digest_share_persisted_value(tmp_path: Path):

@@ -93,12 +93,11 @@ def test_analysis_exports_public_surface_by_layer() -> None:
         "holiday_aligned",
         "holiday_and_dow_aligned",
         "AlignmentPolicy",
-        "SemanticRef",
-        "CatalogObject",
         "ArtifactRef",
         "CalendarRef",
         "TimeScope",
         "AbsoluteWindow",
+        "runtime_metric",
     }
     for name in default_exports:
         assert name in mv.__all__, name

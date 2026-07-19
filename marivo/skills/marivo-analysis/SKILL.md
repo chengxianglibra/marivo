@@ -143,6 +143,12 @@ compatibility. Familiarity with local pandas, SQL, or prior scripts is not a
 reason to leave typed flow; cross the boundary only when the remaining work is
 intentionally custom and terminal.
 
+When current governed refs are sufficient but no catalog metric expresses the
+required session caliber, follow live help for the closed runtime metric
+expression surface and materialize it through `session.observe(...)`. This
+remains typed analysis and is preferred to a terminal escape; it does not create
+catalog authority and triggers the conditional closeout reference below.
+
 When a semantic gap blocks typed analysis, `md.raw_sql(...)` is an allowed
 terminal escape without prior approval. The agent may use explicit temporary
 inferred semantics, but must record every assumption and keep the result
@@ -203,3 +209,9 @@ The skill does not prescribe a report structure. Require only that:
 - absolute interpreter and package paths from the environment fingerprint do
   not enter user-facing reports or deliverables. Internal diagnostic logs
   and evaluator transcripts may retain them.
+
+When a material claim uses a frame whose persisted metric identity is
+`runtime_expression`, read and apply
+`references/runtime-metric-closeout.md`. Runtime expressions are controlled
+session-caliber computations, not catalog semantic authority; their labels
+must never be presented as governed business definitions.

@@ -7,7 +7,7 @@ import copy
 import hashlib
 import json
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime, timedelta
 from time import monotonic
 from typing import Any, Literal, cast
@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 
+from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.delta_math import compute_delta_columns
 from marivo.analysis.errors import (
     CrossSessionFrameError,
@@ -34,10 +35,8 @@ from marivo.analysis.evidence.pipeline import (
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.semantic_inputs import DimensionInput
 from marivo.analysis.semantic_inputs import (
     normalize_dimension_boundary as normalize_catalog_dimension_boundary,
 )
@@ -47,6 +46,7 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session, ensure_session_writable
+from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows import (
     AbsoluteWindow,
     TimeScopeInput,
@@ -54,7 +54,14 @@ from marivo.analysis.windows import (
     make_absolute_window,
     normalize_timescope_input,
 )
-from marivo.semantic.catalog import CatalogObject, SemanticKind, SemanticRef
+from marivo.semantic.catalog import CatalogObject, SemanticRef
+from marivo.semantic.metric_graph import (
+    ComparableValueSemanticsV1,
+    MetricKeyFieldV1,
+    MetricKeySchemaV1,
+)
+from marivo.semantic.metric_graph_canonical import fingerprint
+from marivo.semantic.refs import DimensionRef, TimeDimensionRef
 
 TransformFrame = MetricFrame | DeltaFrame
 RankMethod = Literal["ordinal", "dense", "min", "max"]
@@ -142,7 +149,9 @@ def _finish_transform[TTransformFrame: TransformFrame](
     return result
 
 
-def _normalize_dimension_boundary(session: Session, value: DimensionInput, *, argument: str) -> str:
+def _normalize_dimension_boundary(
+    session: Session, value: AnalysisDimensionRef, *, argument: str
+) -> str:
     try:
         return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
     except SemanticKindMismatchError as exc:
@@ -160,7 +169,7 @@ def _normalize_dimension_boundary(session: Session, value: DimensionInput, *, ar
 
 def _normalize_where_boundary(
     session: Session,
-    where: dict[DimensionInput, Any] | None,
+    where: Mapping[AnalysisDimensionRef, Any] | None,
 ) -> dict[str, Any]:
     if where is None:
         return {}
@@ -169,7 +178,10 @@ def _normalize_where_boundary(
             raise TransformArgError(
                 message="transform slice(slice_by=...) requires catalog dimension refs",
                 hint="Pass slice_by={session.catalog.get('dimension.sales.orders.country').ref: 'US'}.",
-                context={"expected_kind": "DimensionInput", "got_kind": "str"},
+                context={
+                    "expected_kind": "DimensionRef or TimeDimensionRef",
+                    "got_kind": "str",
+                },
             )
     return {
         _normalize_dimension_boundary(session, key, argument="slice_by"): value
@@ -179,7 +191,7 @@ def _normalize_where_boundary(
 
 def _normalize_drop_axes_boundary(
     session: Session,
-    drop_axes: list[DimensionInput] | None,
+    drop_axes: list[AnalysisDimensionRef] | None,
 ) -> list[str]:
     if drop_axes is None:
         return []
@@ -188,7 +200,10 @@ def _normalize_drop_axes_boundary(
             raise TransformArgError(
                 message="transform rollup(drop_axes=...) requires catalog dimension refs",
                 hint="Pass drop_axes=[session.catalog.get('dimension.sales.orders.country').ref].",
-                context={"expected_kind": "DimensionInput", "got_kind": "str"},
+                context={
+                    "expected_kind": "DimensionRef or TimeDimensionRef",
+                    "got_kind": "str",
+                },
             )
     return [
         _normalize_dimension_boundary(session, axis, argument="drop_axes") for axis in drop_axes
@@ -220,7 +235,7 @@ def transform_filter[TTransformFrame: TransformFrame](
 def transform_slice[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
-    slice_by: dict[DimensionInput, SliceValue],
+    slice_by: Mapping[AnalysisDimensionRef, SliceValue],
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
     session, prepared = _prepare_transform(frame)
@@ -243,7 +258,7 @@ def transform_slice[TTransformFrame: TransformFrame](
 def transform_rollup[TTransformFrame: TransformFrame](
     frame: TTransformFrame,
     *,
-    drop_axes: list[DimensionInput] | None = None,
+    drop_axes: list[AnalysisDimensionRef] | None = None,
     grain: str | None = None,
     analysis_purpose: str | None = None,
 ) -> TTransformFrame:
@@ -420,7 +435,24 @@ def _normalize_param_value(value: Any) -> Any:
     if callable(value):
         module = getattr(value, "__module__", type(value).__module__)
         qualname = getattr(value, "__qualname__", type(value).__qualname__)
-        return {"type": "callable", "name": f"{module}.{qualname}"}
+        code = getattr(value, "__code__", None)
+        closure = getattr(value, "__closure__", None)
+        implementation_material = (
+            code.co_code.hex() if code is not None else None,
+            repr(code.co_consts) if code is not None else None,
+            code.co_names if code is not None else None,
+            code.co_varnames if code is not None else None,
+            tuple(repr(cell.cell_contents) for cell in closure or ()),
+            repr(value) if code is None else None,
+        )
+        implementation_digest = hashlib.sha256(
+            repr(implementation_material).encode("utf-8")
+        ).hexdigest()
+        return {
+            "type": "callable",
+            "name": f"{module}.{qualname}",
+            "implementation_digest": implementation_digest,
+        }
     if isinstance(value, dict):
         return {
             str(key): _normalize_param_value(item)
@@ -429,6 +461,20 @@ def _normalize_param_value(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_normalize_param_value(item) for item in value]
     return value
+
+
+def _contains_callable(value: object) -> bool:
+    """Return whether a transform parameter contains executable user code."""
+
+    if callable(value):
+        return True
+    if isinstance(value, dict):
+        return any(
+            _contains_callable(key) or _contains_callable(item) for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple, set)):
+        return any(_contains_callable(item) for item in value)
+    return False
 
 
 def _axis_names(value: Any) -> set[str]:
@@ -448,19 +494,7 @@ def _axis_names(value: Any) -> set[str]:
     return set()
 
 
-def _dimension_input_id(value: DimensionInput) -> str:
-    if isinstance(value, CatalogObject):
-        if value.ref.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
-            raise TransformArgError(
-                message="transform dimension input requires a dimension or time_dimension object",
-                context={"actual_kind": str(value.ref.kind), "ref": value.ref.id},
-            )
-        return value.ref.id
-    if value.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
-        raise TransformArgError(
-            message="transform dimension input requires a dimension or time_dimension ref",
-            context={"actual_kind": str(value.kind), "ref": value.id},
-        )
+def _dimension_input_id(value: AnalysisDimensionRef) -> str:
     return value.id
 
 
@@ -566,7 +600,7 @@ def _normalize_rollup_drop_axes(frame: TransformFrame, drop_axes: Any) -> set[st
     axes = _frame_axes(frame)
     drop_ids: set[str] = set()
     for item in drop_axes:
-        if isinstance(item, SemanticRef | CatalogObject):
+        if isinstance(item, DimensionRef | TimeDimensionRef):
             dimension_id = _dimension_input_id(item)
             axis_id = _resolve_axis_id(axes, dimension_id, role="dimension")
             if axis_id is None:
@@ -1277,7 +1311,7 @@ def _op_normalize(
 def _resolve_slice_column(
     frame: TransformFrame, df: pd.DataFrame, key: Any
 ) -> tuple[str, str | None]:
-    if isinstance(key, SemanticRef | CatalogObject):
+    if isinstance(key, DimensionRef | TimeDimensionRef):
         axes = _frame_axes(frame)
         dimension_id = _dimension_input_id(key)
         axis_id = _resolve_axis_id(axes, dimension_id, role="dimension")
@@ -2037,6 +2071,73 @@ def _persist_transform_frame(
         meta_payload["alignment"] = alignment_payload
 
     if isinstance(parent, MetricFrame):
+        resolved_axes = cast("dict[str, Any]", meta_payload["axes"])
+        axis_columns = tuple(
+            str(axis["column"])
+            for axis in resolved_axes.values()
+            if isinstance(axis, dict)
+            and isinstance(axis.get("column"), str)
+            and axis["column"] in df.columns
+        )
+        key_fields = tuple(
+            MetricKeyFieldV1(
+                name=column,
+                dtype=str(df[column].dtype),
+                nullable=True,
+            )
+            for column in axis_columns
+        )
+        key_schema = MetricKeySchemaV1(
+            schema="metric-key-schema/v1",
+            fields=key_fields,
+            fingerprint=fingerprint(key_fields),
+        )
+        meta_payload["key_schema"] = key_schema
+        meta_payload["artifact_identity"] = None
+        meta_payload["comparable_value_semantics_ref"] = None
+        meta_payload["component_graph_ref"] = None
+        meta_payload["quality_ref"] = None
+        meta_payload["coverage_ref"] = None
+        meta_payload["coverage_summary"] = None
+        comparable = parent.meta.comparable_value_semantics
+        if comparable is None or _contains_callable(params):
+            meta_payload["comparable_value_semantics"] = None
+        else:
+            transform_fingerprint = fingerprint(
+                {
+                    "parent": comparable.definition_transform_fingerprint,
+                    "params": normalized_params,
+                    "semantic_kind": meta_payload["semantic_kind"],
+                    "axes": resolved_axes,
+                    "where": meta_payload["where"],
+                }
+            )
+            global_slice = tuple(
+                (str(key), fingerprint(value))
+                for key, value in sorted(cast("dict[str, Any]", meta_payload["where"]).items())
+            )
+            comparable_payload = {
+                "expression_fingerprint": comparable.expression_fingerprint,
+                "evaluator_contracts": comparable.evaluator_contracts,
+                "global_slice": global_slice,
+                "key_schema_fingerprint": key_schema.fingerprint,
+                "unit": comparable.unit,
+                "fold": comparable.fold,
+                "source_domain_fingerprint": comparable.source_domain_fingerprint,
+                "definition_transform_fingerprint": transform_fingerprint,
+            }
+            meta_payload["comparable_value_semantics"] = ComparableValueSemanticsV1(
+                schema="comparable-value-semantics/v1",
+                expression_fingerprint=comparable.expression_fingerprint,
+                evaluator_contracts=comparable.evaluator_contracts,
+                global_slice=global_slice,
+                key_schema_fingerprint=key_schema.fingerprint,
+                unit=comparable.unit,
+                fold=comparable.fold,
+                source_domain_fingerprint=comparable.source_domain_fingerprint,
+                definition_transform_fingerprint=transform_fingerprint,
+                fingerprint=fingerprint(comparable_payload),
+            )
         metric_meta = MetricFrameMeta(**meta_payload)
         frame: MetricFrame | DeltaFrame = MetricFrame(_df=df.copy(), meta=metric_meta)
         grain = None

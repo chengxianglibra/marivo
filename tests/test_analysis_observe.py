@@ -1,6 +1,7 @@
 """session.observe end-to-end against a seeded DuckDB."""
 
 import inspect
+import json
 from types import SimpleNamespace
 
 import ibis
@@ -407,7 +408,9 @@ def test_observe_planner_does_not_require_catalog_private_state(
         resolved_window=None,
         time_dimension=None,
     )
-    assert len(derived_plan.component_plans) == 2
+    assert len(derived_plan.leaves) == 2
+    assert len(derived_plan.graph.roots) == 1
+    assert any(record.node.kind == "ratio" for record in derived_plan.graph.nodes)
 
 
 def test_observe_returns_metric_frame(tmp_path):
@@ -437,17 +440,19 @@ def test_observe_rejects_bare_metric_string(tmp_path):
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe("sales.revenue", session=s)  # type: ignore[arg-type]
 
-    assert exc_info.value._context["expected_kind"] == "metric"
-    assert exc_info.value._context["actual_kind"] == "str"
+    assert exc_info.value._context["expected_type"] == "MetricRef or RuntimeMetricExpr"
+    assert exc_info.value._context["actual_type"] == "str"
     rendered = str(exc_info.value)
-    assert "metric requires a metric SemanticRef or CatalogObject" in rendered
+    assert "exact MetricRef or RuntimeMetricExpr" in rendered
 
 
-def test_session_observe_accepts_catalog_object_and_ref(sales_session, sales_catalog):
+def test_session_observe_rejects_catalog_object_and_accepts_exact_ref(sales_session, sales_catalog):
     metric = sales_catalog.get("metric.sales.revenue")
     country = sales_catalog.get("dimension.sales.orders.country").ref
 
-    frame = sales_session.observe(metric, dimensions=[country])
+    with pytest.raises(SemanticKindMismatchError, match="exact MetricRef"):
+        sales_session.observe(metric, dimensions=[country])  # type: ignore[arg-type]
+    frame = sales_session.observe(metric.ref, dimensions=[country])
 
     assert frame.meta.metric_id == "sales.revenue"
     assert "country" in frame.meta.axes
@@ -519,7 +524,7 @@ def test_observe_composite_hour_partition_window_keeps_closed_result_semantics(t
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2024-10-11T03:00:00", "end": "2025-07-31T14:00:00"},
-        time_dimension=make_ref("log_hour", SemanticKind.DIMENSION),
+        time_dimension=make_ref("sales.orders.log_hour", SemanticKind.TIME_DIMENSION),
         session=s,
     )
 
@@ -563,7 +568,7 @@ def test_observe_multiple_time_fields_accepts_explicit_time_field(tmp_path):
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-31"},
-        time_dimension=make_ref("create_date", SemanticKind.DIMENSION),
+        time_dimension=make_ref("sales.orders.create_date", SemanticKind.TIME_DIMENSION),
         session=s,
     )
 
@@ -608,7 +613,7 @@ def test_observe_applies_slice(tmp_path):
     s = session_attach.get_or_create(name="demo", backends=sales_backends(con))
     mf = observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        slice_by={make_ref("region", SemanticKind.DIMENSION): "NORTH"},
+        slice_by={make_ref("sales.orders.region", SemanticKind.DIMENSION): "NORTH"},
         session=s,
     )
     assert mf.to_pandas().iloc[0, 0] == pytest.approx(70.0)
@@ -627,7 +632,7 @@ def test_observe_slice_by_empty_result_raises_teaching_error(tmp_path):
             make_ref("sales.revenue", SemanticKind.METRIC),
             time_scope={"start": "2026-07-01", "end": "2026-07-31"},
             grain="day",
-            slice_by={make_ref("region", SemanticKind.DIMENSION): "NOPE"},
+            slice_by={make_ref("sales.orders.region", SemanticKind.DIMENSION): "NOPE"},
             session=s,
         )
     err = exc_info.value
@@ -646,7 +651,7 @@ def test_observe_slice_by_empty_result_in_list_raises(tmp_path):
             make_ref("sales.revenue", SemanticKind.METRIC),
             time_scope={"start": "2026-07-01", "end": "2026-07-31"},
             grain="day",
-            slice_by={make_ref("region", SemanticKind.DIMENSION): ["NOPE1", "NOPE2"]},
+            slice_by={make_ref("sales.orders.region", SemanticKind.DIMENSION): ["NOPE1", "NOPE2"]},
             session=s,
         )
 
@@ -672,7 +677,7 @@ def test_observe_rejects_bare_string_time_field(tmp_path):
             time_dimension="created_at",
             session=s,
         )
-    assert exc_info.value._context["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "time_dimension"
 
 
 def test_observe_rejects_bare_string_where_key(tmp_path):
@@ -808,13 +813,13 @@ def _bootstrap_failure_rate(tmp_path):
         "def total_count(orders):\n"
         "    return orders.count()\n"
         "\n"
-        "ms.ratio(\n"
+        "failure_rate = ms.ratio(\n"
         "    name='failure_rate',\n"
         "    numerator=failed_count,\n"
         "    denominator=total_count,\n"
         ")\n"
         "\n"
-        "ms.ratio(\n"
+        "failed_count_ratio = ms.ratio(\n"
         "    name='failed_count_ratio',\n"
         "    numerator=failed_count,\n"
         "    denominator=failed_count,\n"
@@ -828,6 +833,12 @@ def _bootstrap_failure_rate(tmp_path):
         "    name='failed_per_succeeded',\n"
         "    numerator=failed_count,\n"
         "    denominator=succeeded_count,\n"
+        ")\n"
+        "\n"
+        "ms.ratio(\n"
+        "    name='nested_failure_rate',\n"
+        "    numerator=failure_rate,\n"
+        "    denominator=failed_count_ratio,\n"
         ")\n"
     )
 
@@ -920,6 +931,49 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     assert by_bucket["2026-07-02"].failed_count == pytest.approx(0.0)
     assert by_bucket["2026-07-02"].total_count == pytest.approx(1.0)
     assert by_bucket["2026-07-02"].failure_rate == pytest.approx(0.0)
+
+
+def test_observe_nested_catalog_ratio_reuses_leaf_cse(tmp_path):
+    _bootstrap_failure_rate(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    _seed_failure_rate(con)
+    session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+    frame = observe(
+        make_ref("sales.nested_failure_rate", SemanticKind.METRIC),
+        session=session,
+    )
+
+    assert frame.to_pandas().iloc[0]["nested_failure_rate"] == pytest.approx(0.5)
+    params = frame.meta.lineage.steps[0].params
+    assert len(params["lineage_metadata"]["physical_leaves"]) == 2
+    assert len(params["metric_graph"]["nodes"]) == 5
+    assert frame.meta.metric_identity is not None
+    assert frame.meta.metric_identity.kind == "catalog"
+    assert frame.meta.metric_identities == (frame.meta.metric_identity,)
+    assert frame.meta.expression_graph is not None
+    assert frame.meta.semantic_dependency_digest is not None
+    assert frame.meta.key_schema is not None
+    assert frame.meta.source_compatibility_domain is not None
+    assert frame.meta.comparable_value_semantics is not None
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v3"
+
+    store = session._evidence_store()
+    assert store is not None
+    row = (
+        store.read()
+        .execute("SELECT subject_payload FROM artifacts WHERE artifact_id = ?", (frame.ref,))
+        .fetchone()
+    )
+    assert row is not None
+    subject = json.loads(row["subject_payload"])
+    assert subject["typed_metric_subject"] == {
+        "kind": "catalog_metric",
+        "session_id": session.id,
+        "metric_id": "sales.nested_failure_rate",
+        "artifact_id": frame.ref,
+        "scope_fingerprint": subject["typed_metric_subject"]["scope_fingerprint"],
+    }
 
 
 def _seed_zero_denominator_orders(con):
@@ -1134,7 +1188,7 @@ def test_observe_string_timestamp_timezone_subday_time_series(tmp_path, monkeypa
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-05-01", "end": "2026-05-02"},
         grain=(30, "minute"),
-        time_dimension=make_ref("create_time", SemanticKind.DIMENSION),
+        time_dimension=make_ref("sales.orders.create_time", SemanticKind.TIME_DIMENSION),
         session=s,
     )
 

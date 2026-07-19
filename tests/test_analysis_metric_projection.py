@@ -205,7 +205,10 @@ _PROJECTION_WINDOW = {"start": "2026-07-01", "end": "2026-07-04"}
 def _fused(sales_session):
     catalog = sales_session.catalog
     return observe(
-        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.order_count")],
+        [
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.order_count").ref,
+        ],
         time_scope=_PROJECTION_WINDOW,
         grain="day",
         session=sales_session,
@@ -223,13 +226,16 @@ def test_projection_returns_arity_1_frame(sales_session):
     assert revenue.meta.status_time_dimension == frame.meta.measures[0]["status_time_dimension"]
     assert list(revenue.columns) == ["bucket_start", "value"]
     assert revenue.meta.lineage.steps[-1].intent == "select_metric"
-    assert revenue.meta.lineage.steps[-1].params == {"metric": "sales.revenue"}
+    assert revenue.meta.lineage.steps[-1].params == {
+        "metric": "sales.revenue",
+        "replay_expression": {"kind": "metric_ref", "metric_id": "sales.revenue"},
+    }
 
 
 def test_projection_on_arity_1_returns_self(sales_session):
     catalog = sales_session.catalog
     single = observe(
-        catalog.get("metric.sales.revenue"),
+        catalog.get("metric.sales.revenue").ref,
         time_scope=_PROJECTION_WINDOW,
         grain="day",
         session=sales_session,

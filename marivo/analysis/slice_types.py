@@ -1,6 +1,4 @@
-"""Shared public type aliases for analysis intents."""
-
-from __future__ import annotations
+"""Shared public slice type aliases for analysis."""
 
 from typing import Any, Literal, TypedDict
 
@@ -17,9 +15,4 @@ SliceValue = (
     SliceScalar | list[SliceScalar] | tuple[SliceScalar, ...] | set[SliceScalar] | SlicePredicate
 )
 
-__all__ = [
-    "SlicePredicate",
-    "SlicePredicateOp",
-    "SliceScalar",
-    "SliceValue",
-]
+__all__ = ["SlicePredicate", "SlicePredicateOp", "SliceScalar", "SliceValue"]

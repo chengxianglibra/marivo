@@ -252,6 +252,26 @@ def test_focused_help_includes_live_signature() -> None:
     assert "time_scope" in text
 
 
+@pytest.mark.parametrize("name", ["aggregate", "slice", "ratio"])
+def test_runtime_metric_constructors_have_focused_live_help(name: str) -> None:
+    target = f"runtime_metric.{name}"
+    callable_obj = getattr(mv.runtime_metric, name)
+
+    for text in (_text(target), _text(callable_obj)):
+        assert text.splitlines()[0] == target
+        assert "Signature:" in text
+        assert "Output type:" in text
+        assert "Example:" in text
+        assert "runtime_metric_closed_algebra" in text
+
+
+def test_runtime_metric_group_help_lists_all_constructors() -> None:
+    text = _text("runtime_metric")
+    assert "mv.runtime_metric.aggregate(...)" in text
+    assert "mv.runtime_metric.slice(...)" in text
+    assert "mv.runtime_metric.ratio(...)" in text
+
+
 def test_cutover_a_help_exposes_bounded_reads_and_closed_variants() -> None:
     select_text = _text("CandidateSet.select")
     assert "rank: int = 1" in select_text
@@ -396,10 +416,10 @@ def test_catalog_collection_help_labels_properties_and_show_path() -> None:
 
     assert (
         "session.catalog.dimensions  "
-        "(property -> CatalogCollection[Dimension]; inspect with .show())"
+        "(property -> CatalogCollection[Dimension, DimensionRef]; inspect with .show())"
     ) in group
     assert "Property: session.catalog.dimensions" in focused
-    assert "Returns: CatalogCollection[Dimension]" in focused
+    assert "Returns: CatalogCollection[Dimension, DimensionRef]" in focused
     assert "Inspect: session.catalog.dimensions.show()" in focused
     assert "Entrypoint: session.catalog.dimensions" not in focused
 
@@ -487,8 +507,8 @@ def test_error_class_help_shows_static_fields() -> None:
     # MetricNotFoundError has at least one matching constraint; verify
     # it is actually listed rather than relying on a coincidental word.
     assert "Constraints:" in text
-    assert "metric_ref_registered" in text
-    assert "Observed metrics must resolve to a registered semantic metric." in text
+    assert "metric_expression_resolvable" in text
+    assert "Every metric-expression leaf must resolve to an analysis-ready governed ref." in text
 
 
 def test_error_instance_help_shows_concrete_repair() -> None:
@@ -752,13 +772,11 @@ def test_analysis_all_is_pinned() -> None:
         "AttributionFrame",
         "CalendarRef",
         "CandidateSet",
-        "CatalogObject",
         "DeltaFrame",
         "ForecastFrame",
         "HypothesisTestResult",
         "MetricFrame",
         "QualityReport",
-        "SemanticRef",
         "Session",
         "TimeScope",
         "dow_aligned",
@@ -768,6 +786,7 @@ def test_analysis_all_is_pinned() -> None:
         "holiday_and_dow_aligned",
         "session",
         "window_bucket",
+        "runtime_metric",
     }
     assert set(mv.__all__) == expected
 

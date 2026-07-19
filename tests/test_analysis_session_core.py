@@ -186,7 +186,7 @@ def test_load_rejects_removed_pre_cutover_evidence_meta(tmp_path):
     meta["blocking_issues"] = []
     meta_path.write_text(json.dumps(meta))
 
-    with pytest.raises(FrameMetaInvalidError, match="removed pre-Cutover-A evidence schema"):
+    with pytest.raises(FrameMetaInvalidError, match="corrupt current-schema metadata payload"):
         load_frame(frame.ref, session=session)
 
 
@@ -368,7 +368,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     session_attach._reset_process_state()
 
     session = mv.session.get_or_create(name="external_layer_observe")
-    metric = session.catalog.get("metric.finance.refunds_total")
+    metric = session.catalog.get("metric.finance.refunds_total").ref
     frame = session.observe(metric)
 
     assert frame.meta.metric_id == "finance.refunds_total"

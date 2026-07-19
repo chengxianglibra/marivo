@@ -59,14 +59,7 @@ class BaseObservePlan:
 
 
 @dataclass(frozen=True)
-class ComponentPlan:
-    component_metric_ir: Any
-    role: str
-    base_plan: BaseObservePlan | CumulativeObservePlan
-
-
-@dataclass(frozen=True)
-class CumulativeObservePlan:
+class CumulativePhysicalLeafPlanV1:
     metric_ir: Any
     base_metric_ir: Any
     base_plan: BaseObservePlan
@@ -108,18 +101,6 @@ class CumulativeObservePlan:
     @property
     def table(self) -> Any:
         return self.base_plan.table
-
-
-@dataclass(frozen=True)
-class DerivedObservePlan:
-    metric_ir: Any
-    component_plans: list[ComponentPlan]
-    parent_axes: dict[str, Any]
-    lineage_metadata: dict[str, Any]
-    warnings: list[dict[str, Any]] = field(default_factory=list)
-
-
-ObservePlan = BaseObservePlan | CumulativeObservePlan | DerivedObservePlan
 
 
 @dataclass(frozen=True)

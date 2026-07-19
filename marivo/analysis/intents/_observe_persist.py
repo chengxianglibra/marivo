@@ -38,6 +38,7 @@ def _persist_metric_component_frame(
     composition_kind: Literal["ratio", "weighted_average", "linear"] | None = None,
     components: dict[str, str] | None = None,
     linear_terms: tuple[tuple[str, str], ...] | None = None,
+    component_graph: dict[str, Any] | None = None,
 ) -> ComponentFrame:
     # Component decomposition operates on arity-1 metric frames; multi-metric
     # frames are gated out upstream. Narrow metric_id for the ComponentFrameMeta
@@ -83,6 +84,54 @@ def _persist_metric_component_frame(
             axes=axes,
             semantic_kind=semantic_kind,
             semantic_model=parent.meta.semantic_model,
+            root_node_ids=(
+                tuple(str(node_id) for node_id in component_graph.get("root_node_ids", ()))
+                if component_graph is not None
+                else ()
+            ),
+            component_graph=component_graph,
+        ),
+    )
+    component.meta = cast("ComponentFrameMeta", persist_frame(session, component))
+    return component
+
+
+def _persist_metric_component_graph_frame(
+    *,
+    session: Session,
+    df: Any,
+    parent: MetricFrame,
+    axes: dict[str, Any],
+    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
+    job_ref: str,
+    component_graph: dict[str, Any],
+) -> ComponentFrame:
+    """Persist the recursive graph sidecar when no immediate decomposition exists."""
+
+    frame_ref = make_component_artifact_id(parent.ref)
+    component = ComponentFrame(
+        _df=df.copy(),
+        meta=ComponentFrameMeta(
+            ref=frame_ref,
+            session_id=session.id,
+            project_root=str(session.project_root),
+            produced_by_job=job_ref,
+            created_at=datetime.now(UTC),
+            row_count=len(df),
+            byte_size=0,
+            lineage=parent.lineage,
+            parent_ref=parent.ref,
+            parent_kind="metric_frame",
+            metric_id=parent.meta.metric_id,
+            composition_kind=None,
+            components={},
+            axes=axes,
+            semantic_kind=semantic_kind,
+            semantic_model=parent.meta.semantic_model,
+            root_node_ids=tuple(
+                str(node_id) for node_id in component_graph.get("root_node_ids", ())
+            ),
+            component_graph=component_graph,
         ),
     )
     component.meta = cast("ComponentFrameMeta", persist_frame(session, component))
@@ -96,14 +145,32 @@ def _attach_metric_component_ref(
     component: ComponentFrame,
     metric_ir: Any,
     composition: dict[str, Any] | None = None,
+    persist_parent: bool = True,
 ) -> MetricFrame:
     parent.meta = parent.meta.model_copy(
         update={
             "component_ref": component.ref,
+            "component_graph_ref": component.ref,
             "composition": composition or _composition_payload(metric_ir),
         }
     )
-    parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))
+    if persist_parent:
+        parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))
+    return parent
+
+
+def _attach_metric_component_graph_ref(
+    *,
+    session: Session,
+    parent: MetricFrame,
+    component: ComponentFrame,
+    persist_parent: bool = True,
+) -> MetricFrame:
+    """Attach only recursive graph state, without claiming decomposition support."""
+
+    parent.meta = parent.meta.model_copy(update={"component_graph_ref": component.ref})
+    if persist_parent:
+        parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))
     return parent
 
 
@@ -113,6 +180,8 @@ def _persist_and_attach_coverage_sidecar(
     df: Any,
     parent: MetricFrame,
     job_ref: str,
+    persist_parent: bool = True,
+    coverage_node_id: str | None = None,
 ) -> MetricFrame:
     """Persist a CoverageFrame sidecar and attach it to the parent MetricFrame.
 
@@ -124,7 +193,7 @@ def _persist_and_attach_coverage_sidecar(
     """
     from marivo.analysis.evidence.identity import make_coverage_artifact_id
 
-    frame_ref = make_coverage_artifact_id(parent.ref)
+    frame_ref = make_coverage_artifact_id(parent.ref, node_id=coverage_node_id)
     # Build coverage summary from the coverage DataFrame
     coverage_ratios = df["coverage_ratio"].tolist() if "coverage_ratio" in df.columns else []
     coverage_summary: dict[str, Any] | None = None
@@ -184,8 +253,40 @@ def _persist_and_attach_coverage_sidecar(
             "quality_summary": updated_quality,
         }
     )
-    parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))
+    if persist_parent:
+        parent.meta = cast("MetricFrameMeta", persist_frame(session, parent))
     return parent
+
+
+def _persist_metric_graph_coverage_sidecars(
+    *,
+    session: Session,
+    parent: MetricFrame,
+    execution: Any,
+    job_ref: str,
+    existing_refs: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Persist every node-local coverage payload and return its graph reference."""
+
+    refs = dict(existing_refs or {})
+    for node_id, result in sorted(execution.nodes.items()):
+        if result.coverage_df is None or node_id in refs:
+            continue
+        detached_parent = MetricFrame(
+            _df=parent._dataframe_copy(),
+            meta=parent.meta.model_copy(),
+        )
+        detached_parent = _persist_and_attach_coverage_sidecar(
+            session=session,
+            df=result.coverage_df,
+            parent=detached_parent,
+            job_ref=job_ref,
+            persist_parent=False,
+            coverage_node_id=node_id,
+        )
+        assert detached_parent.meta.coverage_ref is not None
+        refs[node_id] = detached_parent.meta.coverage_ref
+    return refs
 
 
 def _commit_observe_metric_frame(
@@ -201,6 +302,7 @@ def _commit_observe_metric_frame(
     step_type: str = "observe",
     metric_ids: list[str] | None = None,
     models: list[str] | None = None,
+    semantic_anchors: dict[str, Any] | None = None,
 ) -> MetricFrame:
     """Commit a MetricFrame through the evidence pipeline (shared tail).
 
@@ -208,8 +310,11 @@ def _commit_observe_metric_frame(
     carry the full metric list while the commit subject keeps ``metric=None``
     — the extractor reads per-measure subjects from ``meta.measures``.
     """
-    if metric_ids is not None:
-        anchors: dict[str, Any] = {"metrics": metric_ids, "models": models or [model_name]}
+    anchors: dict[str, Any]
+    if semantic_anchors is not None:
+        anchors = dict(semantic_anchors)
+    elif metric_ids is not None:
+        anchors = {"metrics": metric_ids, "models": models or [model_name]}
     else:
         anchors = {"metric_id": metric_id, "model": model_name}
     result = cast(

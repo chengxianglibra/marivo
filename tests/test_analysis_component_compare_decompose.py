@@ -20,6 +20,7 @@ from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._runtime import persist_frame
 from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
+from tests.shared_fixtures import make_test_metric_contract
 
 
 @pytest.fixture(autouse=True)
@@ -49,8 +50,9 @@ def _component_aware_metric(
         "denominator": "sales.total_count",
     }
     axes = {"region": {"role": "dimension", "column": "region"}}
+    metric_df = pd.DataFrame(rows)
     metric = MetricFrame(
-        _df=pd.DataFrame(rows),
+        _df=metric_df,
         meta=MetricFrameMeta(
             ref=ref,
             session_id=session.id,
@@ -61,6 +63,11 @@ def _component_aware_metric(
             byte_size=0,
             lineage=Lineage(),
             metric_id="sales.failure_rate",
+            **make_test_metric_contract(
+                metric_df,
+                metric_id="sales.failure_rate",
+                axes=axes,
+            ),
             axes=axes,
             measure={"name": "failure_rate"},
             window=None,
@@ -116,8 +123,9 @@ def _component_aware_metric_with_axes(
         "numerator": "sales.failed_count",
         "denominator": "sales.total_count",
     }
+    metric_df = pd.DataFrame(rows)
     metric = MetricFrame(
-        _df=pd.DataFrame(rows),
+        _df=metric_df,
         meta=MetricFrameMeta(
             ref=ref,
             session_id=session.id,
@@ -128,6 +136,11 @@ def _component_aware_metric_with_axes(
             byte_size=0,
             lineage=Lineage(),
             metric_id="sales.failure_rate",
+            **make_test_metric_contract(
+                metric_df,
+                metric_id="sales.failure_rate",
+                axes=axes,
+            ),
             axes=axes,
             measure={"name": "failure_rate"},
             window=window,
@@ -278,8 +291,10 @@ def test_compare_component_aware_metric_missing_component_frame_fails_closed():
             {"region": "NORTH", "failed_count": 25.0, "total_count": 100.0, "failure_rate": 0.25}
         ],
     )
+    baseline_df = pd.DataFrame({"region": ["NORTH"], "failure_rate": [0.10]})
+    baseline_axes = {"region": {"role": "dimension", "column": "region"}}
     baseline = MetricFrame(
-        _df=pd.DataFrame({"region": ["NORTH"], "failure_rate": [0.10]}),
+        _df=baseline_df,
         meta=MetricFrameMeta(
             ref="frame_baseline",
             session_id=session.id,
@@ -290,7 +305,12 @@ def test_compare_component_aware_metric_missing_component_frame_fails_closed():
             byte_size=0,
             lineage=Lineage(),
             metric_id="sales.failure_rate",
-            axes={"region": {"role": "dimension", "column": "region"}},
+            **make_test_metric_contract(
+                baseline_df,
+                metric_id="sales.failure_rate",
+                axes=baseline_axes,
+            ),
+            axes=baseline_axes,
             measure={"name": "failure_rate"},
             window=None,
             where={},

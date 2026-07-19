@@ -147,7 +147,7 @@ _AUTHORING_KIND_BY_SYMBOL: dict[SymbolKind, AuthoringObjectKind] = {
 
 
 def _verification_input(
-    value: CatalogObject | SemanticRef,
+    value: CatalogObject[SemanticRef] | SemanticRef,
 ) -> tuple[SemanticRef, AuthoringObjectKind]:
     """Return the typed ref and requested kind before project reload."""
     if isinstance(value, CatalogObject):
@@ -475,9 +475,10 @@ class SemanticProject:
 
         Performs in-memory checks and reads persisted row-free preview evidence:
         load errors, unknown refs, cross-datasource unfederated metrics,
-        SQL parity unverified warnings, strict enrichment issues, and load
-        warnings forwarding. Use ``refs`` to scope which semantic objects to
-        check; by default all loaded objects are checked.
+        recursive metric-graph lowering and budgets, SQL parity unverified
+        warnings, strict enrichment issues, and load warnings forwarding. Use
+        ``refs`` to scope which semantic objects to check; by default all loaded
+        objects are checked.
 
         Missing preview evidence is reported with state-derived acquisition or
         preview calls; readiness never executes those calls itself.
@@ -510,7 +511,7 @@ class SemanticProject:
 
     def verify_object(
         self,
-        ref: CatalogObject | SemanticRef,
+        ref: CatalogObject[SemanticRef] | SemanticRef,
     ) -> VerifyResult:
         """Statically verify one authored semantic object against the loaded project.
 
@@ -550,17 +551,6 @@ class SemanticProject:
         kind = self._kind_for_ref(ref_str)
 
         if kind != "unknown":
-            nested_warnings = tuple(
-                AssessmentIssue(
-                    kind="nested_derived_unsupported",
-                    severity="warning",
-                    refs=sw.refs,
-                    message=sw.message,
-                    rule_id="nested_derived_unsupported",
-                )
-                for sw in self._warnings
-                if sw.kind == "nested_derived_unsupported" and ref_str in sw.refs
-            )
             return VerifyResult(
                 status="passed",
                 ref=ref_str,
@@ -568,7 +558,7 @@ class SemanticProject:
                 validation_level="static",
                 runtime_checked=False,
                 issues=(),
-                warnings=nested_warnings,
+                warnings=(),
             )
 
         # Unknown kind fallback — check for common wrong-level refs before

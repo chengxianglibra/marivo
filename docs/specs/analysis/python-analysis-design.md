@@ -146,12 +146,12 @@ import marivo.analysis as mv
 session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
 
 current = session.observe(
-    metric=session.catalog.get("metric.analytics.dau"),
+    metric=session.catalog.get("metric.analytics.dau").ref,
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
 )
 baseline = session.observe(
-    metric=session.catalog.get("metric.analytics.dau"),
+    metric=session.catalog.get("metric.analytics.dau").ref,
     time_scope={"start": "2026-06-11", "end": "2026-06-18"},
     grain="day",
 )
@@ -168,6 +168,33 @@ history; `assess_quality` to gate any of them. Concrete intent paths, compositio
 patterns, and report shape are the agent's responsibility; the `marivo-analysis`
 skill owns boundaries and handoffs only. The mechanical next actions from any
 given artifact come from its `contract()`.
+
+### Typed metric composition
+
+`Session.observe(...)` is the only public initial `MetricFrame` materializer.
+Its roots are exact `MetricRef` values or closed values built with
+`mv.runtime_metric.aggregate`, `.slice`, and `.ratio`; loaded catalog objects,
+generic refs, bare ids, frame arithmetic, and arbitrary formula nodes do not
+cross this boundary. A non-empty list or tuple forms one ordered mixed forest
+with one outer scope.
+
+Catalog and runtime roots lower to the same canonical expression graph. Runtime
+expressions may recursively contain other runtime expressions or catalog metric
+refs. Branch-local slices are pushed to reachable leaves for value identity;
+the outer `slice_by=` remains a distinct global scope. Every root is limited to
+depth 10 and the submitted pre-CSE forest to 256 occurrences. One forest must
+resolve within one semantic model and datasource compatibility domain. Missing
+aligned keys are retained with null values rather than filled with zero.
+
+Runtime expressions are session-scoped analysis values, not catalog authority.
+Their labels are presentation metadata only. Persisted graph, dependency,
+source, key, quality, component, replay, and comparable-semantics state—not
+catalog/runtime origin—controls downstream admission. `compare` may therefore
+compare a catalog frame and a runtime frame when their lowered value semantics
+match, while retaining ordered current/baseline identities in the delta.
+Every observed root and mixed forest persists a recursive component graph;
+`frame.components()` loads it for inspection. `component_ref` remains the
+narrower signal that the root also supports numerical decomposition.
 
 ## Non-goals
 
@@ -188,7 +215,7 @@ This overview is the entry point. The focused specs:
   object, the project-local `.marivo/analysis/` layout, content-addressed identity,
   cold-start rehydration, cross-session ownership, and failure recovery.
 - [`evidence-access-surface.md`](evidence-access-surface.md) — typed findings,
-  bounded artifact digests, inference boundaries, session audit pages, the v2
+  bounded artifact digests, inference boundaries, session audit pages, the v3
   `judgment.db` ledger, and the agent-owned judgment boundary.
 - [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md) — the two
   timezone axes (read tz and report tz), time-column classification, window/bucket

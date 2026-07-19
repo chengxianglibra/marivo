@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import textwrap
+from typing import get_type_hints
 
 import ibis
 import pytest
@@ -24,6 +25,7 @@ from marivo.semantic.catalog import (
     DomainDetails,
     Entity,
     EntityDetails,
+    Measure,
     MeasureDetails,
     Metric,
     MetricDetails,
@@ -39,7 +41,7 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import ParityStatus, SourceLocation, SymbolKind
-from marivo.semantic.refs import make_ref
+from marivo.semantic.refs import DimensionRef, MeasureRef, MetricRef, TimeDimensionRef, make_ref
 
 # --- SemanticKind ---
 
@@ -669,6 +671,22 @@ def test_catalog_domains_refs_returns_semantic_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     refs = catalog.domains.refs()
     assert all(isinstance(r, SemanticRef) for r in refs)
+
+
+def test_metric_measure_and_dimension_objects_publish_exact_ref_annotations():
+    assert get_type_hints(Metric)["ref"] is MetricRef
+    assert get_type_hints(Measure)["ref"] is MeasureRef
+    assert get_type_hints(Dimension)["ref"] is DimensionRef
+    assert get_type_hints(TimeDimension)["ref"] is TimeDimensionRef
+
+
+def test_catalog_typed_collections_return_exact_ref_subclasses(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+
+    assert all(isinstance(ref, MetricRef) for ref in catalog.metrics.refs())
+    assert all(isinstance(ref, MeasureRef) for ref in catalog.measures.refs())
+    assert all(isinstance(ref, DimensionRef) for ref in catalog.dimensions.refs())
+    assert all(isinstance(ref, TimeDimensionRef) for ref in catalog.time_dimensions.refs())
 
 
 def test_catalog_domains_render_includes_refs_affordance(semantic_project_factory):
@@ -2018,6 +2036,7 @@ def test_catalog_details_cover_all_public_ir_fields() -> None:
         DomainIR: {"location", "ai_context"},
         EntityIR: {"location", "ai_context", "semantic_id"},
         DimensionIR: {
+            "body_ast_hash",
             "location",
             "ai_context",
             "is_time_dimension",
@@ -2025,7 +2044,7 @@ def test_catalog_details_cover_all_public_ir_fields() -> None:
             "semantic_id",
             "parse",
         },
-        MeasureIR: {"location", "ai_context", "semantic_id", "kind"},
+        MeasureIR: {"location", "ai_context", "semantic_id", "kind", "body_ast_hash"},
         MetricIR: {
             "location",
             "ai_context",
@@ -2033,6 +2052,7 @@ def test_catalog_details_cover_all_public_ir_fields() -> None:
             "semantic_id",
             "fold_override",
             "metric_type",
+            "unit_override",
         },
         RelationshipIR: {"location", "ai_context", "semantic_id"},
     }
