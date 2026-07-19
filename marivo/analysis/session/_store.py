@@ -144,14 +144,6 @@ class SessionStore:
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(_SCHEMA)
-        artifact_columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(artifacts)").fetchall()
-        }
-        if "evidence_status" not in artifact_columns:
-            conn.execute(
-                "ALTER TABLE artifacts ADD COLUMN evidence_status TEXT "
-                "NOT NULL DEFAULT 'unavailable'"
-            )
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -529,6 +521,15 @@ class SessionStore:
                 (session_id, artifact_id),
             )
 
+    def delete_artifact(self, session_id: str, artifact_id: str) -> None:
+        """Delete one artifact registration owned by a session."""
+
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM artifacts WHERE session_id = ? AND artifact_id = ?",
+                (session_id, artifact_id),
+            )
+
     def list_artifacts(self, session_id: str) -> list[sqlite3.Row]:
         """Return all artifact rows for a session.
 
@@ -557,7 +558,12 @@ class SessionStore:
         """Return at most ``limit + 1`` newest artifact rows for keyset paging."""
         clauses = ["session_id = ?"]
         params: list[object] = [session_id]
-        if kind is not None:
+        if kind is None:
+            # Linked component and coverage frames are internal sidecars, not
+            # independent materialization results. They remain directly
+            # loadable and explicitly queryable by kind.
+            clauses.append("kind NOT IN ('component_frame', 'coverage_frame')")
+        else:
             clauses.append("kind = ?")
             params.append(kind)
         if evidence_status is not None:
@@ -651,4 +657,13 @@ class SessionStore:
                 conn,
                 "SELECT * FROM jobs WHERE session_id = ? ORDER BY started_at",
                 (session_id,),
+            )
+
+    def delete_job(self, session_id: str, job_id: str) -> None:
+        """Delete one job registration owned by a session."""
+
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM jobs WHERE session_id = ? AND job_id = ?",
+                (session_id, job_id),
             )

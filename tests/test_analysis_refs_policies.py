@@ -12,7 +12,7 @@ from marivo.analysis.policies import (
     window_bucket,
 )
 from marivo.analysis.refs import ArtifactRef, CalendarRef
-from marivo.semantic.catalog import SemanticKind, SemanticRef
+from marivo.semantic.catalog import SemanticKind
 from marivo.semantic.refs import make_ref
 
 
@@ -20,7 +20,8 @@ def test_refs_are_exported_and_preserve_ids():
     assert mv.AlignmentKind is AlignmentKind
     assert make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"
     assert make_ref("region", SemanticKind.DIMENSION).id == "region"
-    assert mv.SemanticRef is SemanticRef
+    assert not hasattr(mv, "SemanticRef")
+    assert not hasattr(mv, "CatalogObject")
     assert mv.CalendarRef("cn_holidays").id == "cn_holidays"
     assert make_ref("sales.revenue", SemanticKind.METRIC).id == "sales.revenue"
     assert make_ref("region", SemanticKind.DIMENSION).id == "region"

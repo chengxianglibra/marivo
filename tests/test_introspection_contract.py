@@ -81,6 +81,7 @@ def test_analysis_constraint_help_targets_are_canonical() -> None:
         "boundary.to_pandas",
         "alignment",
         "calendar",
+        "runtime_metric",
     }
 
     for constraint in ANALYSIS_CONSTRAINTS.values():

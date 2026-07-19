@@ -24,6 +24,77 @@ _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
 
 
+def make_test_metric_contract(
+    df: Any,
+    *,
+    metric_id: str,
+    axes: dict[str, Any],
+    where: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build current typed identity/key/comparability state for synthetic frames."""
+
+    from marivo.semantic.metric_graph import (
+        CatalogMetricIdentity,
+        ComparableValueSemanticsV1,
+        MetricKeyFieldV1,
+        MetricKeySchemaV1,
+    )
+    from marivo.semantic.metric_graph_canonical import fingerprint
+
+    axis_columns = tuple(
+        str(axis["column"])
+        for axis in axes.values()
+        if isinstance(axis, dict)
+        and isinstance(axis.get("column"), str)
+        and axis["column"] in df.columns
+    )
+    key_fields = tuple(
+        MetricKeyFieldV1(
+            name=column,
+            dtype=str(df[column].dtype),
+            nullable=True,
+        )
+        for column in axis_columns
+    )
+    key_schema = MetricKeySchemaV1(
+        schema="metric-key-schema/v1",
+        fields=key_fields,
+        fingerprint=fingerprint(key_fields),
+    )
+    expression_fingerprint = fingerprint(("test-metric", metric_id))
+    global_slice = tuple(
+        (str(key), fingerprint(value)) for key, value in sorted((where or {}).items())
+    )
+    comparable_payload = {
+        "expression_fingerprint": expression_fingerprint,
+        "evaluator_contracts": ("test-evaluation/v1",),
+        "global_slice": global_slice,
+        "key_schema_fingerprint": key_schema.fingerprint,
+        "unit": None,
+        "fold": None,
+        "source_domain_fingerprint": "test-source-domain",
+        "definition_transform_fingerprint": None,
+    }
+    metric_identity = CatalogMetricIdentity(kind="catalog", metric_id=metric_id)
+    return {
+        "metric_identity": metric_identity,
+        "metric_identities": (metric_identity,),
+        "key_schema": key_schema,
+        "comparable_value_semantics": ComparableValueSemanticsV1(
+            schema="comparable-value-semantics/v1",
+            expression_fingerprint=expression_fingerprint,
+            evaluator_contracts=("test-evaluation/v1",),
+            global_slice=global_slice,
+            key_schema_fingerprint=key_schema.fingerprint,
+            unit=None,
+            fold=None,
+            source_domain_fingerprint="test-source-domain",
+            definition_transform_fingerprint=None,
+            fingerprint=fingerprint(comparable_payload),
+        ),
+    }
+
+
 def make_metric_frame(
     df: Any,
     *,
@@ -82,6 +153,12 @@ def make_metric_frame(
             external_inputs=[frame_ref],
         ),
         metric_id=metric_id,
+        **make_test_metric_contract(
+            df,
+            metric_id=metric_id,
+            axes=axes,
+            where=where,
+        ),
         axes=axes,
         measure=measure,
         window=dump_window(resolved_window),

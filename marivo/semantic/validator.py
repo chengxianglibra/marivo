@@ -1249,27 +1249,6 @@ def assembly_validate(
                             },
                         )
                     )
-            else:
-                comp_ir = registry.metrics[comp_ref]
-                # Shift-left: a non-cumulative derived component makes the
-                # metric unanalyzable (observe rejects nested derived).
-                # Cumulative derived components stay allowed (tier-1 base).
-                if comp_ir.metric_type == "derived" and not isinstance(
-                    comp_ir.composition, CumulativeComposition
-                ):
-                    warnings.append(
-                        StructuredWarning(
-                            kind="nested_derived_unsupported",
-                            message=(
-                                f"Metric {m_id!r} composition component {comp_key!r} "
-                                f"({comp_ref!r}) is itself a derived metric; nested "
-                                "derived is not analyzable and observe will reject it."
-                            ),
-                            refs=(m_id, comp_ref),
-                            location=None,
-                        )
-                    )
-
         errors.extend(
             _validate_cumulative_metric(
                 metric_id=m_id,

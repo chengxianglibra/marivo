@@ -89,6 +89,8 @@ from marivo.semantic.catalog import (
 from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
 from marivo.semantic.help import help, help_text
 from marivo.semantic.ir import (
+    AggregateFoldInput,
+    AggregateFoldValue,
     JoinKey,
     SqlProvenance,
 )
@@ -181,6 +183,8 @@ def parity_check(
 
 
 __all__ = [
+    "AggregateFoldInput",
+    "AggregateFoldValue",
     "AiContextValue",
     "CatalogCollection",
     "CatalogObject",

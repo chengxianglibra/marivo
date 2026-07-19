@@ -38,10 +38,8 @@ from marivo.analysis.intents._observe_dense import (
     _trailing_rolling_frame,
 )
 from marivo.analysis.intents._observe_inputs import _metric_expr, _Result
-from marivo.analysis.intents.observe_planner import (
-    CumulativeObservePlan,
-    _validate_field_expr,
-)
+from marivo.analysis.intents._observe_planner_joins import _validate_field_expr
+from marivo.analysis.intents._observe_planner_types import CumulativePhysicalLeafPlanV1
 from marivo.analysis.session.core import Session
 from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain, ensure_grain_supported
 from marivo.analysis.windows.spec import AbsoluteWindow
@@ -104,7 +102,7 @@ _MAX_TRAILING_DISTINCT_EXPANSION = 1_000_000
 
 def _execute_trailing_distinct(
     *,
-    plan: CumulativeObservePlan,
+    plan: CumulativePhysicalLeafPlanV1,
     catalog: Any,
     resolver: Any,
     session: Session,
@@ -356,7 +354,7 @@ def _execute_trailing_distinct(
 
 def _execute_trailing_additive(
     *,
-    plan: CumulativeObservePlan,
+    plan: CumulativePhysicalLeafPlanV1,
     catalog: Any,
     resolver: Any,
     session: Session,
@@ -570,7 +568,7 @@ def _execute_trailing_additive(
 
 
 def _execute_cumulative(
-    plan: CumulativeObservePlan,
+    plan: CumulativePhysicalLeafPlanV1,
     *,
     catalog: Any,
     resolver: Any,
@@ -582,7 +580,7 @@ def _execute_cumulative(
     Literal["scalar", "time_series", "segmented", "panel"],
     Any | None,
 ]:
-    """Execute a CumulativeObservePlan.
+    """Execute a graph-native cumulative physical leaf.
 
     Returns (result, axes, semantic_kind, coverage_df_or_None).
 

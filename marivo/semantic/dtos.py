@@ -30,7 +30,6 @@ IssueKind = Literal[
     "unreachable_entity",
     "ibis_attribute_shadowing",
     "project_load_failed",
-    "nested_derived_unsupported",
 ]
 
 ReviewStatus = Literal[

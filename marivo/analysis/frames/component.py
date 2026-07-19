@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field, model_validator
 
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 
@@ -39,13 +39,132 @@ class ComponentFrameMeta(BaseFrameMeta):
     kind: Literal["component_frame"] = "component_frame"
     parent_ref: str
     parent_kind: Literal["metric_frame", "delta_frame"]
-    metric_id: str
-    composition_kind: Literal["ratio", "weighted_average", "linear"]
-    components: dict[str, str]
+    metric_id: str | None
+    composition_kind: Literal["ratio", "weighted_average", "linear"] | None = None
+    components: dict[str, str] = Field(default_factory=dict)
     linear_terms: tuple[tuple[str, str], ...] = ()
     axes: dict[str, Any]
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
     semantic_model: str
+    component_graph_schema: Literal["metric-component-graph/v1"] = "metric-component-graph/v1"
+    root_node_ids: tuple[str, ...] = ()
+    component_graph: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _validate_component_graph(self) -> ComponentFrameMeta:
+        graph = self.component_graph
+        if graph is None:
+            return self
+        if graph.get("schema") != self.component_graph_schema:
+            raise ValueError("component_graph schema does not match component_graph_schema")
+        roots = graph.get("root_node_ids")
+        nodes = graph.get("nodes")
+        if (
+            not isinstance(roots, list)
+            or not roots
+            or not all(isinstance(root, str) for root in roots)
+        ):
+            raise ValueError("component_graph requires a non-empty ordered root_node_ids list")
+        if tuple(roots) != self.root_node_ids:
+            raise ValueError("component_graph root_node_ids do not match ComponentFrameMeta")
+        if not isinstance(nodes, list):
+            raise ValueError("component_graph requires typed node records")
+        required_node_fields = {
+            "node_id",
+            "node_fingerprint",
+            "node_kind",
+            "evaluator_contract",
+            "ordered_children",
+            "occurrence_paths",
+            "value_semantics",
+            "quality",
+            "coverage_ref",
+            "governed_leaf_lineage",
+        }
+        node_ids: list[str] = []
+        children_by_node: dict[str, tuple[str, ...]] = {}
+        for index, node in enumerate(nodes):
+            if not isinstance(node, dict) or required_node_fields - set(node):
+                raise ValueError(f"component_graph.nodes[{index}] record is incomplete")
+            node_id = node["node_id"]
+            if not isinstance(node_id, str) or node.get("node_fingerprint") != node_id:
+                raise ValueError(f"component_graph.nodes[{index}] identity is invalid")
+            ordered_children = node["ordered_children"]
+            if not isinstance(ordered_children, list):
+                raise ValueError(f"component_graph.nodes[{index}].ordered_children must be a list")
+            child_ids: list[str] = []
+            child_roles: set[str] = set()
+            for child_index, child in enumerate(ordered_children):
+                if (
+                    not isinstance(child, dict)
+                    or set(child) != {"role", "node_id"}
+                    or not isinstance(child["role"], str)
+                    or not isinstance(child["node_id"], str)
+                ):
+                    raise ValueError(
+                        f"component_graph.nodes[{index}].ordered_children[{child_index}] is invalid"
+                    )
+                if child["role"] in child_roles:
+                    raise ValueError(f"component_graph.nodes[{index}] has duplicate child roles")
+                child_roles.add(child["role"])
+                child_ids.append(child["node_id"])
+            occurrences = node["occurrence_paths"]
+            if not isinstance(occurrences, list) or not all(
+                isinstance(path, str) and path for path in occurrences
+            ):
+                raise ValueError(f"component_graph.nodes[{index}].occurrence_paths is invalid")
+            semantics = node["value_semantics"]
+            if not isinstance(semantics, dict) or not {
+                "unit",
+                "unit_state",
+                "unit_capability_issue",
+                "additivity",
+                "fold",
+                "semantic_shape",
+                "key_columns",
+            } <= set(semantics):
+                raise ValueError(f"component_graph.nodes[{index}].value_semantics is incomplete")
+            if semantics["unit_state"] is None:
+                raise ValueError(
+                    f"component_graph.nodes[{index}].value_semantics.unit_state is missing"
+                )
+            if node["quality"] is None or not isinstance(node["quality"], dict):
+                raise ValueError(f"component_graph.nodes[{index}].quality is missing")
+            coverage_ref = node["coverage_ref"]
+            if coverage_ref is not None and not isinstance(coverage_ref, str):
+                raise ValueError(f"component_graph.nodes[{index}].coverage_ref is invalid")
+            if not isinstance(node["governed_leaf_lineage"], list):
+                raise ValueError(f"component_graph.nodes[{index}].governed_leaf_lineage is invalid")
+            node_ids.append(node_id)
+            children_by_node[node_id] = tuple(child_ids)
+        if len(node_ids) != len(set(node_ids)) or any(root not in node_ids for root in roots):
+            raise ValueError("component_graph roots and node identities are inconsistent")
+        known_nodes = set(node_ids)
+        for node_id, referenced_child_ids in children_by_node.items():
+            missing = [child_id for child_id in referenced_child_ids if child_id not in known_nodes]
+            if missing:
+                raise ValueError(
+                    f"component_graph node {node_id!r} references missing children {missing!r}"
+                )
+        visiting: set[str] = set()
+        reachable: set[str] = set()
+
+        def visit(node_id: str) -> None:
+            if node_id in visiting:
+                raise ValueError(f"component_graph contains a cycle at {node_id!r}")
+            if node_id in reachable:
+                return
+            visiting.add(node_id)
+            for child_id in children_by_node[node_id]:
+                visit(child_id)
+            visiting.remove(node_id)
+            reachable.add(node_id)
+
+        for root in roots:
+            visit(root)
+        if reachable != known_nodes:
+            raise ValueError("component_graph contains nodes unreachable from its roots")
+        return self
 
 
 @dataclass(repr=False)
@@ -57,7 +176,12 @@ class ComponentFrame(BaseFrame):
     _NEXT_INTENTS: tuple[str, ...] = ()
 
     def _repr_identity(self) -> str:
+        subject = (
+            f"metric={self.meta.metric_id}"
+            if self.meta.metric_id is not None
+            else f"roots={len(self.meta.root_node_ids)}"
+        )
         return (
             f"ComponentFrame ref={self.meta.ref} parent={self.meta.parent_ref} "
-            f"metric={self.meta.metric_id} rows={self.meta.row_count}"
+            f"{subject} rows={self.meta.row_count}"
         )

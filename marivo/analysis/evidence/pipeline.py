@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, Literal
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.digest import build_artifact_digest
 from marivo.analysis.evidence.extraction.anomaly import extract_anomaly_candidate_findings
 from marivo.analysis.evidence.extraction.composition import extract_decomposition_findings
@@ -31,6 +33,7 @@ from marivo.analysis.evidence.identity import (
     canonical_subject_key,
     make_artifact_id,
     make_issue_id,
+    make_scope_fingerprint,
     to_microseconds_utc,
 )
 from marivo.analysis.evidence.store import EvidenceStore
@@ -47,7 +50,16 @@ from marivo.analysis.evidence.types import (
 )
 from marivo.analysis.frames._content_hash import compute_frame_content_hash
 from marivo.analysis.frames._meta_defaults import compute_analysis_scope, compute_quality_summary
-from marivo.analysis.frames.base import BaseFrame
+from marivo.analysis.frames.base import CURRENT_ARTIFACT_SCHEMA_VERSION, BaseFrame
+from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
+    CatalogMetricSubjectV1,
+    DeltaComparisonIdentityV1,
+    DeltaMetricSubjectV1,
+    RuntimeExpressionIdentity,
+    RuntimeExpressionSubjectV1,
+    TypedEvidenceSubject,
+)
 from marivo.telemetry import staged
 
 
@@ -91,8 +103,8 @@ def frame_exists_on_disk(frames_dir: Path, artifact_id: str) -> bool:
     )
 
 
-_ARTIFACT_SCHEMA_VERSION = "v2"
-_EXTRACTOR_VERSION = "v2"
+_ARTIFACT_SCHEMA_VERSION = "v3"
+_EXTRACTOR_VERSION = "v3"
 _FINDINGS_ADAPTER = TypeAdapter(list[Finding])
 
 
@@ -161,21 +173,67 @@ def _atomic_write_meta(meta_path: Path, meta_dict: dict[str, Any]) -> None:
         raise
 
 
+def _typed_subject_for_identity(
+    *,
+    identity: object,
+    frame: BaseFrame,
+    artifact_id: str,
+    scope: AnalysisScope,
+) -> TypedEvidenceSubject | None:
+    scope_fingerprint = make_scope_fingerprint(scope)
+    if isinstance(identity, CatalogMetricIdentity):
+        return CatalogMetricSubjectV1(
+            kind="catalog_metric",
+            session_id=frame.meta.session_id,
+            metric_id=identity.metric_id,
+            artifact_id=artifact_id,
+            scope_fingerprint=scope_fingerprint,
+        )
+    if isinstance(identity, RuntimeExpressionIdentity):
+        return RuntimeExpressionSubjectV1(
+            kind="runtime_expression",
+            session_id=frame.meta.session_id,
+            expression_fingerprint=identity.expression_fingerprint,
+            artifact_id=artifact_id,
+            scope_fingerprint=scope_fingerprint,
+        )
+    return None
+
+
 def _metric_entries(
-    frame: BaseFrame, subject: Subject, df: pd.DataFrame
-) -> list[tuple[Subject, str, str | None, bool]]:
+    frame: BaseFrame,
+    subject: Subject,
+    df: pd.DataFrame,
+    *,
+    artifact_id: str,
+    scope: AnalysisScope,
+) -> list[tuple[Subject, str, str | None, bool, str | None]]:
     meta = frame.meta
     measures = getattr(meta, "measures", None)
     if measures:
-        return [
-            (
-                subject.model_copy(update={"metric": entry["metric_id"]}),
-                entry["column"],
-                f"metric:{entry['metric_id']}",
-                entry.get("additivity") == "additive",
+        identities = tuple(getattr(meta, "metric_identities", ()))
+        entries: list[tuple[Subject, str, str | None, bool, str | None]] = []
+        for index, entry in enumerate(measures):
+            updates: dict[str, object] = {"metric": entry["metric_id"]}
+            if index < len(identities):
+                typed_subject = _typed_subject_for_identity(
+                    identity=identities[index],
+                    frame=frame,
+                    artifact_id=artifact_id,
+                    scope=scope,
+                )
+                if typed_subject is not None:
+                    updates["typed_metric_subject"] = typed_subject
+            entries.append(
+                (
+                    subject.model_copy(update=updates),
+                    entry["column"],
+                    f"metric:{entry['metric_id']}",
+                    entry.get("additivity") == "additive",
+                    entry.get("unit") if isinstance(entry.get("unit"), str) else None,
+                )
             )
-            for entry in measures
-        ]
+        return entries
     measure = getattr(meta, "measure", {})
     column = (
         measure.get("name") or measure.get("column") or measure.get("field") or "value"
@@ -186,7 +244,15 @@ def _metric_entries(
         excluded = set(_dimension_columns_from_meta(meta) or ()) | {"bucket_start"}
         candidates = [candidate for candidate in df.columns if candidate not in excluded]
         column = "value" if "value" in candidates else candidates[0] if candidates else "value"
-    return [(subject, str(column), None, getattr(meta, "additivity", None) == "additive")]
+    return [
+        (
+            subject,
+            str(column),
+            None,
+            getattr(meta, "additivity", None) == "additive",
+            getattr(meta, "unit", None),
+        )
+    ]
 
 
 def _extract_findings(
@@ -204,13 +270,18 @@ def _extract_findings(
     semantic_kind = str(getattr(meta, "semantic_kind", "scalar"))
     if extractor_family == "metric_frame":
         findings: list[Finding] = []
-        for entry_subject, column, prefix, additive in _metric_entries(frame, subject, df):
+        for entry_subject, column, prefix, additive, unit in _metric_entries(
+            frame,
+            subject,
+            df,
+            artifact_id=artifact_id,
+            scope=scope,
+        ):
             time_column = (
                 "bucket_start"
                 if semantic_kind in {"time_series", "panel"} and "bucket_start" in df.columns
                 else _time_column_from_meta(meta)
             )
-            unit = getattr(meta, "unit", None)
             findings.extend(
                 extract_metric_value_findings(
                     df=df,
@@ -549,8 +620,23 @@ def _reuse_committed_result(
         if row is None:
             return None
     try:
-        persisted_meta = type(frame.meta).model_validate_json(meta_path.read_text(encoding="utf-8"))
+        persisted_payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        if persisted_payload.get("artifact_schema_version") != CURRENT_ARTIFACT_SCHEMA_VERSION:
+            raise FrameMetaInvalidError(
+                message=(
+                    f"artifact {artifact_id!r} uses a non-current schema; "
+                    "recreate the analysis session"
+                ),
+                context={
+                    "artifact_id": artifact_id,
+                    "got": persisted_payload.get("artifact_schema_version"),
+                    "expected": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                },
+            )
+        persisted_meta = type(frame.meta).model_validate(persisted_payload)
         persisted_df = pd.read_parquet(parquet_path, engine="pyarrow", to_pandas_kwargs={})
+    except FrameMetaInvalidError:
+        raise
     except Exception:
         return None
     if persisted_meta.artifact_id != artifact_id or persisted_meta.ref != artifact_id:
@@ -558,6 +644,34 @@ def _reuse_committed_result(
     frame.meta = persisted_meta
     frame._df = persisted_df
     return frame
+
+
+def _bind_typed_metric_subject(
+    *,
+    frame: BaseFrame,
+    subject: Subject,
+    artifact_id: str,
+    scope: AnalysisScope,
+) -> Subject:
+    """Bind current artifact/session ownership to a typed metric subject."""
+
+    metric_identity = getattr(frame.meta, "metric_identity", None)
+    typed_subject = _typed_subject_for_identity(
+        identity=metric_identity,
+        frame=frame,
+        artifact_id=artifact_id,
+        scope=scope,
+    )
+    comparison_identity = getattr(frame.meta, "comparison_identity", None)
+    if isinstance(comparison_identity, DeltaComparisonIdentityV1):
+        typed_subject = DeltaMetricSubjectV1(
+            kind="delta_metric",
+            session_id=frame.meta.session_id,
+            comparison=comparison_identity,
+        )
+    if typed_subject is None:
+        return subject
+    return subject.model_copy(update={"typed_metric_subject": typed_subject})
 
 
 @staged("evidence")
@@ -601,6 +715,12 @@ def commit_result(
     df = frame._dataframe_copy()
     frame_sha = _atomic_write_parquet(df, parquet_path)
     scope = compute_analysis_scope(frame)
+    subject = _bind_typed_metric_subject(
+        frame=frame,
+        subject=subject,
+        artifact_id=artifact_id,
+        scope=scope,
+    )
     quality = compute_quality_summary(frame)
     findings: list[Finding] = []
     digest: ArtifactDigest | None = None
@@ -718,6 +838,17 @@ def commit_result(
         "evidence_digest": digest,
         "issues": tuple(issues),
     }
+    if getattr(frame.meta, "expression_graph", None) is not None:
+        meta_update.update(
+            {
+                "expression_graph_ref": f"{artifact_id}#expression-graph",
+                "presentation_ref": f"{artifact_id}#presentation",
+                "replay_graph_ref": f"{artifact_id}#replay-graph",
+                "quality_ref": f"{artifact_id}#quality",
+            }
+        )
+    if getattr(frame.meta, "comparable_value_semantics", None) is not None:
+        meta_update["comparable_value_semantics_ref"] = f"{artifact_id}#comparable-value-semantics"
     if hasattr(frame.meta, "affordances"):
         meta_update["affordances"] = []
     new_meta = frame.meta.model_copy(update=meta_update)
@@ -735,6 +866,21 @@ def commit_result(
     return frame
 
 
+def rollback_committed_result(
+    *,
+    store: EvidenceStore | None,
+    frames_dir: Path,
+    artifact_id: str,
+) -> None:
+    """Remove a partially committed result from evidence and frame storage."""
+
+    if store is not None:
+        _remove_projection(store, artifact_id)
+    artifact_dir = frames_dir / artifact_id
+    if artifact_dir.is_dir():
+        shutil.rmtree(artifact_dir)
+
+
 __all__ = [
     "CommitInputs",
     "CommitParams",
@@ -742,4 +888,5 @@ __all__ = [
     "commit_result",
     "compute_prospective_artifact_id",
     "frame_exists_on_disk",
+    "rollback_committed_result",
 ]

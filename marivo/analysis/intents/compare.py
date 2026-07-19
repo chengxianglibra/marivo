@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from collections.abc import Callable
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, cast
@@ -34,6 +35,7 @@ from marivo.analysis.evidence.pipeline import (
     commit_result,
     compute_prospective_artifact_id,
     frame_exists_on_disk,
+    rollback_committed_result,
 )
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.component import (
@@ -67,6 +69,11 @@ from marivo.analysis.session._runtime import (
     require_current_session,
 )
 from marivo.analysis.session.core import Session
+from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
+    DeltaComparisonIdentityV1,
+)
+from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
 
 EXPECTED_METRIC_FRAME_KIND = "metric_frame"
 PRESENCE_STATUS_COLUMN = "presence_status"
@@ -195,12 +202,23 @@ def _require_compatible_components(
                 "baseline_kind": baseline_comp.meta.composition_kind,
             },
         )
-    if current_comp.meta.components != baseline_comp.meta.components:
+    current_root_roles = _component_root_roles(current_comp)
+    baseline_root_roles = _component_root_roles(baseline_comp)
+    if current_root_roles is None and baseline_root_roles is None:
+        if set(current_comp.meta.components) != set(baseline_comp.meta.components):
+            raise ComponentFrameMismatchError(
+                message="compare inputs have incompatible component roles",
+                context={
+                    "current_components": current_comp.meta.components,
+                    "baseline_components": baseline_comp.meta.components,
+                },
+            )
+    elif current_root_roles != baseline_root_roles:
         raise ComponentFrameMismatchError(
-            message="compare inputs have incompatible component maps",
+            message="compare inputs have incompatible component graph roots",
             context={
-                "current_components": current_comp.meta.components,
-                "baseline_components": baseline_comp.meta.components,
+                "current_root_roles": current_root_roles,
+                "baseline_root_roles": baseline_root_roles,
             },
         )
     if current_comp.meta.semantic_kind != baseline_comp.meta.semantic_kind:
@@ -246,6 +264,113 @@ def _component_axis_columns(component: ComponentFrame) -> list[str]:
 
 def _component_role_columns(component: ComponentFrame) -> list[str]:
     return resolve_role_columns(component.meta.components)
+
+
+def _component_root_roles(component: ComponentFrame) -> tuple[tuple[str, str], ...] | None:
+    """Return the canonical immediate-root role/node mapping when available."""
+
+    graph = component.meta.component_graph
+    if graph is None:
+        return None
+    roots = graph.get("root_node_ids")
+    nodes = graph.get("nodes")
+    if not isinstance(roots, list) or len(roots) != 1 or not isinstance(nodes, list):
+        raise ComponentFrameMismatchError(
+            message="compare requires an arity-one component graph",
+            context={"component_ref": component.ref, "root_node_ids": roots},
+        )
+    root_id = roots[0]
+    root = next(
+        (node for node in nodes if isinstance(node, dict) and node.get("node_id") == root_id),
+        None,
+    )
+    if root is None:
+        raise ComponentFrameMismatchError(
+            message="compare component graph is missing its root node",
+            context={"component_ref": component.ref, "root_node_id": root_id},
+        )
+    ordered_children = root.get("ordered_children")
+    if not isinstance(ordered_children, list):
+        raise ComponentFrameMismatchError(
+            message="compare component graph root has no ordered child roles",
+            context={"component_ref": component.ref, "root_node_id": root_id},
+        )
+    if not ordered_children:
+        return None
+    return tuple((str(child["role"]), str(child["node_id"])) for child in ordered_children)
+
+
+def _component_role_column_pairs(
+    current: ComponentFrame,
+    baseline: ComponentFrame,
+) -> list[tuple[str, str, str]]:
+    """Map canonical root roles to each side's presentation-specific columns."""
+
+    current_root_roles = _component_root_roles(current)
+    baseline_root_roles = _component_root_roles(baseline)
+    if current_root_roles is None and baseline_root_roles is None:
+        if set(current.meta.components) != set(baseline.meta.components):
+            raise ComponentFrameMismatchError(
+                message="compare inputs have incompatible component roles",
+                context={
+                    "current_component_roles": list(current.meta.components),
+                    "baseline_component_roles": list(baseline.meta.components),
+                },
+            )
+        current_columns = dict(
+            zip(current.meta.components, _component_role_columns(current), strict=True)
+        )
+        baseline_columns = dict(
+            zip(baseline.meta.components, _component_role_columns(baseline), strict=True)
+        )
+        return [
+            (current_columns[role], current_columns[role], baseline_columns[role])
+            for role in current.meta.components
+        ]
+    if current_root_roles is None or baseline_root_roles is None:
+        raise ComponentFrameMismatchError(
+            message="compare inputs must both persist canonical component graphs",
+            context={
+                "current_component_graph": current_root_roles is not None,
+                "baseline_component_graph": baseline_root_roles is not None,
+            },
+        )
+    if current_root_roles != baseline_root_roles:
+        raise ComponentFrameMismatchError(
+            message="compare inputs have incompatible component graph roots",
+            context={
+                "current_root_roles": current_root_roles,
+                "baseline_root_roles": baseline_root_roles,
+            },
+        )
+    current_roles = dict(current_root_roles)
+    baseline_roles = dict(baseline_root_roles)
+    if set(current.meta.components) != set(current_roles) or set(baseline.meta.components) != set(
+        baseline_roles
+    ):
+        raise ComponentFrameMismatchError(
+            message="compare component maps do not match their canonical graph roles",
+            context={
+                "current_component_roles": list(current.meta.components),
+                "current_graph_roles": list(current_roles),
+                "baseline_component_roles": list(baseline.meta.components),
+                "baseline_graph_roles": list(baseline_roles),
+            },
+        )
+    current_column_by_role = dict(
+        zip(current.meta.components, _component_role_columns(current), strict=True)
+    )
+    baseline_column_by_role = dict(
+        zip(baseline.meta.components, _component_role_columns(baseline), strict=True)
+    )
+    return [
+        (
+            current_column_by_role[role],
+            current_column_by_role[role],
+            baseline_column_by_role[role],
+        )
+        for role in current_roles
+    ]
 
 
 def _unmelt_component_frame(
@@ -409,33 +534,48 @@ def _align_component_frames(
     """Merge current/baseline component data with delta columns using parent alignment logic."""
     # Un-melt folded (long-format) component frames so role columns are
     # accessible by name.  Wide-format frames pass through unchanged.
-    metric_name = (
+    current_metric_name = (
         current_parent.meta.measure.get("name")
         if isinstance(current_parent.meta.measure, dict)
         else None
     ) or ""
-    current_comp = _unmelt_component_frame(current_comp, metric_name)
-    baseline_comp = _unmelt_component_frame(baseline_comp, metric_name)
+    baseline_metric_name = (
+        baseline_parent.meta.measure.get("name")
+        if isinstance(baseline_parent.meta.measure, dict)
+        else None
+    ) or ""
+    current_comp = _unmelt_component_frame(current_comp, current_metric_name)
+    baseline_comp = _unmelt_component_frame(baseline_comp, baseline_metric_name)
 
-    role_columns = _component_role_columns(current_comp)
-    value_column = _component_value_column(current_comp, current_parent)
+    column_pairs = _component_role_column_pairs(current_comp, baseline_comp)
+    current_value_column = _component_value_column(current_comp, current_parent)
+    baseline_value_column = _component_value_column(baseline_comp, baseline_parent)
+    if (current_value_column is None) != (baseline_value_column is None):
+        raise ComponentFrameMismatchError(
+            message="compare inputs have incompatible component root value columns",
+            context={
+                "current_value_column": current_value_column,
+                "baseline_value_column": baseline_value_column,
+            },
+        )
     # The value column (e.g. "bandwidth_utilization") is aligned through the
     # same role-metric-frame path as decomposition roles (numerator, denominator,
     # weight) so it gets current_/baseline_/delta_ prefixed columns in the output.
-    all_columns = role_columns + ([value_column] if value_column else [])
+    if current_value_column is not None and baseline_value_column is not None:
+        column_pairs.append((current_value_column, current_value_column, baseline_value_column))
     result: pd.DataFrame | None = None
     key_columns: list[str] | None = None
 
-    for col in all_columns:
+    for output_column, current_column, baseline_column in column_pairs:
         current_role = _component_role_metric_frame(
             current_parent,
             current_comp,
-            role_column=col,
+            role_column=current_column,
         )
         baseline_role = _component_role_metric_frame(
             baseline_parent,
             baseline_comp,
-            role_column=col,
+            role_column=baseline_column,
         )
         aligned = _align_component_role(
             current_role,
@@ -446,9 +586,9 @@ def _align_component_frames(
         role_keys = _aligned_key_columns(aligned)
         renamed = aligned[[*role_keys, "current", "baseline", "delta"]].rename(
             columns={
-                "current": f"current_{col}",
-                "baseline": f"baseline_{col}",
-                "delta": f"delta_{col}",
+                "current": f"current_{output_column}",
+                "baseline": f"baseline_{output_column}",
+                "delta": f"delta_{output_column}",
             }
         )
         if result is None:
@@ -459,7 +599,7 @@ def _align_component_frames(
             raise ComponentFrameMismatchError(
                 message="component role alignment produced incompatible key columns",
                 context={
-                    "role_column": col,
+                    "role_column": output_column,
                     "expected_key_columns": key_columns,
                     "got_key_columns": role_keys,
                 },
@@ -481,14 +621,14 @@ def _align_component_frames(
     return result
 
 
-def _persist_delta_component_frame(
+def _build_delta_component_frame(
     session: Session,
     df: pd.DataFrame,
     parent_ref: str,
     source_component: ComponentFrame,
     job_ref: str,
 ) -> ComponentFrame:
-    """Persist the delta component frame and return it."""
+    """Build a delta component frame after all fallible alignment succeeds."""
     comp_ref = make_component_artifact_id(parent_ref)
     meta = ComponentFrameMeta(
         ref=comp_ref,
@@ -509,9 +649,48 @@ def _persist_delta_component_frame(
         semantic_kind=source_component.meta.semantic_kind,
         semantic_model=source_component.meta.semantic_model,
     )
-    comp_frame = ComponentFrame(_df=df, meta=meta)
-    comp_frame.meta = cast("ComponentFrameMeta", persist_frame(session, comp_frame))
-    return comp_frame
+    return ComponentFrame(_df=df, meta=meta)
+
+
+def _rollback_compare_commit(
+    *,
+    session: Session,
+    evidence_store: Any,
+    root_artifact_id: str,
+    component_artifact_id: str | None,
+    job_ref: str,
+) -> None:
+    """Best-effort rollback for the bounded compare artifact set."""
+
+    cleanup_actions: list[Callable[[], object]] = [
+        lambda: session._store.delete_job(session.id, job_ref),
+        lambda: (session._layout.jobs_dir / f"{job_ref}.json").unlink(missing_ok=True),
+        lambda: session._store.delete_artifact(session.id, root_artifact_id),
+        lambda: rollback_committed_result(
+            store=evidence_store,
+            frames_dir=session._layout.frames_dir,
+            artifact_id=root_artifact_id,
+        ),
+    ]
+    if component_artifact_id is not None:
+        cleanup_actions.extend(
+            [
+                lambda: session._store.delete_artifact(
+                    session.id,
+                    component_artifact_id,
+                ),
+                lambda: rollback_committed_result(
+                    store=None,
+                    frames_dir=session._layout.frames_dir,
+                    artifact_id=component_artifact_id,
+                ),
+            ]
+        )
+    for cleanup in cleanup_actions:
+        try:
+            cleanup()
+        except BaseException:
+            continue
 
 
 def _drop_unpaired_grain_to_date_rows(
@@ -708,7 +887,7 @@ def compare(
             "matched_buckets": window_info.get("paired_buckets"),
             "baseline_tail_buckets": window_info.get("baseline_unpaired_buckets"),
         }
-    params = {
+    params: dict[str, Any] = {
         "source_current_ref": current.ref,
         "source_baseline_ref": baseline.ref,
         "alignment": alignment_dump,
@@ -716,6 +895,28 @@ def compare(
         "aggregation": aggregation,
         "status_time_dimension": status_time_dimension,
     }
+    current_identity = current.meta.metric_identity or CatalogMetricIdentity(
+        kind="catalog", metric_id=current.meta.metric_id
+    )
+    baseline_identity = baseline.meta.metric_identity or CatalogMetricIdentity(
+        kind="catalog", metric_id=baseline.meta.metric_id
+    )
+    current_comparable = current.meta.comparable_value_semantics
+    baseline_comparable = baseline.meta.comparable_value_semantics
+    assert current_comparable is not None
+    assert baseline_comparable is not None
+    assert current_comparable.fingerprint == baseline_comparable.fingerprint
+    comparable_fingerprint = current_comparable.fingerprint
+    comparison_identity = DeltaComparisonIdentityV1(
+        schema="delta-comparison/v1",
+        current=current_identity,
+        baseline=baseline_identity,
+        current_artifact_id=current.meta.artifact_id or current.ref,
+        baseline_artifact_id=baseline.meta.artifact_id or baseline.ref,
+        comparable_semantics_fingerprint=comparable_fingerprint,
+        alignment_policy_fingerprint=fingerprint(alignment_dump),
+    )
+    params["comparison_identity"] = canonical_value(comparison_identity)
 
     # Check cache before constructing the frame and committing.
     prospective_id = compute_prospective_artifact_id(
@@ -728,6 +929,25 @@ def compare(
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
         return cast("DeltaFrame", load_frame(prospective_id, session=session))
+
+    delta_component: ComponentFrame | None = None
+    if current_component is not None and baseline_component is not None:
+        comp_df = _align_component_frames(
+            current_component,
+            baseline_component,
+            current,
+            baseline,
+            alignment=alignment,
+            session=session,
+        )
+        comp_df = _drop_unpaired_grain_to_date_rows(comp_df, current)
+        delta_component = _build_delta_component_frame(
+            session,
+            comp_df,
+            parent_ref=prospective_id,
+            source_component=current_component,
+            job_ref=job_ref,
+        )
 
     digest = f"sha256:{hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()}"
     meta = DeltaFrameMeta(
@@ -752,6 +972,9 @@ def compare(
             ),
         ),
         metric_id=current.meta.metric_id,
+        metric_identity=current_identity,
+        baseline_metric_identity=baseline_identity,
+        comparison_identity=comparison_identity,
         source_current_ref=current.ref,
         source_baseline_ref=baseline.ref,
         alignment=alignment_dump,
@@ -765,6 +988,7 @@ def compare(
         aggregation=aggregation,
         status_time_dimension=status_time_dimension,
         cumulative=cur_cumulative,
+        component_ref=delta_component.ref if delta_component is not None else None,
     )
     output_frame = DeltaFrame(_df=df, meta=meta)
 
@@ -776,64 +1000,60 @@ def compare(
         analysis_axis="change",
     )
     comparison_window_dict = _scope_for_window(current)
-    commit_result(
-        store=session._evidence_store(),
-        frames_dir=session._layout.frames_dir,
-        frame=output_frame,
-        step_type="compare",
-        inputs=CommitInputs(input_refs=[current.ref, baseline.ref]),
-        params=CommitParams(values=params),
-        semantic_anchors=CommitSemanticAnchors(
-            values={"metric_id": current.meta.metric_id, "model": current.meta.semantic_model}
-        ),
-        subject=subject,
-        extractor_family="delta_frame",
-        comparison_window=comparison_window_dict,
-        comparison_basis="left_vs_right",
-    )
-    register_frame_artifact(session, output_frame)
-
-    # --- Persist delta component frame if both inputs are component-aware ---
-    if current_component is not None and baseline_component is not None:
-        comp_df = _align_component_frames(
-            current_component,
-            baseline_component,
-            current,
-            baseline,
-            alignment=alignment,
-            session=session,
+    evidence_store = session._evidence_store()
+    try:
+        commit_result(
+            store=evidence_store,
+            frames_dir=session._layout.frames_dir,
+            frame=output_frame,
+            step_type="compare",
+            inputs=CommitInputs(input_refs=[current.ref, baseline.ref]),
+            params=CommitParams(values=params),
+            semantic_anchors=CommitSemanticAnchors(
+                values={
+                    "metric_id": current.meta.metric_id,
+                    "model": current.meta.semantic_model,
+                }
+            ),
+            subject=subject,
+            extractor_family="delta_frame",
+            comparison_window=comparison_window_dict,
+            comparison_basis="left_vs_right",
         )
-        comp_df = _drop_unpaired_grain_to_date_rows(comp_df, current)
-        delta_comp = _persist_delta_component_frame(
+        if delta_component is not None:
+            delta_component.meta = cast(
+                "ComponentFrameMeta",
+                persist_frame(session, delta_component),
+            )
+        register_frame_artifact(session, output_frame)
+        persist_job_record(
             session,
-            comp_df,
-            parent_ref=output_frame.ref,
-            source_component=current_component,
+            {
+                "id": job_ref,
+                "session_id": session.id,
+                "intent": "compare",
+                "analysis_purpose": analysis_purpose,
+                "params": params,
+                "input_frame_refs": [current.ref, baseline.ref],
+                "output_frame_ref": output_frame.meta.artifact_id or output_frame.ref,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "duration_ms": int((monotonic() - started) * 1000),
+                "status": "succeeded",
+                "error": None,
+                "semantic_project_root": str(session.catalog._project.semantic_root),
+                "semantic_model": current.meta.semantic_model,
+            },
+        )
+    except BaseException:
+        _rollback_compare_commit(
+            session=session,
+            evidence_store=evidence_store,
+            root_artifact_id=prospective_id,
+            component_artifact_id=(delta_component.ref if delta_component is not None else None),
             job_ref=job_ref,
         )
-        output_frame.meta = output_frame.meta.model_copy(update={"component_ref": delta_comp.ref})
-        # Re-persist the output frame meta with the component_ref
-        output_frame.meta = cast("DeltaFrameMeta", persist_frame(session, output_frame))
-
-    persist_job_record(
-        session,
-        {
-            "id": job_ref,
-            "session_id": session.id,
-            "intent": "compare",
-            "analysis_purpose": analysis_purpose,
-            "params": params,
-            "input_frame_refs": [current.ref, baseline.ref],
-            "output_frame_ref": output_frame.meta.artifact_id or output_frame.ref,
-            "started_at": started_at.isoformat(),
-            "finished_at": finished_at.isoformat(),
-            "duration_ms": int((monotonic() - started) * 1000),
-            "status": "succeeded",
-            "error": None,
-            "semantic_project_root": str(session.catalog._project.semantic_root),
-            "semantic_model": current.meta.semantic_model,
-        },
-    )
+        raise
     return output_frame
 
 
@@ -848,6 +1068,58 @@ def _dimension_columns(frame: MetricFrame) -> list[str]:
         if isinstance(column, str) and column:
             columns.append(column)
     return sorted(columns)
+
+
+def _observe_params(frame: MetricFrame) -> dict[str, Any]:
+    """Return the typed observe params that own the frame's requested axes."""
+
+    for step in reversed(frame.meta.lineage.steps):
+        if step.intent == "observe" and isinstance(step.params, dict):
+            return step.params
+    return {}
+
+
+def _requested_dimension_ids(frame: MetricFrame) -> tuple[str, ...]:
+    """Return exact requested dimension identities for final alignment."""
+
+    dimensions = _observe_params(frame).get("dimensions")
+    if isinstance(dimensions, list):
+        semantic_ids = []
+        for item in dimensions:
+            if not isinstance(item, dict):
+                continue
+            semantic_id = item.get("semantic_id")
+            if isinstance(semantic_id, str) and semantic_id:
+                semantic_ids.append(semantic_id)
+        if len(semantic_ids) == len(dimensions):
+            return tuple(sorted(semantic_ids))
+    return tuple(_dimension_columns(frame))
+
+
+def _time_axis_identity(frame: MetricFrame) -> str | None:
+    """Return the exact explicit time dimension, with axis metadata fallback."""
+
+    window = frame.meta.window
+    if isinstance(window, dict):
+        time_dimension = window.get("time_dimension")
+        if isinstance(time_dimension, str) and time_dimension:
+            return time_dimension
+    for axis in frame.meta.axes.values():
+        if not isinstance(axis, dict) or axis.get("role") != "time":
+            continue
+        time_dimension = axis.get("time_dimension")
+        if isinstance(time_dimension, str) and time_dimension:
+            return time_dimension
+    return None
+
+
+def _observe_report_tz(frame: MetricFrame) -> str | None:
+    timescope = _observe_params(frame).get("timescope")
+    if isinstance(timescope, dict):
+        report_tz = timescope.get("report_tz")
+        if isinstance(report_tz, str) and report_tz:
+            return report_tz
+    return None
 
 
 def _time_axis_column(frame: MetricFrame) -> str:

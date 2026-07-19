@@ -214,5 +214,4 @@ def test_analysis_axis_inputs_reject_loaded_measure_objects(semantic_project_fac
 
     message = str(exc_info.value)
     assert "measure" in message
-    assert "group-by axis" in message
-    assert "categorical dimension" in message
+    assert "exact DimensionRef or TimeDimensionRef" in message

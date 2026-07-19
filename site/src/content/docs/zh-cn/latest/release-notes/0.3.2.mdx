@@ -119,7 +119,7 @@ Marivo 0.3.2 是分析接口的原子性破坏性切换。help 系统、artifact
 兼容性标志或自动迁移；引用它们的代码必须更新到新接面。新增的 `frame.id == frame.ref`
 只提供统一身份访问，不改变持久化 metadata。
 
-analysis evidence store 同样遵循该规则：非 v2 `judgment.db` 以及包含已移除 evidence 字段的
+analysis evidence store 同样遵循该规则：非当前 schema 的 `judgment.db` 以及包含已移除 evidence 字段的
 frame sidecar 会被拒绝；应重新创建 analysis session，以生成 canonical typed findings 与 digest。
 
 ## 语义与 datasource 实时接口

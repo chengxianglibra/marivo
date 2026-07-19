@@ -90,7 +90,7 @@ def _panel(session, *, start: str, end: str, grain: str = "day"):
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": start, "end": end},
         grain=grain,
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         session=session,
     )
 

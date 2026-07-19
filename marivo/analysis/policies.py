@@ -22,7 +22,7 @@ AlignmentKind = Literal[
     "holiday_and_dow_aligned",
 ]
 WindowBucketMode = Literal["ordinal_bucket", "calendar_bucket"]
-SemanticAnchorInput = str | SemanticRef | CatalogObject
+SemanticAnchorInput = str | SemanticRef | CatalogObject[SemanticRef]
 
 
 _DIMENSION_ANCHOR_FIELDS = {"subject", "time_axis", "axis"}

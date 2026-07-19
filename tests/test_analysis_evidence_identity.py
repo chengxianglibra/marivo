@@ -11,6 +11,7 @@ from marivo.analysis.evidence.identity import (
     make_finding_id,
 )
 from marivo.analysis.evidence.types import Subject
+from marivo.semantic.metric_graph import RuntimeExpressionSubjectV1
 
 
 def test_canonical_json_and_subject_key_are_order_stable() -> None:
@@ -32,6 +33,23 @@ def test_artifact_finding_and_item_ids_are_deterministic() -> None:
         source_finding_refs=(finding,),
     )
     assert item.startswith("itm_")
+
+
+def test_runtime_subject_key_never_merges_across_sessions() -> None:
+    def subject(session_id: str) -> Subject:
+        return Subject(
+            typed_metric_subject=RuntimeExpressionSubjectV1(
+                kind="runtime_expression",
+                session_id=session_id,
+                expression_fingerprint="expr_same",
+                artifact_id="art_same",
+                scope_fingerprint="scope_same",
+            ),
+            metric=None,
+            analysis_axis="scalar",
+        )
+
+    assert canonical_subject_key(subject("sess_a")) != canonical_subject_key(subject("sess_b"))
 
 
 def test_digest_fingerprint_excludes_its_self_field() -> None:

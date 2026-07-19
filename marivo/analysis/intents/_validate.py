@@ -368,7 +368,12 @@ def validate_compare(
 ) -> list[AnalysisError]:
     """Shape/policy compatibility for compare; returns the first issue or []."""
     from marivo.analysis.intents._window_pairs import _panel_grains
-    from marivo.analysis.intents.compare import _dimension_columns
+    from marivo.analysis.intents.compare import (
+        _dimension_columns,
+        _observe_report_tz,
+        _requested_dimension_ids,
+        _time_axis_identity,
+    )
 
     # Compare uses the effective anchor-dispatched gate. Compatible derived
     # cumulative wrappers reuse the trailing / grain_to_date validations;
@@ -400,15 +405,6 @@ def validate_compare(
                 },
             )
         ]
-    if current.meta.metric_id != baseline.meta.metric_id:
-        return [
-            SemanticKindMismatchError(
-                message=(
-                    "compare requires the same metric, got "
-                    f"{current.meta.metric_id!r} and {baseline.meta.metric_id!r}"
-                ),
-            )
-        ]
     if current.meta.semantic_kind != baseline.meta.semantic_kind:
         return [
             SemanticKindMismatchError(
@@ -430,6 +426,50 @@ def validate_compare(
                         "kind": "SegmentDimensionMismatch",
                         "current_dimensions": current_dimensions,
                         "baseline_dimensions": baseline_dimensions,
+                    },
+                )
+            ]
+        current_dimension_ids = _requested_dimension_ids(current)
+        baseline_dimension_ids = _requested_dimension_ids(baseline)
+        if current_dimension_ids != baseline_dimension_ids:
+            return [
+                SegmentDimensionMismatchError(
+                    message="compare requires matching requested dimension identities",
+                    context={
+                        "kind": "SegmentDimensionIdentityMismatch",
+                        "current_dimensions": current_dimension_ids,
+                        "baseline_dimensions": baseline_dimension_ids,
+                    },
+                )
+            ]
+    if kind in {"time_series", "panel"}:
+        current_time_dimension = _time_axis_identity(current)
+        baseline_time_dimension = _time_axis_identity(baseline)
+        if (
+            current_time_dimension is not None
+            and baseline_time_dimension is not None
+            and current_time_dimension != baseline_time_dimension
+        ):
+            return [
+                AlignmentFailedError(
+                    message="compare requires matching explicit time dimension identities",
+                    context={
+                        "kind": "TimeDimensionIdentityMismatch",
+                        "current_time_dimension": current_time_dimension,
+                        "baseline_time_dimension": baseline_time_dimension,
+                    },
+                )
+            ]
+        current_report_tz = _observe_report_tz(current)
+        baseline_report_tz = _observe_report_tz(baseline)
+        if current_report_tz != baseline_report_tz:
+            return [
+                AlignmentFailedError(
+                    message="compare requires matching observation report timezones",
+                    context={
+                        "kind": "ReportTimezoneMismatch",
+                        "current_report_tz": current_report_tz,
+                        "baseline_report_tz": baseline_report_tz,
                     },
                 )
             ]
@@ -468,6 +508,32 @@ def validate_compare(
                         "current": current.meta.semantic_kind,
                         "baseline": baseline.meta.semantic_kind,
                     },
+                },
+            )
+        ]
+    current_comparable = current.meta.comparable_value_semantics
+    baseline_comparable = baseline.meta.comparable_value_semantics
+    if current_comparable is None or baseline_comparable is None:
+        return [
+            SemanticKindMismatchError(
+                message="compare requires complete persisted comparable value semantics.",
+                hint="Re-observe both inputs under the current artifact contract.",
+                context={
+                    "current_has_comparable_semantics": current_comparable is not None,
+                    "baseline_has_comparable_semantics": baseline_comparable is not None,
+                },
+            )
+        ]
+    if current_comparable.fingerprint != baseline_comparable.fingerprint:
+        return [
+            SemanticKindMismatchError(
+                message=(
+                    "compare requires equal persisted comparable value semantics; got "
+                    f"{current.meta.metric_id!r} and {baseline.meta.metric_id!r}"
+                ),
+                context={
+                    "current_comparable_fingerprint": current_comparable.fingerprint,
+                    "baseline_comparable_fingerprint": baseline_comparable.fingerprint,
                 },
             )
         ]

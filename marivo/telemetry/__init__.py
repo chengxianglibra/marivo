@@ -742,6 +742,14 @@ def telemetry_stage(name: str) -> Iterator[None]:
         operation.phase_durations_ms[name] = operation.phase_durations_ms.get(name, 0) + elapsed
 
 
+def _add_operation_attributes(attributes: Mapping[str, TelemetryValue]) -> None:
+    """Attach bounded non-sensitive facts to the active public operation."""
+
+    operation = _CURRENT_OPERATION.get()
+    if isinstance(operation, _Operation) and operation.enabled:
+        operation.attributes.update(attributes)
+
+
 def staged(name: str) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
     """Decorate an internal phase without creating a second operation."""
 

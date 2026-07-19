@@ -1,5 +1,7 @@
 """session.compare against two MetricFrames."""
 
+import json
+
 import ibis
 import numpy as np
 import pandas as pd
@@ -63,11 +65,42 @@ def test_compare_returns_delta_frame(tmp_path):
     assert d.meta.alignment["kind"] == "window_bucket"
     assert d.meta.source_current_ref == q3.ref
     assert d.meta.source_baseline_ref == q2.ref
+    assert d.meta.metric_identity == q3.meta.metric_identity
+    assert d.meta.baseline_metric_identity == q2.meta.metric_identity
+    assert d.meta.comparison_identity is not None
+    assert d.meta.comparison_identity.current_artifact_id == q3.ref
+    assert d.meta.comparison_identity.baseline_artifact_id == q2.ref
     df = d.to_pandas()
     assert set(df.columns) >= {"current", "baseline", "delta", "pct_change"}
     assert df.iloc[0]["current"] == pytest.approx(30.0)
     assert df.iloc[0]["baseline"] == pytest.approx(20.0)
     assert df.iloc[0]["delta"] == pytest.approx(10.0)
+
+    reversed_delta = compare(
+        q2,
+        q3,
+        alignment=AlignmentPolicy(kind="window_bucket"),
+        session=s,
+    )
+    assert reversed_delta.ref != d.ref
+    assert reversed_delta.meta.comparison_identity is not None
+    assert reversed_delta.meta.comparison_identity.current_artifact_id == q2.ref
+    assert reversed_delta.meta.comparison_identity.baseline_artifact_id == q3.ref
+    assert reversed_delta.to_pandas().iloc[0]["delta"] == pytest.approx(-10.0)
+
+    store = s._evidence_store()
+    assert store is not None
+    row = (
+        store.read()
+        .execute("SELECT subject_payload FROM artifacts WHERE artifact_id = ?", (d.ref,))
+        .fetchone()
+    )
+    assert row is not None
+    subject = json.loads(row["subject_payload"])["typed_metric_subject"]
+    assert subject["kind"] == "delta_metric"
+    assert subject["session_id"] == s.id
+    assert subject["comparison"]["current_artifact_id"] == q3.ref
+    assert subject["comparison"]["baseline_artifact_id"] == q2.ref
 
 
 def test_compare_default_bucket_handles_scalar_window_outputs(tmp_path):
@@ -878,3 +911,100 @@ def test_compare_propagates_metric_unit_to_delta_meta(tmp_path):
     d = compare(q3, q2, session=s)
     assert d.meta.unit == "CNY"
     assert "unit=CNY" in d._repr_identity()
+
+
+def _bootstrap_compare_axis_project(tmp_path) -> None:
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
+    semantic_dir.mkdir(parents=True)
+    datasource_dir = tmp_path / "models" / "datasources"
+    datasource_dir.mkdir(parents=True, exist_ok=True)
+    (datasource_dir / "warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+    )
+    (semantic_dir / "__init__.py").write_text("")
+    (semantic_dir / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
+    )
+    (semantic_dir / "datasets.py").write_text(
+        "import marivo.datasource as md\n"
+        "import marivo.semantic as ms\n\n"
+        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
+        "source=md.table('orders'))\n\n"
+        "@ms.time_dimension(entity=orders, granularity='day', is_default=True)\n"
+        "def order_date(orders):\n"
+        "    return orders.created_at.cast('date')\n\n"
+        "@ms.time_dimension(entity=orders, granularity='day')\n"
+        "def shipped_date(orders):\n"
+        "    return orders.shipped_at.cast('date')\n\n"
+        "@ms.dimension(entity=orders)\n"
+        "def region(orders):\n"
+        "    return orders.region\n\n"
+        "@ms.metric(entities=[orders], additivity='additive')\n"
+        "def revenue(orders):\n"
+        "    return orders.amount.sum()\n"
+    )
+
+
+def _compare_axis_session(tmp_path):
+    _bootstrap_compare_axis_project(tmp_path)
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql(
+        "CREATE TABLE orders (order_id INTEGER, created_at DATE, shipped_at DATE, "
+        "amount DOUBLE, region VARCHAR)"
+    )
+    con.raw_sql(
+        "INSERT INTO orders VALUES "
+        "(1, DATE '2026-07-01', DATE '2026-07-03', 10.0, 'NORTH'),"
+        "(2, DATE '2026-08-01', DATE '2026-08-03', 20.0, NULL)"
+    )
+    return session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
+
+
+def test_compare_key_schema_is_stable_across_observed_null_distribution(tmp_path):
+    session = _compare_axis_session(tmp_path)
+    metric = make_ref("sales.revenue", SemanticKind.METRIC)
+    region = make_ref("sales.orders.region", SemanticKind.DIMENSION)
+    july = observe(
+        metric,
+        time_scope={"start": "2026-07-01", "end": "2026-08-01"},
+        dimensions=[region],
+        session=session,
+    )
+    august = observe(
+        metric,
+        time_scope={"start": "2026-08-01", "end": "2026-09-01"},
+        dimensions=[region],
+        session=session,
+    )
+
+    assert july.meta.key_schema is not None
+    assert august.meta.key_schema is not None
+    assert july.meta.key_schema.fingerprint == august.meta.key_schema.fingerprint
+    delta = compare(august, july, session=session)
+    assert len(delta.to_pandas()) == 2
+
+
+def test_compare_rejects_different_explicit_time_dimension_identities(tmp_path):
+    session = _compare_axis_session(tmp_path)
+    metric = make_ref("sales.revenue", SemanticKind.METRIC)
+    time_scope = {"start": "2026-07-01", "end": "2026-09-01"}
+    ordered = observe(
+        metric,
+        time_scope=time_scope,
+        grain="day",
+        time_dimension=make_ref("sales.orders.order_date", SemanticKind.TIME_DIMENSION),
+        session=session,
+    )
+    shipped = observe(
+        metric,
+        time_scope=time_scope,
+        grain="day",
+        time_dimension=make_ref("sales.orders.shipped_date", SemanticKind.TIME_DIMENSION),
+        session=session,
+    )
+
+    with pytest.raises(AlignmentFailedError) as exc_info:
+        compare(ordered, shipped, session=session)
+    assert exc_info.value._context["kind"] == "TimeDimensionIdentityMismatch"
+    assert exc_info.value._context["current_time_dimension"] == "sales.orders.order_date"
+    assert exc_info.value._context["baseline_time_dimension"] == "sales.orders.shipped_date"

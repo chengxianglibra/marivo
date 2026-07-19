@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from marivo.analysis.errors import SemanticKindMismatchError
@@ -16,15 +17,15 @@ from marivo.analysis.intents._observe_catalog import (
     _catalog_object,
     _entity_details,
 )
-from marivo.analysis.intents._types import SliceValue
 from marivo.analysis.intents.observe_planner import _planned_metric
 from marivo.analysis.semantic_inputs import (
-    DimensionInput,
-    MetricInput,
+    AnalysisDimensionRef,
     normalize_dimension_input,
     normalize_metric_input,
+    normalize_time_dimension_input,
 )
 from marivo.analysis.session.core import Session
+from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     GrainInput,
@@ -38,6 +39,7 @@ from marivo.semantic.catalog import (
     SemanticKind,
     SimpleMetricDetails,
 )
+from marivo.semantic.refs import MetricRef
 
 
 def _gen_ref(prefix: str) -> str:
@@ -118,13 +120,13 @@ def _entity_adapter_maps(
     return entity_details, {}, dataset_irs, dataset_fns
 
 
-def _normalize_metric_boundary(catalog: Any, metric: MetricInput) -> str:
+def _normalize_metric_boundary(catalog: Any, metric: MetricRef) -> str:
     return normalize_metric_input(catalog, metric)
 
 
 def _normalize_dimension_boundary(
     catalog: Any,
-    dimension: DimensionInput,
+    dimension: AnalysisDimensionRef,
     *,
     argument: str,
     scoped_entity_refs: set[str] | None = None,
@@ -134,7 +136,7 @@ def _normalize_dimension_boundary(
 
 def _normalize_dimension_list_boundary(
     catalog: Any,
-    dimensions: list[DimensionInput] | None,
+    dimensions: list[AnalysisDimensionRef] | None,
     *,
     scoped_entity_refs: set[str],
 ) -> list[str] | None:
@@ -153,7 +155,7 @@ def _normalize_dimension_list_boundary(
 
 def _normalize_where_boundary(
     catalog: Any,
-    where: dict[DimensionInput, SliceValue] | None,
+    where: Mapping[AnalysisDimensionRef, SliceValue] | None,
     *,
     scoped_entity_refs: set[str],
 ) -> dict[str, SliceValue]:
@@ -168,6 +170,10 @@ def _normalize_where_boundary(
         ): value
         for key, value in where.items()
     }
+
+
+def _normalize_time_dimension_boundary(catalog: Any, time_dimension: Any) -> str:
+    return normalize_time_dimension_input(catalog, time_dimension)
 
 
 def _metric_planner_scope(catalog: Any, metric_ir: Any) -> set[str]:
@@ -231,7 +237,17 @@ def _metric_expr(
     metric_id: str,
     metric_datasets: tuple[str, ...],
     dataset_tables: dict[str, Any],
+    *,
+    metric_ir: Any | None = None,
 ) -> Any:
+    runtime_measure_id = getattr(metric_ir, "runtime_measure_id", None)
+    if isinstance(runtime_measure_id, str):
+        assert metric_ir is not None
+        return resolver.aggregate_measure_on(
+            runtime_measure_id,
+            dataset_tables[metric_datasets[0]],
+            metric_ir.aggregation,
+        )
     return resolver.metric_on(
         _catalog_object(catalog, metric_id, SemanticKind.METRIC).ref,
         *(dataset_tables[dataset_name] for dataset_name in metric_datasets),

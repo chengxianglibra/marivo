@@ -11,6 +11,7 @@ from typing import Any, Literal, TypeGuard, cast
 import numpy as np
 import pandas as pd
 
+from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.errors import (
     DiscoverAxisNotMaterializedError,
     DiscoverInsufficientDataError,
@@ -56,9 +57,6 @@ from marivo.analysis.intents._discover_scorers import (
 )
 from marivo.analysis.intents._validate import require_single_metric
 from marivo.analysis.lineage import LineageStep
-from marivo.analysis.semantic_inputs import (
-    DimensionInput,
-)
 from marivo.analysis.semantic_inputs import (
     normalize_dimension_boundary as normalize_catalog_dimension_boundary,
 )
@@ -137,13 +135,15 @@ def _is_valid_objective(objective: str) -> TypeGuard[CandidateObjective]:
     return objective in _VALID_OBJECTIVES
 
 
-def _normalize_dimension_boundary(session: Session, value: DimensionInput, *, argument: str) -> str:
+def _normalize_dimension_boundary(
+    session: Session, value: AnalysisDimensionRef, *, argument: str
+) -> str:
     return normalize_catalog_dimension_boundary(session.catalog, value, argument=argument)
 
 
 def _normalize_dimension_inputs_boundary(
     session: Session,
-    values: list[DimensionInput] | None,
+    values: list[AnalysisDimensionRef] | None,
     *,
     argument: str,
 ) -> list[str] | None:
@@ -163,8 +163,8 @@ def _discover_dispatch(
     value: str | None = None,
     threshold: float | None = None,
     limit: int | None = _DEFAULT_DISCOVER_LIMIT,
-    search_space: list[DimensionInput] | None = None,
-    peer_scope: list[DimensionInput] | None = None,
+    search_space: list[AnalysisDimensionRef] | None = None,
+    peer_scope: list[AnalysisDimensionRef] | None = None,
     session: Session | None = None,
     analysis_purpose: str | None = None,
 ) -> CandidateSet:
@@ -423,7 +423,7 @@ class DiscoverAPI:
         self,
         source: DeltaFrame,
         *,
-        search_space: list[DimensionInput],
+        search_space: list[AnalysisDimensionRef],
         value: str | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
         session: Session | None = None,
@@ -443,7 +443,7 @@ class DiscoverAPI:
         self,
         source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[DimensionInput] | None = None,
+        search_space: list[AnalysisDimensionRef] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,
@@ -485,7 +485,7 @@ class DiscoverAPI:
         self,
         source: MetricFrame,
         *,
-        peer_scope: list[DimensionInput] | None = None,
+        peer_scope: list[AnalysisDimensionRef] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = _DEFAULT_DISCOVER_LIMIT,

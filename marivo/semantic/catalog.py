@@ -65,7 +65,16 @@ from marivo.semantic.preview_checks import (
     normalize_preview_bindings,
     persist_preview_check,
 )
-from marivo.semantic.refs import make_ref
+from marivo.semantic.refs import (
+    DimensionRef,
+    DomainRef,
+    EntityRef,
+    MeasureRef,
+    MetricRef,
+    RelationshipRef,
+    TimeDimensionRef,
+    make_ref,
+)
 
 if TYPE_CHECKING:
     from marivo._authoring.model import AuthoringContract
@@ -674,7 +683,7 @@ _CatalogObjectDetails = (
 
 
 @dataclass(frozen=True, repr=False, eq=False)
-class CatalogObject(RenderableResult):
+class CatalogObject[RefT: SemanticRef](RenderableResult):
     """Immutable base value view for one loaded catalog object.
 
     Args:
@@ -700,7 +709,7 @@ class CatalogObject(RenderableResult):
         level. Use ``details()`` for rich structural data.
     """
 
-    ref: SemanticRef
+    ref: RefT
     name: str
     _details: _CatalogObjectDetails
     _catalog: SemanticCatalog
@@ -739,7 +748,10 @@ class CatalogObject(RenderableResult):
             value=self._details.context.business_definition or "(none)",
         )
         for name in self._navigation_names:
-            collection = cast("CatalogCollection[CatalogObject]", getattr(self, name))
+            collection = cast(
+                "CatalogCollection[CatalogObject[SemanticRef], SemanticRef]",
+                getattr(self, name),
+            )
             card = card.field(label=name, value=f"{len(collection)} -> .{name}")
         return card
 
@@ -754,9 +766,10 @@ class CatalogObject(RenderableResult):
         return contract_for_catalog_object(self.ref.id, self.ref.kind.value)
 
 
-class Domain(CatalogObject):
+class Domain(CatalogObject[DomainRef]):
     """Loaded semantic domain with typed child collections."""
 
+    ref: DomainRef
     _kind = SemanticKind.DOMAIN
     _navigation_names = (
         "entities",
@@ -771,33 +784,34 @@ class Domain(CatalogObject):
         return cast("DomainDetails", self._details)
 
     @property
-    def entities(self) -> CatalogCollection[Entity]:
-        return self._catalog._collection(Entity, scope_id=self.id)
+    def entities(self) -> CatalogCollection[Entity, EntityRef]:
+        return self._catalog._collection(Entity, EntityRef, scope_id=self.id)
 
     @property
-    def dimensions(self) -> CatalogCollection[Dimension]:
-        return self._catalog._collection(Dimension, scope_id=self.id)
+    def dimensions(self) -> CatalogCollection[Dimension, DimensionRef]:
+        return self._catalog._collection(Dimension, DimensionRef, scope_id=self.id)
 
     @property
-    def time_dimensions(self) -> CatalogCollection[TimeDimension]:
-        return self._catalog._collection(TimeDimension, scope_id=self.id)
+    def time_dimensions(self) -> CatalogCollection[TimeDimension, TimeDimensionRef]:
+        return self._catalog._collection(TimeDimension, TimeDimensionRef, scope_id=self.id)
 
     @property
-    def measures(self) -> CatalogCollection[Measure]:
-        return self._catalog._collection(Measure, scope_id=self.id)
+    def measures(self) -> CatalogCollection[Measure, MeasureRef]:
+        return self._catalog._collection(Measure, MeasureRef, scope_id=self.id)
 
     @property
-    def metrics(self) -> CatalogCollection[Metric]:
-        return self._catalog._collection(Metric, scope_id=self.id)
+    def metrics(self) -> CatalogCollection[Metric, MetricRef]:
+        return self._catalog._collection(Metric, MetricRef, scope_id=self.id)
 
     @property
-    def relationships(self) -> CatalogCollection[Relationship]:
-        return self._catalog._collection(Relationship, scope_id=self.id)
+    def relationships(self) -> CatalogCollection[Relationship, RelationshipRef]:
+        return self._catalog._collection(Relationship, RelationshipRef, scope_id=self.id)
 
 
-class Datasource(CatalogObject):
+class Datasource(CatalogObject[DatasourceRef]):
     """Loaded datasource with the entities it backs."""
 
+    ref: DatasourceRef
     _kind = SemanticKind.DATASOURCE
     _navigation_names = ("entities",)
 
@@ -805,13 +819,14 @@ class Datasource(CatalogObject):
         return cast("DatasourceDetails", self._details)
 
     @property
-    def entities(self) -> CatalogCollection[Entity]:
-        return self._catalog._collection(Entity, scope_id=self.id)
+    def entities(self) -> CatalogCollection[Entity, EntityRef]:
+        return self._catalog._collection(Entity, EntityRef, scope_id=self.id)
 
 
-class Entity(CatalogObject):
+class Entity(CatalogObject[EntityRef]):
     """Loaded semantic entity with applicable semantic collections."""
 
+    ref: EntityRef
     _kind = SemanticKind.ENTITY
     _navigation_names = (
         "dimensions",
@@ -825,56 +840,60 @@ class Entity(CatalogObject):
         return cast("EntityDetails", self._details)
 
     @property
-    def dimensions(self) -> CatalogCollection[Dimension]:
-        return self._catalog._collection(Dimension, scope_id=self.id)
+    def dimensions(self) -> CatalogCollection[Dimension, DimensionRef]:
+        return self._catalog._collection(Dimension, DimensionRef, scope_id=self.id)
 
     @property
-    def time_dimensions(self) -> CatalogCollection[TimeDimension]:
-        return self._catalog._collection(TimeDimension, scope_id=self.id)
+    def time_dimensions(self) -> CatalogCollection[TimeDimension, TimeDimensionRef]:
+        return self._catalog._collection(TimeDimension, TimeDimensionRef, scope_id=self.id)
 
     @property
-    def measures(self) -> CatalogCollection[Measure]:
-        return self._catalog._collection(Measure, scope_id=self.id)
+    def measures(self) -> CatalogCollection[Measure, MeasureRef]:
+        return self._catalog._collection(Measure, MeasureRef, scope_id=self.id)
 
     @property
-    def metrics(self) -> CatalogCollection[Metric]:
-        return self._catalog._collection(Metric, scope_id=self.id)
+    def metrics(self) -> CatalogCollection[Metric, MetricRef]:
+        return self._catalog._collection(Metric, MetricRef, scope_id=self.id)
 
     @property
-    def relationships(self) -> CatalogCollection[Relationship]:
-        return self._catalog._collection(Relationship, scope_id=self.id)
+    def relationships(self) -> CatalogCollection[Relationship, RelationshipRef]:
+        return self._catalog._collection(Relationship, RelationshipRef, scope_id=self.id)
 
 
-class Dimension(CatalogObject):
+class Dimension(CatalogObject[DimensionRef]):
     """Loaded categorical dimension."""
 
+    ref: DimensionRef
     _kind = SemanticKind.DIMENSION
 
     def details(self) -> DimensionDetails:
         return cast("DimensionDetails", self._details)
 
 
-class TimeDimension(CatalogObject):
+class TimeDimension(CatalogObject[TimeDimensionRef]):
     """Loaded time dimension."""
 
+    ref: TimeDimensionRef
     _kind = SemanticKind.TIME_DIMENSION
 
     def details(self) -> TimeDimensionDetails:
         return cast("TimeDimensionDetails", self._details)
 
 
-class Measure(CatalogObject):
+class Measure(CatalogObject[MeasureRef]):
     """Loaded entity-owned quantitative measure."""
 
+    ref: MeasureRef
     _kind = SemanticKind.MEASURE
 
     def details(self) -> MeasureDetails:
         return cast("MeasureDetails", self._details)
 
 
-class Metric(CatalogObject):
+class Metric(CatalogObject[MetricRef]):
     """Loaded analysis-ready metric."""
 
+    ref: MetricRef
     _kind = SemanticKind.METRIC
 
     def details(self) -> MetricDetails:
@@ -910,9 +929,10 @@ class Metric(CatalogObject):
         )
 
 
-class Relationship(CatalogObject):
+class Relationship(CatalogObject[RelationshipRef]):
     """Loaded relationship with typed entity endpoints."""
 
+    ref: RelationshipRef
     _kind = SemanticKind.RELATIONSHIP
 
     def details(self) -> RelationshipDetails:
@@ -941,7 +961,7 @@ class Relationship(CatalogObject):
         )
 
 
-def _object_from_details[CatalogObjectT: CatalogObject](
+def _object_from_details[CatalogObjectT: CatalogObject[SemanticRef]](
     object_type: type[CatalogObjectT],
     details: _CatalogObjectDetails,
     catalog: SemanticCatalog,
@@ -954,7 +974,10 @@ def _object_from_details[CatalogObjectT: CatalogObject](
     )
 
 
-class CatalogCollection[CatalogObjectT: CatalogObject](RenderableResult):
+class CatalogCollection[
+    CatalogObjectT: CatalogObject[SemanticRef],
+    RefT: SemanticRef,
+](RenderableResult):
     """Read-only, typed, deterministic view over catalog objects.
 
     Every global and scoped collection on ``SemanticCatalog`` and its
@@ -987,11 +1010,13 @@ class CatalogCollection[CatalogObjectT: CatalogObject](RenderableResult):
         self,
         catalog: SemanticCatalog,
         object_type: type[CatalogObjectT],
+        ref_type: type[RefT],
         *,
         scope_id: str | None = None,
     ) -> None:
         self._catalog = catalog
         self._object_type = object_type
+        self._ref_type = ref_type
         self._scope_id = scope_id
 
     @property
@@ -1004,8 +1029,14 @@ class CatalogCollection[CatalogObjectT: CatalogObject](RenderableResult):
     def ids(self) -> list[str]:
         return [item.id for item in self.items]
 
-    def refs(self) -> tuple[SemanticRef, ...]:
-        return tuple(item.ref for item in self.items)
+    def refs(self) -> tuple[RefT, ...]:
+        refs = tuple(item.ref for item in self.items)
+        if not all(isinstance(ref, self._ref_type) for ref in refs):
+            raise AssertionError(
+                f"{self._object_type.__name__} collection produced a non-"
+                f"{self._ref_type.__name__} ref"
+            )
+        return cast("tuple[RefT, ...]", refs)
 
     def get(self, key: str) -> CatalogObjectT:
         return self._catalog._get_from_collection(self, key)
@@ -1050,7 +1081,7 @@ class CatalogCollection[CatalogObjectT: CatalogObject](RenderableResult):
 
 _VALID_KINDS: frozenset[str] = frozenset(str(k) for k in SymbolKind)
 
-_OBJECT_TYPE_BY_KIND: dict[SemanticKind, type[CatalogObject]] = {
+_OBJECT_TYPE_BY_KIND: dict[SemanticKind, type[CatalogObject[SemanticRef]]] = {
     SemanticKind.DOMAIN: Domain,
     SemanticKind.DATASOURCE: Datasource,
     SemanticKind.ENTITY: Entity,
@@ -1061,7 +1092,7 @@ _OBJECT_TYPE_BY_KIND: dict[SemanticKind, type[CatalogObject]] = {
     SemanticKind.RELATIONSHIP: Relationship,
 }
 
-_COLLECTION_NAME_BY_TYPE: dict[type[CatalogObject], str] = {
+_COLLECTION_NAME_BY_TYPE: dict[type[CatalogObject[SemanticRef]], str] = {
     Domain: "domains",
     Datasource: "datasources",
     Entity: "entities",
@@ -1086,7 +1117,7 @@ def _catalog_typed_id(ref_id: str, kind: SemanticKind) -> str:
 
 def _require_semantic_ref(value: object, *, parameter: str) -> SemanticRef:
     if isinstance(value, CatalogObject):
-        return value.ref
+        return cast("SemanticRef", value.ref)
     if isinstance(value, SemanticRef):
         return value
     _raise(
@@ -1325,7 +1356,7 @@ def _preview_timezones_for_field(
 
 def _build_dimension_object(
     f_ir: DimensionIR, reg: Registry, catalog: SemanticCatalog
-) -> CatalogObject:
+) -> CatalogObject[SemanticRef]:
     is_time = f_ir.is_time_dimension
     kind = SemanticKind.TIME_DIMENSION if is_time else SemanticKind.DIMENSION
     ref = make_ref(f_ir.semantic_id, kind)
@@ -1667,7 +1698,7 @@ class _CatalogIndex:
         self._parity_snapshot = _parity_snapshot(project)
         objects = self._build_objects()
         self._by_id = {obj.id: obj for obj in objects}
-        self._by_name: dict[str, tuple[CatalogObject, ...]] = {}
+        self._by_name: dict[str, tuple[CatalogObject[SemanticRef], ...]] = {}
         for name in sorted({obj.name for obj in objects}):
             self._by_name[name] = tuple(
                 sorted(
@@ -1676,9 +1707,9 @@ class _CatalogIndex:
                 )
             )
 
-    def _build_objects(self) -> tuple[CatalogObject, ...]:
+    def _build_objects(self) -> tuple[CatalogObject[SemanticRef], ...]:
         reg = self.registry
-        result: list[CatalogObject] = []
+        result: list[CatalogObject[SemanticRef]] = []
         result.extend(
             _build_domain_object(item, reg, self.catalog) for item in reg.domains.values()
         )
@@ -1703,13 +1734,13 @@ class _CatalogIndex:
         )
         return tuple(sorted(result, key=lambda obj: obj.id))
 
-    def get(self, typed_id: str) -> CatalogObject | None:
+    def get(self, typed_id: str) -> CatalogObject[SemanticRef] | None:
         return self._by_id.get(typed_id)
 
-    def typed_candidates(self, semantic_id: str) -> tuple[CatalogObject, ...]:
+    def typed_candidates(self, semantic_id: str) -> tuple[CatalogObject[SemanticRef], ...]:
         return tuple(obj for obj in self._by_id.values() if obj.ref.id == semantic_id)
 
-    def named(self, name: str) -> tuple[CatalogObject, ...]:
+    def named(self, name: str) -> tuple[CatalogObject[SemanticRef], ...]:
         return self._by_name.get(name, ())
 
     def kind_of(self, semantic_id: str) -> SemanticKind | None:
@@ -1737,7 +1768,7 @@ class _CatalogIndex:
             return SemanticKind.RELATIONSHIP
         return None
 
-    def objects[CatalogObjectT: CatalogObject](
+    def objects[CatalogObjectT: CatalogObject[SemanticRef]](
         self,
         object_type: type[CatalogObjectT],
         *,
@@ -1769,7 +1800,11 @@ class _CatalogIndex:
     ) -> tuple[str, ...]:
         return tuple(details.ref.id for details in self.details_under(kind, scope_id=scope_id))
 
-    def _in_scope(self, obj: CatalogObject, scope: CatalogObject) -> bool:
+    def _in_scope(
+        self,
+        obj: CatalogObject[SemanticRef],
+        scope: CatalogObject[SemanticRef],
+    ) -> bool:
         details = obj.details()
         if isinstance(scope, Domain):
             return details.domain == scope.ref.id
@@ -1913,18 +1948,25 @@ class SemanticCatalog:
             self._index = _CatalogIndex(self, self._project, reg)
         return self._index
 
-    def _collection[CatalogObjectT: CatalogObject](
+    def _collection[
+        CatalogObjectT: CatalogObject[SemanticRef],
+        RefT: SemanticRef,
+    ](
         self,
         object_type: type[CatalogObjectT],
+        ref_type: type[RefT],
         *,
         scope_id: str | None = None,
-    ) -> CatalogCollection[CatalogObjectT]:
+    ) -> CatalogCollection[CatalogObjectT, RefT]:
         self._require_ready()
-        return CatalogCollection(self, object_type, scope_id=scope_id)
+        return CatalogCollection(self, object_type, ref_type, scope_id=scope_id)
 
-    def _get_from_collection[CatalogObjectT: CatalogObject](
+    def _get_from_collection[
+        CatalogObjectT: CatalogObject[SemanticRef],
+        RefT: SemanticRef,
+    ](
         self,
-        collection: CatalogCollection[CatalogObjectT],
+        collection: CatalogCollection[CatalogObjectT, RefT],
         key: str,
     ) -> CatalogObjectT:
         if not isinstance(key, str):
@@ -1954,36 +1996,36 @@ class SemanticCatalog:
         self._raise_collection_not_found(collection, key)
 
     @property
-    def domains(self) -> CatalogCollection[Domain]:
-        return self._collection(Domain)
+    def domains(self) -> CatalogCollection[Domain, DomainRef]:
+        return self._collection(Domain, DomainRef)
 
     @property
-    def datasources(self) -> CatalogCollection[Datasource]:
-        return self._collection(Datasource)
+    def datasources(self) -> CatalogCollection[Datasource, DatasourceRef]:
+        return self._collection(Datasource, DatasourceRef)
 
     @property
-    def entities(self) -> CatalogCollection[Entity]:
-        return self._collection(Entity)
+    def entities(self) -> CatalogCollection[Entity, EntityRef]:
+        return self._collection(Entity, EntityRef)
 
     @property
-    def dimensions(self) -> CatalogCollection[Dimension]:
-        return self._collection(Dimension)
+    def dimensions(self) -> CatalogCollection[Dimension, DimensionRef]:
+        return self._collection(Dimension, DimensionRef)
 
     @property
-    def time_dimensions(self) -> CatalogCollection[TimeDimension]:
-        return self._collection(TimeDimension)
+    def time_dimensions(self) -> CatalogCollection[TimeDimension, TimeDimensionRef]:
+        return self._collection(TimeDimension, TimeDimensionRef)
 
     @property
-    def measures(self) -> CatalogCollection[Measure]:
-        return self._collection(Measure)
+    def measures(self) -> CatalogCollection[Measure, MeasureRef]:
+        return self._collection(Measure, MeasureRef)
 
     @property
-    def metrics(self) -> CatalogCollection[Metric]:
-        return self._collection(Metric)
+    def metrics(self) -> CatalogCollection[Metric, MetricRef]:
+        return self._collection(Metric, MetricRef)
 
     @property
-    def relationships(self) -> CatalogCollection[Relationship]:
-        return self._collection(Relationship)
+    def relationships(self) -> CatalogCollection[Relationship, RelationshipRef]:
+        return self._collection(Relationship, RelationshipRef)
 
     def _resolve_kind_of(self, ref_str: str, reg: Registry) -> SemanticKind | None:
         if ref_str in reg.domains:
@@ -2009,12 +2051,15 @@ class SemanticCatalog:
     # Collection lookup error helpers
     # ------------------------------------------------------------------
 
-    def _collection_property_name(self, object_type: type[CatalogObject]) -> str:
+    def _collection_property_name(
+        self,
+        object_type: type[CatalogObject[SemanticRef]],
+    ) -> str:
         return _COLLECTION_NAME_BY_TYPE.get(object_type, object_type.__name__.lower())
 
     def _raise_collection_not_found(
         self,
-        collection: CatalogCollection[CatalogObject],
+        collection: CatalogCollection[CatalogObject[SemanticRef], SemanticRef],
         key: str,
     ) -> NoReturn:
         available = ", ".join(collection.ids()) or "(empty)"
@@ -2032,8 +2077,8 @@ class SemanticCatalog:
 
     def _raise_collection_wrong_type(
         self,
-        collection: CatalogCollection[CatalogObject],
-        found: CatalogObject,
+        collection: CatalogCollection[CatalogObject[SemanticRef], SemanticRef],
+        found: CatalogObject[SemanticRef],
     ) -> NoReturn:
         expected_type = collection._object_type
         found_prop = self._collection_property_name(type(found))
@@ -2050,8 +2095,8 @@ class SemanticCatalog:
 
     def _raise_collection_out_of_scope(
         self,
-        collection: CatalogCollection[CatalogObject],
-        found: CatalogObject,
+        collection: CatalogCollection[CatalogObject[SemanticRef], SemanticRef],
+        found: CatalogObject[SemanticRef],
     ) -> NoReturn:
         expected_type = collection._object_type
         expected_prop = self._collection_property_name(expected_type)
@@ -2067,9 +2112,9 @@ class SemanticCatalog:
 
     def _raise_collection_ambiguous(
         self,
-        collection: CatalogCollection[CatalogObject],
+        collection: CatalogCollection[CatalogObject[SemanticRef], SemanticRef],
         key: str,
-        matches: tuple[CatalogObject, ...],
+        matches: tuple[CatalogObject[SemanticRef], ...],
     ) -> NoReturn:
         sorted_ids = sorted(item.id for item in matches)
         calls = "\n".join(
@@ -2086,7 +2131,7 @@ class SemanticCatalog:
 
     def _raise_bare_semantic_id(
         self,
-        collection: CatalogCollection[CatalogObject],
+        collection: CatalogCollection[CatalogObject[SemanticRef], SemanticRef],
         key: str,
     ) -> NoReturn:
         index = self._require_index()
@@ -2136,7 +2181,7 @@ class SemanticCatalog:
             refs=(ref_str,),
         )
 
-    def get(self, ref: str) -> CatalogObject:
+    def get(self, ref: str) -> CatalogObject[SemanticRef]:
         """Retrieve a single semantic object by typed id.
 
         Args:
@@ -2221,7 +2266,7 @@ class SemanticCatalog:
 
     def readiness(
         self,
-        refs: Sequence[CatalogObject | SemanticRef] | None = None,
+        refs: Sequence[CatalogObject[SemanticRef] | SemanticRef] | None = None,
     ) -> ReadinessReport:
         """Return explicit certification and diagnostics for the given semantic refs.
 
@@ -2262,7 +2307,7 @@ class SemanticCatalog:
 
     def verify_object(
         self,
-        ref: CatalogObject | SemanticRef,
+        ref: CatalogObject[SemanticRef] | SemanticRef,
     ) -> VerifyResult:
         """Statically verify a single authored semantic object.
 
@@ -2327,7 +2372,7 @@ class SemanticCatalog:
     @overload
     def preview(
         self,
-        ref: CatalogObject | SemanticRef,
+        ref: CatalogObject[SemanticRef] | SemanticRef,
         *,
         using: PreviewUsing,
         refs: None = None,
@@ -2341,7 +2386,7 @@ class SemanticCatalog:
         self,
         ref: None = None,
         *,
-        refs: Sequence[CatalogObject | SemanticRef],
+        refs: Sequence[CatalogObject[SemanticRef] | SemanticRef],
         using: PreviewUsing,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
@@ -2350,9 +2395,9 @@ class SemanticCatalog:
 
     def preview(
         self,
-        ref: CatalogObject | SemanticRef | None = None,
+        ref: CatalogObject[SemanticRef] | SemanticRef | None = None,
         *,
-        refs: Sequence[CatalogObject | SemanticRef] | None = None,
+        refs: Sequence[CatalogObject[SemanticRef] | SemanticRef] | None = None,
         using: PreviewUsing,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
@@ -2416,7 +2461,7 @@ class SemanticCatalog:
 
     def _preview_one(
         self,
-        ref: CatalogObject | SemanticRef,
+        ref: CatalogObject[SemanticRef] | SemanticRef,
         *,
         using: PreviewUsing,
         limit: int = PREVIEW_DEFAULT_LIMIT,
@@ -2667,7 +2712,7 @@ class SemanticCatalog:
 
     def _preview_batch(
         self,
-        refs: Sequence[CatalogObject | SemanticRef],
+        refs: Sequence[CatalogObject[SemanticRef] | SemanticRef],
         *,
         using: PreviewUsing,
         limit: int,

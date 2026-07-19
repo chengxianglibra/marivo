@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.errors import (
     AnalysisError,
     AnalysisRepair,
@@ -38,7 +39,7 @@ from marivo.analysis.intents._validate import (
     validate_decompose_axes_columns,
     validate_decompose_columns,
 )
-from marivo.analysis.semantic_inputs import DimensionInput, normalize_dimension_boundary
+from marivo.analysis.semantic_inputs import normalize_dimension_boundary
 from marivo.analysis.session._load import load_frame
 from marivo.analysis.session.core import Session, ensure_session_writable
 from marivo.introspection.live.model import LiveHelpTarget
@@ -69,7 +70,7 @@ def _panel_dimension_columns(frame: DeltaFrame) -> list[str]:
     return sorted(columns)
 
 
-def _normalize_axis_boundary(session: Session, axis: DimensionInput) -> str:
+def _normalize_axis_boundary(session: Session, axis: AnalysisDimensionRef) -> str:
     return normalize_dimension_boundary(session.catalog, axis, argument="axis")
 
 
@@ -1061,8 +1062,8 @@ def _component_multi_axis_output(
 
 def _normalize_axes_boundary(
     session: Session,
-    axes: list[DimensionInput] | None,
-    axis: DimensionInput | None,
+    axes: list[AnalysisDimensionRef] | None,
+    axis: AnalysisDimensionRef | None,
 ) -> list[str]:
     if axes is None and axis is not None:
         axes = [axis]
@@ -1324,8 +1325,8 @@ def _multi_axis_hierarchy_output(
 def decompose(
     frame: DeltaFrame,
     *,
-    axes: list[DimensionInput] | None = None,
-    axis: DimensionInput | None = None,
+    axes: list[AnalysisDimensionRef] | None = None,
+    axis: AnalysisDimensionRef | None = None,
     mode: AttributionMode | None = None,
     session: Session | None = None,
     _intent: str = "decompose",

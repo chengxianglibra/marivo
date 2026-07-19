@@ -120,6 +120,57 @@ def test_derived_unit_algebra() -> None:
         assert reg.metrics["test.net"].unit == "CNY"  # CNY + CNY
 
 
+_INLINE_NESTED_UNITS = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+
+wh = md.ref("datasource.wh")
+events = ms.entity(name="events", datasource=wh, source=md.table("events"))
+
+amount = ms.measure_column(
+    name="amount", entity=events, column="amount", additivity="additive", unit="CNY"
+)
+duration = ms.measure_column(
+    name="duration", entity=events, column="duration", additivity="additive", unit="s"
+)
+requests = ms.measure_column(
+    name="requests", entity=events, column="requests", additivity="additive", unit="{request}"
+)
+opaque = ms.measure_column(
+    name="opaque", entity=events, column="opaque", additivity="additive", unit="CNY/(request)"
+)
+
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+elapsed = ms.aggregate(name="elapsed", measure=duration, agg="sum")
+request_total = ms.aggregate(name="request_total", measure=requests, agg="sum")
+opaque_total = ms.aggregate(name="opaque_total", measure=opaque, agg="sum")
+cny_per_request = ms.ratio(
+    name="cny_per_request", numerator=revenue, denominator=request_total
+)
+seconds_per_request = ms.ratio(
+    name="seconds_per_request", numerator=elapsed, denominator=request_total
+)
+cny_per_second = ms.ratio(
+    name="cny_per_second", numerator=cny_per_request, denominator=seconds_per_request
+)
+unknown_parent = ms.ratio(
+    name="unknown_parent", numerator=opaque_total, denominator=elapsed
+)
+"""
+
+
+def test_nested_catalog_ratio_uses_shared_bounded_unit_algebra() -> None:
+    from tests.shared_fixtures import load_inline_semantic
+
+    with load_inline_semantic(_INLINE_NESTED_UNITS) as result:
+        reg = result.registry
+        assert reg.metrics["test.cny_per_request"].unit == "CNY/{request}"
+        assert reg.metrics["test.seconds_per_request"].unit == "s/{request}"
+        assert reg.metrics["test.cny_per_second"].unit == "CNY/s"
+        assert reg.metrics["test.opaque_total"].unit == "CNY/(request)"
+        assert reg.metrics["test.unknown_parent"].unit is None
+
+
 _INLINE_UNIT_OVERRIDE = """\
 import marivo.datasource as md
 import marivo.semantic as ms

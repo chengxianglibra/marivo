@@ -17,6 +17,7 @@ from marivo.analysis.intents._replay import (
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._runtime import persist_job_record
+from marivo.semantic.refs import MetricRef
 
 
 @pytest.fixture(autouse=True)
@@ -99,6 +100,7 @@ def test_recover_observe_replay_reads_lineage_params() -> None:
         session,
         params={
             "metric": "sales.revenue",
+            "replay_expression": {"kind": "metric_ref", "metric_id": "sales.revenue"},
             "timescope": {
                 "original": {"start": "2026-07-01", "end": "2026-08-01"},
                 "resolved": {
@@ -116,7 +118,7 @@ def test_recover_observe_replay_reads_lineage_params() -> None:
 
     replay = recover_observe_replay(frame, session=session)
 
-    assert replay.metric == "sales.revenue"
+    assert replay.metric == MetricRef("sales.revenue")
     assert replay.time_scope == {"start": "2026-07-01", "end": "2026-08-01"}
     assert replay.grain == "day"
     assert replay.time_dimension == "sales.orders.created_at"
@@ -170,6 +172,7 @@ def test_recover_alignment_policy_reports_invalid_policy_fields() -> None:
 
 _OBSERVE_PARAMS: dict[str, object] = {
     "metric": "sales.revenue",
+    "replay_expression": {"kind": "metric_ref", "metric_id": "sales.revenue"},
     "timescope": {
         "original": {"start": "2026-07-01", "end": "2026-08-01"},
         "resolved": {
@@ -241,7 +244,7 @@ def test_recover_observe_replay_falls_back_to_job_record() -> None:
 
     replay = recover_observe_replay(frame, session=session)
 
-    assert replay.metric == "sales.revenue"
+    assert replay.metric == MetricRef("sales.revenue")
     assert replay.time_scope == {"start": "2026-07-01", "end": "2026-08-01"}
     assert replay.grain == "day"
     assert replay.time_dimension == "sales.orders.created_at"

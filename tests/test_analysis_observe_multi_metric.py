@@ -8,6 +8,7 @@ from marivo.analysis.errors import SemanticKindMismatchError
 from marivo.analysis.evidence.identity import make_artifact_id
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
+from marivo.semantic.metric_graph import CatalogMetricSubjectV1
 from marivo.semantic.refs import make_ref
 from tests.shared_fixtures import (
     bootstrap_multi_metric_sales_project,
@@ -40,29 +41,29 @@ def test_boundary_empty_sequence_rejected(sales_session):
     assert "at least one metric" in str(excinfo.value)
 
 
-def test_boundary_duplicate_metrics_rejected(sales_session):
+def test_duplicate_roots_preserve_order_with_distinct_output_columns(sales_session):
     catalog = sales_session.catalog
-    revenue = catalog.get("metric.sales.revenue")
-    with pytest.raises(SemanticKindMismatchError) as excinfo:
-        observe(
-            [revenue, revenue],
-            time_scope=WINDOW,
-            grain="day",
-            session=sales_session,
-        )
-    assert "sales.revenue" in str(excinfo.value)
+    revenue = catalog.get("metric.sales.revenue").ref
+    frame = observe(
+        [revenue, revenue],
+        time_scope=WINDOW,
+        grain="day",
+        session=sales_session,
+    )
+    assert frame.value_columns == ("revenue", "revenue_2")
+    assert frame.to_pandas()["revenue"].equals(frame.to_pandas()["revenue_2"])
 
 
 def test_boundary_single_element_sequence_equals_scalar_observe(sales_session):
     catalog = sales_session.catalog
     via_list = observe(
-        [catalog.get("metric.sales.revenue")],
+        [catalog.get("metric.sales.revenue").ref],
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
     )
     via_scalar = observe(
-        catalog.get("metric.sales.revenue"),
+        catalog.get("metric.sales.revenue").ref,
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
@@ -71,23 +72,41 @@ def test_boundary_single_element_sequence_equals_scalar_observe(sales_session):
     assert via_list.meta.artifact_id == via_scalar.meta.artifact_id
 
 
+def test_public_session_observe_accepts_non_empty_metric_sequence(sales_session):
+    catalog = sales_session.catalog
+    frame = sales_session.observe(
+        (
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.order_count").ref,
+        ),
+        time_scope=WINDOW,
+        grain="day",
+    )
+
+    assert frame.metrics == ("sales.revenue", "sales.order_count")
+    assert frame.arity == 2
+
+
 # --- Task 5: fused planning, execution, join ---
 
 
 def test_same_entity_metrics_fuse_into_one_query(sales_session, monkeypatch):
-    import marivo.analysis.intents.observe_multi as om
+    import marivo.analysis.intents._metric_graph_execute as graph_execute
 
     calls: list[int] = []
-    real_execute = om.execute
+    real_execute = graph_execute.execute
 
     def counting_execute(*args, **kwargs):
         calls.append(1)
         return real_execute(*args, **kwargs)
 
-    monkeypatch.setattr(om, "execute", counting_execute)
+    monkeypatch.setattr(graph_execute, "execute", counting_execute)
     catalog = sales_session.catalog
     frame = observe(
-        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.order_count")],
+        [
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.order_count").ref,
+        ],
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
@@ -101,7 +120,10 @@ def test_value_columns_exposes_metric_value_columns_regardless_of_arity(sales_se
     """value_columns exposes the metric-named columns exported by to_pandas()."""
     catalog = sales_session.catalog
     multi = observe(
-        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.order_count")],
+        [
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.order_count").ref,
+        ],
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
@@ -115,19 +137,22 @@ def test_value_columns_exposes_metric_value_columns_regardless_of_arity(sales_se
 def test_fused_values_match_single_observes(sales_session):
     catalog = sales_session.catalog
     fused = observe(
-        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.order_count")],
+        [
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.order_count").ref,
+        ],
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
     )
     revenue = observe(
-        catalog.get("metric.sales.revenue"),
+        catalog.get("metric.sales.revenue").ref,
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
     )
     count = observe(
-        catalog.get("metric.sales.order_count"),
+        catalog.get("metric.sales.order_count").ref,
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
@@ -144,19 +169,22 @@ def test_fused_values_match_single_observes(sales_session):
 
 
 def test_cross_entity_metrics_join_on_time_axis(sales_session, monkeypatch):
-    import marivo.analysis.intents.observe_multi as om
+    import marivo.analysis.intents._observe_base as base_execute
 
     calls: list[int] = []
-    real_execute = om.execute
+    real_execute = base_execute.execute
 
     def counting_execute(*args, **kwargs):
         calls.append(1)
         return real_execute(*args, **kwargs)
 
-    monkeypatch.setattr(om, "execute", counting_execute)
+    monkeypatch.setattr(base_execute, "execute", counting_execute)
     catalog = sales_session.catalog
     frame = observe(
-        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.user_count")],
+        [
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.user_count").ref,
+        ],
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
@@ -171,7 +199,10 @@ def test_cross_entity_metrics_join_on_time_axis(sales_session, monkeypatch):
 def test_segmented_multi_metric(sales_session):
     catalog = sales_session.catalog
     frame = observe(
-        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.order_count")],
+        [
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.order_count").ref,
+        ],
         time_scope=WINDOW,
         dimensions=[catalog.get("dimension.sales.orders.region").ref],
         session=sales_session,
@@ -183,7 +214,10 @@ def test_segmented_multi_metric(sales_session):
 def test_scalar_multi_metric(sales_session):
     catalog = sales_session.catalog
     frame = observe(
-        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.order_count")],
+        [
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.order_count").ref,
+        ],
         time_scope=WINDOW,
         session=sales_session,
     )
@@ -197,7 +231,10 @@ def test_scalar_multi_metric(sales_session):
 def _fused_frame(sales_session):
     catalog = sales_session.catalog
     return observe(
-        [catalog.get("metric.sales.revenue"), catalog.get("metric.sales.order_count")],
+        [
+            catalog.get("metric.sales.revenue").ref,
+            catalog.get("metric.sales.order_count").ref,
+        ],
         time_scope=WINDOW,
         grain="day",
         session=sales_session,
@@ -221,29 +258,22 @@ def test_meta_measures_ordered_and_scalars_none(sales_session):
 def test_params_record_metric_list_and_fusion(sales_session):
     frame = _fused_frame(sales_session)
     params = frame.meta.lineage.steps[0].params
-    assert params["metrics"] == ["sales.revenue", "sales.order_count"]
-    assert params["fusion"] == [["sales.revenue", "sales.order_count"]]
-    assert params["metric_semantics"] == {
-        "sales.order_count": {
-            "additivity": "additive",
-            "aggregation": None,
-            "status_time_dimension": None,
-        },
-        "sales.revenue": {
-            "additivity": "additive",
-            "aggregation": None,
-            "status_time_dimension": None,
-        },
-    }
+    assert [identity["metric_id"] for identity in params["metric_identities"]] == [
+        "sales.revenue",
+        "sales.order_count",
+    ]
+    assert len(params["metric_graph"]["roots"]) == 2
+    assert len(params["lineage_metadata"]["physical_leaves"]) == 2
+    assert params["semantic_dependency_digest"]["fingerprint"]
     legacy_params = dict(params)
-    legacy_params.pop("metric_semantics")
+    legacy_params.pop("semantic_dependency_digest")
     assert frame.ref != make_artifact_id(
         step_type="observe",
         normalized_inputs=[],
         normalized_params=legacy_params,
         semantic_anchors={
-            "metrics": ["sales.revenue", "sales.order_count"],
-            "models": ["sales"],
+            "metric_identities": params["metric_identities"],
+            "model": "sales",
         },
     )
 
@@ -263,22 +293,22 @@ def test_evidence_findings_per_metric(sales_session):
     ]
     subjects = {f.subject.metric for f in findings}
     assert subjects == {"sales.revenue", "sales.order_count"}
+    assert all(isinstance(f.subject.typed_metric_subject, CatalogMetricSubjectV1) for f in findings)
 
 
-# --- Task 5: multi-metric cumulative rejection ---
+# --- Unified graph supports cumulative roots in an ordered forest ---
 
 
-def test_multi_metric_observe_rejects_cumulative_metric(sales_session):
-    with pytest.raises(SemanticKindMismatchError) as exc_info:
-        observe(
-            [
-                make_ref("sales.revenue", SemanticKind.METRIC),
-                make_ref("sales.cumulative_revenue", SemanticKind.METRIC),
-            ],
-            time_scope=WINDOW,
-            grain="day",
-            session=sales_session,
-        )
+def test_multi_metric_observe_accepts_cumulative_metric(sales_session):
+    frame = observe(
+        [
+            make_ref("sales.revenue", SemanticKind.METRIC),
+            make_ref("sales.cumulative_revenue", SemanticKind.METRIC),
+        ],
+        time_scope=WINDOW,
+        grain="day",
+        session=sales_session,
+    )
 
-    assert "cumulative" in str(exc_info.value)
-    assert "single metric" in str(exc_info.value)
+    assert frame.value_columns == ("revenue", "cumulative_revenue")
+    assert frame.meta.metric_identities is not None

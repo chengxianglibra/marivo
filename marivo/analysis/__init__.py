@@ -3,6 +3,7 @@
 from typing import Any as _Any
 
 from marivo.analysis import errors as errors
+from marivo.analysis import runtime_metric as runtime_metric
 from marivo.analysis import session
 from marivo.analysis.calendar.model import CalendarPolicy
 from marivo.analysis.evidence import (
@@ -57,12 +58,6 @@ from marivo.analysis.frames.hypothesis import HypothesisTestResult
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.frames.quality import QualityReport
 from marivo.analysis.help import help, help_text
-from marivo.analysis.intents._types import (
-    SlicePredicate,
-    SlicePredicateOp,
-    SliceScalar,
-    SliceValue,
-)
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import (
     AlignmentKind,
@@ -81,13 +76,17 @@ from marivo.analysis.session.core import (
     JobSummary,
     Session,
 )
+from marivo.analysis.slice_types import (
+    SlicePredicate,
+    SlicePredicateOp,
+    SliceScalar,
+    SliceValue,
+)
 from marivo.analysis.windows.spec import (
     AbsoluteWindow,
     TimeScope,
     TimeScopeInput,
 )
-from marivo.refs import SemanticRef
-from marivo.semantic.catalog import CatalogObject
 
 
 def __getattr__(name: str) -> _Any:
@@ -125,7 +124,6 @@ __all__ = [
     "CalendarRef",
     "CandidateSelection",
     "CandidateSet",
-    "CatalogObject",
     "ChangeFact",
     "ComparabilityIssue",
     "ContributionFact",
@@ -148,7 +146,6 @@ __all__ = [
     "PointAnomalySelection",
     "QualityCheckResult",
     "QualityReport",
-    "SemanticRef",
     "Session",
     "SliceSelection",
     "TestDecision",
@@ -159,6 +156,7 @@ __all__ = [
     "help_text",
     "holiday_aligned",
     "holiday_and_dow_aligned",
+    "runtime_metric",
     "session",
     "window_bucket",
 ]

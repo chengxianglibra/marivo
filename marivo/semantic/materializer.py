@@ -21,6 +21,7 @@ from marivo.datasource.errors import DatasourceError
 from marivo.datasource.source import AuthoringScope, PartitionScope
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
+    AggKind,
     CsvSourceIR,
     EntityProvenance,
     EntitySourceIR,
@@ -524,6 +525,32 @@ class Materializer:
             f"Metric {semantic_id!r} has unsupported aggregation {agg!r}.",
             cls=SemanticRuntimeError,
             refs=(semantic_id,),
+        )
+
+    def aggregate_measure_on(
+        self,
+        semantic_id: str,
+        table: ibis.Table,
+        agg: AggKind,
+    ) -> ir.Value:
+        """Apply a registered aggregation to a governed measure on ``table``."""
+        registry, _sidecar = self._get_registry_and_sidecar()
+        measure = registry.measures.get(semantic_id)
+        if measure is None:
+            _raise(
+                ErrorKind.NOT_FOUND,
+                f"Measure {semantic_id!r} is not loaded.",
+                cls=SemanticRuntimeError,
+                refs=(semantic_id,),
+            )
+        entity = registry.entities[measure.entity]
+        datasource = registry.datasources.get(entity.datasource)
+        backend_type = datasource.backend_type if datasource is not None else None
+        return self._apply_agg(
+            semantic_id,
+            self.measure_on(semantic_id, table),
+            agg,
+            backend_type=backend_type,
         )
 
     def _materialize_base_metric(

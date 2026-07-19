@@ -753,10 +753,10 @@ def test_persist_transform_frame_stores_json_safe_params(tmp_path):
     job_record = read_job_record(session._layout, out.meta.produced_by_job)
     json.dumps(job_record["params"])
     assert job_record["params"]["drop_axes"] == [{"ref": "country", "kind": "dimension"}]
-    assert job_record["params"]["predicate"] == {
-        "type": "callable",
-        "name": f"{__name__}._positive_delta_predicate",
-    }
+    predicate_params = job_record["params"]["predicate"]
+    assert predicate_params["type"] == "callable"
+    assert predicate_params["name"] == f"{__name__}._positive_delta_predicate"
+    assert len(predicate_params["implementation_digest"]) == 64
 
 
 def test_transform_normalize_param_value_converts_numpy_scalar():

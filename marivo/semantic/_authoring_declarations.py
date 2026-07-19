@@ -34,6 +34,7 @@ from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
     Additivity,
     AggKind,
+    AggregateFoldInput,
     DomainIR,
     MetricIR,
     SqlProvenance,
@@ -110,7 +111,7 @@ def aggregate(
     name: str,
     measure: MeasureRef,
     agg: AggKind,
-    fold: str | tuple[Literal["percentile"], float] | None = None,
+    fold: AggregateFoldInput = None,
     filter: WhereFilter | None = None,
     unit: str | None = None,
     domain: DomainRef | None = None,
@@ -176,6 +177,7 @@ def aggregate(
         root_entity=entity_id,
         fold_override=fold_ir,
         unit=unit,
+        unit_override=unit,
         aggregation_target=measure_id,
         aggregation_target_kind="measure",
         filter=filter_pairs,
@@ -400,6 +402,7 @@ def metric(
             root_entity=root_ref,
             fanout_policy=fanout_policy,
             unit=unit,
+            unit_override=unit,
         )
         _push_ir(ctx, metric_ir, fn)
         return MetricRef(semantic_id)

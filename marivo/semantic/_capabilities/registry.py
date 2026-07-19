@@ -428,7 +428,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "ratio",
             "marivo.semantic._authoring_metrics.ratio",
-            "Declare a ratio derived metric.",
+            "Declare a recursively composable ratio metric; each lowered node is validated independently.",
             output="MetricRef",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
@@ -442,7 +442,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "weighted_average",
             "marivo.semantic._authoring_metrics.weighted_average",
-            "Declare a weighted-average derived metric.",
+            "Declare a recursively composable weighted-average metric with value/weight node checks.",
             output="MetricRef",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
@@ -456,7 +456,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "linear",
             "marivo.semantic._authoring_metrics.linear",
-            "Declare a linear combination derived metric.",
+            "Declare a recursively composable linear metric with commensurable term checks.",
             output="MetricRef",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
@@ -682,7 +682,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Run readiness certification for loaded semantic refs.",
+            "Certify loaded refs, including recursive metric graph lowering and fixed v1 budgets.",
             kind="method",
             output="ReadinessReport",
             inputs=_inputs(

@@ -17,6 +17,7 @@ from marivo.analysis.frames.base import (
 )
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.render import Card
+from marivo.semantic.metric_graph import DeltaComparisonIdentityV1, MetricIdentity
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.base import ArtifactContract
@@ -134,6 +135,9 @@ class DeltaFrameMeta(BaseFrameMeta):
 
     kind: Literal["delta_frame"] = "delta_frame"
     metric_id: str
+    metric_identity: MetricIdentity | None = None
+    baseline_metric_identity: MetricIdentity | None = None
+    comparison_identity: DeltaComparisonIdentityV1 | None = None
     unit: str | None = None
     source_current_ref: str
     source_baseline_ref: str

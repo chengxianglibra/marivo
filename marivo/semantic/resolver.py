@@ -13,11 +13,14 @@ from marivo.datasource.source import AuthoringScope
 from marivo.refs import SemanticRef, SymbolKind
 from marivo.semantic.catalog import CatalogObject, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+from marivo.semantic.ir import AggKind
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.refs import as_ref
 
 
-def _ref_and_kind(value: SemanticRef | CatalogObject | str) -> tuple[str, SymbolKind | None]:
+def _ref_and_kind(
+    value: SemanticRef | CatalogObject[SemanticRef] | str,
+) -> tuple[str, SymbolKind | None]:
     ref = as_ref(value)
     if ref is not None:
         return ref.id, ref.kind
@@ -25,7 +28,7 @@ def _ref_and_kind(value: SemanticRef | CatalogObject | str) -> tuple[str, Symbol
 
 
 def _require_kind(
-    value: SemanticRef | CatalogObject | str,
+    value: SemanticRef | CatalogObject[SemanticRef] | str,
     *,
     expected: tuple[SemanticKind, ...],
 ) -> str:
@@ -59,36 +62,46 @@ class SemanticResolver:
             entity_scopes=self.entity_scopes,
         )
 
-    def table(self, entity_ref: SemanticRef | CatalogObject | str) -> ibis.Table:
+    def table(self, entity_ref: SemanticRef | CatalogObject[SemanticRef] | str) -> ibis.Table:
         ref = _require_kind(entity_ref, expected=(SemanticKind.ENTITY,))
         return self._materializer.entity(ref)
 
-    def dimension(self, ref_value: SemanticRef | CatalogObject | str) -> ir.Value:
+    def dimension(self, ref_value: SemanticRef | CatalogObject[SemanticRef] | str) -> ir.Value:
         ref = _require_kind(
             ref_value,
             expected=(SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION),
         )
         return self._materializer.dimension(ref)
 
-    def metric(self, ref_value: SemanticRef | CatalogObject | str) -> ir.Value:
+    def metric(self, ref_value: SemanticRef | CatalogObject[SemanticRef] | str) -> ir.Value:
         ref = _require_kind(ref_value, expected=(SemanticKind.METRIC,))
         return self._materializer.metric(ref)
 
-    def measure(self, ref_value: SemanticRef | CatalogObject | str) -> ir.Value:
+    def measure(self, ref_value: SemanticRef | CatalogObject[SemanticRef] | str) -> ir.Value:
         ref = _require_kind(ref_value, expected=(SemanticKind.MEASURE,))
         return self._materializer.measure(ref)
 
     def measure_on(
         self,
-        ref_value: SemanticRef | CatalogObject | str,
+        ref_value: SemanticRef | CatalogObject[SemanticRef] | str,
         table: ibis.Table,
     ) -> ir.Value:
         ref = _require_kind(ref_value, expected=(SemanticKind.MEASURE,))
         return self._materializer.measure_on(ref, table)
 
+    def aggregate_measure_on(
+        self,
+        ref_value: SemanticRef | CatalogObject[SemanticRef] | str,
+        table: ibis.Table,
+        agg: AggKind,
+    ) -> ir.Value:
+        """Apply one registered aggregate to a governed measure on ``table``."""
+        ref = _require_kind(ref_value, expected=(SemanticKind.MEASURE,))
+        return self._materializer.aggregate_measure_on(ref, table, agg)
+
     def dimension_on(
         self,
-        ref_value: SemanticRef | CatalogObject | str,
+        ref_value: SemanticRef | CatalogObject[SemanticRef] | str,
         table: ibis.Table,
     ) -> ir.Value:
         ref = _require_kind(
@@ -99,7 +112,7 @@ class SemanticResolver:
 
     def metric_on(
         self,
-        ref_value: SemanticRef | CatalogObject | str,
+        ref_value: SemanticRef | CatalogObject[SemanticRef] | str,
         *tables: ibis.Table,
     ) -> ir.Value:
         ref = _require_kind(ref_value, expected=(SemanticKind.METRIC,))

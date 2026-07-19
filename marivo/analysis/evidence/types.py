@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from marivo.analysis._pages import _BoundedPage
 from marivo.analysis.errors import AnalysisRepair
+from marivo.semantic.metric_graph import TypedEvidenceSubject
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | tuple["JsonValue", ...] | dict[str, "JsonValue"]
@@ -52,6 +53,7 @@ class _FrozenModel(BaseModel):
 
 
 class Subject(_FrozenModel):
+    typed_metric_subject: TypedEvidenceSubject | None = None
     metric: str | None = None
     entity: str | None = None
     slice: dict[str, JsonValue] = Field(default_factory=dict)
@@ -312,8 +314,8 @@ class Finding(_FrozenModel):
     observed_window: TimeWindow | None = None
     quality_status: Literal["ready", "needs_attention", "not_ready"] | None = None
     committed_at: datetime
-    extractor_version: str = "v2"
-    artifact_schema_version: str = "v2"
+    extractor_version: str = "v3"
+    artifact_schema_version: str = "v3"
 
     @model_validator(mode="after")
     def _validate_kind_mapping(self) -> Finding:
@@ -525,6 +527,7 @@ DataQualityIssueKind = Literal[
     "time_coverage_incomplete",
     "outlier_sensitivity_detected",
     "duplicate_keys_detected",
+    "unit_capability_unknown",
 ]
 ComparabilityIssueKind = Literal[
     "comparability_incompatible",

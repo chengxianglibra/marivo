@@ -31,6 +31,8 @@ from marivo.semantic.time_format import normalize_strptime
 __all__ = [
     "Additivity",
     "AggKind",
+    "AggregateFoldInput",
+    "AggregateFoldValue",
     "AggregationTargetKind",
     "AiContextIR",
     "Composition",
@@ -435,6 +437,12 @@ class TimeFoldIR:
         return self.kind
 
 
+type AggregateFoldValue = (
+    Literal["mean", "min", "max", "first", "last"] | tuple[Literal["percentile"], float]
+)
+type AggregateFoldInput = AggregateFoldValue | None
+
+
 AggKind = (
     Literal["sum", "count", "count_distinct", "min", "max", "mean", "median"]
     | tuple[Literal["percentile"], float]
@@ -487,6 +495,7 @@ class DimensionIR:
     granularity: str | None = None
     parse: SemanticParse | None = None
     is_default: bool = False
+    body_ast_hash: str = ""
 
     def __post_init__(self) -> None:
         if self.is_time_dimension != (self.kind == DimensionKind.TIME):
@@ -514,6 +523,7 @@ class MeasureIR:
     python_symbol: str
     location: SourceLocation
     kind: SymbolKind = SymbolKind.MEASURE
+    body_ast_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -663,6 +673,7 @@ class MetricIR:
         None  # tier-1 only: overrides the measure's semi-additive fold at load
     )
     filter: FilterIR | None = None  # tier-1 only: AND equality predicates
+    unit_override: str | None = None
 
     def __post_init__(self) -> None:
         if self.fold_override is not None and self.aggregation is None:

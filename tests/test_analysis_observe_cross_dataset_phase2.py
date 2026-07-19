@@ -733,8 +733,8 @@ def test_derived_observe_registers_component_frames(tmp_path):
         assert loaded.ref == mf.meta.component_ref
 
 
-def test_derived_components_can_span_datasources(tmp_path):
-    """Cross-datasource derived metric: gmv on warehouse, session_count on analytics."""
+def test_derived_components_reject_plural_datasource_domains(tmp_path):
+    """S0 requires one exact datasource compatibility domain per expression."""
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = tmp_path / "models" / "datasources"
@@ -775,11 +775,10 @@ def test_derived_components_can_span_datasources(tmp_path):
         name="demo",
         backends={"warehouse": lambda: warehouse, "analytics": lambda: analytics},
     )
-    frame = observe(make_ref("sales.gmv_per_session", SemanticKind.METRIC), session=session)
-    assert frame.to_pandas().iloc[0, 0] == pytest.approx(25.0)  # 100 / 4
-    component_datasources = frame.meta.lineage.steps[0].params["lineage_metadata"][
-        "component_datasources"
+    with pytest.raises(ObservePlanningError) as exc_info:
+        observe(make_ref("sales.gmv_per_session", SemanticKind.METRIC), session=session)
+    assert exc_info.value._context["code"] == "metric-graph-source-domain-mismatch"
+    assert exc_info.value._context["candidates"]["datasources"] == [
+        "datasource.analytics",
+        "datasource.warehouse",
     ]
-    assert {"datasource.warehouse", "datasource.analytics"} == {
-        ds for _cid, ds in component_datasources
-    }

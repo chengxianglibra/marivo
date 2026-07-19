@@ -33,7 +33,7 @@ ReadinessIssueKind = Literal[
     "missing_business_definition",
     "missing_guardrails",
     "undeclared_naive_time_axis",
-    "nested_derived_unsupported",
+    "metric_graph_invalid",
 ]
 
 
@@ -567,6 +567,46 @@ def build_readiness_report(
             if len(entity_ids) > 1 and len(datasource_ids) > 1:
                 cross_datasource_refs.append(ref)
 
+    if reg is not None:
+        from marivo.semantic.metric_graph_canonical import MetricGraphContractError
+        from marivo.semantic.metric_graph_lowering import (
+            MetricGraphLoweringError,
+            lower_catalog_metric,
+        )
+
+        for ref in direct_refs:
+            if kinds.get(ref) != _SemanticKind.METRIC:
+                continue
+            try:
+                lower_catalog_metric(reg, ref)
+            except (MetricGraphContractError, MetricGraphLoweringError) as exc:
+                blockers.append(
+                    _issue(
+                        "metric_graph_invalid",
+                        "blocker",
+                        (ref,),
+                        f"{ref} cannot lower to the bounded metric expression graph: {exc}",
+                        repair(
+                            kind="reauthor",
+                            canonical_id="metric",
+                            action=(
+                                "Reduce the metric's recursive composition to depth at most 10 "
+                                "and 256 pre-CSE occurrences, or repair the dependency reported "
+                                "at the failing occurrence path."
+                            ),
+                        ),
+                        details={
+                            "max_depth": 10,
+                            "max_occurrences": 256,
+                            "lowering_error_kind": getattr(exc, "kind", "graph_contract"),
+                            "observed_count": getattr(exc, "observed_count", None),
+                            "limit": getattr(exc, "limit", None),
+                            "dependency_path": getattr(exc, "path", None),
+                            "occurrence_path": getattr(exc, "path", None),
+                        },
+                    )
+                )
+
     for ref in unknown_refs:
         blockers.append(
             _issue(
@@ -705,21 +745,6 @@ def build_readiness_report(
                     ),
                 )
             )
-        if sw.kind == "nested_derived_unsupported":
-            warnings.append(
-                _issue(
-                    "nested_derived_unsupported",
-                    "warning",
-                    sw.refs,
-                    sw.message,
-                    repair(
-                        kind="reauthor",
-                        canonical_id="metric",
-                        action="Flatten the nested derived metric: compose over tier-1 (simple/cumulative) components, or attribute numerator and denominator separately.",
-                    ),
-                )
-            )
-
     blocked_refs = _refs_with_issue(blockers)
     analysis_ready_refs = tuple(
         ref

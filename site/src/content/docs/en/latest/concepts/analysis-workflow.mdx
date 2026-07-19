@@ -102,11 +102,13 @@ datasource. `artifact.id` is a read-only alias of the canonical `artifact.ref`.
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("metric.sales.revenue")           # a metric object
-region = catalog.get("dimension.sales.orders.region")      # a dimension object
+revenue_object = catalog.get("metric.sales.revenue")
+region_object = catalog.get("dimension.sales.orders.region")
 
-revenue.details().show()     # definition, candidate axes, and measure lineage
-region.details().show()
+revenue_object.details().show()     # definition, candidate axes, and measure lineage
+region_object.details().show()
+revenue = revenue_object.ref
+region = region_object.ref
 ```
 
 `get_or_create` is idempotent: it attaches to an existing session of that name or
@@ -140,13 +142,13 @@ change complete.
 
 ## How an intent is specified
 
-Operators take catalog objects and a few shared value objects. You will reuse these
+Operators take exact typed refs/expressions and a few shared value objects. You will reuse these
 across almost every intent:
 
 | Value | Shape | Meaning |
 | --- | --- | --- |
-| metric input | `catalog.get("metric.sales.revenue")` | A semantic-id string, catalog metric object, or `MetricRef`. Authoring refs from `ms.aggregate(...)` also work; ref-only enforcement applies to semantic authoring parameters, not analysis consumption inputs. |
-| dimension input | `catalog.get("dimension.sales.orders.region")` | A semantic-id string, catalog dimension object, or its `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
+| metric input | `catalog.get("metric.sales.revenue").ref` | Exact `MetricRef`, or a closed `RuntimeMetricExpr` for `observe`; loaded objects, generic refs, and strings are rejected. |
+| dimension input | `catalog.get("dimension.sales.orders.region").ref` | Exact `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
 | `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
@@ -179,12 +181,12 @@ segments.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `metric` | metric object / ref, or non-empty sequence | Yes | — | The metric to materialize, or a sequence of same-scope metrics for a multi-metric observation. Bare strings are rejected. |
+| `metric` | `MetricRef | RuntimeMetricExpr`, or non-empty sequence | Yes | — | Exact catalog ref or closed runtime expression; loaded objects, generic refs, and bare strings are rejected. |
 | `time_scope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
 | `grain` | grain | No | `None` | Time bucket; present ⇒ time series or panel. |
-| `dimensions` | `list[ref]` | No | `None` | Segment axes. |
-| `slice_by` | dict | No | `None` | Pre-aggregation row filter. |
-| `time_dimension` | ref | No | entity default | Pick the time axis when the entity declares several. |
+| `dimensions` | `list[DimensionRef | TimeDimensionRef]` | No | `None` | Exact typed segment axes. |
+| `slice_by` | `Mapping[AnalysisDimensionRef, SliceValue]` | No | `None` | Global pre-aggregation row filter. |
+| `time_dimension` | `TimeDimensionRef` | No | entity default | Pick the time axis when the entity declares several. |
 | `expect_shape` | shape | No | `None` | Guard; raises before backend work if the predicted shape differs. |
 
 ```python
@@ -209,12 +211,43 @@ exact exported name(s).
 
 ```python
 report = session.observe(
-    [revenue, catalog.get("metric.sales.total_orders")],
+    [revenue, catalog.get("metric.sales.total_orders").ref],
     time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
 )
 revenue_only = report.metric("sales.revenue")
 ```
+
+When the catalog does not contain the required analysis-only caliber, build a
+closed expression and still materialize it through `session.observe(...)`:
+
+```python
+failed = mv.runtime_metric.aggregate(
+    failed_requests_measure,
+    agg="sum",
+    slice_by={state: "failed"},
+)
+failure_rate = mv.runtime_metric.ratio(
+    failed,
+    requests,
+    zero_division="null",
+    label="Runtime failure rate",
+)
+frame = session.observe(failure_rate, time_scope=window, grain="day")
+```
+
+Runtime expressions may recursively contain runtime expressions and catalog
+`MetricRef` children. `runtime_metric.slice(..., by=...)` is branch-local;
+`observe(..., slice_by=...)` is global. Both catalog and runtime roots lower to
+one canonical graph (maximum depth 10, maximum 256 submitted pre-CSE
+occurrences) and one model/source domain. Labels affect presentation only, not
+value identity or catalog authority. Downstream operators use persisted frame
+state rather than catalog/runtime origin.
+
+Every observed root and mixed forest persists a recursive component graph.
+Use `frame.components()` to inspect node roles, evaluator contracts, quality,
+coverage references, and governed leaf lineage. A separate `component_ref`
+exists only when the root also supports numerical decomposition.
 
 Observed additivity, aggregation, and status-time semantics participate in the
 artifact identity for single, derived, cumulative, and multi-metric frames.
@@ -224,7 +257,8 @@ that do not carry the current semantic gate.
 ### `compare` → `DeltaFrame`
 
 Quantify change between two `observe` results (current minus baseline). The frames
-must share metric and semantic kind.
+must share semantic kind and persisted comparable value semantics; their catalog
+and runtime identities may differ.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
@@ -478,7 +512,9 @@ base_frame = session.observe(active_users, ...)
 
 ## Terminal custom analysis
 
-When a calculation cannot be expressed through `session.observe(...)`, use
+First use a closed `mv.runtime_metric` expression when governed measures or
+catalog metrics can express the required analysis-only caliber. When the
+calculation still cannot be expressed through `session.observe(...)`, use
 `md.raw_sql(...)` — the sole terminal raw SQL execution path. It enforces
 a timeout, bounds returned rows, and runs read-only. The result is a
 `RawSqlResult` that cannot re-enter typed analysis; call
@@ -604,8 +640,8 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("metric.sales.revenue")
-region = catalog.get("dimension.sales.orders.region")
+revenue = catalog.get("metric.sales.revenue").ref
+region = catalog.get("dimension.sales.orders.region").ref
 
 current = session.observe(
     revenue,

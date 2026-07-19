@@ -33,8 +33,8 @@ def _load_component_frame(
     if component_ref is None and composition is None:
         raise ComponentFrameUnavailableError(
             message=(
-                "components are only available for derived ratio or "
-                "weighted-average frames produced by component-aware observe"
+                "components are unavailable because observe did not persist a "
+                "recursive metric component graph"
             ),
             context={"parent_ref": parent_ref, "parent_kind": parent_kind},
         )

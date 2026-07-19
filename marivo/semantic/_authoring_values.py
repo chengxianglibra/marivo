@@ -24,6 +24,7 @@ from marivo.semantic._authoring_validation import (
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
+    AggregateFoldValue,
     AiContextIR,
     DatetimeParse,
     HourPrefixParse,
@@ -237,7 +238,7 @@ def validity(
 def semi_additive(
     *,
     over: TimeDimensionRef,
-    fold: str | tuple[Literal["percentile"], float],
+    fold: AggregateFoldValue,
 ) -> SemiAdditive:
     """Declare a semi-additive nature: additive off the ``over`` time axis, folded by ``fold``.
 

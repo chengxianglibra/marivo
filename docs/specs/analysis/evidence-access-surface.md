@@ -174,15 +174,21 @@ digests and findings raise their typed not-available/not-found errors.
 ## Commit and persistence
 
 `judgment.db` remains the on-disk filename for existing session layouts, but its
-schema v2 stores only:
+schema v3 stores only:
 
 - artifacts;
 - typed findings;
 - one digest per artifact;
 - typed artifact issues.
 
+Metric findings carry one current-schema typed subject. Catalog subjects record
+the canonical metric id; runtime-expression subjects record the expression
+fingerprint; delta subjects record the ordered current/baseline comparison
+identity. Every subject includes the owning session/artifact scope, so evidence
+from different sessions cannot merge merely because value expressions match.
+
 Artifact, findings, digest, and issues commit in one transaction. There is no
-phase-two judgment transaction. Only schema v2 is accepted: every non-v2
+phase-two judgment transaction. Only schema v3 is accepted: every non-v3
 `judgment.db` raises `SchemaVersionMismatchError` and must be replaced by a
 fresh analysis session.
 

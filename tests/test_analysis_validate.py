@@ -23,6 +23,7 @@ from marivo.analysis.lineage import Lineage
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.validation import ValidationIssue
+from tests.shared_fixtures import make_test_metric_contract
 
 
 def test_validation_issue_carries_type_message_details():
@@ -94,6 +95,8 @@ def _mf(
     semantic_kind: str = "scalar",
     axes: dict | None = None,
 ) -> MetricFrame:
+    df = pd.DataFrame({"value": [1.0]})
+    resolved_axes = axes or {}
     meta = MetricFrameMeta(
         ref="frame_x",
         session_id="s",
@@ -104,14 +107,19 @@ def _mf(
         byte_size=0,
         lineage=Lineage(),
         metric_id=metric_id,
-        axes=axes or {},
+        **make_test_metric_contract(
+            df,
+            metric_id=metric_id,
+            axes=resolved_axes,
+        ),
+        axes=resolved_axes,
         measure={"name": "revenue"},
         window=None,
         where={},
         semantic_kind=semantic_kind,
         semantic_model="sales",
     )
-    return MetricFrame(_df=pd.DataFrame({"value": [1.0]}), meta=meta)
+    return MetricFrame(_df=df, meta=meta)
 
 
 _WB = AlignmentPolicy(kind="window_bucket")
@@ -123,13 +131,27 @@ def test_validate_compare_ok_returns_empty():
     assert validate_compare(_mf(), _mf(), alignment=_WB) == []
 
 
+def test_validate_compare_rejects_missing_current_comparable_state():
+    from marivo.analysis.intents._validate import validate_compare
+
+    current = _mf()
+    current.meta = current.meta.model_copy(update={"comparable_value_semantics": None})
+    issues = validate_compare(current, _mf(), alignment=_WB)
+    assert len(issues) == 1
+    assert "complete persisted comparable value semantics" in issues[0].message
+    assert issues[0]._context == {
+        "current_has_comparable_semantics": False,
+        "baseline_has_comparable_semantics": True,
+    }
+
+
 def test_validate_compare_metric_id_mismatch():
     from marivo.analysis.intents._validate import validate_compare
 
     issues = validate_compare(_mf(metric_id="a.x"), _mf(metric_id="a.y"), alignment=_WB)
     assert len(issues) == 1
     assert isinstance(issues[0], SemanticKindMismatchError)
-    assert "the same metric" in issues[0].message
+    assert "equal persisted comparable value semantics" in issues[0].message
 
 
 def test_validate_compare_semantic_kind_mismatch():

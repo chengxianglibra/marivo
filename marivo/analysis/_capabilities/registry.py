@@ -294,6 +294,7 @@ def _build_registry() -> CapabilityRegistry:
         holiday_and_dow_aligned,
         window_bucket,
     )
+    from marivo.analysis.runtime_metric import aggregate, ratio, slice
     from marivo.analysis.windows.spec import AbsoluteWindow, TimeScope
 
     all_artifact_families: frozenset[InputFamily] = frozenset(ARTIFACT_FAMILIES)
@@ -307,14 +308,17 @@ def _build_registry() -> CapabilityRegistry:
             id="observe",
             public_entrypoint="session.observe(...)",
             help_target="observe",
-            summary="Materialize a metric into a typed MetricFrame.",
+            summary=(
+                "Materialize exact catalog refs or closed runtime metric expressions "
+                "through one bounded graph into a typed MetricFrame."
+            ),
             root_group="artifact_production",
             root_visibility="direct",
-            constraint_ids=("metric_ref_registered", "window_absolute_parseable"),
+            constraint_ids=("metric_expression_resolvable", "window_absolute_parseable"),
             callable_path="marivo.analysis.session.core.Session.observe",
             receiver="Session",
             accepted_inputs={
-                "metric": frozenset({"MetricSemantic"}),
+                "metric": frozenset({"MetricSemantic", "RuntimeMetricExpression"}),
                 "time_scope": frozenset({"TimeScopeInput"}),
             },
             output_family="MetricFrame",
@@ -593,7 +597,7 @@ def _build_registry() -> CapabilityRegistry:
             id="MetricFrame.components",
             public_entrypoint="frame.components()",
             help_target="MetricFrame.components",
-            summary="Load the linked ComponentFrame for component-aware metrics.",
+            summary="Load the recursive component graph persisted for a MetricFrame.",
             root_group="family_operations",
             root_visibility="grouped",
             constraint_ids=("component_frame_available",),
@@ -853,6 +857,41 @@ def _build_registry() -> CapabilityRegistry:
                 root_group="policies_builders",
                 root_visibility="direct",
                 constraint_ids=(),
+                callable_path=_module_path_for(callable_obj),
+                output_type=output_type,
+            )
+        )
+
+    runtime_metric_specs: tuple[tuple[str, str, object, str], ...] = (
+        (
+            "runtime_metric.aggregate",
+            "mv.runtime_metric.aggregate(...) ",
+            aggregate,
+            "RuntimeAggregateExpr",
+        ),
+        (
+            "runtime_metric.slice",
+            "mv.runtime_metric.slice(...) ",
+            slice,
+            "RuntimeSliceExpr",
+        ),
+        (
+            "runtime_metric.ratio",
+            "mv.runtime_metric.ratio(...) ",
+            ratio,
+            "RuntimeRatioExpr",
+        ),
+    )
+    for cap_id, entrypoint, callable_obj, output_type in runtime_metric_specs:
+        descriptors.append(
+            ConstructorCapability(
+                id=cap_id,
+                public_entrypoint=entrypoint.rstrip(),
+                help_target=cap_id,
+                summary="Build one frozen node in the closed runtime metric expression algebra.",
+                root_group="policies_builders",
+                root_visibility="grouped",
+                constraint_ids=("runtime_metric_closed_algebra",),
                 callable_path=_module_path_for(callable_obj),
                 output_type=output_type,
             )
@@ -1166,6 +1205,14 @@ def _build_registry() -> CapabilityRegistry:
             "catalog",
             "Browse semantic catalog domains, metrics, and dimensions.",
             "semantic_inputs",
+        )
+    )
+
+    descriptors.append(
+        _make_grouping_descriptor(
+            "runtime_metric",
+            "Closed recursive runtime metric expression constructors.",
+            "policies_builders",
         )
     )
 

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from marivo.analysis._cumulative import (
     cumulative_compare_anchor,
@@ -23,11 +23,37 @@ from marivo.analysis.frames.base import (
 )
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.render import Card
+from marivo.semantic.metric_graph import (
+    ComparableValueSemanticsV1,
+    DatasourceCompatibilityDomainV1,
+    ExpressionPresentationV1,
+    MetricArtifactIdentityV1,
+    MetricExpressionGraphV1,
+    MetricIdentity,
+    MetricKeySchemaV1,
+    SemanticDependencyDigestV1,
+)
+from marivo.semantic.unit_algebra import MetricUnitStateV2
 
 if TYPE_CHECKING:
     from marivo.analysis.frames.component import ComponentFrame
     from marivo.analysis.frames.coverage import CoverageFrame
     from marivo.analysis.frames.transforms import MetricFrameTransforms
+
+
+class MetricExecutionStatsV1(BaseModel):
+    """Bounded structural execution facts retained for operation telemetry."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    stats_schema: Literal["metric-execution-stats/v1"] = "metric-execution-stats/v1"
+    root_origins: tuple[Literal["catalog", "runtime"], ...]
+    physical_execution_count: int = Field(ge=0)
+    cse_reused_occurrences: int = Field(ge=0)
+    cache_hit: bool = False
+    artifact_deduplicated: bool = False
+    replay_used: bool = False
+    downstream_blockers: tuple[str, ...] = ()
 
 
 def _cumulative_anchor(meta_cumulative: dict[str, Any] | None) -> object | None:
@@ -218,7 +244,26 @@ class MetricFrameMeta(BaseFrameMeta):
 
     kind: Literal["metric_frame"] = "metric_frame"
     metric_id: str | None
+    metric_identity: MetricIdentity | None = None
+    metric_identities: tuple[MetricIdentity, ...] = ()
+    expression_graph_ref: str | None = None
+    expression_graph: MetricExpressionGraphV1 | None = None
+    expression_fingerprint: str | None = None
+    semantic_dependency_digest: SemanticDependencyDigestV1 | None = None
+    presentation_ref: str | None = None
+    presentation: ExpressionPresentationV1 | None = None
+    presentation_fingerprint: str | None = None
+    artifact_identity: MetricArtifactIdentityV1 | None = None
+    key_schema: MetricKeySchemaV1 | None = None
+    source_compatibility_domain: DatasourceCompatibilityDomainV1 | None = None
+    component_graph_ref: str | None = None
+    quality_ref: str | None = None
+    replay_graph_ref: str | None = None
+    comparable_value_semantics_ref: str | None = None
+    comparable_value_semantics: ComparableValueSemanticsV1 | None = None
+    execution_stats: MetricExecutionStatsV1 | None = None
     unit: str | None = None
+    unit_state: MetricUnitStateV2 | None = None
     axes: dict[str, Any]
     measure: dict[str, Any]
     measures: list[dict[str, Any]] | None = None
@@ -244,6 +289,17 @@ class MetricFrameMeta(BaseFrameMeta):
     coverage_summary: dict[str, Any] | None = None
     cumulative: dict[str, Any] | None = None
     rollup_fold: Literal["last"] | None = None
+
+    @model_validator(mode="after")
+    def _validate_metric_identities(self) -> MetricFrameMeta:
+        if self.metric_identity is None:
+            if len(self.metric_identities) == 1:
+                raise ValueError(
+                    "arity-one MetricFrameMeta requires metric_identity to match metric_identities"
+                )
+        elif self.metric_identities != (self.metric_identity,):
+            raise ValueError("metric_identity requires metric_identities=(metric_identity,)")
+        return self
 
 
 @dataclass(repr=False)
@@ -499,7 +555,7 @@ class MetricFrame(BaseFrame):
         return self
 
     def components(self) -> ComponentFrame:
-        """Load the linked ComponentFrame for component-aware derived metrics."""
+        """Load the recursive ComponentFrame persisted for this metric graph."""
         from marivo.analysis._capabilities.validation import validate_capability_inputs
         from marivo.analysis.frames._component import _load_component_frame
 
@@ -510,8 +566,9 @@ class MetricFrame(BaseFrame):
             session_id=self.meta.session_id,
             project_root=self.meta.project_root,
             artifact_id=self.meta.artifact_id,
-            component_ref=self.meta.component_ref,
-            composition=self.meta.composition,
+            component_ref=self.meta.component_ref or self.meta.component_graph_ref,
+            composition=self.meta.composition
+            or ({"kind": "metric_graph"} if self.meta.component_graph_ref is not None else None),
             advice="re-run observe() to regenerate it",
         )
 

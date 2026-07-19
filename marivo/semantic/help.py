@@ -20,8 +20,8 @@ PublicSemanticHelpTarget = (
     | RegisteredSemanticCallable
     | type[object]
     | SemanticRef
-    | CatalogObject
-    | CatalogCollection[CatalogObject]
+    | CatalogObject[SemanticRef]
+    | CatalogCollection[CatalogObject[SemanticRef], SemanticRef]
     | SemanticCatalog
     | VerifyResult
     | ReadinessReport

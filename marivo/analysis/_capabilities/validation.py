@@ -97,6 +97,18 @@ def _classify_semantic_ref(value: object) -> str | None:
     return None
 
 
+def _classify_runtime_metric(value: object) -> str | None:
+    from marivo.analysis.runtime_metric import (
+        RuntimeAggregateExpr,
+        RuntimeRatioExpr,
+        RuntimeSliceExpr,
+    )
+
+    if isinstance(value, RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr):
+        return "RuntimeMetricExpression"
+    return None
+
+
 def _classify_policy_or_spec(value: object) -> str | None:
     """Classify policy, sampling, time-scope, query-spec, and column-binding values."""
 
@@ -144,6 +156,10 @@ def classify_input_family(value: object) -> str:
     semantic_family = _classify_semantic_ref(value)
     if semantic_family is not None:
         return semantic_family
+
+    runtime_metric_family = _classify_runtime_metric(value)
+    if runtime_metric_family is not None:
+        return runtime_metric_family
 
     # Policies, time scopes, query specs, column bindings.
     policy_family = _classify_policy_or_spec(value)
@@ -229,20 +245,27 @@ def validate_capability_inputs(capability_id: str, **kwargs: object) -> None:
         if isinstance(value, (list, tuple)) and not value:
             continue
 
-        try:
-            actual_family = classify_input_family(value)
-        except AnalysisError:
-            actual_family = type(value).__name__
+        values = value if isinstance(value, (list, tuple)) else (value,)
+        actual_families: list[str] = []
+        for item in values:
+            try:
+                actual_families.append(classify_input_family(item))
+            except AnalysisError:
+                actual_families.append(type(item).__name__)
 
-        if actual_family not in accepted_families:
+        rejected_family = next(
+            (family for family in actual_families if family not in accepted_families),
+            None,
+        )
+        if rejected_family is not None:
             accepted_str = " | ".join(sorted(accepted_families))
             raise AnalysisError(
                 message=(
                     f"{capability_id} parameter {param_name!r} expected "
-                    f"{accepted_str}, received {actual_family}."
+                    f"{accepted_str}, received {rejected_family}."
                 ),
                 expected=accepted_str,
-                received=actual_family,
+                received=rejected_family,
                 location=f"{capability_id}.{param_name}",
                 repair=AnalysisRepair(
                     kind="retry",

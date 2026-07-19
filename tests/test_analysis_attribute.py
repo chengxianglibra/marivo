@@ -252,7 +252,7 @@ def test_attribute_missing_axis_materializes_expanded_delta(semantic_project_fac
         "(4, DATE '2025-07-02', 'CN', 30.0)"
     )
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    revenue = session.catalog.get("metric.sales.revenue")
+    revenue = session.catalog.get("metric.sales.revenue").ref
     region = session.catalog.get("dimension.sales.orders.region").ref
     cur = session.observe(
         revenue,
@@ -317,7 +317,7 @@ def test_attribute_validates_original_delta_before_axis_materialization(
         "(2, DATE '2025-07-01', 'US', 70.0)"
     )
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    revenue = session.catalog.get("metric.sales.revenue")
+    revenue = session.catalog.get("metric.sales.revenue").ref
     region = session.catalog.get("dimension.sales.orders.region").ref
     current = session.observe(
         revenue,
@@ -383,7 +383,7 @@ def test_attribute_lowers_tier1_mean_to_exact_non_null_components(
         "(DATE '2025-07-04', 'US', NULL)"
     )
     session = mv.session.get_or_create(name="demo", backends={"warehouse": lambda: con})
-    avg_amount = session.catalog.get("metric.sales.avg_amount")
+    avg_amount = session.catalog.get("metric.sales.avg_amount").ref
     region = session.catalog.get("dimension.sales.orders.region").ref
     cur = session.observe(
         avg_amount,

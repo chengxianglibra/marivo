@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import textwrap
 
@@ -192,6 +193,111 @@ def test_analysis_ready_refs_include_only_direct_requests(
         "sales.orders",
     )
     assert report.analysis_ready_refs == ("sales.double_amount",)
+
+
+def test_nested_ratio_is_analysis_ready_under_shared_graph_contract(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    from marivo.semantic import preview_checks
+    from marivo.semantic.preview_checks import PreviewEvidenceRequirement
+
+    project = _project(
+        semantic_project_factory,
+        _READY_DOMAIN_PY
+        + textwrap.dedent("""\
+
+            inner = ms.ratio(
+                name="inner",
+                numerator=total_amount,
+                denominator=total_amount,
+                ai_context=ms.ai_context(
+                    business_definition="Inner governed ratio.",
+                    guardrails=["Interpret only within the selected scope."],
+                ),
+            )
+            outer = ms.ratio(
+                name="outer",
+                numerator=inner,
+                denominator=total_amount,
+                ai_context=ms.ai_context(
+                    business_definition="Outer governed ratio.",
+                    guardrails=["Interpret only within the selected scope."],
+                ),
+            )
+        """),
+    )
+    monkeypatch.setattr(
+        preview_checks,
+        "preview_evidence_requirement",
+        lambda *_args, **_kwargs: PreviewEvidenceRequirement(
+            status="matched",
+            repair=AuthoringRepair(
+                kind="retry",
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="readiness"),
+                action="Matching preview evidence is available.",
+            ),
+        ),
+    )
+
+    report = project.readiness(refs=("sales.outer",))
+
+    assert report.status == "ready"
+    assert report.analysis_ready_refs == ("sales.outer",)
+    assert "metric_graph_invalid" not in _issue_kinds(report.blockers)
+
+
+def test_readiness_blocks_catalog_graph_above_depth_limit(
+    semantic_project_factory,
+    monkeypatch,
+) -> None:
+    from marivo.semantic import preview_checks
+    from marivo.semantic.ir import RatioComposition
+    from marivo.semantic.preview_checks import PreviewEvidenceRequirement
+
+    project = _project(semantic_project_factory, _READY_DOMAIN_PY)
+    assert project._registry is not None
+    template = project._registry.metrics["sales.total_amount"]
+    previous = "sales.total_amount"
+    for depth in range(1, 11):
+        metric_id = f"sales.depth_{depth}"
+        project._registry.metrics[metric_id] = dataclasses.replace(
+            template,
+            semantic_id=metric_id,
+            name=f"depth_{depth}",
+            metric_type="derived",
+            entities=(),
+            composition=RatioComposition(
+                numerator=previous,
+                denominator="sales.total_amount",
+            ),
+            additivity=None,
+            root_entity=None,
+            body_ast_hash=f"depth-{depth}",
+        )
+        previous = metric_id
+    monkeypatch.setattr(
+        preview_checks,
+        "preview_evidence_requirement",
+        lambda *_args, **_kwargs: PreviewEvidenceRequirement(
+            status="matched",
+            repair=AuthoringRepair(
+                kind="retry",
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="readiness"),
+                action="Matching preview evidence is available.",
+            ),
+        ),
+    )
+
+    report = project.readiness(refs=("sales.depth_10",))
+
+    graph_issue = next(issue for issue in report.blockers if issue.kind == "metric_graph_invalid")
+    assert graph_issue.details["max_depth"] == 10
+    assert graph_issue.details["observed_count"] == 11
+    assert graph_issue.details["limit"] == 10
+    assert graph_issue.details["dependency_path"].startswith("root[0].")
+    assert "depth limit exceeded" in graph_issue.message
+    assert report.analysis_ready_refs == ()
 
 
 def test_dependency_blocker_excludes_direct_request_from_analysis_ready_refs(

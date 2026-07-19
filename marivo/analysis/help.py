@@ -24,7 +24,7 @@ PublicHelpTarget = (
     | type[object]
     | Session
     | BaseFrame
-    | CatalogObject
+    | CatalogObject[SemanticRef]
     | SemanticRef
     | AnalysisError
     | None

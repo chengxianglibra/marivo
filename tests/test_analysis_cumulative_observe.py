@@ -677,16 +677,10 @@ def _metric_for_base(base: str, anchor: object = None) -> str:
     }[base]
 
 
-def _recorded_executions(frame) -> list[object]:
-    """Return the query executions captured while materializing ``frame``.
+def _recorded_executions(frame, session) -> list[object]:
+    """Return persisted query executions for the materialization job."""
 
-    ``observe()`` drains the connection capture buffer internally, so we stash
-    the captured executions on the frame's lineage params when present. The
-    cumulative branch stores them under ``params['cumulative']['queries']``.
-    """
-    params = frame.meta.lineage.steps[-1].params
-    cumulative = params.get("cumulative", {})
-    return list(cumulative.get("queries", []))
+    return list(session.job(frame.meta.produced_by_job)["queries"])
 
 
 def _observe_named_cumulative_metric(session, name: str, *, start: str, end: str):
@@ -833,6 +827,13 @@ def test_derived_trailing_ratio_preserves_window_coverage(day_project, duckdb_se
     assert coverage_df.loc[coverage_df["bucket_start"] == "2026-01-01", "coverage_ratio"].iloc[
         0
     ] == pytest.approx(1 / 7)
+    component_graph = frame.components().meta.component_graph
+    assert component_graph is not None
+    assert all(
+        node["coverage_ref"] is not None
+        for node in component_graph["nodes"]
+        if node["node_kind"] in {"aggregate", "cumulative", "ratio"}
+    )
 
 
 @pytest.mark.parametrize(
@@ -911,7 +912,7 @@ def test_grain_to_date_seed_only_for_first_partial_period(day_project, duckdb_se
         end="2026-03-01",
         grain="day",
     )
-    executions = _recorded_executions(cum)
+    executions = _recorded_executions(cum, duckdb_session)
     assert len(executions) == 1
 
 
@@ -926,7 +927,7 @@ def test_grain_to_date_seed_for_partial_first_period(day_project, duckdb_session
         end="2026-03-01",
         grain="day",
     )
-    executions = _recorded_executions(cum)
+    executions = _recorded_executions(cum, duckdb_session)
     # Seed (first partial period) + flow == 2 queries.
     assert len(executions) == 2
 
@@ -1170,7 +1171,7 @@ def test_grain_to_date_count_distinct_seed_scoped_for_mid_period_start(
         end="2026-02-01",
         grain="day",
     )
-    executions = _recorded_executions(cum)
+    executions = _recorded_executions(cum, duckdb_session)
     # Seed (first partial period) + flow == 2 queries.
     assert len(executions) == 2
     df = _metric_pandas(cum)
