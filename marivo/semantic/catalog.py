@@ -23,7 +23,6 @@ from marivo.preview import (
     PreviewWarning,
     preview_from_pandas,
     preview_ibis_table,
-    preview_ibis_value,
     validate_preview_limit,
 )
 from marivo.refs import (
@@ -2391,30 +2390,19 @@ class SemanticCatalog:
                     method="pre_aggregate_limit",
                     limit=preview_limit,
                 )
-                if len(bindings.entity_ids) == 1:
-                    result = preview_ibis_value(
-                        resolver.metric(metric_ref),
-                        kind="semantic_metric",
-                        ref=ref_str,
-                        limit=preview_limit,
-                        column_name="value",
-                        sample_policy=sample_policy,
-                        include_types=include_types,
-                    )
-                else:
-                    result = preview_ibis_table(
-                        _metric_preview_table(
-                            resolver,
-                            reg,
-                            metric_ref,
-                            alias="value",
-                        ),
-                        kind="semantic_metric",
-                        ref=ref_str,
-                        limit=preview_limit,
-                        sample_policy=sample_policy,
-                        include_types=include_types,
-                    )
+                result = preview_ibis_table(
+                    _metric_preview_table(
+                        resolver,
+                        reg,
+                        metric_ref,
+                        alias="value",
+                    ),
+                    kind="semantic_metric",
+                    ref=ref_str,
+                    limit=preview_limit,
+                    sample_policy=sample_policy,
+                    include_types=include_types,
+                )
                 return PreviewResult(
                     kind=result.kind,
                     ref=result.ref,

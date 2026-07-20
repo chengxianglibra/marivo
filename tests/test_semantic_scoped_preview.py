@@ -367,7 +367,7 @@ def test_scoped_preview_executes_once_through_timeout_and_never_persists_rows(
     catalog, orders_snapshot, _refunds_snapshot = scoped_catalog
     events: list[str] = []
     original_metric = SemanticResolver.metric
-    original_preview = catalog_module.preview_ibis_value
+    original_preview = catalog_module.preview_ibis_table
 
     @contextmanager
     def timeout(_backend: object, seconds: int) -> Iterator[None]:
@@ -392,7 +392,7 @@ def test_scoped_preview_executes_once_through_timeout_and_never_persists_rows(
         raising=False,
     )
     monkeypatch.setattr(SemanticResolver, "metric", tracked_metric)
-    monkeypatch.setattr(catalog_module, "preview_ibis_value", tracked_preview)
+    monkeypatch.setattr(catalog_module, "preview_ibis_table", tracked_preview)
 
     result = catalog.preview(
         catalog.require(ms.Ref.metric("sales.revenue")).ref,
@@ -471,7 +471,7 @@ def test_preview_timeout_cleanup_follows_execution_error(
         raising=False,
     )
     monkeypatch.setattr(SemanticResolver, "metric", tracked_metric)
-    monkeypatch.setattr(catalog_module, "preview_ibis_value", failing_preview)
+    monkeypatch.setattr(catalog_module, "preview_ibis_table", failing_preview)
 
     with pytest.raises(RuntimeError, match="preview failed"):
         catalog.preview(
