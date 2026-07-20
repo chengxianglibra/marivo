@@ -39,15 +39,12 @@ if TYPE_CHECKING:
     from marivo.analysis.intents._attribution_mode import AttributionMode
     from marivo.analysis.intents._shape import SemanticShape
     from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
-    from marivo.analysis.runtime_metric import AnalysisDimensionRef
-    from marivo.analysis.semantic_inputs import ObserveMetricInput
+    from marivo.analysis.runtime_metric import RuntimeMetricExpr
     from marivo.analysis.session._store import SessionStore
     from marivo.analysis.slice_types import SliceValue
     from marivo.analysis.windows.spec import GrainInput, TimeScopeInput
+    from marivo.refs import FieldKind, MetricKind, Ref, TimeDimensionKind
     from marivo.semantic.catalog import SemanticCatalog
-    from marivo.semantic.refs import TimeDimensionRef
-
-SemanticKind = Literal["scalar", "time_series", "segmented", "panel"]
 
 
 def _track_session_operation(
@@ -124,6 +121,22 @@ class FrameSummaryPage(_BoundedPage[FrameSummaryEntry]):
     """Bounded newest-first page of persisted frame summaries."""
 
 
+def _catalog_metric_path(meta: dict[str, object]) -> str | None:
+    """Project one catalog metric display path from structured persisted identity."""
+    identity = meta.get("metric_identity")
+    if not isinstance(identity, dict):
+        identities = meta.get("metric_identities")
+        if isinstance(identities, list) and len(identities) == 1:
+            identity = identities[0]
+    if not isinstance(identity, dict) or identity.get("kind") != "catalog":
+        return None
+    payload = identity.get("metric_ref")
+    if not isinstance(payload, dict) or payload.get("kind") != "metric":
+        return None
+    path = payload.get("path")
+    return path if isinstance(path, str) and path else None
+
+
 def _read_job_summaries(
     *, store: SessionStore, layout: PersistenceLayout, session_id: str
 ) -> list[JobSummary]:
@@ -180,13 +193,14 @@ def _read_frame_summary_page(
             meta = json.loads(abs_meta.read_text()) if abs_meta.is_file() else {}
         except (OSError, json.JSONDecodeError):
             meta = {}
+        metric_id = _catalog_metric_path(meta)
         entries.append(
             FrameSummaryEntry(
                 ref=meta.get("ref", row["artifact_id"]),
                 kind=meta.get("kind", row["kind"]),
-                metric_id=meta.get("metric_id"),
+                metric_id=metric_id,
                 semantic_kind=meta.get("semantic_kind"),
-                semantic_model=meta.get("semantic_model"),
+                semantic_model=metric_id.split(".", 1)[0] if metric_id else None,
                 created_at=meta.get("created_at", row["created_at"]),
                 evidence_status=row["evidence_status"],
                 analysis_purpose=meta.get("analysis_purpose"),
@@ -422,7 +436,7 @@ class Session(RenderableResult):
         objects, this returns the complete persisted record including fields
         such as ``params``. Raises if no job with ``job_id`` exists.
         """
-        from marivo.analysis.errors import JobNotFoundError
+        from marivo.analysis.errors import JobNotFoundError, SchemaVersionMismatchError
 
         row = self._store.get_job(self.id, job_id)
         if row is None:
@@ -430,7 +444,18 @@ class Session(RenderableResult):
                 message=f"no job '{job_id}' in session {self.id!r}",
                 context={"session_id": self.id, "job_id": job_id},
             )
-        return read_job_record(self._layout, job_id)
+        record = read_job_record(self._layout, job_id)
+        if record.get("schema") != "marivo.analysis_job/v1":
+            raise SchemaVersionMismatchError(
+                message="unsupported_persisted_schema: job record is not marivo.analysis_job/v1",
+                context={
+                    "job_id": job_id,
+                    "received_schema": record.get("schema"),
+                    "expected_schema": "marivo.analysis_job/v1",
+                    "repair": "Start a new analysis session and regenerate the artifact.",
+                },
+            )
+        return record
 
     def get_frame(self, ref: str) -> BaseFrame:
         """Load a persisted frame by ref or artifact_id.
@@ -523,13 +548,18 @@ class Session(RenderableResult):
 
     def observe(
         self,
-        metric: ObserveMetricInput | list[ObserveMetricInput] | tuple[ObserveMetricInput, ...],
+        metric: (
+            Ref[MetricKind]
+            | RuntimeMetricExpr
+            | list[Ref[MetricKind] | RuntimeMetricExpr]
+            | tuple[Ref[MetricKind] | RuntimeMetricExpr, ...]
+        ),
         *,
         time_scope: TimeScopeInput = None,
         grain: GrainInput = None,
-        dimensions: list[AnalysisDimensionRef] | None = None,
-        slice_by: Mapping[AnalysisDimensionRef, SliceValue] | None = None,
-        time_dimension: TimeDimensionRef | None = None,
+        dimensions: list[Ref[FieldKind]] | None = None,
+        slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None,
+        time_dimension: Ref[TimeDimensionKind] | None = None,
         expect_shape: SemanticShape | None = None,
         analysis_purpose: str | None = None,
     ) -> MetricFrame:
@@ -537,7 +567,7 @@ class Session(RenderableResult):
 
         When to use: starting point for any metric analysis workflow.
 
-        Resolves an exact catalog ``MetricRef`` or a closed recursive value from
+        Resolves an exact catalog ``Ref[metric]`` or a closed recursive value from
         ``mv.runtime_metric``, applies the shared observation scope, executes one
         bounded expression graph, and persists the result as a MetricFrame.
 
@@ -545,7 +575,7 @@ class Session(RenderableResult):
         ``frame.value_columns`` before merging or renaming frames.
 
         Args:
-            metric: Exact ``MetricRef``, ``RuntimeMetricExpr``, or a non-empty
+            metric: Exact ``Ref[metric]``, ``RuntimeMetricExpr``, or a non-empty
                 list/tuple of either over one shared scope. Loaded catalog
                 objects, generic refs, and bare strings are rejected; pass the
                 loaded metric's ``.ref``. Catalog and runtime roots may be
@@ -555,13 +585,13 @@ class Session(RenderableResult):
                 means data from August 1 is **not** included.
             grain: Optional time bucket grain. When present, observe returns a time
                 series or panel depending on ``dimensions``.
-            dimensions: Exact ``DimensionRef``/``TimeDimensionRef`` segment
+            dimensions: Exact ``Ref[dimension]``/``Ref[time_dimension]`` segment
                 axes. Omit, pass ``None``, or pass ``[]`` for no segment axes.
             slice_by: Pre-aggregation global row filter. Keys are exact dimension
                 refs; values are either a scalar (``==``), a
                 list/tuple/set (``in``), or ``{"op": "<op>", "value": ...}`` where op is one of
                 ``==, !=, in, >, >=, <, <=, between``.
-            time_dimension: Exact ``TimeDimensionRef`` selecting the time axis
+            time_dimension: Exact ``Ref[time_dimension]`` selecting the time axis
                 when an entity declares multiple time dimensions.
             expect_shape: Optional guard. If set, observe predicts the output shape
                 from ``grain``/``dimensions`` and raises ``SemanticKindMismatchError``
@@ -578,9 +608,9 @@ class Session(RenderableResult):
 
         Example:
             >>> catalog = session.catalog
-            >>> revenue = catalog.get("metric.sales.revenue").ref
-            >>> country = catalog.get("dimension.sales.orders.country").ref
-            >>> channel = catalog.get("dimension.sales.orders.channel").ref
+            >>> revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+            >>> country = catalog.require(ms.Ref.dimension("sales.orders.country")).ref
+            >>> channel = catalog.require(ms.Ref.dimension("sales.orders.channel")).ref
             >>> frame = session.observe(
             ...     revenue,
             ...     time_scope={"start": "2026-07-01", "end": "2026-10-01"},
@@ -723,7 +753,7 @@ class Session(RenderableResult):
             CrossSessionFrameError: A frame belongs to a different session.
 
         Example:
-            >>> revenue = session.catalog.get("metric.sales.revenue").ref
+            >>> revenue = session.catalog.require(ms.Ref.metric("sales.revenue")).ref
             >>> cur = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"})
             >>> base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"})
             >>> delta = session.compare(
@@ -762,7 +792,7 @@ class Session(RenderableResult):
         self,
         frame: DeltaFrame,
         *,
-        axes: list[AnalysisDimensionRef],
+        axes: list[Ref[FieldKind]],
         mode: AttributionMode | None = None,
         analysis_purpose: str | None = None,
     ) -> AttributionFrame:
@@ -820,8 +850,8 @@ class Session(RenderableResult):
 
         Example:
             >>> delta = session.compare(cur, base, alignment=mv.window_bucket())
-            >>> country = session.catalog.get("dimension.sales.orders.country").ref
-            >>> channel = session.catalog.get("dimension.sales.orders.channel").ref
+            >>> country = session.catalog.require(ms.Ref.dimension("sales.orders.country")).ref
+            >>> channel = session.catalog.require(ms.Ref.dimension("sales.orders.channel")).ref
             >>> attribution = session.attribute(
             ...     delta,
             ...     axes=[country, channel],
@@ -972,7 +1002,7 @@ class Session(RenderableResult):
 
         Example:
             >>> history = session.observe(
-            ...     session.catalog.get("metric.sales.revenue"),
+            ...     session.catalog.require(ms.Ref.metric("sales.revenue")),
             ...     time_scope={"start": "2026-01-01", "end": "2026-04-01"}, grain="day",
             ... )
             >>> forecast = session.forecast(
@@ -1235,7 +1265,7 @@ class SessionDiscoverNamespace:
         self,
         source: DeltaFrame,
         *,
-        search_space: list[AnalysisDimensionRef],
+        search_space: list[Ref[FieldKind]],
         value: str | None = None,
         limit: int | None = 50,
         analysis_purpose: str | None = None,
@@ -1273,7 +1303,7 @@ class SessionDiscoverNamespace:
         self,
         source: MetricFrame | DeltaFrame,
         *,
-        search_space: list[AnalysisDimensionRef] | None = None,
+        search_space: list[Ref[FieldKind]] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = 50,
@@ -1349,7 +1379,7 @@ class SessionDiscoverNamespace:
         self,
         source: MetricFrame,
         *,
-        peer_scope: list[AnalysisDimensionRef] | None = None,
+        peer_scope: list[Ref[FieldKind]] | None = None,
         value: str | None = None,
         threshold: float | None = None,
         limit: int | None = 50,

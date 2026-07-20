@@ -1,6 +1,6 @@
 # Unified Semantic Object Reference and Tier-2 Binding Implementation
 
-Status: implementation specification; code not yet changed by this document
+Status: implemented; acceptance verified against both normative designs
 
 Date: 2026-07-19
 

@@ -4,13 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
-from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.slice_types import SlicePredicate, SliceScalar, SliceValue
+from marivo.refs import (
+    FieldKind,
+    MeasureKind,
+    MetricKind,
+    Ref,
+    RefPayloadV1,
+    SemanticKind,
+    _decode_ref_payload,
+)
 from marivo.semantic._authoring_validation import _normalize_time_fold
 from marivo.semantic.ir import AggKind, AggregateFoldInput
-from marivo.semantic.refs import DimensionRef, MeasureRef, MetricRef, TimeDimensionRef
 
 type FrozenSliceScalar = SliceScalar
 type FrozenSliceValue = FrozenSliceScalar | tuple[FrozenSliceScalar, ...] | FrozenSlicePredicateV1
@@ -54,29 +61,29 @@ def _thaw_slice_value(value: FrozenSliceValue) -> SliceValue:
 
 
 @dataclass(frozen=True)
-class FrozenSliceMap(Mapping[AnalysisDimensionRef, SliceValue]):
+class FrozenSliceMap(Mapping[Ref[FieldKind], SliceValue]):
     """Immutable normalized copy of a public typed slice mapping."""
 
-    _items: tuple[tuple[AnalysisDimensionRef, FrozenSliceValue], ...]
+    _items: tuple[tuple[Ref[FieldKind], FrozenSliceValue], ...]
 
-    def __iter__(self) -> Iterator[AnalysisDimensionRef]:
+    def __iter__(self) -> Iterator[Ref[FieldKind]]:
         return (key for key, _value in self._items)
 
     def __len__(self) -> int:
         return len(self._items)
 
-    def __getitem__(self, key: AnalysisDimensionRef) -> SliceValue:
+    def __getitem__(self, key: Ref[FieldKind]) -> SliceValue:
         for candidate, value in self._items:
             if candidate == key:
                 return _thaw_slice_value(value)
         raise KeyError(key)
 
-    def frozen_items(self) -> tuple[tuple[AnalysisDimensionRef, FrozenSliceValue], ...]:
+    def frozen_items(self) -> tuple[tuple[Ref[FieldKind], FrozenSliceValue], ...]:
         return self._items
 
 
 def _freeze_slice_map(
-    value: Mapping[AnalysisDimensionRef, SliceValue] | None,
+    value: Mapping[Ref[FieldKind], SliceValue] | None,
     *,
     required: bool,
 ) -> FrozenSliceMap:
@@ -86,21 +93,24 @@ def _freeze_slice_map(
         return FrozenSliceMap(())
     if not isinstance(value, Mapping):
         raise TypeError(f"runtime metric slice requires a Mapping, got {type(value).__name__}")
-    items: list[tuple[AnalysisDimensionRef, FrozenSliceValue]] = []
-    seen: set[tuple[type[Any], str]] = set()
+    items: list[tuple[Ref[FieldKind], FrozenSliceValue]] = []
+    seen: set[tuple[SemanticKind, str]] = set()
     for key, item in value.items():
-        if not isinstance(key, DimensionRef | TimeDimensionRef):
+        if type(key) is not Ref or key.kind not in {
+            SemanticKind.DIMENSION,
+            SemanticKind.TIME_DIMENSION,
+        }:
             raise TypeError(
-                "runtime metric slice keys require exact DimensionRef or TimeDimensionRef"
+                "runtime metric slice keys require exact Ref[dimension | time_dimension]"
             )
-        identity = (type(key), key.id)
+        identity = (key.kind, key.path)
         if identity in seen:
-            raise ValueError(f"duplicate runtime metric slice dimension {key.id!r}")
+            raise ValueError(f"duplicate runtime metric slice dimension {key.path!r}")
         seen.add(identity)
         items.append((key, _freeze_slice_value(item)))
     if required and not items:
         raise ValueError("runtime metric slice mapping must not be empty")
-    items.sort(key=lambda pair: (pair[0].id, type(pair[0]).__qualname__))
+    items.sort(key=lambda pair: pair[0].key)
     return FrozenSliceMap(tuple(items))
 
 
@@ -145,7 +155,7 @@ def _normalize_fold(fold: AggregateFoldInput) -> AggregateFoldInput:
 @dataclass(frozen=True)
 class RuntimeAggregateExpr:
     kind: Literal["aggregate"]
-    measure: MeasureRef
+    measure: Ref[MeasureKind]
     agg: AggKind
     fold: AggregateFoldInput
     slice_by: FrozenSliceMap
@@ -155,7 +165,7 @@ class RuntimeAggregateExpr:
 @dataclass(frozen=True)
 class RuntimeSliceExpr:
     kind: Literal["slice"]
-    metric: MetricExprInput
+    metric: Ref[MetricKind] | RuntimeMetricExpr
     by: FrozenSliceMap
     label: str | None = field(default=None, compare=False, hash=False)
 
@@ -163,14 +173,13 @@ class RuntimeSliceExpr:
 @dataclass(frozen=True)
 class RuntimeRatioExpr:
     kind: Literal["ratio"]
-    numerator: MetricExprInput
-    denominator: MetricExprInput
+    numerator: Ref[MetricKind] | RuntimeMetricExpr
+    denominator: Ref[MetricKind] | RuntimeMetricExpr
     zero_division: Literal["null", "error"]
     label: str | None = field(default=None, compare=False, hash=False)
 
 
 type RuntimeMetricExpr = RuntimeAggregateExpr | RuntimeSliceExpr | RuntimeRatioExpr
-type MetricExprInput = MetricRef | RuntimeMetricExpr
 
 
 def _slice_value_payload(value: FrozenSliceValue) -> object:
@@ -219,44 +228,44 @@ def _slice_value_from_payload(payload: object) -> SliceValue:
 def _slice_map_payload(value: FrozenSliceMap) -> list[dict[str, object]]:
     return [
         {
-            "ref_kind": dimension.kind.value,
-            "semantic_id": dimension.id,
+            "dimension_ref": RefPayloadV1.from_ref(dimension).to_dict(),
             "value": _slice_value_payload(item),
         }
         for dimension, item in value.frozen_items()
     ]
 
 
-def _slice_map_from_payload(payload: object) -> dict[AnalysisDimensionRef, SliceValue]:
+def _slice_map_from_payload(payload: object) -> dict[Ref[FieldKind], SliceValue]:
     if not isinstance(payload, list):
         raise ValueError("runtime replay slice map must be an array")
-    result: dict[AnalysisDimensionRef, SliceValue] = {}
+    result: dict[Ref[FieldKind], SliceValue] = {}
     for item in payload:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or set(item) != {"dimension_ref", "value"}:
             raise ValueError("runtime replay slice entry must be an object")
-        semantic_id = item.get("semantic_id")
-        ref_kind = item.get("ref_kind")
-        if not isinstance(semantic_id, str) or not semantic_id:
-            raise ValueError("runtime replay slice entry requires semantic_id")
-        if ref_kind == "dimension":
-            ref: AnalysisDimensionRef = DimensionRef(semantic_id)
-        elif ref_kind == "time_dimension":
-            ref = TimeDimensionRef(semantic_id)
-        else:
-            raise ValueError("runtime replay slice entry has invalid ref_kind")
+        decoded = _decode_ref_payload(item["dimension_ref"])
+        if decoded.kind not in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+            raise ValueError("runtime replay slice entry requires a dimension ref")
+        ref = cast("Ref[FieldKind]", decoded)
         result[ref] = _slice_value_from_payload(item.get("value"))
     return result
 
 
-def replay_payload(expression: MetricExprInput) -> dict[str, object]:
+def replay_payload(expression: Ref[MetricKind] | RuntimeMetricExpr) -> dict[str, object]:
     """Encode one public metric descriptor for exact internal replay."""
 
-    if isinstance(expression, MetricRef):
-        return {"kind": "metric_ref", "metric_id": expression.id}
+    if type(expression) is Ref:
+        if expression.kind is not SemanticKind.METRIC:
+            raise TypeError("runtime replay expression ref must be Ref[metric]")
+        return {
+            "schema": "marivo.runtime_metric_expr/v1",
+            "kind": "metric_ref",
+            "metric_ref": RefPayloadV1.from_ref(expression).to_dict(),
+        }
     if isinstance(expression, RuntimeAggregateExpr):
         return {
+            "schema": "marivo.runtime_metric_expr/v1",
             "kind": "aggregate",
-            "measure_id": expression.measure.id,
+            "measure_ref": RefPayloadV1.from_ref(expression.measure).to_dict(),
             "agg": list(expression.agg) if isinstance(expression.agg, tuple) else expression.agg,
             "fold": (
                 list(expression.fold) if isinstance(expression.fold, tuple) else expression.fold
@@ -266,6 +275,7 @@ def replay_payload(expression: MetricExprInput) -> dict[str, object]:
         }
     if isinstance(expression, RuntimeSliceExpr):
         return {
+            "schema": "marivo.runtime_metric_expr/v1",
             "kind": "slice",
             "metric": replay_payload(expression.metric),
             "by": _slice_map_payload(expression.by),
@@ -273,6 +283,7 @@ def replay_payload(expression: MetricExprInput) -> dict[str, object]:
         }
     if isinstance(expression, RuntimeRatioExpr):
         return {
+            "schema": "marivo.runtime_metric_expr/v1",
             "kind": "ratio",
             "numerator": replay_payload(expression.numerator),
             "denominator": replay_payload(expression.denominator),
@@ -282,42 +293,69 @@ def replay_payload(expression: MetricExprInput) -> dict[str, object]:
     raise TypeError(f"unsupported runtime replay expression {type(expression).__name__}")
 
 
-def from_replay_payload(payload: object) -> MetricExprInput:
+def from_replay_payload(payload: object) -> Ref[MetricKind] | RuntimeMetricExpr:
     """Decode a current-schema replay descriptor through public constructors."""
 
-    if not isinstance(payload, dict) or not isinstance(payload.get("kind"), str):
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema") != "marivo.runtime_metric_expr/v1"
+        or not isinstance(payload.get("kind"), str)
+    ):
         raise ValueError("runtime replay expression must be a typed object")
     kind = payload["kind"]
     if kind == "metric_ref":
-        metric_id = payload.get("metric_id")
-        if not isinstance(metric_id, str) or not metric_id:
-            raise ValueError("runtime replay metric_ref requires metric_id")
-        return MetricRef(metric_id)
+        if set(payload) != {"schema", "kind", "metric_ref"}:
+            raise ValueError("runtime replay metric_ref fields are invalid")
+        metric_ref = _decode_ref_payload(payload["metric_ref"])
+        if metric_ref.kind is not SemanticKind.METRIC:
+            raise ValueError("runtime replay metric_ref requires metric kind")
+        return cast("Ref[MetricKind]", metric_ref)
     label = payload.get("label")
     if label is not None and not isinstance(label, str):
         raise ValueError("runtime replay label must be a string or null")
     if kind == "aggregate":
-        measure_id = payload.get("measure_id")
-        if not isinstance(measure_id, str) or not measure_id:
-            raise ValueError("runtime replay aggregate requires measure_id")
+        if set(payload) != {
+            "schema",
+            "kind",
+            "measure_ref",
+            "agg",
+            "fold",
+            "slice_by",
+            "label",
+        }:
+            raise ValueError("runtime replay aggregate fields are invalid")
+        measure_ref = _decode_ref_payload(payload["measure_ref"])
+        if measure_ref.kind is not SemanticKind.MEASURE:
+            raise ValueError("runtime replay aggregate requires measure ref")
         raw_agg = payload.get("agg")
         agg = tuple(raw_agg) if isinstance(raw_agg, list) else raw_agg
         raw_fold = payload.get("fold")
         fold = tuple(raw_fold) if isinstance(raw_fold, list) else raw_fold
         return aggregate(
-            MeasureRef(measure_id),
+            cast("Ref[MeasureKind]", measure_ref),
             agg=cast("AggKind", agg),
             fold=cast("AggregateFoldInput", fold),
             slice_by=_slice_map_from_payload(payload.get("slice_by")),
             label=label,
         )
     if kind == "slice":
+        if set(payload) != {"schema", "kind", "metric", "by", "label"}:
+            raise ValueError("runtime replay slice fields are invalid")
         return slice(
             from_replay_payload(payload.get("metric")),
             by=_slice_map_from_payload(payload.get("by")),
             label=label,
         )
     if kind == "ratio":
+        if set(payload) != {
+            "schema",
+            "kind",
+            "numerator",
+            "denominator",
+            "zero_division",
+            "label",
+        }:
+            raise ValueError("runtime replay ratio fields are invalid")
         zero_division = payload.get("zero_division")
         if zero_division not in {"null", "error"}:
             raise ValueError("runtime replay ratio has invalid zero_division")
@@ -330,27 +368,38 @@ def from_replay_payload(payload: object) -> MetricExprInput:
     raise ValueError(f"unknown runtime replay expression kind {kind!r}")
 
 
-def _require_metric_expr(value: object, *, parameter: str) -> MetricExprInput:
-    if isinstance(value, (MetricRef, RuntimeAggregateExpr, RuntimeSliceExpr, RuntimeRatioExpr)):
+def _require_metric_expr(
+    value: object,
+    *,
+    parameter: str,
+) -> Ref[MetricKind] | RuntimeMetricExpr:
+    if type(value) is Ref:
+        if value.kind is SemanticKind.METRIC:
+            return cast("Ref[MetricKind] | RuntimeMetricExpr", value)
+        raise TypeError(
+            f"runtime metric {parameter} requires exact Ref[metric] or RuntimeMetricExpr, "
+            f"got Ref[{value.kind.value}]"
+        )
+    if isinstance(value, (RuntimeAggregateExpr, RuntimeSliceExpr, RuntimeRatioExpr)):
         return value
     raise TypeError(
-        f"runtime metric {parameter} requires exact MetricRef or RuntimeMetricExpr, "
+        f"runtime metric {parameter} requires exact Ref[metric] or RuntimeMetricExpr, "
         f"got {type(value).__name__}"
     )
 
 
 def aggregate(
-    measure: MeasureRef,
+    measure: Ref[MeasureKind],
     *,
     agg: AggKind,
     fold: AggregateFoldInput = None,
-    slice_by: Mapping[AnalysisDimensionRef, SliceValue] | None = None,
+    slice_by: Mapping[Ref[FieldKind], SliceValue] | None = None,
     label: str | None = None,
 ) -> RuntimeAggregateExpr:
     """Construct one frozen aggregate over a governed measure.
 
     Args:
-        measure: Exact loaded ``MeasureRef`` to aggregate.
+        measure: Exact loaded ``Ref[measure]`` to aggregate.
         agg: Registered aggregate kind, including ``("percentile", q)``.
         fold: Optional authoring-aligned time fold.
         slice_by: Optional branch-local typed slice copied into the descriptor.
@@ -362,7 +411,7 @@ def aggregate(
 
     Example:
         >>> total = mv.runtime_metric.aggregate(
-        ...     session.catalog.get("measure.sales.orders.amount").ref,
+        ...     session.catalog.require(ms.Ref.measure("sales.orders.amount")).ref,
         ...     agg="sum",
         ...     label="Observed revenue",
         ... )
@@ -372,9 +421,10 @@ def aggregate(
         does not execute data, create catalog authority, or accept custom code.
     """
 
-    if not isinstance(measure, MeasureRef):
+    if type(measure) is not Ref or measure.kind is not SemanticKind.MEASURE:
         raise TypeError(
-            f"runtime metric aggregate measure requires exact MeasureRef, got {type(measure).__name__}"
+            "runtime metric aggregate measure requires exact Ref[measure], "
+            f"got {type(measure).__name__}"
         )
     return RuntimeAggregateExpr(
         kind="aggregate",
@@ -387,15 +437,15 @@ def aggregate(
 
 
 def slice(
-    metric: MetricExprInput,
+    metric: Ref[MetricKind] | RuntimeMetricExpr,
     *,
-    by: Mapping[AnalysisDimensionRef, SliceValue],
+    by: Mapping[Ref[FieldKind], SliceValue],
     label: str | None = None,
 ) -> RuntimeSliceExpr:
     """Construct one frozen branch-local slice over a metric expression.
 
     Args:
-        metric: Exact ``MetricRef`` or closed runtime metric expression.
+        metric: Exact ``Ref[metric]`` or closed runtime metric expression.
         by: Non-empty typed dimension-to-slice mapping copied into the descriptor.
         label: Optional presentation-only label.
 
@@ -404,8 +454,8 @@ def slice(
 
     Example:
         >>> failed = mv.runtime_metric.slice(
-        ...     session.catalog.get("metric.sales.requests").ref,
-        ...     by={session.catalog.get("dimension.sales.requests.state").ref: "FAILED"},
+        ...     session.catalog.require(ms.Ref.metric("sales.requests")).ref,
+        ...     by={session.catalog.require(ms.Ref.dimension("sales.requests.state")).ref: "FAILED"},
         ... )
 
     Constraints:
@@ -422,8 +472,8 @@ def slice(
 
 
 def ratio(
-    numerator: MetricExprInput,
-    denominator: MetricExprInput,
+    numerator: Ref[MetricKind] | RuntimeMetricExpr,
+    denominator: Ref[MetricKind] | RuntimeMetricExpr,
     *,
     zero_division: Literal["null", "error"] = "null",
     label: str | None = None,
@@ -431,8 +481,8 @@ def ratio(
     """Construct one frozen recursive ratio from two metric expressions.
 
     Args:
-        numerator: Exact ``MetricRef`` or closed runtime metric expression.
-        denominator: Exact ``MetricRef`` or closed runtime metric expression.
+        numerator: Exact ``Ref[metric]`` or closed runtime metric expression.
+        denominator: Exact ``Ref[metric]`` or closed runtime metric expression.
         zero_division: ``"null"`` to retain a null result or ``"error"`` to fail.
         label: Optional presentation-only label.
 
@@ -464,9 +514,7 @@ def ratio(
 
 
 __all__ = [
-    "AnalysisDimensionRef",
     "FrozenSliceMap",
-    "MetricExprInput",
     "RuntimeAggregateExpr",
     "RuntimeMetricExpr",
     "RuntimeRatioExpr",

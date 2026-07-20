@@ -22,8 +22,8 @@ from marivo.analysis.intents.observe import observe
 from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.session._layout import read_frame_from_disk
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -772,6 +772,19 @@ def test_compare_persists_job_and_frame(tmp_path):
     assert (s._layout.frames_dir / d.ref / "data.parquet").is_file()
     job_record = s.job(compare_jobs[0].id)
     assert job_record["params"]["alignment"]["kind"] == "window_bucket"
+    assert job_record["schema"] == "marivo.analysis_job/v1"
+    assert job_record["subject"]["kind"] == "delta_metric"
+    assert "semantic_model" not in job_record
+
+    persisted_meta = json.loads((s._layout.frames_dir / d.ref / "meta.json").read_text())
+    assert {"metric_id", "semantic_model", "status_time_dimension"}.isdisjoint(persisted_meta)
+    assert persisted_meta["comparison_identity"]["current"]["metric_ref"]["path"] == (
+        "sales.revenue"
+    )
+    assert persisted_meta["catalog_definition_fingerprint"]
+    loaded = s.get_frame(d.ref)
+    assert loaded.meta.metric_id == "sales.revenue"
+    assert loaded.meta.semantic_model == "sales"
 
 
 def test_compare_works_in_read_only_session(tmp_path):
@@ -877,7 +890,7 @@ def _bootstrap_unit_sales_project(tmp_path) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
@@ -928,7 +941,7 @@ def _bootstrap_compare_axis_project(tmp_path) -> None:
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
         "source=md.table('orders'))\n\n"
         "@ms.time_dimension(entity=orders, granularity='day', is_default=True)\n"
         "def order_date(orders):\n"

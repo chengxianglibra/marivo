@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
+import marivo.datasource.authoring as authoring_module
 import marivo.semantic as ms
 from marivo.datasource.authoring import (
     ClickHouseSpec,
@@ -17,6 +18,7 @@ from marivo.datasource.authoring import (
     PostgresSpec,
     TrinoSpec,
     _ir_from_spec,
+    validate_datasource_name,
 )
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
@@ -46,6 +48,43 @@ def test_duckdb_spec_defaults_to_memory_path() -> None:
     assert ir.backend_type == "duckdb"
     assert ir.fields == {"path": ":memory:", "read_only": False}
     assert ir.env_refs == {}
+
+
+@pytest.mark.parametrize(
+    ("name", "suggested"),
+    [
+        ("prod-mysql", "prod_mysql"),
+        ("Warehouse", "warehouse"),
+        ("1warehouse", "ds_1warehouse"),
+    ],
+)
+def test_datasource_name_grammar_rejects_legacy_shapes_with_valid_rename(
+    name: str,
+    suggested: str,
+) -> None:
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
+        validate_datasource_name(name)
+
+    assert exc_info.value.expected == "[a-z][a-z0-9_]*"
+    assert suggested in str(exc_info.value)
+    assert "secrets.toml" in str(exc_info.value)
+
+
+def test_datasource_name_validation_uses_shared_ref_segment_grammar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[object, str]] = []
+    shared_validator = authoring_module._validate_segment
+
+    def recording_validator(value: object, *, role: str) -> str:
+        calls.append((value, role))
+        return shared_validator(value, role=role)
+
+    monkeypatch.setattr(authoring_module, "_validate_segment", recording_validator)
+
+    validate_datasource_name("warehouse")
+
+    assert calls == [("warehouse", "datasource name")]
 
 
 def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:
@@ -168,9 +207,9 @@ def test_datasource_helper_returns_public_spec_and_ref() -> None:
     spec = md.duckdb(name="warehouse", path="warehouse.duckdb")
 
     assert isinstance(spec, md.DuckDBSpec)
-    assert spec.ref == md.ref("datasource.warehouse")
-    assert spec.ref.id == "datasource.warehouse"
-    assert not hasattr(spec.ref, "name")
+    assert spec.ref == ms.Ref.datasource("warehouse")
+    assert spec.ref.path == "warehouse"
+    assert spec.ref.name == "warehouse"
 
 
 def test_spec_ai_context_maps_to_ir() -> None:

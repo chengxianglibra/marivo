@@ -5,9 +5,10 @@ from contextlib import contextmanager
 import ibis
 import pytest
 
+import marivo.semantic as ms
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 
 class _FakeConnections:
@@ -36,7 +37,7 @@ def _catalog(semantic_project_factory):
             ),
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def amount(table):\n"
                 "    return table.amount\n"
@@ -53,16 +54,18 @@ def test_resolver_table_uses_connection_service(semantic_project_factory):
     backend = ibis.duckdb.connect(":memory:")
     backend.con.execute("CREATE TABLE orders (amount DOUBLE)")
     connections = _FakeConnections(backend)
-    resolver = _catalog(semantic_project_factory)._resolver(connections=connections)
+    resolver = _catalog(semantic_project_factory)._semantic_resolver(connections=connections)
 
-    table = resolver.table("sales.orders")
+    table = resolver.table(ms.Ref.entity("sales.orders"))
 
     assert "amount" in table.columns
-    assert connections.names == ["datasource.warehouse"]
+    assert connections.names == ["warehouse"]
 
 
 def test_resolver_dimension_on_accepts_semantic_ref(semantic_project_factory):
-    resolver = _catalog(semantic_project_factory)._resolver(connections=_FakeConnections(None))
+    resolver = _catalog(semantic_project_factory)._semantic_resolver(
+        connections=_FakeConnections(None)
+    )
     table = ibis.table({"amount": "float64"}, name="supplied_orders")
 
     value = resolver.dimension_on(
@@ -74,7 +77,9 @@ def test_resolver_dimension_on_accepts_semantic_ref(semantic_project_factory):
 
 
 def test_resolver_metric_on_rejects_wrong_kind(semantic_project_factory):
-    resolver = _catalog(semantic_project_factory)._resolver(connections=_FakeConnections(None))
+    resolver = _catalog(semantic_project_factory)._semantic_resolver(
+        connections=_FakeConnections(None)
+    )
     table = ibis.table({"amount": "float64"}, name="supplied_orders")
 
     with pytest.raises(SemanticRuntimeError) as exc_info:

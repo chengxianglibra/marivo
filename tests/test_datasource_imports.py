@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+import marivo.semantic as ms
+
 # A fresh interpreter is required for import-isolation checks: the test worker
 # already has marivo.semantic/analysis loaded via conftest, so the probe cannot
 # run in-process. Both isolation assertions share this single subprocess to
@@ -108,28 +110,20 @@ def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
 
 
 def test_datasource_ref_uses_kind_qualified_identity() -> None:
+    ref = ms.Ref.datasource("warehouse")
+
+    assert ref.kind is ms.SemanticKind.DATASOURCE
+    assert ref.path == "warehouse"
+    assert ref.name == "warehouse"
+    assert repr(ref) == "Ref[datasource](datasource:warehouse)"
+
+
+def test_datasource_surface_does_not_own_ref_identity() -> None:
     import marivo.datasource as md
 
-    ref = md.ref("datasource.warehouse")
-
-    assert ref.id == "datasource.warehouse"
-    assert not hasattr(ref, "name")
-    assert repr(ref) == "DatasourceRef('datasource.warehouse')"
-
-
-def test_datasource_ref_accepts_short_name_for_compatibility() -> None:
-    import marivo.datasource as md
-
-    assert md.ref("warehouse") == md.ref("datasource.warehouse")
-
-
-def test_datasource_ref_rejects_other_kind_identity() -> None:
-    import pytest
-
-    import marivo.datasource as md
-
-    with pytest.raises(ValueError, match="datasource\\.<name>"):
-        md.ref("metric.sales.revenue")
+    assert not hasattr(md, "Ref")
+    assert not hasattr(md, "DatasourceRef")
+    assert not hasattr(md, "ref")
 
 
 def test_datasource_public_exports() -> None:
@@ -137,7 +131,6 @@ def test_datasource_public_exports() -> None:
 
     for name in (
         "DatasourceCatalog",
-        "DatasourceRef",
         "DatasourceSpec",
         "DuckDBSpec",
         "TrinoSpec",

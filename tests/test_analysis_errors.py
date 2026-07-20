@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+import marivo.semantic as ms
 from marivo.analysis.errors import (
     AlignmentFailedError,
     AnalysisError,
@@ -125,7 +126,7 @@ def test_actionable_analysis_error_exposes_typed_repair() -> None:
         kind="retry",
         action="Use the registered metric id.",
         help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
-        snippet='session.observe(catalog.get("metric.sales.revenue"), time_scope=window)',
+        snippet='session.observe(catalog.require(ms.Ref.metric("sales.revenue")), time_scope=window)',
         candidates=("metric.sales.revenue",),
     )
     error = MetricNotFoundError(
@@ -226,16 +227,19 @@ def test_metric_not_found_uses_retry_when_candidates_exist() -> None:
     err = MetricNotFoundError(
         message="metric 'revenu' is not registered",
         context={
-            "metric_id": "sales.revenu",
-            "available_ids": ["sales.revenue", "sales.orders"],
+            "metric_ref": ms.Ref.metric("sales.revenu"),
+            "available_refs": [
+                ms.Ref.metric("sales.revenue"),
+                ms.Ref.metric("sales.orders"),
+            ],
         },
     )
 
     assert err.repair is not None
     assert err.repair.kind == "retry"
-    assert err.repair.candidates == ("sales.revenue", "sales.orders")
+    assert err.repair.candidates == ("metric:sales.revenue", "metric:sales.orders")
     assert err.repair.help_target == LiveHelpTarget(surface="analysis", canonical_id="observe")
-    assert err.received == "sales.revenu"
+    assert err.received == "metric:sales.revenu"
 
 
 def test_metric_not_found_uses_semantic_authoring_when_no_candidates() -> None:
@@ -244,8 +248,8 @@ def test_metric_not_found_uses_semantic_authoring_when_no_candidates() -> None:
     err = MetricNotFoundError(
         message="metric 'nonexistent' is not registered",
         context={
-            "metric_id": "sales.nonexistent",
-            "available_ids": [],
+            "metric_ref": ms.Ref.metric("sales.nonexistent"),
+            "available_refs": [],
         },
     )
 
@@ -260,7 +264,7 @@ def test_metric_not_found_uses_semantic_authoring_when_no_candidates() -> None:
         "snippet",
         "candidates",
     }
-    assert err.received == "sales.nonexistent"
+    assert err.received == "metric:sales.nonexistent"
     assert "md.raw_sql" in err.repair.action
     assert "closeout" in err.repair.action
     assert err.repair.snippet is None

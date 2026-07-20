@@ -18,7 +18,6 @@ PUBLIC_CALLABLE_TARGETS = {
     "mysql",
     "postgres",
     "clickhouse",
-    "ref",
     "register",
     "remove",
     "load",
@@ -66,7 +65,6 @@ EXPECTED_EFFECTS = {
     "mysql": AuthoringEffects(data_access="none", connection="none"),
     "postgres": AuthoringEffects(data_access="none", connection="none"),
     "clickhouse": AuthoringEffects(data_access="none", connection="none"),
-    "ref": AuthoringEffects(data_access="none", connection="none"),
     "register": AuthoringEffects(
         data_access="local_metadata_read",
         connection="none",
@@ -189,7 +187,7 @@ def test_registry_input_contracts_match_required_datasource_arguments() -> None:
     )
     assert tuple(
         requirement.family for requirement in REGISTRY.by_canonical_id("raw_sql").input_requirements
-    ) == ("DatasourceRef", "SqlText", "RawSqlReason")
+    ) == ("Ref[datasource]", "SqlText", "RawSqlReason")
     relationship_requirements = REGISTRY.by_canonical_id(
         "DiscoverySnapshot.relationships"
     ).input_requirements

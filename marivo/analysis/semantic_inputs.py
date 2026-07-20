@@ -3,62 +3,40 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import NoReturn
+from typing import NoReturn, cast
 
-from marivo.analysis._semantic_types import AnalysisDimensionRef as AnalysisDimensionRef
 from marivo.analysis.errors import MetricNotFoundError, SemanticKindMismatchError
-from marivo.analysis.runtime_metric import RuntimeMetricExpr
 from marivo.analysis.slice_types import SliceValue
-from marivo.refs import SemanticRef
-from marivo.semantic.catalog import CatalogObject, SemanticCatalog, SemanticKind
-from marivo.semantic.errors import SemanticRuntimeError
-from marivo.semantic.refs import DimensionRef, MetricRef, TimeDimensionRef
-
-type ObserveMetricInput = MetricRef | RuntimeMetricExpr
+from marivo.refs import FieldKind, MetricKind, Ref, SemanticKind, SemanticKindTag
+from marivo.semantic.catalog import CatalogEntry, SemanticCatalog
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
 
-def _typed_catalog_id(ref: str, kind: SemanticKind) -> str:
-    return f"{kind.value}.{ref}"
-
-
-def _available_ids(catalog: SemanticCatalog, *, kind: SemanticKind) -> list[str]:
-    return sorted(catalog._require_index().semantic_ids(kind))
-
-
-def _available_dimension_ids(catalog: SemanticCatalog) -> list[str]:
-    index = catalog._require_index()
-    ids: list[str] = []
-    for entity_ref in index.semantic_ids(SemanticKind.ENTITY):
-        scope_id = f"entity.{entity_ref}"
-        ids.extend(index.semantic_ids(SemanticKind.DIMENSION, scope_id=scope_id))
-        ids.extend(index.semantic_ids(SemanticKind.TIME_DIMENSION, scope_id=scope_id))
-    return sorted(ids)
-
-
-def _resolve_unique_typed_id(ref: str, available_ids: Sequence[str]) -> str:
-    """Resolve an exact typed ref's id to one canonical catalog id."""
-
-    if ref in available_ids:
-        return ref
-    matches = [candidate for candidate in available_ids if candidate.endswith(f".{ref}")]
-    return matches[0] if len(matches) == 1 else ref
+def _available_refs(
+    catalog: SemanticCatalog,
+    *,
+    kinds: frozenset[SemanticKind],
+) -> list[str]:
+    return sorted(
+        entry.ref.key for entry in catalog._require_index()._by_ref.values() if entry.kind in kinds
+    )
 
 
 def _repair_snippets() -> list[str]:
     return [
-        "Use loaded_object.ref instead of the loaded catalog object.",
+        "Use loaded_entry.ref instead of the CatalogEntry.",
         "session.catalog.domains.show()",
-        "session.catalog.domains.get('<domain>').metrics.refs()",
-        ("session.catalog.domains.get('<domain>').entities.get('<entity>').dimensions.refs()"),
-        ("session.catalog.domains.get('<domain>').entities.get('<entity>').time_dimensions.refs()"),
+        "session.catalog.domains.get('<domain>').metrics.refs",
+        "session.catalog.domains.get('<domain>').entities.get('<entity>').dimensions.refs",
+        "session.catalog.domains.get('<domain>').entities.get('<entity>').time_dimensions.refs",
     ]
 
 
 def _received(value: object) -> tuple[str, str]:
-    if isinstance(value, CatalogObject):
-        return str(value.ref.kind), type(value).__name__
-    if isinstance(value, SemanticRef):
-        return str(value.kind), type(value).__name__
+    if isinstance(value, CatalogEntry):
+        return value.kind.value, type(value).__name__
+    if type(value) is Ref:
+        return value.kind.value, "Ref"
     return type(value).__name__, type(value).__name__
 
 
@@ -68,210 +46,152 @@ def _reject_exact(
     argument: str,
     expected_kind: str,
     expected_type: str,
-    available_ids: Sequence[str] | None = None,
-    actual_kind_override: str | None = None,
+    available_refs: Sequence[str] | None = None,
 ) -> NoReturn:
     actual_kind, actual_type = _received(value)
-    if actual_kind_override is not None:
-        actual_kind = actual_kind_override
-    ref = getattr(getattr(value, "ref", value), "id", str(value))
+    received_ref = value.ref if isinstance(value, CatalogEntry) else value
+    ref_key = received_ref.key if type(received_ref) is Ref else None
     context: dict[str, object] = {
         "argument": argument,
-        "ref": ref,
+        "ref": ref_key,
         "expected_kind": expected_kind,
         "expected_type": expected_type,
         "actual_kind": actual_kind,
         "actual_type": actual_type,
         "repair": _repair_snippets(),
     }
-    if available_ids is not None:
-        context["available_ids"] = list(available_ids)
+    if available_refs is not None:
+        context["available_refs"] = list(available_refs)
     raise SemanticKindMismatchError(
-        message=(f"{argument} requires exact {expected_type}; got {actual_type} ({actual_kind})."),
-        hint=(
-            "Pass the exact typed .ref from catalog navigation; loaded catalog objects, "
-            "generic SemanticRef values, bare ids, and wrong-kind refs are not accepted."
-        ),
+        message=f"{argument} requires exact {expected_type}; got {actual_type} ({actual_kind}).",
+        hint="Pass entry.ref or construct one exact ms.Ref.<kind>(path).",
         context=context,
     )
 
 
-def _actual_catalog_kind(catalog: SemanticCatalog, ref: str) -> SemanticKind | None:
-    return catalog._require_index().kind_of(ref)
-
-
-def normalize_metric_input(catalog: SemanticCatalog, metric: MetricRef) -> str:
-    """Validate and return one exact catalog metric ref id."""
-    if not isinstance(metric, MetricRef):
-        _reject_exact(
-            metric,
-            argument="metric",
-            expected_kind="metric",
-            expected_type="MetricRef",
-            available_ids=_available_ids(catalog, kind=SemanticKind.METRIC),
-        )
-    ref = _resolve_unique_typed_id(
-        metric.id,
-        _available_ids(catalog, kind=SemanticKind.METRIC),
-    )
+def _require_member(
+    catalog: SemanticCatalog,
+    ref: Ref[SemanticKindTag],
+    *,
+    argument: str,
+    expected_kind: str,
+    expected_type: str,
+    available_refs: Sequence[str],
+) -> str:
     try:
-        obj = catalog.get(_typed_catalog_id(ref, SemanticKind.METRIC))
+        return catalog.require(ref).path
     except SemanticRuntimeError as exc:
-        if exc.kind != "not_found":
+        if exc.kind != ErrorKind.NOT_FOUND:
             raise
-        actual_kind = _actual_catalog_kind(catalog, ref)
-        if actual_kind is not None:
-            _reject_exact(
-                metric,
-                argument="metric",
-                expected_kind="metric",
-                expected_type="MetricRef",
-                available_ids=_available_ids(catalog, kind=SemanticKind.METRIC),
-                actual_kind_override=str(actual_kind),
-            )
-        raise MetricNotFoundError(
-            message=f"metric {ref!r} not found",
-            hint="Use session.catalog.domains.get('<name>').metrics.refs() to browse refs.",
-            context={
-                "metric": ref,
-                "metric_id": ref,
-                "available_ids": _available_ids(catalog, kind=SemanticKind.METRIC),
-            },
-        ) from exc
-    if obj.ref.kind != SemanticKind.METRIC:
+        if ref.kind is SemanticKind.METRIC:
+            raise MetricNotFoundError(
+                message=f"metric {ref.path!r} not found",
+                hint="Use session.catalog.metrics.show() to browse refs.",
+                context={
+                    "metric": ref.path,
+                    "metric_ref": ref.key,
+                    "available_refs": list(available_refs),
+                },
+            ) from exc
+        _reject_exact(
+            ref,
+            argument=argument,
+            expected_kind=expected_kind,
+            expected_type=expected_type,
+            available_refs=available_refs,
+        )
+
+
+def normalize_metric_input(catalog: SemanticCatalog, metric: Ref[MetricKind]) -> str:
+    """Validate and return one exact catalog metric path."""
+    available = _available_refs(catalog, kinds=frozenset({SemanticKind.METRIC}))
+    if type(metric) is not Ref or metric.kind is not SemanticKind.METRIC:
         _reject_exact(
             metric,
             argument="metric",
             expected_kind="metric",
-            expected_type="MetricRef",
-            available_ids=_available_ids(catalog, kind=SemanticKind.METRIC),
+            expected_type="Ref[metric]",
+            available_refs=available,
         )
-    return ref
+    return _require_member(
+        catalog,
+        cast("Ref[SemanticKindTag]", metric),
+        argument="metric",
+        expected_kind="metric",
+        expected_type="Ref[metric]",
+        available_refs=available,
+    )
 
 
 def normalize_dimension_input(
     catalog: SemanticCatalog,
-    dimension: AnalysisDimensionRef,
+    dimension: Ref[FieldKind],
     *,
     argument: str = "dimension",
 ) -> str:
-    """Validate and return one exact dimension or time-dimension ref id."""
-    if not isinstance(dimension, DimensionRef | TimeDimensionRef):
+    """Validate and return one exact dimension or time-dimension path."""
+    kinds = frozenset({SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION})
+    available = _available_refs(catalog, kinds=kinds)
+    if type(dimension) is not Ref or dimension.kind not in kinds:
         _reject_exact(
             dimension,
             argument=argument,
-            expected_kind="dimension",
-            expected_type="DimensionRef or TimeDimensionRef",
-            available_ids=_available_dimension_ids(catalog),
+            expected_kind="dimension or time_dimension",
+            expected_type="Ref[dimension | time_dimension]",
+            available_refs=available,
         )
-    expected_kind = (
-        SemanticKind.TIME_DIMENSION
-        if isinstance(dimension, TimeDimensionRef)
-        else SemanticKind.DIMENSION
+    return _require_member(
+        catalog,
+        cast("Ref[SemanticKindTag]", dimension),
+        argument=argument,
+        expected_kind="dimension or time_dimension",
+        expected_type="Ref[dimension | time_dimension]",
+        available_refs=available,
     )
-    available_dimension_ids = _available_dimension_ids(catalog)
-    expected_ids = [
-        semantic_id
-        for semantic_id in available_dimension_ids
-        if catalog._require_index().registry.dimensions[semantic_id].is_time_dimension
-        == (expected_kind == SemanticKind.TIME_DIMENSION)
-    ]
-    ref = _resolve_unique_typed_id(dimension.id, expected_ids)
-    if not available_dimension_ids:
-        return ref
-    try:
-        obj = catalog.get(_typed_catalog_id(ref, expected_kind))
-    except SemanticRuntimeError as exc:
-        if exc.kind != "not_found":
-            raise
-        actual_kind = _actual_catalog_kind(catalog, dimension.id)
-        if actual_kind is not None:
-            _reject_exact(
-                dimension,
-                argument=argument,
-                expected_kind="dimension",
-                expected_type="DimensionRef or TimeDimensionRef",
-                available_ids=_available_dimension_ids(catalog),
-                actual_kind_override=str(actual_kind),
-            )
-        _reject_exact(
-            dimension,
-            argument=argument,
-            expected_kind="dimension",
-            expected_type="DimensionRef or TimeDimensionRef",
-            available_ids=_available_dimension_ids(catalog),
-            actual_kind_override="not_found",
-        )
-    if obj.ref.kind != expected_kind:
-        _reject_exact(
-            dimension,
-            argument=argument,
-            expected_kind="dimension",
-            expected_type="DimensionRef or TimeDimensionRef",
-            available_ids=_available_dimension_ids(catalog),
-        )
-    return ref
 
 
 def normalize_time_dimension_input(
     catalog: SemanticCatalog,
-    time_dimension: TimeDimensionRef,
+    time_dimension: Ref[FieldKind],
     *,
     argument: str = "time_dimension",
 ) -> str:
-    """Validate and return one exact time-dimension ref id."""
-    if not isinstance(time_dimension, TimeDimensionRef):
+    """Validate and return one exact time-dimension path."""
+    available = _available_refs(
+        catalog,
+        kinds=frozenset({SemanticKind.TIME_DIMENSION}),
+    )
+    if type(time_dimension) is not Ref or time_dimension.kind is not SemanticKind.TIME_DIMENSION:
         _reject_exact(
             time_dimension,
             argument=argument,
             expected_kind="time_dimension",
-            expected_type="TimeDimensionRef",
-            available_ids=_available_dimension_ids(catalog),
+            expected_type="Ref[time_dimension]",
+            available_refs=available,
         )
-    expected_ids = [
-        semantic_id
-        for semantic_id, dimension in catalog._require_index().registry.dimensions.items()
-        if dimension.is_time_dimension
-    ]
-    ref = _resolve_unique_typed_id(time_dimension.id, expected_ids)
-    try:
-        obj = catalog.get(_typed_catalog_id(ref, SemanticKind.TIME_DIMENSION))
-    except SemanticRuntimeError as exc:
-        if exc.kind != "not_found":
-            raise
-        _reject_exact(
-            time_dimension,
-            argument=argument,
-            expected_kind="time_dimension",
-            expected_type="TimeDimensionRef",
-            available_ids=_available_dimension_ids(catalog),
-        )
-    if obj.ref.kind != SemanticKind.TIME_DIMENSION:
-        _reject_exact(
-            time_dimension,
-            argument=argument,
-            expected_kind="time_dimension",
-            expected_type="TimeDimensionRef",
-            available_ids=_available_dimension_ids(catalog),
-        )
-    return ref
+    return _require_member(
+        catalog,
+        cast("Ref[SemanticKindTag]", time_dimension),
+        argument=argument,
+        expected_kind="time_dimension",
+        expected_type="Ref[time_dimension]",
+        available_refs=available,
+    )
 
 
 def normalize_dimension_boundary(
     catalog: SemanticCatalog,
-    dimension: AnalysisDimensionRef,
+    dimension: Ref[FieldKind],
     *,
     argument: str = "dimension",
 ) -> str:
-    """Normalize an exact analysis dimension ref at a public boundary."""
     return normalize_dimension_input(catalog, dimension, argument=argument)
 
 
 def normalize_dimension_inputs(
     catalog: SemanticCatalog,
-    dimensions: Sequence[AnalysisDimensionRef] | None,
+    dimensions: Sequence[Ref[FieldKind]] | None,
 ) -> list[str]:
-    """Normalize a dimension sequence to semantic ids."""
     return [
         normalize_dimension_input(catalog, dimension, argument="dimensions")
         for dimension in dimensions or ()
@@ -280,9 +200,8 @@ def normalize_dimension_inputs(
 
 def normalize_where_inputs(
     catalog: SemanticCatalog,
-    where: Mapping[AnalysisDimensionRef, SliceValue] | None,
+    where: Mapping[Ref[FieldKind], SliceValue] | None,
 ) -> dict[str, SliceValue]:
-    """Normalize a typed read-only slice mapping to an isolated string-key copy."""
     if where is None:
         return {}
     return {

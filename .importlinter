@@ -11,6 +11,8 @@ source_modules =
 forbidden_modules =
     marivo.semantic
     marivo.analysis
+ignore_imports =
+    marivo.refs -> marivo.semantic._expression_binding
 
 [importlinter:contract:semantic-does-not-import-analysis]
 name = semantic must not depend on analysis
@@ -44,6 +46,8 @@ forbidden_modules =
     marivo.semantic
     marivo.analysis
     marivo._authoring
+ignore_imports =
+    marivo.refs -> marivo.semantic._expression_binding
 
 [importlinter:contract:authoring-is-private-domain-kernel]
 name = _authoring must not depend on surfaces
@@ -54,3 +58,5 @@ forbidden_modules =
     marivo.datasource
     marivo.semantic
     marivo.analysis
+ignore_imports =
+    marivo.refs -> marivo.semantic._expression_binding

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.readiness import ReadinessIssue
@@ -63,7 +64,7 @@ def test_catalog_object_contract_exposes_verify_preview_readiness(
     import marivo.semantic as ms
 
     catalog = ms.load()
-    obj = catalog.get("metric.sales.revenue")
+    obj = catalog.require(ms.Ref.metric("sales.revenue"))
     contract = obj.contract()
     kinds = {t.kind for t in contract.transitions}
     assert "verify" in kinds
@@ -90,7 +91,7 @@ def test_readiness_report_keeps_ready_refs_without_analysis_transition() -> None
 
     report = ReadinessReport(
         status="ready",
-        analysis_ready_refs=("metric.sales.revenue",),
+        analysis_ready_refs=(ms.Ref.metric("sales.revenue"),),
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(
@@ -101,7 +102,7 @@ def test_readiness_report_keeps_ready_refs_without_analysis_transition() -> None
         checked_at="2026-07-14T00:00:00Z",
     )
     contract = report.contract()
-    assert report.analysis_ready_refs == ("metric.sales.revenue",)
+    assert report.analysis_ready_refs == (ms.Ref.metric("sales.revenue"),)
     assert contract.transitions == ()
 
 

@@ -20,12 +20,13 @@ from marivo.datasource._capabilities.registry import REGISTRY
 from marivo.datasource.errors import repair
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import Ref
 
 type ContractSource = TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR
 
 
 def _subject(name: str) -> tuple[str, ...]:
-    return (f"datasource.{name}",)
+    return (Ref.datasource(name).key,)
 
 
 def source_subject_ref(source: ContractSource) -> str:
@@ -36,7 +37,7 @@ def source_subject_ref(source: ContractSource) -> str:
 
 
 def _inspection_subjects(datasource_id: str, source: ContractSource) -> tuple[str, ...]:
-    return (datasource_id, source_subject_ref(source))
+    return (Ref.datasource(datasource_id).key, source_subject_ref(source))
 
 
 def _state(state_id: AuthoringStateId, subject_refs: tuple[str, ...]) -> AuthoringStateRef:
@@ -129,7 +130,7 @@ def contract_for_registered(name: str) -> AuthoringContract:
                     available=True,
                     input_requirements=(
                         AuthoringInputRequirement(
-                            role="subject", family="DatasourceRef", subject_refs=subject_refs
+                            role="subject", family="Ref[datasource]", subject_refs=subject_refs
                         ),
                         AuthoringInputRequirement(role="dependency", family="TableSource"),
                     ),

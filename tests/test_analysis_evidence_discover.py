@@ -10,7 +10,8 @@ import pytest
 import marivo.analysis.session as session_attach
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 from tests.shared_fixtures import make_metric_frame
 
 
@@ -18,6 +19,7 @@ from tests.shared_fixtures import make_metric_frame
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
+    bootstrap_sales_project(tmp_path)
     yield
 
 
@@ -74,7 +76,7 @@ def test_discover_non_anomaly_objective_commits_without_seeding() -> None:
 
     candidates = session.discover.interesting_slices(
         frame,
-        search_space=[make_ref("country", SemanticKind.DIMENSION)],
+        search_space=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
         threshold=1.0,
     )
 

@@ -81,9 +81,9 @@ minimal invocation.
 
 When analysis needs a newly authored or changed object, close out that change
 first: `md.inspect(...)` → explicit scope → `inspection.sample(...)` once →
-snapshot projections → one Python object → `catalog.verify_object(obj)` →
-`catalog.preview(obj, using=snapshot)` → zero-query
-`catalog.readiness(refs=[obj])`. Routine analysis of unchanged objects does not
+snapshot projections → one Python declaration → exact ref → `catalog.verify(ref)` →
+`catalog.preview(ref, using=snapshot)` → zero-query
+`catalog.readiness(refs=[ref])`. Routine analysis of unchanged objects does not
 repeat this authoring evidence flow. Uncommon formats and semantic judgments
 remain agent-owned.
 
@@ -102,8 +102,8 @@ datasource. `artifact.id` is a read-only alias of the canonical `artifact.ref`.
 ```python
 session = mv.session.get_or_create(name="revenue-investigation", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue_object = catalog.get("metric.sales.revenue")
-region_object = catalog.get("dimension.sales.orders.region")
+revenue_object = catalog.require(ms.Ref.metric("sales.revenue"))
+region_object = catalog.require(ms.Ref.dimension("sales.orders.region"))
 
 revenue_object.details().show()     # definition, candidate axes, and measure lineage
 region_object.details().show()
@@ -147,8 +147,8 @@ across almost every intent:
 
 | Value | Shape | Meaning |
 | --- | --- | --- |
-| metric input | `catalog.get("metric.sales.revenue").ref` | Exact `MetricRef`, or a closed `RuntimeMetricExpr` for `observe`; loaded objects, generic refs, and strings are rejected. |
-| dimension input | `catalog.get("dimension.sales.orders.region").ref` | Exact `DimensionRef` / `TimeDimensionRef` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
+| metric input | `catalog.require(ms.Ref.metric("sales.revenue")).ref` | Exact `Ref[metric]`, or a closed `RuntimeMetricExpr` for `observe`; loaded objects, generic refs, and strings are rejected. |
+| dimension input | `catalog.require(ms.Ref.dimension("sales.orders.region")).ref` | Exact `Ref[dimension]` / `Ref[time_dimension]` (see [Semantic refs](/en/latest/concepts/semantic-layer/#semantic-refs)). Used for `dimensions`, `slice_by` keys, and `axis`. |
 | `time_scope` | `{"start": "2026-10-01", "end": "2027-01-01"}` | Half-open time range — `start` inclusive, `end` exclusive. |
 | `grain` | `"day" \| "week" \| "month" \| "quarter" \| "year" \| "hour" \| …` | Time bucket size. Present ⇒ time series or panel. |
 | `dimensions` | `[region, country]` | Segment axes. In v1 all must resolve to the metric's entity. |
@@ -181,12 +181,12 @@ segments.
 
 | Parameter | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `metric` | `MetricRef | RuntimeMetricExpr`, or non-empty sequence | Yes | — | Exact catalog ref or closed runtime expression; loaded objects, generic refs, and bare strings are rejected. |
+| `metric` | `Ref[metric] | RuntimeMetricExpr`, or non-empty sequence | Yes | — | Exact catalog ref or closed runtime expression; loaded objects, generic refs, and bare strings are rejected. |
 | `time_scope` | dict | No | `None` | Half-open `{"start", "end"}` window. |
 | `grain` | grain | No | `None` | Time bucket; present ⇒ time series or panel. |
-| `dimensions` | `list[DimensionRef | TimeDimensionRef]` | No | `None` | Exact typed segment axes. |
-| `slice_by` | `Mapping[AnalysisDimensionRef, SliceValue]` | No | `None` | Global pre-aggregation row filter. |
-| `time_dimension` | `TimeDimensionRef` | No | entity default | Pick the time axis when the entity declares several. |
+| `dimensions` | `list[Ref[dimension] | Ref[time_dimension]]` | No | `None` | Exact typed segment axes. |
+| `slice_by` | `Mapping[AnalysisRef[dimension], SliceValue]` | No | `None` | Global pre-aggregation row filter. |
+| `time_dimension` | `Ref[time_dimension]` | No | entity default | Pick the time axis when the entity declares several. |
 | `expect_shape` | shape | No | `None` | Guard; raises before backend work if the predicted shape differs. |
 
 ```python
@@ -211,7 +211,7 @@ exact exported name(s).
 
 ```python
 report = session.observe(
-    [revenue, catalog.get("metric.sales.total_orders").ref],
+    [revenue, catalog.require(ms.Ref.metric("sales.total_orders")).ref],
     time_scope={"start": "2026-10-01", "end": "2027-01-01"},
     grain="month",
 )
@@ -237,7 +237,7 @@ frame = session.observe(failure_rate, time_scope=window, grain="day")
 ```
 
 Runtime expressions may recursively contain runtime expressions and catalog
-`MetricRef` children. `runtime_metric.slice(..., by=...)` is branch-local;
+`Ref[metric]` children. `runtime_metric.slice(..., by=...)` is branch-local;
 `observe(..., slice_by=...)` is global. Both catalog and runtime roots lower to
 one canonical graph (maximum depth 10, maximum 256 submitted pre-CSE
 occurrences) and one model/source domain. Labels affect presentation only, not
@@ -529,7 +529,7 @@ claims separate from canonical artifact evidence.
 import marivo.datasource as md
 
 result = md.raw_sql(
-    md.ref("datasource.warehouse"),
+    ms.Ref.datasource("warehouse"),
     "SELECT region, SUM(amount) AS revenue FROM orders GROUP BY region",
     reason="custom revenue breakdown",
 )
@@ -640,8 +640,8 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(name="revenue-check", question="Why did Q4 drop?")
 catalog = session.catalog
-revenue = catalog.get("metric.sales.revenue").ref
-region = catalog.get("dimension.sales.orders.region").ref
+revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+region = catalog.require(ms.Ref.dimension("sales.orders.region")).ref
 
 current = session.observe(
     revenue,

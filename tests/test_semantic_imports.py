@@ -5,7 +5,7 @@ This test verifies:
 - ``SemanticError`` subclasses exist and have the right fields.
 - ``ErrorKind`` enum has all expected values.
 - IR dataclasses are frozen.
-- Ref types have correct ``kind`` and ``semantic_id`` attributes.
+- Unified refs have exact ``kind`` and ``path`` attributes.
 
 Note: pytest.ini sets ``python_classes =`` (empty), so only
 ``unittest.TestCase`` subclasses are collected.  All tests here use
@@ -35,16 +35,9 @@ from marivo.semantic.ir import (
     MetricIR,
     ParityStatus,
     RelationshipIR,
+    SemanticKind,
     SourceLocation,
     SqlProvenance,
-    SymbolKind,
-)
-from marivo.semantic.refs import (
-    DimensionRef,
-    EntityRef,
-    MetricRef,
-    RelationshipRef,
-    TimeDimensionRef,
 )
 
 # ---------------------------------------------------------------------------
@@ -63,43 +56,36 @@ def test_all_list_matches_expected() -> None:
         "AggregateFoldValue",
         "AiContextValue",
         "CatalogCollection",
-        "CatalogObject",
-        "Datasource",
+        "CatalogEntry",
+        "DatasourceEntry",
         "DatasourceDetails",
         "DerivedMetricDetails",
-        "Dimension",
+        "DimensionEntry",
         "DimensionDetails",
-        "DimensionRef",
-        "Domain",
+        "DomainEntry",
         "DomainDetails",
-        "DomainRef",
-        "Entity",
+        "EntityEntry",
         "EntityDetails",
-        "EntityRef",
         "JoinKey",
-        "Measure",
+        "MeasureEntry",
         "MeasureDetails",
-        "MeasureRef",
-        "Metric",
+        "MetricEntry",
         "MetricDetails",
-        "MetricRef",
         "ParityResult",
         "PreviewBatchResult",
         "ReadinessIssue",
         "ReadinessInputSummary",
         "ReadinessReport",
-        "Relationship",
+        "RelationshipEntry",
         "RelationshipDetails",
-        "RelationshipRef",
+        "Ref",
         "RichnessReport",
         "SemanticCatalog",
         "SemanticKind",
-        "SemanticRef",
         "SimpleMetricDetails",
         "SqlProvenance",
-        "TimeDimension",
+        "TimeDimensionEntry",
         "TimeDimensionDetails",
-        "TimeDimensionRef",
         "VerifyResult",
         "help_text",
         "load",
@@ -129,7 +115,6 @@ def test_all_list_matches_expected() -> None:
         "ratio",
         "strptime",
         "weighted_average",
-        "ref",
         "snapshot",
         "timestamp",
         "trailing",
@@ -370,6 +355,15 @@ _EXPECTED_RUNTIME_KINDS = {
     "backend_factory_required",
     "inspect_source_required",
     "project_not_loaded",
+    "binding_context_missing",
+    "invalid_binding_ref",
+    "binding_alias_not_direct",
+    "binding_alias_ambiguous",
+    "binding_entity_mismatch",
+    "binding_not_declared",
+    "binding_target_missing",
+    "binding_cycle",
+    "binding_result_invalid",
 }
 
 _EXPECTED_PARITY_KINDS = {
@@ -466,7 +460,7 @@ def test_symbol_kind_values() -> None:
         "metric",
         "relationship",
     }
-    actual = {k.value for k in SymbolKind}
+    actual = {k.value for k in SemanticKind}
     assert actual == expected
 
 
@@ -483,8 +477,8 @@ def test_dataset_provenance_values() -> None:
 
 
 def test_symbol_kind_is_str_enum() -> None:
-    assert isinstance(SymbolKind.DOMAIN, str)
-    assert SymbolKind.DOMAIN.value == "domain"
+    assert isinstance(SemanticKind.DOMAIN, str)
+    assert SemanticKind.DOMAIN.value == "domain"
 
 
 def test_parity_status_is_str_enum() -> None:
@@ -510,64 +504,61 @@ def test_field_kind_is_str_enum() -> None:
 
 
 def test_dataset_ref() -> None:
-    ref = EntityRef("sales.orders")
-    assert ref.id == "sales.orders"
-    assert ref.kind == SymbolKind.ENTITY
-    assert "EntityRef" in repr(ref)
+    ref = ms.Ref.entity("sales.orders")
+    assert ref.path == "sales.orders"
+    assert ref.kind == SemanticKind.ENTITY
+    assert repr(ref) == "Ref[entity](entity:sales.orders)"
 
 
 def test_field_ref() -> None:
-    ref = DimensionRef("sales.orders.amount")
-    assert ref.id == "sales.orders.amount"
-    assert ref.kind == SymbolKind.DIMENSION
+    ref = ms.Ref.dimension("sales.orders.amount")
+    assert ref.path == "sales.orders.amount"
+    assert ref.kind == SemanticKind.DIMENSION
 
 
 def test_field_ref_callable_without_resolver_raises() -> None:
-    ref = DimensionRef("sales.orders.amount")
-    with pytest.raises(RuntimeError, match="no resolver"):
+    ref = ms.Ref.dimension("sales.orders.amount")
+    with pytest.raises(errors_mod.SemanticRuntimeError) as exc_info:
         ref(None)
+    assert exc_info.value.kind == "binding_context_missing"
 
 
 def test_time_field_ref() -> None:
-    ref = TimeDimensionRef("sales.orders.order_date")
-    assert ref.id == "sales.orders.order_date"
-    assert ref.kind == SymbolKind.TIME_DIMENSION
+    ref = ms.Ref.time_dimension("sales.orders.order_date")
+    assert ref.path == "sales.orders.order_date"
+    assert ref.kind == SemanticKind.TIME_DIMENSION
 
 
 def test_time_field_ref_callable_without_resolver_raises() -> None:
-    ref = TimeDimensionRef("sales.orders.order_date")
-    with pytest.raises(RuntimeError, match="no resolver"):
+    ref = ms.Ref.time_dimension("sales.orders.order_date")
+    with pytest.raises(errors_mod.SemanticRuntimeError) as exc_info:
         ref(None)
+    assert exc_info.value.kind == "binding_context_missing"
 
 
 def test_metric_ref() -> None:
-    ref = MetricRef("sales.revenue")
-    assert ref.id == "sales.revenue"
-    assert ref.kind == SymbolKind.METRIC
+    ref = ms.Ref.metric("sales.revenue")
+    assert ref.path == "sales.revenue"
+    assert ref.kind == SemanticKind.METRIC
 
 
-def test_metric_ref_not_callable_raises_helpful_error() -> None:
-    """Calling a MetricRef (as if it were a decorator) raises a clear error."""
-    from marivo.semantic.errors import SemanticDecoratorError
-
-    ref = MetricRef("sales.aov")
-    with pytest.raises(SemanticDecoratorError, match="not a decorator"):
-        ref(lambda t: t.amount.sum())
-    # Also confirm the message mentions flat constructors
-    with pytest.raises(SemanticDecoratorError, match=r"ms\.ratio") as exc_info:
-        ref(lambda t: t.amount.sum())
-    assert "ms.ratio" in str(exc_info.value)
+def test_metric_ref_rejects_field_binding_call() -> None:
+    ref = ms.Ref.metric("sales.aov")
+    with pytest.raises(errors_mod.SemanticRuntimeError) as exc_info:
+        ref(lambda t: t.amount.sum())  # type: ignore[arg-type]
+    assert exc_info.value.kind == "invalid_binding_ref"
+    assert "field_ref(entity_alias)" in str(exc_info.value)
 
 
 def test_relationship_ref() -> None:
-    ref = RelationshipRef("sales.orders_to_items")
-    assert ref.id == "sales.orders_to_items"
-    assert ref.kind == SymbolKind.RELATIONSHIP
+    ref = ms.Ref.relationship("sales.orders_to_items")
+    assert ref.path == "sales.orders_to_items"
+    assert ref.kind == SemanticKind.RELATIONSHIP
 
 
 def test_base_ref_repr() -> None:
-    ref = EntityRef("sales.orders")
-    assert repr(ref) == "EntityRef('sales.orders')"
+    ref = ms.Ref.entity("sales.orders")
+    assert repr(ref) == "Ref[entity](entity:sales.orders)"
 
 
 # ---------------------------------------------------------------------------
@@ -607,7 +598,7 @@ def test_loader_context_dataclass() -> None:
     ctx = LoaderContext()
     assert ctx.current_model_file is None
     assert ctx.default_domain is None
-    assert ctx.pending_objects == []
+    assert ctx.pending_definitions == []
 
 
 def test_load_result_dataclass() -> None:

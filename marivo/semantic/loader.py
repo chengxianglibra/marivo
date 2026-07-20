@@ -8,16 +8,15 @@ from __future__ import annotations
 
 import sys
 import types
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from hashlib import sha1
 from importlib import util as importlib_util
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from marivo.config import AUTHORED_DIR
-from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceError,
@@ -25,6 +24,9 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.loader import load_datasources
+from marivo.refs import FieldKind, Ref, SemanticKindTag
+from marivo.semantic._compiled_state import CompiledSemanticState, build_compiled_state
+from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -41,7 +43,10 @@ from marivo.semantic.ir import (
     MeasureIR,
     MetricIR,
 )
-from marivo.semantic.validator import Registry, Sidecar, assembly_validate
+from marivo.semantic.validator import Registry, assembly_validate
+
+if TYPE_CHECKING:
+    from marivo.semantic._authoring_context import PendingDefinition
 
 __all__ = [
     "LoadResult",
@@ -63,10 +68,7 @@ class LoaderContext:
     file_path: str | None = None
     current_model_file: str | None = None
     default_domain: str | None = None
-    pending_objects: list[Any] = field(default_factory=list)
-    #: DimensionRef/TimeDimensionRef/MeasureRef instances returned by decorators,
-    #: to have their _resolver wired up after the two-pass load completes.
-    pending_refs: list[Any] = field(default_factory=list)
+    pending_definitions: list[PendingDefinition] = field(default_factory=list)
 
 
 _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
@@ -143,7 +145,8 @@ class LoadResult:
     errors: tuple[SemanticError, ...] = ()
     warnings: tuple[StructuredWarning, ...] = ()
     registry: Registry | None = None
-    sidecar: Sidecar | None = None
+    expression_sidecar: CompiledExpressionSidecar | None = None
+    compiled_state: CompiledSemanticState | None = None
     filtered_models: tuple[str, ...] = ()
     datasource_irs: tuple[DatasourceIR, ...] = ()
 
@@ -322,7 +325,11 @@ def _load_model_dir(
     )
 
     # Validate ms.domain() was called and name matches directory
-    model_names = [ir.name for ir, _ in ctx.pending_objects if isinstance(ir, DomainIR)]
+    model_names = [
+        pending.definition.name
+        for pending in ctx.pending_definitions
+        if isinstance(pending.definition, DomainIR)
+    ]
 
     if not model_names:
         errors.append(
@@ -351,7 +358,8 @@ def _load_model_dir(
         return None
 
     # Set default_domain from the model declaration
-    for ir, _ in ctx.pending_objects:
+    for pending in ctx.pending_definitions:
+        ir = pending.definition
         if isinstance(ir, DomainIR) and ir.default:
             ctx.default_domain = ir.name
             break
@@ -590,8 +598,8 @@ def _build_registry(
     all_contexts: list[LoaderContext],
     *,
     datasource_irs: tuple[DatasourceIR, ...] = (),
-) -> tuple[Registry, Sidecar]:
-    """Build a Registry and Sidecar from all loader contexts.
+) -> tuple[Registry, CompiledExpressionSidecar]:
+    """Build a registry and immutable compiled expression sidecar.
 
     Pass 2: assemble all pending IR objects into the registry.
     """
@@ -601,17 +609,22 @@ def _build_registry(
         MetricIR,
         RelationshipIR,
     )
-    from marivo.semantic.refs import DimensionRef, MeasureRef, TimeDimensionRef
 
     registry = Registry()
-    sidecar: Sidecar = {}
+    bodies = {}
+    field_owners = {}
+    catalog_refs: set[Ref[SemanticKindTag]] = set()
     for datasource_ir in datasource_irs:
-        registry.datasources[DatasourceRef.from_id(datasource_ir.semantic_id).id] = datasource_ir
+        registry.datasources[datasource_ir.semantic_id] = datasource_ir
+        catalog_refs.add(Ref.datasource(datasource_ir.semantic_id))
 
     for ctx in all_contexts:
-        for ir, callable_ in ctx.pending_objects:
+        for pending in ctx.pending_definitions:
+            ir = pending.definition
+            ref = pending.ref
+            expression_body = pending.expression_body
+            catalog_refs.add(ref)
             if not hasattr(ir, "semantic_id"):
-                # DomainIR doesn't have semantic_id
                 if isinstance(ir, DomainIR):
                     registry.domains[ir.name] = ir
                 continue
@@ -620,50 +633,28 @@ def _build_registry(
 
             if isinstance(ir, EntityIR):
                 registry.entities[sid] = ir
-                if callable_ is not None:
-                    sidecar[sid] = callable_
             elif isinstance(ir, DimensionIR):
                 registry.dimensions[sid] = ir
-                if callable_ is not None:
-                    sidecar[sid] = callable_
+                field_owners[cast("Ref[FieldKind]", ref)] = Ref.entity(ir.entity)
             elif isinstance(ir, MeasureIR):
                 registry.measures[sid] = ir
-                if callable_ is not None:
-                    sidecar[sid] = callable_
+                field_owners[cast("Ref[FieldKind]", ref)] = Ref.entity(ir.entity)
             elif isinstance(ir, MetricIR):
                 registry.metrics[sid] = ir
-                if callable_ is not None:
-                    sidecar[sid] = callable_
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
-
-    # Wire up DimensionRef/TimeDimensionRef/MeasureRef resolvers so that calling
-    # field_ref(parent_table) in metric bodies resolves to the sidecar callable.
-    def _make_field_resolver(sidecar_dict: Sidecar) -> Callable[[str, Any], Any]:
-        def _resolver(semantic_id: str, parent_table: Any) -> Any:
-            callable_ = sidecar_dict.get(semantic_id)
-            if callable_ is None:
-                raise RuntimeError(
-                    f"semantic field {semantic_id!r} resolver: no sidecar callable found."
-                )
-            return callable_(parent_table)
-
-        return _resolver
-
-    resolver = _make_field_resolver(sidecar)
-
-    # Set _resolver on all DimensionRef/TimeDimensionRef/MeasureRef instances that
-    # were registered during decorator execution via ctx.pending_refs. This lets
-    # metric bodies call a measure/dimension ref with the entity table.
-    for ctx in all_contexts:
-        for ref in ctx.pending_refs:
-            if isinstance(ref, (DimensionRef, TimeDimensionRef, MeasureRef)):
-                ref._resolver = resolver
+            if expression_body is not None:
+                bodies[ref] = expression_body
 
     _resolve_cumulative_over_axes(registry)
     _resolve_metric_additivity(registry)
     _resolve_metric_unit(registry)
-    return registry, sidecar
+    expression_sidecar = CompiledExpressionSidecar(
+        bodies=bodies,
+        field_owners=field_owners,
+        catalog_refs=frozenset(catalog_refs),
+    )
+    return registry, expression_sidecar
 
 
 def _models_root_from_path(path: Path, *, is_external: bool) -> ModelsRoot:
@@ -829,7 +820,8 @@ def _semantic_duplicate_errors(contexts: Sequence[LoaderContext]) -> list[Semant
     errors: list[SemanticLoadError] = []
     seen: dict[str, Any] = {}
     for ctx in contexts:
-        for ir, _ in ctx.pending_objects:
+        for pending in ctx.pending_definitions:
+            ir = pending.definition
             if not hasattr(ir, "semantic_id"):
                 continue
             sid = ir.semantic_id
@@ -918,7 +910,7 @@ def load_project(
     errors: list[SemanticError] = []
     warnings: list[StructuredWarning] = []
     registry: Registry | None = None
-    sidecar: Sidecar | None = None
+    expression_sidecar: CompiledExpressionSidecar | None = None
     all_contexts: list[LoaderContext] = []
     all_model_dirs: list[Path] = []
     datasource_irs: list[DatasourceIR] = []
@@ -969,7 +961,7 @@ def load_project(
             if ctx is not None:
                 all_contexts.append(ctx)
 
-        registry, sidecar = _build_registry(
+        registry, expression_sidecar = _build_registry(
             all_contexts,
             datasource_irs=tuple(datasource_irs),
         )
@@ -978,7 +970,7 @@ def load_project(
 
         loaded_models_set = {d.name for d in model_dirs} if models is not None else None
         asm_errors, asm_warnings = assembly_validate(
-            registry, sidecar, loaded_models=loaded_models_set
+            registry, expression_sidecar, loaded_models=loaded_models_set
         )
         errors.extend(asm_errors)
         warnings.extend(asm_warnings)
@@ -990,12 +982,25 @@ def load_project(
 
     status: Literal["ready", "errored"] = "ready" if not errors else "errored"
     filtered_models_tuple = tuple(d.name for d in model_dirs) if models is not None else ()
+    compiled_state = (
+        build_compiled_state(
+            registry=registry,
+            sidecar=expression_sidecar,
+            selected_root_roles=tuple(
+                "external" if root_spec.is_external else "local" for root_spec in root_specs
+            ),
+            filtered_domains=filtered_models_tuple,
+        )
+        if status == "ready" and registry is not None and expression_sidecar is not None
+        else None
+    )
     return LoadResult(
         status=status,
         errors=tuple(errors),
         warnings=tuple(warnings),
         registry=registry if status == "ready" else None,
-        sidecar=sidecar if status == "ready" else None,
+        expression_sidecar=expression_sidecar if status == "ready" else None,
+        compiled_state=compiled_state,
         filtered_models=filtered_models_tuple,
         datasource_irs=tuple(datasource_irs),
     )

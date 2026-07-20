@@ -10,14 +10,12 @@ from marivo.analysis.runtime_metric import (
     RuntimeRatioExpr,
     RuntimeSliceExpr,
 )
-from marivo.semantic.refs import DimensionRef, MeasureRef, MetricRef, TimeDimensionRef
+from marivo.refs import Ref
 
 
 def test_runtime_metric_namespace_exposes_only_closed_constructors() -> None:
     assert mv.runtime_metric.__all__ == [
-        "AnalysisDimensionRef",
         "FrozenSliceMap",
-        "MetricExprInput",
         "RuntimeAggregateExpr",
         "RuntimeMetricExpr",
         "RuntimeRatioExpr",
@@ -31,8 +29,8 @@ def test_runtime_metric_namespace_exposes_only_closed_constructors() -> None:
 
 
 def test_runtime_aggregate_aligns_authoring_fold_and_freezes_slice_copy() -> None:
-    measure = MeasureRef("sales.orders.amount")
-    country = DimensionRef("sales.orders.country")
+    measure = Ref.measure("sales.orders.amount")
+    country = Ref.dimension("sales.orders.country")
     source = {country: ["CN", "US"]}
 
     expression = mv.runtime_metric.aggregate(
@@ -55,8 +53,8 @@ def test_runtime_aggregate_aligns_authoring_fold_and_freezes_slice_copy() -> Non
 
 
 def test_runtime_slice_accepts_metric_ref_and_time_dimension() -> None:
-    metric = MetricRef("sales.revenue")
-    day = TimeDimensionRef("sales.orders.created_at")
+    metric = Ref.metric("sales.revenue")
+    day = Ref.time_dimension("sales.orders.created_at")
 
     expression = mv.runtime_metric.slice(metric, by={day: {"op": ">=", "value": "2026-01-01"}})
 
@@ -66,12 +64,12 @@ def test_runtime_slice_accepts_metric_ref_and_time_dimension() -> None:
 
 
 def test_runtime_ratio_is_recursive_and_label_is_not_value_equality() -> None:
-    measure = MeasureRef("sales.orders.amount")
+    measure = Ref.measure("sales.orders.amount")
     total = mv.runtime_metric.aggregate(measure, agg="sum")
     count = mv.runtime_metric.aggregate(measure, agg="count")
     inner = mv.runtime_metric.ratio(total, count)
-    first = mv.runtime_metric.ratio(inner, MetricRef("sales.baseline"), label="first")
-    second = mv.runtime_metric.ratio(inner, MetricRef("sales.baseline"), label="second")
+    first = mv.runtime_metric.ratio(inner, Ref.metric("sales.baseline"), label="first")
+    second = mv.runtime_metric.ratio(inner, Ref.metric("sales.baseline"), label="second")
 
     assert isinstance(first, RuntimeRatioExpr)
     assert isinstance(first.numerator, RuntimeRatioExpr)
@@ -82,24 +80,24 @@ def test_runtime_ratio_is_recursive_and_label_is_not_value_equality() -> None:
 @pytest.mark.parametrize("bad", ["sum_all", ("percentile", 0.0), ("percentile", True)])
 def test_runtime_aggregate_rejects_invalid_closed_agg(bad) -> None:
     with pytest.raises(ValueError):
-        mv.runtime_metric.aggregate(MeasureRef("sales.orders.amount"), agg=bad)
+        mv.runtime_metric.aggregate(Ref.measure("sales.orders.amount"), agg=bad)
 
 
 @pytest.mark.parametrize("bad", ["auto", ("percentile", 1.0), ("percentile", False)])
 def test_runtime_aggregate_rejects_invalid_shared_fold(bad) -> None:
     with pytest.raises(Exception):
-        mv.runtime_metric.aggregate(MeasureRef("sales.orders.amount"), agg="sum", fold=bad)
+        mv.runtime_metric.aggregate(Ref.measure("sales.orders.amount"), agg="sum", fold=bad)
 
 
 def test_runtime_constructors_reject_wrong_ref_and_operand_kinds() -> None:
-    with pytest.raises(TypeError, match="exact MeasureRef"):
-        mv.runtime_metric.aggregate(MetricRef("sales.revenue"), agg="sum")  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="exact MetricRef"):
-        mv.runtime_metric.ratio(MeasureRef("sales.orders.amount"), MetricRef("sales.total"))  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="exact DimensionRef"):
-        mv.runtime_metric.slice(MetricRef("sales.revenue"), by={"country": "CN"})  # type: ignore[dict-item]
+    with pytest.raises(TypeError, match=r"exact Ref\[measure\]"):
+        mv.runtime_metric.aggregate(Ref.metric("sales.revenue"), agg="sum")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"exact Ref\[metric\]"):
+        mv.runtime_metric.ratio(Ref.measure("sales.orders.amount"), Ref.metric("sales.total"))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"exact Ref\[dimension"):
+        mv.runtime_metric.slice(Ref.metric("sales.revenue"), by={"country": "CN"})  # type: ignore[dict-item]
 
 
 def test_runtime_slice_requires_nonempty_mapping() -> None:
     with pytest.raises(ValueError, match="must not be empty"):
-        mv.runtime_metric.slice(MetricRef("sales.revenue"), by={})
+        mv.runtime_metric.slice(Ref.metric("sales.revenue"), by={})

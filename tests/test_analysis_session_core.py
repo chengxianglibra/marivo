@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import duckdb
 import pytest
 
+import marivo.semantic as ms
 from marivo.analysis.calendar.loader import CalendarCache
 from marivo.analysis.errors import FrameMetaInvalidError, JobNotFoundError
 from marivo.analysis.session._layout import PersistenceLayout
@@ -14,7 +15,13 @@ from marivo.analysis.session._load import load_frame
 from marivo.analysis.session._runtime import _build_connection_runtime, persist_job_record
 from marivo.analysis.session._store import SessionStore
 from marivo.analysis.session.core import JobSummary, Session
+from marivo.refs import RefPayloadV1
 from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.metric_graph import (
+    SemanticDependencyDigestV1,
+    SemanticDependencyEntryV1,
+)
+from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import make_metric_frame
 
@@ -41,6 +48,8 @@ def _session(tmp_path, *, read_only: bool = False) -> Session:
                 "2026-05-24T10:00:00+00:00",
             ),
         )
+    semantic_project = SemanticProject(workspace_dir=tmp_path)
+    semantic_project.load()
     return Session(
         id="sess_t01",
         name="demo",
@@ -56,9 +65,77 @@ def _session(tmp_path, *, read_only: bool = False) -> Session:
             use_datasources=False,
         ),
         layout=layout,
-        semantic_catalog=SemanticCatalog(SemanticProject(workspace_dir=tmp_path)),
+        semantic_catalog=SemanticCatalog(semantic_project),
         store=store,
     )
+
+
+def _job_semantics(session: Session) -> dict[str, object]:
+    metric_ref = RefPayloadV1.from_ref(ms.Ref.metric("sales.revenue"))
+    entries = (SemanticDependencyEntryV1(ref=metric_ref, body_digest="sha256:test"),)
+    return {
+        "catalog_definition_fingerprint": session.catalog.definition_fingerprint,
+        "subject": {"kind": "catalog_metric", "metric_ref": metric_ref.to_dict()},
+        "dimension_refs": [],
+        "time_dimension_ref": None,
+        "slice_predicates": [],
+        "semantic_dependency_digest": canonical_value(
+            SemanticDependencyDigestV1(
+                schema="marivo.semantic_dependency_digest/v1",
+                entries=entries,
+                digest=f"sha256:{fingerprint(entries)}",
+            )
+        ),
+    }
+
+
+def _job_record(session: Session, semantics: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": "job_invalid_semantics",
+        "session_id": session.id,
+        "intent": "observe",
+        "params": {},
+        "input_frame_refs": [],
+        "output_frame_ref": "frame_invalid",
+        "started_at": "2026-05-24T10:00:00+00:00",
+        "finished_at": "2026-05-24T10:00:01+00:00",
+        "duration_ms": 1000,
+        "status": "succeeded",
+        "error": None,
+        **semantics,
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda semantics: semantics["subject"].update(  # type: ignore[union-attr]
+            metric_ref=RefPayloadV1.from_ref(ms.Ref.entity("sales.orders")).to_dict()
+        ),
+        lambda semantics: semantics.update(subjects=[semantics["subject"]]),
+        lambda semantics: semantics.update(subject="sales.revenue"),
+        lambda semantics: semantics.update(
+            dimension_refs=[RefPayloadV1.from_ref(ms.Ref.metric("sales.revenue")).to_dict()]
+        ),
+        lambda semantics: semantics.update(
+            semantic_dependency_digest={
+                "schema": "semantic-dependency/v1",
+                "entries": [],
+                "fingerprint": "old",
+            }
+        ),
+    ],
+)
+def test_persist_job_rejects_non_structured_or_wrong_kind_semantic_roles(
+    tmp_path,
+    mutate,
+) -> None:
+    session = _session(tmp_path)
+    semantics = _job_semantics(session)
+    mutate(semantics)
+
+    with pytest.raises(ValueError):
+        persist_job_record(session, _job_record(session, semantics))
 
 
 def test_session_is_read_only_when_no_factory(tmp_path):
@@ -101,7 +178,7 @@ def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
             "status": "succeeded",
             "error": None,
             "semantic_project_root": "/p",
-            "semantic_model": "sales",
+            **_job_semantics(s),
         },
     )
     persist_job_record(
@@ -119,7 +196,7 @@ def test_session_jobs_lists_records_sorted_by_started_at(tmp_path):
             "status": "succeeded",
             "error": None,
             "semantic_project_root": "/p",
-            "semantic_model": "sales",
+            **_job_semantics(s),
         },
     )
     summaries = s.jobs()
@@ -294,7 +371,7 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
                 import marivo.datasource as md
                 import marivo.semantic as ms
 
-                source = md.ref("datasource.{datasource}")
+                source = ms.Ref.datasource("{datasource}")
                 rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
 
                 @ms.metric(entities=[rows], additivity="additive")
@@ -309,7 +386,10 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
 
     session = mv.session.get_or_create(name="external_layer_session")
 
-    assert session.catalog.get("metric.finance.refunds_total").ref.id == "finance.refunds_total"
+    assert (
+        session.catalog.require(ms.Ref.metric("finance.refunds_total")).ref.path
+        == "finance.refunds_total"
+    )
 
 
 def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
@@ -354,7 +434,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
             import marivo.datasource as md
             import marivo.semantic as ms
 
-            source = md.ref("datasource.warehouse")
+            source = ms.Ref.datasource("warehouse")
             rows = ms.entity(name="refunds", datasource=source, source=md.table("refunds"))
 
             @ms.metric(entities=[rows], additivity="additive")
@@ -368,7 +448,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     session_attach._reset_process_state()
 
     session = mv.session.get_or_create(name="external_layer_observe")
-    metric = session.catalog.get("metric.finance.refunds_total").ref
+    metric = session.catalog.require(ms.Ref.metric("finance.refunds_total")).ref
     frame = session.observe(metric)
 
     assert frame.meta.metric_id == "finance.refunds_total"
@@ -397,6 +477,7 @@ def test_session_close_closes_connection_runtime(tmp_path):
 
     runtime = Runtime()
     project = SemanticProject(workspace_dir=tmp_path)
+    project.load()
     session = Session(
         id="s1",
         name="n",
@@ -424,6 +505,8 @@ def test_session_constructor_rejects_old_runtime_keywords(tmp_path):
     from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.reader import SemanticProject
 
+    project = SemanticProject(workspace_dir=tmp_path)
+    project.load()
     kwargs = {
         "id": "s1",
         "name": "n",
@@ -436,7 +519,7 @@ def test_session_constructor_rejects_old_runtime_keywords(tmp_path):
             DatasourceConnectionService(project_root=tmp_path, use_datasources=False)
         ),
         "layout": PersistenceLayout(project_root=tmp_path, session_id="s1"),
-        "semantic_catalog": SemanticCatalog(SemanticProject(workspace_dir=tmp_path)),
+        "semantic_catalog": SemanticCatalog(project),
         "store": SessionStore(project_root=tmp_path),
     }
 

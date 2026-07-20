@@ -8,14 +8,23 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
-from marivo.datasource.authoring import DatasourceRef
-from marivo.refs import SemanticRef
+from marivo.refs import (
+    DatasourceKind,
+    DomainKind,
+    EntityKind,
+    Ref,
+    SemanticKind,
+    SemanticKindTag,
+)
+from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
     DimensionIR,
+    DomainIR,
     EntityIR,
     MeasureIR,
     MetricIR,
@@ -23,7 +32,18 @@ from marivo.semantic.ir import (
     SourceLocation,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
-from marivo.semantic.refs import DomainRef, EntityRef
+
+type DefinitionIR = DomainIR | EntityIR | DimensionIR | MeasureIR | MetricIR | RelationshipIR
+
+
+@dataclass(frozen=True, slots=True)
+class PendingDefinition:
+    """One exact authoring identity, private IR definition, and optional body."""
+
+    ref: Ref[SemanticKindTag]
+    definition: DefinitionIR
+    expression_body: ExpressionBody | None
+
 
 _AUTHORING_FILES: set[str] = set()
 
@@ -53,15 +73,15 @@ def _require_ctx() -> LoaderContext:
     return ctx
 
 
-def _resolve_domain(explicit: DomainRef | None, ctx: LoaderContext) -> str:
+def _resolve_domain(explicit: Ref[DomainKind] | None, ctx: LoaderContext) -> str:
     """Resolve the domain name: explicit ref > default_domain > error."""
-    if isinstance(explicit, DomainRef):
-        return explicit.id
+    if type(explicit) is Ref and explicit.kind is SemanticKind.DOMAIN:
+        return explicit.path
     if explicit is not None:
         _raise(
             ErrorKind.INVALID_REF,
-            "domain= accepts a DomainRef from ms.domain(name=...). "
-            "Do not pass a bare string such as 'sales' or 'domain.sales'.",
+            "domain= accepts Ref[domain] from ms.domain(name=...). "
+            "Do not pass a bare string such as 'sales'.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
@@ -101,7 +121,8 @@ def _check_duplicate(
     which share the entity-qualified namespace (``<domain>.<entity>.<field>``).
     """
     _cross_kinds: set[type[DimensionIR | MeasureIR]] = {DimensionIR, MeasureIR}
-    for ir, _ in ctx.pending_objects:
+    for pending in ctx.pending_definitions:
+        ir = pending.definition
         if not isinstance(ir, (EntityIR, DimensionIR, MeasureIR, MetricIR, RelationshipIR)):
             continue
         if ir.semantic_id != semantic_id:
@@ -168,31 +189,22 @@ def _user_caller_location() -> SourceLocation:
     return SourceLocation(file="<unknown>", line=0)
 
 
-def _format_expected_ref(expected: tuple[type[SemanticRef], ...]) -> str:
-    names = []
-    for cls in expected:
-        name = cls.__name__
-        article = "an" if name[0].lower() in {"a", "e", "i", "o", "u"} else "a"
-        names.append(f"{article} {name}")
-    return " or ".join(names)
-
-
 def _require_ref_id(
     ref: object,
     *,
     parameter: str,
-    expected: tuple[type[SemanticRef], ...],
+    expected: tuple[SemanticKind, ...],
 ) -> str:
-    if isinstance(ref, expected):
-        return ref.id
-    expected_label = _format_expected_ref(expected)
-    received = getattr(ref, "id", ref)
+    if type(ref) is Ref and ref.kind in expected:
+        return ref.path
+    expected_label = " or ".join(f"Ref[{kind.value}]" for kind in expected)
+    received = getattr(ref, "key", ref)
     _raise(
         ErrorKind.INVALID_REF,
         f"{parameter} must be {expected_label}; got {type(ref).__name__}: {received!r}. "
         "Pass the Ref object returned by the semantic authoring call, import a declared "
-        "Ref from another model, or use ms.ref('<kind>.<semantic_id>') for explicit "
-        "forward/cross-file references.",
+        "Ref from another model, or use Ref.<kind>('<path>') for an explicit "
+        "forward or cross-file reference.",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )
@@ -202,10 +214,9 @@ def _domain_from_ref_id(ref_id: str) -> str:
     return ref_id.split(".", 1)[0]
 
 
-def _require_entity_ref(ref: EntityRef, *, parameter: str) -> EntityRef:
-    if isinstance(ref, EntityRef):
-        return ref
-    _require_ref_id(ref, parameter=parameter, expected=(EntityRef,))
+def _require_entity_ref(ref: Ref[EntityKind], *, parameter: str) -> Ref[EntityKind]:
+    _require_ref_id(ref, parameter=parameter, expected=(SemanticKind.ENTITY,))
+    return ref
 
 
 def _require_non_empty_column(column: str, *, semantic_id: str) -> str:
@@ -228,32 +239,43 @@ def _column_accessor(column: str) -> Callable[[Any], Any]:
     return _accessor
 
 
-def _resolve_datasource_ref(ref: DatasourceRef) -> str:
+def _resolve_datasource_ref(ref: Ref[DatasourceKind]) -> str:
     """Extract canonical datasource id from a datasource ref."""
-    if isinstance(ref, DatasourceRef):
-        return ref.id
+    if type(ref) is Ref and ref.kind is SemanticKind.DATASOURCE:
+        return ref.path
     _raise(
         ErrorKind.INVALID_REF,
-        'ms.entity(datasource=...) accepts a datasource ref from md.ref("datasource.warehouse"). '
-        "Do not pass a bare string such as 'warehouse' or 'datasource.warehouse'.",
+        "ms.entity(datasource=...) accepts Ref[datasource] from a datasource spec's .ref "
+        "or Ref.datasource('warehouse'). Do not pass a bare string.",
         cls=SemanticDecoratorError,
         constraint_id=ConstraintId.REF_SHAPE,
     )
 
 
-def _resolve_entity_refs(refs: list[EntityRef] | None) -> tuple[str, ...]:
+def _resolve_entity_refs(refs: list[Ref[EntityKind]] | None) -> tuple[str, ...]:
     """Convert a list of entity refs to tuple of semantic_ids."""
     if refs is None:
         return ()
     return tuple(
-        _require_ref_id(r, parameter=f"entities[{idx}]", expected=(EntityRef,))
+        _require_ref_id(r, parameter=f"entities[{idx}]", expected=(SemanticKind.ENTITY,))
         for idx, r in enumerate(refs)
     )
 
 
-def _push_ir(ctx: LoaderContext, ir: Any, callable_: Callable[..., Any] | None) -> None:
-    """Push an (IR, callable) pair onto ctx.pending_objects."""
-    ctx.pending_objects.append((ir, callable_))
+def _push_ir(
+    ctx: LoaderContext,
+    ref: Ref[SemanticKindTag],
+    definition: DefinitionIR,
+    expression_body: ExpressionBody | None,
+) -> None:
+    """Push one identity-complete pending definition."""
+    ctx.pending_definitions.append(
+        PendingDefinition(
+            ref=ref,
+            definition=definition,
+            expression_body=expression_body,
+        )
+    )
 
 
 _register_authoring_file(__file__)

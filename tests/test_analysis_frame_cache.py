@@ -14,8 +14,8 @@ from marivo.analysis.frames.component import ComponentFrame
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -81,7 +81,7 @@ def test_observe_idempotent_cache_hit(tmp_path):
     assert first.lineage.steps[-1].params["metric_semantics"] == {
         "additivity": "additive",
         "aggregation": None,
-        "status_time_dimension": None,
+        "status_time_dimension_ref": None,
     }
     assert first.ref != _legacy_observe_artifact_id(first)
 
@@ -236,7 +236,7 @@ def _bootstrap_failure_rate(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -284,7 +284,7 @@ def test_observe_derived_metric_cache_hit(tmp_path):
     assert first.lineage.steps[-1].params["metric_semantics"] == {
         "additivity": "non_additive",
         "aggregation": None,
-        "status_time_dimension": None,
+        "status_time_dimension_ref": None,
     }
     assert first.ref != _legacy_observe_artifact_id(first)
 

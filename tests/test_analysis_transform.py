@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
 from marivo.analysis import (
     AlignmentPolicy,
     AttributionFrame,
@@ -21,8 +22,8 @@ from marivo.analysis.frames.attribution import AttributionFrameMeta
 from marivo.analysis.frames.delta import DeltaFrameMeta
 from marivo.analysis.session._layout import read_frame_from_disk, read_job_record
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
-from tests.shared_fixtures import make_metric_frame
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 
 def _active_transform(frame: MetricFrame | DeltaFrame, **kwargs):
@@ -43,7 +44,7 @@ def _chdir(tmp_path, monkeypatch):
     session_attach._reset_process_state()
 
 
-def _bootstrap_sales(tmp_path, *, with_country=False):
+def _bootstrap_sales(tmp_path, *, with_country=False, with_event_date=False):
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
@@ -60,16 +61,22 @@ def _bootstrap_sales(tmp_path, *, with_country=False):
         if with_country
         else ""
     )
+    event_date_field = (
+        "@ms.dimension(entity=orders)\ndef event_date(orders):\n    return orders.order_date\n\n"
+        if with_event_date
+        else ""
+    )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.order_date.cast('date')\n"
         "\n"
         f"{country_field}"
+        f"{event_date_field}"
         "@ms.metric(entities=[orders], additivity='additive', )\n"
         "def revenue(orders):\n"
         "    return orders.revenue.sum()\n"
@@ -124,7 +131,7 @@ def _make_panel(tmp_path) -> MetricFrame:
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-03"},
         grain="day",
-        dimensions=[make_ref("country", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
 
 
@@ -135,7 +142,7 @@ def _make_segmented(tmp_path) -> MetricFrame:
     session = session_attach.get_or_create(name="demo", backends={"warehouse": lambda: con})
     return session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
-        dimensions=[make_ref("country", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
 
 
@@ -217,6 +224,7 @@ def _make_topk_delta_time_series() -> DeltaFrame:
     return DeltaFrame(
         _df=df,
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.revenue"),
             ref="frame_topk_delta",
             session_id=session.id,
             project_root=str(session.project_root),
@@ -243,13 +251,13 @@ def _make_delta_panel(tmp_path) -> DeltaFrame:
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-04"},
         grain="day",
-        dimensions=[make_ref("country", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
     baseline = session.observe(
         make_ref("sales.revenue", SemanticKind.METRIC),
         time_scope={"start": "2025-07-01", "end": "2025-07-04"},
         grain="day",
-        dimensions=[make_ref("country", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
     return session.compare(current, baseline, alignment=AlignmentPolicy(kind="window_bucket"))
 
@@ -346,16 +354,21 @@ def test_transform_api_methods_cover_supported_ops(tmp_path):
         semantic_model="sales",
         session=session,
     )
-    rolled = panel.transform.rollup(drop_axes=[make_ref("country", SemanticKind.DIMENSION)])
+    rolled = panel.transform.rollup(
+        drop_axes=[make_ref("sales.orders.country", SemanticKind.DIMENSION)]
+    )
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.to_pandas().columns
 
-    sliced = panel.transform.slice(slice_by={make_ref("country", SemanticKind.DIMENSION): "US"})
+    sliced = panel.transform.slice(
+        slice_by={make_ref("sales.orders.country", SemanticKind.DIMENSION): "US"}
+    )
     assert sliced.meta.semantic_kind == "time_series"
     assert "country" not in sliced.to_pandas().columns
 
 
-def _make_one_sided_delta_panel() -> DeltaFrame:
+def _make_one_sided_delta_panel(tmp_path) -> DeltaFrame:
+    _bootstrap_sales(tmp_path, with_country=True)
     session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
@@ -380,6 +393,7 @@ def _make_one_sided_delta_panel() -> DeltaFrame:
     return DeltaFrame(
         _df=df,
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.revenue"),
             ref="frame_one_sided_delta",
             session_id=session.id,
             project_root=str(session.project_root),
@@ -397,7 +411,8 @@ def _make_one_sided_delta_panel() -> DeltaFrame:
     )
 
 
-def _make_current_only_delta_panel() -> DeltaFrame:
+def _make_current_only_delta_panel(tmp_path) -> DeltaFrame:
+    _bootstrap_sales(tmp_path, with_country=True)
     session = session_attach.get_or_create(name="demo")
     df = pd.DataFrame(
         {
@@ -421,6 +436,7 @@ def _make_current_only_delta_panel() -> DeltaFrame:
     return DeltaFrame(
         _df=df,
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.revenue"),
             ref="frame_current_only_delta",
             session_id=session.id,
             project_root=str(session.project_root),
@@ -550,6 +566,7 @@ def test_transform_window_clips_delta_time_series_without_axes(tmp_path):
             }
         ),
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.revenue"),
             ref="frame_delta_no_axes",
             session_id=session.id,
             project_root=str(session.project_root),
@@ -742,7 +759,7 @@ def test_persist_transform_frame_stores_json_safe_params(tmp_path):
         df=parent.to_pandas(),
         params={
             "op": "filter",
-            "drop_axes": [make_ref("country", SemanticKind.DIMENSION)],
+            "drop_axes": [make_ref("sales.orders.country", SemanticKind.DIMENSION)],
             "predicate": _positive_delta_predicate,
         },
         started_at=datetime.now(UTC),
@@ -752,7 +769,13 @@ def test_persist_transform_frame_stores_json_safe_params(tmp_path):
     assert out.meta.produced_by_job is not None
     job_record = read_job_record(session._layout, out.meta.produced_by_job)
     json.dumps(job_record["params"])
-    assert job_record["params"]["drop_axes"] == [{"ref": "country", "kind": "dimension"}]
+    assert job_record["params"]["drop_axes"] == [
+        {
+            "schema": "marivo.semantic_ref/v1",
+            "kind": "dimension",
+            "path": "sales.orders.country",
+        }
+    ]
     predicate_params = job_record["params"]["predicate"]
     assert predicate_params["type"] == "callable"
     assert predicate_params["name"] == f"{__name__}._positive_delta_predicate"
@@ -996,6 +1019,7 @@ def test_transform_normalize_index_rejected_on_delta():
 
 
 def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
+    _bootstrap_sales(tmp_path, with_event_date=True)
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(
         pd.DataFrame(
@@ -1005,7 +1029,13 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
             }
         ),
         metric_id="sales.revenue",
-        axes={"event_date": {"role": "dimension", "column": "event_date"}},
+        axes={
+            "event_date": {
+                "role": "dimension",
+                "column": "event_date",
+                "ref": "sales.orders.event_date",
+            }
+        },
         measure={"column": "revenue"},
         semantic_kind="segmented",
         semantic_model="sales",
@@ -1014,14 +1044,16 @@ def test_transform_slice_persists_numpy_datetime64_param(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        slice_by={make_ref("event_date", SemanticKind.DIMENSION): np.datetime64("2026-07-01")},
+        slice_by={
+            make_ref("sales.orders.event_date", SemanticKind.DIMENSION): np.datetime64("2026-07-01")
+        },
     )
 
     assert sliced.meta.row_count == 1
     assert sliced.meta.produced_by_job is not None
     job_record = read_job_record(session_attach.current()._layout, sliced.meta.produced_by_job)
     json.dumps(job_record["params"])
-    assert job_record["params"]["where"]["event_date"] == "2026-07-01"
+    assert job_record["params"]["where"]["sales.orders.event_date"] == "2026-07-01"
 
 
 def test_transform_filter_preserves_metric_frame(tmp_path):
@@ -1203,13 +1235,15 @@ def test_transform_rollup_rejects_time_axis_dimension_ref(tmp_path):
 
     frame = _make_panel(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError):
-        _active_transform(frame, op="rollup", drop_axes=[make_ref("time", SemanticKind.DIMENSION)])
+        _active_transform(
+            frame, op="rollup", drop_axes=[make_ref("sales.orders.time", SemanticKind.DIMENSION)]
+        )
 
 
 def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
     frame = _make_panel(tmp_path)
     rolled = _active_transform(
-        frame, op="rollup", drop_axes=[make_ref("country", SemanticKind.DIMENSION)]
+        frame, op="rollup", drop_axes=[make_ref("sales.orders.country", SemanticKind.DIMENSION)]
     )
     assert rolled.meta.semantic_kind == "time_series"
     assert "country" not in rolled.meta.axes
@@ -1228,7 +1262,7 @@ def test_transform_rollup_panel_drops_dim_to_time_series(tmp_path):
 def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_path):
     frame = _make_delta_panel(tmp_path)
     rolled = _active_transform(
-        frame, op="rollup", drop_axes=[make_ref("country", SemanticKind.DIMENSION)]
+        frame, op="rollup", drop_axes=[make_ref("sales.orders.country", SemanticKind.DIMENSION)]
     )
     assert isinstance(rolled, DeltaFrame)
     assert rolled.meta.semantic_kind == "time_series"
@@ -1251,9 +1285,9 @@ def test_transform_rollup_delta_panel_drops_dim_and_recomputes_pct_change(tmp_pa
 
 
 def test_transform_rollup_delta_recomputes_delta_from_current_and_baseline(tmp_path):
-    frame = _make_one_sided_delta_panel()
+    frame = _make_one_sided_delta_panel(tmp_path)
     rolled = _active_transform(
-        frame, op="rollup", drop_axes=[make_ref("country", SemanticKind.DIMENSION)]
+        frame, op="rollup", drop_axes=[make_ref("sales.orders.country", SemanticKind.DIMENSION)]
     )
     df = rolled.to_pandas()
 
@@ -1264,9 +1298,9 @@ def test_transform_rollup_delta_recomputes_delta_from_current_and_baseline(tmp_p
 
 
 def test_transform_rollup_delta_preserves_all_missing_baseline(tmp_path):
-    frame = _make_current_only_delta_panel()
+    frame = _make_current_only_delta_panel(tmp_path)
     rolled = _active_transform(
-        frame, op="rollup", drop_axes=[make_ref("country", SemanticKind.DIMENSION)]
+        frame, op="rollup", drop_axes=[make_ref("sales.orders.country", SemanticKind.DIMENSION)]
     )
     df = rolled.to_pandas()
 
@@ -1281,7 +1315,9 @@ def test_transform_rollup_rejects_dropping_time_axis(tmp_path):
 
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError):
-        _active_transform(frame, op="rollup", drop_axes=[make_ref("time", SemanticKind.DIMENSION)])
+        _active_transform(
+            frame, op="rollup", drop_axes=[make_ref("sales.orders.time", SemanticKind.DIMENSION)]
+        )
 
 
 def test_transform_rollup_rejects_unknown_axis(tmp_path):
@@ -1290,7 +1326,9 @@ def test_transform_rollup_rejects_unknown_axis(tmp_path):
     frame = _make_panel(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError):
         _active_transform(
-            frame, op="rollup", drop_axes=[make_ref("platform", SemanticKind.DIMENSION)]
+            frame,
+            op="rollup",
+            drop_axes=[make_ref("sales.orders.platform", SemanticKind.DIMENSION)],
         )
 
 
@@ -1299,7 +1337,7 @@ def test_transform_slice_keeps_segmented_when_multi_value(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        slice_by={make_ref("country", SemanticKind.DIMENSION): ["US", "CA"]},
+        slice_by={make_ref("sales.orders.country", SemanticKind.DIMENSION): ["US", "CA"]},
     )
     assert isinstance(sliced, MetricFrame)
     assert sliced.meta.semantic_kind == "segmented"
@@ -1311,7 +1349,7 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        slice_by={make_ref("country", SemanticKind.DIMENSION): "US"},
+        slice_by={make_ref("sales.orders.country", SemanticKind.DIMENSION): "US"},
     )
     assert sliced.meta.semantic_kind == "scalar"
     assert "country" not in sliced.meta.axes
@@ -1320,7 +1358,7 @@ def test_transform_slice_demotes_segmented_to_scalar_on_single_value(tmp_path):
 
 def test_transform_slice_accepts_catalog_dimension_ref(tmp_path):
     frame = _make_segmented(tmp_path)
-    country = session_attach.current().catalog.get("dimension.sales.orders.country").ref
+    country = session_attach.current().catalog.require(ms.Ref.dimension("sales.orders.country")).ref
 
     sliced = _active_transform(frame, op="slice", slice_by={country: "US"})
 
@@ -1338,7 +1376,7 @@ def test_transform_slice_requires_dimension_ref_keys(tmp_path):
 def test_transform_slice_delta_dimension_selector_is_recorded_in_alignment(tmp_path):
     frame = _make_delta_panel(tmp_path)
     sliced = _active_transform(
-        frame, op="slice", slice_by={make_ref("country", SemanticKind.DIMENSION): "US"}
+        frame, op="slice", slice_by={make_ref("sales.orders.country", SemanticKind.DIMENSION): "US"}
     )
     assert isinstance(sliced, DeltaFrame)
     assert sliced.meta.alignment["where"]["sales.orders.country"] == "US"
@@ -1354,12 +1392,13 @@ def test_transform_slice_rejects_unknown_dimension(tmp_path):
         _active_transform(
             frame,
             op="slice",
-            slice_by={make_ref("platform", SemanticKind.DIMENSION): "mobile"},
+            slice_by={make_ref("sales.orders.platform", SemanticKind.DIMENSION): "mobile"},
         )
     assert "platform" in str(excinfo.value)
 
 
 def test_transform_slice_supports_range_tuple(tmp_path):
+    _bootstrap_sales(tmp_path, with_event_date=True)
     session = session_attach.get_or_create(name="demo")
     frame = make_metric_frame(
         pd.DataFrame(
@@ -1369,7 +1408,13 @@ def test_transform_slice_supports_range_tuple(tmp_path):
             }
         ),
         metric_id="sales.revenue",
-        axes={"event_date": {"role": "dimension", "column": "event_date"}},
+        axes={
+            "event_date": {
+                "role": "dimension",
+                "column": "event_date",
+                "ref": "sales.orders.event_date",
+            }
+        },
         measure={"column": "revenue"},
         semantic_kind="segmented",
         semantic_model="sales",
@@ -1381,7 +1426,7 @@ def test_transform_slice_supports_range_tuple(tmp_path):
     sliced = _active_transform(
         frame,
         op="slice",
-        slice_by={make_ref("event_date", SemanticKind.DIMENSION): (start, end)},
+        slice_by={make_ref("sales.orders.event_date", SemanticKind.DIMENSION): (start, end)},
     )
     expected = int(values.between(start, end, inclusive="both").sum())
     assert sliced.meta.row_count == expected
@@ -1393,7 +1438,9 @@ def test_transform_slice_rejects_string_key_that_is_not_axis_column(tmp_path):
     frame = _make_time_series(tmp_path)
     with pytest.raises(TransformDimensionNotFoundError) as excinfo:
         _active_transform(
-            frame, op="slice", slice_by={make_ref("revenue", SemanticKind.DIMENSION): (15, 35)}
+            frame,
+            op="slice",
+            slice_by={make_ref("sales.orders.revenue", SemanticKind.DIMENSION): (15, 35)},
         )
     assert "revenue" in str(excinfo.value)
 
@@ -1404,7 +1451,9 @@ def test_transform_slice_rejects_incomparable_range_bounds(tmp_path):
     frame = _make_segmented(tmp_path)
     with pytest.raises(TransformArgError) as excinfo:
         _active_transform(
-            frame, op="slice", slice_by={make_ref("country", SemanticKind.DIMENSION): (1, "z")}
+            frame,
+            op="slice",
+            slice_by={make_ref("sales.orders.country", SemanticKind.DIMENSION): (1, "z")},
         )
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
@@ -1418,7 +1467,7 @@ def test_transform_slice_rejects_non_range_tuple(tmp_path):
         _active_transform(
             frame,
             op="slice",
-            slice_by={make_ref("country", SemanticKind.DIMENSION): ("US", "CA", "MX")},
+            slice_by={make_ref("sales.orders.country", SemanticKind.DIMENSION): ("US", "CA", "MX")},
         )
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
@@ -1432,7 +1481,7 @@ def test_transform_slice_rejects_range_tuple_on_dimension(tmp_path):
         _active_transform(
             frame,
             op="slice",
-            slice_by={make_ref("country", SemanticKind.DIMENSION): ("US", "CA")},
+            slice_by={make_ref("sales.orders.country", SemanticKind.DIMENSION): ("US", "CA")},
         )
     message = str(excinfo.value)
     assert "tuple" in message or "range" in message
@@ -1632,7 +1681,7 @@ def _bootstrap_bandwidth_for_rollup(tmp_path):
         "\n"
         "bandwidth_samples = ms.entity(\n"
         "    name='bandwidth_samples',\n"
-        "    datasource=md.ref('datasource.warehouse'),\n"
+        "    datasource=ms.Ref.datasource('warehouse'),\n"
         "    primary_key=['sample_id'],\n"
         "    source=md.table('bandwidth_samples'),\n"
         ")\n"
@@ -1706,7 +1755,7 @@ def test_rollup_rejects_non_reaggregatable_metric_frame(sampled_bandwidth_for_ro
 
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
         frame.transform.rollup(
-            drop_axes=[make_ref("province", SemanticKind.DIMENSION)],
+            drop_axes=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
         )
 
     assert exc_info.value._context["op"] == "rollup"
@@ -1739,7 +1788,7 @@ def _bootstrap_cumulative_day_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=events, column='event_time', granularity='hour')\n"

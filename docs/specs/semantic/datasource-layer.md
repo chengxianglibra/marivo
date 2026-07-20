@@ -37,7 +37,7 @@ The layering is strict and one-directional:
 
 ```text
 marivo.datasource   connection + physical source + evidence   (this document)
-        ↓ DatasourceRef + TableSource + DatasourceResult
+        ↓ Ref[datasource] + TableSource + DatasourceResult
 marivo.semantic     entity / dimension / metric / relationship
         ↓ typed semantic refs
 marivo.analysis     observe / compare / attribute / ...
@@ -71,8 +71,8 @@ entity is registered.
 
 ## Datasource declaration
 
-A datasource is one typed spec per backend. The constructor validates the name
-(letters, digits, underscores, hyphens; never kind-qualified) and splits the
+A datasource is one typed spec per backend. The constructor validates a
+lowercase snake_case name matching `[a-z][a-z0-9_]*` and splits the
 declared fields into literal connection `fields` and secret `env_refs`.
 
 ```python
@@ -90,7 +90,7 @@ md.trino(
 ```
 
 Every constructor returns its spec and, when executed inside a datasource loader
-file, auto-declares it for the project. `spec.ref` yields the `DatasourceRef`
+file, auto-declares it for the project. `spec.ref` yields the `Ref[datasource]`
 used everywhere downstream.
 
 ### Backends and engines
@@ -105,7 +105,7 @@ used everywhere downstream.
 
 `DatasourceSpec` is the closed union of these five types. Concrete engine
 connection builders live in `marivo/datasource/engines/` and are internal — the
-public surface is the spec constructors and `DatasourceRef`.
+public surface is the spec constructors and `Ref[datasource]`.
 
 ### Fields, names, and context
 
@@ -122,16 +122,22 @@ public surface is the spec constructors and `DatasourceRef`.
 
 ### Datasource references
 
-Semantic declarations reference a datasource by kind-qualified id:
+Semantic declarations reference a datasource by one exact ref:
 
 ```python
-warehouse = md.ref("datasource.warehouse")   # -> DatasourceRef
+warehouse = ms.Ref.datasource("warehouse")   # -> Ref[datasource]
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
 
-`DatasourceRef` accepts a short name or a canonical `datasource.<name>` id and
-normalizes to the canonical form. Bare strings are rejected as authoring
-arguments — the ref is the contract.
+`ms.Ref.datasource(...)` accepts only the one-segment datasource path. Bare
+strings and kind-qualified strings such as `"datasource.warehouse"` are
+rejected — the exact ref is the contract. Renaming a legacy datasource changes
+its semantic identity, but cached credentials are keyed by the resolved
+environment-variable name. A rename such as `prod-mysql` to `prod_mysql`
+therefore reuses a conventional cached credential because both select
+`MARIVO_PROD_MYSQL_<FIELD>`; a rename whose conventional environment-variable
+name differs leaves the old cache entry untouched and requires exporting or
+caching the new name. Marivo never migrates or deletes the old cache entry.
 
 ## Credentials and secret persistence
 
@@ -165,7 +171,7 @@ plaintext **user-global** state, but must never be written into **project-local*
 ## Physical sources
 
 A source descriptor names *what to read* inside a datasource. It is not a
-datasource declaration; it is paired with a `DatasourceRef` in inspection,
+datasource declaration; it is paired with a `Ref[datasource]` in inspection,
 discovery, and `ms.entity(source=...)`.
 
 | Constructor | IR | Meaning |
@@ -264,7 +270,7 @@ needs is the ref plus the evidence:
 import marivo.datasource as md
 import marivo.semantic as ms
 
-warehouse = md.ref("datasource.warehouse")
+warehouse = ms.Ref.datasource("warehouse")
 inspection = md.inspect(warehouse, md.table("orders"))
 snapshot = inspection.sample(
     scope=md.unpruned(max_rows=1000, timeout_seconds=30),

@@ -25,7 +25,6 @@ Registration & lifecycle
    load
    list
    remove
-   ref
    test
 
 Source constructors
@@ -85,12 +84,15 @@ Help & description
 Catalog & refs
 --------------
 
+Datasource identities use ``marivo.semantic.Ref.datasource(...)``. The
+datasource module accepts that exact ref at inspection and raw-SQL boundaries,
+but does not define a second ref type.
+
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
    DatasourceCatalog
-   DatasourceRef
    DatasourceList
    DatasourceSummary
    DatasourceDescription

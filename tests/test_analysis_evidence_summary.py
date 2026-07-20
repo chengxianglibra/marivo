@@ -2,11 +2,11 @@
 
 from marivo.analysis.evidence.summary import render_artifact_issue
 from marivo.analysis.evidence.types import (
-    AnalysisScope,
     DataQualityIssue,
     EvidenceAvailabilityIssue,
     RawFallback,
 )
+from tests.shared_fixtures import make_test_analysis_scope
 
 
 def test_data_quality_issue_prose_is_derived_from_typed_fields():
@@ -18,7 +18,7 @@ def test_data_quality_issue_prose_is_derived_from_typed_fields():
         check_id="null_ratio:value",
         observed_value=0.75,
         expectation="null_ratio <= 0.5",
-        evaluated_scope=AnalysisScope(metric_ids=("sales.revenue",)),
+        evaluated_scope=make_test_analysis_scope("sales.revenue"),
     )
     assert "observed=0.75" in render_artifact_issue(issue)
     assert "null_ratio <= 0.5" in render_artifact_issue(issue)

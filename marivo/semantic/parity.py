@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from marivo.datasource.ir import TableSourceIR, qualify_provenance_sql
+from marivo.refs import Ref
 from marivo.semantic.errors import ErrorKind, SemanticParityError, _raise
 from marivo.semantic.ir import MetricIR, ParityStatus
 
@@ -110,8 +111,7 @@ def parity_check(
 
     Returns ParityResult on success or value mismatch.
     """
-    from marivo.semantic.catalog import SemanticCatalog, SemanticKind
-    from marivo.semantic.refs import make_ref
+    from marivo.semantic.catalog import SemanticCatalog
 
     catalog = project if isinstance(project, SemanticCatalog) else SemanticCatalog(project)
     cache_project = catalog._project
@@ -187,8 +187,8 @@ def parity_check(
 
     # Execute the ibis metric -> single scalar
     try:
-        resolver = catalog._resolver()
-        metric_expr = resolver.metric(make_ref(metric_id, SemanticKind.METRIC))
+        resolver = catalog._semantic_resolver()
+        metric_expr = resolver.metric(Ref.metric(metric_id))
         actual_result = metric_expr.to_pandas()
         actual_val = _extract_scalar(actual_result, metric_id, "Metric")
     except SemanticParityError:

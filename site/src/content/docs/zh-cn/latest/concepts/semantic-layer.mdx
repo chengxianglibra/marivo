@@ -81,7 +81,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 sales = ms.domain(name="sales", owner="Mina Zhang")
-warehouse = md.ref("datasource.warehouse")
+warehouse = ms.Ref.datasource("warehouse")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["order_id"])
 region = ms.dimension_column(name="region", entity=orders, column="region")
 order_date = ms.time_dimension_column(name="order_date", entity=orders, column="order_date", granularity="day", is_default=True)
@@ -92,9 +92,9 @@ revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 用户批准并加载模型后，日常分析先读取指标，再调用 `observe`：
 
 ```python
-revenue = catalog.get("metric.sales.revenue")
-revenue.details().show()
-frame = session.observe(revenue, time_scope={...}, grain="month")
+revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
+revenue_entry.details().show()
+frame = session.observe(revenue_entry.ref, time_scope={...}, grain="month")
 ```
 
 如果指标刚刚新建或修改，先完成下文所述的 scoped authoring closeout，再进入这条日常分析流程。
@@ -104,7 +104,7 @@ frame = session.observe(revenue, time_scope={...}, grain="month")
 ### 1. 连接数据源
 
 Datasources 在 `models/datasources/*.py` 中声明，每种 backend 对应一个 typed helper。
-helper 会注册连接。Semantic 文件通过 `md.ref("datasource.warehouse")` 以 kind-qualified ref 引用
+helper 会注册连接。Semantic 文件通过精确的 `ms.Ref.datasource("warehouse")` factory 引用
 datasource。
 
 ```python
@@ -126,7 +126,7 @@ md.duckdb(
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
-| `name` | `str` | 是 | — | 全局 datasource 名称（字母、数字、`_`、`-`）。供 `md.ref(name)` 使用。 |
+| `name` | `str` | 是 | — | 全局 lowercase snake_case datasource 名称。供 `ms.Ref.datasource(name)` 使用。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 | `extra` | `dict` | 否 | `None` | typed helper 未建模的、罕见的 JSON 安全 ibis 关键字参数。 |
 
@@ -171,7 +171,7 @@ md.trino(
 #### 数据域
 
 `ms.domain(...)` 打开一个 namespace。每个 `_domain.py` 调用一次。它返回一个
-`DomainRef`，也可以作为 `domain=` 传入，用来覆盖同级文件中对象的活动 domain。
+`Ref[domain]`，也可以作为 `domain=` 传入，用来覆盖同级文件中对象的活动 domain。
 
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
@@ -194,15 +194,15 @@ Entity 表示一个物理源（一张表或一个文件）及其 primary key。d
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Entity 名称。成为 `<domain>.<name>`。 |
-| `datasource` | `DatasourceRef` | 是 | — | `md.ref("datasource.warehouse")`。 |
+| `datasource` | `Ref[datasource]` | 是 | — | `ms.Ref.datasource("warehouse")`。 |
 | `source` | source builder | 是 | — | Datasource-owned `md.table(...)`、`md.parquet(...)`、`md.csv(...)` 或 `md.json(...)`。 |
 | `primary_key` | `list[str]` | 否 | `None` | 构成 primary key 的列名。 |
 | `versioning` | `ms.snapshot \| ms.validity` | 否 | `None` | Snapshot 或 SCD2 validity 版本控制（见下）。 |
-| `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动 domain。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
-warehouse = md.ref("datasource.warehouse")
+warehouse = ms.Ref.datasource("warehouse")
 
 orders = ms.entity(
     name="orders",
@@ -233,9 +233,9 @@ entity 表的 ibis expression。
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Dimension 名称。成为 `<domain>.<entity>.<name>`。 |
-| `entity` | `EntityRef` | 是 | — | 所属 entity。 |
+| `entity` | `Ref[entity]` | 是 | — | 所属 entity。 |
 | `column` | `str` | 是 | — | Entity 表上的物理列名。 |
-| `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动 domain。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
@@ -255,12 +255,12 @@ region = ms.dimension_column(
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Dimension 名称。 |
-| `entity` | `EntityRef` | 是 | — | 所属 entity。 |
+| `entity` | `Ref[entity]` | 是 | — | 所属 entity。 |
 | `column` | `str` | 是 | — | Entity 表上的物理列名。 |
 | `granularity` | grain 字面量 | 是 | — | `year`、`quarter`、`month`、`week`、`day`、`hour`、`minute` 或 `second` —— 查询有意义的最细粒度。 |
 | `parse` | parse 变体 | 否 | `None` | 源列如何变成时间值（见下）。原生时间列可省略——分析时自动推断 parse 变体。 |
 | `is_default` | `bool` | 否 | `False` | 当 entity 有多个时间轴时，标记默认时间轴。省略 `time_dimension=` 时 `observe` 会使用它。 |
-| `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动 domain。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ##### Parse 变体
@@ -276,7 +276,7 @@ hour 粒度需要带时间的格式）。
 | `ms.datetime()` | 原生 `datetime` | `timezone`（IANA）、`sample_interval` |
 | `ms.timestamp()` | 原生 `timestamp` | `timezone`（IANA）、`sample_interval` |
 | `ms.strptime(format)` | 需要解析的 string/integer | `timezone`、`sample_interval` |
-| `ms.hour_prefix(prefix)` | 仅含小时的分区 | `sample_interval` —— `prefix` 是提供日期的 day 粒度 `TimeDimensionRef` |
+| `ms.hour_prefix(prefix)` | 仅含小时的分区 | `sample_interval` —— `prefix` 是提供日期的 day 粒度 `Ref[time_dimension]` |
 
 对于原生但 naive 的 `datetime` 或 `timestamp`，必须声明其 source timezone（例如
 `ms.datetime(timezone="Asia/Shanghai")`）。显式 `ms.datetime()` 或
@@ -320,11 +320,11 @@ Measure 是你打算聚合的行级数量事实（例如金额或数量）。直
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Measure 名称。成为 `<domain>.<entity>.<name>`。 |
-| `entity` | `EntityRef` | 是 | — | 所属 entity。 |
+| `entity` | `Ref[entity]` | 是 | — | 所属 entity。 |
 | `column` | `str` | 是 | — | Entity 表上的物理列名。 |
 | `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
 | `unit` | `str` | 否 | `None` | UCUM unit token：`"USD"`、`"CNY"`、`"%"`、`"ms"`、`"{order}"`。 |
-| `domain` | `DomainRef` | 否 | 文件默认 | 覆盖活动 domain。 |
+| `domain` | `Ref[domain]` | 否 | 文件默认 | 覆盖活动 domain。 |
 | `ai_context` | `AiContextValue` | 否 | `None` | 面向智能体的上下文，通过 `ms.ai_context(...)` 构造。 |
 
 ```python
@@ -364,7 +364,7 @@ metric 不是一次 query 的结果，而是智能体可以安全 observe 的、
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Metric 名称。 |
-| `measure` | `MeasureRef` | 是 | — | 要聚合的 measure。 |
+| `measure` | `Ref[measure]` | 是 | — | 要聚合的 measure。 |
 | `agg` | 聚合方式 | 是 | — | `"sum"`、`"mean"`、`"min"`、`"max"` 等。 |
 | `fold` | fold | 否 | `None` | semi-additive measure 的 time-fold 覆盖。 |
 | `filter` | `WhereFilter` | 否 | `None` | 由 `ms.where(col=value, ...)` 构建的 AND 等值过滤，仅聚合匹配行。 |
@@ -422,8 +422,8 @@ base 必须是使用 `sum`、`count` 或 `count_distinct` 的 tier-1 `ms.aggrega
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | 语义 metric 名称。 |
-| `base` | `MetricRef` | 是 | — | 使用 `sum`、`count` 或 `count_distinct` 的 tier-1 简单聚合 metric。 |
-| `over` | `TimeDimensionRef \| None` | 否 | `None` | 累计时间轴。除非 base root entity 只有一个时间维度，否则需显式传入。 |
+| `base` | `Ref[metric]` | 是 | — | 使用 `sum`、`count` 或 `count_distinct` 的 tier-1 简单聚合 metric。 |
+| `over` | `Ref[time_dimension] \| None` | 否 | `None` | 累计时间轴。除非 base root entity 只有一个时间维度，否则需显式传入。 |
 | `anchor` | `GrainToDate \| Trailing \| None` | 否 | `None` | 累计锚点。`None` = 全部历史累计；`ms.grain_to_date(...)` = MTD/QTD/YTD 重置；`ms.trailing(...)` = 滚动 N。 |
 | `unit` / `domain` / `ai_context` | — | 否 | — | 同其他 metric。 |
 
@@ -492,17 +492,18 @@ Derived metric 可以组合 cumulative component。只有所有外层 component 
 
 ~~~python
 import marivo.analysis as mv
+import marivo.semantic as ms
 
 session = mv.session.get_or_create(
     name="revenue-investigation",
     question="Why did Q4 revenue drop?",
 )
 catalog = session.catalog
-revenue = catalog.get("metric.sales.revenue")
-region = catalog.get("dimension.sales.orders.region")
+revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
+region_entry = catalog.require(ms.Ref.dimension("sales.orders.region"))
 
-revenue.details().show()
-current = session.observe(revenue, grain="month", dimensions=[region])
+revenue_entry.details().show()
+current = session.observe(revenue_entry.ref, grain="month", dimensions=[region_entry.ref])
 ~~~
 
 `details().show()` 展示人类编写的定义、guardrails、composition、effective entities、候选
@@ -533,7 +534,7 @@ region = orders.dimensions.get("region")  # one dimension object
 新建或修改 object 后，运行**就绪检查**，认证所选定义及其 scoped runtime evidence 仍然有效：
 
 ```python
-report = catalog.readiness(refs=[revenue, region])
+report = catalog.readiness(refs=[revenue.ref, region.ref])
 if report.status == "blocked":
     report.show()                         # blockers, with the next step for each
 ```
@@ -564,7 +565,7 @@ readiness。缺失或不匹配的 runtime preview certification 会显示为 war
 日常 authoring 会用到两个 namespace：
 
 ```python
-import marivo.datasource as md   # connections (md.duckdb, md.ref, ...)
+import marivo.datasource as md   # connections 与 physical sources
 import marivo.semantic as ms     # meaning (ms.entity, ms.metric, ...)
 ```
 
@@ -600,65 +601,57 @@ layer_paths = ["../finance-domain/models"]
 
 Marivo 会先加载中央 project 的 `models/`，再按配置顺序加载外部 `models/` root。
 所有 datasource、domain 与 semantic object 会进入同一个 catalog，因此名称必须全局唯一。
-`marivo doctor`、`catalog.preview`、`catalog.verify_object` 与 analysis session 都会按同一组
+`marivo doctor`、`catalog.preview`、`catalog.verify` 与 analysis session 都会按同一组
 配置 roots 解析 datasource-backed semantic object。
 
 #### Semantic refs
 
-每个 semantic 对象都由一个 **semantic ref** 标识。它是类型化、不可变的句柄，同时携带限定名
-和对象种类。Ref 在 authoring 阶段和分析循环中使用同一套类型：`ms.entity(...)` 调用、
-`catalog.get(...).ref` 查找，以及分析 intent 参数，都属于同一个 `SemanticRef` 族。
+每个 semantic 对象都由一个 sealed、不可变的 `ms.Ref` 值标识。运行时只有一个
+具体 `Ref` 类；泛型 kind（如 `Ref[metric]`、`Ref[dimension]`）负责静态角色检查。
+只能通过 `ms.Ref.metric("sales.revenue")` 这类精确 factory，或返回同一值类型的
+authoring declaration 创建 ref。
 
-##### `SemanticRef` 基类
-
-所有 ref 共享两个只读属性：
+所有 ref 都有以下只读属性：
 
 | 属性 | 类型 | 含义 |
 | --- | --- | --- |
-| `.id` | `str` | 限定 semantic id（如 `"sales.revenue"`）。 |
+| `.path` | `str` | kind 内的限定路径，例如 `"sales.revenue"`。 |
 | `.kind` | `SemanticKind` | 对象种类——以下八个值之一。 |
+| `.key` | `str` | 规范 runtime key，例如 `"metric:sales.revenue"`。 |
+| `.name` | `str` | 最后的本地名称 segment。 |
 
-`str(ref)` 返回 `.id`，因此 ref 在接受 semantic id 的读取/查询 API 中仍然方便。Authoring 参数必须使用 Ref 对象，不能传裸字符串。
-相等性和哈希基于 `(type, id)`，所以同子类同 id 的两个 ref 可互换。
+`str(ref)` 返回 `.key`，相等性和哈希基于 `(kind, path)`。不能直接调用
+`Ref(...)`，也不能继承 `Ref`。公开边界不会把字符串或 catalog entry 当作 ref。
 
-##### 按 kind 区分的子类
-
-每个 `SemanticKind` 值对应一个具体的 ref 子类：
-
-| Kind | 子类 | 由谁返回 | 可调用? |
+| Kind | Factory | 常见 authoring producer | 可调用? |
 | --- | --- | --- | --- |
-| `domain` | `DomainRef` | `ms.domain(...)` | 否 |
-| `datasource` | `DatasourceRef` | `md.ref(...)` | 否 |
-| `entity` | `EntityRef` | `ms.entity(...)` | 否 |
-| `dimension` | `DimensionRef` | 直接列用 `ms.dimension_column(...)`，表达式用 `@ms.dimension` | 是——在 metric body 中 |
-| `time_dimension` | `TimeDimensionRef` | 直接列用 `ms.time_dimension_column(...)`，表达式用 `@ms.time_dimension` | 是——在 metric body 中 |
-| `measure` | `MeasureRef` | 直接列用 `ms.measure_column(...)`，表达式用 `@ms.measure` | 是——在 metric body 中 |
-| `metric` | `MetricRef` | `ms.aggregate(...)`、`ms.count(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
-| `relationship` | `RelationshipRef` | `ms.relationship(...)` | 否 |
+| `domain` | `ms.Ref.domain(path)` | `ms.domain(...)` | 否 |
+| `datasource` | `ms.Ref.datasource(path)` | datasource declaration 的 `.ref` | 否 |
+| `entity` | `ms.Ref.entity(path)` | `ms.entity(...)` | 否 |
+| `dimension` | `ms.Ref.dimension(path)` | `ms.dimension_column(...)`、`@ms.dimension` | 仅在绑定的 expression body 内可调用 |
+| `time_dimension` | `ms.Ref.time_dimension(path)` | `ms.time_dimension_column(...)`、`@ms.time_dimension` | 仅在绑定的 expression body 内可调用 |
+| `measure` | `ms.Ref.measure(path)` | `ms.measure_column(...)`、`@ms.measure` | 仅在绑定的 expression body 内可调用 |
+| `metric` | `ms.Ref.metric(path)` | `ms.aggregate(...)`、`@ms.metric`、`ms.ratio(...)` 等 | 否 |
+| `relationship` | `ms.Ref.relationship(path)` | `ms.relationship(...)` | 否 |
 
-可调用的 field ref（`DimensionRef`、`MeasureRef`、`TimeDimensionRef`）在 metric body
-内被调用时，会解析为 ibis expression。其他 ref 如果被误调用会抛出教学性错误：它们是身份令牌，
-不是装饰器。
+在 expression body 内，field ref 必须显式传入已声明的 entity alias，例如
+`amount(orders)`。Loader 会把该绑定记录到 compiled catalog。若在 body 外调用、使用错误
+alias，或调用非 field ref，都会得到带修复提示的错误。
 
-##### 一个族，一个访问器
-
-因为 authoring ref 和 catalog ref 属于同一类型族，authoring ref 可以直接传给分析 intent，
-不需要额外包装：
+Authoring ref 可以直接传给分析。如果从字面身份开始，先做一次精确 catalog membership
+校验，再使用 entry 的 ref：
 
 ```python
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-## revenue 是一个 MetricRef——直接传给 observe：
 frame = session.observe(revenue, time_scope={...})
+
+revenue_entry = catalog.require(ms.Ref.metric("sales.revenue"))
+frame = session.observe(revenue_entry.ref, time_scope={...})
 ```
 
-Catalog 的 `catalog.get("metric.sales.revenue").ref` 返回同一个 `MetricRef` 子类。不存在
-`.ref.ref` 链，authoring 和 analysis 之间也不会出现 ref 类型不匹配。
-
-##### 工厂与归一化器
-
-- `mv.make_ref(id, kind)` —— 内部使用；已从公开接口中移除。
-- `as_ref_id(value)` —— 从 `SemanticRef`、`CatalogObject` 或纯 `str` 中提取 `.id` 字符串。
-  对字符串保持宽容：原始 id 会直接通过。
+`catalog.require(ref)` 是精确的全局查找；catalog collections 负责浏览和本地名称查找，
+analysis 与 authoring API 始终只接受 `Ref` 作为 semantic identity。持久化 payload 使用带版本的
+`{schema, kind, path}` 记录，裸字符串不是公开 interchange 格式。
 
 #### `ai_context`：人与智能体之间的契约
 
@@ -683,9 +676,9 @@ ai_context=ms.ai_context(
 对于行会随时间变化的 entity，需要声明如何读取当前状态：
 
 - `ms.snapshot(partition_field, grain="day", timezone=None, format=None)` ——
-  按天分区的快照；`partition_field` 必须是 `DimensionRef` 或 `TimeDimensionRef`。
+  按天分区的快照；`partition_field` 必须是 `Ref[dimension]` 或 `Ref[time_dimension]`。
 - `ms.validity(valid_from, valid_to, interval, open_end, timezone=None)` ——
-  SCD2 validity 区间；`valid_from` 和 `valid_to` 必须是 `DimensionRef` 或 `TimeDimensionRef`。`interval` 为 `"closed_open"`（`[from, to)`）或
+  SCD2 validity 区间；`valid_from` 和 `valid_to` 必须是 `Ref[dimension]` 或 `Ref[time_dimension]`。`interval` 为 `"closed_open"`（`[from, to)`）或
   `"closed_closed"`；`open_end` 列出表示“仍然有效”的哨兵值（例如 SQL `NULL` 用
   `(None,)`，或 `("9999-12-31",)`）。
 
@@ -697,9 +690,9 @@ ai_context=ms.ai_context(
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 否 | 函数名 | Metric 名称。 |
-| `entities` | `list[EntityRef]` | 是 | — | Body 读取的 entities。 |
+| `entities` | `list[Ref[entity]]` | 是 | — | Body 读取的 entities。 |
 | `additivity` | additivity 值 | 是 | — | `"additive"`、`"non_additive"` 或 `ms.semi_additive(...)`。 |
-| `root_entity` | `EntityRef` | 否 | 单个 entity | 当 `entities` 多于一个时必填。 |
+| `root_entity` | `Ref[entity]` | 否 | 单个 entity | 当 `entities` 多于一个时必填。 |
 | `fanout_policy` | `"block" \| "aggregate_then_join"` | 否 | `"block"` | 如何处理跨 entity 连接的 fan-out。 |
 | `unit` | `str` | 否 | `None` | UCUM unit token。 |
 | `provenance` | `SqlProvenance` | 否 | `None` | 用于 parity 校验的 `ms.from_sql(sql=..., dialect=...)`。 |
@@ -756,8 +749,8 @@ Keys 使用 dimension ref，而不是原始列名。
 | 参数 | 类型 | 必填 | 默认 | 含义 |
 | --- | --- | --- | --- | --- |
 | `name` | `str` | 是 | — | Relationship 名称。 |
-| `from_entity` | `EntityRef` | 是 | — | 源 entity。 |
-| `to_entity` | `EntityRef` | 是 | — | 目标 entity。 |
+| `from_entity` | `Ref[entity]` | 是 | — | 源 entity。 |
+| `to_entity` | `Ref[entity]` | 是 | — | 目标 entity。 |
 | `keys` | `list[JoinKey]` | 是 | — | 一个或多个 `ms.join_on(from_key, to_key)` 配对。 |
 | `domain` / `ai_context` | — | 否 | — | 同其他对象。 |
 
@@ -778,7 +771,7 @@ ms.relationship(
 `ms.ai_context(...)` 契约：
 
 ```python
-warehouse = md.ref("datasource.warehouse")
+warehouse = ms.Ref.datasource("warehouse")
 orders = md.table("orders")
 
 inspection = md.inspect(warehouse, orders)
@@ -815,10 +808,10 @@ state 和 enforceable capabilities。Scope 必须有正整数 row/timeout guards
 Uncommon formats、keys、timezone、aggregation、unit、additivity、relationship cardinality
 和 business meaning 仍由智能体负责。
 
-写完一个 Python declaration 后，加载 typed catalog object，依次运行
-`catalog.verify_object(obj)`、`catalog.preview(obj, using=snapshot)` 和零查询
-`catalog.readiness(refs=[obj])`。
+写完一个 Python declaration 后，重新加载 catalog entry，取出 `entry.ref`，依次运行
+`catalog.verify(ref)`、`catalog.preview(ref, using=snapshot)` 和零查询
+`catalog.readiness(refs=[ref])`。
 
 当 readiness 报告多个 runtime preview 缺失时，仍通过同一个入口修复：
-`catalog.preview(refs=report.preview_required_refs, using=snapshot_or_mapping)`。
+`catalog.preview_many(report.preview_required_refs, using=snapshot_or_mapping)`。
 它会合并兼容查询，但仍为每个 ref 保留独立 evidence；这不是 batch authoring 捷径。

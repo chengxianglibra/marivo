@@ -12,7 +12,6 @@ import marivo.analysis.session as session_attach
 import marivo.datasource as md
 from marivo.analysis.errors import (
     DatasourceFieldInvalidError,
-    DatasourceMissingError,
     NoBackendFactoryError,
 )
 from marivo.datasource.authoring import (
@@ -24,8 +23,8 @@ from marivo.datasource.authoring import (
     TrinoSpec,
 )
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture
@@ -91,7 +90,7 @@ def test_model_qualified_datasource_name_is_rejected(tmp_path: Path, fake_home: 
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
 
-    assert exc_info.value.expected == "a storage name without a kind prefix"
+    assert exc_info.value.expected == "[a-z][a-z0-9_]*"
 
 
 def test_explicit_backend_factory_overrides_datasource(tmp_path: Path, fake_home: Path) -> None:
@@ -111,14 +110,15 @@ def test_explicit_backend_factory_overrides_datasource(tmp_path: Path, fake_home
 
 
 def test_missing_datasource_raises_datasource_missing(tmp_path: Path, fake_home: Path) -> None:
+    from marivo.semantic.errors import SemanticLoadFailed
+
     bootstrap_sales_project(tmp_path)
     (tmp_path / "models" / "datasources" / "warehouse.py").unlink()
-    session = mv.session.get_or_create(name="s")
-    with pytest.raises(DatasourceMissingError) as exc_info:
-        session._connection_runtime.get_or_create("warehouse")
+    with pytest.raises(SemanticLoadFailed) as exc_info:
+        mv.session.get_or_create(name="s")
     rendered = str(exc_info.value)
     assert "warehouse" in rendered
-    assert "md.register" in rendered
+    assert "unknown datasource" in rendered
 
 
 def test_use_datasources_false_disables_auto_factory(tmp_path: Path, fake_home: Path) -> None:

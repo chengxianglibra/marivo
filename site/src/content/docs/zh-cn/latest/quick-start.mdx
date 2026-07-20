@@ -69,7 +69,7 @@ ms.domain(
 
 orders = ms.entity(
     name="orders",
-    datasource=md.ref("datasource.warehouse"),
+    datasource=ms.Ref.datasource("warehouse"),
     source=md.table("orders"),
     primary_key=["order_id"],
     ai_context=ms.ai_context(

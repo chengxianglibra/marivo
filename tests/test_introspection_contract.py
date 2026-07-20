@@ -115,9 +115,9 @@ def test_no_inherited_or_module_docstring_leaks() -> None:
 def test_semantic_catalog_help_lists_workflow_methods() -> None:
     text = ms.help_text(ms.SemanticCatalog)
     assert "SemanticCatalog" in text
-    assert "get" in text
+    assert "require" in text
     assert "readiness" in text
-    assert "verify_object" in text
+    assert "verify" in text
 
 
 def test_semantic_load_help_mentions_entrypoint() -> None:

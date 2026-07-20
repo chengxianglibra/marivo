@@ -1,54 +1,50 @@
-"""Unit tests for the semantic ref subclasses, factory, and normalizers."""
+"""Unit tests for exact semantic ref factories and public boundaries."""
 
 from __future__ import annotations
 
 import pytest
 
-from marivo.refs import SemanticRef, SymbolKind
-from marivo.semantic.refs import (
-    DimensionRef,
-    EntityRef,
-    MetricRef,
-    as_ref_id,
-    make_ref,
-)
+import marivo.semantic as ms
+from marivo.semantic.errors import SemanticRuntimeError
 
 
-def test_subclasses_are_semantic_refs_with_fixed_kind() -> None:
-    assert isinstance(EntityRef("sales.orders"), SemanticRef)
-    assert EntityRef("sales.orders").kind is SymbolKind.ENTITY
-    assert DimensionRef("sales.orders.country").kind is SymbolKind.DIMENSION
+def test_factories_return_exact_ref_with_fixed_kind() -> None:
+    assert type(ms.Ref.entity("sales.orders")) is ms.Ref
+    assert ms.Ref.entity("sales.orders").kind is ms.SemanticKind.ENTITY
+    assert ms.Ref.dimension("sales.orders.country").kind is ms.SemanticKind.DIMENSION
 
 
-def test_metric_ref_requires_dotted_id() -> None:
-    assert MetricRef("sales.revenue").id == "sales.revenue"
-    with pytest.raises(ValueError, match=r"model.*metric"):
-        MetricRef("revenue")
+def test_metric_ref_requires_two_segment_path() -> None:
+    assert ms.Ref.metric("sales.revenue").path == "sales.revenue"
+    with pytest.raises(ValueError, match="exactly 2 segments"):
+        ms.Ref.metric("revenue")
 
 
-def test_make_ref_dispatches_all_eight_kinds() -> None:
+def test_all_eight_exact_kind_factories() -> None:
     expected = {
-        SymbolKind.DOMAIN: "DomainRef",
-        SymbolKind.DATASOURCE: "DatasourceRef",
-        SymbolKind.ENTITY: "EntityRef",
-        SymbolKind.DIMENSION: "DimensionRef",
-        SymbolKind.MEASURE: "MeasureRef",
-        SymbolKind.TIME_DIMENSION: "TimeDimensionRef",
-        SymbolKind.METRIC: "MetricRef",
-        SymbolKind.RELATIONSHIP: "RelationshipRef",
+        ms.SemanticKind.DOMAIN: ms.Ref.domain("sales"),
+        ms.SemanticKind.DATASOURCE: ms.Ref.datasource("warehouse"),
+        ms.SemanticKind.ENTITY: ms.Ref.entity("sales.orders"),
+        ms.SemanticKind.DIMENSION: ms.Ref.dimension("sales.orders.country"),
+        ms.SemanticKind.MEASURE: ms.Ref.measure("sales.orders.amount"),
+        ms.SemanticKind.TIME_DIMENSION: ms.Ref.time_dimension("sales.orders.ordered_at"),
+        ms.SemanticKind.METRIC: ms.Ref.metric("sales.revenue"),
+        ms.SemanticKind.RELATIONSHIP: ms.Ref.relationship("sales.orders_to_customers"),
     }
-    ids = {SymbolKind.DATASOURCE: "warehouse"}  # datasource names disallow dots
-    for kind, cls_name in expected.items():
-        ref = make_ref(ids.get(kind, "sales.x"), kind)
-        assert type(ref).__name__ == cls_name
+    for kind, ref in expected.items():
+        assert type(ref) is ms.Ref
         assert ref.kind is kind
 
 
-def test_as_ref_id_is_string_tolerant() -> None:
-    assert as_ref_id("sales.orders") == "sales.orders"
-    assert as_ref_id(EntityRef("sales.orders")) == "sales.orders"
+def test_raw_constructor_and_legacy_helpers_are_absent() -> None:
+    with pytest.raises(TypeError, match="no public raw constructor"):
+        ms.Ref()  # type: ignore[call-arg]
+    assert not hasattr(ms, "SemanticRef")
+    assert not hasattr(ms, "MetricRef")
+    assert not hasattr(ms, "ref")
 
 
-def test_field_ref_call_without_resolver_raises() -> None:
-    with pytest.raises(RuntimeError, match="no resolver"):
-        DimensionRef("sales.orders.country")("table")
+def test_field_ref_call_without_binding_context_raises() -> None:
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        ms.Ref.dimension("sales.orders.country")("table")  # type: ignore[arg-type]
+    assert exc_info.value.kind == "binding_context_missing"

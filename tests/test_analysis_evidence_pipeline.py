@@ -20,13 +20,17 @@ from marivo.analysis.evidence.store import open_evidence_store
 from marivo.analysis.evidence.types import Subject
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
+from tests.shared_fixtures import make_test_metric_contract
 
 
 def _frame(tmp_path: Path, *, ordinal: int = 0) -> MetricFrame:
     data = pd.DataFrame({"value": [100.0 + ordinal]})
+    contract = make_test_metric_contract(data, metric_id="sales.revenue", axes={})
     return MetricFrame(
         _df=data,
         meta=MetricFrameMeta(
+            catalog_definition_fingerprint=contract["catalog_definition_fingerprint"],
+            semantic_dependency_digest=contract["semantic_dependency_digest"],
             kind="metric_frame",
             ref="placeholder",
             session_id="sess_1",
@@ -37,6 +41,10 @@ def _frame(tmp_path: Path, *, ordinal: int = 0) -> MetricFrame:
             byte_size=0,
             lineage=Lineage(),
             metric_id="sales.revenue",
+            metric_identity=contract["metric_identity"],
+            metric_identities=contract["metric_identities"],
+            key_schema=contract["key_schema"],
+            comparable_value_semantics=contract["comparable_value_semantics"],
             axes={},
             measure={"field": "value", "aggregation": "sum"},
             window=None,
@@ -58,10 +66,8 @@ def _commit(tmp_path: Path, *, emit_evidence: bool = True, store=True, ordinal: 
             step_type="observe",
             inputs=CommitInputs(input_refs=[]),
             params=CommitParams(values={"metric": "sales.revenue", "ordinal": ordinal}),
-            semantic_anchors=CommitSemanticAnchors(
-                values={"metric": f"sales.revenue@v{ordinal + 1}"}
-            ),
-            subject=Subject(metric="sales.revenue", analysis_axis="scalar"),
+            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
+            subject=Subject(analysis_axis="scalar"),
             extractor_family="metric_frame",
             emit_evidence=emit_evidence,
         )
@@ -179,8 +185,8 @@ def test_meta_write_failure_removes_db_registration_and_retry_is_idempotent(
             step_type="observe",
             inputs=CommitInputs(input_refs=[]),
             params=CommitParams(values={"metric": "sales.revenue"}),
-            semantic_anchors=CommitSemanticAnchors(values={"metric": "sales.revenue@v1"}),
-            subject=Subject(metric="sales.revenue", analysis_axis="scalar"),
+            semantic_anchors=CommitSemanticAnchors.from_frame(_frame(tmp_path)),
+            subject=Subject(analysis_axis="scalar"),
             extractor_family="metric_frame",
         )
     assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
@@ -193,8 +199,8 @@ def test_meta_write_failure_removes_db_registration_and_retry_is_idempotent(
         step_type="observe",
         inputs=CommitInputs(input_refs=[]),
         params=CommitParams(values={"metric": "sales.revenue"}),
-        semantic_anchors=CommitSemanticAnchors(values={"metric": "sales.revenue@v1"}),
-        subject=Subject(metric="sales.revenue", analysis_axis="scalar"),
+        semantic_anchors=CommitSemanticAnchors.from_frame(_frame(tmp_path)),
+        subject=Subject(analysis_axis="scalar"),
         extractor_family="metric_frame",
     )
     assert store.read().execute("SELECT count(*) FROM artifacts").fetchone()[0] == 1

@@ -85,7 +85,7 @@ def _build_surface() -> LiveSurface[AuthoringCapability]:
         type_index=type_index,
         error_types=ERROR_TYPES,
         error_base=_NeverSemanticError,
-        default_suggestions=("load", "verify_object", "preview", "readiness", "help"),
+        default_suggestions=("load", "verify", "preview", "readiness", "help"),
         help_target_error=_help_target_error,
         enrich=_enrich,
         suggestion_index=build_suggestion_index(REGISTRY),

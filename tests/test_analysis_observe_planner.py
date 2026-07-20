@@ -22,7 +22,7 @@ from marivo.analysis.intents.observe_planner import (
 from marivo.semantic._registry_bridge import get_metric_ir
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 
 def test_observe_planning_error_payload_is_stable():
@@ -65,7 +65,7 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
                 "def revenue(orders):\n"
                 "    return orders.amount.sum()\n"
@@ -77,14 +77,14 @@ def test_resolve_metric_root_defaults_single_dataset(semantic_project_factory):
     assert resolve_metric_root(metric) == "sales.orders"
 
 
-def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_factory):
+def test_exact_field_resolution_uses_catalog_membership(semantic_project_factory):
     project = semantic_project_factory(
         {
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -104,22 +104,20 @@ def test_short_field_resolution_is_limited_to_metric_datasets(semantic_project_f
     resolved = resolve_observe_fields(
         catalog,
         metric,
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         where=None,
         time_dimension=None,
     )
     assert [field.semantic_id for field in resolved.dimensions] == ["sales.orders.region"]
 
-    with pytest.raises(ObservePlanningError) as exc_info:
-        resolve_observe_fields(
-            catalog,
-            metric,
-            dimensions=[make_ref("tier", SemanticKind.DIMENSION)],
-            where=None,
-            time_dimension=None,
-        )
-    assert exc_info.value._context["code"] == "field-ref-not-found"
-    assert "tier" in exc_info.value._context["candidates"].get("did_you_mean", [])
+    resolved_other = resolve_observe_fields(
+        catalog,
+        metric,
+        dimensions=[make_ref("sales.users.tier", SemanticKind.DIMENSION)],
+        where=None,
+        time_dimension=None,
+    )
+    assert [field.semantic_id for field in resolved_other.dimensions] == ["sales.users.tier"]
 
 
 def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_factory):
@@ -128,8 +126,8 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -150,18 +148,18 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
         resolve_observe_fields(
             catalog,
             metric,
-            dimensions=[make_ref("regn", SemanticKind.DIMENSION)],
+            dimensions=[make_ref("sales.orders.regn", SemanticKind.DIMENSION)],
             where=None,
             time_dimension=None,
         )
     details = exc_info.value._context
     assert details["code"] == "field-ref-not-found"
-    assert "region" in details["candidates"].get("did_you_mean", [])
+    assert "sales.orders.region" in details["candidates"].get("did_you_mean", [])
     assert isinstance(details["candidates"].get("available_field_ids"), list)
     repair = details.get("repair", [])
     assert len(repair) >= 1
     assert repair[0]["action"] == "replace_field_ref"
-    assert repair[0]["value"] == "region"
+    assert repair[0]["value"] == "sales.orders.region"
 
     resolved = resolve_observe_fields(
         catalog,
@@ -173,13 +171,13 @@ def test_field_ref_not_found_populates_did_you_mean_and_repair(semantic_project_
     assert [field.semantic_id for field in resolved.dimensions] == ["sales.users.tier"]
 
 
-def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_factory):
+def test_field_ref_not_found_lists_exact_catalog_candidates(semantic_project_factory):
     project = semantic_project_factory(
         {
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
@@ -196,15 +194,14 @@ def test_field_ref_not_found_adds_ibis_hint_for_builtin_names(semantic_project_f
         resolve_observe_fields(
             catalog,
             metric,
-            dimensions=[make_ref("desc", SemanticKind.DIMENSION)],
+            dimensions=[make_ref("sales.orders.desc", SemanticKind.DIMENSION)],
             where=None,
             time_dimension=None,
         )
     details = exc_info.value._context
     assert details["code"] == "field-ref-not-found"
-    assert "ibis_builtin_hint" in details["candidates"]
-    assert "ibis.desc()" in details["candidates"]["ibis_builtin_hint"]
-    assert "ibis.desc()" in exc_info.value.message
+    assert details["candidates"]["available_field_ids"] == ["sales.orders.region"]
+    assert details["candidates"]["did_you_mean"] == ["sales.orders.region"]
 
 
 def test_unique_shortest_path_and_join_safety(semantic_project_factory):
@@ -213,8 +210,8 @@ def test_unique_shortest_path_and_join_safety(semantic_project_factory):
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"
@@ -261,8 +258,8 @@ def test_unique_shortest_path_finds_cross_domain_relationship_from_non_owner(
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "from ._domain import sales\n"
                 "identity = ms.domain(name='identity', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'), domain=sales)\n"
-                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=md.table('users'), domain=identity)\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'), domain=sales)\n"
+                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'), domain=identity)\n"
                 "@ms.dimension(entity=orders, domain=sales)\n"
                 "def order_user_id(orders):\n"
                 "    return orders.user_id\n"
@@ -297,7 +294,7 @@ def test_field_fn_invalid_expression_preserves_observe_error_code(semantic_proje
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def bad_dimension(orders):\n"
                 "    return 42\n"
@@ -319,7 +316,7 @@ def test_field_fn_converts_typed_missing_dimension_kind(monkeypatch, semantic_pr
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
             ),
         }
     )
@@ -336,14 +333,14 @@ def test_field_fn_converts_typed_missing_dimension_kind(monkeypatch, semantic_pr
 
     monkeypatch.setattr(
         SemanticCatalog,
-        "_resolver",
+        "_semantic_resolver",
         lambda self, connections=None: MissingDimensionResolver(),
     )
 
     with pytest.raises(ObservePlanningError) as exc_info:
         _field_fn(catalog, "sales.orders.missing")(table)
 
-    assert exc_info.value._context["code"] == "field-ref-not-found"
+    assert exc_info.value._context["code"] == "path-missing"
 
 
 def test_field_fn_does_not_misclassify_callable_not_found_failures(
@@ -354,7 +351,7 @@ def test_field_fn_does_not_misclassify_callable_not_found_failures(
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def warehouse_status(orders):\n"
                 "    return (_ for _ in ()).throw(\n"

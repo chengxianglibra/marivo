@@ -147,6 +147,25 @@ def test_conventional_env_var_derives_name() -> None:
     assert secrets.conventional_env_var("db", "secret_key") == "MARIVO_DB_SECRET_KEY"
 
 
+def test_conventional_cache_reuse_depends_on_normalized_environment_name(
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reused_name = secrets.conventional_env_var("prod-mysql", "password")
+    assert reused_name == secrets.conventional_env_var("prod_mysql", "password")
+    changed_name = secrets.conventional_env_var("ds_1warehouse", "password")
+    assert changed_name != secrets.conventional_env_var("1warehouse", "password")
+    _write_store(fake_home, f'"{reused_name}" = "cached"\n')
+    monkeypatch.delenv(reused_name, raising=False)
+    monkeypatch.delenv(changed_name, raising=False)
+
+    reused = secrets.resolve_optional(secrets.conventional_env_var("prod_mysql", "password"))
+    not_reused = secrets.resolve_optional(changed_name)
+
+    assert reused is not None and reused.value == "cached"
+    assert not_reused is None
+
+
 def test_resolve_optional_returns_none_when_not_found(
     fake_home: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

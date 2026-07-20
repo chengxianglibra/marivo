@@ -29,9 +29,9 @@ from marivo.analysis.intents._candidate_columns import (
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.windows import AbsoluteWindow
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
-from tests.shared_fixtures import make_metric_frame
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +58,7 @@ def _metric(session, df, *, semantic_kind="time_series"):
 
 def _delta(session, df, *, semantic_kind="segmented"):
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",
         ref="frame_d",
         session_id=session.id,
@@ -249,7 +250,9 @@ def test_driver_axis_selection_feeds_attribute(tmp_path):
     )
     candidates = session.discover.driver_axes(
         src,
-        search_space=[session.catalog.get("dimension.sales.orders.region").ref],
+        search_space=[
+            session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
+        ],
     )
 
     selected = candidates.select()

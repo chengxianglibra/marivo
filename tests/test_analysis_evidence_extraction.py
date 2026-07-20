@@ -19,6 +19,7 @@ from marivo.analysis.evidence.extraction.observation import (
 )
 from marivo.analysis.evidence.extraction.test import extract_test_result_findings
 from marivo.analysis.evidence.types import AnalysisScope, Subject
+from tests.shared_fixtures import make_test_analysis_scope, make_test_subject
 
 
 def _now() -> datetime:
@@ -27,7 +28,7 @@ def _now() -> datetime:
 
 def test_observation_extracts_full_volume_values_and_bounded_aggregate() -> None:
     data = pd.DataFrame({"region": [f"r{index}" for index in range(7)], "value": range(7)})
-    subject = Subject(metric="revenue", analysis_axis="segment")
+    subject = make_test_subject(metric_id="revenue", analysis_axis="segment")
     values = extract_metric_value_findings(
         df=data,
         artifact_id="art_observe",
@@ -71,7 +72,7 @@ def test_panel_observation_retains_additive_total_and_top_segments() -> None:
         ),
         artifact_id="art_panel",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="panel"),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="panel"),
         semantic_kind="panel",
         measure_column="value",
         time_column="day",
@@ -91,7 +92,7 @@ def test_time_series_uses_endpoint_direction_not_generic_trend() -> None:
         df=pd.DataFrame({"bucket_start": ["2026-01-01", "2026-01-02"], "value": [1.0, 3.0]}),
         artifact_id="art_time",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="time"),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="time"),
         semantic_kind="time_series",
         measure_column="value",
         time_column="bucket_start",
@@ -110,7 +111,7 @@ def test_delta_preserves_undefined_relative_delta_reason_and_unit() -> None:
         ),
         artifact_id="art_delta",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="change"),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="change"),
         semantic_kind="scalar",
         committed_at=_now(),
         unit="USD",
@@ -134,7 +135,7 @@ def test_contribution_has_rank_and_method_but_no_driver_role() -> None:
         ),
         artifact_id="art_attr",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="decomposition"),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="decomposition"),
         committed_at=_now(),
         scope_delta_ref="art_delta",
     )
@@ -182,7 +183,7 @@ def test_test_result_keeps_exact_predicate_and_decision() -> None:
         ),
         artifact_id="art_test",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="scalar"),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="scalar"),
         committed_at=_now(),
         alternative="greater",
     )[0]
@@ -204,13 +205,13 @@ def test_forecast_retains_model_scope_and_actual_absence() -> None:
         ),
         artifact_id="art_forecast",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="forecast"),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="forecast"),
         committed_at=_now(),
         model="naive",
-        training_scope=AnalysisScope(metric_ids=("revenue",)),
+        training_scope=make_test_analysis_scope("revenue"),
     )[0]
     assert finding.value.model == "naive"
-    assert finding.value.training_scope.metric_ids == ("revenue",)
+    assert finding.value.training_scope.metric_ids == ("sales.revenue",)
     assert finding.value.observed_actual is None
     assert finding.epistemic_kind == "predicted"
 
@@ -220,7 +221,7 @@ def test_anomaly_candidates_are_stably_ranked_and_remain_candidates() -> None:
         df=pd.DataFrame({"candidate_ref": ["low", "high"], "score": [0.2, 0.9]}),
         artifact_id="art_candidates",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="anomaly"),
+        subject=make_test_subject(metric_id="revenue", analysis_axis="anomaly"),
         committed_at=_now(),
     )
     assert [finding.value.candidate_ref for finding in findings] == ["high", "low"]

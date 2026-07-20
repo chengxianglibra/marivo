@@ -31,8 +31,8 @@ from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.policies import AlignmentPolicy, SamplingPolicy
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
-from tests.shared_fixtures import make_metric_frame
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -61,6 +61,7 @@ def _metric_frame(session, *, semantic_kind="time_series"):
 
 def _delta_frame(session, *, semantic_kind="time_series"):
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",
         ref="frame_delta",
         session_id=session.id,

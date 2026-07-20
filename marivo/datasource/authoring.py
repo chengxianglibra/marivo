@@ -16,7 +16,7 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.typing import AiContextValue
-from marivo.refs import SemanticRef, SymbolKind
+from marivo.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
 
 
 def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
@@ -59,8 +59,6 @@ SENSITIVE_FIELD_STEMS = frozenset(
         "api_key",
     }
 )
-_DATASOURCE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]  # noqa: UP040
 
 _META_FIELDS = frozenset({"name", "ai_context", "extra", "fields", "env_refs"})
@@ -163,9 +161,9 @@ class _SpecBase:
     env_refs: dict[str, str] = field(init=False)
 
     @property
-    def ref(self) -> DatasourceRef:
+    def ref(self) -> Ref[DatasourceKind]:
         """Typed reference to this datasource for semantic authoring."""
-        return DatasourceRef(self.name)
+        return Ref.datasource(self.name)
 
     def __post_init__(self) -> None:
         validate_datasource_name(self.name)
@@ -387,55 +385,29 @@ class ClickHouseSpec(_SpecBase):
 DatasourceSpec: TypeAlias = DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec  # noqa: UP040
 
 
-class DatasourceRef(SemanticRef):
-    """Global datasource reference used by semantic declarations."""
-
-    __slots__ = ()
-
-    def __init__(self, id: str) -> None:
-        super().__init__(_canonical_datasource_id(id), SymbolKind.DATASOURCE)
-
-    @classmethod
-    def from_id(cls, id: str) -> DatasourceRef:
-        """Build a datasource ref from either a short name or canonical id."""
-        return cls(id)
-
-
-def _canonical_datasource_id(value: Any) -> str:
-    prefix = f"{SymbolKind.DATASOURCE}."
-    if isinstance(value, DatasourceRef):
-        return value.id
-    if not isinstance(value, str) or not value:
-        raise ValueError("datasource refs must use 'datasource.<name>'.")
-    candidate = value.strip()
-    if candidate.startswith(prefix):
-        short_name = candidate[len(prefix) :]
-    elif "." in candidate:
-        raise ValueError("datasource refs must use 'datasource.<name>'.")
-    else:
-        short_name = candidate
-    validate_datasource_name(short_name)
-    return f"{prefix}{short_name}"
-
-
-def _storage_name(value: str | DatasourceRef) -> str:
-    """Return the project storage key for a datasource ref or legacy short name."""
-    canonical_id = _canonical_datasource_id(value)
-    return canonical_id.removeprefix(f"{SymbolKind.DATASOURCE}.")
-
-
-def _require_datasource_ref(value: Any, *, argument: str = "datasource") -> DatasourceRef:
-    if isinstance(value, DatasourceRef):
+def _storage_name(value: str | Ref[DatasourceKind]) -> str:
+    """Return the private project storage key for a validated datasource identity."""
+    if type(value) is Ref and value.kind is SemanticKind.DATASOURCE:
+        return value.path
+    if type(value) is str:
+        validate_datasource_name(value)
         return value
     raise TypeError(
-        f'{argument} must be md.DatasourceRef from md.ref("datasource.warehouse"). '
-        "Do not pass a bare string."
+        f"datasource storage identity must be str or Ref[datasource], got {type(value).__name__}"
     )
 
 
-def ref(id: str) -> DatasourceRef:
-    """Reference a global project datasource by kind-qualified id."""
-    return DatasourceRef(id)
+def _require_datasource_ref(
+    value: object,
+    *,
+    argument: str = "datasource",
+) -> Ref[DatasourceKind]:
+    if type(value) is Ref and value.kind is SemanticKind.DATASOURCE:
+        return value
+    raise TypeError(
+        f"{argument} must be Ref[datasource] from a datasource spec's .ref or "
+        "Ref.datasource('warehouse'). Do not pass a bare string."
+    )
 
 
 _DATASOURCE_CTX: ContextVar[DatasourceLoaderContext | None] = ContextVar(
@@ -501,30 +473,30 @@ def validate_datasource_name(name: Any) -> None:
                 action="Provide a non-empty datasource name.",
             ),
         )
-    if "." in name:
-        raise DatasourceFieldInvalidError(
-            message=f"datasource {name!r} must use a storage name without kind prefix",
-            expected="a storage name without a kind prefix",
-            received=name,
-            location="datasource name",
-            repair=repair(
-                kind="reauthor",
-                canonical_id="duckdb",
-                action="Remove the kind prefix from the datasource name.",
-            ),
-        )
-    if not _DATASOURCE_NAME_RE.fullmatch(name):
+    try:
+        _validate_segment(name, role="datasource name")
+    except ValueError:
+        suggested = re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_")
+        if not suggested:
+            suggested = "datasource"
+        if not suggested[0].isalpha():
+            suggested = f"ds_{suggested}"
         raise DatasourceFieldInvalidError(
             message=f"datasource {name!r} is not a valid datasource name",
-            expected="letters, digits, underscores, and hyphens",
+            expected="[a-z][a-z0-9_]*",
             received=name,
             location="datasource name",
             repair=repair(
                 kind="reauthor",
                 canonical_id="duckdb",
-                action="Use a valid datasource storage name.",
+                action=(
+                    f"Rename the datasource to {suggested!r}. Its identity becomes "
+                    f"datasource:{suggested}. Existing ~/.marivo/secrets.toml entries are "
+                    "not renamed; cached credentials are reused only when the conventional "
+                    "environment-variable name remains unchanged."
+                ),
             ),
-        )
+        ) from None
 
 
 def _ir_from_spec(spec: DatasourceSpec, *, location: DatasourceSourceLocation) -> DatasourceIR:

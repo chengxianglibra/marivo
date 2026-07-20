@@ -80,7 +80,7 @@ def test_registry_includes_authoring_topic() -> None:
     assert "authoring" in REGISTRY.canonical_ids()
 
 
-def test_preview_capability_teaches_readiness_batch_repair() -> None:
+def test_preview_capability_is_one_exact_ref() -> None:
     import marivo.semantic as ms
 
     preview = REGISTRY.by_canonical_id("preview")
@@ -88,9 +88,10 @@ def test_preview_capability_teaches_readiness_batch_repair() -> None:
         requirement for requirement in preview.input_requirements if requirement.role == "subject"
     )
 
-    assert preview.output_family == "PreviewResult | PreviewBatchResult"
+    assert preview.output_family == "PreviewResult"
     assert subject.min_count == 1
-    assert subject.max_count is None
+    assert subject.max_count == 1
     assert preview.minimal_example is not None
-    assert "report.preview_required_refs" in preview.minimal_example
+    assert "catalog.preview(revenue.ref" in preview.minimal_example
+    assert REGISTRY.by_canonical_id("preview_many").output_family == "PreviewBatchResult"
     assert ms.PreviewBatchResult in TYPE_CONTRACTS

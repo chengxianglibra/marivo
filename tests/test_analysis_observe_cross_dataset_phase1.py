@@ -9,7 +9,7 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.intents.observe import observe
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)
@@ -49,8 +49,8 @@ def _bootstrap(tmp_path, *, root: str = "orders"):
     root_line = "root_entity=orders" if root == "orders" else "root_entity=users"
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-        "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
@@ -169,8 +169,8 @@ def test_one_to_many_traversal_is_blocked(tmp_path):
     #   order_items.order_id is NOT a key -> one-to-many from orders
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-        "order_items = ms.entity(name='order_items', datasource=md.ref('datasource.warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "order_items = ms.entity(name='order_items', datasource=ms.Ref.datasource('warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n"
@@ -240,13 +240,13 @@ def _bootstrap_snapshot(tmp_path):
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
         "user_profile_daily = ms.entity(\n"
         "    name='user_profile_daily',\n"
-        "    datasource=md.ref('datasource.warehouse'),\n"
+        "    datasource=ms.Ref.datasource('warehouse'),\n"
         "    source=md.table('user_profile_daily'),\n"
         "    primary_key=['user_id', 'dt'],\n"
-        "    versioning=ms.snapshot(partition_field=ms.ref('dimension.sales.user_profile_daily.dt'), grain='day', timezone='Asia/Shanghai', format='%Y%m%d'),\n"
+        "    versioning=ms.snapshot(partition_field=ms.Ref.dimension('sales.user_profile_daily.dt'), grain='day', timezone='Asia/Shanghai', format='%Y%m%d'),\n"
         ")\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"

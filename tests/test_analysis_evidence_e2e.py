@@ -9,8 +9,8 @@ import marivo.analysis.session as session_attach
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 

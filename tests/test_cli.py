@@ -217,7 +217,7 @@ def test_cli_datasource_help_matches_python_adapter(
     output = capsys.readouterr().out.strip()
     assert output == md.help_text("inspect")
     assert "import marivo.datasource as md" in output
-    assert "import marivo.semantic as ms" not in output
+    assert "import marivo.semantic as ms" in output
 
 
 def test_cli_datasource_unknown_target_exits_two(

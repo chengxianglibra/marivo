@@ -1160,10 +1160,10 @@ def _build_registry() -> CapabilityRegistry:
             "Browse catalog dimensions.",
         ),
         (
-            "catalog.get",
-            "session.catalog.get(id)",
-            "catalog.get",
-            "Get a catalog object by typed id.",
+            "catalog.require",
+            "session.catalog.require(ref)",
+            "catalog.require",
+            "Require one exact ref in the compiled catalog.",
         ),
         (
             "catalog.readiness",

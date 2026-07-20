@@ -10,6 +10,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Literal
 
+from marivo.refs import DomainKind, MetricKind, Ref, SemanticKind, TimeDimensionKind
 from marivo.semantic._authoring_context import (
     _caller_location,
     _check_duplicate,
@@ -37,7 +38,6 @@ from marivo.semantic.ir import (
 from marivo.semantic.ir import (
     CumulativeComposition as CumulativeComposition,
 )
-from marivo.semantic.refs import DomainRef, MetricRef, TimeDimensionRef
 from marivo.semantic.typing import AiContextValue
 
 
@@ -166,12 +166,13 @@ def _derived(
     name: str,
     composition: Composition,
     unit: str | None,
-    domain: DomainRef | None,
+    domain: Ref[DomainKind] | None,
     ai_context: AiContextValue | None,
-) -> MetricRef:
+) -> Ref[MetricKind]:
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     semantic_id = f"{resolved_domain}.{name}"
+    ref = Ref.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     _validate_unit(unit, semantic_id)
     ai_ctx = _build_ai_context(ai_context)
@@ -194,19 +195,19 @@ def _derived(
         unit=unit,
         unit_override=unit,
     )
-    _push_ir(ctx, metric_ir, None)
-    return MetricRef(semantic_id)
+    _push_ir(ctx, ref, metric_ir, None)
+    return ref
 
 
 def ratio(
     *,
     name: str,
-    numerator: MetricRef,
-    denominator: MetricRef,
+    numerator: Ref[MetricKind],
+    denominator: Ref[MetricKind],
     unit: str | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> MetricRef:
+) -> Ref[MetricKind]:
     """Declare a derived ratio metric (no body). Override the unit derived from the components at load.
 
     Components may themselves be derived metrics. Each nested ratio must satisfy
@@ -219,9 +220,15 @@ def ratio(
     return _derived(
         name=name,
         composition=RatioComposition(
-            numerator=_require_ref_id(numerator, parameter="numerator", expected=(MetricRef,)),
+            numerator=_require_ref_id(
+                numerator,
+                parameter="numerator",
+                expected=(SemanticKind.METRIC,),
+            ),
             denominator=_require_ref_id(
-                denominator, parameter="denominator", expected=(MetricRef,)
+                denominator,
+                parameter="denominator",
+                expected=(SemanticKind.METRIC,),
             ),
         ),
         unit=unit,
@@ -233,12 +240,12 @@ def ratio(
 def weighted_average(
     *,
     name: str,
-    value: MetricRef,
-    weight: MetricRef,
+    value: Ref[MetricKind],
+    weight: Ref[MetricKind],
     unit: str | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> MetricRef:
+) -> Ref[MetricKind]:
     """Declare a derived weighted-average metric (no body). Override the unit derived from the components at load.
 
     Roles are ``value`` / ``weight``. Components may be derived when the value
@@ -247,8 +254,16 @@ def weighted_average(
     return _derived(
         name=name,
         composition=WeightedAverageComposition(
-            value=_require_ref_id(value, parameter="value", expected=(MetricRef,)),
-            weight=_require_ref_id(weight, parameter="weight", expected=(MetricRef,)),
+            value=_require_ref_id(
+                value,
+                parameter="value",
+                expected=(SemanticKind.METRIC,),
+            ),
+            weight=_require_ref_id(
+                weight,
+                parameter="weight",
+                expected=(SemanticKind.METRIC,),
+            ),
         ),
         unit=unit,
         domain=domain,
@@ -259,12 +274,12 @@ def weighted_average(
 def linear(
     *,
     name: str,
-    add: list[MetricRef],
-    subtract: list[MetricRef] | tuple[MetricRef, ...] = (),
+    add: list[Ref[MetricKind]],
+    subtract: list[Ref[MetricKind]] | tuple[Ref[MetricKind], ...] = (),
     unit: str | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> MetricRef:
+) -> Ref[MetricKind]:
     """Declare a derived linear metric (no body): sum of ``add`` minus ``subtract``. Override the unit derived from the components at load.
 
     Terms may be derived metrics. Every recursively lowered term must be
@@ -275,12 +290,23 @@ def linear(
         net_revenue = ms.linear(name="net_revenue", add=[gross], subtract=[refunds])
     """
     terms = tuple(
-        LinearTerm("+", _require_ref_id(m, parameter=f"add[{idx}]", expected=(MetricRef,)))
+        LinearTerm(
+            "+",
+            _require_ref_id(
+                m,
+                parameter=f"add[{idx}]",
+                expected=(SemanticKind.METRIC,),
+            ),
+        )
         for idx, m in enumerate(add)
     ) + tuple(
         LinearTerm(
             "-",
-            _require_ref_id(m, parameter=f"subtract[{idx}]", expected=(MetricRef,)),
+            _require_ref_id(
+                m,
+                parameter=f"subtract[{idx}]",
+                expected=(SemanticKind.METRIC,),
+            ),
         )
         for idx, m in enumerate(subtract)
     )
@@ -304,13 +330,13 @@ def linear(
 def cumulative(
     *,
     name: str,
-    base: MetricRef,
-    over: TimeDimensionRef | None = None,
+    base: Ref[MetricKind],
+    over: Ref[TimeDimensionKind] | None = None,
     anchor: GrainToDate | Trailing | None = None,
     unit: str | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> MetricRef:
+) -> Ref[MetricKind]:
     """Declare a cumulative metric over a tier-1 base metric.
 
     The ``anchor`` selects the accumulation shape. ``None`` (default) is the
@@ -333,7 +359,7 @@ def cumulative(
         ai_context: Optional agent-facing context.
 
     Returns:
-        A ``MetricRef`` for the derived cumulative metric.
+        A ``Ref[metric]`` for the derived cumulative metric.
 
     Example:
         >>> # MTD revenue
@@ -353,19 +379,17 @@ def cumulative(
         query grain; ``trailing`` requires a fixed-size span that is an
         integer multiple of the query grain and a time grain.
     """
-    if not isinstance(base, MetricRef):
+    if type(base) is not Ref or base.kind is not SemanticKind.METRIC:
         _raise(
             ErrorKind.INVALID_REF,
-            "base= accepts a MetricRef returned by ms.count(...), ms.aggregate(...), "
-            "or catalog.get(...).ref.",
+            "base= accepts Ref[metric] returned by semantic authoring or a catalog entry's .ref.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
-    if over is not None and not isinstance(over, TimeDimensionRef):
+    if over is not None and (type(over) is not Ref or over.kind is not SemanticKind.TIME_DIMENSION):
         _raise(
             ErrorKind.INVALID_REF,
-            "over= accepts a TimeDimensionRef returned by ms.time_dimension(...) "
-            "or ms.time_dimension_column(...).",
+            "over= accepts Ref[time_dimension] returned by semantic authoring.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )
@@ -386,8 +410,8 @@ def cumulative(
     return _derived(
         name=name,
         composition=CumulativeComposition(
-            base=base.id,
-            over=over.id if over is not None else None,
+            base=base.path,
+            over=over.path if over is not None else None,
             anchor=ir_anchor,
         ),
         unit=unit,

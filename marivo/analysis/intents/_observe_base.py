@@ -278,6 +278,7 @@ def _execute_sampled_base(
             "column": "bucket_start",
             "grain": resolved_window.grain.to_token(),
             "time_dimension": root_time_adapter.name,
+            "ref": root_time_adapter.semantic_id,
         }
     if is_time_series and dimension_names:
         semantic_kind: Literal["scalar", "time_series", "segmented", "panel"] = "panel"
@@ -511,9 +512,14 @@ def _execute_base(
                 if resolved_window.grain is not None
                 else None,
                 "time_dimension": time_dimension_ir.name,
+                "ref": time_dimension_ir.semantic_id,
             },
             **{
-                field_ir.name: {"role": "dimension", "column": field_ir.name}
+                field_ir.name: {
+                    "role": "dimension",
+                    "column": field_ir.name,
+                    "ref": field_ir.semantic_id,
+                }
                 for _, field_ir in resolved_dimensions
             },
         }
@@ -576,6 +582,7 @@ def _execute_base(
                 if resolved_window.grain is not None
                 else None,
                 "time_dimension": time_dimension_ir.name,
+                "ref": time_dimension_ir.semantic_id,
             }
         }
         semantic_kind = "time_series"
@@ -611,7 +618,11 @@ def _execute_base(
             session_id=session.id,
         )
         axes = {
-            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            field_ir.name: {
+                "role": "dimension",
+                "column": field_ir.name,
+                "ref": field_ir.semantic_id,
+            }
             for _, field_ir in resolved_dimensions
         }
         semantic_kind = "segmented"

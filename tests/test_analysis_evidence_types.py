@@ -14,6 +14,11 @@ from marivo.analysis.evidence.types import (
     Finding,
     Subject,
 )
+from marivo.refs import Ref, RefPayloadV1
+from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
+    CatalogMetricSubjectV1,
+)
 
 
 def _derivation() -> DerivationRule:
@@ -26,9 +31,29 @@ def _derivation() -> DerivationRule:
     )
 
 
+def _metric_identity() -> CatalogMetricIdentity:
+    return CatalogMetricIdentity(
+        kind="catalog",
+        metric_ref=RefPayloadV1.from_ref(Ref.metric("sales.revenue")),
+    )
+
+
+def _subject(*, analysis_axis: str = "change") -> Subject:
+    return Subject(
+        typed_metric_subject=CatalogMetricSubjectV1(
+            kind="catalog_metric",
+            session_id="sess_1",
+            metric_ref=_metric_identity().metric_ref,
+            artifact_id="art_compare",
+            scope_fingerprint="scope_1",
+        ),
+        analysis_axis=analysis_axis,  # type: ignore[arg-type]
+    )
+
+
 def test_subject_and_scope_are_frozen_and_reject_extra_fields() -> None:
-    subject = Subject(metric="revenue", analysis_axis="change")
-    scope = AnalysisScope(metric_ids=("revenue",), assumptions=("same currency",))
+    subject = _subject()
+    scope = AnalysisScope(metric_identities=(_metric_identity(),), assumptions=("same currency",))
     assert Subject.model_validate(subject.model_dump(mode="json")) == subject
     assert AnalysisScope.model_validate(scope.model_dump(mode="json")) == scope
     with pytest.raises(ValidationError):
@@ -44,7 +69,7 @@ def test_finding_round_trip_uses_closed_value_union() -> None:
         epistemic_kind="algebraic",
         artifact_id="art_compare",
         session_id="sess_1",
-        subject=Subject(metric="revenue", analysis_axis="change"),
+        subject=_subject(),
         canonical_item_key="value",
         value=DeltaFindingValue(
             delta_kind="scalar_delta",

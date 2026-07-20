@@ -21,14 +21,16 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
-from tests.shared_fixtures import make_metric_frame
+from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_metric_frame, make_test_delta_contract
 
 
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
+    bootstrap_sales_project(tmp_path)
     yield
 
 
@@ -48,6 +50,7 @@ def _delta(session, df, *, semantic_kind="time_series"):
     """Hand-build a DeltaFrame for dispatch tests; lineage is irrelevant here."""
 
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",
         ref="frame_d",
         session_id=session.id,
@@ -131,7 +134,7 @@ def test_discover_api_methods_set_objective_shape_and_strategy():
         (
             session.discover.driver_axes(
                 delta_segmented,
-                search_space=[make_ref("country", SemanticKind.DIMENSION)],
+                search_space=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
             ),
             "driver_axes",
             "driver_axis",
@@ -253,7 +256,7 @@ def test_driver_axes_rejects_metric_frame():
     frame = _metric(session, pd.DataFrame({"value": [1.0, 2.0, 3.0]}))
     with pytest.raises(AnalysisError) as exc:
         session.discover.driver_axes(
-            frame, search_space=[make_ref("country", SemanticKind.DIMENSION)]
+            frame, search_space=[make_ref("sales.orders.country", SemanticKind.DIMENSION)]
         )  # type: ignore[arg-type]
     assert exc.value.location == "discover.driver_axes.source"
 
@@ -406,8 +409,8 @@ def test_driver_axes_rank_one_is_largest_axis():
     out = session.discover.driver_axes(
         src,
         search_space=[
-            make_ref("country", SemanticKind.DIMENSION),
-            make_ref("platform", SemanticKind.DIMENSION),
+            make_ref("sales.orders.country", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
         ],
     )
     rows = out.to_pandas()
@@ -429,7 +432,7 @@ def test_driver_axes_records_reason_codes():
     src = _delta(session, df, semantic_kind="segmented")
     out = session.discover.driver_axes(
         src,
-        search_space=[make_ref("country", SemanticKind.DIMENSION)],
+        search_space=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
     )
     rows = out.to_pandas()
     codes = json.loads(rows.loc[0, "reason_codes_json"])
@@ -450,14 +453,14 @@ def test_interesting_slices_returns_selector_dict_round_trip():
     out = session.discover.interesting_slices(
         src,
         search_space=[
-            make_ref("country", SemanticKind.DIMENSION),
-            make_ref("platform", SemanticKind.DIMENSION),
+            make_ref("sales.orders.country", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
         ],
         threshold=1.0,
     )
     rows = out.to_pandas()
     selectors = [json.loads(s) for s in rows["selector_json"]]
-    assert any(sel.get("country") == "US" for sel in selectors)
+    assert any(sel.get("sales.orders.country") == "US" for sel in selectors)
     keys = [json.loads(k) for k in rows["keys_json"]]
     assert all(sel == key for sel, key in zip(selectors, keys, strict=True))
 
@@ -476,7 +479,7 @@ def test_interesting_slices_metric_input_uses_zscore():
     )
     out = session.discover.interesting_slices(
         metric,
-        search_space=[make_ref("country", SemanticKind.DIMENSION)],
+        search_space=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
         threshold=1.0,
     )
     rows = out.to_pandas()
@@ -525,12 +528,12 @@ def test_interesting_slices_delta_uses_zscore_not_raw_magnitude():
     src = _delta(session, df, semantic_kind="segmented")
     out = session.discover.interesting_slices(
         src,
-        search_space=[make_ref("country", SemanticKind.DIMENSION)],
+        search_space=[make_ref("sales.orders.country", SemanticKind.DIMENSION)],
         threshold=1.0,
     ).to_pandas()
     selectors = [json.loads(s) for s in out["selector_json"]]
-    assert any(sel.get("country") == "US" for sel in selectors)
-    assert all(sel.get("country") != "JP" for sel in selectors)
+    assert any(sel.get("sales.orders.country") == "US" for sel in selectors)
+    assert all(sel.get("sales.orders.country") != "JP" for sel in selectors)
     # score is a z-score of the slice mean (~1.414), not the raw mean (10) or sum (40)
     assert abs(float(out.loc[0, "score"]) - 1.4142) < 0.01
 
@@ -553,8 +556,8 @@ def test_interesting_slices_skips_high_cardinality_axis_pair():
     out = session.discover.interesting_slices(
         metric,
         search_space=[
-            make_ref("a", SemanticKind.DIMENSION),
-            make_ref("b", SemanticKind.DIMENSION),
+            make_ref("sales.orders.a", SemanticKind.DIMENSION),
+            make_ref("sales.orders.b", SemanticKind.DIMENSION),
         ],
     )
     skipped = out.meta.params.get("skipped_subsets")
@@ -679,7 +682,7 @@ def test_cross_sectional_outliers_peer_scope_groups_comparison():
     with_peer = session.discover.cross_sectional_outliers(
         metric,
         threshold=3.0,
-        peer_scope=[make_ref("region", SemanticKind.DIMENSION)],
+        peer_scope=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
     ).to_pandas()
     peer_stores = {json.loads(k)["store"] for k in with_peer["keys_json"]}
     # each region compared internally: both A's and B's intra-region spikes surface
@@ -747,7 +750,7 @@ def test_persistence_round_trip(objective, source_kind, builder):
             ),
             semantic_kind="segmented",
         )
-        kwargs = {"search_space": [make_ref("country", SemanticKind.DIMENSION)]}
+        kwargs = {"search_space": [make_ref("sales.orders.country", SemanticKind.DIMENSION)]}
         if objective == "interesting_slices":
             kwargs["threshold"] = 1.0
     else:
@@ -930,14 +933,14 @@ def test_interesting_slices_panel_ranks_small_mutated_segment_first():
     metric = _metric(session, pd.DataFrame(records), semantic_kind="panel")
     out = session.discover.interesting_slices(
         metric,
-        search_space=[make_ref("region", SemanticKind.DIMENSION)],
+        search_space=[make_ref("sales.orders.region", SemanticKind.DIMENSION)],
         threshold=2.0,
     ).to_pandas()
     selectors = [json.loads(s) for s in out["selector_json"]]
     assert selectors, "expected at least one slice candidate"
-    assert selectors[0].get("region") == "spike"
+    assert selectors[0].get("sales.orders.region") == "spike"
     # the large average segments must not clear the threshold
-    assert all(sel.get("region") != "north" for sel in selectors)
+    assert all(sel.get("sales.orders.region") != "north" for sel in selectors)
 
 
 def test_interesting_slices_rejects_scalar_frame():
@@ -962,7 +965,7 @@ def test_cross_sectional_outliers_rejects_unmaterialized_peer_scope():
         session.discover.cross_sectional_outliers(
             metric,
             threshold=3.0,
-            peer_scope=[make_ref("nonexistent", SemanticKind.DIMENSION)],
+            peer_scope=[make_ref("sales.orders.nonexistent", SemanticKind.DIMENSION)],
         )
     assert exc.value._context["objective"] == "cross_sectional_outliers"
     assert "nonexistent" in exc.value._context["missing_axes"]
@@ -1017,7 +1020,7 @@ def test_driver_axes_rejects_unmaterialized_search_space():
     with pytest.raises(DiscoverAxisNotMaterializedError) as exc:
         session.discover.driver_axes(
             delta,
-            search_space=[make_ref("nonexistent", SemanticKind.DIMENSION)],
+            search_space=[make_ref("sales.orders.nonexistent", SemanticKind.DIMENSION)],
         )
     assert exc.value._context["objective"] == "driver_axes"
     assert "nonexistent" in exc.value._context["missing_axes"]
@@ -1036,8 +1039,8 @@ def test_interesting_slices_rejects_partially_unmaterialized_search_space():
         session.discover.interesting_slices(
             delta,
             search_space=[
-                make_ref("country", SemanticKind.DIMENSION),
-                make_ref("nonexistent", SemanticKind.DIMENSION),
+                make_ref("sales.orders.country", SemanticKind.DIMENSION),
+                make_ref("sales.orders.nonexistent", SemanticKind.DIMENSION),
             ],
             threshold=1.0,
         )

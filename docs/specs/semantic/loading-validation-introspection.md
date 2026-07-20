@@ -65,7 +65,7 @@ sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
 orders.dimensions.show()
 
-revenue = catalog.get("metric.sales.revenue")
+revenue = catalog.require(ms.Ref.metric("sales.revenue"))
 revenue.details().show()
 ```
 
@@ -73,19 +73,19 @@ revenue.details().show()
 `catalog.domains`, `catalog.datasources`, `catalog.entities`,
 `catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`,
 `catalog.metrics`, and `catalog.relationships`. Each is a
-`CatalogCollection[T]` with `.items`, `.ids()`, `.refs()`, `.get(key)`,
-`.render()`, `.show()`, `len()`, and iteration. `catalog.get(typed_id)` is the
+`CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`,
+`.render()`, `.show()`, `len()`, and iteration. `catalog.require(ref)` is the
 exact lookup entry point for IDs obtained from errors, logs, or persisted state.
 
 | API | Meaning |
 |---|---|
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
-| `catalog.get("<typed_id>")` | Resolve and validate one `CatalogObject` by typed ID. |
-| `catalog.domains`, `catalog.metrics`, … | Typed global collections; each supports `.items`, `.ids()`, `.refs()`, `.get(key)`, `.show()`. |
-| `catalog.verify_object(obj)` | Static, zero-query validation of one typed catalog object. |
-| `catalog.preview(obj, using=snapshot_or_mapping)` | Scoped runtime preview for one object, bound to matching snapshot evidence. |
-| `catalog.preview(refs=[...], using=snapshot_or_mapping)` | Batch compatible runtime plans while persisting an independent preview check for every ref. |
-| `catalog.readiness(refs=[obj])` | Zero-query readiness gate scoped to typed semantic refs. |
+| `catalog.require(ms.Ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by typed ID. |
+| `catalog.domains`, `catalog.metrics`, … | Typed global collections; each supports `.items`, `.refs`, `.get(key)`, `.show()`. |
+| `catalog.verify(ref)` | Static, zero-query validation of one exact ref. |
+| `catalog.preview(ref, using=snapshot_or_mapping)` | Scoped runtime preview for one ref, bound to matching snapshot evidence. |
+| `catalog.preview_many(refs, using=snapshot_or_mapping)` | Batch compatible runtime plans while persisting an independent preview check for every ref. |
+| `catalog.readiness(refs=[ref])` | Zero-query readiness gate scoped to exact semantic refs. |
 | `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
 `ReadinessReport.preview_required_refs` is the canonical typed input for batch
@@ -125,7 +125,7 @@ scope.
 `CatalogCollection.get(key)` accepts an exact typed ID or a local name that is
 unique within that collection view. It rejects bare semantic IDs. If a short
 name is ambiguous, lookup raises a structured error listing bounded typed-ID
-candidates. `catalog.get(...)` accepts only typed IDs; rejected short names are
+candidates. `catalog.require(ref)` accepts only typed IDs; rejected short names are
 still searched for teaching-error suggestions but never resolved implicitly.
 
 ### Structured lookup errors
@@ -142,7 +142,7 @@ from the loaded index:
   owning path, and show the valid scoped or global lookup.
 - **Not found:** show bounded close matches from the current collection.
 
-`catalog.get(...).details()` returns a structured details dataclass (not just
+`catalog.require(ref).details()` returns a structured details dataclass (not just
 text). Every details type exposes `ref`, `kind`, `name`, `domain`, `context`,
 `business_definition`, `guardrails`, `python_symbol`, `source_location`,
 `parents`, `children`, and
@@ -180,7 +180,7 @@ bounded transition summaries; callers that need machine detail read `states`,
 `transitions`, or `model_dump()` explicitly.
 
 Catalog browsing returns a `CatalogCollection` (not a raw list); use `.items`,
-`.refs()`, `.render()`, and `.show()`. This is the semantic-layer instance of the
+`.refs`, `.render()`, and `.show()`. This is the semantic-layer instance of the
 cross-module agent result protocol described in
 `../agent-friendly-public-surface.md`.
 
@@ -193,8 +193,8 @@ through the catalog:
 
 ```python
 catalog = ms.load()
-revenue = catalog.get("metric.sales.revenue")
-catalog.verify_object(revenue).show()
+revenue = catalog.require(ms.Ref.metric("sales.revenue")).ref
+catalog.verify(revenue).show()
 catalog.preview(revenue, using=snapshot).show()
 catalog.readiness(refs=[revenue]).show()
 ```
@@ -238,7 +238,7 @@ After the loader executes project files, assembly validation checks cross-object
 relationships: a missing or mismatched `_domain.py`; `ms.domain(...)` in the wrong
 file or a `_domain.py` declaring multiple domains; an entity referencing an
 unknown datasource; a metric referencing an unknown entity or component; a
-cross-domain `ms.ref(...)` that is missing, type-mismatched, or cyclic; an
+cross-domain `ms.Ref.<kind>(path)` that is missing, type-mismatched, or cyclic; an
 `entities=[...]` count that disagrees with the function arity; an hour time
 dimension missing its required prefix; invalid relationship endpoints, join
 dimension refs, entity membership, or arity. On failure the registry is `errored`
@@ -282,7 +282,7 @@ style. The mapping from error kind to agent action is mechanical:
 |---|---|
 | `duplicate_name` | Remove the duplicate declaration or change `name=`, then reload. |
 | `missing_domain` | Add `ms.domain(...)` in `<root>/<domain>/_domain.py`, or pass an explicit `domain=`. |
-| `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.ref(...)`. |
+| `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.Ref.<kind>(path)`. |
 | `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.weighted_average(...)` components point to registered metrics. |
 | `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.weighted_average`/`ms.linear`. |
 | `outside_loader_context` | Move the definition into `<root>/models/semantic/<domain>/<file>.py`; use `md.raw_sql(...)` for ad-hoc queries outside the semantic model. |
@@ -293,8 +293,8 @@ style. The mapping from error kind to agent action is mechanical:
 
 Two checks sit at the end of the write loop:
 
-- **`catalog.readiness(refs=[obj])`** runs pure in-memory checks over the
-  dependency closure of typed catalog objects selected for certification. It is
+- **`catalog.readiness(refs=[ref])`** runs pure in-memory checks over the
+  dependency closure of exact refs selected for certification. It is
   the explicit certification and diagnostic at the end of an authoring change,
   never writes stdout, and never queries. Analysis APIs do not invoke it
   automatically.
@@ -315,7 +315,7 @@ Two checks sit at the end of the write loop:
   ranking from example questions, analysis intents, run-history refs, and the
   build purpose.
 
-`catalog.verify_object(obj)` completes the static per-object surface. A current
+`catalog.verify(ref)` completes the static per-ref surface. A current
 `VerifyResult` proves that one explicit check passed, but verification is
 **result-local**: it is not persisted as a workflow checkpoint and is not a
 runtime prerequisite for preview. The `marivo-semantic` skill enforces
@@ -332,6 +332,11 @@ requested refs whose full dependency closures contain no blocker. Dependency
 refs remain visible in `input_summary.refs` but are never leaked into the
 analysis handoff. Warnings remain visible on the same report and require an
 explicit proceed-or-stop decision by the caller.
+
+The report and every issue carry the same `catalog_definition_fingerprint`.
+Persisted preview evidence matches only when its v1 checked-ref payload,
+catalog fingerprint, semantic dependency digest, entity-snapshot bindings, and
+backend all match the active compiled catalog.
 
 The report does not create a second transfer object or validation token. After
 readiness succeeds, an agent passes only the listed refs to the ordinary analysis

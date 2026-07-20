@@ -265,10 +265,15 @@ def _execute_fused_base_group(
             "column": "bucket_start",
             "grain": resolved_window.grain.to_token(),
             "time_dimension": time_dimension_ir.name,
+            "ref": time_dimension_ir.semantic_id,
         }
     axes.update(
         {
-            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            field_ir.name: {
+                "role": "dimension",
+                "column": field_ir.name,
+                "ref": field_ir.semantic_id,
+            }
             for _, field_ir in resolved_dimensions
         }
     )

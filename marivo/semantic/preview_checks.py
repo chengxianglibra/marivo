@@ -2,57 +2,49 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn, cast
 
 from marivo._authoring.model import AuthoringRepair
-from marivo.datasource.authoring import DatasourceRef
 from marivo.datasource.authoring_store import (
-    CHECK_FORMAT_VERSION,
     AuthoringStore,
     datasource_spec_fingerprint,
-    preview_check_scope_payload,
     snapshot_identity,
 )
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.snapshot import DiscoverySnapshot
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
 from marivo.preview import PreviewCoverage, PreviewResult
-from marivo.refs import SemanticRef, SymbolKind
-from marivo.semantic._authoring_validation import _compute_body_ast_hash
+from marivo.refs import EntityKind, Ref, RefPayloadV1, SemanticKind, SemanticKindTag
+from marivo.semantic._persistence import EntitySnapshotBindingV1
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
-from marivo.semantic.ir import (
-    CumulativeComposition,
-    EntityIR,
-    SemiAdditive,
-    composition_components,
-)
-from marivo.semantic.refs import EntityRef
+from marivo.semantic.ir import EntityIR, composition_components
+from marivo.semantic.metric_graph import SemanticDependencyDigestV1
+from marivo.semantic.metric_graph_canonical import canonical_value, fingerprint
+from marivo.semantic.metric_graph_lowering import dependency_digest
 from marivo.telemetry import staged
 
 if TYPE_CHECKING:
-    from marivo.semantic.catalog import Entity
-    from marivo.semantic.validator import Registry, Sidecar
+    from marivo.semantic._expression_binding import CompiledExpressionSidecar
+    from marivo.semantic.validator import Registry
 
-type PreviewUsing = DiscoverySnapshot | Mapping[Entity | SemanticRef, DiscoverySnapshot]
+type PreviewUsing = DiscoverySnapshot | Mapping[Ref[EntityKind], DiscoverySnapshot]
 
 
-@dataclass(frozen=True)
-class PreviewCheck:
+@dataclass(frozen=True, slots=True)
+class PreviewCheckV1:
+    schema: Literal["marivo.semantic_preview_check/v1"]
     id: str
-    semantic_ref: str
-    semantic_fingerprint: str
-    dependency_fingerprint: str
-    snapshot_ids: tuple[str, ...]
+    checked_ref: RefPayloadV1
+    catalog_definition_fingerprint: str
+    semantic_dependency_digest: SemanticDependencyDigestV1
+    entity_snapshot_bindings: tuple[EntitySnapshotBindingV1, ...]
     backend: str
     status: Literal["passed"]
-    scopes: tuple[tuple[str, AuthoringScope], ...]
     rows_observed: int
     scope_exhaustion: Literal["exhaustive", "truncated"]
     types: tuple[tuple[str, str], ...]
@@ -60,18 +52,63 @@ class PreviewCheck:
     created_at: datetime
     expires_at: datetime
 
+    def __post_init__(self) -> None:
+        if self.schema != "marivo.semantic_preview_check/v1":
+            raise ValueError("preview check schema must be 'marivo.semantic_preview_check/v1'")
+        if type(self.id) is not str or not self.id:
+            raise ValueError("preview check id must be a non-empty string")
+        if type(self.checked_ref) is not RefPayloadV1:
+            raise TypeError("preview check checked_ref must be an exact RefPayloadV1")
+        if (
+            type(self.catalog_definition_fingerprint) is not str
+            or not self.catalog_definition_fingerprint
+        ):
+            raise ValueError("preview check catalog fingerprint must be non-empty")
+        if type(self.semantic_dependency_digest) is not SemanticDependencyDigestV1:
+            raise TypeError(
+                "preview check semantic_dependency_digest must be an exact "
+                "SemanticDependencyDigestV1"
+            )
+        if type(self.entity_snapshot_bindings) is not tuple or any(
+            type(binding) is not EntitySnapshotBindingV1
+            for binding in self.entity_snapshot_bindings
+        ):
+            raise TypeError(
+                "preview check entity_snapshot_bindings must contain EntitySnapshotBindingV1 values"
+            )
+        if type(self.backend) is not str or not self.backend:
+            raise ValueError("preview check backend must be non-empty")
+        if self.status != "passed":
+            raise ValueError("preview check status must be 'passed'")
+        if type(self.rows_observed) is not int or self.rows_observed < 0:
+            raise ValueError("preview check rows_observed must be a non-negative int")
+        if self.scope_exhaustion not in {"exhaustive", "truncated"}:
+            raise ValueError("preview check scope_exhaustion is invalid")
+        if self.created_at.tzinfo is None or self.expires_at.tzinfo is None:
+            raise ValueError("preview check timestamps must be timezone-aware")
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class NormalizedPreviewBindings:
-    semantic_ref: str
-    entity_ids: tuple[str, ...]
+    checked_ref: Ref[SemanticKindTag]
+    entity_refs: tuple[Ref[EntityKind], ...]
     snapshots: tuple[DiscoverySnapshot, ...]
-    scopes: tuple[tuple[str, AuthoringScope], ...]
     backend: str
     datasource_id: str
     timeout_seconds: int
-    semantic_fingerprint: str
-    dependency_fingerprint: str
+    catalog_definition_fingerprint: str
+    semantic_dependency_digest: SemanticDependencyDigestV1
+
+    @property
+    def entity_ids(self) -> tuple[str, ...]:
+        return tuple(ref.path for ref in self.entity_refs)
+
+    @property
+    def scopes(self) -> tuple[tuple[str, AuthoringScope], ...]:
+        return tuple(
+            (ref.path, snapshot.scope)
+            for ref, snapshot in zip(self.entity_refs, self.snapshots, strict=True)
+        )
 
     @property
     def entity_scopes(self) -> Mapping[str, AuthoringScope]:
@@ -96,21 +133,21 @@ def _blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoRetu
     )
 
 
-def _dependency_entities(ref: str, kind: SymbolKind, registry: Registry) -> tuple[str, ...]:
+def _dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tuple[str, ...]:
     entities = registry.entities
     dimensions = registry.dimensions
     measures = registry.measures
     metrics = registry.metrics
-    if kind == SymbolKind.ENTITY:
+    if kind == SemanticKind.ENTITY:
         return (ref,)
-    if kind in {SymbolKind.DIMENSION, SymbolKind.TIME_DIMENSION}:
+    if kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
         return (dimensions[ref].entity,)
-    if kind == SymbolKind.MEASURE:
+    if kind == SemanticKind.MEASURE:
         return (measures[ref].entity,)
-    if kind == SymbolKind.RELATIONSHIP:
+    if kind == SemanticKind.RELATIONSHIP:
         relationship = registry.relationships[ref]
         return tuple(dict.fromkeys((relationship.from_entity, relationship.to_entity)))
-    if kind != SymbolKind.METRIC:
+    if kind != SemanticKind.METRIC:
         return ()
 
     ordered: list[str] = []
@@ -139,21 +176,11 @@ def preview_dependency_entities(ref: str, *, registry: Registry) -> tuple[str, .
 
 
 def _normalize_mapping_key(key: object, *, preview_ref: str) -> str:
-    from marivo.semantic.catalog import Entity
-
-    if isinstance(key, Entity):
-        return key.ref.id
-    if isinstance(key, SemanticRef):
-        if key.kind != SymbolKind.ENTITY:
-            _blocked(
-                preview_ref,
-                "catalog.preview(..., using=...) Mapping keys must be entity-kind SemanticRef values.",
-                details={"received_kind": str(key.kind)},
-            )
-        return key.id
+    if type(key) is Ref and key.kind is SemanticKind.ENTITY:
+        return key.path
     _blocked(
         preview_ref,
-        "catalog.preview(..., using=...) Mapping requires Entity or entity SemanticRef keys; bare strings are not entity keys.",
+        "catalog.preview(..., using=...) Mapping requires exact Ref[entity] keys.",
         details={"received_type": type(key).__name__},
     )
 
@@ -192,189 +219,56 @@ def _validate_scope(scope: AuthoringScope, *, preview_ref: str) -> None:
         )
 
 
-def _stable_value(value: object) -> object:
-    if isinstance(value, SemanticRef):
-        return {"id": value.id, "kind": value.kind.value}
-    if isinstance(value, Enum):
-        return value.value
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if is_dataclass(value) and not isinstance(value, type):
-        return {field.name: _stable_value(getattr(value, field.name)) for field in fields(value)}
-    if isinstance(value, Mapping):
-        return tuple(sorted((str(key), _stable_value(item)) for key, item in value.items()))
-    if isinstance(value, tuple | list):
-        return tuple(_stable_value(item) for item in value)
-    return value
-
-
-def _fingerprint(value: object) -> str:
-    return hashlib.sha256(repr(_stable_value(value)).encode("utf-8")).hexdigest()
-
-
 def _preview_check_id(
     *,
-    semantic_fingerprint: str,
-    dependency_fingerprint: str,
-    snapshot_ids: tuple[str, ...],
+    checked_ref: RefPayloadV1,
+    catalog_definition_fingerprint: str,
+    semantic_dependency_digest: SemanticDependencyDigestV1,
+    entity_snapshot_bindings: tuple[EntitySnapshotBindingV1, ...],
     backend: str | None,
 ) -> str:
-    return _fingerprint(
-        (
-            semantic_fingerprint,
-            dependency_fingerprint,
-            snapshot_ids,
-            backend,
-            CHECK_FORMAT_VERSION,
-        )
+    return fingerprint(
+        {
+            "schema": "marivo.semantic_preview_check/v1",
+            "checked_ref": checked_ref,
+            "catalog_definition_fingerprint": catalog_definition_fingerprint,
+            "semantic_dependency_digest": semantic_dependency_digest,
+            "entity_snapshot_bindings": entity_snapshot_bindings,
+            "backend": backend,
+        }
     )
 
 
-def _semantic_ir(ref: str, kind: SymbolKind, registry: Registry) -> object:
-    collection_name = {
-        SymbolKind.ENTITY: "entities",
-        SymbolKind.DIMENSION: "dimensions",
-        SymbolKind.TIME_DIMENSION: "dimensions",
-        SymbolKind.MEASURE: "measures",
-        SymbolKind.METRIC: "metrics",
-        SymbolKind.RELATIONSHIP: "relationships",
-    }.get(kind)
-    if collection_name is None:
-        return ref
-    return getattr(registry, collection_name)[ref]
-
-
-def _semantic_kind(ref: str, registry: Registry) -> SymbolKind:
+def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
     if ref in registry.entities:
-        return SymbolKind.ENTITY
+        return SemanticKind.ENTITY
     if ref in registry.dimensions:
         return (
-            SymbolKind.TIME_DIMENSION
+            SemanticKind.TIME_DIMENSION
             if registry.dimensions[ref].is_time_dimension
-            else SymbolKind.DIMENSION
+            else SemanticKind.DIMENSION
         )
     if ref in registry.measures:
-        return SymbolKind.MEASURE
+        return SemanticKind.MEASURE
     if ref in registry.metrics:
-        return SymbolKind.METRIC
+        return SemanticKind.METRIC
     if ref in registry.relationships:
-        return SymbolKind.RELATIONSHIP
+        return SemanticKind.RELATIONSHIP
     raise KeyError(ref)
 
 
-def _semantic_payload(
-    ref: str,
-    *,
-    registry: Registry,
-    sidecar: Sidecar,
-) -> tuple[str, str, object, str | None]:
-    kind = _semantic_kind(ref, registry)
-    callable_ = sidecar.get(ref)
-    body_hash = _compute_body_ast_hash(callable_) if callable_ is not None else None
-    return (kind.value, ref, _semantic_ir(ref, kind, registry), body_hash)
-
-
-def _semantic_dependency_payloads(
-    ref: str,
-    kind: SymbolKind,
-    *,
-    registry: Registry,
-    sidecar: Sidecar,
-) -> tuple[tuple[str, str, object, str | None], ...]:
-    """Return the narrow executable dependency closure for one preview ref."""
-    dependency_ids: set[str] = set()
-    visited_metrics: set[str] = set()
-
-    def add_dimension(dimension_id: str) -> None:
-        dimension = registry.dimensions.get(dimension_id)
-        if dimension is None:
-            return
-        dependency_ids.add(dimension_id)
-        dependency_ids.add(dimension.entity)
-
-    def add_measure(measure_id: str) -> None:
-        measure = registry.measures.get(measure_id)
-        if measure is None:
-            return
-        dependency_ids.add(measure_id)
-        dependency_ids.add(measure.entity)
-        if isinstance(measure.additivity, SemiAdditive):
-            add_dimension(measure.additivity.over)
-
-    def add_metric(metric_id: str) -> None:
-        if metric_id in visited_metrics:
-            return
-        metric = registry.metrics.get(metric_id)
-        if metric is None:
-            return
-        visited_metrics.add(metric_id)
-        if metric_id != ref:
-            dependency_ids.add(metric_id)
-        dependency_ids.update(metric.entities)
-        target_id = metric.aggregation_target or metric.measure
-        if target_id is not None:
-            if metric.aggregation_target_kind == "entity":
-                dependency_ids.add(target_id)
-            else:
-                add_measure(target_id)
-        if isinstance(metric.additivity, SemiAdditive):
-            add_dimension(metric.additivity.over)
-        if metric.composition is not None:
-            for component_id in composition_components(metric.composition).values():
-                add_metric(component_id)
-            if (
-                isinstance(metric.composition, CumulativeComposition)
-                and metric.composition.over is not None
-            ):
-                add_dimension(metric.composition.over)
-
-    if kind in {SymbolKind.DIMENSION, SymbolKind.TIME_DIMENSION}:
-        dependency_ids.add(registry.dimensions[ref].entity)
-    elif kind == SymbolKind.MEASURE:
-        measure = registry.measures[ref]
-        dependency_ids.add(measure.entity)
-        if isinstance(measure.additivity, SemiAdditive):
-            add_dimension(measure.additivity.over)
-    elif kind == SymbolKind.METRIC:
-        add_metric(ref)
-    elif kind == SymbolKind.RELATIONSHIP:
-        relationship = registry.relationships[ref]
-        dependency_ids.update((relationship.from_entity, relationship.to_entity))
-        for key in relationship.keys:
-            for dimension_id in key.to_tuple():
-                add_dimension(dimension_id)
-
-    entity_ids = {item for item in dependency_ids if item in registry.entities}
-    for relationship_id, relationship in registry.relationships.items():
-        if (
-            relationship_id != ref
-            and relationship.from_entity in entity_ids
-            and relationship.to_entity in entity_ids
-        ):
-            dependency_ids.add(relationship_id)
-
-    return tuple(
-        _semantic_payload(item, registry=registry, sidecar=sidecar)
-        for item in sorted(
-            dependency_ids, key=lambda item: (_semantic_kind(item, registry).value, item)
-        )
-    )
-
-
-def preview_fingerprints(
-    ref: str,
-    *,
-    registry: Registry,
-    sidecar: Sidecar,
-) -> tuple[str, str]:
-    """Return current semantic and transitive dependency fingerprints without I/O."""
-    kind = _semantic_kind(ref, registry)
-    return (
-        _fingerprint(_semantic_payload(ref, registry=registry, sidecar=sidecar)),
-        _fingerprint(_semantic_dependency_payloads(ref, kind, registry=registry, sidecar=sidecar)),
-    )
+def _exact_semantic_ref(ref: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
+    factory = {
+        SemanticKind.ENTITY: Ref.entity,
+        SemanticKind.DIMENSION: Ref.dimension,
+        SemanticKind.TIME_DIMENSION: Ref.time_dimension,
+        SemanticKind.MEASURE: Ref.measure,
+        SemanticKind.METRIC: Ref.metric,
+        SemanticKind.RELATIONSHIP: Ref.relationship,
+    }.get(kind)
+    if factory is None:
+        raise AssertionError(f"unsupported preview ref kind: {kind}")
+    return factory(ref)
 
 
 def _quoted(value: str) -> str:
@@ -413,7 +307,7 @@ def _source_call(source: object) -> str:
 def _inspect_call(entity: EntityIR) -> str:
     datasource = entity.datasource
     source = entity.source
-    return f"md.inspect(md.ref({_quoted(datasource)}), {_source_call(source)})"
+    return f"md.inspect(ms.Ref.datasource({_quoted(datasource)}), {_source_call(source)})"
 
 
 def _snapshot_sample_call(entity: EntityIR, snapshot: DiscoverySnapshot) -> str:
@@ -455,7 +349,7 @@ def _matching_snapshot_payloads(
         entity = registry.entities[entity_id]
         datasource = registry.datasources[entity.datasource]
         snapshots = store.valid_snapshots(
-            datasource=DatasourceRef.from_id(entity.datasource),
+            datasource=Ref.datasource(entity.datasource),
             datasource_fingerprint=datasource_spec_fingerprint(datasource),
             source=entity.source,
             now=now,
@@ -471,14 +365,19 @@ def preview_evidence_requirement(
     ref: str,
     *,
     registry: Registry,
-    sidecar: Sidecar,
+    sidecar: CompiledExpressionSidecar,
     project_root: Path,
+    catalog_definition_fingerprint: str,
 ) -> PreviewEvidenceRequirement:
     """Read persisted row-free evidence for readiness without acquiring or executing."""
     kind = _semantic_kind(ref, registry)
+    checked_ref = _exact_semantic_ref(ref, kind)
+    checked_payload = RefPayloadV1.from_ref(checked_ref)
     entity_ids = _dependency_entities(ref, kind, registry)
-    semantic_fingerprint, dependency_fingerprint = preview_fingerprints(
-        ref, registry=registry, sidecar=sidecar
+    current_dependency_digest = dependency_digest(
+        registry,
+        sidecar=sidecar,
+        semantic_refs=(checked_ref,),
     )
     now = datetime.now(UTC)
     store = AuthoringStore(project_root)
@@ -496,7 +395,11 @@ def preview_evidence_requirement(
     if store.check_dir.is_dir():
         for path in store.check_dir.glob("*.json"):
             payload = store._read_payload(path)
-            if payload is None or payload.get("semantic_ref") != ref:
+            if (
+                payload is None
+                or payload.get("schema") != "marivo.semantic_preview_check/v1"
+                or payload.get("checked_ref") != checked_payload.to_dict()
+            ):
                 continue
             try:
                 check_id = payload["id"]
@@ -506,37 +409,60 @@ def preview_evidence_requirement(
                 continue
             if not isinstance(check_id, str):
                 continue
-            snapshot_ids = payload.get("snapshot_ids")
+            binding_payloads = payload.get("entity_snapshot_bindings")
+            snapshot_ids = (
+                tuple(
+                    binding.get("snapshot_id")
+                    for binding in binding_payloads
+                    if isinstance(binding, dict)
+                )
+                if isinstance(binding_payloads, list)
+                else ()
+            )
             snapshots_match = (
-                isinstance(snapshot_ids, list)
+                isinstance(binding_payloads, list)
+                and len(binding_payloads) == len(entity_ids)
                 and len(snapshot_ids) == len(entity_ids)
                 and all(
                     isinstance(snapshot_id, str)
                     and snapshot_id in snapshot_ids_by_entity[entity_id]
-                    for entity_id, snapshot_id in zip(entity_ids, snapshot_ids, strict=True)
+                    and isinstance(binding, dict)
+                    and binding.get("entity_ref")
+                    == RefPayloadV1.from_ref(Ref.entity(entity_id)).to_dict()
+                    for entity_id, snapshot_id, binding in zip(
+                        entity_ids,
+                        snapshot_ids,
+                        binding_payloads,
+                        strict=True,
+                    )
                 )
             )
+            typed_snapshot_ids = cast("tuple[str, ...]", snapshot_ids)
             bound_snapshots = (
-                tuple(snapshots_by_id[snapshot_id] for snapshot_id in snapshot_ids)
-                if snapshots_match and isinstance(snapshot_ids, list)
+                tuple(snapshots_by_id[snapshot_id] for snapshot_id in typed_snapshot_ids)
+                if snapshots_match
                 else ()
             )
-            expected_scopes = (
-                json.loads(
-                    json.dumps(
-                        [
-                            [entity_id, preview_check_scope_payload(snapshot.scope)]
-                            for entity_id, snapshot in zip(entity_ids, bound_snapshots, strict=True)
-                        ]
+            expected_bindings = (
+                tuple(
+                    EntitySnapshotBindingV1(
+                        entity_ref=RefPayloadV1.from_ref(Ref.entity(entity_id)),
+                        snapshot_id=snapshot.id,
+                    )
+                    for entity_id, snapshot in zip(
+                        entity_ids,
+                        bound_snapshots,
+                        strict=True,
                     )
                 )
                 if bound_snapshots
-                else []
+                else ()
             )
             expected_id = _preview_check_id(
-                semantic_fingerprint=semantic_fingerprint,
-                dependency_fingerprint=dependency_fingerprint,
-                snapshot_ids=tuple(snapshot_ids) if isinstance(snapshot_ids, list) else (),
+                checked_ref=checked_payload,
+                catalog_definition_fingerprint=catalog_definition_fingerprint,
+                semantic_dependency_digest=current_dependency_digest,
+                entity_snapshot_bindings=expected_bindings,
                 backend=expected_backend,
             )
             if (
@@ -545,11 +471,12 @@ def preview_evidence_requirement(
                 and check_id == expected_id
                 and expires_at.tzinfo is not None
                 and created_at.tzinfo is not None
-                and payload.get("semantic_fingerprint") == semantic_fingerprint
-                and payload.get("dependency_fingerprint") == dependency_fingerprint
+                and payload.get("catalog_definition_fingerprint") == catalog_definition_fingerprint
+                and payload.get("semantic_dependency_digest")
+                == canonical_value(current_dependency_digest)
                 and payload.get("backend") == expected_backend
                 and snapshots_match
-                and payload.get("scopes") == expected_scopes
+                and binding_payloads == canonical_value(expected_bindings)
                 and bound_snapshots
                 and created_at >= max(snapshot.created_at for snapshot in bound_snapshots)
                 and expires_at == min(snapshot.expires_at for snapshot in bound_snapshots)
@@ -580,12 +507,12 @@ def preview_evidence_requirement(
         entity_id: _snapshot_sample_call(registry.entities[entity_id], snapshots[entity_id])
         for entity_id in entity_ids
     }
-    typed_ref = f"catalog.get({_quoted(kind.value + '.' + ref)})"
+    typed_ref = f"ms.Ref.{kind.value}({_quoted(ref)})"
     if len(entity_ids) == 1:
         using = sample_calls[entity_ids[0]]
     else:
         mapping_items = "\n".join(
-            f"        catalog.get({_quoted('entity.' + entity_id)}): {sample_calls[entity_id]},"
+            f"        ms.Ref.entity({_quoted(entity_id)}): {sample_calls[entity_id]},"
             for entity_id in entity_ids
         )
         using = "{\n" + mapping_items + "\n    }"
@@ -616,12 +543,15 @@ def _validate_snapshot(
             f"Snapshot {snapshot.id!r} belongs to a different project.",
             details={"entity": entity_id},
         )
-    expected_datasource = DatasourceRef.from_id(entity.datasource)
+    expected_datasource = Ref.datasource(entity.datasource)
     if snapshot.datasource != expected_datasource:
         _blocked(
             preview_ref,
             f"Snapshot datasource does not match entity {entity_id!r}.",
-            details={"expected": expected_datasource.id, "received": snapshot.datasource.id},
+            details={
+                "expected": expected_datasource.path,
+                "received": snapshot.datasource.path,
+            },
         )
     if snapshot.source != entity.source:
         _blocked(
@@ -703,11 +633,12 @@ def _validate_snapshot(
 def normalize_preview_bindings(
     *,
     ref: str,
-    kind: SymbolKind,
+    kind: SemanticKind,
     using: PreviewUsing,
     registry: Registry,
-    sidecar: Sidecar,
+    sidecar: CompiledExpressionSidecar,
     project_root: Path,
+    catalog_definition_fingerprint: str,
 ) -> NormalizedPreviewBindings:
     """Validate exact snapshot/entity bindings without opening a datasource connection."""
     entity_ids = _dependency_entities(ref, kind, registry)
@@ -730,7 +661,7 @@ def normalize_preview_bindings(
         if not isinstance(using, Mapping):
             _blocked(
                 ref,
-                "Multi-entity preview requires a Mapping keyed by Entity or entity SemanticRef.",
+                "Multi-entity preview requires a Mapping keyed by exact Ref[entity].",
                 details={"received_type": type(using).__name__},
             )
         by_entity: dict[str, DiscoverySnapshot] = {}
@@ -777,36 +708,31 @@ def normalize_preview_bindings(
             details={"datasources": datasource_ids},
         )
     datasource = registry.datasources[datasource_ids[0]]
-    semantic_payload = _semantic_payload(ref, registry=registry, sidecar=sidecar)
-    dependencies = _semantic_dependency_payloads(
-        ref,
-        kind,
-        registry=registry,
-        sidecar=sidecar,
-    )
+    checked_ref = _exact_semantic_ref(ref, kind)
     return NormalizedPreviewBindings(
-        semantic_ref=ref,
-        entity_ids=entity_ids,
+        checked_ref=checked_ref,
+        entity_refs=tuple(Ref.entity(entity_id) for entity_id in entity_ids),
         snapshots=snapshots,
-        scopes=tuple(
-            (entity_id, snapshot.scope)
-            for entity_id, snapshot in zip(entity_ids, snapshots, strict=True)
-        ),
         backend=datasource.backend_type,
         datasource_id=datasource_ids[0],
         timeout_seconds=min(snapshot.scope.timeout_seconds for snapshot in snapshots),
-        semantic_fingerprint=_fingerprint(semantic_payload),
-        dependency_fingerprint=_fingerprint(dependencies),
+        catalog_definition_fingerprint=catalog_definition_fingerprint,
+        semantic_dependency_digest=dependency_digest(
+            registry,
+            sidecar=sidecar,
+            semantic_refs=(checked_ref,),
+        ),
     )
 
 
 def normalize_preview_batch_bindings(
     *,
-    refs: Sequence[tuple[str, SymbolKind]],
+    refs: Sequence[tuple[str, SemanticKind]],
     using: PreviewUsing,
     registry: Registry,
-    sidecar: Sidecar,
+    sidecar: CompiledExpressionSidecar,
     project_root: Path,
+    catalog_definition_fingerprint: str,
 ) -> tuple[NormalizedPreviewBindings, ...]:
     """Validate one exact snapshot binding set for a semantic ref batch."""
     batch_refs = tuple(ref for ref, _kind in refs)
@@ -820,7 +746,7 @@ def normalize_preview_batch_bindings(
     if not entity_ids:
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
-            "catalog.preview(refs=...) requires at least one executable semantic ref.",
+            "catalog.preview_many(refs, using=...) requires at least one executable semantic ref.",
             cls=SemanticRuntimeError,
             refs=batch_refs,
             details={"query_executed": False},
@@ -841,7 +767,7 @@ def normalize_preview_batch_bindings(
         if not isinstance(using, Mapping):
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
-                "A batch with multiple dependency entities requires a Mapping keyed by Entity or entity SemanticRef.",
+                "A batch with multiple dependency entities requires a Mapping keyed by exact Ref[entity].",
                 cls=SemanticRuntimeError,
                 refs=batch_refs,
                 details={"query_executed": False, "received_type": type(using).__name__},
@@ -893,7 +819,7 @@ def normalize_preview_batch_bindings(
             ref_using = by_entity[dependency_entities[0]]
         else:
             ref_using = {
-                EntityRef(entity_id): by_entity[entity_id] for entity_id in dependency_entities
+                Ref.entity(entity_id): by_entity[entity_id] for entity_id in dependency_entities
             }
         normalized.append(
             normalize_preview_bindings(
@@ -903,6 +829,7 @@ def normalize_preview_batch_bindings(
                 registry=registry,
                 sidecar=sidecar,
                 project_root=project_root,
+                catalog_definition_fingerprint=catalog_definition_fingerprint,
             )
         )
     return tuple(normalized)
@@ -948,20 +875,29 @@ def persist_preview_check(
     enriched = replace(result, status="passed", coverage=coverage)
     created_at = datetime.now(UTC)
     expires_at = min(snapshot.expires_at for snapshot in bindings.snapshots)
-    check = PreviewCheck(
+    entity_snapshot_bindings = tuple(
+        EntitySnapshotBindingV1(
+            entity_ref=RefPayloadV1.from_ref(entity_ref),
+            snapshot_id=snapshot.id,
+        )
+        for entity_ref, snapshot in zip(bindings.entity_refs, bindings.snapshots, strict=True)
+    )
+    checked_payload = RefPayloadV1.from_ref(bindings.checked_ref)
+    check = PreviewCheckV1(
+        schema="marivo.semantic_preview_check/v1",
         id=_preview_check_id(
-            semantic_fingerprint=bindings.semantic_fingerprint,
-            dependency_fingerprint=bindings.dependency_fingerprint,
-            snapshot_ids=coverage.snapshot_ids,
+            checked_ref=checked_payload,
+            catalog_definition_fingerprint=bindings.catalog_definition_fingerprint,
+            semantic_dependency_digest=bindings.semantic_dependency_digest,
+            entity_snapshot_bindings=entity_snapshot_bindings,
             backend=bindings.backend,
         ),
-        semantic_ref=bindings.semantic_ref,
-        semantic_fingerprint=bindings.semantic_fingerprint,
-        dependency_fingerprint=bindings.dependency_fingerprint,
-        snapshot_ids=coverage.snapshot_ids,
+        checked_ref=checked_payload,
+        catalog_definition_fingerprint=bindings.catalog_definition_fingerprint,
+        semantic_dependency_digest=bindings.semantic_dependency_digest,
+        entity_snapshot_bindings=entity_snapshot_bindings,
         backend=bindings.backend,
         status="passed",
-        scopes=coverage.scopes,
         rows_observed=coverage.rows_observed,
         scope_exhaustion=coverage.scope_exhaustion,
         types=tuple(sorted(enriched.types.items())),

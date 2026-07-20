@@ -126,7 +126,7 @@ _ENTITY_WITH_DATABASE_PY = textwrap.dedent("""\
     ms.domain(name="sales", owner='Mina Zhang', default=True)
     orders = ms.entity(
         name="orders",
-        datasource=md.ref("datasource.warehouse"),
+        datasource=ms.Ref.datasource("warehouse"),
         source=md.table("orders", database="sales_mart"),
     )
 
@@ -195,7 +195,7 @@ _ENTITY_NO_DATABASE_PY = textwrap.dedent("""\
     ms.domain(name="sales", owner='Mina Zhang', default=True)
     orders = ms.entity(
         name="orders",
-        datasource=md.ref("datasource.warehouse"),
+        datasource=ms.Ref.datasource("warehouse"),
         source=md.table("orders"),
     )
 
@@ -264,7 +264,7 @@ _ENTITY_DATASOURCE_DB_FALLBACK_PY = textwrap.dedent("""\
     ms.domain(name="sales", owner='Mina Zhang', default=True)
     orders = ms.entity(
         name="orders",
-        datasource=md.ref("datasource.warehouse"),
+        datasource=ms.Ref.datasource("warehouse"),
         source=md.table("orders"),
     )
 
@@ -322,7 +322,7 @@ _ENTITY_DATASOURCE_DB_FULLY_QUALIFIED_PY = textwrap.dedent("""\
     ms.domain(name="sales", owner='Mina Zhang', default=True)
     orders = ms.entity(
         name="orders",
-        datasource=md.ref("datasource.warehouse"),
+        datasource=ms.Ref.datasource("warehouse"),
         source=md.table("orders"),
     )
 

@@ -8,7 +8,9 @@ import ibis
 import pytest
 
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
 from marivo.analysis.errors import (
+    AnalysisError,
     MetricNotFoundError,
     NoBackendFactoryError,
     SemanticKindMismatchError,
@@ -18,8 +20,8 @@ from marivo.analysis.errors import (
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import DerivedMetricDetails, SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 from tests.shared_fixtures import connect_sales_orders, sales_backends
 
 
@@ -61,7 +63,7 @@ def _bootstrap_sales_with_country_dimension(tmp_path):
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "import marivo.datasource as md\n"
         "\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "\n"
         "orders = ms.entity(name='orders', datasource=warehouse, source=md.table('orders'))\n"
         "\n"
@@ -113,7 +115,7 @@ def _bootstrap_sales_with_two_time_fields(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def create_date(orders):\n"
@@ -144,7 +146,7 @@ def _bootstrap_sales_with_default_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', is_default=True)\n"
         "def create_date(orders):\n"
@@ -186,7 +188,7 @@ def _bootstrap_sales_with_string_partition_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
         "def log_date(orders):\n"
@@ -224,7 +226,7 @@ def _bootstrap_sales_with_single_hour_partition_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='hour', parse=ms.strptime('%Y%m%d%H'))\n"
         "def log_hour(orders):\n"
@@ -251,7 +253,7 @@ def _bootstrap_sales_with_composite_hour_partition_time_fields(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
         "def log_date(orders):\n"
@@ -304,7 +306,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
             "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/model.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def country(table):\n"
                 "    return table.country\n"
@@ -330,41 +332,42 @@ def test_observe_planner_does_not_require_catalog_private_state(
         use_datasources=False,
     )
     catalog = ms.load(workspace_dir=tmp_path)
-    metric = catalog.get("metric.sales.revenue")
+    metric = catalog.require(ms.Ref.metric("sales.revenue"))
 
     class GuardedCatalog(SemanticCatalog):
         def __init__(self, wrapped):
-            self._wrapped = wrapped
+            object.__setattr__(self, "_wrapped", wrapped)
+            object.__setattr__(self, "_state", wrapped._state)
 
         def __getattribute__(self, name):
             if name == "_project":
                 raise AssertionError("observe planner must not access catalog._project")
             return object.__getattribute__(self, name)
 
-        def get(self, *args, **kwargs):
-            return self._wrapped.get(*args, **kwargs)
+        def require(self, *args, **kwargs):
+            return self._wrapped.require(*args, **kwargs)
 
         def _require_index(self, *args, **kwargs):
             return self._wrapped._require_index(*args, **kwargs)
 
-        def _resolver(self, *args, **kwargs):
-            return self._wrapped._resolver(*args, **kwargs)
+        def _semantic_resolver(self, *args, **kwargs):
+            return self._wrapped._semantic_resolver(*args, **kwargs)
 
     guarded_catalog = GuardedCatalog(catalog)
 
     def metric_adapter(ref):
-        details = guarded_catalog.get(f"metric.{ref}").details()
+        details = guarded_catalog.require(ms.Ref.metric(ref)).details()
         composition_ns = None
         if isinstance(details, DerivedMetricDetails):
             composition_ns = SimpleNamespace(
                 kind=details.composition,
-                components={role: component.id for role, component in details.components},
+                components={role: component.path for role, component in details.components},
             )
         return SimpleNamespace(
-            semantic_id=details.ref.id,
+            semantic_id=details.ref.path,
             name=details.name,
-            root_entity=details.root_entity.id if details.root_entity is not None else None,
-            entities=tuple(entity.id for entity in details.entities),
+            root_entity=details.root_entity.path if details.root_entity is not None else None,
+            entities=tuple(entity.path for entity in details.entities),
             additivity=details.additivity,
             fanout_policy=details.fanout_policy,
             metric_type=details.metric_type,
@@ -377,7 +380,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
     dataset_irs = {"sales.orders": SimpleNamespace(datasource_name="warehouse")}
     dataset_fns = {"sales.orders": lambda backend: backend.table("orders")}
 
-    assert metric.ref.id == "sales.revenue"
+    assert metric.ref.path == "sales.revenue"
     assert hasattr(session, "catalog")
     planner_parameters = inspect.signature(plan_base_observe).parameters
     assert "catalog" in planner_parameters
@@ -388,7 +391,7 @@ def test_observe_planner_does_not_require_catalog_private_state(
         metric_ir=metric_adapter("sales.revenue"),
         dataset_irs=dataset_irs,
         dataset_fns=dataset_fns,
-        dimensions=[guarded_catalog.get("dimension.sales.orders.country").ref],
+        dimensions=[guarded_catalog.require(ms.Ref.dimension("sales.orders.country")).ref],
         where=None,
         resolved_window=None,
         time_dimension=None,
@@ -440,17 +443,17 @@ def test_observe_rejects_bare_metric_string(tmp_path):
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         observe("sales.revenue", session=s)  # type: ignore[arg-type]
 
-    assert exc_info.value._context["expected_type"] == "MetricRef or RuntimeMetricExpr"
+    assert exc_info.value._context["expected_type"] == "Ref[metric] or RuntimeMetricExpr"
     assert exc_info.value._context["actual_type"] == "str"
     rendered = str(exc_info.value)
-    assert "exact MetricRef or RuntimeMetricExpr" in rendered
+    assert "exact Ref[metric] or RuntimeMetricExpr" in rendered
 
 
 def test_session_observe_rejects_catalog_object_and_accepts_exact_ref(sales_session, sales_catalog):
-    metric = sales_catalog.get("metric.sales.revenue")
-    country = sales_catalog.get("dimension.sales.orders.country").ref
+    metric = sales_catalog.require(ms.Ref.metric("sales.revenue"))
+    country = sales_catalog.require(ms.Ref.dimension("sales.orders.country")).ref
 
-    with pytest.raises(SemanticKindMismatchError, match="exact MetricRef"):
+    with pytest.raises(AnalysisError, match="received MetricEntry"):
         sales_session.observe(metric, dimensions=[country])  # type: ignore[arg-type]
     frame = sales_session.observe(metric.ref, dimensions=[country])
 
@@ -553,7 +556,7 @@ def test_observe_multiple_time_fields_mentions_time_field_fix(tmp_path):
     assert "create_date" in rendered
     assert "create_time" in rendered
     assert (
-        'time_dimension=session.catalog.get("time_dimension.<domain.entity.time_dimension>").ref'
+        'time_dimension=session.catalog.require(ms.Ref.time_dimension("<domain.entity.time_dimension>")).ref'
         in rendered
     )
     assert "is_default=True" in rendered
@@ -690,7 +693,7 @@ def test_observe_rejects_bare_string_where_key(tmp_path):
             slice_by={"region": "NORTH"},
             session=s,
         )
-    assert exc_info.value._context["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "dimension or time_dimension"
 
 
 def test_observe_unknown_metric_raises(tmp_path):
@@ -745,7 +748,42 @@ def test_observe_persists_job_and_frame(tmp_path):
     assert len(summaries) == 1
     assert summaries[0].intent == "observe"
     assert summaries[0].output_frame_ref == mf.ref
-    assert (s._layout.frames_dir / mf.ref / "data.parquet").is_file()
+    frame_dir = s._layout.frames_dir / mf.ref
+    assert (frame_dir / "data.parquet").is_file()
+    persisted_meta = json.loads((frame_dir / "meta.json").read_text())
+    assert persisted_meta["artifact_schema_version"] == "analysis-artifact/v4"
+    assert {
+        "metric_id",
+        "axes",
+        "where",
+        "status_time_dimension",
+        "semantic_model",
+    }.isdisjoint(persisted_meta)
+    assert persisted_meta["metric_identity"]["metric_ref"] == {
+        "schema": "marivo.semantic_ref/v1",
+        "kind": "metric",
+        "path": "sales.revenue",
+    }
+    assert "axis_bindings" in persisted_meta
+    assert "slice_predicates" in persisted_meta
+
+    job_path = next(s._layout.jobs_dir.glob("*.json"))
+    persisted_job = json.loads(job_path.read_text())
+    assert persisted_job["schema"] == "marivo.analysis_job/v1"
+    assert persisted_job["subject"]["metric_ref"]["path"] == "sales.revenue"
+    assert {
+        "semantic_model",
+        "semantic_anchors",
+        "metric_id",
+        "metric_ids",
+    }.isdisjoint(persisted_job)
+    assert {"metric", "dimensions", "where"}.isdisjoint(persisted_job["params"])
+
+    loaded = s.get_frame(mf.ref)
+    assert loaded.meta.metric_id == "sales.revenue"
+    assert loaded.meta.semantic_model == "sales"
+    assert loaded.meta.axes == mf.meta.axes
+    assert loaded.meta.where == mf.meta.where
 
 
 def test_observe_read_only_session_without_backend_raises(tmp_path):
@@ -799,7 +837,7 @@ def _bootstrap_failure_rate(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -917,6 +955,15 @@ def test_observe_time_series_derived_ratio_links_component_frame(tmp_path):
     assert components.meta.parent_ref == frame.ref
     assert components.meta.semantic_kind == "time_series"
     assert components.meta.axes == frame.meta.axes
+    component_meta = json.loads(
+        (session._layout.frames_dir / components.ref / "meta.json").read_text()
+    )
+    assert {"metric_id", "components", "axes", "semantic_model"}.isdisjoint(component_meta)
+    assert component_meta["metric_identity"]["metric_ref"]["path"] == "sales.failure_rate"
+    assert [binding["role"] for binding in component_meta["component_bindings"]] == [
+        "numerator",
+        "denominator",
+    ]
     component_df = components.to_pandas()
     assert list(component_df.columns) == [
         "bucket_start",
@@ -956,7 +1003,7 @@ def test_observe_nested_catalog_ratio_reuses_leaf_cse(tmp_path):
     assert frame.meta.key_schema is not None
     assert frame.meta.source_compatibility_domain is not None
     assert frame.meta.comparable_value_semantics is not None
-    assert frame.meta.artifact_schema_version == "analysis-artifact/v3"
+    assert frame.meta.artifact_schema_version == "analysis-artifact/v4"
 
     store = session._evidence_store()
     assert store is not None
@@ -970,7 +1017,11 @@ def test_observe_nested_catalog_ratio_reuses_leaf_cse(tmp_path):
     assert subject["typed_metric_subject"] == {
         "kind": "catalog_metric",
         "session_id": session.id,
-        "metric_id": "sales.nested_failure_rate",
+        "metric_ref": {
+            "schema": "marivo.semantic_ref/v1",
+            "kind": "metric",
+            "path": "sales.nested_failure_rate",
+        },
         "artifact_id": frame.ref,
         "scope_fingerprint": subject["typed_metric_subject"]["scope_fingerprint"],
     }
@@ -1085,7 +1136,7 @@ def _bootstrap_sales_with_strptime_slash_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y/%m/%d'))\n"
         "def log_date(orders):\n"
@@ -1155,7 +1206,7 @@ def _bootstrap_sales_with_string_timestamp_timezone(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='minute', parse=ms.strptime('%Y-%m-%d %H:%M:%S', timezone='UTC'))\n"
         "def create_time(orders):\n"
@@ -1218,7 +1269,7 @@ def _bootstrap_sales_with_strptime_integer_time_field(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
         "def log_date(orders):\n"

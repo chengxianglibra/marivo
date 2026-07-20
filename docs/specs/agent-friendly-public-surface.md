@@ -257,8 +257,8 @@ There are three disclosure ladders, and they compose:
 
 2. **Dynamic state, from the object in hand.** A returned result discloses in
    three steps of increasing commitment: `repr()` (free, one line) →
-   `show()` (bounded card) → typed escape hatch (`to_pandas()`, `.refs()`,
-   `.ids()`) when the agent genuinely needs the full data.
+   `show()` (bounded card) → typed escape hatch (`to_pandas()`, `.refs`)
+   when the agent genuinely needs the full data.
 
 3. **Repair, only on failure.** Errors escalate detail exactly when something
    breaks: a structured exception carries the expected/received/next-step and
@@ -303,12 +303,12 @@ dt = ms.time_dimension_column(
 
 # 6. reload the typed object, verify statically, then preview against the snapshot
 catalog = ms.load()
-dt_object = catalog.get("time_dimension.sales.orders.order_date")
-catalog.verify_object(dt_object).show()
-catalog.preview(dt_object, using=snapshot).show()
+dt_ref = catalog.require(ms.Ref.time_dimension("sales.orders.order_date")).ref
+catalog.verify(dt_ref).show()
+catalog.preview(dt_ref, using=snapshot).show()
 
 # 7. readiness — zero-query certification for the authored change
-catalog.readiness(refs=[dt_object]).show()
+catalog.readiness(refs=[dt_ref]).show()
 ```
 
 The disclosure discipline here is what makes authoring safe for an agent: the
@@ -329,8 +329,8 @@ artifact** ([frame/result interface simplification](../superpowers/specs/2026-06
 ```python
 session    = mv.session.get_or_create(name="revenue_drop")
 catalog    = session.catalog
-revenue    = catalog.get("metric.sales.revenue")
-created_at = catalog.get("time_dimension.sales.orders.created_at")
+revenue    = catalog.require(ms.Ref.metric("sales.revenue")).ref
+created_at = catalog.require(ms.Ref.time_dimension("sales.orders.created_at")).ref
 
 cur  = session.observe(revenue, time_scope={"start": "2026-07-01", "end": "2026-10-01"}, grain="month")
 base = session.observe(revenue, time_scope={"start": "2025-07-01", "end": "2025-10-01"}, grain="month")
@@ -383,8 +383,8 @@ Two rules keep this vocabulary trustworthy:
   `CandidateSet[driver_axis]`, and so on. A closed enum of shapes fails loudly at
   the boundary; an optional-field mega-class would fail silently three steps
   later. On the semantic side the same idea appears as `CatalogCollection` /
-  `CatalogObject` for discovery, with typed `*Ref` handles flowing into
-  analysis.
+  `CatalogEntry` for discovery, with one sealed generic `Ref[kind]` value
+  flowing into analysis.
 
 ## What this buys, and what keeps it true
 

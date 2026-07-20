@@ -41,7 +41,7 @@ def _assert_fixed_time_rules(snapshot: md.DiscoverySnapshot) -> None:
 
 
 def _inspection_and_snapshot(project_root: Path):
-    inspection = md.inspect(md.ref("datasource.warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=1000, timeout_seconds=30),
         columns=_AUTHORING_COLUMNS,
@@ -133,12 +133,12 @@ def _acquire_secret_backed_snapshot(
     monkeypatch.setattr(inspection_module, "require_profile_for_backend_type", require_profile)
     monkeypatch.setattr(snapshot_module, "require_profile_for_backend_type", require_profile)
 
-    inspection = md.inspect(md.ref("datasource.secure_warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.Ref.datasource("secure_warehouse"), md.table("orders"))
     secure_snapshot = inspection.sample(
         scope=md.unpruned(max_rows=1000, timeout_seconds=30),
         columns=("query_id", "amount"),
     )
-    assert secure_snapshot.datasource == md.ref("datasource.secure_warehouse")
+    assert secure_snapshot.datasource == ms.Ref.datasource("secure_warehouse")
     assert resolved_passwords == [secret, secret]
     return secure_snapshot
 
@@ -155,12 +155,12 @@ def test_real_duckdb_authoring_snapshot_reaches_analysis_ready_refs(
     assert snapshot.measures(columns=("amount",)).status == "complete"
 
     catalog = ms.load(workspace_dir=authoring_evidence_project)
-    revenue = catalog.get("metric.sales.revenue")
-    assert catalog.verify_object(revenue).status == "passed"
-    preview = catalog.preview(revenue, using=snapshot)
+    revenue = catalog.require(ms.Ref.metric("sales.revenue"))
+    assert catalog.verify(revenue.ref).status == "passed"
+    preview = catalog.preview(revenue.ref, using=snapshot)
     assert preview.status == "passed"
     assert preview.rows == ({"value": 751.5},)
-    readiness = catalog.readiness(refs=[revenue])
+    readiness = catalog.readiness(refs=[revenue.ref])
     assert readiness.status in {"ready", "ready_with_warnings"}
     assert not readiness.blockers
 
@@ -168,7 +168,7 @@ def test_real_duckdb_authoring_snapshot_reaches_analysis_ready_refs(
     session_readiness = session.catalog.readiness(refs=[revenue.ref])
     assert session_readiness.status in {"ready", "ready_with_warnings"}
     assert not session_readiness.blockers
-    assert revenue.ref.id in session_readiness.analysis_ready_refs
+    assert revenue.ref in session_readiness.analysis_ready_refs
     secure_snapshot = _acquire_secret_backed_snapshot(authoring_evidence_project, monkeypatch)
     assert secure_snapshot.id != snapshot.id
     _assert_private_authoring_json(
@@ -206,7 +206,7 @@ def test_complete_authoring_query_count_matrix(
 
     matrix: dict[str, int] = {}
     before = counts["user_data"]
-    inspection = md.inspect(md.ref("datasource.warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
     matrix["inspect"] = counts["user_data"] - before
     metadata_after_inspect = counts["metadata"]
 
@@ -233,17 +233,17 @@ def test_complete_authoring_query_count_matrix(
     matrix["refresh"] = counts["user_data"] - before
 
     catalog = ms.load(workspace_dir=authoring_evidence_project)
-    revenue = catalog.get("metric.sales.revenue")
+    revenue = catalog.require(ms.Ref.metric("sales.revenue"))
     before = counts["user_data"]
-    assert catalog.verify_object(revenue).status == "passed"
+    assert catalog.verify(revenue.ref).status == "passed"
     matrix["verify"] = counts["user_data"] - before
 
     before = counts["user_data"]
-    assert catalog.preview(revenue, using=refreshed).status == "passed"
+    assert catalog.preview(revenue.ref, using=refreshed).status == "passed"
     matrix["single_entity_preview"] = counts["user_data"] - before
 
     before = counts["user_data"]
-    assert catalog.readiness(refs=[revenue]).status in {"ready", "ready_with_warnings"}
+    assert catalog.readiness(refs=[revenue.ref]).status in {"ready", "ready_with_warnings"}
     matrix["readiness"] = counts["user_data"] - before
 
     assert matrix == {
@@ -262,7 +262,7 @@ def test_complete_authoring_query_count_matrix(
 def test_negative_evidence_stays_unresolved_without_recommendations(
     authoring_evidence_project: Path,
 ) -> None:
-    inspection = md.inspect(md.ref("datasource.warehouse"), md.table("orders"))
+    inspection = md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=1000, timeout_seconds=30),
         columns=(*_AUTHORING_COLUMNS, "uncommon_date", "epoch_like"),
@@ -278,7 +278,7 @@ def test_negative_evidence_stays_unresolved_without_recommendations(
         right=("query_id", "region"),
     )
     right_inspection = md.inspect(
-        md.ref("datasource.warehouse_replica"),
+        ms.Ref.datasource("warehouse_replica"),
         md.table("orders_replica"),
     )
     right_snapshot = right_inspection.sample(
@@ -322,8 +322,8 @@ def test_negative_evidence_stays_unresolved_without_recommendations(
             and cross_source_relationship.right_snapshot_id == right_snapshot.id
             and cross_source_relationship.left_scope == snapshot.scope
             and cross_source_relationship.right_scope == right_snapshot.scope
-            and snapshot.datasource == md.ref("datasource.warehouse")
-            and right_snapshot.datasource == md.ref("datasource.warehouse_replica")
+            and snapshot.datasource == ms.Ref.datasource("warehouse")
+            and right_snapshot.datasource == ms.Ref.datasource("warehouse_replica")
             and snapshot.source == md.table("orders")
             and right_snapshot.source == md.table("orders_replica")
             and right_snapshot.id != snapshot.id,

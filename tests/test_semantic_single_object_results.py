@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 
+import marivo.semantic as ms
 from marivo.semantic.dtos import VerifyResult
 from marivo.semantic.readiness import ReadinessReport
 from marivo.semantic.richness import RichnessReport
@@ -12,7 +13,7 @@ def _make_readiness_report() -> ReadinessReport:
 
     return ReadinessReport(
         status="ready_with_warnings",
-        analysis_ready_refs=("sales.revenue",),
+        analysis_ready_refs=(ms.Ref.metric("sales.revenue"),),
         blockers=(),
         warnings=(),
         input_summary=ReadinessInputSummary(datasources=(), refs=(), tables=()),
@@ -81,7 +82,7 @@ def test_readiness_report_render_contains_identity_and_available():
     assert rendered == "\n".join(
         [
             "ReadinessReport status=ready_with_warnings issues=0",
-            "analysis_ready: sales.revenue",
+            "analysis_ready: metric:sales.revenue",
             "checked_at: 2026-06-09T00:00:00Z",
             "available:",
             "- .render()",

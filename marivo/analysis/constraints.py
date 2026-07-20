@@ -82,10 +82,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.METRIC_EXPRESSION_RESOLVABLE,
         "MetricNotFound",
         "runtime",
-        ("observe", "MetricRef", "RuntimeMetricExpr"),
+        ("observe", "Ref[metric]", "RuntimeMetricExpr"),
         "Every metric-expression leaf must resolve to an analysis-ready governed ref.",
         "Catalog metric refs and runtime expressions share one graph planner; unresolved or unready leaves cannot produce a typed frame.",
-        "Pass an exact catalog MetricRef or build a closed expression with mv.runtime_metric.* from exact MeasureRef/MetricRef operands.",
+        "Pass an exact catalog Ref[metric] or build a closed expression with mv.runtime_metric.* from exact Ref[measure]/Ref[metric] operands.",
         help_target="observe",
     ),
     ConstraintId.WINDOW_ABSOLUTE_PARSEABLE: _constraint(
@@ -350,7 +350,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ),
         "Runtime metrics use a closed recursive algebra over governed refs.",
         "Closed descriptors preserve typed planning, replay, lineage, units, and quality facts without creating catalog authority.",
-        "Use exact MeasureRef, MetricRef, DimensionRef, or TimeDimensionRef values and materialize the descriptor only through session.observe(...).",
+        "Use exact Ref[measure], Ref[metric], Ref[dimension], or Ref[time_dimension] values and materialize the descriptor only through session.observe(...).",
         help_target="runtime_metric",
     ),
 }

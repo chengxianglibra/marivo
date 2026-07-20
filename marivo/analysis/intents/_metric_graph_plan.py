@@ -17,10 +17,10 @@ from marivo.analysis.intents.observe_errors import (
     raise_observe_planning_error,
 )
 from marivo.analysis.runtime_metric import RuntimeMetricExpr
+from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     SemanticCatalog,
-    SemanticKind,
     SimpleMetricDetails,
 )
 from marivo.semantic.ir import (
@@ -46,7 +46,6 @@ from marivo.semantic.metric_graph_lowering import (
     lower_catalog_metric,
     lower_catalog_metrics,
 )
-from marivo.semantic.refs import MetricRef
 from marivo.semantic.unit_algebra import tier1_unit
 
 type PhysicalLeafPlanV1 = BaseObservePlan | CumulativePhysicalLeafPlanV1
@@ -109,20 +108,23 @@ def _fold_ir(value: AggregateFoldInput) -> TimeFoldIR | None:
 
 
 def _runtime_metric_adapter(catalog: SemanticCatalog, node_id: str, node: AggregateNodeV1) -> Any:
-    if node.target_kind != "measure":
+    if node.target_ref.kind is not SemanticKind.MEASURE:
         raise_observe_planning_error(
             code="runtime-metric-target-kind",
             message="Runtime aggregate nodes require a governed measure target.",
-            candidates={"target_kind": node.target_kind, "target_id": node.target_id},
+            candidates={
+                "target_kind": node.target_ref.kind.value,
+                "target_ref": node.target_ref.to_dict(),
+            },
             repair=[],
         )
     registry = catalog._require_index().registry
-    measure = registry.measures.get(node.target_id)
+    measure = registry.measures.get(node.target_ref.path)
     if measure is None:
         raise_observe_planning_error(
             code="runtime-metric-measure-missing",
-            message=f"Runtime aggregate measure {node.target_id!r} is not loaded.",
-            candidates={"measure": node.target_id},
+            message=f"Runtime aggregate measure {node.target_ref.path!r} is not loaded.",
+            candidates={"measure_ref": node.target_ref.to_dict()},
             repair=[],
         )
     inherited_fold = (
@@ -151,7 +153,7 @@ def _runtime_metric_adapter(catalog: SemanticCatalog, node_id: str, node: Aggreg
 def _catalog_metric_adapter(catalog: SemanticCatalog, metric_id: str) -> Any:
     from marivo.analysis.intents._observe_planner_types import _planned_metric
 
-    details = catalog.get(f"{SemanticKind.METRIC.value}.{metric_id}").details()
+    details = catalog.require(Ref.metric(metric_id)).details()
     if not isinstance(details, (SimpleMetricDetails, DerivedMetricDetails)):
         raise_observe_planning_error(
             code="metric-graph-metric-missing",
@@ -202,7 +204,11 @@ def _representative_metrics(
             and getattr(metric.composition, "kind", None) != "cumulative"
         ):
             continue
-        lowered = lower_catalog_metric(registry, metric_id)
+        lowered = lower_catalog_metric(
+            registry,
+            metric_id,
+            sidecar=catalog._state.sidecar,
+        )
         root_id = lowered.graph.roots[0]
         if root_id in executable_ids:
             representatives.setdefault(root_id, metric_id)
@@ -251,8 +257,10 @@ def _physical_targets(
                 (
                     node.child_id,
                     {
-                        dimension_id: _canonical_slice_runtime_value(value)
-                        for dimension_id, value in node.predicates
+                        predicate.dimension_ref.path: _canonical_slice_runtime_value(
+                            predicate.value
+                        )
+                        for predicate in node.predicates
                     },
                 ),
             )
@@ -666,7 +674,7 @@ def _plan_metric_expression_forest(
         )
     source_domain = DatasourceCompatibilityDomainV1(
         schema="datasource-compatibility/v1",
-        datasource_id=datasource_name,
+        datasource_ref=RefPayloadV1.from_ref(Ref.datasource(datasource_name)),
         backend_type=datasource_ir.backend_type,
         profile_fingerprint=fingerprint(
             (
@@ -685,7 +693,7 @@ def _plan_metric_expression_forest(
         lineage_metadata={
             "metric_graph_schema": forest.graph.schema,
             "root_node_ids": list(forest.graph.roots),
-            "dependency_fingerprint": forest.dependency_digest.fingerprint,
+            "dependency_fingerprint": forest.dependency_digest.digest,
             "physical_leaves": lineage_leaves,
         },
         warnings=tuple(warnings),
@@ -696,7 +704,7 @@ def plan_metric_graph_observe(
     *,
     catalog: SemanticCatalog,
     session: Any,
-    metric_inputs: tuple[MetricRef | RuntimeMetricExpr, ...],
+    metric_inputs: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
     dataset_irs: dict[str, Any],
     dataset_fns: dict[str, Any],
     dimensions: list[Any] | None,
@@ -705,7 +713,11 @@ def plan_metric_graph_observe(
     time_dimension: str | None,
 ) -> MetricGraphObservePlanV1:
     """Lower and plan one ordered catalog/runtime expression forest."""
-    forest = lower_metric_inputs(catalog._require_index().registry, metric_inputs)
+    forest = lower_metric_inputs(
+        catalog._require_index().registry,
+        metric_inputs,
+        sidecar=catalog._state.sidecar,
+    )
     return _plan_metric_expression_forest(
         catalog=catalog,
         session=session,
@@ -732,7 +744,11 @@ def plan_catalog_metric_graph_observe(
     time_dimension: str | None,
 ) -> MetricGraphObservePlanV1:
     """Plan one ordered catalog forest through the unified graph planner."""
-    forest = lower_catalog_metrics(catalog._require_index().registry, metric_ids)
+    forest = lower_catalog_metrics(
+        catalog._require_index().registry,
+        metric_ids,
+        sidecar=catalog._state.sidecar,
+    )
     return _plan_metric_expression_forest(
         catalog=catalog,
         session=session,

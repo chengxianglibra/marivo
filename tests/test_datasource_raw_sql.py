@@ -8,6 +8,7 @@ import ibis
 import pytest
 
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
 from marivo.datasource.backends import build_backend
@@ -27,7 +28,7 @@ def test_raw_sql_requires_reason_before_connecting(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 
     with pytest.raises(ValueError, match="reason must be non-empty"):
-        md.raw_sql(md.ref("datasource.warehouse"), "SELECT 1", reason="", project_root=tmp_path)
+        md.raw_sql(ms.Ref.datasource("warehouse"), "SELECT 1", reason="", project_root=tmp_path)
 
 
 def test_raw_sql_rejects_multi_statement_input(tmp_path: Path) -> None:
@@ -35,7 +36,7 @@ def test_raw_sql_rejects_multi_statement_input(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="single read-only statement"):
         md.raw_sql(
-            md.ref("datasource.warehouse"),
+            ms.Ref.datasource("warehouse"),
             "SELECT 1; SELECT 2",
             reason="diagnose duplicate keys",
             project_root=tmp_path,
@@ -48,7 +49,7 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT id, amount FROM orders ORDER BY id",
         limit=1,
         reason="diagnose order amount sample",
@@ -56,7 +57,7 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     )
 
     assert isinstance(result, RawSqlResult)
-    assert result.datasource == md.ref("datasource.warehouse")
+    assert result.datasource == ms.Ref.datasource("warehouse")
     assert result.reason == "diagnose order amount sample"
     assert result.returned_row_count == 1
     assert result.is_truncated is True
@@ -84,7 +85,7 @@ def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -
     _inspect_table("warehouse", table="orders", project_root=tmp_path)
 
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT count(*) AS n FROM orders",
         reason="diagnose after inspect",
         project_root=tmp_path,
@@ -98,7 +99,7 @@ def test_raw_sql_write_attempt_surfaces_typed_error(tmp_path: Path) -> None:
 
     with pytest.raises(DatasourceError) as exc_info:
         md.raw_sql(
-            md.ref("datasource.warehouse"),
+            ms.Ref.datasource("warehouse"),
             "INSERT INTO orders VALUES (3, 30.0)",
             reason="attempt to mutate via escape hatch",
             project_root=tmp_path,
@@ -106,7 +107,7 @@ def test_raw_sql_write_attempt_surfaces_typed_error(tmp_path: Path) -> None:
     assert isinstance(exc_info.value, DatasourceRawSqlError)
     # The write did not execute: orders still holds the fixture's two rows.
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT count(*) AS n FROM orders",
         reason="verify no mutation",
         project_root=tmp_path,
@@ -244,7 +245,7 @@ def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
     _patch_trino_timeout_to_noop(monkeypatch)
 
     result = md.raw_sql(
-        md.ref("datasource.trino_wh"),
+        ms.Ref.datasource("trino_wh"),
         "DESCRIBE orders",
         limit=1,
         reason="diagnose trino table schema",
@@ -282,7 +283,7 @@ def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
     _patch_trino_timeout_to_noop(monkeypatch)
 
     result = md.raw_sql(
-        md.ref("datasource.trino_wh"),
+        ms.Ref.datasource("trino_wh"),
         "SHOW COLUMNS FROM orders",
         limit=2,
         reason="diagnose trino column metadata",
@@ -311,7 +312,7 @@ def test_raw_sql_trino_select_uses_subquery_wrap_without_transaction(
     _patch_trino_timeout_to_noop(monkeypatch)
 
     result = md.raw_sql(
-        md.ref("datasource.trino_wh"),
+        ms.Ref.datasource("trino_wh"),
         "SELECT count(*) AS n FROM orders",
         reason="diagnose row count",
         project_root=tmp_path,
@@ -351,7 +352,7 @@ def test_raw_sql_rejects_non_positive_timeout(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     with pytest.raises(ValueError, match="timeout_seconds must be positive"):
         md.raw_sql(
-            md.ref("datasource.warehouse"),
+            ms.Ref.datasource("warehouse"),
             "SELECT 1",
             reason="check",
             timeout_seconds=0,
@@ -362,7 +363,7 @@ def test_raw_sql_rejects_non_positive_timeout(tmp_path: Path) -> None:
 def test_raw_sql_result_carries_timeout_seconds(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT 1 AS ok",
         reason="check timeout",
         timeout_seconds=15,
@@ -396,7 +397,7 @@ def test_raw_sql_fails_closed_when_timeout_unavailable(
 
     with pytest.raises(DatasourceRawSqlError) as exc_info:
         md.raw_sql(
-            md.ref("datasource.warehouse"),
+            ms.Ref.datasource("warehouse"),
             "SELECT 1",
             reason="check fail-closed",
             project_root=tmp_path,
@@ -410,7 +411,7 @@ def test_raw_sql_fails_closed_when_timeout_unavailable(
 def test_raw_sql_exact_limit_reports_not_truncated(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT id FROM orders ORDER BY id",
         limit=2,
         reason="exact limit check",
@@ -423,7 +424,7 @@ def test_raw_sql_exact_limit_reports_not_truncated(tmp_path: Path) -> None:
 def test_raw_sql_extra_row_reports_truncated(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT id FROM orders ORDER BY id",
         limit=1,
         reason="truncation check",
@@ -436,7 +437,7 @@ def test_raw_sql_extra_row_reports_truncated(tmp_path: Path) -> None:
 def test_raw_sql_result_display_shows_terminal_only_and_duration(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT 1 AS ok",
         reason="display check",
         timeout_seconds=10,
@@ -454,7 +455,7 @@ def test_raw_sql_result_display_shows_terminal_only_and_duration(tmp_path: Path)
 def test_raw_sql_result_carries_duration_ms(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT 1 AS ok",
         reason="duration check",
         project_root=tmp_path,
@@ -466,7 +467,7 @@ def test_raw_sql_result_carries_duration_ms(tmp_path: Path) -> None:
 def test_raw_sql_to_pandas_preserves_column_order_and_values(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT id, amount FROM orders ORDER BY id",
         limit=2,
         reason="to_pandas check",
@@ -482,7 +483,7 @@ def test_raw_sql_to_pandas_preserves_column_order_and_values(tmp_path: Path) -> 
 def test_raw_sql_to_pandas_is_defensively_isolated(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
-        md.ref("datasource.warehouse"),
+        ms.Ref.datasource("warehouse"),
         "SELECT id FROM orders ORDER BY id",
         limit=1,
         reason="isolation check",
@@ -497,7 +498,7 @@ def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
     from marivo.datasource.manage import RawSqlResult
 
     result = RawSqlResult(
-        datasource=md.ref("datasource.wh"),
+        datasource=ms.Ref.datasource("wh"),
         backend_type="duckdb",
         sql="SELECT data FROM tbl",
         reason="recursive isolation",
@@ -521,7 +522,7 @@ def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     with pytest.raises(DatasourceRawSqlError) as exc_info:
         md.raw_sql(
-            md.ref("datasource.warehouse"),
+            ms.Ref.datasource("warehouse"),
             "INSERT INTO orders VALUES (3, 30.0)",
             reason="write attempt",
             timeout_seconds=10,
@@ -561,7 +562,7 @@ def test_raw_sql_error_timeout_setup_reports_no_execution(
 
     with pytest.raises(DatasourceRawSqlError) as exc_info:
         md.raw_sql(
-            md.ref("datasource.warehouse"),
+            ms.Ref.datasource("warehouse"),
             "SELECT 1",
             reason="no timeout",
             project_root=tmp_path,

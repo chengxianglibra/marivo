@@ -6,8 +6,9 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-``SemanticRef`` and ``CatalogObject`` are re-exported here for convenience and
-documented under :doc:`semantic`.
+Semantic identities are exact ``marivo.semantic.Ref`` values. Catalog entries
+are documented under :doc:`semantic`; analysis inputs accept refs rather than
+catalog entries or strings.
 
 Help and agent surface
 ----------------------

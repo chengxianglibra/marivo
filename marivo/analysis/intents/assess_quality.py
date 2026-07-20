@@ -10,6 +10,7 @@ from typing import Literal, cast
 
 import pandas as pd
 
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import QualityShapeUnsupportedError
 from marivo.analysis.evidence.identity import make_issue_id
 from marivo.analysis.evidence.pipeline import (
@@ -114,9 +115,8 @@ def assess_quality(
             step_type="assess_quality",
             inputs=CommitInputs(input_refs=[frame.meta.artifact_id or frame.ref]),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(values={"metric_id": frame.meta.metric_id}),
+            semantic_anchors=CommitSemanticAnchors.from_frame(frame),
             subject=Subject(
-                metric=frame.meta.metric_id,
                 grain=getattr(frame.meta, "grain", None),
                 analysis_axis="scalar",
             ),
@@ -131,6 +131,7 @@ def assess_quality(
             "id": job_ref,
             "session_id": session.id,
             "intent": "assess_quality",
+            **job_semantics_from_frames(frame),
             "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": [frame.ref],
@@ -141,7 +142,6 @@ def assess_quality(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog._project.semantic_root),
-            "semantic_model": frame.meta.semantic_model,
         },
     )
     return result

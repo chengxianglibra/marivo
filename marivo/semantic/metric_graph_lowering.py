@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
-from typing import NoReturn
+from typing import NoReturn, cast
 
+from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
+from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
     AggregateFoldInput,
     CumulativeComposition,
@@ -19,6 +21,7 @@ from marivo.semantic.ir import (
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CanonicalField,
+    CanonicalSliceEntryV1,
     CanonicalValue,
     CatalogBodyLeafV1,
     CatalogMetricIdentity,
@@ -74,6 +77,8 @@ def _fail(*, kind: str, metric_id: str, path: str, message: str) -> NoReturn:
 
 
 def _freeze(value: object) -> CanonicalValue:
+    if type(value) is RefPayloadV1:
+        return value
     if value is None or isinstance(value, str | bool | int):
         return value
     if isinstance(value, float):
@@ -95,6 +100,58 @@ def _fields(**values: object) -> tuple[CanonicalField, ...]:
     return tuple((name, _freeze(value)) for name, value in values.items())
 
 
+def _composition_value(composition: object) -> object:
+    if isinstance(composition, RatioComposition):
+        return (
+            ("kind", composition.kind),
+            ("numerator_ref", _ref_payload("metric", composition.numerator)),
+            ("denominator_ref", _ref_payload("metric", composition.denominator)),
+        )
+    if isinstance(composition, WeightedAverageComposition):
+        return (
+            ("kind", composition.kind),
+            ("value_ref", _ref_payload("metric", composition.value)),
+            ("weight_ref", _ref_payload("metric", composition.weight)),
+        )
+    if isinstance(composition, CumulativeComposition):
+        return (
+            ("kind", composition.kind),
+            ("base_ref", _ref_payload("metric", composition.base)),
+            (
+                "time_dimension_ref",
+                _ref_payload("time_dimension", composition.over)
+                if composition.over is not None
+                else None,
+            ),
+            ("anchor", composition.anchor),
+        )
+    if isinstance(composition, LinearComposition):
+        return (
+            ("kind", composition.kind),
+            (
+                "terms",
+                tuple(
+                    (
+                        ("sign", term.sign),
+                        ("metric_ref", _ref_payload("metric", term.metric)),
+                    )
+                    for term in composition.terms
+                ),
+            ),
+        )
+    return None
+
+
+def _additivity_value(additivity: object) -> object:
+    if isinstance(additivity, SemiAdditive):
+        return (
+            ("kind", "semi_additive"),
+            ("time_dimension_ref", _ref_payload("time_dimension", additivity.over)),
+            ("fold", additivity.fold),
+        )
+    return additivity
+
+
 def _time_fold_value(fold: TimeFoldIR | None) -> AggregateFoldInput:
     if fold is None:
         return None
@@ -105,27 +162,91 @@ def _time_fold_value(fold: TimeFoldIR | None) -> AggregateFoldInput:
     return fold.kind
 
 
+def _ref_payload(kind: str, path: str) -> RefPayloadV1:
+    factories = {
+        "domain": Ref.domain,
+        "datasource": Ref.datasource,
+        "entity": Ref.entity,
+        "dimension": Ref.dimension,
+        "time_dimension": Ref.time_dimension,
+        "measure": Ref.measure,
+        "metric": Ref.metric,
+        "relationship": Ref.relationship,
+    }
+    factory = factories.get(kind)
+    if factory is None:
+        raise AssertionError(f"unsupported dependency kind: {kind}")
+    ref = factory(path)
+    return RefPayloadV1.from_ref(ref)
+
+
+def _dimension_payload(
+    registry: Registry,
+    path: str,
+    *,
+    entity_path: str | None = None,
+) -> RefPayloadV1:
+    dimension = registry.dimensions.get(path)
+    if dimension is None and entity_path is not None and "." not in path:
+        path = f"{entity_path}.{path}"
+        dimension = registry.dimensions.get(path)
+    if dimension is None:
+        raise ValueError(f"slice dimension {path!r} is not loaded")
+    kind = "time_dimension" if dimension.is_time_dimension else "dimension"
+    return _ref_payload(kind, path)
+
+
 def _entry_for(
-    registry: Registry, semantic_kind: str, semantic_id: str
+    registry: Registry,
+    semantic_kind: str,
+    semantic_id: str,
+    *,
+    sidecar: CompiledExpressionSidecar | None,
 ) -> SemanticDependencyEntryV1:
+    ref_payload = _ref_payload(semantic_kind, semantic_id)
+    body = None
+    if sidecar is not None:
+        factory = {
+            SemanticKind.DOMAIN: Ref.domain,
+            SemanticKind.DATASOURCE: Ref.datasource,
+            SemanticKind.ENTITY: Ref.entity,
+            SemanticKind.DIMENSION: Ref.dimension,
+            SemanticKind.TIME_DIMENSION: Ref.time_dimension,
+            SemanticKind.MEASURE: Ref.measure,
+            SemanticKind.METRIC: Ref.metric,
+            SemanticKind.RELATIONSHIP: Ref.relationship,
+        }[ref_payload.kind]
+        body = sidecar.bodies.get(factory(ref_payload.path))
+    bindings = body.bindings if body is not None else ()
     if semantic_kind == "metric":
         metric = registry.metrics[semantic_id]
         return SemanticDependencyEntryV1(
-            semantic_kind="metric",
-            semantic_id=semantic_id,
+            ref=ref_payload,
             body_digest=metric.body_ast_hash,
+            bindings=bindings,
             fields=_fields(
-                domain=metric.domain,
+                domain_ref=_ref_payload("domain", metric.domain),
                 metric_type=metric.metric_type,
-                entities=metric.entities,
+                entity_refs=tuple(_ref_payload("entity", path) for path in metric.entities),
                 aggregation=metric.aggregation,
-                measure=metric.measure,
-                composition=metric.composition,
-                additivity=metric.additivity,
-                root_entity=metric.root_entity,
+                measure_ref=(
+                    _ref_payload("measure", metric.measure) if metric.measure is not None else None
+                ),
+                composition=_composition_value(metric.composition),
+                additivity=_additivity_value(metric.additivity),
+                root_entity_ref=(
+                    _ref_payload("entity", metric.root_entity)
+                    if metric.root_entity is not None
+                    else None
+                ),
                 fanout_policy=metric.fanout_policy,
-                aggregation_target=metric.aggregation_target,
                 aggregation_target_kind=metric.aggregation_target_kind,
+                aggregation_target_ref=(
+                    _ref_payload(metric.aggregation_target_kind, metric.aggregation_target)
+                    if metric.aggregation_target is not None
+                    and metric.aggregation_target_kind is not None
+                    else None
+                ),
                 fold_override=metric.fold_override,
                 filter=metric.filter,
                 unit_override=metric.unit_override,
@@ -134,23 +255,23 @@ def _entry_for(
     if semantic_kind == "measure":
         measure = registry.measures[semantic_id]
         return SemanticDependencyEntryV1(
-            semantic_kind="measure",
-            semantic_id=semantic_id,
+            ref=ref_payload,
             body_digest=measure.body_ast_hash,
+            bindings=bindings,
             fields=_fields(
-                entity=measure.entity,
-                additivity=measure.additivity,
+                entity_ref=_ref_payload("entity", measure.entity),
+                additivity=_additivity_value(measure.additivity),
                 unit=measure.unit,
             ),
         )
     if semantic_kind in {"dimension", "time_dimension"}:
         dimension = registry.dimensions[semantic_id]
         return SemanticDependencyEntryV1(
-            semantic_kind=semantic_kind,
-            semantic_id=semantic_id,
+            ref=ref_payload,
             body_digest=dimension.body_ast_hash,
+            bindings=bindings,
             fields=_fields(
-                entity=dimension.entity,
+                entity_ref=_ref_payload("entity", dimension.entity),
                 kind=dimension.kind,
                 granularity=dimension.granularity,
                 parse=dimension.parse,
@@ -160,11 +281,10 @@ def _entry_for(
     if semantic_kind == "entity":
         entity = registry.entities[semantic_id]
         return SemanticDependencyEntryV1(
-            semantic_kind="entity",
-            semantic_id=semantic_id,
+            ref=_ref_payload("entity", semantic_id),
             body_digest=None,
             fields=_fields(
-                datasource=entity.datasource,
+                datasource_ref=_ref_payload("datasource", entity.datasource),
                 source=entity.source.to_dict(),
                 primary_key=entity.primary_key,
                 versioning=entity.versioning,
@@ -173,8 +293,7 @@ def _entry_for(
     if semantic_kind == "datasource":
         datasource = registry.datasources[semantic_id]
         return SemanticDependencyEntryV1(
-            semantic_kind="datasource",
-            semantic_id=semantic_id,
+            ref=_ref_payload("datasource", semantic_id),
             body_digest=None,
             fields=_fields(
                 backend_type=datasource.backend_type,
@@ -185,12 +304,11 @@ def _entry_for(
     if semantic_kind == "relationship":
         relationship = registry.relationships[semantic_id]
         return SemanticDependencyEntryV1(
-            semantic_kind="relationship",
-            semantic_id=semantic_id,
+            ref=_ref_payload("relationship", semantic_id),
             body_digest=None,
             fields=_fields(
-                from_entity=relationship.from_entity,
-                to_entity=relationship.to_entity,
+                from_entity_ref=_ref_payload("entity", relationship.from_entity),
+                to_entity_ref=_ref_payload("entity", relationship.to_entity),
                 keys=relationship.keys,
             ),
         )
@@ -198,13 +316,25 @@ def _entry_for(
 
 
 class _DependencyCollector:
-    def __init__(self, registry: Registry) -> None:
+    def __init__(
+        self, registry: Registry, sidecar: CompiledExpressionSidecar | None = None
+    ) -> None:
         self.registry = registry
+        self.sidecar = sidecar
         self._keys: set[tuple[str, str]] = set()
         self._active_metrics: set[str] = set()
 
     def _add(self, kind: str, semantic_id: str) -> None:
         self._keys.add((kind, semantic_id))
+
+    def _collect_expression_bindings(self, ref: Ref[SemanticKindTag]) -> None:
+        if self.sidecar is None:
+            return
+        body = self.sidecar.bodies.get(ref)
+        if body is None:
+            return
+        for binding in body.bindings:
+            self.collect_ref(cast("Ref[SemanticKindTag]", binding.to_ref()))
 
     def collect_metric(self, metric_id: str) -> None:
         metric = self.registry.metrics.get(metric_id)
@@ -242,24 +372,36 @@ class _DependencyCollector:
             self.collect_metric(composition.base)
             if composition.over is not None:
                 self.collect_dimension(composition.over)
+        self._collect_expression_bindings(cast("Ref[SemanticKindTag]", Ref.metric(metric_id)))
         self._active_metrics.remove(metric_id)
 
     def collect_measure(self, measure_id: str) -> None:
         measure = self.registry.measures.get(measure_id)
         if measure is None:
             raise KeyError(measure_id)
+        if ("measure", measure_id) in self._keys:
+            return
         self._add("measure", measure_id)
         self.collect_entity(measure.entity)
         if isinstance(measure.additivity, SemiAdditive):
             self.collect_dimension(measure.additivity.over)
+        self._collect_expression_bindings(cast("Ref[SemanticKindTag]", Ref.measure(measure_id)))
 
     def collect_dimension(self, dimension_id: str) -> None:
         dimension = self.registry.dimensions.get(dimension_id)
         if dimension is None:
             raise KeyError(dimension_id)
         kind = "time_dimension" if dimension.is_time_dimension else "dimension"
+        if (kind, dimension_id) in self._keys:
+            return
         self._add(kind, dimension_id)
         self.collect_entity(dimension.entity)
+        field_ref = (
+            Ref.time_dimension(dimension_id)
+            if dimension.is_time_dimension
+            else Ref.dimension(dimension_id)
+        )
+        self._collect_expression_bindings(cast("Ref[SemanticKindTag]", field_ref))
 
     def collect_entity(self, entity_id: str) -> None:
         entity = self.registry.entities.get(entity_id)
@@ -276,43 +418,96 @@ class _DependencyCollector:
             if isinstance(dimension_id, str) and dimension_id in self.registry.dimensions:
                 self.collect_dimension(dimension_id)
 
+    def collect_ref(self, ref: Ref[SemanticKindTag]) -> None:
+        """Collect one exact semantic target and its executable dependency closure."""
+        if type(ref) is not Ref:
+            raise TypeError("semantic dependency targets must be exact Ref values")
+        if ref.kind is SemanticKind.METRIC:
+            self.collect_metric(ref.path)
+            return
+        if ref.kind is SemanticKind.MEASURE:
+            self.collect_measure(ref.path)
+            return
+        if ref.kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+            self.collect_dimension(ref.path)
+            return
+        if ref.kind is SemanticKind.ENTITY:
+            self.collect_entity(ref.path)
+            return
+        if ref.kind is SemanticKind.RELATIONSHIP:
+            relationship = self.registry.relationships.get(ref.path)
+            if relationship is None:
+                raise KeyError(ref.path)
+            self._add("relationship", ref.path)
+            self.collect_entity(relationship.from_entity)
+            self.collect_entity(relationship.to_entity)
+            for key in relationship.keys:
+                for dimension_id in key.to_tuple():
+                    self.collect_dimension(dimension_id)
+            return
+        if ref.kind is SemanticKind.DATASOURCE:
+            if ref.path not in self.registry.datasources:
+                raise KeyError(ref.path)
+            self._add("datasource", ref.path)
+            return
+        if ref.kind is SemanticKind.DOMAIN:
+            if ref.path not in self.registry.domains:
+                raise KeyError(ref.path)
+            self._add("domain", ref.path)
+            return
+        raise AssertionError(f"unsupported semantic dependency target: {ref.kind}")
+
     def entries(self) -> tuple[SemanticDependencyEntryV1, ...]:
         entity_ids = {semantic_id for kind, semantic_id in self._keys if kind == "entity"}
         for relationship in self.registry.relationships.values():
             if relationship.from_entity in entity_ids and relationship.to_entity in entity_ids:
                 self._add("relationship", relationship.semantic_id)
         return tuple(
-            _entry_for(self.registry, kind, semantic_id) for kind, semantic_id in sorted(self._keys)
+            _entry_for(
+                self.registry,
+                kind,
+                semantic_id,
+                sidecar=self.sidecar,
+            )
+            for kind, semantic_id in sorted(self._keys)
         )
 
 
 def dependency_digest(
     registry: Registry,
     *,
+    sidecar: CompiledExpressionSidecar | None = None,
     metric_ids: Iterable[str] = (),
     measure_ids: Iterable[str] = (),
     dimension_ids: Iterable[str] = (),
+    semantic_refs: Iterable[Ref[SemanticKindTag]] = (),
 ) -> SemanticDependencyDigestV1:
     """Build one canonical dependency digest for resolved semantic targets."""
-    collector = _DependencyCollector(registry)
+    collector = _DependencyCollector(registry, sidecar)
     for metric_id in metric_ids:
         collector.collect_metric(metric_id)
     for measure_id in measure_ids:
         collector.collect_measure(measure_id)
     for dimension_id in dimension_ids:
         collector.collect_dimension(dimension_id)
+    for ref in semantic_refs:
+        collector.collect_ref(ref)
     entries = collector.entries()
     return SemanticDependencyDigestV1(
-        schema="semantic-dependency/v1",
+        schema="marivo.semantic_dependency_digest/v1",
         entries=entries,
-        fingerprint=fingerprint(entries),
+        digest=f"sha256:{fingerprint(entries)}",
     )
 
 
 def _dependency_fingerprint(
-    registry: Registry, *, metric_id: str | None = None, target: tuple[str, str] | None = None
+    registry: Registry,
+    *,
+    sidecar: CompiledExpressionSidecar | None = None,
+    metric_id: str | None = None,
+    target: tuple[str, str] | None = None,
 ) -> str:
-    collector = _DependencyCollector(registry)
+    collector = _DependencyCollector(registry, sidecar)
     if metric_id is not None:
         collector.collect_metric(metric_id)
     if target is not None:
@@ -328,14 +523,27 @@ def _dependency_fingerprint(
     return fingerprint(collector.entries())
 
 
-def dependency_fingerprint_for_target(registry: Registry, *, kind: str, semantic_id: str) -> str:
+def dependency_fingerprint_for_target(
+    registry: Registry,
+    *,
+    kind: str,
+    semantic_id: str,
+    sidecar: CompiledExpressionSidecar | None = None,
+) -> str:
     """Return the dependency fingerprint for one measure/entity/dimension target."""
-    return _dependency_fingerprint(registry, target=(kind, semantic_id))
+    return _dependency_fingerprint(
+        registry,
+        sidecar=sidecar,
+        target=(kind, semantic_id),
+    )
 
 
 class _CatalogGraphBuilder:
-    def __init__(self, registry: Registry) -> None:
+    def __init__(
+        self, registry: Registry, sidecar: CompiledExpressionSidecar | None = None
+    ) -> None:
         self.registry = registry
+        self.sidecar = sidecar
         self.nodes: dict[str, MetricGraphNodeV1] = {}
 
     def _intern(self, node: MetricGraphNodeV1) -> str:
@@ -373,9 +581,9 @@ class _CatalogGraphBuilder:
             if metric.aggregation is None:
                 node = CatalogBodyLeafV1(
                     kind="catalog_body_leaf",
-                    metric_id=metric_id,
+                    metric_ref=RefPayloadV1.from_ref(Ref.metric(metric_id)),
                     dependency_fingerprint=_dependency_fingerprint(
-                        self.registry, metric_id=metric_id
+                        self.registry, sidecar=self.sidecar, metric_id=metric_id
                     ),
                     unit_override=metric.unit_override,
                 )
@@ -393,15 +601,29 @@ class _CatalogGraphBuilder:
                     )
                 node = AggregateNodeV1(
                     kind="aggregate",
-                    target_id=target_id,
-                    target_kind=target_kind,
+                    target_ref=_ref_payload(target_kind, target_id),
                     dependency_fingerprint=_dependency_fingerprint(
                         self.registry,
+                        sidecar=self.sidecar,
                         target=(target_kind, target_id),
                     ),
                     agg=metric.aggregation,
                     fold=_time_fold_value(metric.fold_override),
-                    filter=tuple(metric.filter or ()),
+                    filter=tuple(
+                        CanonicalSliceEntryV1(
+                            dimension_ref=_dimension_payload(
+                                self.registry,
+                                dimension_id,
+                                entity_path=(
+                                    self.registry.measures[target_id].entity
+                                    if target_kind == "measure"
+                                    else target_id
+                                ),
+                            ),
+                            value=_freeze(value),
+                        )
+                        for dimension_id, value in (metric.filter or ())
+                    ),
                     unit_override=metric.unit_override,
                 )
             node_id = self._intern(node)
@@ -492,6 +714,7 @@ class _CatalogGraphBuilder:
             dimension_fingerprint = (
                 _dependency_fingerprint(
                     self.registry,
+                    sidecar=self.sidecar,
                     target=("time_dimension", composition.over),
                 )
                 if composition.over is not None
@@ -500,7 +723,11 @@ class _CatalogGraphBuilder:
             node = CumulativeNodeV1(
                 kind="cumulative",
                 child_id=base_id,
-                over=composition.over,
+                time_dimension_ref=(
+                    _dimension_payload(self.registry, composition.over)
+                    if composition.over is not None
+                    else None
+                ),
                 anchor=composition.anchor,
                 dependency_fingerprint=dimension_fingerprint,
                 unit_override=metric.unit_override,
@@ -529,12 +756,14 @@ class _CatalogGraphBuilder:
 def lower_catalog_metrics(
     registry: Registry,
     metric_ids: Iterable[str],
+    *,
+    sidecar: CompiledExpressionSidecar | None = None,
 ) -> MetricExpressionForestV1:
     """Lower one ordered, non-empty catalog metric forest and enforce v1 budgets."""
     roots = tuple(metric_ids)
     if not roots:
         raise ValueError("catalog metric lowering requires at least one root")
-    builder = _CatalogGraphBuilder(registry)
+    builder = _CatalogGraphBuilder(registry, sidecar)
     root_ids: list[str] = []
     occurrences: list[ExpressionOccurrenceV1] = []
     for index, metric_id in enumerate(roots):
@@ -557,17 +786,26 @@ def lower_catalog_metrics(
     )
     return MetricExpressionForestV1(
         graph=canonicalized.graph,
-        dependency_digest=dependency_digest(registry, metric_ids=roots),
+        dependency_digest=dependency_digest(registry, sidecar=sidecar, metric_ids=roots),
         identities=tuple(
-            CatalogMetricIdentity(kind="catalog", metric_id=metric_id) for metric_id in roots
+            CatalogMetricIdentity(
+                kind="catalog",
+                metric_ref=RefPayloadV1.from_ref(Ref.metric(metric_id)),
+            )
+            for metric_id in roots
         ),
         presentation=canonicalized.presentation,
     )
 
 
-def lower_catalog_metric(registry: Registry, metric_id: str) -> MetricExpressionForestV1:
+def lower_catalog_metric(
+    registry: Registry,
+    metric_id: str,
+    *,
+    sidecar: CompiledExpressionSidecar | None = None,
+) -> MetricExpressionForestV1:
     """Lower one catalog metric root through the shared forest implementation."""
-    return lower_catalog_metrics(registry, (metric_id,))
+    return lower_catalog_metrics(registry, (metric_id,), sidecar=sidecar)
 
 
 __all__ = [

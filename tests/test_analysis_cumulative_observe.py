@@ -14,7 +14,7 @@ from marivo.analysis.intents.attribute import attribute
 from marivo.analysis.intents.compare import compare
 from marivo.analysis.intents.observe import observe
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 
 def _metric_pandas(frame):
@@ -47,7 +47,7 @@ def _bootstrap_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=events, column='event_time', granularity='day')\n"
@@ -125,7 +125,7 @@ def test_cumulative_time_series_carries_forward_and_uses_all_history_baseline(
     assert frame.lineage.steps[-1].params["metric_semantics"] == {
         "additivity": "non_additive",
         "aggregation": None,
-        "status_time_dimension": None,
+        "status_time_dimension_ref": None,
     }
     assert frame.lineage.steps[-1].params["cumulative_contract_version"] == 2
     legacy_params = dict(frame.lineage.steps[-1].params)
@@ -174,7 +174,7 @@ def test_cumulative_panel_counts_once_per_slice(tmp_path, monkeypatch) -> None:
         make_ref("sales.cum_active_users", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-06"},
         grain="day",
-        dimensions=[make_ref("region", SemanticKind.DIMENSION)],
+        dimensions=[make_ref("sales.events.region", SemanticKind.DIMENSION)],
         session=session,
     )
 
@@ -230,7 +230,7 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
     scalar_frame = observe(
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-06"},
-        slice_by={make_ref("region", SemanticKind.DIMENSION): "US"},
+        slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
     assert scalar_frame.meta.semantic_kind == "scalar"
@@ -244,7 +244,7 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
         make_ref("sales.cum_gmv", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-06"},
         grain="day",
-        slice_by={make_ref("region", SemanticKind.DIMENSION): "US"},
+        slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
     by_day = {
@@ -270,7 +270,7 @@ def test_cumulative_where_filter_applied_to_all_paths(tmp_path, monkeypatch) -> 
         make_ref("sales.cum_active_users", SemanticKind.METRIC),
         time_scope={"start": "2026-07-01", "end": "2026-07-06"},
         grain="day",
-        slice_by={make_ref("region", SemanticKind.DIMENSION): "US"},
+        slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
     cd_by_day = {
@@ -311,7 +311,7 @@ def _bootstrap_hourly_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=events, column='event_time', granularity='hour')\n"
@@ -462,7 +462,7 @@ def _bootstrap_day_project(tmp_path) -> None:
     (semantic_dir / "metrics.py").write_text(
         "import marivo.datasource as md\n"
         "import marivo.semantic as ms\n"
-        "warehouse = md.ref('datasource.warehouse')\n"
+        "warehouse = ms.Ref.datasource('warehouse')\n"
         "events = ms.entity(name='events', datasource=warehouse, source=md.table('events'))\n"
         "event_time = ms.time_dimension_column("
         "name='event_time', entity=events, column='event_time', granularity='hour')\n"
@@ -1063,7 +1063,7 @@ def test_grain_to_date_count_distinct_filters_before_dedup(day_project, duckdb_s
         metric_ref,
         time_scope={"start": "2026-01-01", "end": "2026-02-01"},
         grain="day",
-        slice_by={make_ref("region", SemanticKind.DIMENSION): "US"},
+        slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
     us_df = _metric_pandas(us_frame)
@@ -1337,7 +1337,7 @@ def test_trailing_distinct_expansion_join_correctness(day_project, duckdb_sessio
         metric_ref,
         time_scope={"start": "2026-01-01", "end": "2026-02-01"},
         grain="day",
-        slice_by={make_ref("region", SemanticKind.DIMENSION): "US"},
+        slice_by={make_ref("sales.events.region", SemanticKind.DIMENSION): "US"},
         session=session,
     )
     df = _metric_pandas(cum)

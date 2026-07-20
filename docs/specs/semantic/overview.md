@@ -74,7 +74,7 @@ dependency:
 
 ```text
 marivo.datasource   connection + physical source + evidence
-        ↓ DatasourceRef + TableSource + DiscoverySnapshot
+        ↓ Ref[datasource] + TableSource + DiscoverySnapshot
 marivo.semantic     domain / entity / dimension / metric / relationship
         ↓ Ibis materialization + typed semantic refs
 marivo.analysis     observe / compare / attribute / correlate / ...

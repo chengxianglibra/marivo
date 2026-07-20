@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from marivo.datasource.authoring import (
     ClickHouseSpec,
-    DatasourceRef,
     DatasourceSpec,
     DuckDBSpec,
     MySQLSpec,
@@ -14,7 +13,6 @@ from marivo.datasource.authoring import (
     duckdb,
     mysql,
     postgres,
-    ref,
     trino,
 )
 from marivo.datasource.catalog import DatasourceCatalog, load
@@ -60,7 +58,6 @@ __all__ = [
     "DatasourceConnection",
     "DatasourceDescription",
     "DatasourceList",
-    "DatasourceRef",
     "DatasourceSpec",
     "DatasourceSummary",
     "DatasourceTestResult",
@@ -93,7 +90,6 @@ __all__ = [
     "partition",
     "postgres",
     "raw_sql",
-    "ref",
     "register",
     "remove",
     "table",

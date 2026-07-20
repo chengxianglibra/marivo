@@ -35,7 +35,7 @@ from marivo.introspection.live.model import SURFACE_LIMITS, EnvironmentFingerpri
 from marivo.introspection.live.reflect import import_registered_callable
 from marivo.introspection.live.render import render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
-from marivo.refs import SymbolKind
+from marivo.refs import SemanticKind
 
 if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
@@ -45,21 +45,17 @@ if TYPE_CHECKING:
 # page states the import so examples run from a cold start (see issue #22).
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
 
-# Focused help pages whose examples pass a typed ref id to ``catalog.get(...)``.
-# They document the ``<kind>.<semantic_id>`` shape so agents need not reverse
-# engineer the semantic model to build a valid id (see issue #24).
-_REF_ID_FORMAT_TARGETS: frozenset[str] = frozenset({"observe", "catalog.get"})
+# Focused help pages that teach exact ``ms.Ref.<kind>(path)`` construction.
+_REF_ID_FORMAT_TARGETS: frozenset[str] = frozenset({"observe", "catalog.require"})
 
-# Kind -> semantic_id structure, matching the ref subclasses in
-# ``marivo.semantic.refs`` (e.g. MetricRef("sales.revenue"),
-# DimensionRef("sales.orders.country")). The kind names come from SymbolKind.
-_REF_ID_FORMATS: tuple[tuple[SymbolKind, str], ...] = (
-    (SymbolKind.METRIC, '"metric.<domain>.<metric_name>"'),
-    (SymbolKind.DIMENSION, '"dimension.<domain>.<entity>.<dimension_name>"'),
-    (SymbolKind.TIME_DIMENSION, '"time_dimension.<domain>.<entity>.<dimension_name>"'),
-    (SymbolKind.MEASURE, '"measure.<domain>.<entity>.<measure_name>"'),
-    (SymbolKind.ENTITY, '"entity.<domain>.<entity_name>"'),
-    (SymbolKind.DOMAIN, '"domain.<domain_name>"'),
+# Kind -> semantic path structure for the sole sealed ``ms.Ref`` type.
+_REF_ID_FORMATS: tuple[tuple[SemanticKind, str], ...] = (
+    (SemanticKind.METRIC, 'ms.Ref.metric("<domain>.<metric_name>")'),
+    (SemanticKind.DIMENSION, 'ms.Ref.dimension("<domain>.<entity>.<dimension_name>")'),
+    (SemanticKind.TIME_DIMENSION, 'ms.Ref.time_dimension("<domain>.<entity>.<dimension_name>")'),
+    (SemanticKind.MEASURE, 'ms.Ref.measure("<domain>.<entity>.<measure_name>")'),
+    (SemanticKind.ENTITY, 'ms.Ref.entity("<domain>.<entity_name>")'),
+    (SemanticKind.DOMAIN, 'ms.Ref.domain("<domain_name>")'),
 )
 
 
@@ -69,7 +65,7 @@ def _ref_id_format_lines() -> list[str]:
     return [
         "",
         "  Ref ID format:",
-        '    catalog.get(id) accepts "<kind>.<semantic_id>". Common kinds:',
+        "    catalog.require(ref) accepts one exact Ref. Common factories:",
         *rows,
     ]
 
@@ -585,7 +581,7 @@ def _render_descriptor_help(desc: CapabilityDescriptor) -> str:
             for cl in cleaned_lines:
                 lines.append(cl)
 
-    # Ref id format (only for pages whose examples rely on catalog.get("<kind>.<id>"))
+    # Exact Ref path format for the focused semantic-input pages.
     if desc.help_target in _REF_ID_FORMAT_TARGETS:
         lines.extend(_ref_id_format_lines())
 
@@ -877,16 +873,16 @@ def _render_reference_briefing(
     project: SemanticProject | None,
 ) -> str:
     """Render bounded semantic object briefing."""
-    from marivo.refs import SemanticRef
-    from marivo.semantic.catalog import CatalogObject, SemanticKind
+    from marivo.refs import Ref
+    from marivo.semantic.catalog import CatalogEntry
 
-    # CatalogObject wraps a SemanticRef; unwrap it so the renderer
+    # CatalogEntry wraps a Ref; unwrap it so the renderer
     # works with the untyped id that IR lookups expect.
-    if isinstance(ref, CatalogObject):
+    if isinstance(ref, CatalogEntry):
         ref = ref.ref
 
-    if not isinstance(ref, SemanticRef):
-        raise RuntimeError(f"expected SemanticRef, got {type(ref).__name__}")
+    if type(ref) is not Ref:
+        raise RuntimeError(f"expected exact Ref, got {type(ref).__name__}")
 
     # Resolve project if not provided.
     resolved_project = project
@@ -906,7 +902,7 @@ def _render_reference_briefing(
         _raise(
             ErrorKind.INVALID_REF,
             (
-                f"Cannot resolve project for mv.help({ref.id!r}). "
+                f"Cannot resolve project for mv.help({ref.path!r}). "
                 "No loaded semantic project found. "
                 "Pass project=project explicitly: mv.help(ref, project=project)."
             ),
@@ -919,7 +915,7 @@ def _render_reference_briefing(
 
         _raise(
             ErrorKind.INVALID_REF,
-            f"Call ms.load() to load the semantic project before mv.help({ref.id!r}).",
+            f"Call ms.load() to load the semantic project before mv.help({ref.path!r}).",
             cls=SemanticRuntimeError,
         )
 
@@ -930,15 +926,15 @@ def _render_reference_briefing(
     if hasattr(ref, "kind"):
         ref_kind = ref.kind
         if ref_kind == SemanticKind.METRIC:
-            ir = reg.metrics.get(ref.id)
+            ir = reg.metrics.get(ref.path)
         elif ref_kind == SemanticKind.ENTITY:
-            ir = reg.entities.get(ref.id)
+            ir = reg.entities.get(ref.path)
         elif ref_kind in (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION):
-            ir = reg.dimensions.get(ref.id)
+            ir = reg.dimensions.get(ref.path)
         elif ref_kind == SemanticKind.MEASURE:
-            ir = reg.measures.get(ref.id)
+            ir = reg.measures.get(ref.path)
         elif ref_kind == SemanticKind.RELATIONSHIP:
-            ir = reg.relationships.get(ref.id)
+            ir = reg.relationships.get(ref.path)
 
     if ir is None:
         from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
@@ -946,14 +942,14 @@ def _render_reference_briefing(
         _raise(
             ErrorKind.INVALID_REF,
             (
-                f"{kind_str} {ref.id!r} not found in loaded project. "
-                "Call catalog.metrics.ids() to see available ids."
+                f"{kind_str} {ref.path!r} not found in loaded project. "
+                "Call catalog.metrics.show() to browse available refs."
             ),
             cls=SemanticRuntimeError,
         )
 
     # Build the briefing lines.
-    lines: list[str] = [f"{kind_str}: {ref.id}"]
+    lines: list[str] = [f"{kind_str}: {ref.path}"]
 
     unit = getattr(ir, "unit", None)
     if unit:
@@ -974,8 +970,8 @@ def _render_reference_briefing(
 
     lines.append("")
     lines.append(
-        f"use: catalog.metrics.ids() to enumerate; "
-        f"pass catalog.get('{kind_str}.{ref.id}') to session.observe(...)"
+        "use: catalog.metrics.show() to enumerate; "
+        "pass catalog.metrics.get('<local_name>').ref to session.observe(...)"
     )
 
     text = "\n".join(lines)

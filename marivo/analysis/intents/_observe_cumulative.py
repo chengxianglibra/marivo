@@ -43,6 +43,7 @@ from marivo.analysis.intents._observe_planner_types import CumulativePhysicalLea
 from marivo.analysis.session.core import Session
 from marivo.analysis.windows.grain import _TRUNCATE_CODE, Grain, ensure_grain_supported
 from marivo.analysis.windows.spec import AbsoluteWindow
+from marivo.refs import Ref
 from marivo.semantic.catalog import SemanticKind
 
 
@@ -65,7 +66,7 @@ def _count_distinct_key_expr(resolver: Any, metric_ir: Any, table: Any) -> Any:
             message="cumulative count_distinct requires a measure-backed base metric",
             context={"metric": getattr(metric_ir, "semantic_id", None)},
         )
-    return resolver.measure_on(measure_ref, table)
+    return resolver.measure_on(Ref.measure(measure_ref), table)
 
 
 def _apply_where_to_raw_table(
@@ -340,9 +341,14 @@ def _execute_trailing_distinct(
             "column": "bucket_start",
             "grain": resolved_window.grain.to_token(),
             "time_dimension": time_dimension_ir.name,
+            "ref": time_dimension_ir.semantic_id,
         },
         **{
-            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            field_ir.name: {
+                "role": "dimension",
+                "column": field_ir.name,
+                "ref": field_ir.semantic_id,
+            }
             for _, field_ir in resolved_dimensions
         },
     }
@@ -555,9 +561,14 @@ def _execute_trailing_additive(
             "column": "bucket_start",
             "grain": resolved_window.grain.to_token(),
             "time_dimension": time_dimension_ir.name,
+            "ref": time_dimension_ir.semantic_id,
         },
         **{
-            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            field_ir.name: {
+                "role": "dimension",
+                "column": field_ir.name,
+                "ref": field_ir.semantic_id,
+            }
             for _, field_ir in resolved_dimensions
         },
     }
@@ -707,7 +718,11 @@ def _execute_cumulative(
                 session_id=session.id,
             )
             axes = {
-                field_ir.name: {"role": "dimension", "column": field_ir.name}
+                field_ir.name: {
+                    "role": "dimension",
+                    "column": field_ir.name,
+                    "ref": field_ir.semantic_id,
+                }
                 for _, field_ir in resolved_dimensions
             }
             semantic_kind = "segmented"
@@ -1116,9 +1131,14 @@ def _execute_cumulative(
             "column": "bucket_start",
             "grain": resolved_window.grain.to_token(),
             "time_dimension": time_dimension_ir.name,
+            "ref": time_dimension_ir.semantic_id,
         },
         **{
-            field_ir.name: {"role": "dimension", "column": field_ir.name}
+            field_ir.name: {
+                "role": "dimension",
+                "column": field_ir.name,
+                "ref": field_ir.semantic_id,
+            }
             for _, field_ir in resolved_dimensions
         },
     }

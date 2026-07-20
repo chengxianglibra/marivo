@@ -29,7 +29,7 @@ from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.session.core import Session
 from marivo.introspection.live.model import SURFACE_LIMITS
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -330,23 +330,21 @@ def test_observe_example_documents_multi_dimension_slice_by_usage() -> None:
     """The observe example must show filtering by a dimension combination."""
     text = _text("observe")
     example_section = text[text.index("Example:") :]
-    assert 'channel = catalog.get("dimension.sales.orders.channel").ref' in example_section
+    assert (
+        'channel = catalog.require(ms.Ref.dimension("sales.orders.channel")).ref' in example_section
+    )
     assert 'slice_by={country: "US", channel: "online"}' in example_section
 
 
-def test_observe_and_catalog_get_document_ref_id_format() -> None:
-    """``observe`` and ``catalog.get`` examples use ``catalog.get("<kind>.<id>")``
-    but must also state the ref/ID format rules so agents do not have to reverse
-    engineer the semantic model. See issue #24.
-    """
-    for target in ("observe", "catalog.get"):
+def test_observe_and_catalog_require_document_ref_factory_format() -> None:
+    """Observe and catalog.require teach exact Ref factories."""
+    for target in ("observe", "catalog.require"):
         text = _text(target)
         assert "Ref ID format" in text, f"{target} missing ref id format section"
-        # The accepted shape and the common kinds an agent authors against.
-        assert '"<kind>.<semantic_id>"' in text
-        assert "metric.<domain>.<metric_name>" in text
-        assert "dimension.<domain>.<entity>.<dimension_name>" in text
-        assert "measure.<domain>.<entity>.<measure_name>" in text
+        assert 'ms.Ref.metric("<domain>.<metric_name>")' in text
+        assert 'ms.Ref.dimension("<domain>.<entity>.<dimension_name>")' in text
+        assert 'ms.Ref.time_dimension("<domain>.<entity>.<dimension_name>")' in text
+        assert 'ms.Ref.measure("<domain>.<entity>.<measure_name>")' in text
 
 
 def test_focused_help_includes_invocation_critical_constraints() -> None:
@@ -416,10 +414,10 @@ def test_catalog_collection_help_labels_properties_and_show_path() -> None:
 
     assert (
         "session.catalog.dimensions  "
-        "(property -> CatalogCollection[Dimension, DimensionRef]; inspect with .show())"
+        "(property -> CatalogCollection[DimensionKind]; inspect with .show())"
     ) in group
     assert "Property: session.catalog.dimensions" in focused
-    assert "Returns: CatalogCollection[Dimension, DimensionRef]" in focused
+    assert "Returns: CatalogCollection[DimensionKind]" in focused
     assert "Inspect: session.catalog.dimensions.show()" in focused
     assert "Entrypoint: session.catalog.dimensions" not in focused
 
@@ -552,7 +550,7 @@ def test_semantic_ref_help_with_project(semantic_project_factory, capsys) -> Non
             "sales/datasets.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = md.ref('datasource.warehouse')\n"
+                "warehouse = ms.Ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, "
                 "source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', "
@@ -585,7 +583,7 @@ def test_catalog_object_help_renders_briefing(semantic_project_factory, capsys) 
             "sales/datasets.py": (
                 "import marivo.datasource as md\n"
                 "import marivo.semantic as ms\n"
-                "warehouse = md.ref('datasource.warehouse')\n"
+                "warehouse = ms.Ref.datasource('warehouse')\n"
                 "orders = ms.entity(name='orders', datasource=warehouse, "
                 "source=md.table('orders'))\n"
                 "@ms.metric(entities=[orders], additivity='additive', name='revenue', "
@@ -599,7 +597,7 @@ def test_catalog_object_help_renders_briefing(semantic_project_factory, capsys) 
         }
     )
     catalog = SemanticCatalog(project)
-    revenue_obj = catalog.get("metric.sales.revenue")
+    revenue_obj = catalog.require(make_ref("sales.revenue", SemanticKind.METRIC))
     assert revenue_obj is not None
     mv.help(revenue_obj, project=project)
     out = capsys.readouterr().out

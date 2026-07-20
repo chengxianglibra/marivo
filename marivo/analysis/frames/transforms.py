@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from marivo.analysis._semantic_types import AnalysisDimensionRef
 from marivo.analysis.frames.delta import DeltaFrame
 from marivo.analysis.frames.metric import MetricFrame
 from marivo.analysis.intents.transform import NormalizeBaseline, NormalizeKind, RankMethod
@@ -15,6 +14,7 @@ from marivo.analysis.session._runtime import require_current_session
 from marivo.analysis.session.core import _track_session_operation
 from marivo.analysis.slice_types import SliceValue
 from marivo.analysis.windows import TimeScopeInput
+from marivo.refs import FieldKind, Ref
 
 
 @dataclass(frozen=True)
@@ -64,7 +64,7 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
     def slice(
         self,
         *,
-        slice_by: Mapping[AnalysisDimensionRef, SliceValue],
+        slice_by: Mapping[Ref[FieldKind], SliceValue],
         analysis_purpose: str | None = None,
     ) -> TFrame:
         """Filter rows by catalog-backed axis values.
@@ -105,7 +105,7 @@ class _FrameTransforms[TFrame: (MetricFrame, DeltaFrame)]:
     def rollup(
         self,
         *,
-        drop_axes: list[AnalysisDimensionRef] | None = None,
+        drop_axes: list[Ref[FieldKind]] | None = None,
         grain: str | None = None,
         analysis_purpose: str | None = None,
     ) -> TFrame:

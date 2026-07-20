@@ -14,8 +14,9 @@ from typing import Any, Literal
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.refs import SemanticRef
-from marivo.semantic.catalog import CatalogObject, DerivedMetricDetails
+from marivo.refs import Ref, SemanticKind, SemanticKindTag
+from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.dtos import (
     AssessmentIssue,
     AuthoringObjectKind,
@@ -28,9 +29,6 @@ from marivo.semantic.errors import (
     SemanticRuntimeError,
     StructuredWarning,
     _raise,
-)
-from marivo.semantic.ir import (
-    SymbolKind,
 )
 from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import EntityRuntimeMetadata
@@ -45,7 +43,7 @@ from marivo.semantic.richness import (
     RichnessReport,
     build_richness_report,
 )
-from marivo.semantic.validator import Registry, Sidecar
+from marivo.semantic.validator import Registry
 
 __all__ = [
     "ReadinessInputSummary",
@@ -85,7 +83,7 @@ class _DepNode:
     """Lightweight internal node for dependency traversal."""
 
     semantic_id: str
-    kind: SymbolKind
+    kind: SemanticKind
     children: tuple[_DepNode, ...]
 
 
@@ -135,45 +133,39 @@ def _suggest_ref_level(registry: Registry, ref: str) -> str | None:
     return None
 
 
-_AUTHORING_KIND_BY_SYMBOL: dict[SymbolKind, AuthoringObjectKind] = {
-    SymbolKind.DOMAIN: "domain",
-    SymbolKind.ENTITY: "entity",
-    SymbolKind.DIMENSION: "dimension",
-    SymbolKind.TIME_DIMENSION: "time_dimension",
-    SymbolKind.MEASURE: "measure",
-    SymbolKind.METRIC: "metric",
-    SymbolKind.RELATIONSHIP: "relationship",
+_AUTHORING_KIND_BY_SYMBOL: dict[SemanticKind, AuthoringObjectKind] = {
+    SemanticKind.DOMAIN: "domain",
+    SemanticKind.DATASOURCE: "datasource",
+    SemanticKind.ENTITY: "entity",
+    SemanticKind.DIMENSION: "dimension",
+    SemanticKind.TIME_DIMENSION: "time_dimension",
+    SemanticKind.MEASURE: "measure",
+    SemanticKind.METRIC: "metric",
+    SemanticKind.RELATIONSHIP: "relationship",
 }
 
 
 def _verification_input(
-    value: CatalogObject[SemanticRef] | SemanticRef,
-) -> tuple[SemanticRef, AuthoringObjectKind]:
+    value: Ref[SemanticKindTag],
+) -> tuple[Ref[SemanticKindTag], AuthoringObjectKind]:
     """Return the typed ref and requested kind before project reload."""
-    if isinstance(value, CatalogObject):
-        semantic_ref = value.ref
-        if isinstance(value.details(), DerivedMetricDetails):
-            return semantic_ref, "derived_metric"
-    elif isinstance(value, SemanticRef):
-        semantic_ref = value
-    else:
+    if type(value) is not Ref:
         _raise(
             ErrorKind.INVALID_REF,
-            "SemanticProject.verify_object(ref=...) requires a CatalogObject or "
-            "SemanticRef from an authoring call, ms.ref('<kind>.<semantic_id>'), "
-            "or catalog.get('<kind>.<semantic_id>').",
+            "catalog.verify(ref) requires an exact Ref. "
+            "Pass entry.ref or construct ms.Ref.<kind>(path).",
             cls=SemanticRuntimeError,
-            refs=(str(value),),
         )
+    semantic_ref = value
 
     requested_kind = _AUTHORING_KIND_BY_SYMBOL.get(semantic_ref.kind)
     if requested_kind is None:
         _raise(
             ErrorKind.INVALID_REF,
-            "SemanticProject.verify_object(ref=...) requires a semantic authoring object; "
+            "catalog.verify(ref) requires a semantic authoring object; "
             f"received {semantic_ref.kind.value!r}.",
             cls=SemanticRuntimeError,
-            refs=(semantic_ref.id,),
+            refs=(semantic_ref.key,),
         )
     return semantic_ref, requested_kind
 
@@ -213,7 +205,8 @@ class SemanticProject:
         self._warnings: tuple[StructuredWarning, ...] = ()
         self._load_result: LoadResult | None = None
         self._registry: Registry | None = None
-        self._sidecar: Sidecar | None = None
+        self._expression_sidecar: CompiledExpressionSidecar | None = None
+        self._compiled_state: CompiledSemanticState | None = None
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
         self._parity_results: dict[str, ParityResult] = {}
@@ -257,7 +250,8 @@ class SemanticProject:
             self._errors = ()
             self._warnings = ()
             self._registry = None
-            self._sidecar = None
+            self._expression_sidecar = None
+            self._compiled_state = None
             self._runtime_metadata = {}
             self._parity_results = {}
             self._datasource_irs = ()
@@ -299,7 +293,8 @@ class SemanticProject:
         self._errors = result.errors
         self._warnings = result.warnings
         self._registry = result.registry
-        self._sidecar = result.sidecar
+        self._expression_sidecar = result.expression_sidecar
+        self._compiled_state = result.compiled_state
         self._datasource_irs = result.datasource_irs
         return result
 
@@ -329,14 +324,14 @@ class SemanticProject:
 
         if name in reg.dimensions:
             f_ir = reg.dimensions[name]
-            kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
+            kind = SemanticKind.TIME_DIMENSION if f_ir.is_time_dimension else SemanticKind.DIMENSION
             return _DepNode(semantic_id=name, kind=kind, children=())
 
         if name in reg.metrics:
             return self._dependents_metric(name, reg)
 
         if name in reg.relationships:
-            return _DepNode(semantic_id=name, kind=SymbolKind.RELATIONSHIP, children=())
+            return _DepNode(semantic_id=name, kind=SemanticKind.RELATIONSHIP, children=())
 
         _raise(
             ErrorKind.NOT_FOUND,
@@ -349,31 +344,37 @@ class SemanticProject:
         ds_children: list[_DepNode] = []
         for m_id, m_ir in reg.metrics.items():
             if name in m_ir.entities:
-                ds_children.append(_DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=()))
+                ds_children.append(
+                    _DepNode(semantic_id=m_id, kind=SemanticKind.METRIC, children=())
+                )
         for f_id, f_ir in reg.dimensions.items():
             if f_ir.entity == name:
-                kind = SymbolKind.TIME_DIMENSION if f_ir.is_time_dimension else SymbolKind.DIMENSION
+                kind = (
+                    SemanticKind.TIME_DIMENSION
+                    if f_ir.is_time_dimension
+                    else SemanticKind.DIMENSION
+                )
                 ds_children.append(_DepNode(semantic_id=f_id, kind=kind, children=()))
         for measure_id, measure_ir in reg.measures.items():
             if measure_ir.entity == name:
                 ds_children.append(
-                    _DepNode(semantic_id=measure_id, kind=SymbolKind.MEASURE, children=())
+                    _DepNode(semantic_id=measure_id, kind=SemanticKind.MEASURE, children=())
                 )
         return _DepNode(
             semantic_id=name,
-            kind=SymbolKind.ENTITY,
+            kind=SemanticKind.ENTITY,
             children=tuple(ds_children),
         )
 
     def _dependents_measure(self, name: str, reg: Registry) -> _DepNode:
         metric_children = [
-            _DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=())
+            _DepNode(semantic_id=m_id, kind=SemanticKind.METRIC, children=())
             for m_id, m_ir in reg.metrics.items()
             if m_ir.measure == name
         ]
         return _DepNode(
             semantic_id=name,
-            kind=SymbolKind.MEASURE,
+            kind=SemanticKind.MEASURE,
             children=tuple(metric_children),
         )
 
@@ -388,11 +389,11 @@ class SemanticProject:
                 for comp_ref in composition_components(m_ir.composition).values():
                     if comp_ref == name:
                         metric_children.append(
-                            _DepNode(semantic_id=m_id, kind=SymbolKind.METRIC, children=())
+                            _DepNode(semantic_id=m_id, kind=SemanticKind.METRIC, children=())
                         )
         return _DepNode(
             semantic_id=name,
-            kind=SymbolKind.METRIC,
+            kind=SemanticKind.METRIC,
             children=tuple(metric_children),
         )
 
@@ -469,7 +470,7 @@ class SemanticProject:
     def readiness(
         self,
         *,
-        refs: Iterable[SemanticRef | str] | None = None,
+        refs: Iterable[Ref[SemanticKindTag] | str] | None = None,
     ) -> ReadinessReport:
         """Return a query-free semantic readiness report.
 
@@ -484,13 +485,13 @@ class SemanticProject:
         preview calls; readiness never executes those calls itself.
 
         Args:
-            refs: Semantic refs to scope the check. Accepts strings or
-                SemanticRef objects. None checks all loaded objects.
+            refs: Exact refs supplied by the catalog boundary. String paths are
+                retained only for private readiness diagnostics.
         """
         from marivo.semantic.readiness import build_readiness_report
 
-        str_refs = [str(r) for r in refs] if refs is not None else None
-        return build_readiness_report(self, refs=str_refs)
+        scoped_refs = list(refs) if refs is not None else None
+        return build_readiness_report(self, refs=scoped_refs)
 
     # -- richness -----------------------------------------------------------
 
@@ -507,11 +508,11 @@ class SemanticProject:
         """
         return build_richness_report(self, demand=demand)
 
-    # -- verify object -------------------------------------------------------
+    # -- exact static verification ------------------------------------------
 
-    def verify_object(
+    def _verify(
         self,
-        ref: CatalogObject[SemanticRef] | SemanticRef,
+        ref: Ref[SemanticKindTag],
     ) -> VerifyResult:
         """Statically verify one authored semantic object against the loaded project.
 
@@ -523,32 +524,16 @@ class SemanticProject:
         Parameters
         ----------
         ref:
-            CatalogObject or SemanticRef returned by authoring calls,
-            ``ms.ref(...)``, or ``catalog.get(...)``.
+            Exact ref from an authoring call, entry.ref, or an ``ms.Ref`` factory.
         Returns
         -------
         VerifyResult
             Static validation status, issues, and warnings.
         """
         semantic_ref, requested_kind = _verification_input(ref)
-        ref_str = semantic_ref.id
+        ref_str = semantic_ref.path
 
-        self.load(domains=list(self._filtered_domains) if self._filtered_domains else None)
-
-        # If the project failed to load, report the load failure directly
-        # instead of falling through to the misleading "not found" path.
-        if self._status == "errored":
-            load_errors = self._errors
-            error_summary = "; ".join(str(e) for e in load_errors[:3])
-            if len(load_errors) > 3:
-                error_summary += f"; ... and {len(load_errors) - 3} more"
-            message = (
-                f"Cannot verify {ref_str!r}: project failed to load. "
-                f"Fix the following errors and try again: {error_summary}"
-            )
-            return self._failed_verify(ref_str, requested_kind, "project_load_failed", message)
-
-        kind = self._kind_for_ref(ref_str)
+        kind = self._kind_for_ref(semantic_ref)
 
         if kind != "unknown":
             return VerifyResult(
@@ -581,23 +566,35 @@ class SemanticProject:
             )
         return self._failed_verify(ref_str, requested_kind, "static_check_failed", message)
 
-    def _kind_for_ref(self, ref: str) -> AuthoringObjectKind | Literal["unknown"]:
-        """Determine the kind of a semantic ref from the registry."""
+    def _kind_for_ref(
+        self,
+        ref: Ref[SemanticKindTag],
+    ) -> AuthoringObjectKind | Literal["unknown"]:
+        """Determine one exact ref's authored kind without dropping its tag."""
         if self._registry is None:
             return "unknown"
-        if ref in self._registry.domains:
+        path = ref.path
+        if ref.kind is SemanticKind.DOMAIN and path in self._registry.domains:
             return "domain"
-        if ref in self._registry.entities:
+        if ref.kind is SemanticKind.DATASOURCE and path in self._registry.datasources:
+            return "datasource"
+        if ref.kind is SemanticKind.ENTITY and path in self._registry.entities:
             return "entity"
-        if ref in self._registry.dimensions:
-            field = self._registry.dimensions[ref]
-            return "time_dimension" if field.is_time_dimension else "dimension"
-        if ref in self._registry.measures:
+        if ref.kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
+            field = self._registry.dimensions.get(path)
+            if field is None:
+                return "unknown"
+            if ref.kind is SemanticKind.TIME_DIMENSION and field.is_time_dimension:
+                return "time_dimension"
+            if ref.kind is SemanticKind.DIMENSION and not field.is_time_dimension:
+                return "dimension"
+            return "unknown"
+        if ref.kind is SemanticKind.MEASURE and path in self._registry.measures:
             return "measure"
-        if ref in self._registry.metrics:
-            metric = self._registry.metrics[ref]
+        if ref.kind is SemanticKind.METRIC and path in self._registry.metrics:
+            metric = self._registry.metrics[path]
             return "derived_metric" if metric.metric_type == "derived" else "metric"
-        if ref in self._registry.relationships:
+        if ref.kind is SemanticKind.RELATIONSHIP and path in self._registry.relationships:
             return "relationship"
         return "unknown"
 

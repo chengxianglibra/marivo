@@ -14,6 +14,7 @@ from marivo.analysis.session._layout import (
     write_frame_to_disk,
     write_job_record,
 )
+from tests.shared_fixtures import make_test_metric_meta_contract
 
 
 def _now():
@@ -87,6 +88,7 @@ def test_write_and_read_frame(tmp_path):
     layout = _layout(tmp_path)
     df = pd.DataFrame({"x": [1, 2, 3]})
     meta = MetricFrameMeta(
+        **make_test_metric_meta_contract("sales.revenue"),
         kind="metric_frame",
         ref="frame_pq789012",
         session_id="sess_test01",

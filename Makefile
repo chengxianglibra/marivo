@@ -30,7 +30,7 @@ release-test:
 
 typecheck:
 	@./scripts/require-venv.sh mypy
-	@$(VENV_MYPY) marivo
+	@$(VENV_MYPY) marivo tests/typing
 
 lint:
 	@./scripts/require-venv.sh ruff

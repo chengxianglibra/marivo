@@ -11,6 +11,10 @@ from marivo.analysis.frames.component import ComponentFrame, ComponentFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._runtime import persist_frame
+from tests.shared_fixtures import (
+    make_test_component_contract,
+    make_test_metric_meta_contract,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -36,12 +40,15 @@ def test_component_frame_meta_kind_and_next_intents():
         parent_ref="frame_parent",
         parent_kind="metric_frame",
         metric_id="sales.failure_rate",
+        **make_test_component_contract(
+            metric_id="sales.failure_rate",
+            components={
+                "numerator": "sales.failed_count",
+                "denominator": "sales.total_count",
+            },
+            axes={"region": {"role": "dimension", "column": "region"}},
+        ),
         composition_kind="ratio",
-        components={
-            "numerator": "sales.failed_count",
-            "denominator": "sales.total_count",
-        },
-        axes={"region": {"role": "dimension", "column": "region"}},
         semantic_kind="segmented",
         semantic_model="sales",
     )
@@ -85,12 +92,15 @@ def test_load_frame_round_trips_component_frame():
             parent_ref="frame_parent",
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components={
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+                axes={"region": {"role": "dimension", "column": "region"}},
+            ),
             composition_kind="ratio",
-            components={
-                "numerator": "sales.failed_count",
-                "denominator": "sales.total_count",
-            },
-            axes={"region": {"role": "dimension", "column": "region"}},
             semantic_kind="segmented",
             semantic_model="sales",
         ),
@@ -120,12 +130,15 @@ def test_metric_frame_components_loads_linked_component_frame():
             parent_ref="frame_metric",
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components={
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+                axes={},
+            ),
             composition_kind="ratio",
-            components={
-                "numerator": "sales.failed_count",
-                "denominator": "sales.total_count",
-            },
-            axes={},
             semantic_kind="scalar",
             semantic_model="sales",
         ),
@@ -134,6 +147,7 @@ def test_metric_frame_components_loads_linked_component_frame():
     parent = MetricFrame(
         _df=pd.DataFrame({"failure_rate": [0.5]}),
         meta=MetricFrameMeta(
+            **make_test_metric_meta_contract("sales.failure_rate"),
             ref="frame_metric",
             session_id=session.id,
             project_root=str(session.project_root),
@@ -171,6 +185,7 @@ def test_ordinary_metric_frame_components_raise_structured_unavailable_error():
     parent = MetricFrame(
         _df=pd.DataFrame({"revenue": [100.0]}),
         meta=MetricFrameMeta(
+            **make_test_metric_meta_contract("sales.revenue"),
             ref="frame_metric",
             session_id=session.id,
             project_root=str(session.project_root),
@@ -209,19 +224,22 @@ def test_component_frame_meta_accepts_time_series_semantic_kind():
         parent_ref="frame_parent",
         parent_kind="metric_frame",
         metric_id="sales.failure_rate",
+        **make_test_component_contract(
+            metric_id="sales.failure_rate",
+            components={
+                "numerator": "sales.failed_count",
+                "denominator": "sales.total_count",
+            },
+            axes={
+                "time": {
+                    "role": "time",
+                    "column": "bucket_start",
+                    "grain": "day",
+                    "time_dimension": "order_date",
+                }
+            },
+        ),
         composition_kind="ratio",
-        components={
-            "numerator": "sales.failed_count",
-            "denominator": "sales.total_count",
-        },
-        axes={
-            "time": {
-                "role": "time",
-                "column": "bucket_start",
-                "grain": "day",
-                "time_dimension": "order_date",
-            }
-        },
         semantic_kind="time_series",
         semantic_model="sales",
     )
@@ -242,20 +260,23 @@ def test_component_frame_meta_accepts_panel_semantic_kind():
         parent_ref="frame_parent",
         parent_kind="metric_frame",
         metric_id="sales.failure_rate",
-        composition_kind="weighted_average",
-        components={
-            "numerator": "sales.weighted_score",
-            "weight": "sales.weight",
-        },
-        axes={
-            "time": {
-                "role": "time",
-                "column": "bucket_start",
-                "grain": "day",
-                "time_dimension": "order_date",
+        **make_test_component_contract(
+            metric_id="sales.failure_rate",
+            components={
+                "numerator": "sales.weighted_score",
+                "weight": "sales.weight",
             },
-            "region": {"role": "dimension", "column": "region"},
-        },
+            axes={
+                "time": {
+                    "role": "time",
+                    "column": "bucket_start",
+                    "grain": "day",
+                    "time_dimension": "order_date",
+                },
+                "region": {"role": "dimension", "column": "region"},
+            },
+        ),
+        composition_kind="weighted_average",
         semantic_kind="panel",
         semantic_model="sales",
     )
@@ -274,6 +295,7 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
     parent = MetricFrame(
         _df=pd.DataFrame({"revenue": [100.0]}),
         meta=MetricFrameMeta(
+            **make_test_metric_meta_contract("sales.failure_rate"),
             ref=parent_artifact_id,
             session_id=session.id,
             project_root=str(session.project_root),
@@ -312,9 +334,12 @@ def test_metric_frame_components_fallback_to_deterministic_ref():
             parent_ref=parent_artifact_id,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components={"numerator": "a", "denominator": "b"},
+                axes={},
+            ),
             composition_kind="ratio",
-            components={"numerator": "a", "denominator": "b"},
-            axes={},
             semantic_kind="scalar",
             semantic_model="sales",
         ),

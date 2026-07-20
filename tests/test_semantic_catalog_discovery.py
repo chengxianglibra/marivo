@@ -13,22 +13,23 @@ import textwrap
 
 import pytest
 
+import marivo.semantic as ms
+from marivo.refs import Ref, SemanticKindTag
 from marivo.semantic.catalog import (
     DatasourceDetails,
     DimensionDetails,
     DomainDetails,
     EntityDetails,
-    Relationship,
     RelationshipDetails,
+    RelationshipEntry,
     SemanticCatalog,
     SemanticKind,
-    SemanticRef,
     SimpleMetricDetails,
     TimeDimensionDetails,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import ParityStatus, SourceLocation
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,7 +44,7 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 _DATASETS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+    orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
 
     @ms.dimension(entity=orders)
     def region(table):
@@ -80,7 +81,7 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
             "ops/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "events = ms.entity(name='events', datasource=md.ref('datasource.warehouse'), source=md.table('events'))\n"
+                "events = ms.entity(name='events', datasource=ms.Ref.datasource('warehouse'), source=md.table('events'))\n"
                 "@ms.metric(entities=[events], additivity='additive', )\n"
                 "def event_count(table):\n"
                 "    return table.id.nunique()\n"
@@ -90,7 +91,7 @@ def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
     return SemanticCatalog(project)
 
 
-def _make_ref(r: str, kind: SemanticKind) -> SemanticRef:
+def _make_ref(r: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
     return make_ref(r, kind)
 
 
@@ -128,14 +129,14 @@ def test_discovery_metrics_returns_metrics(semantic_project_factory):
 def test_discovery_metrics_includes_revenue(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.metrics
-    refs = {obj.ref.id for obj in result.items}
+    refs = {obj.ref.path for obj in result.items}
     assert "sales.revenue" in refs
 
 
 def test_discovery_metrics_cross_domain(semantic_project_factory):
     catalog = _make_multi_domain_catalog(semantic_project_factory)
     result = catalog.metrics
-    refs = {obj.ref.id for obj in result.items}
+    refs = {obj.ref.path for obj in result.items}
     assert "sales.revenue" in refs
     assert "ops.event_count" in refs
 
@@ -167,8 +168,8 @@ def test_discovery_relationships_returns_relationships(semantic_project_factory)
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=md.ref('datasource.warehouse'), source=md.table('users'))\n"
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
+                "users = ms.entity(name='users', datasource=ms.Ref.datasource('warehouse'), source=md.table('users'))\n"
                 "@ms.dimension(entity=orders)\n"
                 "def user_id(table):\n"
                 "    return table.user_id\n"
@@ -187,7 +188,7 @@ def test_discovery_relationships_returns_relationships(semantic_project_factory)
     catalog = SemanticCatalog(project)
     result = catalog.relationships
     assert len(result.items) >= 1
-    assert all(isinstance(obj, Relationship) for obj in result.items)
+    assert all(isinstance(obj, RelationshipEntry) for obj in result.items)
 
 
 def test_discovery_top_level_domains_and_datasources(
@@ -218,20 +219,20 @@ def test_discovery_metrics_collection_has_revenue(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.metrics
     assert all(str(obj.ref.kind) == "metric" for obj in result.items)
-    assert any(obj.ref.id == "sales.revenue" for obj in result.items)
+    assert any(obj.ref.path == "sales.revenue" for obj in result.items)
 
 
 def test_discovery_entities_collection_has_orders(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.entities
     assert all(str(obj.ref.kind) == "entity" for obj in result.items)
-    assert any(obj.ref.id == "sales.orders" for obj in result.items)
+    assert any(obj.ref.path == "sales.orders" for obj in result.items)
 
 
 def test_discovery_multi_domain_metrics_contains_both(semantic_project_factory):
     catalog = _make_multi_domain_catalog(semantic_project_factory)
     result = catalog.metrics
-    refs = {obj.ref.id for obj in result.items}
+    refs = {obj.ref.path for obj in result.items}
     assert "ops.event_count" in refs
     assert "sales.revenue" in refs
 
@@ -239,7 +240,7 @@ def test_discovery_multi_domain_metrics_contains_both(semantic_project_factory):
 def test_discovery_unknown_domain_raises_error(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.get("domain.nonexistent")
+        catalog.require(ms.Ref.domain("nonexistent"))
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
@@ -487,30 +488,30 @@ def test_discovery_relationship_details_render():
 
 def test_discovery_domain_object_children_returns_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    domain_obj = catalog.get("domain.sales")
+    domain_obj = catalog.require(ms.Ref.domain("sales"))
     children = domain_obj.details().children
     assert isinstance(children, tuple)
-    child_refs = {r.id for r in children}
+    child_refs = {r.path for r in children}
     assert "sales.orders" in child_refs
     assert "sales.revenue" in child_refs
 
 
 def test_discovery_entity_object_children_returns_field_refs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    entity_obj = catalog.get("entity.sales.orders")
+    entity_obj = catalog.require(ms.Ref.entity("sales.orders"))
     children = entity_obj.details().children
     assert isinstance(children, tuple)
-    child_refs = {r.id for r in children}
+    child_refs = {r.path for r in children}
     assert "sales.orders.region" in child_refs or "sales.orders.created_at" in child_refs
 
 
 def test_discovery_metric_object_children_returns_empty_tuple(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    metric_obj = catalog.get("metric.sales.revenue")
+    metric_obj = catalog.require(ms.Ref.metric("sales.revenue"))
     assert metric_obj.details().children == ()
 
 
 def test_discovery_dimension_object_children_returns_empty_tuple(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    dim_obj = catalog.get("dimension.sales.orders.region")
+    dim_obj = catalog.require(ms.Ref.dimension("sales.orders.region"))
     assert dim_obj.details().children == ()

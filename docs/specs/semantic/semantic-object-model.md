@@ -29,11 +29,11 @@ These rules hold for every object type.
   identity. When omitted, the Python variable or function name is a fallback
   identity. The Python symbol itself is only a local alias and never part of the
   semantic id.
-- **Kind-qualified ids and refs.** Objects are addressed as
-  `<kind>.<semantic_id>` (e.g. `metric.sales.revenue`,
-  `dimension.sales.orders.region`). Object-to-object parameters take **ref
-  objects** — a ref returned by an earlier declaration, or
-  `ms.ref("<kind>.<semantic_id>")` for forward/cross-file references. Bare
+- **Kind-qualified refs.** Canonical runtime keys use `<kind>:<path>` (for
+  example `metric:sales.revenue`), while each exact factory accepts only its
+  kind-relative path. Object-to-object parameters take **ref objects** — a ref
+  returned by an earlier declaration, or
+  `ms.Ref.<kind>(path)` for forward/cross-file references. Bare
   semantic-id strings are not accepted as authoring arguments.
 - **Human text lives in `ai_context`.** There is no standalone `description=`.
   All prose is carried by `ms.ai_context(...)` (see below), whose
@@ -90,10 +90,10 @@ ms.domain(name="sales", owner="Mina Zhang", default=True,
 ## Entity
 
 An entity is the logical view of a business entity or fact table. It binds a
-`DatasourceRef` and a physical source, and declares its key.
+`Ref[datasource]` and a physical source, and declares its key.
 
 ```python
-warehouse = md.ref("datasource.warehouse")
+warehouse = ms.Ref.datasource("warehouse")
 orders = ms.entity(
     name="orders",
     datasource=warehouse,
@@ -125,7 +125,7 @@ user_profile_daily = ms.entity(
     source=md.table("user_profile_daily"),
     primary_key=["user_id", "dt"],
     versioning=ms.snapshot(
-        partition_field=ms.ref("dimension.sales.user_profile_daily.dt"),
+        partition_field=ms.Ref.dimension("sales.user_profile_daily.dt"),
         grain="day",                 # snapshot cadence
         timezone="Asia/Shanghai",    # resolves "latest" on a real calendar
         format="%Y%m%d",             # on-disk partition encoding; omit for native date

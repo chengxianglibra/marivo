@@ -13,8 +13,8 @@ from marivo.analysis.evidence.types import (
     Finding,
     FindingPage,
 )
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)

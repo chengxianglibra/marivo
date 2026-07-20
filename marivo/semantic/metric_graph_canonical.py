@@ -10,12 +10,14 @@ from dataclasses import fields, is_dataclass, replace
 from enum import Enum
 from typing import Literal, NoReturn, cast
 
+from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.semantic.ir import AggKind, AggregateFoldInput
 from marivo.semantic.metric_graph import (
     MAX_EXPRESSION_DEPTH,
     MAX_EXPRESSION_OCCURRENCES,
     AggregateNodeV1,
     CanonicalScalar,
+    CanonicalSliceEntryV1,
     CanonicalValue,
     CatalogBodyLeafV1,
     CumulativeAnchorV1,
@@ -74,14 +76,14 @@ def _invalid(
 
 def canonical_value(value: object) -> object:
     """Convert supported typed payloads to deterministic JSON values."""
+    if isinstance(value, Enum):
+        return canonical_value(value.value)
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
         if not math.isfinite(value):
             _invalid("canonical payload rejects non-finite floats")
         return value
-    if isinstance(value, Enum):
-        return canonical_value(value.value)
     if is_dataclass(value) and not isinstance(value, type):
         return {field.name: canonical_value(getattr(value, field.name)) for field in fields(value)}
     if isinstance(value, (tuple, list)):
@@ -184,16 +186,46 @@ def _canonical_slice_value(value: object, *, context: str) -> CanonicalValue:
     _invalid(f"{context} must be a canonical scalar or tuple")
 
 
-def _canonical_slice(value: object, *, context: str) -> tuple[tuple[str, CanonicalValue], ...]:
-    predicates: list[tuple[str, CanonicalValue]] = []
+def _ref_payload(
+    value: object,
+    *,
+    context: str,
+    allowed: set[SemanticKind],
+) -> RefPayloadV1:
+    payload = _mapping(value, context=context)
+    _exact_fields(payload, {"schema", "kind", "path"}, context=context)
+    if payload["schema"] != "marivo.semantic_ref/v1":
+        _invalid(f"{context}.schema must be 'marivo.semantic_ref/v1'")
+    kind_value = payload["kind"]
+    if not isinstance(kind_value, str):
+        _invalid(f"{context}.kind must be a string")
+    try:
+        kind = SemanticKind(kind_value)
+    except ValueError:
+        _invalid(f"{context}.kind is unsupported: {kind_value!r}")
+    if kind not in allowed:
+        expected = sorted(item.value for item in allowed)
+        _invalid(f"{context}.kind must be one of {expected!r}")
+    path = _required_string(payload, "path", context=context)
+    try:
+        return RefPayloadV1(schema="marivo.semantic_ref/v1", kind=kind, path=path)
+    except (TypeError, ValueError) as exc:
+        _invalid(f"{context} is invalid: {exc}")
+
+
+def _canonical_slice(value: object, *, context: str) -> tuple[CanonicalSliceEntryV1, ...]:
+    predicates: list[CanonicalSliceEntryV1] = []
     for index, item in enumerate(_sequence(value, context=context)):
-        pair = _sequence(item, context=f"{context}[{index}]")
-        if len(pair) != 2 or not isinstance(pair[0], str) or not pair[0]:
-            _invalid(f"{context}[{index}] must be [non-empty dimension id, scalar]")
+        payload = _mapping(item, context=f"{context}[{index}]")
+        _exact_fields(payload, {"dimension_ref", "value"}, context=f"{context}[{index}]")
         predicates.append(
-            (
-                pair[0],
-                _canonical_slice_value(pair[1], context=f"{context}[{index}][1]"),
+            CanonicalSliceEntryV1(
+                dimension_ref=_ref_payload(
+                    payload["dimension_ref"],
+                    context=f"{context}[{index}].dimension_ref",
+                    allowed={SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION},
+                ),
+                value=_canonical_slice_value(payload["value"], context=f"{context}[{index}].value"),
             )
         )
     return tuple(predicates)
@@ -265,12 +297,16 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
     if kind == "catalog_body_leaf":
         _exact_fields(
             payload,
-            {"kind", "metric_id", "dependency_fingerprint", "unit_override"},
+            {"kind", "metric_ref", "dependency_fingerprint", "unit_override"},
             context=context,
         )
         return CatalogBodyLeafV1(
             kind="catalog_body_leaf",
-            metric_id=_required_string(payload, "metric_id", context=context),
+            metric_ref=_ref_payload(
+                payload["metric_ref"],
+                context=f"{context}.metric_ref",
+                allowed={SemanticKind.METRIC},
+            ),
             dependency_fingerprint=_required_string(
                 payload, "dependency_fingerprint", context=context
             ),
@@ -281,8 +317,7 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
             payload,
             {
                 "kind",
-                "target_id",
-                "target_kind",
+                "target_ref",
                 "dependency_fingerprint",
                 "agg",
                 "fold",
@@ -291,13 +326,13 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
             },
             context=context,
         )
-        target_kind = payload["target_kind"]
-        if target_kind not in {"measure", "entity"}:
-            _invalid(f"{context}.target_kind must be 'measure' or 'entity'")
         return AggregateNodeV1(
             kind="aggregate",
-            target_id=_required_string(payload, "target_id", context=context),
-            target_kind=cast("Literal['measure', 'entity']", target_kind),
+            target_ref=_ref_payload(
+                payload["target_ref"],
+                context=f"{context}.target_ref",
+                allowed={SemanticKind.MEASURE, SemanticKind.ENTITY},
+            ),
             dependency_fingerprint=_required_string(
                 payload, "dependency_fingerprint", context=context
             ),
@@ -312,7 +347,7 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
             {"kind", "child_id", "predicates", "predicate_dependencies"},
             context=context,
         )
-        predicate_dependencies: list[tuple[str, str]] = []
+        predicate_dependencies: list[tuple[RefPayloadV1, str]] = []
         for index, item in enumerate(
             _sequence(
                 payload["predicate_dependencies"],
@@ -320,11 +355,18 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
             )
         ):
             pair = _sequence(item, context=f"{context}.predicate_dependencies[{index}]")
-            if len(pair) != 2 or not all(isinstance(part, str) and part for part in pair):
-                _invalid(
-                    f"{context}.predicate_dependencies[{index}] must be [dimension id, fingerprint]"
+            if len(pair) != 2 or not isinstance(pair[1], str) or not pair[1]:
+                _invalid(f"{context}.predicate_dependencies[{index}] must be [ref, fingerprint]")
+            predicate_dependencies.append(
+                (
+                    _ref_payload(
+                        pair[0],
+                        context=f"{context}.predicate_dependencies[{index}][0]",
+                        allowed={SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION},
+                    ),
+                    pair[1],
                 )
-            predicate_dependencies.append((cast("str", pair[0]), cast("str", pair[1])))
+            )
         return SliceNodeV1(
             kind="slice",
             child_id=_required_string(payload, "child_id", context=context),
@@ -337,7 +379,7 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
             {
                 "kind",
                 "child_id",
-                "over",
+                "time_dimension_ref",
                 "anchor",
                 "dependency_fingerprint",
                 "unit_override",
@@ -347,7 +389,15 @@ def _node_from_value(value: object, *, context: str) -> MetricGraphNodeV1:
         return CumulativeNodeV1(
             kind="cumulative",
             child_id=_required_string(payload, "child_id", context=context),
-            over=_optional_string(payload, "over", context=context),
+            time_dimension_ref=(
+                _ref_payload(
+                    payload["time_dimension_ref"],
+                    context=f"{context}.time_dimension_ref",
+                    allowed={SemanticKind.TIME_DIMENSION},
+                )
+                if payload["time_dimension_ref"] is not None
+                else None
+            ),
             anchor=_cumulative_anchor(payload["anchor"], context=f"{context}.anchor"),
             dependency_fingerprint=_required_string(
                 payload, "dependency_fingerprint", context=context
@@ -698,34 +748,38 @@ def canonicalize_slices(
         return node_id
 
     def merge_predicates(
-        inherited: Mapping[str, tuple[CanonicalValue, str]],
+        inherited: Mapping[RefPayloadV1, tuple[CanonicalValue, str]],
         node: SliceNodeV1,
         *,
         source_path: str,
-    ) -> dict[str, tuple[CanonicalValue, str]]:
+    ) -> dict[RefPayloadV1, tuple[CanonicalValue, str]]:
         dependencies = dict(node.predicate_dependencies)
-        if set(dependencies) != {dimension_id for dimension_id, _ in node.predicates}:
+        if set(dependencies) != {item.dimension_ref for item in node.predicates}:
             _invalid(f"slice dependencies do not match predicates at {source_path!r}")
         merged = dict(inherited)
-        for dimension_id, value in node.predicates:
-            dependency_fingerprint = dependencies[dimension_id]
-            existing = merged.get(dimension_id)
+        for predicate in node.predicates:
+            dimension_ref = predicate.dimension_ref
+            value = predicate.value
+            dependency_fingerprint = dependencies[dimension_ref]
+            existing = merged.get(dimension_ref)
             if existing is not None:
                 existing_value, existing_dependency = existing
                 if canonical_bytes(existing_value) != canonical_bytes(value):
                     _invalid(
-                        f"slice predicate conflict for {dimension_id!r} at {source_path!r}: "
+                        f"slice predicate conflict for {dimension_ref.path!r} at {source_path!r}: "
                         f"{existing_value!r} != {value!r}"
                     )
                 if existing_dependency != dependency_fingerprint:
-                    _invalid(f"slice dependency conflict for {dimension_id!r} at {source_path!r}")
-            merged[dimension_id] = (value, dependency_fingerprint)
+                    _invalid(
+                        f"slice dependency conflict for {dimension_ref.path!r} at {source_path!r}"
+                    )
+            merged[dimension_ref] = (value, dependency_fingerprint)
         return merged
 
     def rewrite(
         source_path: str,
         canonical_path: str,
-        inherited: Mapping[str, tuple[CanonicalValue, str]],
+        inherited: Mapping[RefPayloadV1, tuple[CanonicalValue, str]],
     ) -> tuple[str, tuple[ExpressionOccurrenceV1, ...]]:
         occurrence = input_occurrences[source_path]
         node = input_nodes[occurrence.node_id]
@@ -747,13 +801,18 @@ def canonicalize_slices(
                 return leaf_id, (ExpressionOccurrenceV1(path=canonical_path, node_id=leaf_id),)
             leaf_path = f"{canonical_path}.child"
             path_map[source_path] = leaf_path
-            ordered = tuple(sorted(inherited.items()))
+            ordered = tuple(
+                sorted(inherited.items(), key=lambda item: (item[0].kind.value, item[0].path))
+            )
             slice_node = SliceNodeV1(
                 kind="slice",
                 child_id=leaf_id,
-                predicates=tuple((dimension_id, item[0]) for dimension_id, item in ordered),
+                predicates=tuple(
+                    CanonicalSliceEntryV1(dimension_ref=dimension_ref, value=item[0])
+                    for dimension_ref, item in ordered
+                ),
                 predicate_dependencies=tuple(
-                    (dimension_id, item[1]) for dimension_id, item in ordered
+                    (dimension_ref, item[1]) for dimension_ref, item in ordered
                 ),
             )
             slice_id = intern(slice_node)

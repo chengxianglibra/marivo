@@ -436,11 +436,12 @@ def test_datasource_raw_sql_failure_keeps_reason_and_structured_repair(
     telemetry_project: Path,
 ) -> None:
     import marivo.datasource as md
+    import marivo.semantic as ms
     from marivo.datasource.errors import DatasourceMissingError
 
     with pytest.raises(DatasourceMissingError):
         md.raw_sql(
-            md.ref("datasource.missing"),
+            ms.Ref.datasource("missing"),
             "SELECT private_value FROM secret_table",
             reason="verify the terminal fallback",
             project_root=telemetry_project,

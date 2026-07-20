@@ -9,16 +9,16 @@ import pytest
 
 from marivo.semantic.catalog import (
     CatalogCollection,
-    CatalogObject,
-    Datasource,
-    Dimension,
-    Domain,
-    Entity,
-    Measure,
-    Metric,
-    Relationship,
+    CatalogEntry,
+    DatasourceEntry,
+    DimensionEntry,
+    DomainEntry,
+    EntityEntry,
+    MeasureEntry,
+    MetricEntry,
+    RelationshipEntry,
     SemanticCatalog,
-    TimeDimension,
+    TimeDimensionEntry,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
@@ -31,8 +31,8 @@ _OBJECTS_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
-users = ms.entity(name="users", datasource=md.ref("datasource.warehouse"), source=md.table("users"))
+orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
+users = ms.entity(name="users", datasource=ms.Ref.datasource("warehouse"), source=md.table("users"))
 
 @ms.dimension(entity=orders)
 def region(table):
@@ -73,7 +73,7 @@ _OPS_OBJECTS_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-events = ms.entity(name="events", datasource=md.ref("datasource.warehouse"), source=md.table("events"))
+events = ms.entity(name="events", datasource=ms.Ref.datasource("warehouse"), source=md.table("events"))
 
 @ms.dimension(entity=events)
 def region(table):
@@ -96,37 +96,38 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
 @pytest.mark.parametrize(
     ("attribute", "expected_type", "expected_id"),
     [
-        ("domains", Domain, "domain.sales"),
-        ("datasources", Datasource, "datasource.warehouse"),
-        ("entities", Entity, "entity.sales.orders"),
-        ("dimensions", Dimension, "dimension.sales.orders.region"),
+        ("domains", DomainEntry, "domain:sales"),
+        ("datasources", DatasourceEntry, "datasource:warehouse"),
+        ("entities", EntityEntry, "entity:sales.orders"),
+        ("dimensions", DimensionEntry, "dimension:sales.orders.region"),
         (
             "time_dimensions",
-            TimeDimension,
-            "time_dimension.sales.orders.ordered_at",
+            TimeDimensionEntry,
+            "time_dimension:sales.orders.ordered_at",
         ),
-        ("measures", Measure, "measure.sales.orders.amount"),
-        ("metrics", Metric, "metric.sales.revenue"),
+        ("measures", MeasureEntry, "measure:sales.orders.amount"),
+        ("metrics", MetricEntry, "metric:sales.revenue"),
         (
             "relationships",
-            Relationship,
-            "relationship.sales.orders_to_users",
+            RelationshipEntry,
+            "relationship:sales.orders_to_users",
         ),
     ],
 )
 def test_catalog_global_collections_are_typed_and_use_typed_ids(
     semantic_project_factory,
     attribute: str,
-    expected_type: type[CatalogObject],
+    expected_type: type[CatalogEntry],
     expected_id: str,
 ) -> None:
     collection = getattr(_catalog(semantic_project_factory), attribute)
 
     assert isinstance(collection, CatalogCollection)
-    assert expected_id in collection.ids()
+    keys = [ref.key for ref in collection.refs]
+    assert expected_id in keys
     assert all(type(item) is expected_type for item in collection.items)
-    assert collection.ids() == sorted(collection.ids())
-    assert all(item.id in collection.ids() for item in collection)
+    assert keys == sorted(keys)
+    assert all(item.key in keys for item in collection)
 
 
 def test_catalog_collection_implements_shared_result_and_consumption_protocol(
@@ -136,13 +137,19 @@ def test_catalog_collection_implements_shared_result_and_consumption_protocol(
     metrics = _catalog(semantic_project_factory).metrics
 
     assert isinstance(metrics.items, tuple)
-    assert tuple(ref.kind.value for ref in metrics.refs()) == ("metric",)
+    assert tuple(ref.kind.value for ref in metrics.refs) == ("metric",)
     assert metrics[0] is metrics.items[0]
     assert list(metrics) == list(metrics.items)
     assert "CatalogCollection" in repr(metrics)
-    assert "metric.sales.revenue" in metrics.render()
+    assert "metric:sales.revenue" in metrics.render()
     assert metrics.show() is None
-    assert "metric.sales.revenue" in capsys.readouterr().out
+    assert "metric:sales.revenue" in capsys.readouterr().out
+
+
+def test_catalog_collection_has_one_public_kind_type_parameter() -> None:
+    assert tuple(parameter.__name__ for parameter in CatalogCollection.__type_params__) == (
+        "KindT",
+    )
 
 
 def test_scoped_navigation_matches_the_declared_matrix(semantic_project_factory) -> None:
@@ -151,19 +158,21 @@ def test_scoped_navigation_matches_the_declared_matrix(semantic_project_factory)
     orders = sales.entities.get("orders")
     warehouse = catalog.datasources.get("warehouse")
 
-    assert orders.id == "entity.sales.orders"
-    assert orders.dimensions.ids() == [
-        "dimension.sales.orders.region",
-        "dimension.sales.orders.user_id",
+    assert orders.key == "entity:sales.orders"
+    assert [ref.key for ref in orders.dimensions.refs] == [
+        "dimension:sales.orders.region",
+        "dimension:sales.orders.user_id",
     ]
-    assert orders.time_dimensions.ids() == ["time_dimension.sales.orders.ordered_at"]
-    assert orders.measures.ids() == ["measure.sales.orders.amount"]
-    assert orders.metrics.ids() == ["metric.sales.revenue"]
-    assert orders.relationships.ids() == ["relationship.sales.orders_to_users"]
-    assert warehouse.entities.ids() == [
-        "entity.ops.events",
-        "entity.sales.orders",
-        "entity.sales.users",
+    assert [ref.key for ref in orders.time_dimensions.refs] == [
+        "time_dimension:sales.orders.ordered_at"
+    ]
+    assert [ref.key for ref in orders.measures.refs] == ["measure:sales.orders.amount"]
+    assert [ref.key for ref in orders.metrics.refs] == ["metric:sales.revenue"]
+    assert [ref.key for ref in orders.relationships.refs] == ["relationship:sales.orders_to_users"]
+    assert [ref.key for ref in warehouse.entities.refs] == [
+        "entity:ops.events",
+        "entity:sales.orders",
+        "entity:sales.users",
     ]
     assert not hasattr(warehouse, "measures")
 
@@ -171,8 +180,8 @@ def test_scoped_navigation_matches_the_declared_matrix(semantic_project_factory)
 def test_relationship_endpoints_are_concrete_entities(semantic_project_factory) -> None:
     relationship = _catalog(semantic_project_factory).relationships.get("orders_to_users")
 
-    assert relationship.from_entity.id == "entity.sales.orders"
-    assert relationship.to_entity.id == "entity.sales.users"
+    assert relationship.from_entity.key == "entity:sales.orders"
+    assert relationship.to_entity.key == "entity:sales.users"
 
 
 # ---------------------------------------------------------------------------
@@ -180,19 +189,21 @@ def test_relationship_endpoints_are_concrete_entities(semantic_project_factory) 
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_get_short_name_teaches_exact_typed_lookup(semantic_project_factory) -> None:
+def test_catalog_require_rejects_raw_short_name_and_teaches_exact_typed_lookup(
+    semantic_project_factory,
+) -> None:
     catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.get("revenue")
+        catalog.require("revenue")  # type: ignore[arg-type]
 
     message = str(exc_info.value)
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert 'catalog.get("metric.sales.revenue")' in message
-    assert 'catalog.metrics.get("revenue")' in message
+    assert "requires an exact Ref[kind]" in message
+    assert "ms.Ref.<kind>(path)" in message
 
 
-def test_collection_get_rejects_wrong_kind_with_global_collection_hint(
+def test_collection_get_rejects_global_typed_identity(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
@@ -200,7 +211,8 @@ def test_collection_get_rejects_wrong_kind_with_global_collection_hint(
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.metrics.get("entity.sales.orders")
 
-    assert "catalog.entities.get" in str(exc_info.value)
+    assert "accepts one local name segment only" in str(exc_info.value)
+    assert "catalog.require(ms.Ref.<kind>(path))" in str(exc_info.value)
 
 
 def test_collection_get_reports_existing_object_outside_scope(
@@ -209,9 +221,11 @@ def test_collection_get_reports_existing_object_outside_scope(
     catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.domains.get("sales").entities.get("entity.ops.events")
+        catalog.domains.get("sales").entities.get("events")
 
-    assert "outside" in str(exc_info.value).lower()
+    message = str(exc_info.value)
+    assert "not found" in message.lower()
+    assert "domain:sales" in message
 
 
 def test_collection_get_rejects_bare_semantic_id(semantic_project_factory) -> None:
@@ -221,7 +235,7 @@ def test_collection_get_rejects_bare_semantic_id(semantic_project_factory) -> No
         catalog.metrics.get("sales.revenue")
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "metric.sales.revenue" in str(exc_info.value)
+    assert "accepts one local name segment only" in str(exc_info.value)
 
 
 def test_collection_get_ambiguous_short_name_teaches_scope_narrowing(
@@ -233,8 +247,8 @@ def test_collection_get_ambiguous_short_name_teaches_scope_narrowing(
         catalog.dimensions.get("region")
 
     assert exc_info.value.kind == ErrorKind.AMBIGUOUS_REFERENCE
-    assert "dimension.sales.orders.region" in str(exc_info.value)
-    assert "dimension.ops.events.region" in str(exc_info.value)
+    assert "ms.Ref.dimension('sales.orders.region')" in str(exc_info.value)
+    assert "ms.Ref.dimension('ops.events.region')" in str(exc_info.value)
 
 
 def test_collection_get_scoped_short_name_resolves_uniquely(semantic_project_factory) -> None:
@@ -242,7 +256,7 @@ def test_collection_get_scoped_short_name_resolves_uniquely(semantic_project_fac
 
     region = catalog.domains.get("sales").entities.get("orders").dimensions.get("region")
 
-    assert region.id == "dimension.sales.orders.region"
+    assert region.key == "dimension:sales.orders.region"
 
 
 # ---------------------------------------------------------------------------
@@ -274,15 +288,15 @@ def test_zero_count_navigation_remains_visible(semantic_project_factory) -> None
 def test_relationship_card_shows_typed_endpoints(semantic_project_factory) -> None:
     rendered = _catalog(semantic_project_factory).relationships.get("orders_to_users").render()
 
-    assert "from_entity: entity.sales.orders" in rendered
-    assert "to_entity: entity.sales.users" in rendered
+    assert "from_entity: entity:sales.orders" in rendered
+    assert "to_entity: entity:sales.users" in rendered
 
 
 def test_object_and_collection_repr_are_bounded(semantic_project_factory) -> None:
     catalog = _catalog(semantic_project_factory)
 
     assert repr(catalog.metrics.get("revenue")) == (
-        "<Metric id=metric.sales.revenue; call .show() to inspect>"
+        "<MetricEntry metric:sales.revenue; call .show() to inspect>"
     )
-    assert "CatalogCollection type=Metric scope=catalog count=" in repr(catalog.metrics)
+    assert "CatalogCollection type=MetricEntry scope=catalog count=" in repr(catalog.metrics)
     assert "\n" not in repr(catalog.metrics)

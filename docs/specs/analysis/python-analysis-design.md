@@ -146,12 +146,12 @@ import marivo.analysis as mv
 session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
 
 current = session.observe(
-    metric=session.catalog.get("metric.analytics.dau").ref,
+    metric=session.catalog.require(ms.Ref.metric("analytics.dau")).ref,
     time_scope={"start": "2026-06-18", "end": "2026-06-25"},
     grain="day",
 )
 baseline = session.observe(
-    metric=session.catalog.get("metric.analytics.dau").ref,
+    metric=session.catalog.require(ms.Ref.metric("analytics.dau")).ref,
     time_scope={"start": "2026-06-11", "end": "2026-06-18"},
     grain="day",
 )
@@ -172,7 +172,7 @@ given artifact come from its `contract()`.
 ### Typed metric composition
 
 `Session.observe(...)` is the only public initial `MetricFrame` materializer.
-Its roots are exact `MetricRef` values or closed values built with
+Its roots are exact `Ref[metric]` values or closed values built with
 `mv.runtime_metric.aggregate`, `.slice`, and `.ratio`; loaded catalog objects,
 generic refs, bare ids, frame arithmetic, and arbitrary formula nodes do not
 cross this boundary. A non-empty list or tuple forms one ordered mixed forest

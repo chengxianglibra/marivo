@@ -6,9 +6,10 @@ import ibis
 import pytest
 
 import marivo.analysis.session as session_attach
+import marivo.semantic as ms
 from marivo.analysis.intents.observe_errors import ObservePlanningError
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
+from tests.ref_helpers import make_ref
 
 
 def _metric_pandas(frame):
@@ -105,7 +106,7 @@ def _bootstrap_bandwidth(
         "\n"
         "bandwidth_samples = ms.entity(\n"
         "    name='bandwidth_samples',\n"
-        "    datasource=md.ref('datasource.warehouse'),\n"
+        "    datasource=ms.Ref.datasource('warehouse'),\n"
         "    primary_key=['sample_id'],\n"
         "    source=md.table('bandwidth_samples'),\n"
         ")\n"
@@ -235,7 +236,9 @@ def test_folded_metric_rejects_observe_with_different_time_dimension(
             make_ref("sales.upstream_bw", SemanticKind.METRIC),
             time_scope={"start": "2026-01-01", "end": "2026-01-02"},
             grain="day",
-            time_dimension=session.catalog.get("time_dimension.sales.bandwidth_samples.dt").ref,
+            time_dimension=session.catalog.require(
+                ms.Ref.time_dimension("sales.bandwidth_samples.dt")
+            ).ref,
         )
 
     assert exc_info.value._context["code"] == "status-time-dimension-mismatch"
@@ -424,7 +427,7 @@ def test_attribute_folded_ratio_uses_component_mix_attribution(
     delta = sampled_bandwidth_project.compare(cur, base)
 
     result = sampled_bandwidth_project.attribute(
-        delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
+        delta, axes=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)]
     )
 
     assert result.meta.method == "ratio_mix"
@@ -448,7 +451,7 @@ def test_rollup_rejects_non_reaggregatable_folded_frame(sampled_bandwidth_projec
 
     with pytest.raises(TransformShapeUnsupportedError) as exc_info:
         frame.transform.rollup(
-            drop_axes=[make_ref("province", SemanticKind.DIMENSION)],
+            drop_axes=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)],
         )
 
     assert exc_info.value._context["op"] == "rollup"
@@ -472,7 +475,7 @@ def test_decompose_rejects_non_linear_fold_delta(sampled_bandwidth_project) -> N
 
     with pytest.raises(ComponentDecompositionError) as exc_info:
         sampled_bandwidth_project.attribute(
-            delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
+            delta, axes=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)]
         )
 
     assert exc_info.value._context["reason"] == "non_linear_time_fold"
@@ -497,7 +500,7 @@ def test_decompose_allows_mean_fold_delta(sampled_bandwidth_project) -> None:
     delta = sampled_bandwidth_project.compare(cur, base)
 
     result = sampled_bandwidth_project.attribute(
-        delta, axes=[make_ref("province", SemanticKind.DIMENSION)]
+        delta, axes=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)]
     )
     assert result.meta.attribution_kind == "decomposition"
 
@@ -572,7 +575,9 @@ def test_decompose_mean_fold_warns_on_uneven_coverage(
     delta = session.compare(cur, base)
     assert delta.meta.fold["fold_kind"] == "mean"
 
-    result = session.attribute(delta, axes=[make_ref("province", SemanticKind.DIMENSION)])
+    result = session.attribute(
+        delta, axes=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)]
+    )
 
     issues = _comparability_issues(result)
     assert len(issues) == 1
@@ -599,7 +604,9 @@ def test_decompose_mean_fold_no_warning_on_even_coverage(
     )
     delta = session.compare(cur, base)
 
-    result = session.attribute(delta, axes=[make_ref("province", SemanticKind.DIMENSION)])
+    result = session.attribute(
+        delta, axes=[make_ref("sales.bandwidth_samples.province", SemanticKind.DIMENSION)]
+    )
 
     assert _comparability_issues(result) == []
 
@@ -653,7 +660,7 @@ def _bootstrap_hour_prefix(tmp_path):
         "\n"
         "hourly_bandwidth = ms.entity(\n"
         "    name='hourly_bandwidth',\n"
-        "    datasource=md.ref('datasource.warehouse'),\n"
+        "    datasource=ms.Ref.datasource('warehouse'),\n"
         "    primary_key=['obs_id'],\n"
         "    source=md.table('hourly_bandwidth'),\n"
         ")\n"

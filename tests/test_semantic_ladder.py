@@ -2,9 +2,12 @@
 
 from pathlib import Path
 
+import pytest
+
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
+from marivo.semantic.errors import SemanticLoadFailed, SemanticRuntimeError
 
 
 def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
@@ -32,7 +35,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
                 "source=md.table('orders'))\n"
                 "@ms.time_dimension(entity=orders, granularity='day', parse=ms.strptime('%Y%m%d'))\n"
                 "def dt(orders):\n"
@@ -57,7 +60,7 @@ def test_verify_object_entity_is_static_without_audit_side_effects(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    result = project.verify_object(ms.ref("entity.sales.orders"))
+    result = ms.SemanticCatalog(project).verify(ms.Ref.entity("sales.orders"))
 
     assert result.status == "passed"
     assert result.kind == "entity"
@@ -73,7 +76,7 @@ def test_verify_object_entity_uses_current_source_declaration(
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
-    first = project.verify_object(ms.ref("entity.sales.orders"))
+    first = ms.SemanticCatalog(project).verify(ms.Ref.entity("sales.orders"))
     assert first.status == "passed"
     assert first.runtime_checked is False
 
@@ -90,14 +93,14 @@ def test_verify_object_entity_uses_current_source_declaration(
             "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "ms.domain(name='sales', owner='Mina Zhang')\n"
-                "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), "
+                "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), "
                 "source=md.table('orders_v2'))\n"
             )
         },
         workspace_dir=tmp_path,
     )
 
-    second = project2.verify_object(ms.ref("entity.sales.orders"))
+    second = ms.SemanticCatalog(project2).verify(ms.Ref.entity("sales.orders"))
     assert second.status == "passed"
     assert second.validation_level == "static"
     assert second.runtime_checked is False
@@ -108,9 +111,8 @@ def test_verify_object_entity_uses_current_source_declaration(
 # -- verify_object with project load failure ----------------------------------
 
 
-def test_verify_object_reports_project_load_failed(semantic_project_factory) -> None:
-    """When a file fails to load, verify_object returns project_load_failed
-    and preserves the requested typed-ref kind."""
+def test_catalog_construction_reports_project_load_failed(semantic_project_factory) -> None:
+    """A catalog is unavailable when its project failed to compile."""
     # Create a project whose metrics file calls a non-existent ms.max()
     project = semantic_project_factory(
         {
@@ -124,23 +126,13 @@ def test_verify_object_reports_project_load_failed(semantic_project_factory) -> 
         load=False,
     )
 
-    result = project.verify_object(ms.ref("metric.cdn.total_billing_bandwidth"))
-
-    assert result.status == "failed"
-    assert result.kind == "metric"
-    assert len(result.issues) == 1
-    issue = result.issues[0]
-    assert issue.kind == "project_load_failed"
-    assert "project failed to load" in issue.message
-    # The message should surface the real error, not "was not found"
-    assert "was not found" not in issue.message
-    # The real error mentions the broken file
-    assert "broken.py" in issue.message
+    project.load()
+    with pytest.raises(SemanticLoadFailed) as exc_info:
+        ms.SemanticCatalog(project)
+    assert "broken.py" in str(exc_info.value)
 
 
-def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_factory) -> None:
-    """verify_object on a metric ref still gets project_load_failed when the
-    project cannot load — not the old static_check_failed / 'not found'."""
+def test_catalog_construction_preserves_project_load_error(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "cdn/_domain.py": (
@@ -151,19 +143,17 @@ def test_verify_object_reports_load_errors_for_metric_ref(semantic_project_facto
         load=False,
     )
 
-    result = project.verify_object(ms.ref("metric.cdn.some_metric"))
-
-    assert result.status == "failed"
-    assert result.kind == "metric"
-    assert result.issues[0].kind == "project_load_failed"
-    assert "intentional load error" in result.issues[0].message
+    project.load()
+    with pytest.raises(SemanticLoadFailed) as exc_info:
+        ms.SemanticCatalog(project)
+    assert "intentional load error" in str(exc_info.value)
 
 
 def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     model = (
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales', owner='Mina Zhang')\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "@ms.measure(entity=orders, additivity='additive')\n"
         "def amount(orders):\n"
         "    return orders.amount\n"
@@ -171,17 +161,16 @@ def test_verify_object_measure_returns_passed(semantic_project_factory) -> None:
     project = semantic_project_factory({"sales/_domain.py": model})
     project.load()
 
-    result = project.verify_object(ms.ref("measure.sales.orders.amount"))
+    result = ms.SemanticCatalog(project).verify(ms.Ref.measure("sales.orders.amount"))
 
     assert result.status == "passed"
     assert result.kind == "measure"
 
 
-def test_verify_object_known_ref_still_not_found_when_loaded(
+def test_verify_known_ref_is_not_found_when_loaded(
     semantic_project_factory,
 ) -> None:
-    """When the project loads successfully but the ref doesn't exist,
-    verify_object still uses static_check_failed (not project_load_failed)."""
+    """Verification requires membership in the immutable loaded catalog."""
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -192,9 +181,6 @@ def test_verify_object_known_ref_still_not_found_when_loaded(
     )
     assert project.is_ready()
 
-    result = project.verify_object(ms.ref("metric.sales.nonexistent_metric"))
-
-    assert result.status == "failed"
-    assert result.kind == "metric"
-    assert result.issues[0].kind == "static_check_failed"
-    assert "was not found" in result.issues[0].message
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        ms.SemanticCatalog(project).verify(ms.Ref.metric("sales.nonexistent_metric"))
+    assert exc_info.value.kind == "not_found"

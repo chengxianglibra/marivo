@@ -6,6 +6,7 @@ import pandas as pd
 
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
+from tests.shared_fixtures import make_test_delta_contract
 
 
 def _now():
@@ -14,6 +15,7 @@ def _now():
 
 def test_delta_frame_meta_kind_literal():
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",
         ref="frame_d_001",
         session_id="sess_x",
@@ -46,6 +48,7 @@ def test_delta_frame_wraps_df_and_meta():
         }
     )
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         kind="delta_frame",
         ref="frame_d_001",
         session_id="sess_x",
@@ -72,6 +75,7 @@ def test_delta_frame_meta_accepts_optional_normalization():
     from marivo.analysis.frames.delta import DeltaFrameMeta
 
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         ref="frame_test",
         session_id="sess_test",
         project_root="/tmp/proj",
@@ -92,6 +96,7 @@ def test_delta_frame_meta_accepts_optional_normalization():
 
 def test_delta_frame_meta_component_links_default_to_none():
     meta = DeltaFrameMeta(
+        **make_test_delta_contract("sales.revenue"),
         ref="frame_test",
         session_id="sess_test",
         project_root="/tmp/proj",

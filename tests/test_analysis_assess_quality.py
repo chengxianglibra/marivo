@@ -10,7 +10,11 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.lineage import Lineage
 from marivo.analysis.session._load import load_frame
-from tests.shared_fixtures import make_metric_frame, seeded_time_series_metric_frame
+from tests.shared_fixtures import (
+    make_metric_frame,
+    make_test_delta_contract,
+    seeded_time_series_metric_frame,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -247,6 +251,7 @@ def test_non_metric_frame_raises(tmp_path):
     delta = DeltaFrame(
         _df=pd.DataFrame({"delta": [1.0]}),
         meta=DeltaFrameMeta(
+            **make_test_delta_contract("sales.revenue"),
             kind="delta_frame",
             ref="frame_delta",
             session_id=session.id,

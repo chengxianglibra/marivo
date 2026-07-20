@@ -8,18 +8,17 @@ import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.analysis.errors import FrameMetaInvalidError
 from marivo.analysis.evidence.types import (
-    AnalysisScope,
     ArtifactDigest,
     OmissionSummary,
     OperatorSemantics,
     RawFallback,
-    Subject,
 )
 from marivo.analysis.frames.association import AssociationResult, AssociationResultMeta
 from marivo.analysis.frames.candidate import CandidateSet, CandidateSetMeta
 from marivo.analysis.frames.quality import QualityReport, QualityReportMeta
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.analysis.session._runtime import persist_frame
+from tests.shared_fixtures import make_test_analysis_scope, make_test_subject
 
 
 def _now():
@@ -57,8 +56,8 @@ def _digest(ref: str, *, operator: str, family: str) -> ArtifactDigest:
             operator_version="v1",
             artifact_family=family,
         ),
-        subject=Subject(metric="sales.revenue", analysis_axis="scalar"),
-        scope=AnalysisScope(metric_ids=("sales.revenue",)),
+        subject=make_test_subject(metric_id="sales.revenue", analysis_axis="scalar"),
+        scope=make_test_analysis_scope("sales.revenue"),
         omissions=OmissionSummary(retained_items=0, omitted_items=0, bounded=True),
         fallback=RawFallback(
             artifact_ref=ref,

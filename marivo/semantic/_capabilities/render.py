@@ -112,6 +112,10 @@ def render_root_help() -> str:
     lines.extend(
         (
             "",
+            "Identity handoff: navigate to a CatalogEntry, then pass entry.ref to "
+            "verify, preview, readiness, or analysis; use ms.Ref.<kind>(path) when "
+            "the exact identity is already known.",
+            "",
             "Consumed types: " + ", ".join(contract.name for contract in TYPE_CONTRACTS.values()),
             "Errors: " + ", ".join(ERROR_TYPES),
             "",
@@ -253,6 +257,24 @@ def _render_type(type_name: str, original: object | None) -> str:
     if contract.consumers:
         lines.append(
             "  Consumers: " + ", ".join(_target_text(target) for target in contract.consumers)
+        )
+    if type_name == "Ref":
+        lines.extend(
+            (
+                "  Construction: use one exact factory such as "
+                "ms.Ref.metric('sales.revenue') or "
+                "ms.Ref.dimension('sales.orders.region').",
+                "  Catalog handoff: entry = catalog.require(ms.Ref.metric('sales.revenue')); "
+                "metric_ref = entry.ref.",
+                "  Field application: only dimension, time_dimension, and measure refs "
+                "are callable, only as field_ref(entity_alias) inside a registered "
+                "semantic expression body.",
+            )
+        )
+    if type_name == "CatalogEntry":
+        lines.append(
+            "  Identity handoff: pass entry.ref to catalog.verify, catalog.preview, "
+            "catalog.readiness, or analysis APIs."
         )
     if "details" in contract.public_methods:
         lines.append(

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     CrossSessionFrameError,
     FrameCacheCorruptedError,
@@ -41,6 +42,7 @@ from marivo.analysis.session._runtime import (
     register_frame_artifact,
     require_current_session,
 )
+from marivo.refs import Ref, RefPayloadV1
 from marivo.semantic.metric_graph import (
     CatalogMetricIdentity,
     ComparableValueSemanticsV1,
@@ -66,7 +68,7 @@ def _projected_expression_forest(
 ) -> MetricExpressionForestV1:
     registry = session.catalog._require_index().registry
     if isinstance(metric_identity, CatalogMetricIdentity):
-        return lower_catalog_metric(registry, metric_identity.metric_id)
+        return lower_catalog_metric(registry, metric_identity.metric_ref.path)
     observe_params = next(
         (
             step.params
@@ -219,15 +221,13 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         )
     parent_artifact = frame.meta.artifact_id or frame.meta.ref
     params = {
-        "metric": metric_id,
         "replay_expression": replay_expressions[entry_index],
     }
-    anchors = {"metric_id": metric_id, "model": metric_id.split(".", 1)[0]}
     prospective_id = compute_prospective_artifact_id(
         step_type="select_metric",
         inputs=CommitInputs(input_refs=[parent_artifact]),
         params=CommitParams(values=params),
-        semantic_anchors=CommitSemanticAnchors(values=anchors),
+        semantic_anchors=CommitSemanticAnchors.from_frame(frame),
     )
     if frame_exists_on_disk(session._layout.frames_dir, prospective_id):
         return cast("MetricFrame", load_frame(prospective_id, session=session))
@@ -293,7 +293,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             "metric_identities": (metric_identity,),
             "scope_fingerprint": parent_artifact_identity.scope_fingerprint,
             "source_domain_fingerprint": parent_artifact_identity.source_domain_fingerprint,
-            "dependency_fingerprint": projected_dependency_digest.fingerprint,
+            "dependency_fingerprint": projected_dependency_digest.digest,
             "snapshot_fingerprint": parent_artifact_identity.snapshot_fingerprint,
             "coverage_fingerprint": parent_artifact_identity.coverage_fingerprint,
             "presentation_fingerprint": presentation_fingerprint,
@@ -304,7 +304,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             metric_identities=(metric_identity,),
             scope_fingerprint=parent_artifact_identity.scope_fingerprint,
             source_domain_fingerprint=parent_artifact_identity.source_domain_fingerprint,
-            dependency_fingerprint=projected_dependency_digest.fingerprint,
+            dependency_fingerprint=projected_dependency_digest.digest,
             snapshot_fingerprint=parent_artifact_identity.snapshot_fingerprint,
             coverage_fingerprint=parent_artifact_identity.coverage_fingerprint,
             presentation_fingerprint=presentation_fingerprint,
@@ -313,6 +313,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         )
     meta = MetricFrameMeta(
         kind="metric_frame",
+        catalog_definition_fingerprint=frame.meta.catalog_definition_fingerprint,
         ref=frame_ref,
         session_id=session.id,
         project_root=frame.meta.project_root,
@@ -363,12 +364,22 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             if frame.meta.execution_stats is not None
             else None
         ),
+        axis_bindings=frame.meta.axis_bindings,
+        slice_predicates=frame.meta.slice_predicates,
+        status_time_dimension_ref=(
+            RefPayloadV1.from_ref(Ref.time_dimension(status_time_dimension))
+            if isinstance(
+                status_time_dimension := entry.get("status_time_dimension"),
+                str,
+            )
+            else None
+        ),
         axes=frame.meta.axes,
         measure={"name": entry["name"]},
         window=frame.meta.window,
         where=frame.meta.where,
         semantic_kind=frame.meta.semantic_kind,
-        semantic_model=anchors["model"],
+        semantic_model=metric_id.split(".", 1)[0],
         unit=entry["unit"],
         unit_state=entry.get("unit_state"),
         reaggregatable=bool(entry["reaggregatable"]),
@@ -385,21 +396,6 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
         projected_presentation=projected_presentation,
         session=session,
     )
-    component = _persist_metric_component_graph_frame(
-        session=session,
-        df=df,
-        parent=projected,
-        axes=frame.meta.axes,
-        semantic_kind=frame.meta.semantic_kind,
-        job_ref=job_ref,
-        component_graph=component_graph,
-    )
-    projected = _attach_metric_component_graph_ref(
-        session=session,
-        parent=projected,
-        component=component,
-        persist_parent=False,
-    )
     result = cast(
         "MetricFrame",
         commit_result(
@@ -409,15 +405,28 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             step_type="select_metric",
             inputs=CommitInputs(input_refs=[parent_artifact]),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(values=anchors),
+            semantic_anchors=CommitSemanticAnchors.from_frame(projected),
             subject=Subject(
-                metric=metric_id,
-                slice=frame.meta.where or {},
                 grain=grain_token,
                 analysis_axis=_analysis_axis_for_kind(frame.meta.semantic_kind),
             ),
             extractor_family="projection",
         ),
+    )
+    component = _persist_metric_component_graph_frame(
+        session=session,
+        df=df,
+        parent=result,
+        axes=frame.meta.axes,
+        semantic_kind=frame.meta.semantic_kind,
+        job_ref=job_ref,
+        component_graph=component_graph,
+    )
+    result = _attach_metric_component_graph_ref(
+        session=session,
+        parent=result,
+        component=component,
+        persist_parent=True,
     )
     register_frame_artifact(session, result)
     finished_at = datetime.now(UTC)
@@ -427,6 +436,7 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             "id": job_ref,
             "session_id": session.id,
             "intent": "select_metric",
+            **job_semantics_from_frames(result),
             "analysis_purpose": frame.meta.analysis_purpose,
             "params": params,
             "input_frame_refs": [parent_artifact],
@@ -437,7 +447,6 @@ def project_metric(frame: MetricFrame, metric_id: str) -> MetricFrame:
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog.semantic_root),
-            "semantic_model": anchors["model"],
             "queries": [],
         },
     )

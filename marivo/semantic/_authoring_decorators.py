@@ -9,11 +9,22 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Literal
 
-from marivo.datasource.authoring import DatasourceRef
+from marivo.refs import (
+    DatasourceKind,
+    DomainKind,
+    EntityKind,
+    MeasureKind,
+    Ref,
+    RelationshipKind,
+    SemanticKind,
+    TimeDimensionKind,
+)
+from marivo.refs import (
+    DimensionKind as DimensionKindTag,
+)
 from marivo.semantic._authoring_context import (
     _caller_location,
     _check_duplicate,
-    _column_accessor,
     _domain_from_ref_id,
     _push_ir,
     _register_authoring_file,
@@ -34,6 +45,7 @@ from marivo.semantic._authoring_validation import (
     _validate_unit,
 )
 from marivo.semantic._authoring_values import _build_ai_context
+from marivo.semantic._expression_binding import ExpressionBody, compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
@@ -53,42 +65,33 @@ from marivo.semantic.ir import (
     TableSourceIR,
     ValidityVersioningIR,
 )
-from marivo.semantic.refs import (
-    DimensionRef,
-    DomainRef,
-    EntityRef,
-    MeasureRef,
-    RelationshipRef,
-    TimeDimensionRef,
-)
 from marivo.semantic.typing import AiContextValue
-from marivo.semantic.validator import validate_metric_body_ast
 
 
 def entity(
     *,
     name: str,
-    datasource: DatasourceRef,
+    datasource: Ref[DatasourceKind],
     source: EntitySourceIR,
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> EntityRef:
+) -> Ref[EntityKind]:
     """Declare an entity over a structured physical source.
 
     Args:
         name: Entity name.
-        datasource: Datasource ref returned by ``md.ref(...)``.
+        datasource: Datasource ref returned by ``ms.Ref.datasource(...)``.
         source: Structured physical source, usually ``md.table(...)``,
             ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
         primary_key: Optional list of column names forming the primary key.
-        domain: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        An ``EntityRef`` usable by ``@ms.dimension`` and ``@ms.metric``.
+        An ``Ref[entity]`` usable by ``@ms.dimension`` and ``@ms.metric``.
 
     Raises:
         SemanticDecoratorError: ``datasource`` is not a datasource ref, ``name``
@@ -97,13 +100,14 @@ def entity(
     Example:
         >>> orders = ms.entity(
         ...     name="orders",
-        ...     datasource=md.ref("datasource.warehouse"),
+        ...     datasource=ms.Ref.datasource("warehouse"),
         ...     source=md.table("orders", database="sales_mart"),
         ... )
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     semantic_id = f"{resolved_domain}.{name}"
+    ref = Ref.entity(semantic_id)
     _check_duplicate(ctx, semantic_id, EntityIR)
     if not isinstance(source, (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         _raise(
@@ -131,19 +135,19 @@ def entity(
         location=location,
         versioning=versioning,
     )
-    _push_ir(ctx, ir, None)
+    _push_ir(ctx, ref, ir, None)
 
-    return EntityRef(semantic_id)
+    return ref
 
 
 def dimension_column(
     *,
     name: str,
-    entity: EntityRef,
+    entity: Ref[EntityKind],
     column: str,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> DimensionRef:
+) -> Ref[DimensionKindTag]:
     """Declare a categorical dimension directly from one physical column.
 
     Args:
@@ -151,28 +155,29 @@ def dimension_column(
         entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
-        domain: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with
             business meaning and agent-facing guidance.
 
     Returns:
-        A ``DimensionRef`` usable in metric bodies and analysis APIs.
+        A ``Ref[dimension]`` usable in metric bodies and analysis APIs.
 
     Constraints:
         Use ``@ms.dimension(...)`` when the dimension is an expression over one
         or more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
         >>> region = ms.dimension_column(name="region", entity=orders, column="region")
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     entity_ref = _require_entity_ref(entity, parameter="entity")
-    entity_id = entity_ref.id
+    entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
+    ref = Ref.dimension(semantic_id)
     column_name = _require_non_empty_column(column, semantic_id=semantic_id)
     entity_domain = _domain_from_ref_id(entity_id)
     if entity_domain != resolved_domain:
@@ -199,19 +204,17 @@ def dimension_column(
         location=location,
         body_ast_hash=_compute_column_hash(column_name),
     )
-    ref = DimensionRef(semantic_id)
-    _push_ir(ctx, ir, _column_accessor(column_name))
-    ctx.pending_refs.append(ref)
+    _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
     return ref
 
 
 def dimension(
     *,
     name: str | None = None,
-    entity: EntityRef,
-    domain: DomainRef | None = None,
+    entity: Ref[EntityKind],
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Any]], DimensionRef]:
+) -> Callable[[Callable[..., Any]], Ref[DimensionKindTag]]:
     """Declare a categorical dimension whose body returns an ibis expression over its entity.
 
     The decorated function takes the entity table and returns a single
@@ -224,12 +227,12 @@ def dimension(
     Args:
         name: Dimension name. Defaults to the function name.
         entity: Owning entity ref returned by ``ms.entity(...)``.
-        domain: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A decorator that returns a ``DimensionRef``.
+        A decorator that returns a ``Ref[dimension]``.
 
     Raises:
         SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
@@ -243,10 +246,15 @@ def dimension(
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
 
-    def decorator(fn: Callable[..., Any]) -> DimensionRef:
+    def decorator(fn: Callable[..., Any]) -> Ref[DimensionKindTag]:
         obj_name = name or fn.__name__
-        entity_ref = _require_ref_id(entity, parameter="entity", expected=(EntityRef,))
+        entity_ref = _require_ref_id(
+            entity,
+            parameter="entity",
+            expected=(SemanticKind.ENTITY,),
+        )
         semantic_id = f"{entity_ref}.{obj_name}"
+        ref = Ref.dimension(semantic_id)
         entity_domain = entity_ref.split(".", 1)[0]
         if entity_domain != resolved_domain:
             _raise(
@@ -259,7 +267,11 @@ def dimension(
             )
         _check_duplicate(ctx, semantic_id, DimensionIR)
 
-        body_hash = validate_metric_body_ast(fn, "base", body_kind="dimension")
+        expression_body = compile_expression_body(
+            fn,
+            owning_ref=ref,
+            ordered_entity_refs=(entity,),
+        )
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
@@ -273,12 +285,9 @@ def dimension(
             kind=DimensionKind.CATEGORICAL,
             python_symbol=fn.__name__,
             location=location,
-            body_ast_hash=body_hash,
+            body_ast_hash=expression_body.body_ast_hash,
         )
-        _push_ir(ctx, ir, fn)
-
-        ref = DimensionRef(semantic_id)
-        ctx.pending_refs.append(ref)
+        _push_ir(ctx, ref, ir, expression_body)
         return ref
 
     return decorator
@@ -287,13 +296,13 @@ def dimension(
 def measure_column(
     *,
     name: str,
-    entity: EntityRef,
+    entity: Ref[EntityKind],
     column: str,
     additivity: Additivity,
     unit: str | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> MeasureRef:
+) -> Ref[MeasureKind]:
     """Declare a quantitative measure directly from one physical column.
 
     Args:
@@ -304,20 +313,20 @@ def measure_column(
         additivity: Whether the measure is ``"additive"``, ``"non_additive"``,
             or ``ms.semi_additive(over=..., fold=...)``.
         unit: UCUM unit token such as ``"CNY"``, ``"USD"``, ``"%"``, or ``"1"``.
-        domain: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with
             business meaning and agent-facing guidance.
 
     Returns:
-        A ``MeasureRef`` usable by ``ms.aggregate(...)`` and expression bodies.
+        A ``Ref[measure]`` usable by ``ms.aggregate(...)`` and expression bodies.
 
     Constraints:
         Use ``@ms.measure(...)`` when the measure is an expression over one or
         more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
         >>> amount = ms.measure_column(
         ...     name="amount", entity=orders, column="amount",
         ...     additivity="additive", unit="CNY",
@@ -326,9 +335,10 @@ def measure_column(
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     entity_ref = _require_entity_ref(entity, parameter="entity")
-    entity_id = entity_ref.id
+    entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
+    ref = Ref.measure(semantic_id)
     column_name = _require_non_empty_column(column, semantic_id=semantic_id)
     entity_domain = _domain_from_ref_id(entity_id)
     if entity_domain != resolved_domain:
@@ -356,21 +366,19 @@ def measure_column(
         location=location,
         body_ast_hash=_compute_column_hash(column_name),
     )
-    ref = MeasureRef(semantic_id)
-    _push_ir(ctx, ir, _column_accessor(column_name))
-    ctx.pending_refs.append(ref)
+    _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
     return ref
 
 
 def measure(
     *,
     name: str | None = None,
-    entity: EntityRef,
+    entity: Ref[EntityKind],
     additivity: Additivity,
     unit: str | None = None,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Any]], MeasureRef]:
+) -> Callable[[Callable[..., Any]], Ref[MeasureKind]]:
     """Declare a row-level quantitative measure whose expression can be aggregated.
 
     Measures represent quantitative facts (e.g. amount, quantity) that can be
@@ -383,12 +391,12 @@ def measure(
         additivity: Whether the measure is ``"additive"``, ``"non_additive"``,
             or ``ms.semi_additive(over=..., fold=...)``.
         unit: UCUM unit token (e.g. ``"USD"``, ``"CNY"``, ``"%"``).
-        domain: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A decorator that returns a ``MeasureRef``.
+        A decorator that returns a ``Ref[measure]``.
 
     Raises:
         SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
@@ -402,10 +410,15 @@ def measure(
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
 
-    def decorator(fn: Callable[..., Any]) -> MeasureRef:
+    def decorator(fn: Callable[..., Any]) -> Ref[MeasureKind]:
         obj_name = name or fn.__name__
-        entity_ref = _require_ref_id(entity, parameter="entity", expected=(EntityRef,))
+        entity_ref = _require_ref_id(
+            entity,
+            parameter="entity",
+            expected=(SemanticKind.ENTITY,),
+        )
         semantic_id = f"{entity_ref}.{obj_name}"
+        ref = Ref.measure(semantic_id)
         entity_domain = entity_ref.split(".", 1)[0]
         if entity_domain != resolved_domain:
             _raise(
@@ -418,7 +431,11 @@ def measure(
             )
         _check_duplicate(ctx, semantic_id, MeasureIR)
         _validate_unit(unit, semantic_id, "measure")
-        body_hash = validate_metric_body_ast(fn, "base", body_kind="measure")
+        expression_body = compile_expression_body(
+            fn,
+            owning_ref=ref,
+            ordered_entity_refs=(entity,),
+        )
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
         ir = MeasureIR(
@@ -431,11 +448,9 @@ def measure(
             unit=unit,
             python_symbol=fn.__name__,
             location=location,
-            body_ast_hash=body_hash,
+            body_ast_hash=expression_body.body_ast_hash,
         )
-        _push_ir(ctx, ir, fn)
-        ref = MeasureRef(semantic_id)
-        ctx.pending_refs.append(ref)
+        _push_ir(ctx, ref, ir, expression_body)
         return ref
 
     return decorator
@@ -444,14 +459,14 @@ def measure(
 def time_dimension_column(
     *,
     name: str,
-    entity: EntityRef,
+    entity: Ref[EntityKind],
     column: str,
     granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
     parse: SemanticParse | None = None,
     is_default: bool = False,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> TimeDimensionRef:
+) -> Ref[TimeDimensionKind]:
     """Declare a time dimension directly from one physical column.
 
     Args:
@@ -462,20 +477,20 @@ def time_dimension_column(
         granularity: Finest grain at which queries are meaningful.
         parse: Optional parse variant such as ``ms.strptime(...)``.
         is_default: Whether this is the default time axis for the entity.
-        domain: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with
             business meaning and agent-facing guidance.
 
     Returns:
-        A ``TimeDimensionRef`` usable for observe windows and metric bodies.
+        A ``Ref[time_dimension]`` usable for observe windows and metric bodies.
 
     Constraints:
         Use ``@ms.time_dimension(...)`` when the time axis is an expression over
         one or more columns. This helper is only for direct physical columns.
 
     Example:
-        >>> orders = ms.entity(name="orders", datasource=md.ref("datasource.warehouse"), source=md.table("orders"))
+        >>> orders = ms.entity(name="orders", datasource=ms.Ref.datasource("warehouse"), source=md.table("orders"))
         >>> log_date = ms.time_dimension_column(
         ...     name="log_date", entity=orders, column="dt",
         ...     granularity="day", parse=ms.strptime("%Y%m%d"),
@@ -484,9 +499,10 @@ def time_dimension_column(
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     entity_ref = _require_entity_ref(entity, parameter="entity")
-    entity_id = entity_ref.id
+    entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
+    ref = Ref.time_dimension(semantic_id)
     column_name = _require_non_empty_column(column, semantic_id=semantic_id)
     entity_domain = _domain_from_ref_id(entity_id)
     if entity_domain != resolved_domain:
@@ -521,22 +537,20 @@ def time_dimension_column(
         location=location,
         body_ast_hash=_compute_column_hash(column_name),
     )
-    ref = TimeDimensionRef(semantic_id)
-    _push_ir(ctx, ir, _column_accessor(column_name))
-    ctx.pending_refs.append(ref)
+    _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
     return ref
 
 
 def time_dimension(
     *,
     name: str | None = None,
-    entity: EntityRef,
+    entity: Ref[EntityKind],
     granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
     parse: SemanticParse | None = None,
     is_default: bool = False,
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Any]], TimeDimensionRef]:
+) -> Callable[[Callable[..., Any]], Ref[TimeDimensionKind]]:
     """Declare a time-aware dimension that carries grain and parsing metadata.
 
     Time dimensions are the only dimensions usable as window axes by ``session.observe``.
@@ -560,12 +574,12 @@ def time_dimension(
             exist on the entity. At most one time dimension per entity may carry
             is_default=True. When observe() is called without time_dimension=, the default
             dimension is used automatically.
-        domain: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A decorator that returns a ``TimeDimensionRef``.
+        A decorator that returns a ``Ref[time_dimension]``.
 
     Raises:
         SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, the
@@ -580,10 +594,15 @@ def time_dimension(
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
 
-    def decorator(fn: Callable[..., Any]) -> TimeDimensionRef:
+    def decorator(fn: Callable[..., Any]) -> Ref[TimeDimensionKind]:
         obj_name = name or fn.__name__
-        ds_ref = _require_ref_id(entity, parameter="entity", expected=(EntityRef,))
+        ds_ref = _require_ref_id(
+            entity,
+            parameter="entity",
+            expected=(SemanticKind.ENTITY,),
+        )
         semantic_id = f"{ds_ref}.{obj_name}"
+        ref = Ref.time_dimension(semantic_id)
         ds_domain = ds_ref.split(".", 1)[0]
         if ds_domain != resolved_domain:
             _raise(
@@ -597,7 +616,11 @@ def time_dimension(
         _check_duplicate(ctx, semantic_id, DimensionIR)
 
         _validate_time_parse(parse)
-        body_hash = validate_metric_body_ast(fn, "base", body_kind="time_dimension")
+        expression_body = compile_expression_body(
+            fn,
+            owning_ref=ref,
+            ordered_entity_refs=(entity,),
+        )
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
 
@@ -621,12 +644,9 @@ def time_dimension(
             is_default=is_default,
             python_symbol=fn.__name__,
             location=location,
-            body_ast_hash=body_hash,
+            body_ast_hash=expression_body.body_ast_hash,
         )
-        _push_ir(ctx, ir, fn)
-
-        ref = TimeDimensionRef(semantic_id)
-        ctx.pending_refs.append(ref)
+        _push_ir(ctx, ref, ir, expression_body)
         return ref
 
     return decorator
@@ -635,12 +655,12 @@ def time_dimension(
 def relationship(
     *,
     name: str,
-    from_entity: EntityRef,
-    to_entity: EntityRef,
+    from_entity: Ref[EntityKind],
+    to_entity: Ref[EntityKind],
     keys: list[JoinKey],
-    domain: DomainRef | None = None,
+    domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> RelationshipRef:
+) -> Ref[RelationshipKind]:
     """Declare a join relationship between two entities.
 
     Top-level call (not a decorator). Used by the compiler to plan joins when a
@@ -651,12 +671,12 @@ def relationship(
         from_entity: Source entity ref.
         to_entity: Target entity ref.
         keys: List of ``ms.join_on(from_key, to_key)`` pairs.
-        domain: Override the active domain namespace with a ``DomainRef`` returned
+        domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A ``RelationshipRef``.
+        A ``Ref[relationship]``.
 
     Raises:
         SemanticDecoratorError: ``name`` is missing, the entities are unknown, or
@@ -673,10 +693,19 @@ def relationship(
     resolved_domain = _resolve_domain(domain, ctx)
 
     semantic_id = f"{resolved_domain}.{name}"
+    ref = Ref.relationship(semantic_id)
     _check_duplicate(ctx, semantic_id, RelationshipIR)
 
-    from_ds = _require_ref_id(from_entity, parameter="from_entity", expected=(EntityRef,))
-    to_ds = _require_ref_id(to_entity, parameter="to_entity", expected=(EntityRef,))
+    from_ds = _require_ref_id(
+        from_entity,
+        parameter="from_entity",
+        expected=(SemanticKind.ENTITY,),
+    )
+    to_ds = _require_ref_id(
+        to_entity,
+        parameter="to_entity",
+        expected=(SemanticKind.ENTITY,),
+    )
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
 
@@ -701,9 +730,9 @@ def relationship(
         ai_context=ai_ctx,
         location=location,
     )
-    _push_ir(ctx, ir, None)
+    _push_ir(ctx, ref, ir, None)
 
-    return RelationshipRef(semantic_id)
+    return ref
 
 
 _register_authoring_file(__file__)

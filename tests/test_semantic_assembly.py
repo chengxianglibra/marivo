@@ -20,6 +20,11 @@ import textwrap
 
 import pytest
 
+from marivo.refs import Ref
+from marivo.semantic._expression_binding import (
+    CompiledExpressionSidecar,
+    compile_expression_body,
+)
 from marivo.semantic.errors import ErrorKind, WarningKind
 from marivo.semantic.ir import (
     AiContextIR,
@@ -51,6 +56,22 @@ from marivo.semantic.validator import Registry, assembly_validate
 # ---------------------------------------------------------------------------
 
 _LOC = SourceLocation(file="<test>", line=0)
+
+
+def _time_dimension_sidecar(fn):
+    field_ref = Ref.time_dimension("sales.orders.order_date")
+    entity_ref = Ref.entity("sales.orders")
+    return CompiledExpressionSidecar(
+        bodies={
+            field_ref: compile_expression_body(
+                fn,
+                owning_ref=field_ref,
+                ordered_entity_refs=(entity_ref,),
+            )
+        },
+        field_owners={field_ref: entity_ref},
+        catalog_refs=frozenset({field_ref, entity_ref}),
+    )
 
 
 def _make_registry(**overrides: object) -> Registry:
@@ -312,7 +333,7 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
     )
 
     errors, warnings = assembly_validate(
-        registry, sidecar={"sales.orders.order_date": _cast_partition_time_field}
+        registry, sidecar=_time_dimension_sidecar(_cast_partition_time_field)
     )
 
     assert errors == []
@@ -336,7 +357,7 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     )
 
     errors, warnings = assembly_validate(
-        registry, sidecar={"sales.orders.order_date": _raw_partition_time_field}
+        registry, sidecar=_time_dimension_sidecar(_raw_partition_time_field)
     )
 
     assert errors == []
@@ -625,13 +646,13 @@ def test_cross_file_dataset_metric_refs(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
+        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("wh"), source=md.table("orders"))
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        @ms.metric(entities=[ms.ref("entity.sales.orders")], additivity="additive", )
+        @ms.metric(entities=[ms.Ref.entity("sales.orders")], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -685,7 +706,7 @@ def test_cross_file_refs_with_missing_dataset(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        @ms.metric(entities=[ms.ref("entity.sales.nonexistent")], additivity="additive", )
+        @ms.metric(entities=[ms.Ref.entity("sales.nonexistent")], additivity="additive", )
         def revenue(table):
             return table.amount.sum()
     """)
@@ -706,7 +727,7 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
         import marivo.datasource as md
         import marivo.semantic as ms
 
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
+        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("wh"), source=md.table("orders"))
     """)
     project = semantic_project_factory(
         {
@@ -718,11 +739,11 @@ def test_registry_and_sidecar_populated(semantic_project_factory) -> None:
     reg = project._registry
     assert reg is not None
     assert "sales" in reg.domains
-    assert "datasource.wh" in reg.datasources
+    assert "wh" in reg.datasources
     assert "sales.orders" in reg.entities
-    side = project._sidecar
-    assert side is not None
-    assert "sales.orders" not in side
+    assert project._compiled_state is not None
+    side = project._compiled_state.sidecar
+    assert Ref.entity("sales.orders") not in side.bodies
 
 
 def test_warnings_in_load_result(semantic_project_factory) -> None:
@@ -730,7 +751,7 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=md.ref("datasource.wh"), source=md.table("orders"))
+        orders = ms.entity(name="orders", datasource=ms.Ref.datasource("wh"), source=md.table("orders"))
 
         @ms.metric(
             entities=[orders],
@@ -759,9 +780,9 @@ def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
 
         ms.relationship(
             name="bad_rel",
-            from_entity=ms.ref("entity.sales.nonexistent"),
-            to_entity=ms.ref("entity.sales.also_nonexistent"),
-            keys=[ms.join_on(ms.ref("dimension.sales.orders.f1"), ms.ref("dimension.sales.orders.f2"))],
+            from_entity=ms.Ref.entity("sales.nonexistent"),
+            to_entity=ms.Ref.entity("sales.also_nonexistent"),
+            keys=[ms.join_on(ms.Ref.dimension("sales.orders.f1"), ms.Ref.dimension("sales.orders.f2"))],
         )
     """)
     project = semantic_project_factory(
@@ -1051,7 +1072,7 @@ _BASE_NESTED_PROJECT = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 amount = ms.measure_column(
     name="amount", entity=orders, column="amount", additivity="additive")

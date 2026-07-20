@@ -108,7 +108,7 @@ def contract_for_verify_result(ref: str) -> AuthoringContract:
                     available=True,
                     input_requirements=(
                         AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
-                        AuthoringInputRequirement(role="subject", family="CatalogObject"),
+                        AuthoringInputRequirement(role="subject", family="CatalogEntry"),
                         AuthoringInputRequirement(role="evidence", family="DiscoverySnapshot"),
                     ),
                 ),
@@ -136,7 +136,7 @@ def contract_for_preview_batch_result(refs: tuple[str, ...]) -> AuthoringContrac
                         AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                         AuthoringInputRequirement(
                             role="subject",
-                            family="SemanticRef",
+                            family="Ref",
                             subject_refs=refs,
                             min_count=len(refs),
                             max_count=len(refs),
@@ -169,7 +169,7 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
     loaded = _state("semantic.loaded", subject_refs)
     transitions: list[AuthoringTransition] = [
         _transition(
-            "verify_object",
+            "verify",
             kind="verify",
             subject_refs=subject_refs,
             required_states=(loaded,),
@@ -178,7 +178,7 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
             input_requirements=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 AuthoringInputRequirement(
-                    role="subject", family="CatalogObject", subject_refs=subject_refs
+                    role="subject", family="CatalogEntry", subject_refs=subject_refs
                 ),
             ),
         ),
@@ -203,7 +203,7 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
                 input_requirements=(
                     AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                     AuthoringInputRequirement(
-                        role="subject", family="CatalogObject", subject_refs=subject_refs
+                        role="subject", family="CatalogEntry", subject_refs=subject_refs
                     ),
                     AuthoringInputRequirement(role="evidence", family="DiscoverySnapshot"),
                 ),
@@ -220,7 +220,7 @@ def contract_for_catalog_object(ref: str, kind: str) -> AuthoringContract:
             input_requirements=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 AuthoringInputRequirement(
-                    role="subject", family="CatalogObject", subject_refs=subject_refs
+                    role="subject", family="CatalogEntry", subject_refs=subject_refs
                 ),
             ),
         )
@@ -301,7 +301,7 @@ def contract_for_readiness_report(
                     AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                     AuthoringInputRequirement(
                         role="subject",
-                        family="CatalogObject",
+                        family="CatalogEntry",
                         subject_refs=preview_refs,
                         min_count=len(preview_refs),
                         max_count=len(preview_refs),

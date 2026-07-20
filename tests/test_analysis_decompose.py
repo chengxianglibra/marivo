@@ -19,14 +19,16 @@ from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.intents.decompose import decompose
 from marivo.analysis.lineage import Lineage, LineageStep
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_test_delta_contract, make_test_metric_meta_contract
 
 
 @pytest.fixture(autouse=True)
 def _chdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_attach._reset_process_state()
+    bootstrap_sales_project(tmp_path)
     yield
 
 
@@ -46,6 +48,10 @@ def _delta(
     fold=None,
 ):
     meta = DeltaFrameMeta(
+        **make_test_delta_contract(
+            "sales.revenue",
+            status_time_dimension=status_time_dimension,
+        ),
         kind="delta_frame",
         ref=ref,
         session_id=session.id,
@@ -80,6 +86,7 @@ def _delta(
 
 def _metric(session):
     meta = MetricFrameMeta(
+        **make_test_metric_meta_contract("sales.revenue"),
         kind="metric_frame",
         ref="frame_metric",
         session_id=session.id,
@@ -121,7 +128,9 @@ def test_decompose_time_series_uses_axis_ref():
         semantic_kind="time_series",
     )
 
-    out = decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
+    out = decompose(
+        frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
+    )
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.attribution_kind == "decomposition"
@@ -146,7 +155,9 @@ def test_decompose_segmented_uses_axis_ref():
         semantic_kind="segmented",
     )
 
-    out = decompose(frame, axis=make_ref("region", SemanticKind.DIMENSION), session=session)
+    out = decompose(
+        frame, axis=make_ref("sales.orders.region", SemanticKind.DIMENSION), session=session
+    )
 
     df = out.to_pandas()
     assert list(df["driver"]) == ["north", "south"]
@@ -167,11 +178,13 @@ def test_decompose_axes_single_axis_returns_level_one_hierarchy_rows():
         semantic_kind="segmented",
     )
 
-    out = decompose(frame, axes=[make_ref("region", SemanticKind.DIMENSION)], session=session)
+    out = decompose(
+        frame, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)], session=session
+    )
 
     assert out.meta.driver_field == "path"
     assert out.meta.method == "ordered_hierarchy_sum"
-    assert out.meta.params["axes"] == ["region"]
+    assert out.meta.params["axes"] == ["sales.orders.region"]
     assert "mode" not in out.meta.params
     df = out.to_pandas().set_index("driver")
     assert df.loc["north", "contribution"] == pytest.approx(15.0)
@@ -202,8 +215,8 @@ def test_decompose_axes_multi_axis_returns_ordered_hierarchy_rows():
     out = decompose(
         frame,
         axes=[
-            make_ref("region", SemanticKind.DIMENSION),
-            make_ref("platform", SemanticKind.DIMENSION),
+            make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
         ],
         mode="hierarchy",
         session=session,
@@ -229,8 +242,8 @@ def test_decompose_multi_axis_requires_an_explicit_mode():
         decompose(
             frame,
             axes=[
-                make_ref("region", SemanticKind.DIMENSION),
-                make_ref("platform", SemanticKind.DIMENSION),
+                make_ref("sales.orders.region", SemanticKind.DIMENSION),
+                make_ref("sales.orders.platform", SemanticKind.DIMENSION),
             ],
             session=session,
         )
@@ -270,8 +283,8 @@ def test_decompose_multi_axis_joint_returns_each_axis_combination_once():
     out = decompose(
         frame,
         axes=[
-            make_ref("region", SemanticKind.DIMENSION),
-            make_ref("platform", SemanticKind.DIMENSION),
+            make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
         ],
         mode="joint",
         session=session,
@@ -300,8 +313,8 @@ def test_decompose_rejects_duplicate_axes():
         decompose(
             frame,
             axes=[
-                make_ref("region", SemanticKind.DIMENSION),
-                make_ref("region", SemanticKind.DIMENSION),
+                make_ref("sales.orders.region", SemanticKind.DIMENSION),
+                make_ref("sales.orders.region", SemanticKind.DIMENSION),
             ],
             session=session,
         )
@@ -323,7 +336,7 @@ def test_decompose_accepts_model_prefixed_axis_ref():
     )
 
     out = decompose(
-        frame, axis=make_ref("trino_query.department", SemanticKind.DIMENSION), session=session
+        frame, axis=make_ref("sales.orders.department", SemanticKind.DIMENSION), session=session
     )
 
     assert out.meta.driver_field == "path"
@@ -345,7 +358,7 @@ def test_decompose_accepts_catalog_dimension_ref(tmp_path):
         ),
         semantic_kind="segmented",
     )
-    axis = session.catalog.get("dimension.sales.orders.region").ref
+    axis = session.catalog.require(make_ref("sales.orders.region", SemanticKind.DIMENSION)).ref
 
     out = decompose(frame, axis=axis, session=session)
 
@@ -379,9 +392,11 @@ def test_decompose_scalar_rejects_missing_axis_column():
     )
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        decompose(frame, axis=make_ref("region", SemanticKind.DIMENSION), session=session)
+        decompose(
+            frame, axis=make_ref("sales.orders.region", SemanticKind.DIMENSION), session=session
+        )
 
-    assert exc_info.value._context["requested_axis"] == "region"
+    assert exc_info.value._context["requested_axis"] == "sales.orders.region"
     assert exc_info.value._context["normalized_axis"] == "region"
     assert exc_info.value._context["available_columns"] == ["delta"]
 
@@ -390,7 +405,9 @@ def test_decompose_writes_job_and_frame():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
 
-    out = decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
+    out = decompose(
+        frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
+    )
 
     jobs = [job for job in session.jobs() if job.intent == "decompose"]
     assert len(jobs) == 1
@@ -402,7 +419,9 @@ def test_decompose_rejects_metric_frame():
     session = session_attach.get_or_create(name="demo")
     with pytest.raises(SemanticKindMismatchError):
         decompose(
-            _metric(session), axis=make_ref("bucket", SemanticKind.DIMENSION), session=session
+            _metric(session),
+            axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION),
+            session=session,
         )  # type: ignore[arg-type]
 
 
@@ -414,7 +433,9 @@ def test_decompose_rejects_panel_delta():
         semantic_kind="panel",
     )
     with pytest.raises(SemanticKindMismatchError):
-        decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
+        decompose(
+            frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
+        )
 
 
 def test_decompose_rejects_non_dimension_ref_axis():
@@ -427,7 +448,7 @@ def test_decompose_rejects_non_dimension_ref_axis():
     with pytest.raises(SemanticKindMismatchError) as exc_info:
         decompose(frame, axis="region", session=session)  # type: ignore[arg-type]
 
-    assert exc_info.value._context["expected_kind"] == "dimension"
+    assert exc_info.value._context["expected_kind"] == "dimension or time_dimension"
     assert exc_info.value._context["actual_kind"] == "str"
 
 
@@ -439,9 +460,11 @@ def test_decompose_rejects_missing_axis_column():
         semantic_kind="time_series",
     )
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
+        decompose(
+            frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
+        )
 
-    assert exc_info.value._context["requested_axis"] == "bucket"
+    assert exc_info.value._context["requested_axis"] == "sales.orders.bucket"
     assert exc_info.value._context["normalized_axis"] == "bucket"
     assert exc_info.value._context["available_columns"] == ["delta"]
 
@@ -462,9 +485,11 @@ def test_decompose_time_series_rejects_missing_non_bucket_dimension():
     )
 
     with pytest.raises(SemanticKindMismatchError) as exc_info:
-        decompose(frame, axis=make_ref("cluster", SemanticKind.DIMENSION), session=session)
+        decompose(
+            frame, axis=make_ref("sales.orders.cluster", SemanticKind.DIMENSION), session=session
+        )
 
-    assert exc_info.value._context["requested_axis"] == "cluster"
+    assert exc_info.value._context["requested_axis"] == "sales.orders.cluster"
     assert exc_info.value._context["normalized_axis"] == "cluster"
     # Must NOT silently use bucket_start
     assert "bucket_start" not in exc_info.value._context.get("available_columns", []) or (
@@ -487,7 +512,9 @@ def test_decompose_time_series_bucket_start_axis_still_works():
         semantic_kind="time_series",
     )
 
-    out = decompose(frame, axis=make_ref("bucket_start", SemanticKind.DIMENSION), session=session)
+    out = decompose(
+        frame, axis=make_ref("sales.orders.bucket_start", SemanticKind.DIMENSION), session=session
+    )
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.driver_field == "path"
@@ -499,7 +526,9 @@ def test_decompose_rejects_missing_delta_column():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "value": [1.0]}))
     with pytest.raises(SemanticKindMismatchError):
-        decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
+        decompose(
+            frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
+        )
 
 
 def test_decompose_rejects_measure_column_kwarg():
@@ -508,7 +537,7 @@ def test_decompose_rejects_measure_column_kwarg():
     with pytest.raises(TypeError):
         decompose(
             frame,
-            axis=make_ref("bucket", SemanticKind.DIMENSION),
+            axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION),
             measure_column="delta",
             session=session,
         )  # type: ignore[call-arg]
@@ -518,7 +547,9 @@ def test_decompose_rejects_non_numeric_value_column():
     session = session_attach.get_or_create(name="demo")
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": ["bad"]}))
     with pytest.raises(SemanticKindMismatchError):
-        decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
+        decompose(
+            frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
+        )
 
 
 def test_decompose_rejects_cross_session_frame():
@@ -526,14 +557,18 @@ def test_decompose_rejects_cross_session_frame():
     frame = _delta(session_a, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     session_b = session_attach.get_or_create(name="b")
     with pytest.raises(CrossSessionFrameError):
-        decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session_b)
+        decompose(
+            frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session_b
+        )
 
 
 def test_decompose_read_only_session_without_backend_raises():
     session = session_attach.get_or_create(name="demo", use_datasources=False)
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     with pytest.raises(NoBackendFactoryError):
-        decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
+        decompose(
+            frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
+        )
 
 
 def test_decompose_stale_session_without_backend_raises():
@@ -541,7 +576,9 @@ def test_decompose_stale_session_without_backend_raises():
     frame = _delta(session, pd.DataFrame({"bucket": ["a"], "delta": [1.0]}))
     # Session without backend factory cannot execute decompose intents.
     with pytest.raises(NoBackendFactoryError):
-        decompose(frame, axis=make_ref("bucket", SemanticKind.DIMENSION), session=session)
+        decompose(
+            frame, axis=make_ref("sales.orders.bucket", SemanticKind.DIMENSION), session=session
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +592,7 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
 
     report_tz_name = resolve_system_timezone().name
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
+    semantic_dir.mkdir(parents=True, exist_ok=True)
     datasource_dir = semantic_dir.parent.parent / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
@@ -570,7 +607,7 @@ def _bootstrap_bandwidth_for_decompose(tmp_path):
         "\n"
         "bandwidth_samples = ms.entity(\n"
         "    name='bandwidth_samples',\n"
-        "    datasource=md.ref('datasource.warehouse'),\n"
+        "    datasource=ms.Ref.datasource('warehouse'),\n"
         "    primary_key=['sample_id'],\n"
         "    source=md.table('bandwidth_samples'),\n"
         ")\n"
@@ -670,7 +707,7 @@ def test_decompose_rejects_delta_missing_additivity_metadata() -> None:
     with pytest.raises(AttributionAdditivityError) as exc_info:
         decompose(
             frame,
-            axis=make_ref("region", SemanticKind.DIMENSION),
+            axis=make_ref("sales.orders.region", SemanticKind.DIMENSION),
             session=session,
         )
 
@@ -692,7 +729,7 @@ def test_decompose_rejects_non_additive_delta(aggregation) -> None:
     with pytest.raises(AttributionAdditivityError) as exc_info:
         decompose(
             frame,
-            axis=make_ref("region", SemanticKind.DIMENSION),
+            axis=make_ref("sales.orders.region", SemanticKind.DIMENSION),
             session=session,
         )
 
@@ -717,7 +754,7 @@ def test_decompose_allows_semi_additive_delta_over_spatial_axis() -> None:
 
     out = decompose(
         frame,
-        axis=make_ref("region", SemanticKind.DIMENSION),
+        axis=make_ref("sales.orders.region", SemanticKind.DIMENSION),
         session=session,
     )
 
@@ -749,7 +786,7 @@ def test_decompose_fold_kind_treats_mean_prefixed_label_as_non_linear() -> None:
     with pytest.raises(ComponentDecompositionError) as exc_info:
         decompose(
             frame,
-            axis=make_ref("region", SemanticKind.DIMENSION),
+            axis=make_ref("sales.orders.region", SemanticKind.DIMENSION),
             session=session,
         )
 
@@ -776,7 +813,7 @@ def test_decompose_fold_kind_mean_is_linear_over_spatial_axis() -> None:
 
     out = decompose(
         frame,
-        axis=make_ref("region", SemanticKind.DIMENSION),
+        axis=make_ref("sales.orders.region", SemanticKind.DIMENSION),
         session=session,
     )
 
@@ -805,7 +842,7 @@ def test_decompose_legacy_fold_payload_without_fold_kind_still_classified() -> N
     with pytest.raises(ComponentDecompositionError) as exc_info:
         decompose(
             non_linear,
-            axis=make_ref("region", SemanticKind.DIMENSION),
+            axis=make_ref("sales.orders.region", SemanticKind.DIMENSION),
             session=session,
         )
     assert exc_info.value._context["reason"] == "non_linear_time_fold"
@@ -850,7 +887,9 @@ def test_decompose_axes_empty_delta_returns_empty_hierarchy():
         semantic_kind="segmented",
     )
 
-    out = decompose(frame, axes=[make_ref("region", SemanticKind.DIMENSION)], session=session)
+    out = decompose(
+        frame, axes=[make_ref("sales.orders.region", SemanticKind.DIMENSION)], session=session
+    )
 
     assert isinstance(out, AttributionFrame)
     assert out.meta.driver_field == "path"
@@ -889,8 +928,8 @@ def test_decompose_axes_multi_axis_handles_nan_in_level_two():
     out = decompose(
         frame,
         axes=[
-            make_ref("region", SemanticKind.DIMENSION),
-            make_ref("platform", SemanticKind.DIMENSION),
+            make_ref("sales.orders.region", SemanticKind.DIMENSION),
+            make_ref("sales.orders.platform", SemanticKind.DIMENSION),
         ],
         mode="hierarchy",
         session=session,

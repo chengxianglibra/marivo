@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from marivo.analysis.evidence.types import JsonScalar
 from marivo.analysis.frames.base import BaseFrame, BaseFrameMeta
 from marivo.analysis.windows import AbsoluteWindow
-from marivo.semantic.refs import DimensionRef
+from marivo.refs import DimensionKind, Ref
 
 CandidateShape = Literal[
     "point_anomaly",
@@ -74,7 +74,7 @@ class _CandidateSelectionBase(BaseModel):
 class PointAnomalySelection(_CandidateSelectionBase):
     kind: Literal["point_anomaly"] = "point_anomaly"
     window: AbsoluteWindow | None = None
-    keys: dict[str | DimensionRef, JsonScalar] = Field(default_factory=dict)
+    keys: dict[str | Ref[DimensionKind], JsonScalar] = Field(default_factory=dict)
     direction: str
     observed_value: float
     baseline_value: float
@@ -85,30 +85,30 @@ class PeriodShiftSelection(_CandidateSelectionBase):
     kind: Literal["period_shift"] = "period_shift"
     window: AbsoluteWindow
     baseline_window: AbsoluteWindow
-    keys: dict[str | DimensionRef, JsonScalar] = Field(default_factory=dict)
+    keys: dict[str | Ref[DimensionKind], JsonScalar] = Field(default_factory=dict)
     direction: str
 
 
 class DriverAxisSelection(_CandidateSelectionBase):
     kind: Literal["driver_axis"] = "driver_axis"
-    axis: str | DimensionRef
+    axis: str | Ref[DimensionKind]
 
 
 class SliceSelection(_CandidateSelectionBase):
     kind: Literal["slice"] = "slice"
-    selector: dict[str | DimensionRef, JsonScalar]
+    selector: dict[str | Ref[DimensionKind], JsonScalar]
     window: AbsoluteWindow | None = None
 
 
 class WindowSelection(_CandidateSelectionBase):
     kind: Literal["window"] = "window"
     window: AbsoluteWindow
-    keys: dict[str | DimensionRef, JsonScalar] = Field(default_factory=dict)
+    keys: dict[str | Ref[DimensionKind], JsonScalar] = Field(default_factory=dict)
 
 
 class CrossSectionalOutlierSelection(_CandidateSelectionBase):
     kind: Literal["cross_sectional_outlier"] = "cross_sectional_outlier"
-    keys: dict[str | DimensionRef, JsonScalar]
+    keys: dict[str | Ref[DimensionKind], JsonScalar]
     direction: str
     peer_scope: tuple[str, ...] = ()
 

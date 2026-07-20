@@ -9,6 +9,7 @@ import pandas as pd
 from marivo.analysis.frames.delta import DeltaFrame, DeltaFrameMeta
 from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
 from marivo.analysis.lineage import Lineage
+from tests.shared_fixtures import make_test_metric_meta_contract
 
 
 def test_metric_frame_identity_shows_unit_when_present() -> None:
@@ -51,6 +52,7 @@ def test_delta_frame_identity_shows_unit_when_present() -> None:
 
 def _metric_frame_with_data() -> MetricFrame:
     meta = MetricFrameMeta(
+        **make_test_metric_meta_contract("sales.revenue"),
         kind="metric_frame",
         ref="frame_schema",
         session_id="sess_s",

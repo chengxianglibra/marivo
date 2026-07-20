@@ -11,6 +11,7 @@ from typing import Literal, cast
 import pandas as pd
 from scipy import stats
 
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     AlignmentFailedError,
     SemanticKindMismatchError,
@@ -225,8 +226,8 @@ def hypothesis_test(
                 input_refs=[a.meta.artifact_id or a.ref, b.meta.artifact_id or b.ref]
             ),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(values={"metric_id": a.meta.metric_id}),
-            subject=Subject(metric=a.meta.metric_id, analysis_axis="scalar"),
+            semantic_anchors=CommitSemanticAnchors.from_frames(a, b),
+            subject=Subject(analysis_axis="scalar"),
             extractor_family="hypothesis_test_result",
             seeding_context={
                 "left_subject": left_subject,
@@ -242,6 +243,7 @@ def hypothesis_test(
             "id": job_ref,
             "session_id": session.id,
             "intent": "hypothesis_test",
+            **job_semantics_from_frames(a, b),
             "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": source_refs,
@@ -252,7 +254,6 @@ def hypothesis_test(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog._project.semantic_root),
-            "semantic_model": a.meta.semantic_model,
             "semantic_models": [a.meta.semantic_model, b.meta.semantic_model],
         },
     )

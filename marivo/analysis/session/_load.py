@@ -50,6 +50,7 @@ _CURRENT_METRIC_FRAME_FIELDS = frozenset(
     {
         "metric_identity",
         "metric_identities",
+        "catalog_definition_fingerprint",
         "expression_graph_ref",
         "expression_graph",
         "expression_fingerprint",
@@ -66,6 +67,9 @@ _CURRENT_METRIC_FRAME_FIELDS = frozenset(
         "comparable_value_semantics",
         "execution_stats",
         "unit_state",
+        "axis_bindings",
+        "slice_predicates",
+        "status_time_dimension_ref",
     }
 )
 
@@ -132,23 +136,6 @@ def _validate_current_replay_payload(ref: str, meta: MetricFrameMeta) -> None:
             reason=str(exc),
         ) from exc
 
-    dimensions = observe_step.params.get("dimensions")
-    if dimensions is not None and (
-        not isinstance(dimensions, list)
-        or any(
-            not isinstance(item, dict)
-            or not isinstance(item.get("semantic_id"), str)
-            or not item["semantic_id"]
-            or set(item) != {"semantic_id"}
-            for item in dimensions
-        )
-    ):
-        raise _current_metric_state_error(
-            ref,
-            path="lineage.observe.params.dimensions",
-            reason="dimensions must be typed semantic_id objects",
-        )
-
 
 def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
     graph = meta.expression_graph
@@ -204,7 +191,7 @@ def _validate_current_metric_state(ref: str, meta: MetricFrameMeta) -> None:
     artifact_mismatches = {
         "metric_identities": artifact_identity.metric_identities != meta.metric_identities,
         "dependency_fingerprint": (
-            artifact_identity.dependency_fingerprint != dependency_digest.fingerprint
+            artifact_identity.dependency_fingerprint != dependency_digest.digest
         ),
         "source_domain_fingerprint": (
             artifact_identity.source_domain_fingerprint != source_domain.profile_fingerprint
@@ -348,6 +335,15 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
     if kind not in _FRAME_CLASSES:
         raise FrameRefNotFound(message=f"unknown frame kind '{kind}' for ref '{ref}'")
     frame_cls, meta_cls = _FRAME_CLASSES[kind]
+    if kind == "delta_frame" and "comparison_identity" not in meta:
+        raise FrameMetaInvalidError(
+            message=f"frame '{ref}' is missing its required delta identity",
+            context={
+                "ref": ref,
+                "artifact_schema_version": CURRENT_ARTIFACT_SCHEMA_VERSION,
+                "missing_state": ["comparison_identity"],
+            },
+        )
     if kind == "metric_frame":
         missing_fields = sorted(_CURRENT_METRIC_FRAME_FIELDS - set(meta))
         if missing_fields:
@@ -375,6 +371,7 @@ def load_frame(ref: str | ArtifactRef, *, session: Session) -> BaseFrame:
         if last_intent in {"observe", "select_metric"}:
             metric_required_state: dict[str, object | None] = {
                 "metric_identities": parsed_meta.metric_identities or None,
+                "catalog_definition_fingerprint": (parsed_meta.catalog_definition_fingerprint),
                 "expression_graph": parsed_meta.expression_graph,
                 "expression_fingerprint": parsed_meta.expression_fingerprint,
                 "semantic_dependency_digest": parsed_meta.semantic_dependency_digest,

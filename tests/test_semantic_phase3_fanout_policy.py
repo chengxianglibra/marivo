@@ -31,8 +31,8 @@ def test_metric_authoring_accepts_fanout_policy(tmp_path, monkeypatch):
     )
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-        "order_items = ms.entity(name='order_items', datasource=md.ref('datasource.warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "order_items = ms.entity(name='order_items', datasource=ms.Ref.datasource('warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
         "@ms.dimension(entity=orders)\n"
         "def order_id(orders):\n"
         "    return orders.order_id\n"
@@ -85,8 +85,8 @@ def test_validator_rejects_fanout_policy_on_non_additive_metric(tmp_path, monkey
     semantic_dir = _bootstrap_min(tmp_path)
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-        "order_items = ms.entity(name='order_items', datasource=md.ref('datasource.warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "order_items = ms.entity(name='order_items', datasource=ms.Ref.datasource('warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
         "@ms.metric(\n"
         "    entities=[orders, order_items],\n"
         "    root_entity=orders,\n"
@@ -110,7 +110,7 @@ def test_derived_metric_keeps_default_fanout_policy(tmp_path, monkeypatch):
     semantic_dir = _bootstrap_min(tmp_path)
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
         "@ms.metric(entities=[orders], additivity='additive', name='gmv', )\n"
         "def gmv(orders):\n"
         "    return orders.amount.sum()\n"

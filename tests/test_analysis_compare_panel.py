@@ -17,8 +17,8 @@ from marivo.analysis.policies import AlignmentPolicy
 from marivo.analysis.refs import CalendarRef
 from marivo.analysis.session._runtime import persist_frame
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
-from tests.shared_fixtures import make_metric_frame
+from tests.ref_helpers import make_ref
+from tests.shared_fixtures import make_metric_frame, make_test_component_contract
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +62,7 @@ def _bootstrap_sales(tmp_path):
     (semantic_dir / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "\n"
-        "orders = ms.entity(name='orders', datasource=md.ref('datasource.warehouse'), source=md.table('orders'))\n"
+        "orders = ms.entity(name='orders', datasource=ms.Ref.datasource('warehouse'), source=md.table('orders'))\n"
         "\n"
         "@ms.time_dimension(entity=orders, granularity='day')\n"
         "def order_date(orders):\n"
@@ -225,12 +225,15 @@ def _component_panel_metric(session, *, ref, rows, component_rows):
             parent_ref=metric.ref,
             parent_kind="metric_frame",
             metric_id="sales.failure_rate",
+            **make_test_component_contract(
+                metric_id="sales.failure_rate",
+                components={
+                    "numerator": "sales.failed_count",
+                    "denominator": "sales.total_count",
+                },
+                axes=axes,
+            ),
             composition_kind="ratio",
-            components={
-                "numerator": "sales.failed_count",
-                "denominator": "sales.total_count",
-            },
-            axes=axes,
             semantic_kind="panel",
             semantic_model="sales",
         ),

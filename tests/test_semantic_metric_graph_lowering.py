@@ -32,7 +32,7 @@ _CATALOG_SOURCE = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 amount = ms.measure_column(
     name="amount", entity=orders, column="amount", additivity="additive", unit="CNY"
@@ -40,6 +40,7 @@ amount = ms.measure_column(
 event_time = ms.time_dimension_column(
     name="event_time", entity=orders, column="event_time", granularity="day"
 )
+state = ms.dimension_column(name="state", entity=orders, column="state")
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 revenue_alias = ms.aggregate(name="revenue_alias", measure=amount, agg="sum")
 failed_revenue = ms.aggregate(
@@ -84,8 +85,8 @@ def test_equivalent_catalog_aggregates_share_value_graph_not_authority_digest(
 
     assert fingerprint(revenue.graph) == fingerprint(alias.graph)
     assert revenue.graph.roots == alias.graph.roots
-    assert revenue.dependency_digest.fingerprint != alias.dependency_digest.fingerprint
-    assert revenue.identities[0].metric_id == "test.revenue"
+    assert revenue.dependency_digest.digest != alias.dependency_digest.digest
+    assert revenue.identities[0].metric_ref.path == "test.revenue"
     root = _root_node(revenue)
     assert isinstance(root, AggregateNodeV1)
     assert root.unit_override is None
@@ -98,7 +99,9 @@ def test_catalog_aggregate_filter_and_explicit_unit_override_are_value_inputs(
     share = _root_node(lower_catalog_metric(catalog_registry, "test.share"))
 
     assert isinstance(failed, AggregateNodeV1)
-    assert failed.filter == (("state", "FAILED"),)
+    assert len(failed.filter) == 1
+    assert failed.filter[0].dimension_ref.path == "test.orders.state"
+    assert failed.filter[0].value == "FAILED"
     assert isinstance(share, RatioNodeV1)
     assert share.unit_override == "%"
 
@@ -146,7 +149,8 @@ def test_cumulative_anchor_and_axis_dependency_are_canonical(
     root = _root_node(lower_catalog_metric(catalog_registry, "test.mtd_revenue"))
 
     assert isinstance(root, CumulativeNodeV1)
-    assert root.over == "test.orders.event_time"
+    assert root.time_dimension_ref is not None
+    assert root.time_dimension_ref.path == "test.orders.event_time"
     assert root.anchor == ("grain_to_date", "month")
     assert len(root.dependency_fingerprint) == 64
 
@@ -192,7 +196,7 @@ def test_measure_definition_digest_changes_aggregate_graph_identity(
     )
     changed = lower_catalog_metric(changed_registry, "test.revenue")
 
-    assert original.dependency_digest.fingerprint != changed.dependency_digest.fingerprint
+    assert original.dependency_digest.digest != changed.dependency_digest.digest
     assert original.graph.roots != changed.graph.roots
 
 
@@ -271,7 +275,7 @@ def test_ordered_forest_keeps_root_order_and_shares_nodes(catalog_registry: Regi
         ("test.revenue_alias", "test.revenue"),
     )
 
-    assert tuple(identity.metric_id for identity in lowered.identities) == (
+    assert tuple(identity.metric_ref.path for identity in lowered.identities) == (
         "test.revenue_alias",
         "test.revenue",
     )

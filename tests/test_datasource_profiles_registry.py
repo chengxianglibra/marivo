@@ -52,8 +52,9 @@ def test_set_returns_summary(project_root: Path) -> None:
 def test_set_rejects_model_qualified_name(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
-    assert exc_info.value.expected == "a storage name without a kind prefix"
-    assert "storage name without kind prefix" in str(exc_info.value)
+    assert exc_info.value.expected == "[a-z][a-z0-9_]*"
+    assert "sales_warehouse" in str(exc_info.value.repair.action)
+    assert "cached credentials" in str(exc_info.value.repair.action)
 
 
 def test_list_returns_sorted_summaries(project_root: Path) -> None:

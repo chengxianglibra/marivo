@@ -10,6 +10,7 @@ from typing import Any, Literal, cast
 
 import pandas as pd
 
+from marivo.analysis._semantic_persistence import job_semantics_from_frames
 from marivo.analysis.errors import (
     ForecastInputQualityError,
     ForecastInsufficientHistoryError,
@@ -190,9 +191,8 @@ def forecast(
             step_type="forecast",
             inputs=CommitInputs(input_refs=[history.meta.artifact_id or history.ref]),
             params=CommitParams(values=params),
-            semantic_anchors=CommitSemanticAnchors(values={"metric_id": history.meta.metric_id}),
+            semantic_anchors=CommitSemanticAnchors.from_frame(history),
             subject=Subject(
-                metric=history.meta.metric_id,
                 grain=cast("Any", grain),
                 analysis_axis="forecast",
             ),
@@ -206,6 +206,7 @@ def forecast(
             "id": job_ref,
             "session_id": session.id,
             "intent": "forecast",
+            **job_semantics_from_frames(history),
             "analysis_purpose": analysis_purpose,
             "params": params,
             "input_frame_refs": [history.ref],
@@ -216,7 +217,6 @@ def forecast(
             "status": "succeeded",
             "error": None,
             "semantic_project_root": str(session.catalog._project.semantic_root),
-            "semantic_model": history.meta.semantic_model,
         },
     )
     return frame

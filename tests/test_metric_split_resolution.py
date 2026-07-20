@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from marivo.refs import Ref
 from marivo.semantic import authoring, ir
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
-from marivo.semantic.refs import DimensionRef
 from tests.shared_fixtures import load_inline_semantic
 
 # ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 
 @ms.measure(entity=orders, additivity="additive")
@@ -95,7 +95,7 @@ def test_resolution_fills_additivity() -> None:
 
 
 def test_semi_additive_over_must_be_time_dimension() -> None:
-    region = DimensionRef("test.snap.region")
+    region = Ref.dimension("test.snap.region")
 
     with pytest.raises(SemanticDecoratorError) as exc_info:
         authoring.semi_additive(over=region, fold="last")  # type: ignore[arg-type]
@@ -112,7 +112,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="non_additive")
@@ -137,14 +137,14 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="additive")
 def amount(o): return o.amount
 
 rev = ms.aggregate(measure=amount, agg="sum", name="rev")
-bad_ratio = ms.ratio(name="bad_ratio", numerator=rev, denominator=ms.ref("metric.test.missing"))
+bad_ratio = ms.ratio(name="bad_ratio", numerator=rev, denominator=ms.Ref.metric("test.missing"))
 """
 
 
@@ -158,15 +158,15 @@ import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.datasource as md
 
-wh = md.ref("datasource.wh")
+wh = ms.Ref.datasource("wh")
 o = ms.entity(name="o", datasource=wh, source=md.table("o"))
 
 @ms.measure(entity=o, additivity="additive")
 def amount(o): return o.amount
 
 base = ms.aggregate(measure=amount, agg="sum", name="base")
-a = ms.linear(name="a", add=[base, ms.ref("metric.test.b")])
-b = ms.linear(name="b", add=[base, ms.ref("metric.test.a")])
+a = ms.linear(name="a", add=[base, ms.Ref.metric("test.b")])
+b = ms.linear(name="b", add=[base, ms.Ref.metric("test.a")])
 """
 
 

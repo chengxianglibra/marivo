@@ -6,8 +6,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.session as session_attach
 from marivo.semantic.catalog import SemanticKind
-from marivo.semantic.refs import make_ref
 from tests.conftest import bootstrap_sales_project
+from tests.ref_helpers import make_ref
 
 
 @pytest.fixture(autouse=True)

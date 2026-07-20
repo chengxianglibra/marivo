@@ -27,8 +27,8 @@ from marivo.introspection.live.resolve import (
 from marivo.introspection.live.resolve import (
     suggestions_for as shared_suggestions_for,
 )
-from marivo.refs import SemanticRef, SymbolKind
-from marivo.semantic.refs import DimensionRef, MetricRef
+from marivo.refs import Ref, SemanticKind
+from tests.ref_helpers import make_ref
 
 
 def resolve_help_target(target: object) -> ResolvedLiveTarget:
@@ -302,19 +302,19 @@ def test_frame_instance_resolves() -> None:
 
 
 def test_metric_ref_resolves() -> None:
-    ref = MetricRef("sales.revenue")
+    ref = Ref.metric("sales.revenue")
     result = resolve_help_target(ref)
     assert result.kind == "reference_briefing"
 
 
 def test_dimension_ref_resolves() -> None:
-    ref = DimensionRef("sales.orders.region")
+    ref = Ref.dimension("sales.orders.region")
     result = resolve_help_target(ref)
     assert result.kind == "reference_briefing"
 
 
 def test_base_semantic_ref_resolves() -> None:
-    ref = SemanticRef("sales.revenue", SymbolKind.METRIC)
+    ref = make_ref("sales.revenue", SemanticKind.METRIC)
     result = resolve_help_target(ref)
     assert result.kind == "reference_briefing"
 
@@ -512,7 +512,7 @@ def test_type_contract_result_has_type_name() -> None:
 
 
 def test_reference_briefing_has_ref_id() -> None:
-    ref = MetricRef("sales.revenue")
+    ref = Ref.metric("sales.revenue")
     result = resolve_help_target(ref)
     assert result.reference_id is not None
 

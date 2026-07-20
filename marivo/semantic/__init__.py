@@ -11,7 +11,7 @@ Public surface::
     catalog.metrics.show()                                  # all metrics across domains
 
     ms.domain(name="sales", owner="Mina Zhang", default=True)
-    warehouse = md.ref("datasource.warehouse")
+    warehouse = md.duckdb("warehouse").ref
     orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
     amount = ms.measure_column(
         name="amount", entity=orders, column="amount",
@@ -25,11 +25,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from marivo.refs import SemanticRef
+from marivo.refs import Ref, SemanticKind
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
-    DomainRef,
     aggregate,
     ai_context,
     count,
@@ -48,7 +47,6 @@ from marivo.semantic.authoring import (
     measure_column,
     metric,
     ratio,
-    ref,
     relationship,
     semi_additive,
     snapshot,
@@ -63,27 +61,26 @@ from marivo.semantic.authoring import (
 )
 from marivo.semantic.catalog import (
     CatalogCollection,
-    CatalogObject,
-    Datasource,
+    CatalogEntry,
     DatasourceDetails,
+    DatasourceEntry,
     DerivedMetricDetails,
-    Dimension,
     DimensionDetails,
-    Domain,
+    DimensionEntry,
     DomainDetails,
-    Entity,
+    DomainEntry,
     EntityDetails,
-    Measure,
+    EntityEntry,
     MeasureDetails,
-    Metric,
+    MeasureEntry,
     MetricDetails,
-    Relationship,
+    MetricEntry,
     RelationshipDetails,
+    RelationshipEntry,
     SemanticCatalog,
-    SemanticKind,
     SimpleMetricDetails,
-    TimeDimension,
     TimeDimensionDetails,
+    TimeDimensionEntry,
     load,
 )
 from marivo.semantic.dtos import PreviewBatchResult, VerifyResult
@@ -99,14 +96,6 @@ from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
     ReadinessReport,
-)
-from marivo.semantic.refs import (
-    DimensionRef,
-    EntityRef,
-    MeasureRef,
-    MetricRef,
-    RelationshipRef,
-    TimeDimensionRef,
 )
 from marivo.semantic.richness import RichnessReport
 from marivo.semantic.typing import AiContextValue
@@ -187,43 +176,36 @@ __all__ = [
     "AggregateFoldValue",
     "AiContextValue",
     "CatalogCollection",
-    "CatalogObject",
-    "Datasource",
+    "CatalogEntry",
     "DatasourceDetails",
+    "DatasourceEntry",
     "DerivedMetricDetails",
-    "Dimension",
     "DimensionDetails",
-    "DimensionRef",
-    "Domain",
+    "DimensionEntry",
     "DomainDetails",
-    "DomainRef",
-    "Entity",
+    "DomainEntry",
     "EntityDetails",
-    "EntityRef",
+    "EntityEntry",
     "JoinKey",
-    "Measure",
     "MeasureDetails",
-    "MeasureRef",
-    "Metric",
+    "MeasureEntry",
     "MetricDetails",
-    "MetricRef",
+    "MetricEntry",
     "ParityResult",
     "PreviewBatchResult",
     "ReadinessInputSummary",
     "ReadinessIssue",
     "ReadinessReport",
-    "Relationship",
+    "Ref",
     "RelationshipDetails",
-    "RelationshipRef",
+    "RelationshipEntry",
     "RichnessReport",
     "SemanticCatalog",
     "SemanticKind",
-    "SemanticRef",
     "SimpleMetricDetails",
     "SqlProvenance",
-    "TimeDimension",
     "TimeDimensionDetails",
-    "TimeDimensionRef",
+    "TimeDimensionEntry",
     "VerifyResult",
     "aggregate",
     "ai_context",
@@ -248,7 +230,6 @@ __all__ = [
     "metric",
     "parity_check",
     "ratio",
-    "ref",
     "relationship",
     "richness",
     "semi_additive",

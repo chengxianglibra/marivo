@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import ibis
 import ibis.expr.types as ir
@@ -19,6 +19,11 @@ from marivo.datasource.backends import apply_json_http_settings
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
 from marivo.datasource.source import AuthoringScope, PartitionScope
+from marivo.refs import EntityKind, Ref, SemanticKindTag
+from marivo.semantic._expression_binding import (
+    CompiledExpressionSidecar,
+    evaluate_expression_body,
+)
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
 from marivo.semantic.ir import (
     AggKind,
@@ -30,7 +35,7 @@ from marivo.semantic.ir import (
     ParquetSourceIR,
     TableSourceIR,
 )
-from marivo.semantic.validator import Registry, Sidecar
+from marivo.semantic.validator import Registry
 
 __all__ = [
     "EntityRuntimeMetadata",
@@ -88,7 +93,7 @@ class Materializer:
             )
         return self._backend_by_datasource[datasource_semantic_id]
 
-    def _get_registry_and_sidecar(self) -> tuple[Registry, Sidecar]:
+    def _get_registry_and_sidecar(self) -> tuple[Registry, CompiledExpressionSidecar]:
         """Get registry and sidecar, raising if project is not loaded."""
         if self._project is None:
             _raise(
@@ -97,7 +102,7 @@ class Materializer:
                 cls=SemanticRuntimeError,
             )
         registry = self._project._registry
-        sidecar = self._project._sidecar
+        sidecar = self._project._expression_sidecar
 
         if registry is None or sidecar is None:
             _raise(
@@ -106,6 +111,40 @@ class Materializer:
                 cls=SemanticRuntimeError,
             )
         return registry, sidecar
+
+    def _evaluate_expression(
+        self,
+        owning_ref: Ref[SemanticKindTag],
+        entity_refs: tuple[Ref[EntityKind], ...],
+        aliases: tuple[ibis.Table, ...],
+    ) -> ir.Value:
+        """Evaluate one compiled body through the task-local binding runtime."""
+        _, sidecar = self._get_registry_and_sidecar()
+        body = sidecar.bodies.get(owning_ref)
+        if body is None:
+            _raise(
+                ErrorKind.BINDING_TARGET_MISSING,
+                f"Ref {owning_ref.key!r} has no compiled expression body.",
+                cls=SemanticRuntimeError,
+                refs=(owning_ref.key,),
+            )
+        compiled_state = self._project._compiled_state
+        if compiled_state is None:
+            raise RuntimeError("semantic project has no immutable compiled state")
+        return evaluate_expression_body(
+            catalog_definition_fingerprint=compiled_state.definition_fingerprint,
+            expression_sidecar=sidecar,
+            owning_ref=owning_ref,
+            body=body,
+            entity_refs=entity_refs,
+            aliases=aliases,
+        )
+
+    @staticmethod
+    def _dimension_ref(semantic_id: str, *, is_time_dimension: bool) -> Ref[SemanticKindTag]:
+        if is_time_dimension:
+            return cast("Ref[SemanticKindTag]", Ref.time_dimension(semantic_id))
+        return cast("Ref[SemanticKindTag]", Ref.dimension(semantic_id))
 
     # -- entity --------------------------------------------------------------
 
@@ -263,37 +302,34 @@ class Materializer:
         if semantic_id in self._dimension_cache:
             return self._dimension_cache[semantic_id]
 
-        registry, sidecar = self._get_registry_and_sidecar()
+        registry, _sidecar = self._get_registry_and_sidecar()
 
         field_ir = registry.dimensions.get(semantic_id)
         if field_ir is None:
             _raise(
                 ErrorKind.DIMENSION_NOT_FOUND,
                 f"Dimension {semantic_id!r} not found in registry.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-
-        callable_ = sidecar.get(semantic_id)
-        if callable_ is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Dimension {semantic_id!r} has no sidecar callable.",
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
 
         # Materialize parent entity first
         parent_table = self.entity(field_ir.entity)
-
-        value = self._call_field_callable(semantic_id, field_ir.name, callable_, parent_table)
+        value = self._evaluate_expression(
+            self._dimension_ref(
+                semantic_id,
+                is_time_dimension=field_ir.is_time_dimension,
+            ),
+            (Ref.entity(field_ir.entity),),
+            (parent_table,),
+        )
 
         self._dimension_cache[semantic_id] = value
         return value
 
     def dimension_on(self, semantic_id: str, table: ibis.Table) -> ir.Value:
         """Apply a dimension callable to a caller-supplied table without caching."""
-        registry, sidecar = self._get_registry_and_sidecar()
+        registry, _sidecar = self._get_registry_and_sidecar()
         field_ir = registry.dimensions.get(semantic_id)
         if field_ir is None:
             _raise(
@@ -302,15 +338,14 @@ class Materializer:
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
-        callable_ = sidecar.get(semantic_id)
-        if callable_ is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Dimension {semantic_id!r} has no sidecar callable.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-        return self._call_field_callable(semantic_id, field_ir.name, callable_, table)
+        return self._evaluate_expression(
+            self._dimension_ref(
+                semantic_id,
+                is_time_dimension=field_ir.is_time_dimension,
+            ),
+            (Ref.entity(field_ir.entity),),
+            (table,),
+        )
 
     # -- measure ---------------------------------------------------------------
 
@@ -319,7 +354,7 @@ class Materializer:
         if semantic_id in self._measure_cache:
             return self._measure_cache[semantic_id]
 
-        registry, sidecar = self._get_registry_and_sidecar()
+        registry, _sidecar = self._get_registry_and_sidecar()
         measure_ir = registry.measures.get(semantic_id)
         if measure_ir is None:
             _raise(
@@ -328,16 +363,12 @@ class Materializer:
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
-        callable_ = sidecar.get(semantic_id)
-        if callable_ is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Measure {semantic_id!r} has no sidecar callable.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
         parent_table = self.entity(measure_ir.entity)
-        value = self._call_field_callable(semantic_id, measure_ir.name, callable_, parent_table)
+        value = self._evaluate_expression(
+            cast("Ref[SemanticKindTag]", Ref.measure(semantic_id)),
+            (Ref.entity(measure_ir.entity),),
+            (parent_table,),
+        )
         self._measure_cache[semantic_id] = value
         return value
 
@@ -348,7 +379,7 @@ class Materializer:
         entity table; the caller supplies the table to evaluate against.
         Needed for count-distinct first-seen rewrites in cumulative observe.
         """
-        registry, sidecar = self._get_registry_and_sidecar()
+        registry, _sidecar = self._get_registry_and_sidecar()
         measure_ir = registry.measures.get(semantic_id)
         if measure_ir is None:
             _raise(
@@ -357,15 +388,11 @@ class Materializer:
                 cls=SemanticRuntimeError,
                 refs=(semantic_id,),
             )
-        callable_ = sidecar.get(semantic_id)
-        if callable_ is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Measure {semantic_id!r} has no sidecar callable.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-        return self._call_field_callable(semantic_id, measure_ir.name, callable_, table)
+        return self._evaluate_expression(
+            cast("Ref[SemanticKindTag]", Ref.measure(semantic_id)),
+            (Ref.entity(measure_ir.entity),),
+            (table,),
+        )
 
     def _call_field_callable(
         self,
@@ -416,7 +443,7 @@ class Materializer:
         if semantic_id in self._metric_cache:
             return self._metric_cache[semantic_id]
 
-        registry, sidecar = self._get_registry_and_sidecar()
+        registry, _sidecar = self._get_registry_and_sidecar()
 
         metric_ir = registry.metrics.get(semantic_id)
         if metric_ir is None:
@@ -430,9 +457,9 @@ class Materializer:
         if metric_ir.metric_type == "derived":
             value = self._materialize_derived_metric(semantic_id, metric_ir)
         elif metric_ir.aggregation is not None:
-            value = self._materialize_tier1_metric(semantic_id, metric_ir, sidecar, registry)
+            value = self._materialize_tier1_metric(semantic_id, metric_ir, registry)
         else:
-            value = self._materialize_base_metric(semantic_id, metric_ir, sidecar, registry)
+            value = self._materialize_base_metric(semantic_id, metric_ir, registry)
 
         self._metric_cache[semantic_id] = value
         return value
@@ -441,7 +468,6 @@ class Materializer:
         self,
         semantic_id: str,
         metric_ir: MetricIR,
-        sidecar: Sidecar,
         registry: Registry,
     ) -> ir.Value:
         """Materialize a tier-1 metric over a measure, entity, or dimension."""
@@ -557,19 +583,9 @@ class Materializer:
         self,
         semantic_id: str,
         metric_ir: MetricIR,
-        sidecar: Sidecar,
         registry: Registry,
     ) -> ir.Value:
         """Materialize a tier-2 body metric."""
-        callable_ = sidecar.get(semantic_id)
-        if callable_ is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Metric {semantic_id!r} has no sidecar callable.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-
         # Cross-datasource check: all entities must share the same datasource
         self._check_single_datasource(metric_ir, registry)
 
@@ -579,11 +595,15 @@ class Materializer:
             table = self.entity(ds_ref)
             tables.append(table)
 
-        return self._call_metric_callable(semantic_id, callable_, tuple(tables))
+        return self._evaluate_expression(
+            cast("Ref[SemanticKindTag]", Ref.metric(semantic_id)),
+            tuple(Ref.entity(entity_id) for entity_id in metric_ir.entities),
+            tuple(tables),
+        )
 
     def metric_on(self, semantic_id: str, *tables: ibis.Table) -> ir.Value:
         """Apply a simple metric callable to caller-supplied tables without caching."""
-        registry, sidecar = self._get_registry_and_sidecar()
+        registry, _sidecar = self._get_registry_and_sidecar()
         metric_ir = registry.metrics.get(semantic_id)
         if metric_ir is None:
             _raise(
@@ -636,16 +656,10 @@ class Materializer:
                     cls=SemanticRuntimeError,
                     refs=(target_id,),
                 )
-            measure_callable = sidecar.get(target_id)
-            if measure_callable is None:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    f"Tier-1 metric {semantic_id!r} measure {target_id!r} has no sidecar callable.",
-                    cls=SemanticRuntimeError,
-                    refs=(semantic_id, target_id),
-                )
-            column = self._call_field_callable(
-                target_id, measure_ir.name, measure_callable, tables[0]
+            column = self._evaluate_expression(
+                cast("Ref[SemanticKindTag]", Ref.measure(target_id)),
+                (Ref.entity(measure_ir.entity),),
+                (tables[0],),
             )
             return self._apply_agg(
                 semantic_id,
@@ -653,15 +667,11 @@ class Materializer:
                 metric_ir.aggregation,
                 backend_type=backend_type,
             )
-        callable_ = sidecar.get(semantic_id)
-        if callable_ is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Metric {semantic_id!r} has no sidecar callable.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-        return self._call_metric_callable(semantic_id, callable_, tuple(tables))
+        return self._evaluate_expression(
+            cast("Ref[SemanticKindTag]", Ref.metric(semantic_id)),
+            tuple(Ref.entity(entity_id) for entity_id in metric_ir.entities),
+            tuple(tables),
+        )
 
     def _call_metric_callable(
         self,

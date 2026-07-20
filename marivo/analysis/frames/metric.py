@@ -12,6 +12,7 @@ from marivo.analysis._cumulative import (
     cumulative_compare_anchor,
     cumulative_compare_blocker,
 )
+from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.frames.base import (
     ArtifactAffordance,
@@ -22,8 +23,10 @@ from marivo.analysis.frames.base import (
     assert_semantic_shape,
 )
 from marivo.introspection.live.model import LiveHelpTarget
+from marivo.refs import RefPayloadV1
 from marivo.render import Card
 from marivo.semantic.metric_graph import (
+    CatalogMetricIdentity,
     ComparableValueSemanticsV1,
     DatasourceCompatibilityDomainV1,
     ExpressionPresentationV1,
@@ -31,6 +34,7 @@ from marivo.semantic.metric_graph import (
     MetricExpressionGraphV1,
     MetricIdentity,
     MetricKeySchemaV1,
+    RuntimeExpressionIdentity,
     SemanticDependencyDigestV1,
 )
 from marivo.semantic.unit_algebra import MetricUnitStateV2
@@ -243,13 +247,14 @@ class MetricFrameMeta(BaseFrameMeta):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["metric_frame"] = "metric_frame"
-    metric_id: str | None
+    catalog_definition_fingerprint: str
+    metric_id: str | None = Field(default=None, exclude=True)
     metric_identity: MetricIdentity | None = None
     metric_identities: tuple[MetricIdentity, ...] = ()
     expression_graph_ref: str | None = None
     expression_graph: MetricExpressionGraphV1 | None = None
     expression_fingerprint: str | None = None
-    semantic_dependency_digest: SemanticDependencyDigestV1 | None = None
+    semantic_dependency_digest: SemanticDependencyDigestV1
     presentation_ref: str | None = None
     presentation: ExpressionPresentationV1 | None = None
     presentation_fingerprint: str | None = None
@@ -262,15 +267,18 @@ class MetricFrameMeta(BaseFrameMeta):
     comparable_value_semantics_ref: str | None = None
     comparable_value_semantics: ComparableValueSemanticsV1 | None = None
     execution_stats: MetricExecutionStatsV1 | None = None
+    axis_bindings: tuple[AxisBindingV1, ...] = ()
+    slice_predicates: tuple[SlicePredicateV1, ...] = ()
+    status_time_dimension_ref: RefPayloadV1 | None = None
     unit: str | None = None
     unit_state: MetricUnitStateV2 | None = None
-    axes: dict[str, Any]
+    axes: dict[str, Any] = Field(default_factory=dict, exclude=True)
     measure: dict[str, Any]
     measures: list[dict[str, Any]] | None = None
     window: dict[str, Any] | None
-    where: dict[str, Any]
+    where: dict[str, Any] = Field(default_factory=dict, exclude=True)
     semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
-    semantic_model: str
+    semantic_model: str = Field(default="", exclude=True)
     normalization: dict[str, Any] | None = None
     component_ref: str | None = None
     composition: dict[str, Any] | None = None
@@ -281,7 +289,7 @@ class MetricFrameMeta(BaseFrameMeta):
     reaggregatable: bool = True
     additivity: Literal["additive", "semi_additive", "non_additive"] | None = None
     aggregation: str | None = None
-    status_time_dimension: str | None = None
+    status_time_dimension: str | None = Field(default=None, exclude=True)
     sample_set_digest: str | None = None
     quantile_mode: Literal["exact", "approximate"] | None = None
     quantile_method: str | None = None
@@ -292,6 +300,10 @@ class MetricFrameMeta(BaseFrameMeta):
 
     @model_validator(mode="after")
     def _validate_metric_identities(self) -> MetricFrameMeta:
+        if not self.catalog_definition_fingerprint:
+            raise ValueError("MetricFrameMeta requires catalog_definition_fingerprint")
+        if not self.metric_identities:
+            raise ValueError("MetricFrameMeta requires at least one metric identity")
         if self.metric_identity is None:
             if len(self.metric_identities) == 1:
                 raise ValueError(
@@ -299,6 +311,91 @@ class MetricFrameMeta(BaseFrameMeta):
                 )
         elif self.metric_identities != (self.metric_identity,):
             raise ValueError("metric_identity requires metric_identities=(metric_identity,)")
+        if self.measures is not None:
+            expected_measure_ids = tuple(
+                identity.metric_ref.path
+                if isinstance(identity, CatalogMetricIdentity)
+                else f"runtime:{identity.expression_fingerprint}"
+                for identity in self.metric_identities
+            )
+            actual_measure_ids = tuple(entry.get("metric_id") for entry in self.measures)
+            if actual_measure_ids != expected_measure_ids:
+                raise ValueError("measures metric_id displays do not match metric_identities")
+        catalog_paths = tuple(
+            identity.metric_ref.path
+            for identity in self.metric_identities
+            if isinstance(identity, CatalogMetricIdentity)
+        )
+        runtime_fingerprints = tuple(
+            identity.expression_fingerprint
+            for identity in self.metric_identities
+            if isinstance(identity, RuntimeExpressionIdentity)
+        )
+        derived_metric_id = (
+            catalog_paths[0]
+            if len(catalog_paths) == 1
+            else (f"runtime:{runtime_fingerprints[0]}" if len(runtime_fingerprints) == 1 else None)
+        )
+        if self.metric_id is not None and derived_metric_id is not None:
+            if self.metric_id != derived_metric_id:
+                raise ValueError("metric_id display value does not match metric_identity")
+        elif self.metric_id is None:
+            self.metric_id = derived_metric_id
+
+        derived_models = {path.split(".", 1)[0] for path in catalog_paths}
+        if not derived_models and self.semantic_dependency_digest is not None:
+            derived_models = {
+                entry.ref.path.split(".", 1)[0]
+                for entry in self.semantic_dependency_digest.entries
+                if "." in entry.ref.path
+            }
+        derived_model = next(iter(derived_models)) if len(derived_models) == 1 else ""
+        if (
+            catalog_paths
+            and self.semantic_model
+            and derived_model
+            and self.semantic_model != derived_model
+        ):
+            raise ValueError("semantic_model display value does not match structured refs")
+        if not self.semantic_model or not catalog_paths:
+            self.semantic_model = derived_model
+
+        derived_axes: dict[str, Any] = {}
+        for binding in self.axis_bindings:
+            key = (
+                "time" if binding.role == "time_dimension" else binding.ref.path.rsplit(".", 1)[-1]
+            )
+            axis: dict[str, Any] = {
+                "role": "time" if binding.role == "time_dimension" else "dimension",
+                "column": binding.column,
+                "ref": binding.ref.path,
+            }
+            if binding.grain is not None:
+                axis["grain"] = binding.grain
+            if binding.role == "time_dimension":
+                axis["time_dimension"] = binding.ref.path.rsplit(".", 1)[-1]
+            derived_axes[key] = axis
+        if not self.axes:
+            self.axes = derived_axes
+
+        derived_where = {
+            predicate.dimension_ref.path: predicate.value for predicate in self.slice_predicates
+        }
+        if not self.where:
+            self.where = derived_where
+
+        derived_status = (
+            self.status_time_dimension_ref.path
+            if self.status_time_dimension_ref is not None
+            else None
+        )
+        if self.status_time_dimension is not None and derived_status is not None:
+            if self.status_time_dimension != derived_status:
+                raise ValueError(
+                    "status_time_dimension display value does not match structured ref"
+                )
+        elif self.status_time_dimension is None:
+            self.status_time_dimension = derived_status
         return self
 
 

@@ -5,12 +5,13 @@ Internal to ``marivo.analysis.intents`` — extracted from ``observe_planner``.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import ibis.expr.types as ir_types
 
 from marivo.analysis.executor.runner import apply_slice_to_dataset
 from marivo.analysis.intents._observe_planner_catalog import (
+    _details,
     _entity_id,
     _from_entity_id,
     _relationship_id,
@@ -22,12 +23,14 @@ from marivo.analysis.intents._observe_planner_types import (
     ResolvedObserveFields,
 )
 from marivo.analysis.intents.observe_errors import raise_observe_planning_error
+from marivo.refs import FieldKind, Ref
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 
 
 def _field_fn(catalog: SemanticCatalog, field_id: str) -> Any:
-    resolver = catalog._resolver(connections=_NoConnectionService())
+    resolver = catalog._semantic_resolver(connections=_NoConnectionService())
+    field_ref = cast("Ref[FieldKind]", _details(catalog, field_id).ref)
     missing_ref_kinds = {
         ErrorKind.DIMENSION_NOT_FOUND,
         ErrorKind.NOT_FOUND,
@@ -35,12 +38,15 @@ def _field_fn(catalog: SemanticCatalog, field_id: str) -> Any:
 
     def _resolve(table: Any) -> Any:
         try:
-            return _validate_field_expr(resolver.dimension_on(field_id, table), field_id=field_id)
+            return _validate_field_expr(resolver.dimension_on(field_ref, table), field_id=field_id)
         except SemanticRuntimeError as exc:
             message = str(exc)
-            if (
-                exc.kind == ErrorKind.MATERIALIZE_FAILED
-                and "instead of an ibis expression" in message
+            if exc.kind in {
+                ErrorKind.MATERIALIZE_FAILED,
+                ErrorKind.BINDING_RESULT_INVALID,
+            } and (
+                "instead of an ibis expression" in message
+                or "must return one Ibis value" in message
             ):
                 raise_observe_planning_error(
                     code="field-expr-type-error",
@@ -146,7 +152,7 @@ def _aggregate_then_join_pre_aggregate(
     for f in resolved_fields.dimensions:
         if _entity_id(f) != unsafe_dataset_id:
             continue
-        field_id = f.ref.id
+        field_id = f.ref.path
         if field_id not in seen_ids:
             grain_field_ids.append(field_id)
             seen_ids.add(field_id)

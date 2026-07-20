@@ -16,7 +16,7 @@ from marivo.datasource._capabilities.contracts import (
     contract_for_source_inspection,
     repair_for_authoring_code,
 )
-from marivo.datasource.authoring import DatasourceRef, _storage_name
+from marivo.datasource.authoring import _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import EngineProfile, PartitionProbeRequest
 from marivo.datasource.errors import DatasourceAuthoringError, DatasourceObservedEffects
@@ -42,6 +42,7 @@ from marivo.datasource.source import (
     TableSource,
     UnprunedScope,
 )
+from marivo.refs import DatasourceKind, Ref, SemanticKind
 from marivo.render import Card, RenderableResult
 
 _PARTITION_VALUE_LIMIT = 100
@@ -77,7 +78,7 @@ class ExecutionCapabilities:
 
 @dataclass(frozen=True, repr=False)
 class PartitionInspection(RenderableResult):
-    datasource: DatasourceRef
+    datasource: Ref[DatasourceKind]
     source: TableSource
     partitioning: Partitioning
     status: Literal["complete", "incomplete"]
@@ -85,7 +86,7 @@ class PartitionInspection(RenderableResult):
 
     def _repr_identity(self) -> str:
         return (
-            f"PartitionInspection datasource={self.datasource.id} "
+            f"PartitionInspection datasource={self.datasource.path} "
             f"state={self.partitioning.state} status={self.status}"
         )
 
@@ -104,7 +105,7 @@ class PartitionInspection(RenderableResult):
     def contract(self) -> AuthoringContract:
         """Return factual scope constructors for this captured partition state."""
         return contract_for_partition_inspection(
-            datasource_id=self.datasource.id,
+            datasource_id=self.datasource.path,
             source=self.source,
             partition_state=self.partitioning.state,
             partition_fields=tuple(field.name for field in self.partitioning.fields),
@@ -113,7 +114,7 @@ class PartitionInspection(RenderableResult):
 
 @dataclass(frozen=True, repr=False)
 class SourceInspection(RenderableResult):
-    datasource: DatasourceRef
+    datasource: Ref[DatasourceKind]
     source: TableSource
     physical_extent: PhysicalExtent
     partitioning: Partitioning
@@ -124,7 +125,7 @@ class SourceInspection(RenderableResult):
 
     def _repr_identity(self) -> str:
         return (
-            f"SourceInspection datasource={self.datasource.id} source={self.source.kind} "
+            f"SourceInspection datasource={self.datasource.path} source={self.source.kind} "
             f"columns={len(self.schema)} partition_state={self.partitioning.state}"
         )
 
@@ -186,7 +187,7 @@ class SourceInspection(RenderableResult):
     def contract(self) -> AuthoringContract:
         """Return factual scope and acquisition transitions for this inspection."""
         return contract_for_source_inspection(
-            datasource_id=self.datasource.id,
+            datasource_id=self.datasource.path,
             source=self.source,
             partition_state=self.partitioning.state,
             partition_fields=tuple(field.name for field in self.partitioning.fields),
@@ -606,11 +607,11 @@ def _captured_partitioning(
                 disconnect()
 
 
-def inspect(datasource: DatasourceRef, source: TableSource) -> SourceInspection:
+def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspection:
     """Inspect a physical source through metadata and system-catalog hooks only.
 
     Args:
-        datasource: Typed datasource reference from ``md.ref(...)``.
+        datasource: Typed datasource reference from ``ms.Ref.datasource(...)``.
         source: Typed table, Parquet, CSV, or JSON source descriptor.
 
     Returns:
@@ -618,14 +619,17 @@ def inspect(datasource: DatasourceRef, source: TableSource) -> SourceInspection:
         execution-capability evidence.
 
     Example:
-        ``md.inspect(md.ref("datasource.warehouse"), md.table("orders"))``
+        ``md.inspect(ms.Ref.datasource("warehouse"), md.table("orders"))``
 
     Constraints:
         Executes no user-data query. CSV and JSON paths are never opened and
         use only the authored schema. Parquet reads footer schema only.
     """
-    if not isinstance(datasource, DatasourceRef):
-        raise TypeError('datasource must be md.DatasourceRef from md.ref("datasource.warehouse").')
+    if type(datasource) is not Ref or datasource.kind is not SemanticKind.DATASOURCE:
+        raise TypeError(
+            "datasource must be Ref[datasource] from a datasource spec's .ref or "
+            "Ref.datasource('warehouse')."
+        )
     if not isinstance(source, TableSourceIR | ParquetSourceIR | CsvSourceIR | JsonSourceIR):
         raise TypeError("source must be built by md.table, md.parquet, md.csv, or md.json.")
 
@@ -636,9 +640,9 @@ def inspect(datasource: DatasourceRef, source: TableSource) -> SourceInspection:
         raise _authoring_error(
             code="datasource_missing",
             stage="project",
-            expected=f"registered datasource {datasource.id}",
+            expected=f"registered datasource {datasource.path}",
             received="missing datasource",
-            reason=f"datasource {datasource.id!r} is not registered in the active project",
+            reason=f"datasource {datasource.path!r} is not registered in the active project",
             scope_state=None,
         )
     profile = require_profile_for_backend_type(datasource_ir.backend_type)

@@ -12,12 +12,17 @@ from marivo.analysis.evidence.identity import (
 )
 from marivo.analysis.evidence.types import Subject
 from marivo.semantic.metric_graph import RuntimeExpressionSubjectV1
+from tests.shared_fixtures import make_test_subject
 
 
 def test_canonical_json_and_subject_key_are_order_stable() -> None:
     assert canonical_json({"b": 1, "a": 2}) == '{"a":2,"b":1}'
-    first = Subject(metric="revenue", slice={"region": "us"}, analysis_axis="change")
-    second = Subject(metric="revenue", slice={"region": "us"}, analysis_axis="change")
+    first = make_test_subject(
+        metric_id="revenue", slice_by={"region": "us"}, analysis_axis="change"
+    )
+    second = make_test_subject(
+        metric_id="revenue", slice_by={"region": "us"}, analysis_axis="change"
+    )
     assert canonical_subject_key(first) == canonical_subject_key(second)
     assert len(canonical_subject_key(first)) == 32
 
@@ -45,7 +50,6 @@ def test_runtime_subject_key_never_merges_across_sessions() -> None:
                 artifact_id="art_same",
                 scope_fingerprint="scope_same",
             ),
-            metric=None,
             analysis_axis="scalar",
         )
 

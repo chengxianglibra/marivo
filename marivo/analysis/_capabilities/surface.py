@@ -152,23 +152,23 @@ def _enrich(target: object) -> ResolvedLiveTarget[CapabilityDescriptor] | None:
             original=target,
         )
 
-    from marivo.refs import SemanticRef
+    from marivo.refs import Ref
 
-    if isinstance(target, SemanticRef):
+    if type(target) is Ref:
         return ResolvedLiveTarget(
             kind="reference_briefing",
             surface="analysis",
-            reference_id=target.id,
+            reference_id=target.path,
             original=target,
         )
 
-    from marivo.semantic.catalog import CatalogObject
+    from marivo.semantic.catalog import CatalogEntry
 
-    if isinstance(target, CatalogObject):
+    if isinstance(target, CatalogEntry):
         return ResolvedLiveTarget(
             kind="reference_briefing",
             surface="analysis",
-            reference_id=target.id,
+            reference_id=target.path,
             original=target,
         )
     return None

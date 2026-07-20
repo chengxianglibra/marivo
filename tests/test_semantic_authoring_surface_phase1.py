@@ -4,7 +4,7 @@ Phase 1a tests verify that the generic FileSourceIR has been replaced with typed
 ParquetSourceIR and CsvSourceIR dataclasses, with dedicated constructors on
 both the md and ms modules, and that the legacy file() builder is removed.
 
-Phase 1b tests verify the semantic IR value objects: MeasureRef, MeasureIR,
+Phase 1b tests verify the semantic IR value objects: Ref[measure], MeasureIR,
 parse variants, SqlProvenance, JoinKey, ValidityVersioningIR.open_end, and
 the DimensionKind categorical/time-only enum.
 """
@@ -26,17 +26,16 @@ from marivo.semantic.ir import (
     JoinKey,
     MeasureIR,
     SampleIntervalIR,
+    SemanticKind,
     SemanticParse,
     SourceLocation,
     SqlProvenance,
     StrptimeParse,
-    SymbolKind,
     TimestampParse,
     ValidityVersioningIR,
     source_from_dict,
 )
 from marivo.semantic.loader import LoaderContext, loader_context
-from marivo.semantic.refs import MeasureRef
 
 
 def test_typed_source_builders_have_no_options_bag() -> None:
@@ -195,10 +194,10 @@ def test_file_source_builder_is_removed_from_public_surface() -> None:
 
 
 def test_measure_ref_and_kind_are_first_class() -> None:
-    ref = MeasureRef("sales.orders.amount")
-    assert ref.id == "sales.orders.amount"
-    assert ref.kind == SymbolKind.MEASURE
-    assert SymbolKind.MEASURE.value == "measure"
+    ref = ms.Ref.measure("sales.orders.amount")
+    assert ref.path == "sales.orders.amount"
+    assert ref.kind == SemanticKind.MEASURE
+    assert SemanticKind.MEASURE.value == "measure"
     assert {item.value for item in DimensionKind} == {"categorical", "time"}
 
 
@@ -215,7 +214,7 @@ def test_measure_ir_holds_measure_only_fields() -> None:
         location=SourceLocation(file="/tmp/_domain.py", line=10),
     )
 
-    assert ir.kind == SymbolKind.MEASURE
+    assert ir.kind == SemanticKind.MEASURE
     assert ir.additivity == "additive"
     assert ir.unit == "USD"
 
@@ -294,7 +293,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=md.ref("datasource.warehouse"),
+            datasource=ms.Ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
@@ -318,14 +317,12 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         average_amount = ms.aggregate(name="average_amount", measure=amount, agg="mean")
 
     kinds = {
-        ir.semantic_id: type(ir).__name__
-        for ir, _callable in ctx.pending_objects
-        if hasattr(ir, "semantic_id")
+        pending.ref.path: type(pending.definition).__name__ for pending in ctx.pending_definitions
     }
     assert kinds["sales.orders.region"] == "DimensionIR"
     assert kinds["sales.orders.amount"] == "MeasureIR"
     assert kinds["sales.revenue"] == "MetricIR"
-    assert average_amount.id == "sales.average_amount"
+    assert average_amount.path == "sales.average_amount"
 
 
 def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
@@ -334,7 +331,7 @@ def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=md.ref("datasource.warehouse"),
+            datasource=ms.Ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
@@ -352,13 +349,13 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=md.ref("datasource.warehouse"),
+            datasource=ms.Ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
         refunds = ms.entity(
             name="refunds",
-            datasource=md.ref("datasource.warehouse"),
+            datasource=ms.Ref.datasource("warehouse"),
             source=md.table("refunds"),
             domain=sales,
         )
@@ -378,13 +375,13 @@ def test_relationship_uses_join_key_pairs() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=md.ref("datasource.warehouse"),
+            datasource=ms.Ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
         customers = ms.entity(
             name="customers",
-            datasource=md.ref("datasource.warehouse"),
+            datasource=ms.Ref.datasource("warehouse"),
             source=md.table("customers"),
             domain=sales,
         )
@@ -405,11 +402,11 @@ def test_relationship_uses_join_key_pairs() -> None:
         )
 
     relationship_ir = next(
-        ir
-        for ir, _callable in ctx.pending_objects
-        if getattr(ir, "semantic_id", "") == "sales.orders_to_customers"
+        pending.definition
+        for pending in ctx.pending_definitions
+        if pending.ref.path == "sales.orders_to_customers"
     )
-    assert ref.id == "sales.orders_to_customers"
+    assert ref.path == "sales.orders_to_customers"
     assert relationship_ir.keys[0].to_tuple() == ("sales.orders.customer_id", "sales.customers.id")
 
 
@@ -424,7 +421,7 @@ def test_time_dimension_uses_parse_value_object() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=md.ref("datasource.warehouse"),
+            datasource=ms.Ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
@@ -434,9 +431,9 @@ def test_time_dimension_uses_parse_value_object() -> None:
             return orders_table.dt
 
     time_ir = next(
-        ir
-        for ir, _callable in ctx.pending_objects
-        if getattr(ir, "semantic_id", "") == "sales.orders.dt"
+        pending.definition
+        for pending in ctx.pending_definitions
+        if pending.ref.path == "sales.orders.dt"
     )
     assert time_ir.parse.kind == "strptime"
     assert time_ir.parse.format == "%Y%m%d"
@@ -465,7 +462,7 @@ def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
             name="orders",
-            datasource=md.ref("datasource.warehouse"),
+            datasource=ms.Ref.datasource("warehouse"),
             source=md.table("orders"),
             domain=sales,
         )
@@ -517,7 +514,5 @@ def test_error_kinds_use_entity_vocabulary() -> None:
 
 
 def test_resolver_accepts_measure_for_internal_resolution() -> None:
-    from marivo.semantic.refs import make_ref
-
-    measure_ref = make_ref("sales.orders.amount", ms.SemanticKind.MEASURE)
+    measure_ref = ms.Ref.measure("sales.orders.amount")
     assert measure_ref.kind == ms.SemanticKind.MEASURE

@@ -8,14 +8,16 @@ from marivo.analysis.runtime_metric import (
     FrozenSliceMap,
     FrozenSlicePredicateV1,
     FrozenSliceValue,
-    MetricExprInput,
     RuntimeAggregateExpr,
     RuntimeMetricExpr,
     RuntimeRatioExpr,
     RuntimeSliceExpr,
 )
+from marivo.refs import MetricKind, Ref, RefPayloadV1, SemanticKind
+from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
+    CanonicalSliceEntryV1,
     CanonicalValue,
     CatalogMetricIdentity,
     ExpressionOccurrenceV1,
@@ -39,7 +41,6 @@ from marivo.semantic.metric_graph_lowering import (
     dependency_fingerprint_for_target,
     lower_catalog_metric,
 )
-from marivo.semantic.refs import MetricRef
 from marivo.semantic.validator import Registry
 
 
@@ -57,6 +58,7 @@ def _canonical_slice_value(value: FrozenSliceValue) -> CanonicalValue:
 @dataclass
 class _RuntimeGraphBuilder:
     registry: Registry
+    sidecar: CompiledExpressionSidecar | None = None
 
     def __post_init__(self) -> None:
         self.nodes: dict[str, MetricGraphNodeV1] = {}
@@ -71,10 +73,10 @@ class _RuntimeGraphBuilder:
         return node_id
 
     def _slice_node(self, child_id: str, by: FrozenSliceMap) -> SliceNodeV1:
-        predicates: list[tuple[str, CanonicalValue]] = []
-        dependencies: list[tuple[str, str]] = []
+        predicates: list[CanonicalSliceEntryV1] = []
+        dependencies: list[tuple[RefPayloadV1, str]] = []
         for dimension, value in by.frozen_items():
-            dimension_id = dimension.id
+            dimension_id = dimension.path
             dimension_ir = self.registry.dimensions.get(dimension_id)
             if dimension_ir is None:
                 raise ValueError(f"runtime metric slice dimension {dimension_id!r} is not loaded")
@@ -84,10 +86,16 @@ class _RuntimeGraphBuilder:
                     f"runtime metric slice ref kind does not match loaded dimension {dimension_id!r}"
                 )
             self.dimension_dependencies.add(dimension_id)
-            predicates.append((dimension_id, _canonical_slice_value(value)))
+            payload = RefPayloadV1.from_ref(dimension)
+            predicates.append(
+                CanonicalSliceEntryV1(
+                    dimension_ref=payload,
+                    value=_canonical_slice_value(value),
+                )
+            )
             dependencies.append(
                 (
-                    dimension_id,
+                    payload,
                     dependency_fingerprint_for_target(
                         self.registry,
                         kind="time_dimension" if expected_time else "dimension",
@@ -103,13 +111,13 @@ class _RuntimeGraphBuilder:
         )
 
     def _merge_catalog(
-        self, metric: MetricRef, *, path: str
+        self, metric: Ref[MetricKind], *, path: str
     ) -> tuple[str, tuple[ExpressionOccurrenceV1, ...]]:
-        metric_id = metric.id
+        metric_id = metric.path
         if metric_id not in self.registry.metrics:
             raise ValueError(f"runtime metric catalog dependency {metric_id!r} is not loaded")
         self.metric_dependencies.add(metric_id)
-        lowered = lower_catalog_metric(self.registry, metric_id)
+        lowered = lower_catalog_metric(self.registry, metric_id, sidecar=self.sidecar)
         for record in lowered.graph.nodes:
             self.nodes.setdefault(record.node_id, record.node)
 
@@ -128,23 +136,24 @@ class _RuntimeGraphBuilder:
         )
 
     def lower(
-        self, expression: MetricExprInput, *, path: str
+        self, expression: Ref[MetricKind] | RuntimeMetricExpr, *, path: str
     ) -> tuple[str, tuple[ExpressionOccurrenceV1, ...]]:
-        if isinstance(expression, MetricRef):
+        if type(expression) is Ref:
+            if expression.kind is not SemanticKind.METRIC:
+                raise TypeError("runtime metric catalog dependency must be Ref[metric]")
             return self._merge_catalog(expression, path=path)
         label = expression.label
         if label is not None:
             self.labels.append(PresentationLabelV1(occurrence_path=path, label=label))
         if isinstance(expression, RuntimeAggregateExpr):
-            measure_id = expression.measure.id
+            measure_id = expression.measure.path
             measure = self.registry.measures.get(measure_id)
             if measure is None:
                 raise ValueError(f"runtime metric measure {measure_id!r} is not loaded")
             self.measure_dependencies.add(measure_id)
             aggregate = AggregateNodeV1(
                 kind="aggregate",
-                target_id=measure_id,
-                target_kind="measure",
+                target_ref=RefPayloadV1.from_ref(expression.measure),
                 dependency_fingerprint=dependency_fingerprint_for_target(
                     self.registry, kind="measure", semantic_id=measure_id
                 ),
@@ -211,12 +220,14 @@ class _RuntimeGraphBuilder:
 
 def lower_metric_inputs(
     registry: Registry,
-    inputs: tuple[MetricRef | RuntimeMetricExpr, ...],
+    inputs: tuple[Ref[MetricKind] | RuntimeMetricExpr, ...],
+    *,
+    sidecar: CompiledExpressionSidecar | None = None,
 ) -> MetricExpressionForestV1:
     """Lower an ordered catalog/runtime forest through one canonical path."""
     if not inputs:
         raise ValueError("metric expression lowering requires at least one root")
-    builder = _RuntimeGraphBuilder(registry)
+    builder = _RuntimeGraphBuilder(registry, sidecar)
     root_ids: list[str] = []
     occurrences: list[ExpressionOccurrenceV1] = []
     catalog_root_ids: list[str | None] = []
@@ -224,7 +235,7 @@ def lower_metric_inputs(
         node_id, root_occurrences = builder.lower(expression, path=f"root[{index}]")
         root_ids.append(node_id)
         occurrences.extend(root_occurrences)
-        catalog_root_ids.append(expression.id if isinstance(expression, MetricRef) else None)
+        catalog_root_ids.append(expression.path if type(expression) is Ref else None)
     submitted = MetricExpressionGraphV1(
         schema="metric-expression/v1",
         roots=tuple(root_ids),
@@ -241,7 +252,12 @@ def lower_metric_inputs(
     identities: list[MetricIdentity] = []
     for catalog_id, root_id in zip(catalog_root_ids, canonicalized.graph.roots, strict=True):
         if catalog_id is not None:
-            identities.append(CatalogMetricIdentity(kind="catalog", metric_id=catalog_id))
+            identities.append(
+                CatalogMetricIdentity(
+                    kind="catalog",
+                    metric_ref=RefPayloadV1.from_ref(Ref.metric(catalog_id)),
+                )
+            )
         else:
             identities.append(
                 RuntimeExpressionIdentity(
@@ -254,6 +270,7 @@ def lower_metric_inputs(
         graph=canonicalized.graph,
         dependency_digest=dependency_digest(
             registry,
+            sidecar=sidecar,
             metric_ids=builder.metric_dependencies,
             measure_ids=builder.measure_dependencies,
             dimension_ids=builder.dimension_dependencies,

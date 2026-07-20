@@ -98,10 +98,6 @@ def __getattr__(name: str) -> _Any:
         from importlib import import_module
 
         return import_module("marivo.analysis.frames")
-    if name == "SemanticKind":
-        from marivo.semantic.catalog import SemanticKind
-
-        return SemanticKind
     raise AttributeError(name)
 
 

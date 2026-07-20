@@ -409,8 +409,12 @@ def test_correlate_allows_cross_model_same_shape_frames():
     jobs = [job for job in session.jobs() if job.intent == "correlate"]
     assert len(jobs) == 1
     record = session.job(jobs[0].id)
-    assert record["semantic_model"] == "sales"
+    assert "semantic_model" not in record
     assert record["semantic_models"] == ["sales", "marketing"]
+    assert [subject["metric_ref"]["path"] for subject in record["subjects"]] == [
+        "sales.revenue",
+        "marketing.spend",
+    ]
 
 
 def test_correlate_rejects_mixed_semantic_kind():

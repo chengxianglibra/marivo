@@ -19,7 +19,6 @@ from marivo.analysis.intents._observe_catalog import (
 )
 from marivo.analysis.intents.observe_planner import _planned_metric
 from marivo.analysis.semantic_inputs import (
-    AnalysisDimensionRef,
     normalize_dimension_input,
     normalize_metric_input,
     normalize_time_dimension_input,
@@ -33,13 +32,13 @@ from marivo.analysis.windows.spec import (
     make_absolute_window,
     normalize_timescope_input,
 )
+from marivo.refs import FieldKind, MetricKind, Ref
 from marivo.semantic.catalog import (
     DerivedMetricDetails,
     EntityDetails,
     SemanticKind,
     SimpleMetricDetails,
 )
-from marivo.semantic.refs import MetricRef
 
 
 def _gen_ref(prefix: str) -> str:
@@ -120,13 +119,13 @@ def _entity_adapter_maps(
     return entity_details, {}, dataset_irs, dataset_fns
 
 
-def _normalize_metric_boundary(catalog: Any, metric: MetricRef) -> str:
+def _normalize_metric_boundary(catalog: Any, metric: Ref[MetricKind]) -> str:
     return normalize_metric_input(catalog, metric)
 
 
 def _normalize_dimension_boundary(
     catalog: Any,
-    dimension: AnalysisDimensionRef,
+    dimension: Ref[FieldKind],
     *,
     argument: str,
     scoped_entity_refs: set[str] | None = None,
@@ -136,7 +135,7 @@ def _normalize_dimension_boundary(
 
 def _normalize_dimension_list_boundary(
     catalog: Any,
-    dimensions: list[AnalysisDimensionRef] | None,
+    dimensions: list[Ref[FieldKind]] | None,
     *,
     scoped_entity_refs: set[str],
 ) -> list[str] | None:
@@ -155,7 +154,7 @@ def _normalize_dimension_list_boundary(
 
 def _normalize_where_boundary(
     catalog: Any,
-    where: Mapping[AnalysisDimensionRef, SliceValue] | None,
+    where: Mapping[Ref[FieldKind], SliceValue] | None,
     *,
     scoped_entity_refs: set[str],
 ) -> dict[str, SliceValue]:
@@ -244,7 +243,7 @@ def _metric_expr(
     if isinstance(runtime_measure_id, str):
         assert metric_ir is not None
         return resolver.aggregate_measure_on(
-            runtime_measure_id,
+            Ref.measure(runtime_measure_id),
             dataset_tables[metric_datasets[0]],
             metric_ir.aggregation,
         )
